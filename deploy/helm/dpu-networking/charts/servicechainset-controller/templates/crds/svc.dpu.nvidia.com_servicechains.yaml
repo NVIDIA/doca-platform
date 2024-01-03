@@ -1,0 +1,114 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+    helm.sh/resource-policy: keep
+  name: servicechains.svc.dpu.nvidia.com
+spec:
+  group: svc.dpu.nvidia.com
+  names:
+    kind: ServiceChain
+    listKind: ServiceChainList
+    plural: servicechains
+    singular: servicechain
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ServiceChain is the Schema for the servicechains API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ServiceChainSpec defines the desired state of ServiceChain
+            properties:
+              node:
+                description: Node where this ServiceChain applies to
+                type: string
+              switches:
+                description: The switches of the ServiceChain, order is significant
+                items:
+                  description: Switch defines the switch configuration
+                  properties:
+                    ports:
+                      description: Ports of the switch
+                      items:
+                        description: Port defines the port configuration
+                        properties:
+                          serviceInterface:
+                            description: ServiceIfc defines the service interface
+                              configuration
+                            properties:
+                              ipam:
+                                description: IPAM defines the IPAM configuration when
+                                  referencing a serviceInterface of type 'service'
+                                properties:
+                                  defaultGateway:
+                                    description: DefaultGateway adds gateway as default
+                                      gateway in the routes list if true.
+                                    type: boolean
+                                  matchLabels:
+                                    additionalProperties:
+                                      type: string
+                                    description: Labels matching service IPAM
+                                    maxProperties: 50
+                                    minProperties: 1
+                                    type: object
+                                  setDefaultRoute:
+                                    description: SetDefaultRoute adds a default route
+                                      to the routing table if true.
+                                    type: boolean
+                                required:
+                                - matchLabels
+                                type: object
+                              matchLabels:
+                                additionalProperties:
+                                  type: string
+                                description: Labels matching service interface
+                                maxProperties: 50
+                                minProperties: 1
+                                type: object
+                            required:
+                            - matchLabels
+                            type: object
+                        required:
+                        - serviceInterface
+                        type: object
+                      maxItems: 50
+                      minItems: 1
+                      type: array
+                  required:
+                  - ports
+                  type: object
+                maxItems: 50
+                minItems: 1
+                type: array
+            required:
+            - switches
+            type: object
+          status:
+            description: ServiceChainStatus defines the observed state of ServiceChain
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

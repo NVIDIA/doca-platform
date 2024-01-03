@@ -1,0 +1,15 @@
+apiVersion: "svc.dpu.nvidia.com/v1alpha1"
+kind: ServiceInterfaceSet
+metadata:
+  name: ovn
+  namespace: default
+spec:
+  nodeSelector:
+    matchLabels:
+      role: "firewall"
+  template:
+    metadata:
+      labels:
+        uplink: "port0"
+    spec:
+      interfaceType: ovn

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/name: dpu-cni-provisioner
+    app.kubernetes.io/created-by: dpf-operator
+    app.kubernetes.io/part-of: dpf-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: dpu-cni-provisioner
+data:
+  config.yaml:

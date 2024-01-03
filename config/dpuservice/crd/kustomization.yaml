@@ -1,0 +1,6 @@
+resources:
+- bases/svc.dpu.nvidia.com_dpuserviceconfigurations.yaml
+- bases/svc.dpu.nvidia.com_dpuservices.yaml
+- bases/svc.dpu.nvidia.com_dpuservicetemplates.yaml
+- bases/svc.dpu.nvidia.com_dpudeployments.yaml
+- bases/svc.dpu.nvidia.com_dpuservicecredentialrequests.yaml

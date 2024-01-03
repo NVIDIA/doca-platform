@@ -1,0 +1,33 @@
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: mybrsfc
+  annotations:
+    k8s.v1.cni.cncf.io/resourceName: nvidia.com/bf_sf
+  labels:
+    {{- include "multus.labels" . | nindent 4 }}
+spec:
+  config: {{ .Values.networkAttachmentBrSFCJson | toYaml | indent
+    1 }}
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: mybrhbn
+  annotations:
+    k8s.v1.cni.cncf.io/resourceName: nvidia.com/bf_sf
+  labels:
+    {{- include "multus.labels" . | nindent 4 }}
+spec:
+  config: {{ .Values.networkAttachmentBrHBNJson | toYaml | indent
+    1 }}
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: iprequest
+  labels:
+    {{- include "multus.labels" . | nindent 4 }}
+spec:
+  config: {{ .Values.networkAttachmentIpRequestJson | toYaml | indent
+    1 }}

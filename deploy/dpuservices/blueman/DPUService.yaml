@@ -1,0 +1,20 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: doca-blueman-service
+  namespace: dpf-operator-system
+spec:
+  helmChart:
+    source:
+      repoURL: https://helm.ngc.nvidia.com/nvstaging/doca
+      version: 1.0.3
+      chart: doca-blueman
+  serviceDaemonSet:
+    updateStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: 2
+    labels:
+      dpuservice.dpu.nvidia.com/name: doca-blueman-service
+    annotations:
+      dpuservice.dpu.nvidia.com/name: doca-blueman-service

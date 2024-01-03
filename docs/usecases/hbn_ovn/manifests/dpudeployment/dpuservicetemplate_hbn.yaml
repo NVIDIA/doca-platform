@@ -1,0 +1,22 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: hbn
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "hbn"
+  helmChart:
+    source:
+      repoURL: https://helm.ngc.nvidia.com/nvstaging/doca
+      version: 1.0.0-dev.1
+      chart: doca-hbn
+    values:
+      imagePullSecrets:
+      - name: dpf-pull-secret
+      image:
+        repository: nvcr.io/nvstaging/doca/doca_hbn
+        tag: 2.dev.200-doca2.9.0
+      resources:
+        memory: 6Gi
+        nvidia.com/bf_sf: 3

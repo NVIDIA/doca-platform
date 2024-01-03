@@ -1,0 +1,104 @@
+- groupVersionKind:
+    group: svc.dpu.nvidia.com
+    kind: DPUServiceIPAM
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: dpuserviceipam
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a DPU Service IPAM.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            cluster_label:
+              - spec
+              - clusterSelector
+              - matchLabels
+    - name: network_info
+      help: Network information about a DPU Service IPAM.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            ipv4_network_gateway_index:
+              - spec
+              - ip4Network
+              - gatewayIndex
+            ipv4_network_network_dir:
+              - spec
+              - ip4Network
+              - network
+            ipv4_network_prefix_size:
+              - spec
+              - ip4Network
+              - prefixSize
+    - name: subnet_info
+      help: Subnet information about a DPU Service IPAM.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            ipv4_subnet_cidr:
+              - spec
+              - ip4Subnet
+              - subnet
+            ipv4_subnet_gateway:
+              - spec
+              - ip4Subnet
+              - gateway
+            ipv4_subnet_per_node_ip_count:
+              - spec
+              - ip4Subnet
+              - perNodeIPCount
+    - name: status_conditions
+      help: The condition of a DPUServiceIPAM.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: status_condition_last_transition_time
+      help: The condition last transition time of a DPUServiceIPAM.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge

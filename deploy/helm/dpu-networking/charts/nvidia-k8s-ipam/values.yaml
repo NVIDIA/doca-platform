@@ -1,0 +1,11 @@
+# Default values for nvidia-k8s-ipam.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+imagePullSecrets: []
+nvIpam:
+  image:
+    repository: ghcr.io/mellanox/nvidia-k8s-ipam
+    tag: v0.3.5
+  nameOverride: ""
+  fullnameOverride: ""  
+  pullPolicy: IfNotPresent

@@ -1,0 +1,32 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - dpuclusters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - dpuclusters/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - dpuclusters/status
+  verbs:
+  - get
+  - patch
+  - update

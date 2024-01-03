@@ -1,0 +1,11 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: flannel
+  namespace: dpf-operator-system
+spec:
+  helmChart:
+    source:
+      repoURL: oci://example.com
+      chart: flannel
+      version: v0.25.1

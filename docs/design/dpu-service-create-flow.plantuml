@@ -1,0 +1,34 @@
+@startuml
+actor User as U
+box "OCP Control plane"
+participant "DPUControlPlane controller" as P
+participant "OCP API" as TK
+participant "DPUService controller" as HRS
+participant "ArgoCD" as AS
+end box
+box "DPU Control plane"
+participant "DPU Cluster API" as DK
+end box
+box DPU
+participant "DPU Kubelet" as DKBL
+end box
+    P->> TK: Create Kubeconfig secrets
+    U->>TK: Create DPUService
+    U->>TK: Create repository secret
+    HRS->>TK: Get DPUService
+    HRS->>TK: Get DPUClusters
+    loop For each DPUCluster
+    HRS->>TK: Patch Cluster secret
+    HRS->>TK: Patch AppProject
+    HRS->>TK: Patch Application
+    AS->>TK: Get Application
+    AS->>AS: Fetch Helm Chart
+    AS->>TK: Get Cluster secret
+    AS->>DK: Install Helm chart
+    AS->>TK: update Application Status
+    end
+    loop For each node matching the nodeSelector
+    DK->>DK: Create pod from daemonset
+    DKBL->>DK: Get pod and instantiate
+    end
+@enduml

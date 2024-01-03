@@ -1,0 +1,81 @@
+- groupVersionKind:
+    group: operator.dpu.nvidia.com
+    kind: DPFOperatorConfig
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: dpfoperatorconfig
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a DPFOperatorConfig.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            name:
+              - metadata
+              - name
+            dms_timeout:
+              - spec
+              - provisioningConfiguration
+              - dmsTimeout
+    - name: paused
+      help: Whether the DPU is paused and any of its resources will not be processed by the controllers.
+      each:
+        type: Gauge
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            chart_version:
+              - spec
+              - paused
+    - name: status_conditions
+      help: The condition of a DPFOperatorConfig.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: status_condition_last_transition_time
+      help: The condition last transition time of a DPFOperatorConfig.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge

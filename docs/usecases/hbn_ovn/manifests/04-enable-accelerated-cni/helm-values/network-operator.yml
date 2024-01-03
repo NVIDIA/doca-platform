@@ -1,0 +1,11 @@
+nfd:
+  enabled: false
+  deployNodeFeatureRules: false
+sriovNetworkOperator:
+  enabled: true
+sriov-network-operator:
+  crds:
+    enabled: true
+  sriovOperatorConfig:
+    deploy: true
+    configDaemonNodeSelector: null

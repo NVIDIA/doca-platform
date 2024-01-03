@@ -1,0 +1,2270 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 7,
+      "panels": [],
+      "title": "Overview",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 0,
+        "y": 1
+      },
+      "id": 23,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(max(dpfoperatorconfig_status_conditions{type=\"Ready\",status=\"True\"}) by (uid)) * 100 / sum(max(dpfoperatorconfig_status_conditions{type=\"Ready\"}) by (uid)) OR vector(0)",
+          "instant": false,
+          "legendFormat": "Ready",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(max(dpfoperatorconfig_status_conditions{type=\"Ready\"}) by (uid)) OR vector(0)",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Total",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "DPFOperatorConfig",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "color"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 2,
+        "y": 1
+      },
+      "id": 103,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(max(dpucluster_status_conditions{type=\"Ready\",status=\"True\"}) by (uid)) * 100 / sum(max(dpucluster_status_conditions{type=\"Created\"}) by (uid))",
+          "instant": false,
+          "legendFormat": "Ready",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(max(dpucluster_status_conditions{type=\"Created\"}) by (uid))",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Total",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "DPUCluster",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "color"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 4,
+        "y": 1
+      },
+      "id": 147,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(max(dpudeployment_status_conditions{type=\"Ready\",status=\"True\"}) by (uid)) * 100 / sum(max(dpudeployment_status_conditions{type=\"Ready\"}) by (uid))",
+          "instant": false,
+          "legendFormat": "Ready",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(max(dpudeployment_status_conditions{type=\"Ready\"}) by (uid))",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Total",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "DPUDeployment",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "color"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 6,
+        "y": 1
+      },
+      "id": 22,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(max(dpuservice_status_conditions{type=\"Ready\",status=\"True\"}) by (uid)) * 100 / sum(max(dpuservice_status_conditions{type=\"Ready\"}) by (uid))",
+          "instant": false,
+          "legendFormat": "Ready",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(max(dpuservice_status_conditions{type=\"Ready\"}) by (uid))",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Total",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "DPUService",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 8,
+        "y": 1
+      },
+      "id": 26,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(max(dpuservicecredentialrequest_status_conditions{type=\"Ready\",status=\"True\"}) by (uid)) * 100 / sum(max(dpuservicecredentialrequest_status_conditions{type=\"Ready\"}) by (uid)) OR vector(0)",
+          "instant": false,
+          "legendFormat": "Ready",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(max(dpuservicecredentialrequest_status_conditions{type=\"Ready\"}) by (uid)) OR vector(0)",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Total",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "DPUServiceCredentialRequest",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 10,
+        "y": 1
+      },
+      "id": 28,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(max(dpuservicechain_status_conditions{type=\"Ready\",status=\"True\"}) by (uid)) * 100 / sum(max(dpuservicechain_status_conditions{type=\"Ready\"}) by (uid)) OR vector(0)",
+          "instant": false,
+          "legendFormat": "Ready",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(max(dpuservicechain_status_conditions{type=\"Ready\"}) by (uid)) OR vector(0)",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Total",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "DPUServiceChain",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 12,
+        "y": 1
+      },
+      "id": 146,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(max(dpuserviceinterface_status_conditions{type=\"Ready\",status=\"True\"}) by (uid)) * 100 / sum(max(dpuserviceinterface_status_conditions{type=\"Ready\"}) by (uid)) OR vector(0)",
+          "instant": false,
+          "legendFormat": "Ready",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(max(dpuserviceinterface_status_conditions{type=\"Ready\"}) by (uid)) OR vector(0)",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Total",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "DPUServiceInterface",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 14,
+        "y": 1
+      },
+      "id": 27,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(max(dpuserviceipam_status_conditions{type=\"Ready\",status=\"True\"}) by (uid)) * 100 / sum(max(dpuserviceipam_status_conditions{type=\"Ready\"}) by (uid)) OR vector(0)",
+          "instant": false,
+          "legendFormat": "Ready",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(max(dpuserviceipam_status_conditions{type=\"Ready\"}) by (uid)) OR vector(0)",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Total",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "DPUServiceIPAM",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 16,
+        "y": 1
+      },
+      "id": 25,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(max(dpu_status_conditions{type=\"Ready\",status=\"True\"}) by (uid)) * 100 / sum(max(dpu_status_conditions{type=\"Ready\"}) by (uid)) or vector(0)",
+          "instant": false,
+          "legendFormat": "Ready",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(max(dpu_status_conditions{type=\"Initialized\"}) by (uid))",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Total",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "DPU",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 18,
+        "y": 1
+      },
+      "id": 24,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "count(max(bfb_status_phase{phase=\"Ready\"} == 1) by (uid)) * 100 / count(max(bfb_status_phase{phase=\"Ready\"}) by (uid)) OR vector(0)",
+          "instant": false,
+          "interval": "",
+          "legendFormat": "Ready",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "count(max(bfb_status_phase{phase=\"Ready\"}) by (uid))",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Total",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "BFB",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 148,
+      "panels": [],
+      "title": "Overview Tables",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "applyToRow": true,
+              "mode": "gradient",
+              "type": "color-background",
+              "wrapText": false
+            },
+            "filterable": true,
+            "inspect": false,
+            "minWidth": 50
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "False": {
+                        "color": "red",
+                        "index": 0,
+                        "text": "false"
+                      },
+                      "True": {
+                        "color": "green",
+                        "index": 1,
+                        "text": "true"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 114
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Chart Version"
+            },
+            "properties": []
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "id": 20,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "frameIndex": 0,
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Status"
+          }
+        ]
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "disableTextWrap": false,
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "dpuservice_info{}",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "Auto",
+          "range": false,
+          "refId": "A",
+          "useBackend": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "dpuservice_status_conditions{type=\"Ready\"} == 1",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "DPUServices",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "uid",
+            "mode": "inner"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Value": true,
+              "Value #A": true,
+              "Value #B": true,
+              "__name__": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
+              "app_kubernetes_io_component": true,
+              "app_kubernetes_io_component 1": true,
+              "app_kubernetes_io_component 2": true,
+              "app_kubernetes_io_instance": true,
+              "app_kubernetes_io_instance 1": true,
+              "app_kubernetes_io_instance 2": true,
+              "app_kubernetes_io_managed_by": true,
+              "app_kubernetes_io_managed_by 1": true,
+              "app_kubernetes_io_managed_by 2": true,
+              "app_kubernetes_io_name": true,
+              "app_kubernetes_io_name 1": true,
+              "app_kubernetes_io_name 2": true,
+              "app_kubernetes_io_part_of": true,
+              "app_kubernetes_io_part_of 1": true,
+              "app_kubernetes_io_part_of 2": true,
+              "app_kubernetes_io_version": true,
+              "app_kubernetes_io_version 1": true,
+              "app_kubernetes_io_version 2": true,
+              "creation_timestamp": true,
+              "creation_timestamp 1": true,
+              "creation_timestamp 2": true,
+              "customresource_group": true,
+              "customresource_group 1": true,
+              "customresource_group 2": true,
+              "customresource_kind": true,
+              "customresource_kind 1": true,
+              "customresource_kind 2": true,
+              "customresource_version": true,
+              "customresource_version 1": true,
+              "customresource_version 2": true,
+              "deploy_in_cluster": true,
+              "helm_sh_chart": true,
+              "helm_sh_chart 1": true,
+              "helm_sh_chart 2": true,
+              "instance": true,
+              "instance 1": true,
+              "instance 2": true,
+              "job": true,
+              "job 1": true,
+              "job 2": true,
+              "name 1": false,
+              "name 2": true,
+              "namespace 1": false,
+              "namespace 2": true,
+              "node": true,
+              "node 1": true,
+              "node 2": true,
+              "service": true,
+              "service 1": true,
+              "service 2": true,
+              "status": false,
+              "type": true,
+              "uid": true,
+              "{__name__=\"dpuservice_status_conditions\", app_kubernetes_io_component=\"metrics\", app_kubernetes_io_instance=\"dpf-operator\", app_kubernetes_io_managed_by=\"Helm\", app_kubernetes_io_name=\"kube-state-metrics\", app_kubernetes_io_part_of=\"kube-state-metrics\", app_kubernetes_io_version=\"2.13.0\", creation_timestamp=\"2024-09-02T13:54:06Z\", customresource_group=\"svc.dpu.nvidia.com\", customresource_kind=\"DPUService\", customresource_version=\"v1alpha1\", helm_sh_chart=\"kube-state-metrics-5.25.1\", instance=\"10.244.0.35:8080\", job=\"kubernetes-service-endpoints\", name=\"flannel\", namespace=\"dpf-operator-system\", node=\"dpf-test\", service=\"dpf-operator-kube-state-metrics\", status=\"False\", type=\"Ready\", uid=\"31cb2ccc-175b-4983-8b12-bb27708a5155\"}": false
+            },
+            "includeByName": {},
+            "indexByName": {
+              "Time 1": 6,
+              "Time 2": 24,
+              "Value #A": 23,
+              "Value #B": 44,
+              "__name__ 1": 7,
+              "__name__ 2": 25,
+              "app_kubernetes_io_component 1": 8,
+              "app_kubernetes_io_component 2": 26,
+              "app_kubernetes_io_instance 1": 9,
+              "app_kubernetes_io_instance 2": 27,
+              "app_kubernetes_io_managed_by 1": 10,
+              "app_kubernetes_io_managed_by 2": 28,
+              "app_kubernetes_io_name 1": 11,
+              "app_kubernetes_io_name 2": 29,
+              "app_kubernetes_io_part_of 1": 12,
+              "app_kubernetes_io_part_of 2": 30,
+              "app_kubernetes_io_version 1": 13,
+              "app_kubernetes_io_version 2": 31,
+              "chart_version": 2,
+              "creation_timestamp 1": 14,
+              "creation_timestamp 2": 32,
+              "customresource_group 1": 15,
+              "customresource_group 2": 33,
+              "customresource_kind 1": 16,
+              "customresource_kind 2": 34,
+              "customresource_version 1": 17,
+              "customresource_version 2": 35,
+              "deploy_in_cluster": 4,
+              "helm_sh_chart 1": 18,
+              "helm_sh_chart 2": 36,
+              "instance 1": 19,
+              "instance 2": 37,
+              "job 1": 20,
+              "job 2": 38,
+              "name 1": 1,
+              "name 2": 39,
+              "namespace 1": 0,
+              "namespace 2": 40,
+              "node 1": 21,
+              "node 2": 41,
+              "service 1": 22,
+              "service 2": 42,
+              "status": 3,
+              "type": 43,
+              "uid": 5
+            },
+            "renameByName": {
+              "Value #A": "",
+              "chart_version": "Chart Version",
+              "deploy_in_cluster": "Host Cluster Service",
+              "name 1": "Name",
+              "namespace 1": "Namespace",
+              "status": "Status"
+            }
+          }
+        },
+        {
+          "id": "convertFieldType",
+          "options": {
+            "conversions": [
+              {
+                "destinationType": "boolean",
+                "enumConfig": {
+                  "text": [
+                    "true"
+                  ]
+                },
+                "targetField": "deploy_in_cluster"
+              }
+            ],
+            "fields": {}
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "id": 21,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "frameIndex": 0,
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "disableTextWrap": false,
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "dpu_info{}",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "Auto",
+          "range": false,
+          "refId": "A",
+          "useBackend": false
+        }
+      ],
+      "title": "DPUs",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "app_kubernetes_io_component": true,
+              "app_kubernetes_io_instance": true,
+              "app_kubernetes_io_managed_by": true,
+              "app_kubernetes_io_name": true,
+              "app_kubernetes_io_part_of": true,
+              "app_kubernetes_io_version": true,
+              "customresource_group": true,
+              "customresource_kind": true,
+              "customresource_version": true,
+              "helm_sh_chart": true,
+              "instance": true,
+              "job": true,
+              "node": true,
+              "service": true,
+              "uid": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "Time": 4,
+              "Value": 20,
+              "__name__": 5,
+              "app_kubernetes_io_component": 7,
+              "app_kubernetes_io_instance": 8,
+              "app_kubernetes_io_managed_by": 9,
+              "app_kubernetes_io_name": 10,
+              "app_kubernetes_io_part_of": 11,
+              "app_kubernetes_io_version": 12,
+              "customresource_group": 13,
+              "customresource_kind": 14,
+              "customresource_version": 15,
+              "firmware": 2,
+              "helm_sh_chart": 6,
+              "instance": 16,
+              "job": 17,
+              "name": 1,
+              "namespace": 0,
+              "node": 3,
+              "service": 18,
+              "uid": 19
+            },
+            "renameByName": {
+              "firmware": "Firmware",
+              "name": "Name",
+              "namespace": "Namespace",
+              "node": "",
+              "node_name": "Node Name"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "applyToRow": true,
+              "mode": "gradient",
+              "type": "color-background",
+              "wrapText": false
+            },
+            "filterable": true,
+            "inspect": false,
+            "minWidth": 50
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Issued At"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocalNoDateIfToday"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Expiration"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocalNoDateIfToday"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "id": 149,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "frameIndex": 0,
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Status"
+          }
+        ]
+      },
+      "pluginVersion": "11.1.4",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "disableTextWrap": false,
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "dpuservicecredentialrequest_info",
+          "format": "table",
+          "fullMetaSearch": false,
+          "hide": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "Auto",
+          "range": false,
+          "refId": "info",
+          "useBackend": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "dpuservicecredentialrequest_expiration * 1000",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "expiration"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "dpuservicecredentialrequest_issued_at * 1000",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "issued_at"
+        }
+      ],
+      "title": "DPUServiceCredentialRequests",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "uid",
+            "mode": "inner"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Value": true,
+              "Value #A": true,
+              "Value #B": false,
+              "Value #info": true,
+              "__name__": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
+              "__name__ 3": true,
+              "__name__ 4": true,
+              "app_kubernetes_io_component": true,
+              "app_kubernetes_io_component 1": true,
+              "app_kubernetes_io_component 2": true,
+              "app_kubernetes_io_component 3": true,
+              "app_kubernetes_io_component 4": true,
+              "app_kubernetes_io_instance": true,
+              "app_kubernetes_io_instance 1": true,
+              "app_kubernetes_io_instance 2": true,
+              "app_kubernetes_io_instance 3": true,
+              "app_kubernetes_io_instance 4": true,
+              "app_kubernetes_io_managed_by": true,
+              "app_kubernetes_io_managed_by 1": true,
+              "app_kubernetes_io_managed_by 2": true,
+              "app_kubernetes_io_managed_by 3": true,
+              "app_kubernetes_io_managed_by 4": true,
+              "app_kubernetes_io_name": true,
+              "app_kubernetes_io_name 1": true,
+              "app_kubernetes_io_name 2": true,
+              "app_kubernetes_io_name 3": true,
+              "app_kubernetes_io_name 4": true,
+              "app_kubernetes_io_part_of": true,
+              "app_kubernetes_io_part_of 1": true,
+              "app_kubernetes_io_part_of 2": true,
+              "app_kubernetes_io_part_of 3": true,
+              "app_kubernetes_io_part_of 4": true,
+              "app_kubernetes_io_version": true,
+              "app_kubernetes_io_version 1": true,
+              "app_kubernetes_io_version 2": true,
+              "app_kubernetes_io_version 3": true,
+              "app_kubernetes_io_version 4": true,
+              "creation_timestamp": true,
+              "creation_timestamp 1": true,
+              "creation_timestamp 2": true,
+              "customresource_group": true,
+              "customresource_group 1": true,
+              "customresource_group 2": true,
+              "customresource_group 4": true,
+              "customresource_kind": true,
+              "customresource_kind 1": true,
+              "customresource_kind 2": true,
+              "customresource_kind 4": true,
+              "customresource_version": true,
+              "customresource_version 1": true,
+              "customresource_version 2": true,
+              "customresource_version 3": true,
+              "customresource_version 4": true,
+              "deploy_in_cluster": true,
+              "helm_sh_chart": true,
+              "helm_sh_chart 1": true,
+              "helm_sh_chart 2": true,
+              "helm_sh_chart 3": true,
+              "helm_sh_chart 4": true,
+              "instance": true,
+              "instance 1": true,
+              "instance 2": true,
+              "instance 3": true,
+              "instance 4": true,
+              "job": true,
+              "job 1": true,
+              "job 2": true,
+              "job 3": true,
+              "job 4": true,
+              "name 1": false,
+              "name 2": true,
+              "name 3": true,
+              "name 4": true,
+              "namespace 1": false,
+              "namespace 2": true,
+              "namespace 3": true,
+              "namespace 4": true,
+              "node": true,
+              "node 1": true,
+              "node 2": true,
+              "node 3": true,
+              "node 4": true,
+              "service": true,
+              "service 1": true,
+              "service 2": true,
+              "service 3": true,
+              "service 4": true,
+              "status": false,
+              "type": true,
+              "uid": true,
+              "{__name__=\"dpuservice_status_conditions\", app_kubernetes_io_component=\"metrics\", app_kubernetes_io_instance=\"dpf-operator\", app_kubernetes_io_managed_by=\"Helm\", app_kubernetes_io_name=\"kube-state-metrics\", app_kubernetes_io_part_of=\"kube-state-metrics\", app_kubernetes_io_version=\"2.13.0\", creation_timestamp=\"2024-09-02T13:54:06Z\", customresource_group=\"svc.dpf.nvidia.com\", customresource_kind=\"DPUService\", customresource_version=\"v1alpha1\", helm_sh_chart=\"kube-state-metrics-5.25.1\", instance=\"10.244.0.35:8080\", job=\"kubernetes-service-endpoints\", name=\"flannel\", namespace=\"dpf-operator-system\", node=\"dpf-test\", service=\"dpf-operator-kube-state-metrics\", status=\"False\", type=\"Ready\", uid=\"31cb2ccc-175b-4983-8b12-bb27708a5155\"}": false
+            },
+            "includeByName": {},
+            "indexByName": {
+              "Time 1": 8,
+              "Time 2": 24,
+              "Time 3": 43,
+              "Value #expiration": 6,
+              "Value #info": 61,
+              "Value #issued_at": 5,
+              "__name__ 1": 9,
+              "__name__ 2": 25,
+              "__name__ 3": 44,
+              "app_kubernetes_io_component 1": 10,
+              "app_kubernetes_io_component 2": 26,
+              "app_kubernetes_io_component 3": 45,
+              "app_kubernetes_io_instance 1": 11,
+              "app_kubernetes_io_instance 2": 27,
+              "app_kubernetes_io_instance 3": 46,
+              "app_kubernetes_io_managed_by 1": 12,
+              "app_kubernetes_io_managed_by 2": 28,
+              "app_kubernetes_io_managed_by 3": 47,
+              "app_kubernetes_io_name 1": 13,
+              "app_kubernetes_io_name 2": 29,
+              "app_kubernetes_io_name 3": 48,
+              "app_kubernetes_io_part_of 1": 14,
+              "app_kubernetes_io_part_of 2": 30,
+              "app_kubernetes_io_part_of 3": 49,
+              "app_kubernetes_io_version 1": 15,
+              "app_kubernetes_io_version 2": 31,
+              "app_kubernetes_io_version 3": 50,
+              "customresource_group 1": 16,
+              "customresource_group 2": 32,
+              "customresource_group 3": 51,
+              "customresource_kind 1": 17,
+              "customresource_kind 2": 33,
+              "customresource_kind 3": 52,
+              "customresource_version 1": 18,
+              "customresource_version 2": 34,
+              "customresource_version 3": 53,
+              "helm_sh_chart 1": 19,
+              "helm_sh_chart 2": 35,
+              "helm_sh_chart 3": 54,
+              "instance 1": 20,
+              "instance 2": 36,
+              "instance 3": 55,
+              "job 1": 21,
+              "job 2": 37,
+              "job 3": 56,
+              "name 1": 1,
+              "name 2": 38,
+              "name 3": 57,
+              "namespace 1": 0,
+              "namespace 2": 39,
+              "namespace 3": 58,
+              "node 1": 22,
+              "node 2": 40,
+              "node 3": 59,
+              "secret": 2,
+              "service 1": 23,
+              "service 2": 41,
+              "service 3": 60,
+              "service_account": 3,
+              "target_cluster_name": 4,
+              "type": 42,
+              "uid": 7
+            },
+            "renameByName": {
+              "Value #A": "",
+              "Value #B": "Duration",
+              "Value #C": "Expiration",
+              "Value #D": "Issued At",
+              "Value #expiration": "Expiration",
+              "Value #issued_at": "Issued At",
+              "chart_version": "Chart Version",
+              "deploy_in_cluster": "Host Cluster Service",
+              "name 1": "Name",
+              "namespace 1": "Namespace",
+              "secret": "Secret",
+              "service_account": "Service Account",
+              "status": "Status",
+              "target_cluster_name": "Target Cluster"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(dpu_status_conditions,type)",
+        "hide": 2,
+        "includeAll": true,
+        "label": "DPU Conditions",
+        "multi": true,
+        "name": "dpu_conditions",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(dpu_status_conditions,type)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(dpuservice_status_conditions,type)",
+        "hide": 2,
+        "includeAll": true,
+        "label": "DPUService Conditions",
+        "multi": true,
+        "name": "dpuservice_conditions",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(dpuservice_status_conditions,type)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(dpfoperatorconfig_status_conditions,type)",
+        "hide": 2,
+        "includeAll": true,
+        "label": "DPFOperatorConfig Conditions",
+        "multi": true,
+        "name": "dpfoperatorconfig_conditions",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(dpfoperatorconfig_status_conditions,type)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(dpuserviceinterface_status_conditions,type)",
+        "hide": 2,
+        "includeAll": true,
+        "label": "DPUServiceInterface Conditions",
+        "multi": true,
+        "name": "dpuserviceinterface_conditions",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(dpuserviceinterface_status_conditions,type)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(dpuservicechain_status_conditions,type)",
+        "hide": 2,
+        "includeAll": true,
+        "label": "DPUServiceChain Conditions",
+        "multi": true,
+        "name": "dpuservicechain_conditions",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(dpuservicechain_status_conditions,type)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(dpuserviceipam_status_conditions,type)",
+        "hide": 2,
+        "includeAll": true,
+        "label": "DPUServiceIPAM Conditions",
+        "multi": true,
+        "name": "dpuserviceipam_conditions",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(dpuserviceipam_status_conditions,type)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(dpudeployment_status_conditions,type)",
+        "hide": 2,
+        "includeAll": true,
+        "label": "DPUDeployment Conditions",
+        "multi": true,
+        "name": "dpudeployment_conditions",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(dpudeployment_status_conditions,type)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(dpuservicecredentialrequest_status_conditions,type)",
+        "hide": 2,
+        "includeAll": true,
+        "label": "DPUServiceCredentialRequest Conditions",
+        "multi": true,
+        "name": "dpuservicecredentialrequest_conditions",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(dpuservicecredentialrequest_status_conditions,type)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(dpucluster_status_conditions,type)",
+        "hide": 2,
+        "includeAll": true,
+        "label": "DPUCluster Conditions",
+        "multi": true,
+        "name": "dpucluster_conditions",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(dpucluster_status_conditions,type)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "DOCA Platform Framework State",
+  "uid": "bdwdkx2p9kqgwd",
+  "version": 3,
+  "weekStart": ""
+}

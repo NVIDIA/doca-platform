@@ -1,0 +1,92 @@
+# Adds namespace to all resources.
+namespace: dpuservice-controller-system
+
+# Value of this field is prepended to the
+# names of all resources, e.g. a deployment named
+# "wordpress" becomes "alices-wordpress".
+# Note that it should also match with the prefix (text before '-') of the namespace
+# field above.
+namePrefix: dpuservice-
+
+labels:
+  - includeTemplates: true
+    includeSelectors: true
+    pairs:
+      dpu.nvidia.com/component: dpuservice-controller-manager
+
+resources:
+- ../crd
+- ../webhook
+- ../rbac
+- ../manager
+- ../certmanager
+
+patchesStrategicMerge:
+  - manager_webhook_patch.yaml
+  - webhookcainjection_patch.yaml
+
+replacements:
+  - source: # Add cert-manager annotation to MutatingWebhookConfiguration
+      kind: Certificate
+      group: cert-manager.io
+      version: v1
+      name: serving-cert # this name should match the one in certificate.yaml
+      fieldPath: .metadata.namespace # namespace of the certificate CR
+    targets:
+      - select:
+          kind: ValidatingWebhookConfiguration
+        fieldPaths:
+          - .metadata.annotations.[cert-manager.io/inject-ca-from]
+        options:
+          delimiter: '/'
+          index: 0
+          create: true
+  - source:
+      kind: Certificate
+      group: cert-manager.io
+      version: v1
+      name: serving-cert # this name should match the one in certificate.yaml
+      fieldPath: .metadata.name
+    targets:
+      - select:
+          kind: ValidatingWebhookConfiguration
+        fieldPaths:
+          - .metadata.annotations.[cert-manager.io/inject-ca-from]
+        options:
+          delimiter: '/'
+          index: 1
+          create: true
+  - source:
+      kind: Service
+      version: v1
+      name: webhook-service
+      fieldPath: .metadata.name # namespace of the service
+    targets:
+      - select:
+          kind: Certificate
+          group: cert-manager.io
+          version: v1
+        fieldPaths:
+          - .spec.dnsNames.0
+          - .spec.dnsNames.1
+        options:
+          delimiter: '.'
+          index: 0
+          create: true
+  - source:
+      kind: Service
+      version: v1
+      name: webhook-service
+      fieldPath: .metadata.namespace # namespace of the service
+    targets:
+      - select:
+          kind: Certificate
+          group: cert-manager.io
+          version: v1
+        fieldPaths:
+          - .spec.dnsNames.0
+          - .spec.dnsNames.1
+        options:
+          delimiter: '.'
+          index: 1
+          create: true

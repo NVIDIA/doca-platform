@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    dpu.nvidia.com/component: dpf-dpu-detector
+  name: dpf-dpu-detector
+spec:
+  selector:
+    matchLabels:
+      dpu.nvidia.com/component: dpf-dpu-detector
+  template:
+    metadata:
+      labels:
+        dpu.nvidia.com/component: dpf-dpu-detector
+    spec:
+      containers:
+      - command:
+        - /dpu-detector
+        image: example.com/hostdriver:v0.1.0
+        name: dpu-detector
+        resources:
+          limits:
+            cpu: 300m
+            memory: 300Mi
+          requests:
+            cpu: 100m
+            memory: 50Mi
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /etc/kubernetes/node-feature-discovery/features.d/
+          name: features-d
+        - mountPath: /host-sys
+          name: host-sys
+          readOnly: true
+      hostNetwork: true
+      serviceAccountName: dpf-operator-controller-manager
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - hostPath:
+          path: /etc/kubernetes/node-feature-discovery/features.d/
+        name: features-d
+      - hostPath:
+          path: /sys
+        name: host-sys
+  updateStrategy:
+    type: RollingUpdate

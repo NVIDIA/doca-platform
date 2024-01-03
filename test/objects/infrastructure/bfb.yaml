@@ -1,0 +1,10 @@
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: BFB
+metadata:
+  name: bf-bundle-2.7.0
+  namespace: dpf-operator-system
+spec:
+  # fileName must use ".bfb" extension
+  fileName: "bf-bundle-2.7.0-33.bfb"
+  # the URL to download bfb file - using internal HTTP server
+  url: "http://bfb-server.dpf-operator-system/bf-bundle-2.9.0-64_24.10_ubuntu-22.04_unsigned.bfb"

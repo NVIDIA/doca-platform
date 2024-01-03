@@ -1,0 +1,16 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: blueman
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "blueman"
+  helmChart:
+    source:
+      repoURL: https://helm.ngc.nvidia.com/nvstaging/doca
+      version: 1.0.3
+      chart: doca-blueman
+    values:
+      imagePullSecrets:
+      - name: dpf-pull-secret

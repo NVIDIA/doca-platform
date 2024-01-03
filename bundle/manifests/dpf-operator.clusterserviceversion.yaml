@@ -1,0 +1,469 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+    description: Deploy and manage DOCA Platform Framework in a Kubernetes cluster
+    operatorframework.io/suggested-namespace: dpf-operator-system
+    operators.operatorframework.io/builder: operator-sdk-v1.38.0
+    operators.operatorframework.io/project_layout: unknown
+    provider: NVIDIA
+    support: NVIDIA
+  name: dpf-operator.v0.1.0
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - kind: BFB
+      name: bfbs.provisioning.dpu.nvidia.com
+      version: v1alpha1
+    - kind: DPUCluster
+      name: dpuclusters.provisioning.dpu.nvidia.com
+      version: v1alpha1
+    - kind: DPUDeployment
+      name: dpudeployments.svc.dpu.nvidia.com
+      version: v1alpha1
+    - kind: DPUFlavor
+      name: dpuflavors.provisioning.dpu.nvidia.com
+      version: v1alpha1
+    - kind: DPU
+      name: dpus.provisioning.dpu.nvidia.com
+      version: v1alpha1
+    - kind: DPUServiceChain
+      name: dpuservicechains.svc.dpu.nvidia.com
+      version: v1alpha1
+    - kind: DPUServiceConfiguration
+      name: dpuserviceconfigurations.svc.dpu.nvidia.com
+      version: v1alpha1
+    - kind: DPUServiceCredentialRequest
+      name: dpuservicecredentialrequests.svc.dpu.nvidia.com
+      version: v1alpha1
+    - kind: DPUServiceInterface
+      name: dpuserviceinterfaces.svc.dpu.nvidia.com
+      version: v1alpha1
+    - kind: DPUServiceIPAM
+      name: dpuserviceipams.svc.dpu.nvidia.com
+      version: v1alpha1
+    - kind: DPUService
+      name: dpuservices.svc.dpu.nvidia.com
+      version: v1alpha1
+    - kind: DPUServiceTemplate
+      name: dpuservicetemplates.svc.dpu.nvidia.com
+      version: v1alpha1
+    - kind: DPUSet
+      name: dpusets.provisioning.dpu.nvidia.com
+      version: v1alpha1
+    - kind: ServiceChain
+      name: servicechains.svc.dpu.nvidia.com
+      version: v1alpha1
+    - kind: ServiceChainSet
+      name: servicechainsets.svc.dpu.nvidia.com
+      version: v1alpha1
+    - kind: ServiceInterface
+      name: serviceinterfaces.svc.dpu.nvidia.com
+      version: v1alpha1
+    - kind: ServiceInterfaceSet
+      name: serviceinterfacesets.svc.dpu.nvidia.com
+      version: v1alpha1
+    - kind: DPFOperatorConfig
+      name: dpfoperatorconfigs.operator.dpu.nvidia.com
+      version: v1alpha1
+  description: |
+    ## DPF Operator
+
+    DPF Operator installs and manages a DOCA Platform Framework system for provisioning DPUs.
+  displayName: DPF Operator
+  install:
+    spec:
+      clusterPermissions:
+      - rules:
+        - apiGroups:
+          - ""
+          resources:
+          - configmaps
+          - events
+          - nodes
+          - persistentvolumeclaims
+          - pods
+          - pods/exec
+          - secrets
+          - serviceaccounts
+          - serviceaccounts/token
+          - services
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - namespaces
+          verbs:
+          - create
+        - apiGroups:
+          - admissionregistration.k8s.io
+          resources:
+          - mutatingwebhookconfigurations
+          - validatingwebhookconfigurations
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - apps
+          resources:
+          - daemonsets
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - apps
+          resources:
+          - deployments
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - watch
+        - apiGroups:
+          - argoproj.io
+          resources:
+          - applications
+          - appprojects
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - authentication.k8s.io
+          resources:
+          - tokenreviews
+          verbs:
+          - create
+        - apiGroups:
+          - authorization.k8s.io
+          resources:
+          - subjectaccessreviews
+          verbs:
+          - create
+        - apiGroups:
+          - cert-manager.io
+          resources:
+          - '*'
+          verbs:
+          - '*'
+        - apiGroups:
+          - kamaji.clastix.io
+          resources:
+          - tenantcontrolplanes
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - maintenance.nvidia.com
+          resources:
+          - nodemaintenances
+          - nodemaintenances/status
+          verbs:
+          - '*'
+        - apiGroups:
+          - nv-ipam.nvidia.com
+          resources:
+          - ippools
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - operator.dpu.nvidia.com
+          resources:
+          - dpfoperatorconfigs
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - operator.dpu.nvidia.com
+          resources:
+          - dpfoperatorconfigs/finalizers
+          verbs:
+          - update
+        - apiGroups:
+          - operator.dpu.nvidia.com
+          resources:
+          - dpfoperatorconfigs/status
+          verbs:
+          - get
+          - patch
+          - update
+        - apiGroups:
+          - provisioning.dpu.nvidia.com
+          resources:
+          - bfbs
+          - dpuclusters
+          - dpuflavors
+          - dpus
+          - dpusets
+          verbs:
+          - create
+          - delete
+          - deletecollection
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - provisioning.dpu.nvidia.com
+          resources:
+          - bfbs/finalizers
+          - dpuclusters/finalizers
+          - dpuflavors/finalizers
+          - dpus/finalizers
+          - dpusets/finalizers
+          verbs:
+          - update
+        - apiGroups:
+          - provisioning.dpu.nvidia.com
+          resources:
+          - bfbs/status
+          - dpuclusters/status
+          - dpus/status
+          - dpusets/status
+          verbs:
+          - get
+          - patch
+          - update
+        - apiGroups:
+          - rbac.authorization.k8s.io
+          resources:
+          - clusterrolebindings
+          - clusterroles
+          - rolebindings
+          - roles
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - svc.dpu.nvidia.com
+          resources:
+          - dpudeployments
+          - dpuservicechains
+          - dpuserviceconfigurations
+          - dpuservicecredentialrequests
+          - dpuserviceinterfaces
+          - dpuserviceipams
+          - dpuservices
+          - dpuservicetemplates
+          - servicechains
+          - serviceinterfaces
+          verbs:
+          - create
+          - delete
+          - deletecollection
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - svc.dpu.nvidia.com
+          resources:
+          - dpudeployments/finalizers
+          - dpuservicechains/finalizers
+          - dpuservicecredentialrequests/finalizers
+          - dpuserviceinterfaces/finalizers
+          - dpuserviceipams/finalizers
+          - dpuservices/finalizers
+          - servicechains/finalizers
+          - serviceinterfaces/finalizers
+          verbs:
+          - update
+        - apiGroups:
+          - svc.dpu.nvidia.com
+          resources:
+          - dpudeployments/status
+          - dpuservicechains/status
+          - dpuservicecredentialrequests/status
+          - dpuserviceinterfaces/status
+          - dpuserviceipams/status
+          - dpuservices/status
+          - servicechains/status
+          - serviceinterfaces/status
+          verbs:
+          - get
+          - patch
+          - update
+        serviceAccountName: dpf-operator-controller-manager
+      deployments:
+      - label:
+          app.kubernetes.io/component: manager
+          app.kubernetes.io/created-by: dpf-operator
+          app.kubernetes.io/instance: release-name
+          app.kubernetes.io/managed-by: Helm
+          app.kubernetes.io/name: dpf-operator
+          app.kubernetes.io/part-of: dpf-operator
+          app.kubernetes.io/version: 0.1.0
+          control-plane: controller-manager
+          dpu.nvidia.com/component: dpf-operator-controller-manager
+          helm.sh/chart: dpf-operator-0.1.0
+        name: dpf-operator-controller-manager
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app.kubernetes.io/instance: release-name
+              app.kubernetes.io/name: dpf-operator
+              control-plane: controller-manager
+              dpu.nvidia.com/component: dpf-operator-controller-manager
+          strategy: {}
+          template:
+            metadata:
+              annotations:
+                kubectl.kubernetes.io/default-container: manager
+              labels:
+                app.kubernetes.io/instance: release-name
+                app.kubernetes.io/name: dpf-operator
+                control-plane: controller-manager
+                dpu.nvidia.com/component: dpf-operator-controller-manager
+            spec:
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                    - matchExpressions:
+                      - key: node-role.kubernetes.io/master
+                        operator: Exists
+                    - matchExpressions:
+                      - key: node-role.kubernetes.io/control-plane
+                        operator: Exists
+              containers:
+              - command:
+                - /operator
+                image: example.com/dpf-system:v0.1.0
+                livenessProbe:
+                  httpGet:
+                    path: /healthz
+                    port: 8081
+                  initialDelaySeconds: 15
+                  periodSeconds: 20
+                name: manager
+                ports:
+                - containerPort: 8080
+                  name: metrics
+                  protocol: TCP
+                readinessProbe:
+                  httpGet:
+                    path: /readyz
+                    port: 8081
+                  initialDelaySeconds: 5
+                  periodSeconds: 10
+                resources: {}
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                    - ALL
+              serviceAccountName: dpf-operator-controller-manager
+              terminationGracePeriodSeconds: 10
+              tolerations:
+              - effect: NoSchedule
+                key: node-role.kubernetes.io/master
+                operator: Exists
+              - effect: NoSchedule
+                key: node-role.kubernetes.io/control-plane
+                operator: Exists
+      permissions:
+      - rules:
+        - apiGroups:
+          - ""
+          resources:
+          - configmaps
+          verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+        - apiGroups:
+          - coordination.k8s.io
+          resources:
+          - leases
+          verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+        - apiGroups:
+          - ""
+          resources:
+          - events
+          verbs:
+          - create
+          - patch
+        serviceAccountName: dpf-operator-controller-manager
+    strategy: deployment
+  installModes:
+  - supported: true
+    type: OwnNamespace
+  - supported: true
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: false
+    type: AllNamespaces
+  keywords:
+  - dpf
+  - dpu
+  maintainers:
+  - email: nvidia-network-operator-support@nvidia.com
+    name: NVIDIA
+  maturity: alpha
+  minKubeVersion: 1.29.0
+  provider:
+    name: NVIDIA
+  version: 0.1.0

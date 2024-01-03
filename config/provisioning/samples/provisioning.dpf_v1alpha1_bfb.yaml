@@ -1,0 +1,7 @@
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: BFB
+metadata:
+  name: doca-23.09
+spec:
+  fileName: "doca-23.09.bfb"
+  url: "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/DOCA_2.2.1_BSP_4.2.2_Ubuntu_22.04-13.23-09.prod.bfb"

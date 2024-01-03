@@ -1,0 +1,19 @@
+apiVersion: "svc.dpu.nvidia.com/v1alpha1"
+kind: ServiceInterfaceSet
+metadata:
+  name: pf0-vf2
+  namespace: default
+spec:
+  nodeSelector:
+    matchLabels:
+      role: "firewall"
+  template:
+    metadata:
+      labels:
+        uplink: "port0"
+    spec:
+      interfaceType: vf
+      vf:
+        pfID: 0
+        vfID: 2
+        parentInterfaceRef: pf0

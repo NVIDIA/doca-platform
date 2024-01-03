@@ -1,0 +1,98 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "sfc-controller.fullname" . }}-node
+  labels:
+  {{- include "sfc-controller.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - servicechains
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - servicechains/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - serviceinterfaces
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - serviceinterfaces/finalizers
+  verbs:
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "sfc-controller.fullname" . }}-node
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: dpf-operator
+    app.kubernetes.io/part-of: dpf-operator
+  {{- include "sfc-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "sfc-controller.fullname" . }}-node
+subjects:
+- kind: ServiceAccount
+  name: {{ include "sfc-controller.fullname" . }}-node
+  namespace: '{{ .Release.Namespace }}'

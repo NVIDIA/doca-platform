@@ -1,0 +1,24 @@
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUSet
+metadata:
+  name: dpuset-1
+  namespace: dpf-operator-system
+spec:
+  nodeSelector:
+    matchLabels:
+      feature.node.kubernetes.io/dpu-enabled: "true"
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 10%
+    type: RollingUpdate
+  dpuTemplate:
+    spec:
+      dpuFlavor: dpf-provisioning-hbn-ovn
+      bfb:
+        name: "bf-bundle-2.7.0"
+      nodeEffect:
+        taint:
+          key: "dpu"
+          value: "provisioning"
+          effect: NoSchedule
+      automaticNodeReboot: true

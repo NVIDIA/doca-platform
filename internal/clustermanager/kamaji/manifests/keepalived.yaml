@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "{{.Name}}"
+data:
+  keepalived.conf.tmpl: |
+    vrrp_script chk-control-plane {
+      script "/usr/bin/curl -k https://NODE_IP:NODE_PORT"
+      interval 2
+      rise 3
+      fall 2
+      weight 0
+    }
+
+    vrrp_instance dpu-cluster-control-plane {
+        state BACKUP
+        interface INTERFACE
+        virtual_router_id VIRTUAL_ROUTER_ID
+        priority PRIORITY
+
+        virtual_ipaddress {
+           VIRTUAL_IP 
+        }
+
+        track_script {
+            chk-control-plane
+        }
+    }
+
+---
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: "{{.Name}}"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "{{.Name}}"
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: "{{.Name}}"
+    spec:
+{{- if .NodeSelector}}
+      nodeSelector:
+        {{- range $key, $value := .NodeSelector}}
+        {{$key}}: "{{$value}}"{{end -}}
+{{- end}}
+      hostNetwork: true
+      initContainers:
+      - name: create-conf
+        image: alpine:3.20.3
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -c
+        - |
+          #! /bin/sh
+          PRIORITY=$(echo ${NODE_IP} | cut -d. -f4)
+          sed "s/INTERFACE/${INTERFACE}/g; s/VIRTUAL_ROUTER_ID/${VIRTUAL_ROUTER_ID}/g; s/PRIORITY/${PRIORITY}/g; s/NODE_PORT/${NODE_PORT}/g; s/VIRTUAL_IP/${VIRTUAL_IP}/g; s/NODE_IP/${NODE_IP}/g" /conf-template/keepalived.conf.tmpl > /conf/keepalived.conf
+        env:
+        - name: NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        - name: INTERFACE
+          value: "{{.Interface}}"
+        - name: VIRTUAL_ROUTER_ID
+          value: "{{.VirtualRouterID}}"
+        - name: NODE_PORT
+          value: "{{.NodePort}}"
+        - name: VIRTUAL_IP
+          value: "{{.VirtualIP}}"
+        volumeMounts:
+        - mountPath: /conf-template
+          name: conf-template
+          readOnly: true
+        - mountPath: /conf
+          name: conf
+      containers:
+      - name: keepalived
+        image: osixia/keepalived:2.0.20
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 5m
+            memory: 64Mi
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /usr/local/etc/keepalived
+          name: conf
+      dnsPolicy: ClusterFirstWithHostNet
+      restartPolicy: Always
+      volumes:
+      - name: conf
+        emptyDir:
+          sizeLimit: 50Mi
+      - configMap:
+          defaultMode: 420
+          name: "{{.Name}}"
+        name: conf-template

@@ -1,0 +1,15 @@
+## Images built as part of the DPF release.
+dmsImage: ${HOSTDRIVER_IMAGE}:${TAG}
+hostNetworkSetupImage: ${HOSTDRIVER_IMAGE}:${TAG}
+dpfSystemImage: ${DPF_SYSTEM_IMAGE}:${TAG}
+dpfToolsImage: ${DPF_TOOLS_IMAGE}:${TAG}
+ovsCniImage: ${OVS_CNI_IMAGE}:${TAG}
+customOVNKubernetesImage: ${OVNKUBERNETES_IMAGE}:${TAG}
+
+## Helm charts built as part of the DPF release.
+dpuNetworkingHelmChart: ${HELM_REGISTRY}/${DPU_NETWORKING_HELM_CHART_NAME}:${TAG}
+
+## External images that are used inside helm charts deployed by the DPF Operator
+multusImage: ${MULTUS_IMAGE}:${MULTUS_TAG}
+sriovDPImage: ${SRIOVDP_IMAGE}:${SRIOVDP_TAG}
+nvipamImage: ${NVIPAM_IMAGE}:${NVIPAM_TAG}

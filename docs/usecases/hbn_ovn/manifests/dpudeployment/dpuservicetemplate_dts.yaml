@@ -1,0 +1,13 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: dts
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "dts"
+  helmChart:
+    source:
+      repoURL: https://helm.ngc.nvidia.com/nvstaging/doca
+      version: 0.2.2
+      chart: doca-telemetry

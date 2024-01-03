@@ -1,0 +1,36 @@
+controllerManager:
+  webhook:
+    command:
+    - /manager
+    args:
+    - --leader-elect
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+    image:
+      repository: example.com/ovn-kubernetes-resource-injector
+      tag: v0.1.0
+    resources:
+      limits:
+        cpu: 500m
+        memory: 128Mi
+      requests:
+        cpu: 10m
+        memory: 64Mi
+  replicas: 1
+  serviceAccount:
+    annotations: {}
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: ""
+  tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: "Exists"
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    operator: "Exists"
+    effect: NoSchedule
+imagePullSecrets: []
+resourceName: ""
+nadName: dpf-ovn-kubernetes

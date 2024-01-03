@@ -1,0 +1,14 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: ServiceInterface
+metadata:
+  name: node1-dpu1-hbn-p0-sf
+  labels:
+    svc.dpu.nvidia.com/service: hbn
+    svc.dpu.nvidia.com/interface: p0_sf
+spec:
+  interfaceType: service
+  service:
+    serviceID: hbn
+    network: mybrsfc
+    interfaceName: p0_sf
+  node: k8smaster

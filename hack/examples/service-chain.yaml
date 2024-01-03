@@ -1,0 +1,28 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: ServiceChain
+metadata:
+  name: svc-chain-test
+  namespace: default
+spec:
+  switches:
+    - ports:
+      - serviceInterface:
+          matchLabels:
+            svc.dpu.nvidia.com/service: hbn
+            svc.dpu.nvidia.com/interface: net1
+      - serviceInterface:
+          matchLabels:
+            uplink: port0
+      - serviceInterface:
+          matchLabels:
+            svc.dpu.nvidia.com/service: hbn
+            svc.dpu.nvidia.com/interface: net2
+    - ports:
+      - serviceInterface:
+          matchLabels:
+            uplink: p0
+      - serviceInterface:
+          matchLabels:
+            svc.dpu.nvidia.com/service: hbn
+            svc.dpu.nvidia.com/interface: net2
+  node: k8smaster

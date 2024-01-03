@@ -1,0 +1,9 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: ServiceInterface
+metadata:
+  name: ovn-node1-dpu1
+  labels:
+    aa: bb
+spec:
+  interfaceType: ovn
+  node: node1-dpu1

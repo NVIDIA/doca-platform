@@ -1,0 +1,88 @@
+imagePullSecrets: []
+kubeMultusDs:
+  installMultusBinary:
+    containerSecurityContext:
+      privileged: true
+    image:
+      repository: ghcr.io/k8snetworkplumbingwg/multus-cni
+      tag: v3.9.3
+    resources:
+      requests:
+        cpu: 10m
+        memory: 15Mi
+  kubeMultus:
+    containerSecurityContext:
+      privileged: true
+    image:
+      repository: ghcr.io/k8snetworkplumbingwg/multus-cni
+      tag: v3.9.3
+    resources:
+      limits:
+        cpu: 100m
+        memory: 50Mi
+      requests:
+        cpu: 100m
+        memory: 50Mi
+kubernetesClusterDomain: cluster.local
+multus:
+  serviceAccount:
+    annotations: {}
+multusDaemonConfig:
+  daemonConfigJson: |-
+    {
+      "name": "multus-cni-network",
+      "type": "multus",
+      "capabilities": {
+        "portMappings": true
+      },
+      "delegates": [
+        {
+          "cniVersion": "0.3.1",
+          "name": "default-cni-network",
+          "plugins": [
+            {
+              "type": "flannel",
+              "name": "flannel.1",
+                "delegate": {
+                  "isDefaultGateway": true,
+                  "hairpinMode": true
+                }
+              },
+              {
+                "type": "portmap",
+                "capabilities": {
+                  "portMappings": true
+                }
+              }
+          ]
+        }
+      ],
+      "kubeconfig": "/etc/cni/net.d/multus.d/multus.kubeconfig"
+    }
+networkAttachmentBrSFCJson: |-
+    {
+      "cniVersion": "0.4.0",
+      "type": "ovs",
+      "bridge": "br-sfc",
+      "mtu": 1500,
+      "interface_type": "dpdk",
+      "ipam": {
+        "type": "nv-ipam"
+      }
+    }
+networkAttachmentBrHBNJson: |-
+    {
+      "cniVersion": "0.4.0",
+      "type": "ovs",
+      "mtu": 1500,
+      "bridge": "br-hbn",
+      "interface_type": "dpdk"
+    }
+networkAttachmentIpRequestJson: |-
+    {
+      "cniVersion": "0.4.0",
+      "type": "dummy",
+      "ipam": {
+        "type": "nv-ipam"
+      }
+    }

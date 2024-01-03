@@ -1,0 +1,87 @@
+# The following manifests contain a self-signed issuer CR and a certificate CR.
+# More document can be found at https://docs.cert-manager.io
+# WARNING: Targets CertManager v1.0. Check https://cert-manager.io/docs/installation/upgrading/ for breaking changes.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  labels:
+    app.kubernetes.io/name: certificate
+    app.kubernetes.io/instance: serving-cert
+    app.kubernetes.io/component: certificate
+    app.kubernetes.io/created-by: dpf-provisioning-controller
+    app.kubernetes.io/part-of: dpf-provisioning-controller
+    app.kubernetes.io/managed-by: kustomize
+  name: selfsigned-issuer
+  namespace: system
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/name: certificate
+    app.kubernetes.io/instance: serving-cert
+    app.kubernetes.io/component: certificate
+    app.kubernetes.io/created-by: dpf-provisioning-controller
+    app.kubernetes.io/part-of: dpf-provisioning-controller
+    app.kubernetes.io/managed-by: kustomize
+  name: serving-cert  # this name should match the one appeared in kustomizeconfig.yaml
+  namespace: system
+spec:
+  # SERVICE_NAME and SERVICE_NAMESPACE will be substituted by kustomize
+  dnsNames:
+  - SERVICE_NAME.SERVICE_NAMESPACE.svc
+  - SERVICE_NAME.SERVICE_NAMESPACE.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: selfsigned-issuer
+  secretName: webhook-server-cert # this secret will not be prefixed, since it's not managed by kustomize
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: issuer
+  namespace: system
+spec:
+  ca:
+    secretName: dpf-provisioning-ca-secret # this secret will not be prefixed, since it's not managed by kustomize
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ca-cert
+  namespace: system
+spec:
+  dnsNames:
+  - SERVICE_NAME.SERVICE_NAMESPACE.svc
+  - SERVICE_NAME.SERVICE_NAMESPACE.svc.cluster.local
+  commonName: dpf-provisioning-ca-cert
+  isCA: true
+  issuerRef:
+    kind: Issuer
+    name: selfsigned-issuer
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  secretName: dpf-provisioning-ca-secret # this secret will not be prefixed, since it's not managed by kustomize
+  
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: client-cert
+  namespace: system
+spec:
+  dnsNames:
+  - SERVICE_NAME.SERVICE_NAMESPACE.svc
+  - SERVICE_NAME.SERVICE_NAMESPACE.svc.cluster.local
+  commonName: dpf-provisioning-client-cert
+  duration: 24h0m0s
+  issuerRef:
+    kind: Issuer
+    name: issuer
+  renewBefore: 8h0m0s
+  secretName: dpf-provisioning-client-secret # this secret will not be prefixed, since it's not managed by kustomize
+  usages:
+  - client auth

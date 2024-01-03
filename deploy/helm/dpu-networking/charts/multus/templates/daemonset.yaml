@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-multus-ds
+  labels:
+    app: multus
+    name: multus
+    tier: node
+  {{- include "multus.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      name: multus
+    {{- include "multus.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: multus
+        name: multus
+        tier: node
+      {{- include "multus.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+      - command: ["/entrypoint.sh"]
+        args:
+        - "--multus-conf-file=/tmp/multus-conf/00-multus.conf"
+        - "--cni-version=0.3.1"
+        env:
+        - name: MULTUS_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        image: {{ .Values.kubeMultusDs.kubeMultus.image.repository }}:{{ .Values.kubeMultusDs.kubeMultus.image.tag
+          | default .Chart.AppVersion }}
+        name: kube-multus
+        resources: {{- toYaml .Values.kubeMultusDs.kubeMultus.resources | nindent 10 }}
+        securityContext: {{- toYaml .Values.kubeMultusDs.kubeMultus.containerSecurityContext
+          | nindent 10 }}
+        terminationMessagePolicy: FallbackToLogsOnError
+        volumeMounts:
+        - name: cni
+          mountPath: /host/etc/cni/net.d
+        - name: cnibin
+          mountPath: /host/opt/cni/bin
+        - name: multus-cfg
+          mountPath: /tmp/multus-conf
+      hostNetwork: true
+      hostPID: true
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      initContainers:
+      - command:
+        - "cp"
+        - "/usr/src/multus-cni/bin/multus"
+        - "/host/opt/cni/bin/multus"
+        env:
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        image: {{ .Values.kubeMultusDs.installMultusBinary.image.repository }}:{{ .Values.kubeMultusDs.installMultusBinary.image.tag
+          | default .Chart.AppVersion }}
+        name: install-multus-binary
+        resources: {{- toYaml .Values.kubeMultusDs.installMultusBinary.resources | nindent
+          10 }}
+        securityContext: {{- toYaml .Values.kubeMultusDs.installMultusBinary.containerSecurityContext
+          | nindent 10 }}
+        terminationMessagePolicy: FallbackToLogsOnError
+        volumeMounts:
+        - mountPath: /host/opt/cni/bin
+          mountPropagation: Bidirectional
+          name: cnibin
+      serviceAccountName: multus
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - name: cni
+        hostPath:
+          path: /etc/cni/net.d
+      - name: cnibin
+        hostPath:
+          path: /opt/cni/bin
+      - name: multus-cfg
+        configMap:
+          name: multus-daemon-config
+          items:
+          - key: daemon-config.json
+            path: 00-multus.conf

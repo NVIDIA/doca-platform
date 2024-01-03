@@ -1,0 +1,12 @@
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUFlavor
+metadata:
+  labels:
+    app.kubernetes.io/name: dpuflavor
+    app.kubernetes.io/instance: dpuflavor-sample
+    app.kubernetes.io/part-of: dpf-provisioning-controller
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: dpf-provisioning-controller
+  name: dpuflavor-sample
+spec:
+  # TODO(user): Add fields here

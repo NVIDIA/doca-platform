@@ -1,0 +1,66 @@
+ARG builder_image
+ARG base_image
+
+# 1) Dependency stage which is used to download dependencies.
+# This is seperate from the builder image to enable clear caching of downloaded artifacts.
+FROM ${builder_image}  AS dependency
+ARG TARGETARCH
+
+WORKDIR /workspace
+
+# kubeadm is required to create join tokens for DPU nodes.
+# Using the $TARGETARCH in the name of the binary here ensures we don't get any cross-arch caching after this binary is downloaded.
+# TODO: Remove this in favor of using a client-go call for a join token.
+RUN curl -L "https://cdn.dl.k8s.io/release/v1.31.2/bin/linux/${TARGETARCH}/kubeadm" -o kubeadm-${TARGETARCH} && chmod +x kubeadm-${TARGETARCH}
+RUN mkdir -p /kubeconfig
+
+# 2) Builder stage builds go binaries (no emulation).
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS builder
+WORKDIR /workspace
+
+# Copy the Go Modules manifests
+COPY go.mod go.mod
+COPY go.sum go.sum
+# Cache deps before building and copying source so that we don't need to re-download as much
+# and so that source changes don't invalidate our downloaded layer
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY ./ ./
+
+# Ensure that no additional tools or artifacts are included.
+RUN make clean
+
+ARG gcflags
+ARG ldflags
+ARG TARGETARCH
+
+ENV GO_LDFLAGS=\"${ldflags}\"
+ENV GO_GCFLAGS=\"${gcflags}\"
+ENV ARCH=${TARGETARCH}
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    make binaries-dpf-system
+
+# 3) Final stage copies artefacts from the builder and dependency stages.
+FROM ${base_image}
+ARG TARGETARCH
+
+WORKDIR /
+
+# Ensure all files are copied with the correct user.
+ENV uid=65532
+USER ${uid}:${uid}
+
+COPY --chown=${uid} --from=dependency /workspace/kubeadm-${TARGETARCH} /bin/kubeadm
+COPY --chown=${uid} --from=dependency /kubeconfig /kubeconfig
+
+COPY --chown=${uid} --from=builder /workspace/bin/operator .
+COPY --chown=${uid} --from=builder /workspace/bin/provisioning .
+COPY --chown=${uid} --from=builder /workspace/bin/dpuservice .
+COPY --chown=${uid} --from=builder /workspace/bin/servicechainset .
+COPY --chown=${uid} --from=builder /workspace/bin/sfc-controller .
+COPY --chown=${uid} --from=builder /workspace/bin/kamaji-cluster-manager .
+COPY --chown=${uid} --from=builder /workspace/bin/static-cluster-manager .
+COPY --chown=${uid} --from=builder /workspace/bin/ovshelper .

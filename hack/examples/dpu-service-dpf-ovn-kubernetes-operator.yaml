@@ -1,0 +1,25 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: dpf-ovn-kubernetes-operator
+  namespace: dpf-operator-system
+spec:
+  deployOnTenant: true
+  helmChart:
+    source:
+      repoURL: harbor.mellanox.com/cloud-orchestration-dev/dpf/vremmas
+      chart: dpf-ovn-kubernetes-operator
+      version: v0.0.0-ovn-integration-flavor-3
+    values:
+      config:
+        vfResourceName: openshift.io/bf3-p0-vfs
+        cidr: 10.0.120.0/24
+        hosts:
+        - hostClusterNodeName: ocp-host-worker1-1
+          hostIP: 10.0.120.10/24
+          dpuIP: 10.0.120.20/24
+          gateway: 10.0.120.254
+        - hostClusterNodeName: ocp-host-worker1-2
+          hostIP: 10.0.120.11/24
+          dpuIP: 10.0.120.21/24
+          gateway: 10.0.120.254

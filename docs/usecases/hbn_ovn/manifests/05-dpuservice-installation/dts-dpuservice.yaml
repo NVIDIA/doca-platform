@@ -1,0 +1,12 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: doca-telemetry-service
+  namespace: dpf-operator-system
+spec:
+  helmChart:
+    source:
+      repoURL: https://helm.ngc.nvidia.com/nvstaging/doca
+      version: 0.2.2
+      chart: doca-telemetry

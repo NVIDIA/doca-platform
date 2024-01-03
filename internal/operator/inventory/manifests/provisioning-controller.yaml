@@ -1,0 +1,1597 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: dpf-provisioning/dpf-provisioning-serving-cert
+    controller-gen.kubebuilder.io/version: v0.16.5
+    helm.sh/resource-policy: keep
+  name: dpus.provisioning.dpu.nvidia.com
+spec:
+  conversion:
+    strategy: Webhook
+    webhook:
+      clientConfig:
+        service:
+          name: dpf-provisioning-webhook-service
+          namespace: dpf-provisioning
+          path: /convert
+      conversionReviewVersions:
+      - v1
+  group: provisioning.dpu.nvidia.com
+  names:
+    kind: DPU
+    listKind: DPUList
+    plural: dpus
+    singular: dpu
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    - description: phase of the cluster
+      jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: DPU is the Schema for the dpus API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: DPUSpec defines the desired state of DPU
+            properties:
+              automaticNodeReboot:
+                default: true
+                description: |-
+                  Specifies if the DPU controller should automatically reboot the node on upgrades,
+                  this field is intended for advanced cases that don’t use draining but want to reboot the host based with custom logic
+                type: boolean
+              bfb:
+                description: Specifies name of the bfb CR to use for this DPU
+                type: string
+              cluster:
+                description: Specifies details on the K8S cluster to join
+                properties:
+                  name:
+                    description: Name is the name of the DPUs Kubernetes cluster
+                    type: string
+                    x-kubernetes-validations:
+                    - message: Value is immutable
+                      rule: self==oldSelf
+                  namespace:
+                    description: Namespace is the tenants namespace name where the
+                      Kubernetes cluster will be deployed
+                    type: string
+                    x-kubernetes-validations:
+                    - message: Value is immutable
+                      rule: self==oldSelf
+                  nodeLabels:
+                    additionalProperties:
+                      type: string
+                    description: NodeLabels define the labels that will be added to
+                      the nodes.
+                    type: object
+                type: object
+              dpuFlavor:
+                description: DPUFlavor is the name of the DPUFlavor that will be used
+                  to deploy the DPU.
+                type: string
+              nodeEffect:
+                default:
+                  drain:
+                    automaticNodeReboot: true
+                description: Specifies how changes to the DPU should affect the Node
+                properties:
+                  customLabel:
+                    additionalProperties:
+                      type: string
+                    description: Add specify labels on the DPU node
+                    type: object
+                  drain:
+                    description: Drain the K8s host node by NodeMaintenance operator
+                    properties:
+                      automaticNodeReboot:
+                        default: true
+                        description: Specifies if the DPU controller should automatically
+                          reboot the node on upgrades
+                        type: boolean
+                    type: object
+                  noEffect:
+                    description: Do not do any action on the DPU node
+                    type: boolean
+                  taint:
+                    description: Add specify taint on the DPU node
+                    properties:
+                      effect:
+                        description: |-
+                          Required. The effect of the taint on pods
+                          that do not tolerate the taint.
+                          Valid effects are NoSchedule, PreferNoSchedule and NoExecute.
+                        type: string
+                      key:
+                        description: Required. The taint key to be applied to a node.
+                        type: string
+                      timeAdded:
+                        description: |-
+                          TimeAdded represents the time at which the taint was added.
+                          It is only written for NoExecute taints.
+                        format: date-time
+                        type: string
+                      value:
+                        description: The taint value corresponding to the taint key.
+                        type: string
+                    required:
+                    - effect
+                    - key
+                    type: object
+                type: object
+              nodeName:
+                description: Specifies Node this DPU belongs to
+                type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
+              pciAddress:
+                description: The PCI device related DPU
+                type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
+            required:
+            - bfb
+            - nodeName
+            type: object
+          status:
+            default:
+              phase: Initializing
+            description: DPUStatus defines the observed state of DPU
+            properties:
+              bfbVersion:
+                description: bfb version of this DPU
+                type: string
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              firmware:
+                description: the firmware information of DPU
+                properties:
+                  bmc:
+                    description: BMC is the used BMC firmware version
+                    type: string
+                  nic:
+                    description: NIC is the used NIC firmware version
+                    type: string
+                  uefi:
+                    description: UEFI is the used UEFI firmware version
+                    type: string
+                type: object
+              pciDevice:
+                description: pci device information of this DPU
+                type: string
+              phase:
+                default: Initializing
+                description: The current state of DPU.
+                enum:
+                - Initializing
+                - Node Effect
+                - Pending
+                - DMS Deployment
+                - OS Installing
+                - DPU Cluster Config
+                - Host Network Configuration
+                - Ready
+                - Error
+                - Deleting
+                - Rebooting
+                type: string
+              requiredReset:
+                description: whether require reset of DPU
+                type: boolean
+            required:
+            - phase
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: dpf-provisioning/dpf-provisioning-serving-cert
+    controller-gen.kubebuilder.io/version: v0.16.5
+    helm.sh/resource-policy: keep
+  name: dpusets.provisioning.dpu.nvidia.com
+spec:
+  group: provisioning.dpu.nvidia.com
+  names:
+    kind: DPUSet
+    listKind: DPUSetList
+    plural: dpusets
+    singular: dpuset
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: DPUSet is the Schema for the dpusets API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: DPUSetSpec defines the desired state of DPUSet
+            properties:
+              dpuSelector:
+                additionalProperties:
+                  type: string
+                description: Select the DPU with specific labels
+                type: object
+              dpuTemplate:
+                description: Object that describes the DPU that will be created if
+                  insufficient replicas are detected
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: Annotations specifies annotations which are added
+                      to the DPU.
+                    type: object
+                  spec:
+                    description: Spec specifies the DPU specification.
+                    properties:
+                      automaticNodeReboot:
+                        default: true
+                        description: |-
+                          Specifies if the DPU controller should automatically reboot the node on upgrades,
+                          this field is intended for advanced cases that don’t use draining but want to reboot the host based with custom logic
+                        type: boolean
+                      bfb:
+                        description: Specifies a BFB CR
+                        properties:
+                          name:
+                            description: Specifies name of the bfb CR to use for this
+                              DPU
+                            type: string
+                        type: object
+                      cluster:
+                        description: Specifies details on the K8S cluster to join
+                        properties:
+                          nodeLabels:
+                            additionalProperties:
+                              type: string
+                            description: NodeLabels specifies the labels to be added
+                              to the node.
+                            type: object
+                        type: object
+                      dpuFlavor:
+                        description: DPUFlavor is the name of the DPUFlavor that will
+                          be used to deploy the DPU.
+                        type: string
+                      nodeEffect:
+                        default:
+                          drain:
+                            automaticNodeReboot: true
+                        description: Specifies how changes to the DPU should affect
+                          the Node
+                        properties:
+                          customLabel:
+                            additionalProperties:
+                              type: string
+                            description: Add specify labels on the DPU node
+                            type: object
+                          drain:
+                            description: Drain the K8s host node by NodeMaintenance
+                              operator
+                            properties:
+                              automaticNodeReboot:
+                                default: true
+                                description: Specifies if the DPU controller should
+                                  automatically reboot the node on upgrades
+                                type: boolean
+                            type: object
+                          noEffect:
+                            description: Do not do any action on the DPU node
+                            type: boolean
+                          taint:
+                            description: Add specify taint on the DPU node
+                            properties:
+                              effect:
+                                description: |-
+                                  Required. The effect of the taint on pods
+                                  that do not tolerate the taint.
+                                  Valid effects are NoSchedule, PreferNoSchedule and NoExecute.
+                                type: string
+                              key:
+                                description: Required. The taint key to be applied
+                                  to a node.
+                                type: string
+                              timeAdded:
+                                description: |-
+                                  TimeAdded represents the time at which the taint was added.
+                                  It is only written for NoExecute taints.
+                                format: date-time
+                                type: string
+                              value:
+                                description: The taint value corresponding to the
+                                  taint key.
+                                type: string
+                            required:
+                            - effect
+                            - key
+                            type: object
+                        type: object
+                    type: object
+                type: object
+              nodeSelector:
+                description: Select the Nodes with specific labels
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              strategy:
+                description: The rolling update strategy to use to updating existing
+                  DPUs with new ones.
+                properties:
+                  rollingUpdate:
+                    description: Rolling update config params. Present only if StrategyType
+                      = RollingUpdate.
+                    properties:
+                      maxUnavailable:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: MaxUnavailable is the maximum number of DPUs
+                          that can be unavailable during the update.
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  type:
+                    default: Recreate
+                    description: Can be "Recreate" or "RollingUpdate".
+                    enum:
+                    - Recreate
+                    - RollingUpdate
+                    type: string
+                type: object
+            type: object
+          status:
+            description: DPUSetStatus defines the observed state of DPUSet
+            properties:
+              dpuStatistics:
+                additionalProperties:
+                  type: integer
+                description: DPUStatistics is a map of DPUPhase to the number of DPUs
+                  in that phase.
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: dpf-provisioning/dpf-provisioning-serving-cert
+    controller-gen.kubebuilder.io/version: v0.16.5
+    helm.sh/resource-policy: keep
+  name: bfbs.provisioning.dpu.nvidia.com
+spec:
+  group: provisioning.dpu.nvidia.com
+  names:
+    kind: BFB
+    listKind: BFBList
+    plural: bfbs
+    singular: bfb
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: BFB is the Schema for the bfbs API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: BFBSpec defines the content of the BFB
+            properties:
+              fileName:
+                description: |-
+                  Specifies the file name which is used to download the BFB on the volume or
+                  use "namespace-CRD name" in case it is omitted.
+                pattern: ^[A-Za-z0-9\_\-\.]+\.bfb$
+                type: string
+              url:
+                description: The url of the bfb image to download.
+                pattern: ^(http|https)://.+\.bfb$
+                type: string
+            required:
+            - url
+            type: object
+            x-kubernetes-validations:
+            - message: Value is immutable
+              rule: self == oldSelf
+          status:
+            default:
+              phase: Initializing
+            description: BFBStatus defines the observed state of BFB
+            properties:
+              phase:
+                default: Initializing
+                description: The current state of BFB.
+                enum:
+                - Initializing
+                - Downloading
+                - Ready
+                - Deleting
+                - Error
+                type: string
+            required:
+            - phase
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: dpf-provisioning/dpf-provisioning-serving-cert
+    controller-gen.kubebuilder.io/version: v0.16.5
+    helm.sh/resource-policy: keep
+  name: dpuflavors.provisioning.dpu.nvidia.com
+spec:
+  group: provisioning.dpu.nvidia.com
+  names:
+    kind: DPUFlavor
+    listKind: DPUFlavorList
+    plural: dpuflavors
+    singular: dpuflavor
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: DPUFlavor is the Schema for the dpuflavors API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: DPUFlavorSpec defines the content of DPUFlavor
+            properties:
+              bfcfgParameters:
+                description: BFCfgParameters are the parameters to be set in the bf.cfg
+                  file.
+                items:
+                  type: string
+                type: array
+              configFiles:
+                description: ConfigFiles are the files to be written on the DPU.
+                items:
+                  properties:
+                    operation:
+                      description: Operation is the operation to be performed on the
+                        file.
+                      enum:
+                      - override
+                      - append
+                      type: string
+                    path:
+                      description: Path is the path of the file to be written.
+                      type: string
+                    permissions:
+                      description: Permissions are the permissions to be set on the
+                        file.
+                      type: string
+                    raw:
+                      description: Raw is the raw content of the file.
+                      type: string
+                  type: object
+                type: array
+              containerdConfig:
+                description: ContainerdConfig contains the configuration for containerd.
+                properties:
+                  registryEndpoint:
+                    description: RegistryEndpoint is the endpoint of the container
+                      registry.
+                    type: string
+                type: object
+              dpuResources:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: |-
+                  DPUResources indicates the minimum amount of resources needed for a BFB with that flavor to be installed on a
+                  DPU. Using this field, the controller can understand if that flavor can be installed on a particular DPU. It
+                  should be set to the total amount of resources the system needs + the resources that should be made available for
+                  DPUServices to consume.
+                type: object
+              grub:
+                description: Grub contains the grub configuration for the DPUFlavor.
+                properties:
+                  kernelParameters:
+                    description: KernelParameters are the kernel parameters to be
+                      set in the grub configuration.
+                    items:
+                      type: string
+                    type: array
+                type: object
+              nvconfig:
+                description: NVConfig contains the configuration for the DPUFlavor.
+                items:
+                  properties:
+                    device:
+                      description: Device is the device to which the configuration
+                        applies. If not specified, the configuration applies to all.
+                      type: string
+                    hostPowerCycleRequired:
+                      description: HostPowerCycleRequired indicates if the host needs
+                        to be power cycled after applying the configuration.
+                      type: boolean
+                    parameters:
+                      description: Parameters are the parameters to be set for the
+                        device.
+                      items:
+                        type: string
+                      type: array
+                  type: object
+                type: array
+              ovs:
+                description: OVS contains the OVS configuration for the DPUFlavor.
+                properties:
+                  rawConfigScript:
+                    description: RawConfigScript is the raw configuration script for
+                      OVS.
+                    type: string
+                type: object
+              sysctl:
+                description: Sysctl contains the sysctl configuration for the DPUFlavor.
+                properties:
+                  parameters:
+                    description: Parameters are the sysctl parameters to be set.
+                    items:
+                      type: string
+                    type: array
+                type: object
+              systemReservedResources:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: |-
+                  SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are
+                  not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and
+                  SystemReservedResources. This field must not be specified if dpuResources are not specified.
+                type: object
+            type: object
+            x-kubernetes-validations:
+            - message: DPUFlavor spec is immutable
+              rule: self == oldSelf
+        type: object
+    served: true
+    storage: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: dpf-provisioning/dpf-provisioning-serving-cert
+    controller-gen.kubebuilder.io/version: v0.16.5
+    helm.sh/resource-policy: keep
+  name: dpuclusters.provisioning.dpu.nvidia.com
+spec:
+  group: provisioning.dpu.nvidia.com
+  names:
+    kind: DPUCluster
+    listKind: DPUClusterList
+    plural: dpuclusters
+    singular: dpucluster
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    - description: phase of the cluster
+      jsonPath: .status.phase
+      name: Phase
+      type: string
+    - description: type of the cluster
+      jsonPath: .spec.type
+      name: Type
+      type: string
+    - description: max amount of nodes
+      jsonPath: .spec.maxNodes
+      name: MaxNodes
+      type: integer
+    - description: Kubernetes control-plane version
+      jsonPath: .spec.version
+      name: Version
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: DPUCluster is the Schema for the dpuclusters API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: DPUClusterSpec defines the desired state of DPUCluster
+            properties:
+              clusterEndpoint:
+                description: ClusterEndpoint contains configurations of the cluster
+                  entry point
+                properties:
+                  keepalived:
+                    description: Keepalived configures the keepalived that will be
+                      deployed for the cluster control-plane
+                    properties:
+                      interface:
+                        description: Interface specifies on which interface the VIP
+                          should be assigned
+                        minLength: 1
+                        type: string
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          NodeSelector is used to specify a subnet of control plane nodes to deploy keepalived instances.
+                          Note: keepalived instances are always deployed on control plane nodes
+                        type: object
+                      vip:
+                        description: VIP is the virtual IP owned by the keepalived
+                          instances
+                        type: string
+                      virtualRouterID:
+                        description: VirtualRouterID is the virtual_router_id in keepalived.conf
+                        maximum: 255
+                        minimum: 1
+                        type: integer
+                    required:
+                    - interface
+                    - vip
+                    - virtualRouterID
+                    type: object
+                type: object
+              kubeconfig:
+                description: Kubeconfig is the secret that contains the admin kubeconfig
+                type: string
+                x-kubernetes-validations:
+                - message: kubeconfig is immutable
+                  rule: oldSelf==""||self==oldSelf
+              maxNodes:
+                default: 1000
+                description: MaxNodes is the max amount of node in the cluster
+                maximum: 1000
+                minimum: 1
+                type: integer
+              type:
+                description: |-
+                  Type of the cluster with few supported values
+                  static - existing cluster that is deployed by user. For DPUCluster of this type, the kubeconfig field must be set.
+                  kamaji - DPF managed cluster. The kamaji-cluster-manager will create a DPU cluster on behalf of this CR.
+                  $(others) - any string defined by ISVs, such type names must start with a prefix.
+                pattern: kamaji|static|[^/]+/.*
+                type: string
+              version:
+                description: Version is the K8s control-plane version of the cluster
+                type: string
+            required:
+            - type
+            - version
+            type: object
+          status:
+            default:
+              phase: Pending
+            description: DPUClusterStatus defines the observed state of DPUCluster
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              phase:
+                allOf:
+                - enum:
+                  - Pending
+                  - Creating
+                  - Ready
+                  - NotReady
+                  - Failed
+                - enum:
+                  - Pending
+                  - Creating
+                  - Ready
+                  - NotReady
+                  - Failed
+                default: Pending
+                description: |-
+                  ClusterPhase describes current state of DPUCluster.
+                  Only one of the following state may be specified.
+                  Default is Pending.
+                type: string
+            required:
+            - phase
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: dpf-provisioning/dpf-provisioning-serving-cert
+  name: dpf-provisioning-mutating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: dpf-provisioning-webhook-service
+      namespace: dpf-provisioning
+      path: /mutate-provisioning-dpu-nvidia-com-v1alpha1-bfb
+  failurePolicy: Fail
+  name: mbfb.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - bfbs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: dpf-provisioning-webhook-service
+      namespace: dpf-provisioning
+      path: /mutate-provisioning-dpu-nvidia-com-v1alpha1-dpuset
+  failurePolicy: Fail
+  name: mdpuset.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - dpusets
+  sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: dpf-provisioning/dpf-provisioning-serving-cert
+  name: dpf-provisioning-validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: dpf-provisioning-webhook-service
+      namespace: dpf-provisioning
+      path: /validate-provisioning-dpu-nvidia-com-v1alpha1-bfb
+  failurePolicy: Fail
+  name: vbfb.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - bfbs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: dpf-provisioning-webhook-service
+      namespace: dpf-provisioning
+      path: /validate-provisioning-dpu-nvidia-com-v1alpha1-dpu
+  failurePolicy: Fail
+  name: vdpu.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - dpus
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: dpf-provisioning-webhook-service
+      namespace: dpf-provisioning
+      path: /validate-provisioning-dpu-nvidia-com-v1alpha1-dpuflavor
+  failurePolicy: Fail
+  name: vdpuflavor.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - dpuflavors
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: dpf-provisioning-webhook-service
+      namespace: dpf-provisioning
+      path: /validate-provisioning-dpu-nvidia-com-v1alpha1-dpuset
+  failurePolicy: Fail
+  name: vdpuset.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - dpusets
+  sideEffects: None
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/created-by: dpf-provisioning-controller
+    app.kubernetes.io/instance: webhook-service
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: service
+    app.kubernetes.io/part-of: dpf-provisioning-controller
+  name: dpf-provisioning-webhook-service
+  namespace: dpf-provisioning
+spec:
+  ports:
+  - port: 443
+    protocol: TCP
+    targetPort: 9443
+  selector:
+    control-plane: controller-manager
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: dpf-provisioning-controller
+    app.kubernetes.io/instance: controller-manager-sa
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: serviceaccount
+    app.kubernetes.io/part-of: dpf-provisioning-controller
+  name: dpf-provisioning-controller-manager
+  namespace: dpf-provisioning
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dpf-provisioning-manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - delete
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  - pods
+  - pods/exec
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - '*'
+  verbs:
+  - '*'
+- apiGroups:
+  - maintenance.nvidia.com
+  resources:
+  - nodemaintenances
+  - nodemaintenances/status
+  verbs:
+  - '*'
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - bfbs
+  - dpuclusters
+  - dpus
+  - dpusets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - bfbs/finalizers
+  - dpuclusters/finalizers
+  - dpus/finalizers
+  - dpusets/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - bfbs/status
+  - dpuclusters/status
+  - dpus/status
+  - dpusets/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - dpuflavors
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: dpf-provisioning-controller
+    app.kubernetes.io/instance: manager-rolebinding
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: clusterrolebinding
+    app.kubernetes.io/part-of: dpf-provisioning-controller
+  name: dpf-provisioning-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dpf-provisioning-manager-role
+subjects:
+- kind: ServiceAccount
+  name: dpf-provisioning-controller-manager
+  namespace: dpf-provisioning
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: dpf-provisioning-controller
+    app.kubernetes.io/instance: leader-election-role
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: role
+    app.kubernetes.io/part-of: dpf-provisioning-controller
+  name: dpf-provisioning-leader-election-role
+  namespace: dpf-provisioning
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: dpf-provisioning-controller
+    app.kubernetes.io/instance: leader-election-rolebinding
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: rolebinding
+    app.kubernetes.io/part-of: dpf-provisioning-controller
+  name: dpf-provisioning-leader-election-rolebinding
+  namespace: dpf-provisioning
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dpf-provisioning-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: dpf-provisioning-controller-manager
+  namespace: dpf-provisioning
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/component: manager
+    app.kubernetes.io/created-by: dpf-provisioning-controller
+    app.kubernetes.io/instance: system
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace
+    app.kubernetes.io/part-of: dpf-provisioning-controller
+    control-plane: controller-manager
+  name: dpf-provisioning
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: manager
+    app.kubernetes.io/created-by: dpf-provisioning-controller
+    app.kubernetes.io/instance: controller-manager
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: deployment
+    app.kubernetes.io/part-of: dpf-provisioning-controller
+    control-plane: controller-manager
+  name: dpf-provisioning-controller-manager
+  namespace: dpf-provisioning
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        control-plane: controller-manager
+    spec:
+      containers:
+      - args:
+        - --leader-elect
+        - --v=3
+        - --dms-image=gitlab-master.nvidia.com:5005/doca-platform-foundation/dpf-provisioning-controller/hostdriver:latest
+        - --hostnetwork-image=gitlab-master.nvidia.com:5005/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1
+        - --bfb-pvc=bfb-pvc
+        command:
+        - /provisioning
+        image: example.com/dpf-system:v0.1.0
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: manager
+        ports:
+        - containerPort: 9443
+          name: webhook-server
+          protocol: TCP
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 4
+            memory: 8Gi
+          requests:
+            cpu: 1
+            memory: 2Gi
+        securityContext:
+          capabilities:
+            drop:
+            - ALL
+          privileged: true
+        volumeMounts:
+        - mountPath: /tmp/k8s-webhook-server/serving-certs
+          name: cert
+          readOnly: true
+        - mountPath: /bfb
+          name: bfb-volume
+      imagePullSecrets:
+      - name: dpf-provisioning-regcred
+      serviceAccountName: dpf-provisioning-controller-manager
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: webhook-server-cert
+      - name: bfb-volume
+        persistentVolumeClaim:
+          claimName: bfb-pvc
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  labels:
+    app.kubernetes.io/component: certificate
+    app.kubernetes.io/created-by: dpf-provisioning-controller
+    app.kubernetes.io/instance: serving-cert
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: certificate
+    app.kubernetes.io/part-of: dpf-provisioning-controller
+  name: dpf-provisioning-selfsigned-issuer
+  namespace: dpf-provisioning
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/component: certificate
+    app.kubernetes.io/created-by: dpf-provisioning-controller
+    app.kubernetes.io/instance: serving-cert
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: certificate
+    app.kubernetes.io/part-of: dpf-provisioning-controller
+  name: dpf-provisioning-serving-cert
+  namespace: dpf-provisioning
+spec:
+  dnsNames:
+  - dpf-provisioning-webhook-service.dpf-provisioning.svc
+  - dpf-provisioning-webhook-service.dpf-provisioning.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: dpf-provisioning-selfsigned-issuer
+  secretName: webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dpf-provisioning-issuer
+  namespace: dpf-provisioning
+spec:
+  ca:
+    secretName: dpf-provisioning-ca-secret
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dpf-provisioning-ca-cert
+  namespace: dpf-provisioning
+spec:
+  commonName: dpf-provisioning-ca-cert
+  dnsNames:
+  - dpf-provisioning-webhook-service.dpf-provisioning.svc
+  - dpf-provisioning-webhook-service.dpf-provisioning.svc.cluster.local
+  isCA: true
+  issuerRef:
+    kind: Issuer
+    name: dpf-provisioning-selfsigned-issuer
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  secretName: dpf-provisioning-ca-secret
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dpf-provisioning-client-cert
+  namespace: dpf-provisioning
+spec:
+  commonName: dpf-provisioning-client-cert
+  dnsNames:
+  - dpf-provisioning-webhook-service.dpf-provisioning.svc
+  - dpf-provisioning-webhook-service.dpf-provisioning.svc.cluster.local
+  duration: 24h0m0s
+  issuerRef:
+    kind: Issuer
+    name: dpf-provisioning-issuer
+  renewBefore: 8h0m0s
+  secretName: dpf-provisioning-client-secret
+  usages:
+  - client auth
+---
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUFlavor
+metadata:
+  name: dpf-provisioning-hbn-ovn
+  namespace: dpf-provisioning
+spec:
+  bfcfgParameters:
+  - UPDATE_ATF_UEFI=yes
+  - UPDATE_DPU_OS=yes
+  - WITH_NIC_FW_UPDATE=yes
+  configFiles:
+  - operation: override
+    path: /etc/mellanox/mlnx-bf.conf
+    permissions: "0644"
+    raw: |
+      ALLOW_SHARED_RQ="no"
+      IPSEC_FULL_OFFLOAD="no"
+      ENABLE_ESWITCH_MULTIPORT="yes"
+  - operation: override
+    path: /etc/mellanox/mlnx-ovs.conf
+    permissions: "0644"
+    raw: |
+      CREATE_OVS_BRIDGES="no"
+  - operation: override
+    path: /etc/mellanox/mlnx-sf.conf
+    permissions: "0644"
+    raw: ""
+  grub:
+    kernelParameters:
+    - console=hvc0
+    - console=ttyAMA0
+    - earlycon=pl011,0x13010000
+    - fixrttc
+    - net.ifnames=0
+    - biosdevname=0
+    - iommu.passthrough=1
+    - cgroup_no_v1=net_prio,net_cls
+    - hugepagesz=2048kB
+    - hugepages=3072
+  nvconfig:
+  - device: '*'
+    parameters:
+    - PF_BAR2_ENABLE=0
+    - PER_PF_NUM_SF=1
+    - PF_TOTAL_SF=20
+    - PF_SF_BAR_SIZE=10
+    - NUM_PF_MSIX_VALID=0
+    - PF_NUM_PF_MSIX_VALID=1
+    - PF_NUM_PF_MSIX=228
+    - INTERNAL_CPU_MODEL=1
+    - INTERNAL_CPU_OFFLOAD_ENGINE=0
+    - SRIOV_EN=1
+    - NUM_OF_VFS=46
+    - LAG_RESOURCE_ALLOCATION=1
+  ovs:
+    rawConfigScript: |
+      _ovs-vsctl() {
+        ovs-vsctl --no-wait --timeout 15 "$@"
+      }
+
+      _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
+      _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
+      _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
+      _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
+      _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
+      _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
+      _ovs-vsctl set Open_vSwitch . other_config:ctl-pipe-size=1024
+      _ovs-vsctl --if-exists del-br ovsbr1
+      _ovs-vsctl --if-exists del-br ovsbr2
+      _ovs-vsctl --may-exist add-br br-sfc
+      _ovs-vsctl set bridge br-sfc datapath_type=netdev
+      _ovs-vsctl set bridge br-sfc fail_mode=secure
+      _ovs-vsctl --may-exist add-port br-sfc p0
+      _ovs-vsctl set Interface p0 type=dpdk
+      _ovs-vsctl set Port p0 external_ids:dpf-type=physical
+
+      _ovs-vsctl set Open_vSwitch . external-ids:ovn-bridge-datapath-type=netdev
+      _ovs-vsctl --may-exist add-br br-ovn
+      _ovs-vsctl set bridge br-ovn datapath_type=netdev
+      _ovs-vsctl --may-exist add-port br-ovn pf0hpf
+      _ovs-vsctl set Interface pf0hpf type=dpdk
