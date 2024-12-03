@@ -8,7 +8,7 @@ require (
 	dario.cat/mergo v1.0.1
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/Mellanox/maintenance-operator/api v0.1.0
-	github.com/cert-manager/cert-manager v1.15.2
+	github.com/cert-manager/cert-manager v1.15.4
 	github.com/containernetworking/cni v1.2.3
 	github.com/fluxcd/pkg/runtime v0.47.1
 	github.com/golang/glog v1.2.1
