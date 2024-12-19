@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Release.Name }}-node-ds
+  namespace: {{ .Release.Namespace }}
+  labels:
+    tier: node
+    app.kubernetes.io/created-by: dpf-operator
+    app.kubernetes.io/part-of: dpf-operator
+  {{- include "sfc-controller.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      name: sfc-controller-node
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        tier: node
+        app: sfc-controller-node
+        name: sfc-controller-node
+    spec:
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      serviceAccountName: {{ include "sfc-controller.fullname" . }}-node
+      securityContext:
+        runAsUser: 0
+      containers:
+      - args: {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}
+        command:
+        - /sfc-controller
+        env:
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        - name: SFC_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: SYSTEMCTL_FORCE_BUS
+          value: "1"
+        volumeMounts:
+        - name: ovs
+          mountPath: /var/run/openvswitch/
+        - name: ovs-systemd-config
+          mountPath: /etc/default/openvswitch-switch
+        - name: var-run-systemd
+          mountPath: /var/run/systemd
+        - name: systemd-dbus
+          mountPath: /var/run/dbus/system_bus_socket
+        - mountPath: /lib
+          name: lib
+        - mountPath: /usr/bin/ovs-vsctl
+          name: ovs-vsctl
+        - mountPath: /usr/bin/ovs-ofctl
+          name: ovs-ofctl
+        image: {{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag
+          | default .Chart.AppVersion }}
+        securityContext:
+          privileged: true
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: sfc-controller
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources: {{- toYaml .Values.controllerManager.manager.resources | nindent 10
+          }}
+        securityContext: {{- toYaml .Values.controllerManager.manager.containerSecurityContext
+          | nindent 10 }}
+        ports:
+          - containerPort: 8080
+            name: metrics
+            protocol: TCP
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - name: ovs
+        hostPath:
+          path: /var/run/openvswitch
+      - name: ovs-systemd-config
+        hostPath:
+          path: /etc/default/openvswitch-switch
+      - name: var-run-systemd
+        hostPath:
+          path: /var/run/systemd
+      - name: systemd-dbus
+        hostPath:
+          path: /var/run/dbus/system_bus_socket
+      - hostPath:
+          path: /usr/bin/ovs-vsctl
+          type: File
+        name: ovs-vsctl
+      - hostPath:
+          path: /usr/bin/ovs-ofctl
+          type: File
+        name: ovs-ofctl
+      - hostPath:
+          path: /lib
+          type: Directory
+        name: lib

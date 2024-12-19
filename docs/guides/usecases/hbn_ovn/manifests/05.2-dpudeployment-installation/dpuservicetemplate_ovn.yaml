@@ -1,0 +1,23 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: ovn
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "ovn"
+  helmChart:
+    source:
+      repoURL: oci://ghcr.io/nvidia
+      chart: ovn-kubernetes-chart
+      version: $DPF_VERSION
+    values:
+      tags:
+        ovn-kubernetes-resource-injector: false
+        ovnkube-node-dpu: true
+        ovnkube-node-dpu-host: false
+        ovnkube-single-node-zone: false
+        ovnkube-control-plane: false
+      global:
+        gatewayOpts: "--gateway-interface=br-ovn --gateway-uplink-port=puplinkbrovn"
+        imagePullSecretName: dpf-pull-secret

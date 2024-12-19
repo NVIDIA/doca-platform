@@ -1,0 +1,17 @@
+{{ if index .Values "node-feature-discovery" "enabled" }}
+apiVersion: nfd.k8s-sigs.io/v1alpha1
+kind: NodeFeatureRule
+metadata:
+  name: dpu-detection-rule
+spec:
+  rules:
+    - name: "DPU-detection-rule"
+      labels:
+        "dpu-enabled": "true"
+      matchFeatures:
+        - feature: pci.device
+          matchExpressions:
+            vendor: {op: In, value: ["15b3"]}
+            # TODO: Make this settable from the values
+            device: {op: In, value:  ["a2d6", "a2dc"] }
+  {{ end }}

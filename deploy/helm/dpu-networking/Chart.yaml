@@ -1,0 +1,40 @@
+apiVersion: v2
+name: dpu-networking
+description: A Helm chart for Kubernetes
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+dependencies:
+  - name: multus
+    version: "0.1.0"
+    repository: file://charts/multus
+    condition: multus.enabled
+  - name: sriov-device-plugin
+    version: "0.1.0"
+    repository: file://charts/sriov-device-plugin
+    condition: sriov-device-plugin.enabled
+  - name: servicechainset-controller
+    version: "0.1.0"
+    repository: file://charts/servicechainset-controller
+    condition: servicechainset-controller.enabled
+  - name: nvidia-k8s-ipam
+    version: "0.1.0"
+    repository: file://charts/nvidia-k8s-ipam
+    condition: nvidia-k8s-ipam.enabled
+  - name: ovs-cni
+    version: "0.1.0"
+    repository: file://charts/ovs-cni
+    condition: ovs-cni.enabled
+  - name: sfc-controller
+    version: "0.1.0"
+    repository: file://charts/sfc-controller
+    condition: sfc-controller.enabled
+  - name: flannel
+    version: v0.25.1
+    repository: https://flannel-io.github.io/flannel
+    condition: flannel.enabled
+  - name: ovs-helper
+    version: "0.1.0"
+    repository: file://charts/ovs-helper
+    condition: ovs-helper.enabled

@@ -1,0 +1,96 @@
+- groupVersionKind:
+    group: provisioning.dpu.nvidia.com
+    kind: DPUCluster
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: dpucluster
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a DPUCluster.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            name:
+              - metadata
+              - name
+            max_nodes:
+              - spec
+              - maxNodes
+            version:
+              - spec
+              - version
+            type:
+              - spec
+              - type
+            keepalived_virtual_ip:
+              - spec
+              - clusterEndpoint
+              - keepalived
+              - vip
+    - name: status_phase
+      help: The DPUCluster current phase.
+      each:
+        stateSet:
+          labelName: phase
+          list:
+            - Pending
+            - Creating
+            - Ready
+            - NotReady
+            - Failed
+          path:
+            - status
+            - phase
+        type: StateSet
+    - name: status_conditions
+      help: The condition of a DPUCluster.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: status_condition_last_transition_time
+      help: The condition last transition time of a DPUCluster.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge

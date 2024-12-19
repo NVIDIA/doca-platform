@@ -1,0 +1,81 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+    helm.sh/resource-policy: keep
+  name: bfbs.provisioning.dpu.nvidia.com
+spec:
+  group: provisioning.dpu.nvidia.com
+  names:
+    kind: BFB
+    listKind: BFBList
+    plural: bfbs
+    singular: bfb
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: BFB is the Schema for the bfbs API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: BFBSpec defines the content of the BFB
+            properties:
+              fileName:
+                description: |-
+                  Specifies the file name which is used to download the BFB on the volume or
+                  use "namespace-CRD name" in case it is omitted.
+                pattern: ^[A-Za-z0-9\_\-\.]+\.bfb$
+                type: string
+              url:
+                description: The url of the bfb image to download.
+                pattern: ^(http|https)://.+\.bfb$
+                type: string
+            required:
+            - url
+            type: object
+            x-kubernetes-validations:
+            - message: Value is immutable
+              rule: self == oldSelf
+          status:
+            default:
+              phase: Initializing
+            description: BFBStatus defines the observed state of BFB
+            properties:
+              phase:
+                default: Initializing
+                description: The current state of BFB.
+                enum:
+                - Initializing
+                - Downloading
+                - Ready
+                - Deleting
+                - Error
+                type: string
+            required:
+            - phase
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

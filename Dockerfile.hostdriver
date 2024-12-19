@@ -1,0 +1,67 @@
+ARG builder_image
+
+FROM ${builder_image}  AS builder
+
+WORKDIR /workspace
+
+# Copy the Go Modules manifests
+COPY go.mod go.mod
+COPY go.sum go.sum
+
+# Cache deps before building and copying source so that we don't need to re-download as much
+# and so that source changes don't invalidate our downloaded layer
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY ./ ./
+
+# Ensure that no additional tools or artifacts are included.
+RUN make clean
+
+ARG gcflags
+ARG ldflags
+ARG TARGETARCH
+
+ENV GO_LDFLAGS=\"${ldflags}\"
+ENV GO_GCFLAGS=\"${gcflags}\"
+ENV ARCH=${TARGETARCH}
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    make binary-detector
+
+FROM nvcr.io/nvidia/doca/doca:2.9.1-full-rt-host
+
+ARG TARGETARCH
+ARG MFT_VERSION=4.29.0-131
+ARG PACKAGES="dpkg-dev=1.21.1ubuntu2.3 libusb-1.0-0=2:1.0.25-1ubuntu2 ipmitool=1.8.18-11ubuntu2.1 rshim curl=7.81.0-1ubuntu1.19 screen=4.9.0-1 pv=1.6.6-1build2 bridge-utils=1.7-1ubuntu3 iptables=1.8.7-1ubuntu5.2 iproute2=5.15.0-1ubuntu2"
+
+# enable deb-src repos
+RUN sed -i 's/^# deb-src/deb-src/g' /etc/apt/sources.list /etc/apt/sources.list.d/*
+
+WORKDIR /opt/dpf/third_party
+
+RUN apt-get update -y
+RUN apt-get install -y --no-install-recommends ${PACKAGES}
+RUN apt-get source ${PACKAGES}
+
+RUN case ${TARGETARCH} in \
+        amd64) ARCH=x86_64 ;; \
+        arm64) ARCH=arm64 ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+    esac && \
+    curl -fsSL https://www.mellanox.com/downloads/MFT/mft-${MFT_VERSION}-${ARCH}-deb.tgz | tar -xz -C /tmp && \
+    cd /tmp/mft-${MFT_VERSION}-${ARCH}-deb && \
+    ./install.sh --without-kernel
+
+RUN mkdir -p /bfb-folder
+
+WORKDIR /
+
+RUN echo "ipmitool chassis power $reboot" > /usr/sbin/reboot && chmod +x /usr/sbin/reboot
+
+RUN echo "echo 'running rshim'; rshim" > rshim.sh && chmod +x rshim.sh
+
+COPY ./internal/bf-slr/bf-slr.sh /usr/sbin
+COPY --from=builder /workspace/bin/dpu-detector .
+COPY ./internal/hostnetwork/hostnetwork.sh /usr/local/bin

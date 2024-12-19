@@ -1,0 +1,27 @@
+dependencies:
+- name: argo-cd
+  repository: https://argoproj.github.io/argo-helm
+  version: 7.6.8
+- name: node-feature-discovery
+  repository: https://kubernetes-sigs.github.io/node-feature-discovery/charts
+  version: 0.16.5
+- name: kube-state-metrics
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 5.25.1
+- name: grafana
+  repository: https://grafana.github.io/helm-charts
+  version: 8.4.6
+- name: prometheus
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 25.26.0
+- name: kamaji-etcd
+  repository: https://clastix.github.io/charts
+  version: 0.9.0
+- name: kamaji
+  repository: https://clastix.github.io/charts
+  version: 1.0.0
+- name: maintenance-operator-chart
+  repository: oci://ghcr.io/mellanox
+  version: 0.1.1
+digest: sha256:77268ab25570e75ef77c3692a8b63b9941dc763d4e901bd9a2e5746771eaefa2
+generated: "2024-10-29T15:05:27.890338Z"

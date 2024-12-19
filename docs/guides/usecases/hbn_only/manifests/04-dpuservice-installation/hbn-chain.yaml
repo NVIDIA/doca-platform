@@ -1,0 +1,59 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceChain
+metadata:
+  name: hbn-to-fabric
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      nodeSelector:
+      template:
+        spec:
+          switches:
+            - ports:
+              - serviceInterface:
+                  matchLabels:
+                    uplink: p0
+              - serviceInterface:
+                  matchLabels:
+                    svc.dpu.nvidia.com/service: doca-hbn
+                    svc.dpu.nvidia.com/interface: "p0_sf"
+            - ports:
+              - serviceInterface:
+                  matchLabels:
+                    uplink: p1
+              - serviceInterface:
+                  matchLabels:
+                    svc.dpu.nvidia.com/service: doca-hbn
+                    svc.dpu.nvidia.com/interface: "p1_sf"
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceChain
+metadata:
+  name: host-to-hbn
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      nodeSelector:
+      template:
+        spec:
+          switches:
+            - ports:
+              - serviceInterface:
+                  matchLabels:
+                    hostpf: "host_pf0_rep"
+              - serviceInterface:
+                  matchLabels:
+                    svc.dpu.nvidia.com/service: doca-hbn
+                    svc.dpu.nvidia.com/interface: "host_pf0_sf"
+            - ports:
+              - serviceInterface:
+                  matchLabels:
+                    hostpf: "host_pf1_rep"
+              - serviceInterface:
+                  matchLabels:
+                    svc.dpu.nvidia.com/service: doca-hbn
+                    svc.dpu.nvidia.com/interface: "host_pf1_sf"
+

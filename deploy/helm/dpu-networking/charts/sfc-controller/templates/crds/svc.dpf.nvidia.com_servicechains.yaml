@@ -1,0 +1,214 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.3
+  name: servicechains.svc.dpu.nvidia.com
+spec:
+  group: svc.dpu.nvidia.com
+  names:
+    kind: ServiceChain
+    listKind: ServiceChainList
+    plural: servicechains
+    singular: servicechain
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ServiceChain is the Schema for the servicechains API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ServiceChainSpec defines the desired state of ServiceChain
+            properties:
+              node:
+                description: Node where this ServiceChain applies to
+                type: string
+              switches:
+                description: The switches of the ServiceChain, order is significant
+                items:
+                  description: Switch defines the switch configuration
+                  properties:
+                    ports:
+                      description: Ports of the switch
+                      items:
+                        description: Port defines the port configuration
+                        properties:
+                          service:
+                            properties:
+                              interface:
+                                description: Interface name
+                                type: string
+                              ipam:
+                                description: IPAM defines the IPAM configuration
+                                properties:
+                                  defaultGateway:
+                                    type: boolean
+                                  matchLabels:
+                                    additionalProperties:
+                                      type: string
+                                    maxProperties: 50
+                                    minProperties: 1
+                                    type: object
+                                  reference:
+                                    properties:
+                                      name:
+                                        description: Name of the object
+                                        maxLength: 253
+                                        minLength: 1
+                                        type: string
+                                      namespace:
+                                        description: Namespace of the object
+                                        maxLength: 253
+                                        minLength: 1
+                                        type: string
+                                    required:
+                                    - name
+                                    type: object
+                                  setDefaultRoute:
+                                    type: boolean
+                                type: object
+                                x-kubernetes-validations:
+                                - message: either reference or matchLabels must be
+                                    specified
+                                  rule: (has(self.reference) && !has(self.matchLabels))
+                                    || (!has(self.reference) && has(self.matchLabels))
+                              matchLabels:
+                                additionalProperties:
+                                  type: string
+                                description: |-
+                                  MatchLabels is a map of string keys and values that are used to select
+                                  an object.
+                                maxProperties: 50
+                                minProperties: 1
+                                type: object
+                              reference:
+                                properties:
+                                  name:
+                                    description: Name of the object
+                                    maxLength: 253
+                                    minLength: 1
+                                    type: string
+                                  namespace:
+                                    description: Namespace of the object
+                                    maxLength: 253
+                                    minLength: 1
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - interface
+                            type: object
+                            x-kubernetes-validations:
+                            - message: either reference or matchLabels must be specified
+                              rule: (has(self.reference) && !has(self.matchLabels))
+                                || (!has(self.reference) && has(self.matchLabels))
+                          serviceInterface:
+                            description: ServiceIfc defines the service interface
+                              configuration
+                            properties:
+                              ipam:
+                                description: IPAM defines the IPAM configuration when
+                                  referencing a serviceInterface of type 'service'
+                                properties:
+                                  defaultGateway:
+                                    type: boolean
+                                  matchLabels:
+                                    additionalProperties:
+                                      type: string
+                                    maxProperties: 50
+                                    minProperties: 1
+                                    type: object
+                                  reference:
+                                    properties:
+                                      name:
+                                        description: Name of the object
+                                        maxLength: 253
+                                        minLength: 1
+                                        type: string
+                                      namespace:
+                                        description: Namespace of the object
+                                        maxLength: 253
+                                        minLength: 1
+                                        type: string
+                                    required:
+                                    - name
+                                    type: object
+                                  setDefaultRoute:
+                                    type: boolean
+                                type: object
+                                x-kubernetes-validations:
+                                - message: either reference or matchLabels must be
+                                    specified
+                                  rule: (has(self.reference) && !has(self.matchLabels))
+                                    || (!has(self.reference) && has(self.matchLabels))
+                              matchLabels:
+                                additionalProperties:
+                                  type: string
+                                maxProperties: 50
+                                minProperties: 1
+                                type: object
+                              reference:
+                                properties:
+                                  name:
+                                    description: Name of the object
+                                    maxLength: 253
+                                    minLength: 1
+                                    type: string
+                                  namespace:
+                                    description: Namespace of the object
+                                    maxLength: 253
+                                    minLength: 1
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            type: object
+                            x-kubernetes-validations:
+                            - message: either reference or matchLabels must be specified
+                              rule: (has(self.reference) && !has(self.matchLabels))
+                                || (!has(self.reference) && has(self.matchLabels))
+                        type: object
+                        x-kubernetes-validations:
+                        - message: either service or serviceInterface must be specified
+                          rule: (has(self.service) && !has(self.serviceInterface))
+                            || (!has(self.service) && has(self.serviceInterface))
+                      maxItems: 50
+                      minItems: 1
+                      type: array
+                  required:
+                  - ports
+                  type: object
+                maxItems: 50
+                minItems: 1
+                type: array
+            required:
+            - switches
+            type: object
+          status:
+            description: ServiceChainStatus defines the observed state of ServiceChain
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

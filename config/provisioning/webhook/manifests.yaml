@@ -1,0 +1,134 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: mutating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-provisioning-dpu-nvidia-com-v1alpha1-bfb
+  failurePolicy: Fail
+  name: mbfb.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - bfbs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-provisioning-dpu-nvidia-com-v1alpha1-dpuset
+  failurePolicy: Fail
+  name: mdpuset.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - dpusets
+  sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-provisioning-dpu-nvidia-com-v1alpha1-bfb
+  failurePolicy: Fail
+  name: vbfb.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - bfbs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-provisioning-dpu-nvidia-com-v1alpha1-dpu
+  failurePolicy: Fail
+  name: vdpu.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - dpus
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-provisioning-dpu-nvidia-com-v1alpha1-dpuflavor
+  failurePolicy: Fail
+  name: vdpuflavor.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - dpuflavors
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-provisioning-dpu-nvidia-com-v1alpha1-dpuset
+  failurePolicy: Fail
+  name: vdpuset.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - dpusets
+  sideEffects: None

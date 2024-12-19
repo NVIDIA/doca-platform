@@ -1,0 +1,59 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceChain
+metadata:
+  name: svc-chain-test
+spec:
+  template:
+    spec:
+      nodeSelector:
+        matchLabels:
+          role: "firewall"
+      template:
+        metadata:
+          labels:
+            uplink: "port0"
+        spec:
+          switches:
+            - ports:
+              - serviceInterface:
+                  matchLabels:
+                    uplink: p0
+              - serviceInterface:
+                  matchLabels:
+                    svc.dpu.nvidia.com/service: hbn
+            # bridge: hbn from the ovs CNI NAD, minimal flows will be set on HBN bridge, patch ports created to sfc bridge
+            - ports:
+              - serviceInterface:
+                  matchLabels:
+                    svc.dpu.nvidia.com/service: hbn
+                # bridge: hbn from the ovs CNI NAD, minimal flows will be set on HBN bridge, patch ports created to sfc bridge
+              - serviceInterface:
+                  matchLabels:
+                    svc.dpu.nvidia.com/service: fw1
+                # bridge: sfc by default, will create a patch port between hbn and sfc, will set flows on SFC bridge
+            - ports:
+              - serviceInterface:
+                  matchLabels:
+                    svc.dpu.nvidia.com/service: fw1
+                # bridge: sfc by default, will create a patch port between hbn and sfc, will set flows on SFC bridge
+              - serviceInterface:
+                  matchLabels:
+                    svc.dpu.nvidia.com/service: dnsfilter1
+                # bridge: sfc by default, will create a patch port between hbn and sfc, will set flows on SFC bridge
+              - serviceInterface:
+                  matchLabels:
+                    svc.dpu.nvidia.com/service: nginx
+                  ipam:
+                    matchLabels:
+                      svc.dpu.nvidia.com/pool: example1
+                    defaultGateway: False
+                # bridge: sfc by default, will create a patch port between hbn and sfc, will set flows on SFC bridge
+            - ports:
+              - serviceInterface:
+                  matchLabels:
+                    svc.dpu.nvidia.com/service: dnsfilter1
+                # bridge: sfc by default, will create a patch port between hbn and sfc, will set flows on SFC bridge
+              - serviceInterface:
+                  matchLabels:
+                    svc.dpu.nvidia.com/interface: vf0
+                # bridge: int from the ServiceInterface. Will create a patch port and not set flows on the OVS br-int.

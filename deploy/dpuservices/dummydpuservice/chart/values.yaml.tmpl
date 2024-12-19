@@ -1,0 +1,38 @@
+### DPF contract ###
+
+# id of the service
+serviceID: ""
+# configuration for the se
+serviceDaemonSet:
+#  nodeSelector:
+#   nodeSelectorTerms:
+#     - matchExpressions:
+#         - key: dpu
+#           operator: In
+#           values:
+#             - dpu
+  labels: {}
+  annotations: {}
+  #  k8s.v1.cni.cncf.io/networks: | 
+  #   [{"name" : "mybrsfc", "interface" : "p0_sf"}]
+  updateStrategy: {}
+  #  type: RollingUpdate
+  #  rollingUpdate:
+  #    maxUnavailable: 1
+
+
+
+### Service specific values ###
+resources: {}
+image:
+  repository: ${DUMMYDPUSERVICE_IMAGE}
+  pullPolicy: IfNotPresent
+  tag: "${TAG}"
+
+imagePullSecrets: []
+
+podSecurityContext: {}
+
+securityContext: {}
+
+tolerations: []

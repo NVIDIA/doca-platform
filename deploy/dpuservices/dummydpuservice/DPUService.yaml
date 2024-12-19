@@ -1,0 +1,31 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: dummydpuservice
+  namespace: dummydpuservice
+spec:
+  helmChart:
+    source:
+      repoURL: nvidia.com/dpf
+      version: v0.1.0
+      chart: dummydpuservice-chart
+    values:
+      resources:
+        nvidia.com/bf_sf: 1
+  serviceID: dummydpuservice
+  serviceDaemonSet:
+    nodeSelector:
+      nodeSelectorTerms:
+      - matchExpressions:
+          - key: dpu
+            operator: In
+            values:
+              - dpu
+    updateStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: 2
+    labels:
+      dpuservice.dpu.nvidia.com/name: dummydpuservice
+    annotations:
+      dpuservice.dpu.nvidia.com/name: dummydpuservice

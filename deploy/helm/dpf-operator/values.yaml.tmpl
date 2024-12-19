@@ -1,0 +1,328 @@
+## dpf-operator configuration.
+controllerManager:
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+  image:
+    repository: ${DPF_SYSTEM_IMAGE}
+    tag: ${TAG}
+  replicas: 1
+  serviceAccount:
+    annotations: {}
+imagePullSecrets: []
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/master"
+              operator: Exists
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/control-plane"
+              operator: Exists
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+
+## installed dependencies except for kamaji.
+argo-cd:
+  enabled: true
+  dex:
+    enabled: false
+  notifications:
+    enabled: false
+  global:
+    podLabels:
+      ovn.dpu.nvidia.com/skip-injection: ""
+    affinity:
+      nodeAffinity:
+        # -- Default node affinity rules. Either: `none`, `soft` or `hard`
+        type: soft
+        # -- Default match expressions for node affinity
+        matchExpressions:
+          - key: "node-role.kubernetes.io/master"
+            operator: Exists
+          - key: "node-role.kubernetes.io/control-plane"
+            operator: Exists
+    tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+
+## NFD configuration
+node-feature-discovery:
+  enabled: true
+  master:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/master"
+                  operator: Exists
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/control-plane"
+                  operator: Exists
+  worker:
+    enable: true
+    hostNetwork: true
+    tolerations:
+      - key: node.kubernetes.io/not-ready
+        operator: Exists
+    config:
+      sources:
+        pci:
+          deviceClassWhitelist:
+            - "0200"
+          deviceLabelFields:
+            - "class"
+            - "vendor"
+            - "device"
+  gc:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/master"
+                  operator: Exists
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/control-plane"
+                  operator: Exists
+    tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+
+## kamaji configuration.
+kamaji-etcd:
+  enabled: true
+  ## Disable etc defragmentation job.
+  autoCompactionRetention: 0
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/master"
+                operator: Exists
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/control-plane"
+                operator: Exists
+  tolerations:
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  datastore:
+    enabled: true
+    annotations:
+      helm.sh/resource-policy: keep
+    name: default
+kamaji:
+  enabled: true
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/master"
+                operator: Exists
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/control-plane"
+                operator: Exists
+  tolerations:
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  etcd:
+    deploy: false
+  datastore:
+    enabled: false
+    nameOverride: default
+  image:
+    pullPolicy: IfNotPresent
+  cfssl:
+    image:
+      tag: v1.6.5
+
+## prometheus configuration.
+prometheus:
+  enabled: false
+## Unfortunately, there is no affinity and tolerations value in the prometheus helm chart.
+## This is only necessary for dev purposes anyway. We should not run this stack on our control planes.
+  alertmanager:
+    enabled: false
+  prometheus-node-exporter:
+    enabled: false
+  prometheus-pushgateway:
+    enabled: false
+  # We have to disable kube-state-metrics that is a dependency from Prometheus.
+  # Adding KSM manually has the benefit that we can only enable KSM, without Prometheus.
+  kube-state-metrics:
+    enabled: false
+  # Scrape metrics from deployed providers
+  extraScrapeConfigs: |
+    - job_name: 'doca-platform-framework'
+      # 15s is a bit often for production but helps to get metrics quicker for development.
+      scrape_interval: 15s
+      metrics_path: /metrics
+      scheme: https
+      authorization:
+        type: Bearer
+        credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecure_skip_verify: true
+      kubernetes_sd_configs:
+        - role: pod
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_label_dpu_nvidia_com_component]
+          action: keep
+          regex: ".*-controller-manager"
+        - source_labels: [__meta_kubernetes_pod_container_port_name]
+          action: keep
+          regex: metrics
+
+## grafana configuration
+grafana:
+  enabled: false
+  persistence:
+    enabled: true
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: prometheus
+          type: prometheus
+          url: http://dpf-operator-prometheus-server
+          access: proxy
+          isDefault: true
+  dashboardProviders:
+   dashboardproviders.yaml:
+     apiVersion: 1
+     providers:
+       - name: 'default'
+         orgId: 1
+         folder: ''
+         type: file
+         disableDeletion: false
+         editable: true
+         options:
+           path: /var/lib/grafana/dashboards/default
+       - name: 'debug'
+         orgId: 1
+         folder: 'debug'
+         type: file
+         disableDeletion: false
+         editable: true
+         options:
+           path: /var/lib/grafana/dashboards/debug
+  dashboardsConfigMaps:
+    default: dpf-operator-grafana-dashboards
+    debug: dpf-operator-grafana-debug-dashboards
+
+## kube-state-metrics configuration
+kube-state-metrics:
+  enabled: false
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/master"
+                operator: Exists
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/control-plane"
+                operator: Exists
+  tolerations:
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  extraArgs:
+    - --custom-resource-state-config-file=/etc/customresourcestate/config.yaml
+  volumes:
+    - configMap:
+        defaultMode: 420
+        name: dpf-operator-customresourcestate-config
+      name: customresourcestate-config
+  volumeMounts:
+    - mountPath: /etc/customresourcestate
+      name: customresourcestate-config
+      readOnly: true
+  rbac:
+    extraRules:
+      - apiGroups:
+          - svc.dpu.nvidia.com
+          - operator.dpu.nvidia.com
+          - svc.dpu.nvidia.com
+          - provisioning.dpu.nvidia.com
+        resources:
+          - dpuclusters
+          - dpuclusters/status
+          - dpudeployments
+          - dpudeployments/status
+          - dpuservicecredentialrequests
+          - dpuservicecredentialrequests/status
+          - dpuservices
+          - dpuservices/status
+          - dpfoperatorconfigs
+          - dpfoperatorconfigs/status
+          - dpuservicechains
+          - dpuservicechains/status
+          - dpuserviceinterfaces
+          - dpuserviceinterfaces/status
+          - dpuserviceipams
+          - dpuserviceipams/status
+          - dpus
+          - dpus/status
+          - bfbs
+          - bfbs/status
+        verbs: ["list", "watch"]
+      - apiGroups: ["apiextensions.k8s.io"]
+        resources: ["customresourcedefinitions"]
+        verbs: ["list", "watch"]
+
+## maintenance-operator chart configuration
+maintenance-operator-chart:
+  enabled: true
+  operatorConfig:
+    maxParallelOperations: 60%
+  operator:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/master"
+                  operator: Exists
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/control-plane"
+                  operator: Exists
+    tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule

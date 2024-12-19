@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: dpu-cni-provisioner
+  labels:
+    app.kubernetes.io/name: dpu-cni-provisioner
+    app.kubernetes.io/created-by: dpf-operator
+    app.kubernetes.io/part-of: dpf-operator
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dpu-cni-provisioner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dpu-cni-provisioner
+    spec:
+      hostNetwork: true
+      securityContext:
+        runAsUser: 0
+      containers:
+      - name: dpu-cni-provisioner
+        image: controller
+        imagePullPolicy: Always
+        readinessProbe:
+          exec:
+            command:
+            - cat
+            - /var/run/readyz
+        securityContext:
+          privileged: true
+        env:
+        # This is required so that systemctl uses the mounted systemd dbus socket
+        # TODO: Remove this if OVS DOCA is configured as part of provisioning and OVS systemd service doesn't need a
+        # restart
+        - name: SYSTEMCTL_FORCE_BUS
+          value: "1"
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: ovs
+          mountPath: /var/run/openvswitch/
+        - name: ovs-systemd-config
+          mountPath: /etc/default/openvswitch-switch
+        # TODO: Remove this if OVS DOCA is configured as part of provisioning and OVS systemd service doesn't need a
+        # restart
+        - name: var-run-systemd
+          mountPath: /var/run/systemd
+        # TODO: Remove this if OVS DOCA is configured as part of provisioning and OVS systemd service doesn't need a
+        # restart
+        - name: systemd-dbus
+          mountPath: /var/run/dbus/system_bus_socket
+        - name: config
+          mountPath: /etc/dpucniprovisioner
+      volumes:
+      - name: ovs
+        hostPath:
+          path: /var/run/openvswitch
+      - name: ovs-systemd-config
+        hostPath:
+          path: /etc/default/openvswitch-switch
+      - name: var-run-systemd
+        hostPath:
+          path: /var/run/systemd
+      - name: systemd-dbus
+        hostPath:
+          path: /var/run/dbus/system_bus_socket
+      - name: config
+        configMap:
+          name: dpu-cni-provisioner

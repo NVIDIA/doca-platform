@@ -1,0 +1,33 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: ovn-dpu
+  namespace: dpf-operator-system 
+spec:
+  helmChart:
+    source:
+      repoURL: oci://ghcr.io/nvidia
+      chart: ovn-kubernetes-chart
+      version: $DPF_VERSION
+    values:
+      tags:
+        ovn-kubernetes-resource-injector: false
+        ovnkube-node-dpu: true
+        ovnkube-node-dpu-host: false
+        ovnkube-single-node-zone: false
+        ovnkube-control-plane: false
+      k8sAPIServer: https://$TARGETCLUSTER_API_SERVER_HOST:$TARGETCLUSTER_API_SERVER_PORT
+      podNetwork: $POD_CIDR/24
+      serviceNetwork: $SERVICE_CIDR
+      global:
+        gatewayOpts: "--gateway-interface=br-ovn --gateway-uplink-port=puplinkbrovn"
+        imagePullSecretName: dpf-pull-secret
+      ovnkube-node-dpu:
+        kubernetesSecretName: "ovn-dpu" # user needs to populate based on DPUServiceCredentialRequest
+        vtepCIDR: "10.0.120.0/22" # user needs to populate based on DPUServiceIPAM
+        hostCIDR: $TARGETCLUSTER_NODE_CIDR
+        ipamPool: "pool1" # user needs to populate based on DPUServiceIPAM
+        ipamPoolType: "cidrpool" # user needs to populate based on DPUServiceIPAM
+        ipamVTEPIPIndex: 0
+        ipamPFIPIndex: 1

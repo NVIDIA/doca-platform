@@ -1,0 +1,201 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: doca-hbn
+  namespace: dpf-operator-system
+spec:
+  serviceID: doca-hbn
+  interfaces:
+  - p0-sf
+  - p1-sf
+  - host-pf0-sf
+  - host-pf1-sf
+  serviceDaemonSet:
+    labels:
+    annotations:
+      k8s.v1.cni.cncf.io/networks: |-
+        [
+        {"name": "iprequest", "interface": "ip_lo", "cni-args": {"poolNames": ["loopback"], "poolType": "cidrpool"}},
+        {"name": "iprequest", "interface": "ip_pf0hpf", "cni-args": {"poolNames": ["pool1"], "poolType": "cidrpool", "allocateDefaultGateway": true}},
+        {"name": "iprequest", "interface": "ip_pf1hpf", "cni-args": {"poolNames": ["pool2"], "poolType": "cidrpool", "allocateDefaultGateway": true}}
+        ]
+  helmChart:
+    source:
+      repoURL: https://helm.ngc.nvidia.com/nvidia/doca
+      version: 1.0.1
+      chart: doca-hbn
+    values:
+      imagePullSecrets:
+      - name: dpf-pull-secret
+      image:
+        repository: nvcr.io/nvidia/doca/doca_hbn
+        tag: 2.4.1-doca2.9.1
+      resources:
+        memory: 6Gi
+        nvidia.com/bf_sf: 4
+      configuration:
+        perDPUValuesYAML: |
+          - hostnamePattern: "*"
+            values:
+              bgp_peer_group: hbn
+              vrf1: RED
+              vrf2: BLUE
+              l2vni1: 10010
+              l2vni2: 10020
+              l3vni1: 100001
+              l3vni2: 100002
+          - hostnamePattern: "worker1*"
+            values:
+              vlan1: 11
+              vlan2: 21
+              bgp_autonomous_system: 65101
+          - hostnamePattern: "worker2*"
+            values:
+              vlan1: 12
+              vlan2: 22
+              bgp_autonomous_system: 65201
+        startupYAMLJ2: |
+          - header:
+              model: bluefield
+              nvue-api-version: nvue_v1
+              rev-id: 1.0
+              version: HBN 2.4.0
+          - set:
+              bridge:
+                domain:
+                  br_default:
+                    vlan:
+                      {{ config.vlan1 }}:
+                        vni:
+                          {{ config.l2vni1 }}: {}
+                      {{ config.vlan2 }}:
+                        vni:
+                          {{ config.l2vni2 }}: {}
+              evpn:
+                enable: on
+                route-advertise: {}
+              interface:
+                lo:
+                  ip:
+                    address:
+                      {{ ipaddresses.ip_lo.ip }}/32: {}
+                  type: loopback
+                p0_if,p1_if,pf0hpf_if,pf1hpf_if:
+                  type: swp
+                  link:
+                    mtu: 9000
+                pf0hpf_if:
+                  bridge:
+                    domain:
+                      br_default:
+                        access: {{ config.vlan1 }}
+                pf1hpf_if:
+                  bridge:
+                    domain:
+                      br_default:
+                        access: {{ config.vlan2 }}
+                vlan{{ config.vlan1 }}:
+                  ip:
+                    address:
+                      {{ ipaddresses.ip_pf0hpf.cidr }}: {}
+                    vrf: {{ config.vrf1 }}
+                  vlan: {{ config.vlan1 }}
+                vlan{{ config.vlan1 }},{{ config.vlan2 }}:
+                  type: svi
+                vlan{{ config.vlan2 }}:
+                  ip:
+                    address:
+                      {{ ipaddresses.ip_pf1hpf.cidr }}: {}
+                    vrf: {{ config.vrf2 }}
+                  vlan: {{ config.vlan2 }}
+              nve:
+                vxlan:
+                  arp-nd-suppress: on
+                  enable: on
+                  source:
+                    address: {{ ipaddresses.ip_lo.ip }}
+              router:
+                bgp:
+                  enable: on
+                  graceful-restart:
+                    mode: full
+              vrf:
+                default:
+                  router:
+                    bgp:
+                      address-family:
+                        ipv4-unicast:
+                          enable: on
+                          redistribute:
+                            connected:
+                              enable: on
+                        l2vpn-evpn:
+                          enable: on
+                      autonomous-system: {{ config.bgp_autonomous_system }}
+                      enable: on
+                      neighbor:
+                        p0_if:
+                          peer-group: {{ config.bgp_peer_group }}
+                          type: unnumbered
+                        p1_if:
+                          peer-group: {{ config.bgp_peer_group }}
+                          type: unnumbered
+                      path-selection:
+                        multipath:
+                          aspath-ignore: on
+                      peer-group:
+                        {{ config.bgp_peer_group }}:
+                          address-family:
+                            ipv4-unicast:
+                              enable: on
+                            l2vpn-evpn:
+                              enable: on
+                          remote-as: external
+                      router-id: {{ ipaddresses.ip_lo.ip }}
+                {{ config.vrf1 }}:
+                  evpn:
+                    enable: on
+                    vni:
+                      {{ config.l3vni1 }}: {}
+                  loopback:
+                    ip:
+                      address:
+                        {{ ipaddresses.ip_lo.ip }}/32: {}
+                  router:
+                    bgp:
+                      address-family:
+                        ipv4-unicast:
+                          enable: on
+                          redistribute:
+                            connected:
+                              enable: on
+                          route-export:
+                            to-evpn:
+                              enable: on
+                      autonomous-system: {{ config.bgp_autonomous_system }}
+                      enable: on
+                      router-id: {{ ipaddresses.ip_lo.ip }}
+                {{ config.vrf2 }}:
+                  evpn:
+                    enable: on
+                    vni:
+                      {{ config.l3vni2 }}: {}
+                  loopback:
+                    ip:
+                      address:
+                        {{ ipaddresses.ip_lo.ip }}/32: {}
+                  router:
+                    bgp:
+                      address-family:
+                        ipv4-unicast:
+                          enable: on
+                          redistribute:
+                            connected:
+                              enable: on
+                          route-export:
+                            to-evpn:
+                              enable: on
+                      autonomous-system: {{ config.bgp_autonomous_system }}
+                      enable: on
+                      router-id: {{ ipaddresses.ip_lo.ip }}

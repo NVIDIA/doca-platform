@@ -1,0 +1,25 @@
+# This patch inject a sidecar container which is a HTTP proxy for the
+# controller manager, it performs RBAC authorization against the Kubernetes API using SubjectAccessReviews.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: system
+spec:
+  template:
+    spec:
+      containers:
+      - name: manager
+        args:
+        - "--leader-elect"
+        - "--v=3"
+        - --dms-image=example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0
+        - --hostnetwork-image=example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0
+        - --bfb-pvc=bfb-pvc
+        volumeMounts:
+          - mountPath: /bfb
+            name: bfb-volume
+      volumes:
+      - name: bfb-volume
+        persistentVolumeClaim:
+          claimName: bfb-pvc

@@ -1,0 +1,11 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: servicefunctionchainset-controller
+  namespace: dpf-operator-system
+spec:
+  helmChart:
+    source:
+      repoURL: oci://example.com
+      chart: servicechain-chart
+      version: v0.1.0

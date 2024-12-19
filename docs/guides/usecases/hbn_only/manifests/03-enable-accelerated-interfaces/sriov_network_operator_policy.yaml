@@ -1,0 +1,22 @@
+---
+apiVersion: sriovnetwork.openshift.io/v1
+kind: SriovNetworkNodePolicy
+metadata:
+  name: bf3-p0-vfs
+  namespace: nvidia-network-operator
+spec:
+  mtu: 1500
+  nicSelector:
+    deviceID: "a2dc"
+    vendor: "15b3"
+    pfNames:
+    - $DPU_P0#2-45
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
+  numVfs: 46
+  resourceName: bf3-p0-vfs
+  isRdma: true
+  externallyManaged: true
+  deviceType: netdevice
+  linkType: eth
+

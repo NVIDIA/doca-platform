@@ -1,0 +1,97 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: doca-hbn
+  namespace: dpf-operator-system
+spec:
+  serviceID: doca-hbn
+  interfaces:
+  - p0-sf
+  - p1-sf
+  - app-sf
+  serviceDaemonSet:
+    annotations:
+      k8s.v1.cni.cncf.io/networks: |-
+        [
+        {"name": "iprequest", "interface": "ip_lo", "cni-args": {"poolNames": ["loopback"], "poolType": "cidrpool"}},
+        {"name": "iprequest", "interface": "ip_pf2dpu2", "cni-args": {"poolNames": ["pool1"], "poolType": "cidrpool", "allocateDefaultGateway": true}}
+        ]
+  helmChart:
+    source:
+      repoURL: https://helm.ngc.nvidia.com/nvidia/doca
+      version: 1.0.1
+      chart: doca-hbn
+    values:
+      image:
+        repository: nvcr.io/nvidia/doca/doca_hbn
+        tag: 2.4.1-doca2.9.1
+      resources:
+        memory: 6Gi
+        nvidia.com/bf_sf: 3
+      configuration:
+        perDPUValuesYAML: |
+          - hostnamePattern: "*"
+            values:
+              bgp_autonomous_system: 65111
+              bgp_peer_group: hbn
+        startupYAMLJ2: |
+          - header:
+              model: BLUEFIELD
+              nvue-api-version: nvue_v1
+              rev-id: 1.0
+              version: HBN 2.4.0
+          - set:
+              interface:
+                lo:
+                  ip:
+                    address:
+                      {{ ipaddresses.ip_lo.ip }}/32: {}
+                  type: loopback
+                p0_if,p1_if:
+                  type: swp
+                  link:
+                    mtu: 9000
+                pf2dpu2_if:
+                  ip:
+                    address:
+                      {{ ipaddresses.ip_pf2dpu2.cidr }}: {}
+                  type: swp
+                  link:
+                    mtu: 9000
+              router:
+                bgp:
+                  autonomous-system: {{ config.bgp_autonomous_system }}
+                  enable: on
+                  graceful-restart:
+                    mode: full
+                  router-id: {{ ipaddresses.ip_lo.ip }}
+              vrf:
+                default:
+                  router:
+                    bgp:
+                      address-family:
+                        ipv4-unicast:
+                          enable: on
+                          redistribute:
+                            connected:
+                              enable: on
+                        ipv6-unicast:
+                          enable: on
+                          redistribute:
+                            connected:
+                              enable: on
+                      enable: on
+                      neighbor:
+                        p0_if:
+                          peer-group: {{ config.bgp_peer_group }}
+                          type: unnumbered
+                        p1_if:
+                          peer-group: {{ config.bgp_peer_group }}
+                          type: unnumbered
+                      path-selection:
+                        multipath:
+                          aspath-ignore: on
+                      peer-group:
+                        {{ config.bgp_peer_group }}:
+                          remote-as: external

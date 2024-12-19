@@ -1,0 +1,160 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+    helm.sh/resource-policy: keep
+  creationTimestamp: null
+  labels:
+    dpu.nvidia.com/component: dpf-operator-controller-manager
+  name: serviceinterfaces.svc.dpu.nvidia.com
+spec:
+  group: svc.dpu.nvidia.com
+  names:
+    kind: ServiceInterface
+    listKind: ServiceInterfaceList
+    plural: serviceinterfaces
+    singular: serviceinterface
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.interfaceType
+      name: IfType
+      type: string
+    - jsonPath: .spec.interfaceName
+      name: IfName
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ServiceInterface is the Schema for the serviceinterfaces API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ServiceInterfaceSpec defines the desired state of ServiceInterface
+            properties:
+              interfaceType:
+                description: The interface type ("vlan", "physical", "pf", "vf", "ovn",
+                  "service")
+                enum:
+                - vlan
+                - physical
+                - pf
+                - vf
+                - ovn
+                - service
+                type: string
+              node:
+                description: Node where this interface exists
+                type: string
+              pf:
+                description: The PF definition
+                properties:
+                  pfID:
+                    description: The PF ID
+                    type: integer
+                required:
+                - pfID
+                type: object
+              physical:
+                description: The physical interface definition
+                properties:
+                  interfaceName:
+                    description: The interface name
+                    type: string
+                required:
+                - interfaceName
+                type: object
+              service:
+                description: The Service definition
+                properties:
+                  interfaceName:
+                    description: The interface name
+                    type: string
+                  network:
+                    description: |-
+                      Network is the Network Attachment Definition in the form of "namespace/name"
+                      or just "name" if the namespace is the same as the ServiceInterface.
+                    type: string
+                  serviceID:
+                    description: ServiceID is the DPU Service Identifier
+                    type: string
+                required:
+                - interfaceName
+                - network
+                - serviceID
+                type: object
+              vf:
+                description: The VF definition
+                properties:
+                  parentInterfaceRef:
+                    description: The parent interface reference
+                    type: string
+                  pfID:
+                    description: The PF ID
+                    type: integer
+                  vfID:
+                    description: The VF ID
+                    type: integer
+                required:
+                - parentInterfaceRef
+                - pfID
+                - vfID
+                type: object
+              vlan:
+                description: The VLAN definition
+                properties:
+                  parentInterfaceRef:
+                    description: The parent interface reference
+                    type: string
+                  vlanID:
+                    description: The VLAN ID
+                    type: integer
+                required:
+                - parentInterfaceRef
+                - vlanID
+                type: object
+            required:
+            - interfaceType
+            type: object
+            x-kubernetes-validations:
+            - message: '`for interfaceType=vlan, vlan must be set; for interfaceType=pf,
+                pf must be set; for interfaceType=vf, vf must be set; for interfaceType=physical,
+                physical must be set; for interfaceType=service, service must be set`'
+              rule: (self.interfaceType == 'vlan' && has(self.vlan)) || (self.interfaceType
+                == 'pf' && has(self.pf)) || (self.interfaceType == 'vf' && has(self.vf))
+                || (self.interfaceType == 'physical' && has(self.physical)) || (self.interfaceType
+                == 'service' && has(self.service)) || (self.interfaceType == 'ovn')
+          status:
+            description: ServiceInterfaceStatus defines the observed state of ServiceInterface
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: null
+  storedVersions: null

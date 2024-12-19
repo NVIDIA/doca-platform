@@ -1,0 +1,14 @@
+---
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  imagePullSecrets:
+  - dpf-pull-secret
+  provisioningController:
+    bfbPVCName: "bfb-pvc"
+    dmsTimeout: 900
+  kamajiClusterManager:
+    disable: false

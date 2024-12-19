@@ -1,0 +1,370 @@
+{{range .BFGCFGParams}}{{.}}
+{{end}}
+
+bfb_modify_os()
+{
+mkdir -p /mnt/opt/dpf
+cat << \EOF > /mnt/etc/cloud/cloud.cfg.d/dpf.cfg
+network:
+  config: disabled
+EOF
+
+cp /mnt/opt/mellanox/sfc-hbn/mlnx_bf_configure_sync.service /mnt/etc/systemd/system/
+
+cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
+#cloud-config
+debug:
+  verbose: true
+users:
+  - name: ubuntu
+    lock_passwd: False
+    groups: adm, audio, cdrom, dialout, dip, floppy, lxd, netdev, plugdev, sudo, video
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+{{- if .UbuntuPassword}}
+    passwd: {{.UbuntuPassword}}
+{{else}}
+chpasswd:
+  list: |
+    ubuntu:ubuntu
+  expire: True
+{{end}}
+
+write_files:
+  - path: /etc/netplan/60-mlnx.yaml
+    permissions: '0600'
+    content: ""
+
+  - path: /etc/netplan/99-dpf-comm-ch.yaml
+    permissions: '0600'
+    content: |
+        network:
+          renderer: networkd
+          version: 2
+          ethernets:
+            pf0vf0: {}
+          bridges:
+            br-comm-ch:
+              dhcp4: yes
+              interfaces:
+                - pf0vf0
+
+  - path: /etc/netplan/98-oob-tmfifo.yaml
+    permissions: '0600'
+    content: |
+        network:
+          renderer: networkd
+          version: 2
+          ethernets:
+            oob_net0:
+              dhcp4: false
+            tmfifo_net0:
+              addresses:
+              - 192.168.100.2/30
+              dhcp4: false
+
+  - path: /etc/modules-load.d/br_netfilter.conf
+    permissions: '0644'
+    content: |
+        br_netfilter
+  - path: /etc/sysctl.conf
+    permissions: '0644'
+    owner: root:root
+    append: true
+    content: |
+        net.ipv4.ip_forward=1
+        net.bridge.bridge-nf-call-iptables=1
+        net.bridge.bridge-nf-call-ip6tables=1
+  - path: /opt/dpf/configure-sfs.sh
+    permissions: '0755'
+    content: |
+        #!/bin/bash
+        set -ex
+        PF_TOTAL_SF={{.SFNum}}
+        CMD=$1
+
+        case $CMD in
+            setup) ;;
+            *)
+            echo "invalid first argument. ./configure-sfs.sh {setup}"
+            exit 1
+            ;;
+        esac
+
+        if [ "$CMD" = "setup" ]; then
+            # Create SF on P0 for SFC
+            # System SF(index 0) has been removed, so DPF will create SF from index 0
+            for i in $(seq 0 $((PF_TOTAL_SF-1))); do
+                /sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum ${i} || true
+            done
+        fi
+  - path: /etc/systemd/system/kubelet.service.d/10-bf.conf
+    permissions: '0644'
+    content: |
+        [Service]
+        Environment="KUBELET_KUBECONFIG_ARGS=--bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf"
+        Environment="KUBELET_CONFIG_ARGS=--config=/var/lib/kubelet/config.yaml"
+        EnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env
+        EnvironmentFile=-/etc/default/kubelet
+        ExecStart=
+        ExecStart=/usr/bin/kubelet $KUBELET_KUBECONFIG_ARGS $KUBELET_CONFIG_ARGS $KUBELET_KUBEADM_ARGS $KUBELET_EXTRA_ARGS
+  - path: /opt/dpf/join_k8s_cluster.sh
+    permissions: '0755'
+    content: |
+        #!/bin/bash
+
+        COMM_CH_BR_NAME=br-comm-ch
+        # update dynamic IP to kubelet configuration
+        while true; do
+            if [ -d "/sys/class/net/${COMM_CH_BR_NAME}" ]; then
+                break
+            fi
+            sleep 5
+        done
+        while true; do
+            ip_list=($(ip addr show ${COMM_CH_BR_NAME} | grep -oP 'inet \K[\d.]+'))
+
+            if [[ ${#ip_list[@]} -lt 1 ]]; then
+                sleep 5
+                continue
+            fi
+
+            for ip in "${ip_list[@]}"; do
+                systemctl enable kubelet
+                break
+            done
+            break
+        done
+
+        # already joined cluster
+        if [ -e "/opt/dpf/joined_cluster_successfully" ]; then
+            # avoid re-join when dpu restart
+            echo "/opt/dpf/joined_cluster_successfully already exist, the node should already joined cluster."
+            exit 0
+        fi
+
+
+        while true
+        do
+            {{.KubeadmJoinCMD}} && touch /opt/dpf/joined_cluster_successfully && exit 0
+            sleep 5 # Wait for 5 seconds before retrying
+            if [ -e "/etc/kubernetes/pki/ca.crt" ]; then
+                rm -rf /etc/kubernetes/pki/ca.crt
+            fi
+            if [ -e "/etc/kubernetes/bootstrap-kubelet.conf" ]; then
+                rm -rf /etc/kubernetes/bootstrap-kubelet.conf
+            fi
+        done
+        echo "Failed joining k8s cluster after 30 minutes."
+        exit 1
+  - path: /etc/systemd/system/kubeadm-join.service
+    permissions: '0644'
+    content: |
+        [Unit]
+        Description=Run kubeadm until successful or timeout
+        After=network-online.target
+        Wants=network-online.target
+
+        [Service]
+        Type=simple
+        ExecStart=/bin/bash /opt/dpf/join_k8s_cluster.sh
+
+
+        [Install]
+        WantedBy=multi-user.target
+  - path: /etc/systemd/system/bootstrap-dpf.service
+    permissions: '0644'
+    content: |
+        [Unit]
+        Description=Create Scalable Functions on the DPU required for DPF
+        After=network-online.target
+        Before=kubelet.service
+        Wants=network-online.target
+
+        [Service]
+        Type=oneshot
+        ExecStart=/bin/bash /opt/dpf/configure-sfs.sh setup
+
+        [Install]
+        WantedBy=multi-user.target
+  - path: /etc/systemd/resolved.conf.d/01-dpf.conf
+    permissions: '0644'
+    content: |
+        [Resolve]
+        DNSStubListener=no
+
+  - path: /etc/NetworkManager/conf.d/90-dpf.conf
+    permissions: '0644'
+    content: |
+        [main]
+        dns=none
+
+  - path: /opt/dpf/cleanup-dns.sh
+    permissions: '0755'
+    content: |
+        #!/bin/bash
+
+        set -euo pipefail
+
+        resolvconf_filepath="/etc/resolv.conf"
+        resolved_filepath="/var/run/systemd/resolve/resolv.conf"
+
+        if [[ -f "${resolvconf_filepath}" ]]; then
+          cp -p "${resolvconf_filepath}" "${resolvconf_filepath}.bak"
+          echo "Backup created: ${resolvconf_filepath}.bak"
+
+          rm "${resolvconf_filepath}"
+          echo "Original file removed: ${resolvconf_filepath}"
+        else
+          echo "File does not exist: ${resolvconf_filepath}"
+        fi
+
+        ln -s ${resolved_filepath} ${resolvconf_filepath}
+
+        systemctl mask dnsmasq
+
+{{- if .NVConfigParams}}
+  - path: /opt/dpf/set-nvconfig-params.sh
+    permissions: '0755'
+    content: |
+        #! /bin/bash
+        set -e
+        for dev in /dev/mst/*; do
+          echo "set NVConfig on dev ${dev}"
+          mlxconfig -d ${dev} -y set {{.NVConfigParams}}
+        done
+        echo "Finished setting nvconfig parameters"
+{{end}}
+{{- if .Sysctl}}
+  - path: /etc/sysctl.d/99-dpf.conf
+    permissions: '0644'
+    content: |
+{{- range .Sysctl}}
+{{indent 8 .}}{{end}}
+{{end}}
+
+{{- if .KernelParameters}}
+  - path: /etc/default/grub.d/99-dpf.cfg
+    permissions: '0644'
+    content: |
+        GRUB_CMDLINE_LINUX="{{.KernelParameters}}"
+{{end}}
+
+{{- range .ConfigFiles}}
+  - path: {{.Path}}
+    {{if .IsAppend}}append: true
+    {{end -}}
+    permissions: {{.Permissions}}
+    content: |
+{{indent 8 .Content}}
+{{end}}
+
+{{- if .OVSRawScript}}
+  - path: /opt/dpf/ovs.sh
+    permissions: '0755'
+    content: |
+        #! /bin/bash
+        set -e
+{{indent 8 .OVSRawScript}}
+{{end}}
+
+{{- if or .KernelParameters .Sysctl}}
+  - path: /opt/dpf/restart.sh
+    permissions: '0755'
+    content: |
+        #! /bin/bash
+        set -e
+        update-grub
+{{- if .AdditionalReboot}}
+        reboot
+{{end}}
+{{end}}
+
+{{- if .ContainerdRegistryEndpoint }}
+  - path: /opt/dpf/config_containerd.sh
+    permissions: '0755'
+    content: |
+        #!/bin/bash
+
+        CONFIG_FILE="/etc/containerd/config.toml"
+
+        if [ ! -f "$CONFIG_FILE" ]; then
+            exit 1
+        fi
+
+        CONTAINERD_VERSION=$(containerd --version | awk '{print $3}' | cut -d '.' -f1,2)
+
+        if [ -z "$CONTAINERD_VERSION" ]; then
+            exit 1
+        fi
+
+        # Determine the containerd path based on version
+        if (( $(echo "$CONTAINERD_VERSION >= 2" | bc -l) )); then
+            CONTAINERD_PATH="io.containerd.cri.v1.images"
+        else
+            CONTAINERD_PATH="io.containerd.grpc.v1.cri"
+        fi
+
+        # Function to modify or add tls configuration
+        modify_tls() {
+            if grep -q '\[plugins\."'"$CONTAINERD_PATH"'"\.registry\.configs\."nvcr.io"\.tls\]' "$CONFIG_FILE"; then
+                sed -i '/\[plugins\."'"$CONTAINERD_PATH"'"\.registry\.configs\."nvcr.io"\.tls\]/,+1 s/insecure_skip_verify = .*/insecure_skip_verify = true/' "$CONFIG_FILE"
+            else
+                sed -i '/^[[:space:]]*#[[:space:]]*\[plugins\."'"$CONTAINERD_PATH"'"\.registry\.configs\]/s/^[[:space:]]*#//; /\[plugins\."'"$CONTAINERD_PATH"'"\.registry\.configs\]/a \ \ \ \ \ \ \ \ \[plugins\."'"$CONTAINERD_PATH"'"\.registry\.configs\."nvcr.io"\.tls\]\n\ \ \ \ \ \ \ \ \ \ insecure_skip_verify = true' "$CONFIG_FILE"
+            fi
+        }
+
+        # Function to modify or add mirrors configuration
+        modify_mirrors() {
+            if grep -q '\[plugins\."'"$CONTAINERD_PATH"'"\.registry\.mirrors\."nvcr.io"\]' "$CONFIG_FILE"; then
+                sed -i '/\[plugins\."'"$CONTAINERD_PATH"'"\.registry\.mirrors\."nvcr.io"\]/,+1 s|endpoint = .*|endpoint = [\"{{ .ContainerdRegistryEndpoint }}\"]|' "$CONFIG_FILE"
+            else
+                sed -i '/\[plugins\."'"$CONTAINERD_PATH"'"\.registry\.mirrors\]/a \ \ \ \ \ \ \ \ \[plugins\."'"$CONTAINERD_PATH"'"\.registry\.mirrors\."nvcr.io"\]\n\ \ \ \ \ \ \ \ \ \ endpoint = [\"{{ .ContainerdRegistryEndpoint }}\"]' "$CONFIG_FILE"
+            fi
+        }
+
+        modify_tls
+
+        modify_mirrors
+{{ end }}
+  - path: /opt/dpf/remove-90-kubelet-bluefield.sh
+    permissions: '0755'
+    content: |
+        #!/bin/bash
+
+        file_path="/usr/lib/systemd/system/kubelet.service.d/90-kubelet-bluefield.conf"
+
+        if [[ -f "$file_path" ]]; then
+          cp -p "$file_path" "${file_path}.bak"
+          echo "Backup created: ${file_path}.bak"
+
+          rm "$file_path"
+          echo "Original file removed: $file_path"
+        else
+          echo "File does not exist: $file_path"
+        fi
+
+runcmd:
+  - [ hostnamectl, set-hostname, {{.DPUHostName}} ]
+  - [ modprobe, br_netfilter ]
+  - [ sysctl, -p ]
+  - [ systemctl, stop, kubelet ]
+  - [ /opt/dpf/remove-90-kubelet-bluefield.sh ]
+  - [ /opt/dpf/cleanup-dns.sh ]
+  - [ systemctl, daemon-reload ]
+  - [ systemctl, enable, containerd ]
+  - [ systemctl, start, containerd ]
+  - [ systemctl, enable, bootstrap-dpf.service ]
+  - [ systemctl, enable, kubeadm-join.service ]
+  - [ systemctl, enable, mlnx_bf_configure_sync.service ]
+{{- if .NVConfigParams}}
+  - [ /opt/dpf/set-nvconfig-params.sh ]{{end}}
+{{- if .OVSRawScript}}
+  - [ /opt/dpf/ovs.sh ]{{end}}
+{{- if .ContainerdRegistryEndpoint}}
+  - [ /opt/dpf/config_containerd.sh ]
+  - [ systemctl, restart, containerd ]{{end}}
+{{- if or .KernelParameters .Sysctl}}
+  - [ /opt/dpf/restart.sh]{{end}}
+EOF
+}

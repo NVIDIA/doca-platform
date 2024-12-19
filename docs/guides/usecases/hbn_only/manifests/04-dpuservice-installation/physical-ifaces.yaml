@@ -1,0 +1,68 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: p0
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            uplink: "p0"
+        spec:
+          interfaceType: physical
+          physical:
+            interfaceName: p0
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: p1
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            uplink: "p1"
+        spec:
+          interfaceType: physical
+          physical:
+            interfaceName: p1
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: host-pf0-rep
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            hostpf: "host_pf0_rep"
+        spec:
+          interfaceType: pf
+          pf:
+            pfID: 0
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: host-pf1-rep
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            hostpf: "host_pf1_rep"
+        spec:
+          interfaceType: pf
+          pf:
+            pfID: 1

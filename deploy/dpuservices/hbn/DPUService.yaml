@@ -1,0 +1,121 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: doca-hbn
+  namespace: dpf-operator-system
+spec:
+  serviceID: doca-hbn
+  interfaces:
+    - p0-if
+    - p1-if
+    - app-if
+  serviceDaemonSet:
+    annotations:
+      k8s.v1.cni.cncf.io/networks: |-
+        [
+        {"name": "iprequest", "interface": "ip_lo", "cni-args": {"poolNames": ["loopback"], "poolType": "cidrpool"}},
+        {"name": "iprequest", "interface": "ip_pf2dpu2", "cni-args": {"poolNames": ["pool1"], "poolType": "cidrpool", "allocateDefaultGateway": true}}
+        ]
+  helmChart:
+    source:
+      repoURL: https://helm.ngc.nvidia.com/nvidia/doca
+      version: 1.0.1
+      chart: doca-hbn
+    values:
+      resources:
+        memory: 6Gi
+        nvidia.com/bf_sf: 3
+      configuration:
+        # The "perDPUValuesYAML" field should contain a string with a YAML list.
+        # This list is used to compute template values for a specific DPU.
+        # The elements of the list should be sorted by priority, with the first element having
+        # the lowest priority and the last element having the highest priority.
+        # The resulting values for the DPU are computed by traversing the list from the beginning to the end.
+        # Typically, the first element will match all hosts (*) and should contain default values.
+        # More specific selectors should be placed closer to the end of the list.
+        # The resulting values for the hostname will include merged values from all matching patterns,
+        # with values from patterns closer to the end of the list taking precedence.
+        perDPUValuesYAML: |
+          - hostnamePattern: "*"
+            values:
+              bgp_autonomous_system: 65111
+              bgp_peer_group: hbn
+          - hostnamePattern: "myhost-a*"
+            values:
+              bgp_autonomous_system: 65112
+        # The "startupYAMLJ2" field includes a JINJA2 template for the startup configuration,
+        # where DPU-specific values calculated from "perDPUValuesYAML" are inserted into the template within the "config" object.
+        # These values can be referenced using "{{ config.bgp_autonomous_system }}",
+        # where "bgp_autonomous_system" is the variable name from "perDPUValuesYAML".
+        #
+        # IP addresses requested from the "iprequest" network (using the "k8s.v1.cni.cncf.io/networks" annotation)
+        # are accessible via the "ipaddresses" object in the template.
+        #
+        # Example:
+        #       k8s.v1.cni.cncf.io/networks: |-
+        #         [{"name": "iprequest", "interface": "ip_lo",
+        #           "cni-args":{"poolNames": ["loopback"], "poolType": "cidrpool"}},
+        #          {"name": "iprequest", "interface": "ip_pf2dpu2",
+        #           "cni-args":{"poolNames": ["pf2dpu"], "poolType": "cidrpool", "allocateDefaultGateway": true}}]
+        #
+        # You can access the IP address assigned by this request using this syntax within the template:
+        #  - "{{ ipaddresses.ip_pf2dpu2.ip }}" - allocated IP only, e.g. 10.10.10.55
+        #  - "{{ ipaddresses.ip_pf2dpu2.cidr }}" -allocated IP with prefix size, e.g. 10.10.10.55/24
+        #  - "{{ ipaddresses.ip_pf2dpu2.prefixlen }}" - length of the prefix for the allocation, e.g. 24
+        #  - "{{ ipaddresses.ip_lo.ip }}" - allocated IP only, e.g. 22.22.22.1
+        startupYAMLJ2: |
+          - header:
+              model: BLUEFIELD
+              nvue-api-version: nvue_v1
+              rev-id: 1.0
+              version: HBN 2.4.0
+          - set:
+              interface:
+                lo:
+                  ip:
+                    address:
+                      {{ ipaddresses.ip_lo.cidr }}: {}
+                  type: loopback
+                p0_if,p1_if:
+                  type: swp
+                pf2dpu2_if:
+                  ip:
+                    address:
+                      {{ ipaddresses.ip_pf2dpu2.cidr }}: {}
+                  type: swp
+              router:
+                bgp:
+                  autonomous-system: {{ config.bgp_autonomous_system }}
+                  enable: on
+                  graceful-restart:
+                    mode: full
+                  router-id: {{ ipaddresses.ip_lo.ip }}
+              vrf:
+                default:
+                  router:
+                    bgp:
+                      address-family:
+                        ipv4-unicast:
+                          enable: on
+                          redistribute:
+                            connected:
+                              enable: on
+                        ipv6-unicast:
+                          enable: on
+                          redistribute:
+                            connected:
+                              enable: on
+                      enable: on
+                      neighbor:
+                        p0_if:
+                          peer-group: {{ config.bgp_peer_group }}
+                          type: unnumbered
+                        p1_if:
+                          peer-group: {{ config.bgp_peer_group }}
+                          type: unnumbered
+                      path-selection:
+                        multipath:
+                          aspath-ignore: on
+                      peer-group:
+                        {{ config.bgp_peer_group }}:
+                          remote-as: external

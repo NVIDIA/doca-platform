@@ -1,0 +1,93 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: hbn
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "hbn"
+  serviceConfiguration:
+    serviceDaemonSet:
+      annotations:
+        k8s.v1.cni.cncf.io/networks: |-
+          [
+          {"name": "iprequest", "interface": "ip_lo", "cni-args": {"poolNames": ["loopback"], "poolType": "cidrpool"}},
+          {"name": "iprequest", "interface": "ip_pf2dpu2", "cni-args": {"poolNames": ["pool1"], "poolType": "cidrpool", "allocateDefaultGateway": true}}
+          ]
+    helmChart:
+      values:
+        configuration:
+          perDPUValuesYAML: |
+            - hostnamePattern: "*"
+              values:
+                bgp_autonomous_system: 65111
+                bgp_peer_group: hbn
+          startupYAMLJ2: |
+            - header:
+                model: BLUEFIELD
+                nvue-api-version: nvue_v1
+                rev-id: 1.0
+                version: HBN 2.4.0
+            - set:
+                interface:
+                  lo:
+                    ip:
+                      address:
+                        {{ ipaddresses.ip_lo.ip }}/32: {}
+                    type: loopback
+                  p0_if,p1_if:
+                    type: swp
+                    link:
+                      mtu: 9000
+                  pf2dpu2_if:
+                    ip:
+                      address:
+                        {{ ipaddresses.ip_pf2dpu2.cidr }}: {}
+                    type: swp
+                    link:
+                      mtu: 9000
+                router:
+                  bgp:
+                    autonomous-system: {{ config.bgp_autonomous_system }}
+                    enable: on
+                    graceful-restart:
+                      mode: full
+                    router-id: {{ ipaddresses.ip_lo.ip }}
+                vrf:
+                  default:
+                    router:
+                      bgp:
+                        address-family:
+                          ipv4-unicast:
+                            enable: on
+                            redistribute:
+                              connected:
+                                enable: on
+                          ipv6-unicast:
+                            enable: on
+                            redistribute:
+                              connected:
+                                enable: on
+                        enable: on
+                        neighbor:
+                          p0_if:
+                            peer-group: {{ config.bgp_peer_group }}
+                            type: unnumbered
+                          p1_if:
+                            peer-group: {{ config.bgp_peer_group }}
+                            type: unnumbered
+                        path-selection:
+                          multipath:
+                            aspath-ignore: on
+                        peer-group:
+                          {{ config.bgp_peer_group }}:
+                            remote-as: external
+
+  interfaces:
+    ## NOTE: Interfaces inside the HBN pod must have the `_if` suffix due to a naming convention in HBN.
+  - name: p0_if
+    network: mybrhbn
+  - name: p1_if
+    network: mybrhbn
+  - name: pf2dpu2_if
+    network: mybrhbn

@@ -1,0 +1,102 @@
+- groupVersionKind:
+    group: svc.dpu.nvidia.com
+    kind: DPUServiceInterface
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: dpuserviceinterface
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a DPU Service Interface.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            vf_parent_interface_name:
+              - spec
+              - template
+              - spec
+              - template
+              - spec
+              - vf
+              - parentInterfaceName
+            pf_id:
+              - spec
+              - template
+              - spec
+              - template
+              - spec
+              - vf
+              - pfID
+            vf_id:
+              - spec
+              - template
+              - spec
+              - template
+              - spec
+              - vf
+              - vfID
+            interface_type:
+              - spec
+              - template
+              - spec
+              - template
+              - spec
+              - interfaceType
+            interface_name:
+              - spec
+              - template
+              - spec
+              - template
+              - spec
+              - interfaceName
+    - name: status_conditions
+      help: The condition of a DPUServiceInterface.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: status_condition_last_transition_time
+      help: The condition last transition time of a DPUServiceInterface.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge

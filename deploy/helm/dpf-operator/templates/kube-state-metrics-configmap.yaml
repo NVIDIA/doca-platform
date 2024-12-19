@@ -1,0 +1,15 @@
+{{- if index .Values "kube-state-metrics" "enabled" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dpf-operator-customresourcestate-config
+  namespace: {{ .Release.Namespace }}
+data:
+  config.yaml: |
+    kind: CustomResourceStateMetrics
+    spec:
+      resources:
+{{- range $path, $file := $.Files.Glob "metrics/*.yaml" }}
+{{ $file | toString | indent 8 }}
+{{- end }}
+{{- end }}

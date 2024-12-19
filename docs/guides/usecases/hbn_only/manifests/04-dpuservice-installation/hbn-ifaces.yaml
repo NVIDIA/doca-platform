@@ -1,0 +1,84 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: host-pf0-sf
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            svc.dpu.nvidia.com/interface: "host_pf0_sf"
+            svc.dpu.nvidia.com/service: doca-hbn
+        spec:
+          interfaceType: service
+          service:
+            serviceID: doca-hbn
+            network: mybrhbn
+            ## NOTE: Interfaces inside the HBN pod must have the `_if` suffix due to a naming convention in HBN.
+            interfaceName: pf0hpf_if
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: host-pf1-sf 
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            svc.dpu.nvidia.com/interface: "host_pf1_sf"
+            svc.dpu.nvidia.com/service: doca-hbn
+        spec:
+          interfaceType: service
+          service:
+            serviceID: doca-hbn
+            network: mybrhbn
+            ## NOTE: Interfaces inside the HBN pod must have the `_if` suffix due to a naming convention in HBN.
+            interfaceName: pf1hpf_if
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: p0-sf
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            svc.dpu.nvidia.com/interface: "p0_sf"
+            svc.dpu.nvidia.com/service: doca-hbn
+        spec:
+          interfaceType: service
+          service:
+            serviceID: doca-hbn
+            network: mybrhbn
+            ## NOTE: Interfaces inside the HBN pod must have the `_if` suffix due to a naming convention in HBN.
+            interfaceName: p0_if
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: p1-sf
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            svc.dpu.nvidia.com/interface: "p1_sf"
+            svc.dpu.nvidia.com/service: doca-hbn
+        spec:
+          interfaceType: service
+          service:
+            serviceID: doca-hbn
+            network: mybrhbn
+            ## NOTE: Interfaces inside the HBN pod must have the `_if` suffix due to a naming convention in HBN.
+            interfaceName: p1_if

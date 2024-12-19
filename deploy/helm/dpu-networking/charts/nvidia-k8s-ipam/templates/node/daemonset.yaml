@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Release.Name }}-node-ds
+  namespace: {{ .Release.Namespace }}
+  labels:
+    tier: node
+    app: nv-ipam-node
+    name: nv-ipam-node
+spec:
+  selector:
+    matchLabels:
+      name: nv-ipam-node
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        tier: node
+        app: nv-ipam-node
+        name: nv-ipam-node
+    spec:
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      serviceAccountName: {{ include "nvidia-k8s-ipam.fullname" . }}-node
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      containers:
+        - name: node
+          image: "{{ .Values.nvIpam.image.repository }}:{{ .Values.nvIpam.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.nvIpam.pullPolicy }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                 fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
+          command: [ "/ipam-node" ]
+          args:
+            - --node-name=$(NODE_NAME)
+            - --v=1 # log level for ipam-node
+            - --logging-format=json
+            - --bind-address=unix:///var/lib/cni/nv-ipam/daemon.sock
+            - --store-file=/var/lib/cni/nv-ipam/store
+            - --cni-daemon-socket=unix:///var/lib/cni/nv-ipam/daemon.sock
+            - --cni-daemon-call-timeout=5 # 5 seconds
+            - --cni-bin-dir=/opt/cni/bin
+            - --cni-conf-dir=/etc/cni/net.d/nv-ipam.d
+            - --cni-log-file=/var/log/nv-ipam-cni.log
+            - --cni-log-level=info # log level for shim CNI
+            - --cni-force-pool-name
+            - --ippools-namespace=$(POD_NAMESPACE)
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "50Mi"
+            limits:
+              cpu: "300m"
+              memory: "300Mi"
+          volumeMounts:
+            - name: cnibin
+              mountPath: /opt/cni/bin
+            - name: cniconf
+              mountPath: /etc/cni/net.d/nv-ipam.d
+            - name: daemonstate
+              mountPath: /var/lib/cni/nv-ipam/
+      terminationGracePeriodSeconds: 10
+      volumes:
+        - name: cnibin
+          hostPath:
+            path: /opt/cni/bin
+            type: DirectoryOrCreate
+        - name: cniconf
+          hostPath:
+            path: /etc/cni/net.d/nv-ipam.d
+            type: DirectoryOrCreate
+        - name: daemonstate
+          hostPath:
+            path: /var/lib/cni/nv-ipam/
+            type: DirectoryOrCreate
