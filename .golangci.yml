@@ -1,0 +1,114 @@
+run:
+  deadline: 5m
+  allow-parallel-runners: true
+
+linters:
+  disable-all: true
+  enable:
+    - dupl
+    - errcheck
+    - copyloopvar
+    - gci
+    - ginkgolinter
+    - goconst
+    - gocyclo
+    - gofmt
+    - goimports
+    - gosimple
+    - govet
+    - importas
+    - ineffassign
+    - misspell
+    - nakedret
+    - prealloc
+    - staticcheck
+    - stylecheck
+    - typecheck
+    - unconvert
+    - unparam
+    - unused
+
+linters-settings:
+  misspell:
+    locale: US
+  gci:
+    sections:
+      - standard # Standard packages.
+      - prefix(github.com/nvidia/doca-platform) # Packages from this go module.
+      - default # All other packages.
+    custom-order: true
+  ginkgolinter:
+    forbid-focus-container: true
+  importas:
+    no-unaliased: true
+    alias:
+      # DPF
+      - pkg: github.com/nvidia/doca-platform/api/operator/v1alpha1
+        alias: operatorv1
+      - pkg: github.com/nvidia/doca-platform/api/controlplane/v1alpha1
+        alias: controlplanev1
+      - pkg: github.com/nvidia/doca-platform/api/dpuservice/v1alpha1
+        alias: dpuservicev1
+      - pkg: github.com/nvidia/doca-platform/internal/operator/controllers
+        alias: operatorcontroller
+      - pkg: github.com/nvidia/doca-platform/internal/servicechainset/controllers
+        alias: sfcsetcontroller
+      - pkg: github.com/nvidia/doca-platform/internal/dpuservice/controllers
+        alias: dpuservicecontroller
+      - pkg: github.com/nvidia/doca-platform/internal/argocd/api/application/v1alpha1
+        alias: argov1
+      - pkg: github.com/nvidia/doca-platform/internal/controlplane/metadata
+        alias: controlplanemeta
+      - pkg: github.com/nvidia/doca-platform/internal/cniprovisioner/dpu/config
+        alias: dpucniprovisionerconfig
+      - pkg: github.com/nvidia/doca-platform/internal/cniprovisioner/host/config
+        alias: hostcniprovisionerconfig
+      - pkg: github.com/nvidia/doca-platform/internal/nvipam/api/v1alpha1
+        alias: nvipamv1
+      - pkg: github.com/nvidia/doca-platform/internal/kamaji/api/v1alpha1
+        alias: kamajiv1
+      - pkg: github.com/nvidia/doca-platform/api/provisioning/v1alpha1
+        alias: provisioningv1
+
+        # Kubernetes
+      - pkg: k8s.io/api/core/v1
+        alias: corev1
+      - pkg: k8s.io/api/apps/v1
+        alias: appsv1
+      - pkg: k8s.io/apimachinery/pkg/apis/meta/v1
+        alias: metav1
+      - pkg: k8s.io/apimachinery/pkg/api/errors
+        alias: apierrors
+      - pkg: k8s.io/apimachinery/pkg/util/errors
+        alias: kerrors
+      - pkg: k8s.io/component-base/logs/api/v1
+        alias: logsv1
+      - pkg: k8s.io/utils/exec
+        alias: kexec
+      - pkg: k8s.io/api/admissionregistration/v1
+        alias: admissionregistrationv1
+
+      # Controller Runtime
+      - pkg: sigs.k8s.io/controller-runtime
+        alias: ctrl
+  stylecheck:
+    # Disable ST1000: https://staticcheck.dev/docs/checks#ST1000
+    checks: [ "all",  "-ST1000" ]
+    dot-import-whitelist:
+      - github.com/onsi/ginkgo/v2
+      - github.com/onsi/gomega
+
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-use-default: false
+  # Exclude vendored directories from linting.
+  exclude-dirs:
+    - internal/argocd/api
+    - internal/kamaji/api
+    - internal/nvipam/api
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - dupl

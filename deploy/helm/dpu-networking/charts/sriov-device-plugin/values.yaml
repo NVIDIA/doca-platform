@@ -1,0 +1,37 @@
+imagePullSecrets: []
+kubeSriovDevicePlugin:
+  kubeSriovdp:
+    args:
+    - --log-dir=sriovdp
+    - --log-level=10
+    containerSecurityContext:
+      privileged: true
+    image:
+      repository: ghcr.io/k8snetworkplumbingwg/sriov-network-device-plugin
+      tag: v3.6.2
+    imagePullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: "1"
+        memory: 200Mi
+      requests:
+        cpu: 250m
+        memory: 40Mi
+kubernetesClusterDomain: cluster.local
+sriovDevicePlugin:
+  serviceAccount:
+    annotations: {}
+sriovdpConfig:
+  configJson: |-
+    {
+        "resourceList": [{
+            "resourceName": "bf_sf",
+            "resourcePrefix": "nvidia.com",
+            "deviceType": "auxNetDevice",
+            "selectors": [{
+                "vendors": ["15b3"],
+                "pfNames": ["p0#1-100"],
+                "auxTypes": ["sf"]
+            }]
+        }]
+    }

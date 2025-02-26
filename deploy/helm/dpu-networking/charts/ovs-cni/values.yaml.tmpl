@@ -1,0 +1,43 @@
+arm64:
+  nodeSelector:
+    kubernetes.io/arch: arm64
+    kubernetes.io/os: linux
+  ovsCniMarker:
+    args:
+    - -v
+    - "3"
+    - -logtostderr
+    - -node-name
+    - $(NODE_NAME)
+    - -ovs-socket
+    - unix:/host/var/run/openvswitch/db.sock
+    - -healthcheck-interval=60
+    containerSecurityContext:
+      privileged: true
+    image:
+      repository: ${OVS_CNI_IMAGE}
+      tag: ${TAG}
+    imagePullPolicy: Always
+    resources:
+      requests:
+        cpu: 10m
+        memory: 10Mi
+  ovsCniPlugin:
+    args:
+    - |
+      cp /ovs /host/opt/cni/bin/ovs && cp /ovs-mirror-producer /host/opt/cni/bin/ovs-mirror-producer && cp /ovs-mirror-consumer /host/opt/cni/bin/ovs-mirror-consumer
+    containerSecurityContext:
+      privileged: true
+    image:
+      repository: ${OVS_CNI_IMAGE}
+      tag: ${TAG}
+    imagePullPolicy: Always
+    resources:
+      requests:
+        cpu: 10m
+        memory: 15Mi
+imagePullSecrets: []
+kubernetesClusterDomain: cluster.local
+marker:
+  serviceAccount:
+    annotations: {}

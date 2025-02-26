@@ -1,0 +1,39 @@
+apiVersion: v2
+name: dpf-operator
+description: DPF Operator manages the lifecycle of a DOCA Platform Framework system.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: argo-cd
+    version: "7.6.8"
+    repository: "https://argoproj.github.io/argo-helm"
+    condition: argo-cd.enabled
+  - name: node-feature-discovery
+    version: "0.16.5"
+    repository: "https://kubernetes-sigs.github.io/node-feature-discovery/charts"
+    condition: node-feature-discovery.enabled
+  - name: kube-state-metrics
+    version: "5.25.1"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: kube-state-metrics.enabled
+  - name: grafana
+    version: "8.4.6"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: grafana.enabled
+  - name: prometheus
+    version: "25.26.0"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: prometheus.enabled
+  - name: kamaji-etcd
+    version: "0.9.0"
+    repository: "https://clastix.github.io/charts"
+    condition: kamaji-etcd.enabled
+  - name: kamaji
+    version: "1.0.0"
+    repository: "https://clastix.github.io/charts"
+    condition: kamaji.enabled
+  - name: maintenance-operator-chart
+    version: "0.1.1"
+    condition: maintenance-operator-chart.enabled
+    repository: oci://ghcr.io/mellanox

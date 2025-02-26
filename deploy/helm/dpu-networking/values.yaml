@@ -1,0 +1,19 @@
+
+# The names in this values.yaml file must match the names of the subcharts under /charts
+# These names must also match the names of the DPUServices that use the dpu-networking helm chart in the operator inventory.
+flannel:
+    enabled: false
+multus:
+    enabled: false
+sriov-device-plugin:
+    enabled: false
+nvidia-k8s-ipam:
+    enabled: false
+ovs-cni:
+    enabled: false
+servicechainset-controller:
+    enabled: false
+sfc-controller:
+    enabled: false
+ovs-helper:
+    enabled: false

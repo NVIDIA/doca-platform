@@ -1,0 +1,12 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: dpudeployment-example-servicetemplate
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "example"
+  helmChart:
+    source:
+      repoURL: https://github.com/argoproj/argocd-example-apps
+      path: helm-guestbook
+      version: HEAD

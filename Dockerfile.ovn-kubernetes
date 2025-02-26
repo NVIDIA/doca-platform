@@ -1,0 +1,102 @@
+ARG builder_image
+
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS ovnkubernetes-builder
+
+ARG TARGETARCH
+ARG gcflags
+ARG ldflags
+
+WORKDIR /workspace
+RUN apt update && apt install -y make git
+ARG ovn_kubernetes_dir
+COPY ${ovn_kubernetes_dir} ovn-kubernetes
+RUN cd ovn-kubernetes/dist/images && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make bld
+
+ARG ipallocator_dir
+COPY ./ ./
+COPY go.mod go.mod
+COPY go.sum go.sum
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath \
+    -ldflags="${ldflags}"  \
+    -gcflags="${gcflags}" \
+    -o ipallocator ./cmd/ipallocator
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath \
+    -ldflags="${ldflags}"  \
+    -gcflags="${gcflags}" \
+    -o dpucniprovisioner ./cmd/dpucniprovisioner
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath \
+    -ldflags="${ldflags}"  \
+    -gcflags="${gcflags}" \
+    -o ovnkubernetesresourceinjector ./cmd/ovnkubernetesresourceinjector
+
+FROM ubuntu:24.04
+
+ARG TARGETARCH
+
+USER root
+
+RUN apt-get update && apt-get install -y iproute2 curl software-properties-common util-linux dnsmasq
+
+RUN curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+
+# Install OVS, OVN , netplan, systemd and udev packages (netplan, systemd and udev required by dpucniprovisioner).
+RUN apt-get update && apt-get install -y openvswitch-switch openvswitch-common ovn-central ovn-common ovn-host netplan.io udev systemd
+
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${TARGETARCH}/kubectl" \
+    && install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+RUN mkdir -p /var/run/openvswitch
+
+# Built in ../../go_controller, then the binaries are copied here.
+# put things where they are in the pkg
+RUN mkdir -p /usr/libexec/cni/
+COPY --from=ovnkubernetes-builder /workspace/ipallocator /ipallocator
+COPY --from=ovnkubernetes-builder /workspace/dpucniprovisioner /cniprovisioner
+COPY --from=ovnkubernetes-builder /workspace/ovnkubernetesresourceinjector /ovnkubernetesresourceinjector
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/ovnkube /usr/bin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/ovn-kube-util /usr/bin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/ovndbchecker /usr/bin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/hybrid-overlay-node /usr/bin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/ovnkube-identity /usr/bin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/ovn-k8s-cni-overlay /usr/libexec/cni/ovn-k8s-cni-overlay
+
+# ovnkube.sh is the entry point. This script examines environment
+# variables to direct operation and configure ovn
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/ovnkube.sh /root/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/ovndb-raft-functions.sh /root/
+# override the pkg's ovn_k8s.conf with this local copy
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/ovn_k8s.conf /etc/openvswitch/ovn_k8s.conf
+
+# copy git commit number into image
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/git_info /root
+
+# iptables wrappers
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables-scripts/iptables /usr/sbin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables-scripts/iptables-save /usr/sbin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables-scripts/iptables-restore /usr/sbin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables-scripts/ip6tables /usr/sbin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables-scripts/ip6tables-save /usr/sbin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables-scripts/ip6tables-restore /usr/sbin/
+
+LABEL io.k8s.display-name="ovn-kubernetes" \
+      io.k8s.description="ovnkube ubuntu image" 
+
+WORKDIR /root
+ENTRYPOINT /root/ovnkube.sh
+

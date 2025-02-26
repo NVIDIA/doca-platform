@@ -1,0 +1,31 @@
+# permissions for end users to edit dpusets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: dpuset-editor-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: dpf-provisioning-controller
+    app.kubernetes.io/part-of: dpf-provisioning-controller
+    app.kubernetes.io/managed-by: kustomize
+  name: dpuset-editor-role
+rules:
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - dpusets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - dpusets/status
+  verbs:
+  - get

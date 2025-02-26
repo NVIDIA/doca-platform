@@ -1,0 +1,11 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: sfc-controller
+  namespace: dpf-operator-system
+spec:
+  helmChart:
+    source:
+      repoURL: oci://example.com
+      chart: sfc-controller-chart
+      version: v0.1.0

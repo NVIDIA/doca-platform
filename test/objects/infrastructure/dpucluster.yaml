@@ -1,0 +1,10 @@
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUCluster
+metadata:
+  name: dpu-cluster-0
+  namespace: dpf-operator-system
+spec:
+  type: static
+  maxNodes: 1000
+  version: v1.30.2
+  kubeconfig: dpu-cluster-1-admin-kubeconfig

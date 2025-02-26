@@ -1,0 +1,27 @@
+# permissions for end users to view dpuclusters.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: dpucluster-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: cluster-manager
+    app.kubernetes.io/part-of: cluster-manager
+    app.kubernetes.io/managed-by: kustomize
+  name: dpucluster-viewer-role
+rules:
+- apiGroups:
+  - cluster-manager.dpu.nvidia.com
+  resources:
+  - dpuclusters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - cluster-manager.dpu.nvidia.com
+  resources:
+  - dpuclusters/status
+  verbs:
+  - get

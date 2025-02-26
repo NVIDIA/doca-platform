@@ -1,0 +1,237 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.13.0
+  name: cidrpools.nv-ipam.nvidia.com
+spec:
+  group: nv-ipam.nvidia.com
+  names:
+    kind: CIDRPool
+    listKind: CIDRPoolList
+    plural: cidrpools
+    singular: cidrpool
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.cidr
+      name: CIDR
+      type: string
+    - jsonPath: .spec.gatewayIndex
+      name: Gateway index
+      type: string
+    - jsonPath: .spec.perNodeNetworkPrefix
+      name: Per Node Network Prefix
+      type: integer
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: CIDRPool contains configuration for CIDR pool
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: CIDRPoolSpec contains configuration for CIDR pool
+            properties:
+              cidr:
+                description: pool CIDR block which will be split to smaller prefixes(size
+                  is define in perNodeNetworkPrefix) and distributed between matching
+                  nodes
+                type: string
+              defaultGateway:
+                description: if true, add gateway as default gateway in the routes
+                  list
+                type: boolean
+              exclusions:
+                description: contains reserved IP addresses that should not be allocated
+                  by nv-ipam
+                items:
+                  description: ExcludeRange contains range of IP addresses to exclude
+                    from allocation startIP and endIP are part of the ExcludeRange
+                  properties:
+                    endIP:
+                      type: string
+                    startIP:
+                      type: string
+                  required:
+                  - endIP
+                  - startIP
+                  type: object
+                type: array
+              gatewayIndex:
+                description: use IP with this index from the host prefix as a gateway,
+                  skip gateway configuration if the value not set
+                format: int32
+                type: integer
+              nodeSelector:
+                description: selector for nodes, if empty match all nodes
+                properties:
+                  nodeSelectorTerms:
+                    description: Required. A list of node selector terms. The terms
+                      are ORed.
+                    items:
+                      description: A null or empty node selector term matches no objects.
+                        The requirements of them are ANDed. The TopologySelectorTerm
+                        type implements a subset of the NodeSelectorTerm.
+                      properties:
+                        matchExpressions:
+                          description: A list of node selector requirements by node's
+                            labels.
+                          items:
+                            description: A node selector requirement is a selector
+                              that contains values, a key, and an operator that relates
+                              the key and values.
+                            properties:
+                              key:
+                                description: The label key that the selector applies
+                                  to.
+                                type: string
+                              operator:
+                                description: Represents a key's relationship to a
+                                  set of values. Valid operators are In, NotIn, Exists,
+                                  DoesNotExist. Gt, and Lt.
+                                type: string
+                              values:
+                                description: An array of string values. If the operator
+                                  is In or NotIn, the values array must be non-empty.
+                                  If the operator is Exists or DoesNotExist, the values
+                                  array must be empty. If the operator is Gt or Lt,
+                                  the values array must have a single element, which
+                                  will be interpreted as an integer. This array is
+                                  replaced during a strategic merge patch.
+                                items:
+                                  type: string
+                                type: array
+                            required:
+                            - key
+                            - operator
+                            type: object
+                          type: array
+                        matchFields:
+                          description: A list of node selector requirements by node's
+                            fields.
+                          items:
+                            description: A node selector requirement is a selector
+                              that contains values, a key, and an operator that relates
+                              the key and values.
+                            properties:
+                              key:
+                                description: The label key that the selector applies
+                                  to.
+                                type: string
+                              operator:
+                                description: Represents a key's relationship to a
+                                  set of values. Valid operators are In, NotIn, Exists,
+                                  DoesNotExist. Gt, and Lt.
+                                type: string
+                              values:
+                                description: An array of string values. If the operator
+                                  is In or NotIn, the values array must be non-empty.
+                                  If the operator is Exists or DoesNotExist, the values
+                                  array must be empty. If the operator is Gt or Lt,
+                                  the values array must have a single element, which
+                                  will be interpreted as an integer. This array is
+                                  replaced during a strategic merge patch.
+                                items:
+                                  type: string
+                                type: array
+                            required:
+                            - key
+                            - operator
+                            type: object
+                          type: array
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    type: array
+                required:
+                - nodeSelectorTerms
+                type: object
+                x-kubernetes-map-type: atomic
+              perNodeNetworkPrefix:
+                description: size of the network prefix for each host, the network
+                  defined in "cidr" field will be split to multiple networks with
+                  this size.
+                format: int32
+                type: integer
+              routes:
+                description: static routes list. The gateway used will according to
+                  the node allocation.
+                items:
+                  description: Route contains static route parameters
+                  properties:
+                    dst:
+                      description: The destination of the route, in CIDR notation
+                      type: string
+                  required:
+                  - dst
+                  type: object
+                type: array
+              staticAllocations:
+                description: static allocations for the pool
+                items:
+                  description: CIDRPoolStaticAllocation contains static allocation
+                    for a CIDR pool
+                  properties:
+                    gateway:
+                      description: gateway for the node
+                      type: string
+                    nodeName:
+                      description: name of the node for static allocation, can be
+                        empty in case if the prefix should be preallocated without
+                        assigning it for a specific node
+                      type: string
+                    prefix:
+                      description: statically allocated prefix
+                      type: string
+                  required:
+                  - prefix
+                  type: object
+                type: array
+            required:
+            - cidr
+            - perNodeNetworkPrefix
+            type: object
+          status:
+            description: CIDRPoolStatus contains the IP prefixes allocated to nodes
+            properties:
+              allocations:
+                description: prefixes allocations for Nodes
+                items:
+                  description: CIDRPoolAllocation contains prefix allocated for a
+                    specific Node
+                  properties:
+                    gateway:
+                      description: gateway for the node
+                      type: string
+                    nodeName:
+                      description: name of the node which owns this allocation
+                      type: string
+                    prefix:
+                      description: allocated prefix
+                      type: string
+                  required:
+                  - nodeName
+                  - prefix
+                  type: object
+                type: array
+            required:
+            - allocations
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

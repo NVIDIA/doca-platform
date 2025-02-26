@@ -1,0 +1,27 @@
+# permissions for end users to view dpuservices.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: dpuservice-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: dpf-operator
+    app.kubernetes.io/part-of: dpf-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: dpuservice-viewer-role
+rules:
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - dpuservices
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - dpuservices/status
+  verbs:
+  - get

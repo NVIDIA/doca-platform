@@ -1,0 +1,14 @@
+tags:
+  ovn-kubernetes-resource-injector: false
+global:
+  imagePullSecretName: "dpf-pull-secret"
+k8sAPIServer: https://$TARGETCLUSTER_API_SERVER_HOST:$TARGETCLUSTER_API_SERVER_PORT
+ovnkube-node-dpu-host:
+  nodeMgmtPortNetdev: $DPU_P0_VF1
+  gatewayOpts: --gateway-interface=$DPU_P0
+## Note this CIDR is followed by a trailing /24 which informs OVN Kubernetes on how to split the CIDR per node.
+podNetwork: $POD_CIDR/24
+serviceNetwork: $SERVICE_CIDR
+ovn-kubernetes-resource-injector:
+  resourceName: nvidia.com/bf3-p0-vfs
+dpuServiceAccountNamespace: dpf-operator-system

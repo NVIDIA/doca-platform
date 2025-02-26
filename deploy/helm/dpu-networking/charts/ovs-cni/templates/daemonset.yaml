@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "ovs-cni.fullname" . }}-arm64
+  labels:
+    app: ovs-cni
+    tier: node
+  {{- include "ovs-cni.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: ovs-cni
+    {{- include "ovs-cni.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: ovs-cni
+        tier: node
+      {{- include "ovs-cni.selectorLabels" . | nindent 8 }}
+      annotations:
+        description: OVS CNI allows users to attach their Pods/VMs to Open vSwitch bridges
+          available on nodes
+    spec:
+      containers:
+      - args: {{- toYaml .Values.arm64.ovsCniMarker.args | nindent 8 }}
+        command:
+        - /marker
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        image: {{ .Values.arm64.ovsCniMarker.image.repository }}:{{ .Values.arm64.ovsCniMarker.image.tag
+          | default .Chart.AppVersion }}
+        imagePullPolicy: {{ .Values.arm64.ovsCniMarker.imagePullPolicy }}
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - find /tmp/healthy -mmin -2 | grep -q /tmp/healthy
+          initialDelaySeconds: 60
+          periodSeconds: 60
+        name: ovs-cni-marker
+        resources: {{- toYaml .Values.arm64.ovsCniMarker.resources | nindent 10 }}
+        securityContext: {{- toYaml .Values.arm64.ovsCniMarker.containerSecurityContext
+          | nindent 10 }}
+        volumeMounts:
+        - mountPath: /host/var/run/openvswitch
+          name: ovs-var-run
+      hostNetwork: true
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      initContainers:
+      - args: {{- toYaml .Values.arm64.ovsCniPlugin.args | nindent 8 }}
+        command:
+        - /bin/sh
+        - -c
+        env:
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        image: {{ .Values.arm64.ovsCniPlugin.image.repository }}:{{ .Values.arm64.ovsCniPlugin.image.tag
+          | default .Chart.AppVersion }}
+        imagePullPolicy: {{ .Values.arm64.ovsCniPlugin.imagePullPolicy }}
+        name: ovs-cni-plugin
+        resources: {{- toYaml .Values.arm64.ovsCniPlugin.resources | nindent 10 }}
+        securityContext: {{- toYaml .Values.arm64.ovsCniPlugin.containerSecurityContext
+          | nindent 10 }}
+        volumeMounts:
+        - mountPath: /host/opt/cni/bin
+          name: cnibin
+      nodeSelector: {{- toYaml .Values.arm64.nodeSelector | nindent 8 }}
+      priorityClassName: system-node-critical
+      serviceAccountName: {{ include "ovs-cni.fullname" . }}-marker
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+        operator: Exists
+      volumes:
+      - hostPath:
+          path: /opt/cni/bin
+        name: cnibin
+      - hostPath:
+          path: /var/run/openvswitch
+        name: ovs-var-run

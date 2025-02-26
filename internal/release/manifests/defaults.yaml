@@ -1,0 +1,15 @@
+## Images built as part of the DPF release.
+dmsImage: example.com/hostdriver:v0.1.0
+hostNetworkSetupImage: example.com/hostdriver:v0.1.0
+dpfSystemImage: example.com/dpf-system:v0.1.0
+dpfToolsImage: example.com/dpf-tools:v0.1.0
+ovsCniImage: example.com/ovs-cni-plugin:v0.1.0
+customOVNKubernetesImage: example.com/ovn-kubernetes:v0.1.0
+
+## Helm charts built as part of the DPF release.
+dpuNetworkingHelmChart: oci://example.com/dpu-networking:v0.1.0
+
+## External images that are used inside helm charts deployed by the DPF Operator
+multusImage: ghcr.io/k8snetworkplumbingwg/multus-cni:v3.9.3
+sriovDPImage: ghcr.io/k8snetworkplumbingwg/sriov-network-device-plugin:v3.6.2
+nvipamImage: ghcr.io/mellanox/nvidia-k8s-ipam:v0.3.5

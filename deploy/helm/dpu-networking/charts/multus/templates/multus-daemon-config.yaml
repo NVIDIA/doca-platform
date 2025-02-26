@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: multus-daemon-config
+  labels:
+    app: multus
+    tier: node
+  {{- include "multus.labels" . | nindent 4 }}
+data:
+  daemon-config.json: {{ .Values.multusDaemonConfig.daemonConfigJson | toYaml | indent
+    1 }}

@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "ovs-helper.fullname" . }}-ovs-helper
+  labels:
+  {{- include "ovs-helper.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ovs-helper
+    {{- include "ovs-helper.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ovs-helper
+      {{- include "ovs-helper.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsUser: 0
+      containers:
+      - image: {{ .Values.ovsHelper.image.repository }}:{{ .Values.ovsHelper.image.tag
+          | default .Chart.AppVersion }}
+        command:
+        - /ovshelper
+        name: ovs-helper
+        resources: {}
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /var/run/openvswitch/
+          name: ovs
+        - mountPath: /lib
+          name: lib
+        - mountPath: /usr/bin/ovs-appctl
+          name: ovs-appctl
+        - mountPath: /usr/bin/ovs-vsctl
+          name: ovs-vsctl
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      volumes:
+      - name: ovs
+        hostPath:
+          path: /var/run/openvswitch
+      - hostPath:
+          path: /lib
+          type: Directory
+        name: lib
+      - hostPath:
+          path: /usr/bin/ovs-appctl
+          type: File
+        name: ovs-appctl
+      - hostPath:
+          path: /usr/bin/ovs-vsctl
+          type: File
+        name: ovs-vsctl

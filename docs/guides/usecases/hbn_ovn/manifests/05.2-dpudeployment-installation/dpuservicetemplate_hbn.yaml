@@ -1,0 +1,20 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: hbn
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "hbn"
+  helmChart:
+    source:
+      repoURL: $NGC_HELM_REGISTRY_REPO_URL
+      version: 1.0.1
+      chart: doca-hbn
+    values:
+      image:
+        repository: $HBN_NGC_IMAGE_URL
+        tag: 2.4.1-doca2.9.1
+      resources:
+        memory: 6Gi
+        nvidia.com/bf_sf: 3

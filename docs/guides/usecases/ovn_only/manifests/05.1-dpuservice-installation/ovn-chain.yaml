@@ -1,0 +1,25 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceChain
+metadata:
+  name: ovn-to-fabric
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      nodeSelector:
+        matchExpressions:
+        - key: kubernetes.io/os
+          operator: In
+          values:
+          - "linux"
+      template:
+        spec:
+          switches:
+            - ports:
+              - serviceInterface:
+                  matchLabels:
+                    uplink: p0
+              - serviceInterface:
+                  matchLabels:
+                    port: ovn

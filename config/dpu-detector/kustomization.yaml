@@ -1,0 +1,8 @@
+resources:
+- daemonset.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+images:
+- name: dpu-detector
+  newName: example.com/hostdriver
+  newTag: v0.1.0

@@ -1,0 +1,50 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: ovn-hbn
+  namespace: dpf-operator-system
+spec:
+  dpus:
+    bfb: bf-bundle
+    flavor: dpf-provisioning-hbn-ovn
+    dpuSets:
+    - nameSuffix: "dpuset1"
+      nodeSelector:
+        matchLabels:
+          feature.node.kubernetes.io/dpu-enabled: "true"
+  services:
+    ovn:
+      serviceTemplate: ovn
+      serviceConfiguration: ovn
+    hbn:
+      serviceTemplate: hbn
+      serviceConfiguration: hbn
+    dts:
+      serviceTemplate: dts
+      serviceConfiguration: dts
+    blueman:
+      serviceTemplate: blueman
+      serviceConfiguration: blueman
+  serviceChains:
+  - ports:
+    - serviceInterface:
+        matchLabels:
+          uplink: p0
+    - service:
+        name: hbn
+        interface: p0_if
+  - ports:
+    - serviceInterface:
+        matchLabels:
+          uplink: p1
+    - service:
+        name: hbn
+        interface: p1_if
+  - ports:
+    - serviceInterface:
+        matchLabels:
+          port: ovn
+    - service:
+        name: hbn
+        interface: pf2dpu2_if

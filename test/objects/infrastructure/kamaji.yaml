@@ -1,0 +1,58 @@
+apiVersion: kamaji.clastix.io/v1alpha1
+kind: TenantControlPlane
+metadata:
+  name: dpu-cluster-0
+  namespace: dpf-operator-system
+  labels:
+    tenant.clastix.io: dpu-cluster-0
+spec:
+  dataStore: default
+  controlPlane:
+    deployment:
+      replicas: 3
+      additionalMetadata:
+        labels:
+          tenant.clastix.io: dpu-cluster-0
+      extraArgs:
+        apiServer: []
+        controllerManager: []
+        scheduler: []
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/master
+                    operator: Exists
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: Exists
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Exists
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
+    service:
+      additionalMetadata:
+        labels:
+          tenant.clastix.io: dpu-cluster-0
+      serviceType: LoadBalancer
+  kubernetes:
+    version: v1.30.2
+    kubelet:
+      cgroupfs: systemd
+    admissionControllers:
+      - ResourceQuota
+      - LimitRanger
+  networkProfile:
+    port: 6443
+    certSANs:
+      - dpu-cluster-0.clastix.labs
+    serviceCidr: 10.96.0.0/16
+    dnsServiceIPs:
+      - 10.96.0.10
+  addons:
+    coreDNS: {}
+    kubeProxy: {}

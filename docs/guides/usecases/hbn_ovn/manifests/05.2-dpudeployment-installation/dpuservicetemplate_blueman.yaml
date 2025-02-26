@@ -1,0 +1,13 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: blueman
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "blueman"
+  helmChart:
+    source:
+      repoURL: $NGC_HELM_REGISTRY_REPO_URL
+      version: 1.0.5
+      chart: doca-blueman
