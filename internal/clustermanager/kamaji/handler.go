@@ -300,6 +300,11 @@ func expectedTenantControlPlane(dc *provisioningv1.DPUCluster, scheme *runtime.S
 			DataStore: "default",
 			ControlPlane: kamajiv1.ControlPlane{
 				Deployment: kamajiv1.DeploymentSpec{
+					ExtraArgs: &kamajiv1.ControlPlaneExtraArgs{
+						APIServer: []string{
+							"--kubelet-preferred-address-types=InternalIP,Hostname,ExternalIP",
+						},
+					},
 					Affinity: &corev1.Affinity{
 						NodeAffinity: &corev1.NodeAffinity{
 							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{

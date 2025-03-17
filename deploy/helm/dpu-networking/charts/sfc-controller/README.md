@@ -20,4 +20,7 @@ A Helm chart for Kubernetes
 | controllerManager.replicas | int | `1` |  |
 | controllerManager.serviceAccount.annotations | object | `{}` |  |
 | imagePullSecrets | list | `[]` |  |
+| openvSwitchBinDir | string | `"/usr/bin"` |  |
+| openvSwitchRunDir | string | `"/var/run/openvswitch"` |  |
+| openvSwitchSharedLibraryDir | string | `"/lib"` |  |
 

@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: kube-sriov-device-plugin
+  namespace: {{ .Release.Namespace }}
   labels:
     app: sriovdp
     tier: node

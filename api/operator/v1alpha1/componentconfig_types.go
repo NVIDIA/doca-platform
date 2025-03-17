@@ -116,6 +116,12 @@ type ProvisioningControllerConfiguration struct {
 	// +optional
 	Image Image `json:"image,omitempty"`
 
+	// BFCFGTemplateConfigMap is the name of a configMap containing a template for the BF.cfg file used by the DPU controller.
+	// By default the provisioning controller use a hardcoded BF.cfg e.g. https://github.com/NVIDIA/doca-platform/blob/release-v24.10/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template
+	// Note: Replacing the bf.cfg is an advanced use case. The default bf.cfg is designed for most use cases.
+	// +optional
+	BFCFGTemplateConfigMap *string `json:"bfCFGTemplateConfigMap,omitempty"`
+
 	// BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim used by dpf-provisioning-controller
 	// +kubebuilder:validation:MinLength=1
 	BFBPersistentVolumeClaimName string `json:"bfbPVCName"`

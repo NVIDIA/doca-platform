@@ -3,6 +3,7 @@ apiVersion: nfd.k8s-sigs.io/v1alpha1
 kind: NodeFeatureRule
 metadata:
   name: dpu-detection-rule
+  namespace: {{ .Release.Namespace }}
 spec:
   rules:
     - name: "DPU-detection-rule"

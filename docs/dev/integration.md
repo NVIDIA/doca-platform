@@ -163,8 +163,46 @@ style E fill:#ADD8E6,stroke:#FFF,stroke-width:2px
 The following components are used in upstream DPF and can be modified or replaced during integration:
 - DPU Cluster manager- highlighted in orange - can be replaced in full in integration.
 - Kamaji controller - a dependency of the DPUCluster manager - can be replaced.
+- BF.cfg - a configuration file used when configuring the DPU.
 
 For more information on implementing a DPUCluster manager see [the DPUCluster documentation](../guides/dpucluster.md).
+
+### Custom bf.cfg
+
+By default DPF will use a bf.cfg - the Bluefield configuration file - that is tied to the default BFB. If the BFB is replaced during integration it may also be required to replace the bf.cfg.
+
+The DPU controller in the provisioning controller manager uses a template to render the bfb.cfg with values supplied by the user-supplied DPUFlavor. The [default bf.cfg.template is here](../../internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template).
+The template takes the form of a go template. The [values used to render it are supplied to it are described in this package](../../internal/provisioning/controllers/dpu/bfcfg/bfcfg.go).
+
+To supply a custom bf.cfg template:
+1) Create a `ConfigMap` with the following format in the target cluster:
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: custom-bfb.cfg
+  namespace: dpf-operator-system # Must be in the same namespace as the DPFOperator.
+data:
+    BF_CFG_TEMPLATE: | # This key must be in the ConfigMap.
+        {{.KubeadmJoinCMD}}
+```
+
+2) Configure the provisioning controller to use the custom bf.cfg.template through the DPFOperatorConfig.
+```yaml
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  provisioningController:
+    bfbPVCName: "bfb-pvc"
+    bfCFGTemplateConfigMap: custom-bfb.cfg
+...
+```
+
+This example template contains only one variable and misses many important configuration steps. It is not sufficient to provision a DPU in DPF.
+To understand how to write a custom bf.cfg.template the [the default template](../../internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template) serves as the best example.
 
 ## DPUService system
 

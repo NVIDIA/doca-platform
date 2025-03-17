@@ -1341,6 +1341,14 @@ subjects:
   namespace: dpf-provisioning
 ---
 apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+  name: dpf-provisioning-dms-service-account
+  namespace: dpf-provisioning
+---
+apiVersion: v1
 kind: Namespace
 metadata:
   labels:

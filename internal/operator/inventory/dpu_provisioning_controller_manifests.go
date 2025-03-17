@@ -20,10 +20,12 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/utils"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/bfcfg"
 	"github.com/nvidia/doca-platform/internal/release"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -38,6 +40,8 @@ const (
 	dpfProvisioningControllerContainerName = "manager"
 	bfbVolumeName                          = "bfb-volume"
 	webhookServiceName                     = "dpf-provisioning-webhook-service"
+	customBFConfigFileName                 = "bf.cfg.template"
+	customBFConfigVolumeName               = "bf-cfg-template"
 )
 
 var _ Component = &provisioningControllerObjects{}
@@ -160,6 +164,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setComponentLabel,
 			p.setDefaultImageNames,
 			p.setDMSTimeout,
+			p.addBFCFGConfigMapMountEdit,
 		}
 		for _, mod := range mods {
 			if err := mod(deployment, vars); err != nil {
@@ -178,6 +183,43 @@ func (p *provisioningControllerObjects) setComponentLabel(deployment *appsv1.Dep
 	}
 	labels[operatorv1.DPFComponentLabelKey] = dpfProvisioningControllerName
 	deployment.Spec.Template.ObjectMeta.Labels = labels
+	return nil
+}
+
+func (p *provisioningControllerObjects) addBFCFGConfigMapMountEdit(deployment *appsv1.Deployment, vars Variables) error {
+	if vars.DPFProvisioningController.BFCFGTemplateConfig == nil {
+		return nil
+	}
+	if deployment.Spec.Template.Spec.Volumes == nil {
+		deployment.Spec.Template.Spec.Volumes = []corev1.Volume{}
+	}
+
+	bfbCFGConfigMapVolume := corev1.Volume{
+		Name: customBFConfigVolumeName,
+		VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+			LocalObjectReference: corev1.LocalObjectReference{Name: *vars.DPFProvisioningController.BFCFGTemplateConfig},
+			Items: []corev1.KeyToPath{
+				{
+					Key:  bfcfg.ConfigMapDataKey,
+					Path: customBFConfigFileName,
+				},
+			},
+		}},
+	}
+	deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, bfbCFGConfigMapVolume)
+
+	if deployment.Spec.Template.Spec.Containers[0].VolumeMounts == nil {
+		deployment.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{}
+	}
+	mount := corev1.VolumeMount{
+		Name:      customBFConfigVolumeName,
+		MountPath: "/bfb-config",
+	}
+	deployment.Spec.Template.Spec.Containers[0].VolumeMounts = append(deployment.Spec.Template.Spec.Containers[0].VolumeMounts, mount)
+
+	arg := fmt.Sprintf("--bf-cfg-template-file=%s", filepath.Join(mount.MountPath, customBFConfigFileName))
+	deployment.Spec.Template.Spec.Containers[0].Args = append(deployment.Spec.Template.Spec.Containers[0].Args, arg)
+
 	return nil
 }
 

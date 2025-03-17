@@ -144,6 +144,13 @@ func (f *fromDPUService) GenerateManifests(vars Variables, options ...GenerateMa
 		edits.AddForKindS(DPUServiceKind, edit)
 	}
 
+	additionalEdits, err := additionalValuesForComponent(f.Name(), vars)
+	if err != nil {
+		return nil, err
+	}
+	for _, edit := range additionalEdits {
+		edits.AddForKindS(DPUServiceKind, edit)
+	}
 	// Apply the edits.
 	if err := edits.Apply([]*unstructured.Unstructured{dpuServiceCopy}); err != nil {
 		return nil, err
@@ -162,6 +169,78 @@ func pullSecretValueFromStrings(names ...string) []interface{} {
 		pullSecrets = append(pullSecrets, map[string]interface{}{"name": name})
 	}
 	return pullSecrets
+}
+
+func additionalValuesForComponent(name string, vars Variables) ([]StructuredEdit, error) {
+	switch name {
+	case operatorv1.MultusName:
+		return multusEdits(vars)
+	case operatorv1.OVSCNIName:
+		return ovsCNIEdits(vars)
+	case operatorv1.SFCControllerName:
+		return sfcControllerEdits(vars)
+	case operatorv1.OVSHelperName:
+		return ovsHelperEdits(vars)
+	case operatorv1.NVIPAMName:
+		return nvipamEdits(vars)
+	case operatorv1.FlannelName:
+		return flannelEdits(vars)
+	// Other DPUServices do not need additional values.
+	default:
+		return nil, nil
+	}
+}
+
+var (
+	cniBinDirPathKey                   = "cniBinDir"
+	cniConfDirPathKey                  = "cniConfDir"
+	openvSwitchRunDirPathKey           = "openvSwitchRunDir"
+	openvSwitchBinDirPathKey           = "openvSwitchBinDir"
+	openvSwitchSharedLibraryDirPathKey = "openvSwitchSharedLibraryDir"
+)
+
+func ovsHelperEdits(vars Variables) ([]StructuredEdit, error) {
+	return []StructuredEdit{
+		dpuServiceAddValueEdit(vars.DPUOpenvSwitchRunPath, operatorv1.OVSHelperName, openvSwitchRunDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUOpenvSwitchBinPath, operatorv1.OVSHelperName, openvSwitchBinDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUOpenvSwitchSharedLibPath, operatorv1.OVSHelperName, openvSwitchSharedLibraryDirPathKey),
+	}, nil
+}
+
+func sfcControllerEdits(vars Variables) ([]StructuredEdit, error) {
+	return []StructuredEdit{
+		dpuServiceAddValueEdit(vars.DPUOpenvSwitchRunPath, operatorv1.SFCControllerName, openvSwitchRunDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUOpenvSwitchBinPath, operatorv1.SFCControllerName, openvSwitchBinDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUOpenvSwitchSharedLibPath, operatorv1.SFCControllerName, openvSwitchSharedLibraryDirPathKey),
+	}, nil
+}
+func ovsCNIEdits(vars Variables) ([]StructuredEdit, error) {
+	return []StructuredEdit{
+		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.OVSCNIName, cniBinDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUOpenvSwitchRunPath, operatorv1.OVSCNIName, openvSwitchRunDirPathKey),
+	}, nil
+}
+
+func nvipamEdits(vars Variables) ([]StructuredEdit, error) {
+	return []StructuredEdit{
+		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.NVIPAMName, cniBinDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUCNIConfPath, operatorv1.NVIPAMName, cniConfDirPathKey),
+	}, nil
+}
+
+func multusEdits(vars Variables) ([]StructuredEdit, error) {
+	return []StructuredEdit{
+		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.MultusName, cniBinDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUCNIConfPath, operatorv1.MultusName, cniConfDirPathKey),
+	}, nil
+}
+
+func flannelEdits(vars Variables) ([]StructuredEdit, error) {
+	return []StructuredEdit{
+		// flannel has an additional "flannel" structure inside its helm chart values.
+		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.FlannelName, "flannel", cniBinDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUCNIConfPath, operatorv1.FlannelName, "flannel", cniConfDirPathKey),
+	}, nil
 }
 
 func dpuServiceSetHelmChartEdit(helmChart string) StructuredEdit {

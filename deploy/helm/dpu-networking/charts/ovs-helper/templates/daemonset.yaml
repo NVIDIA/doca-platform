@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: {{ include "ovs-helper.fullname" . }}-ovs-helper
+  namespace: {{ .Release.Namespace }}
   labels:
   {{- include "ovs-helper.labels" . | nindent 4 }}
 spec:
@@ -39,16 +40,16 @@ spec:
       volumes:
       - name: ovs
         hostPath:
-          path: /var/run/openvswitch
+          path: {{ .Values.openvSwitchRunDir }}
       - hostPath:
-          path: /lib
+          path: {{ .Values.openvSwitchSharedLibraryDir }}
           type: Directory
         name: lib
       - hostPath:
-          path: /usr/bin/ovs-appctl
+          path: {{ .Values.openvSwitchBinDir }}/ovs-appctl
           type: File
         name: ovs-appctl
       - hostPath:
-          path: /usr/bin/ovs-vsctl
+          path: {{ .Values.openvSwitchBinDir }}/ovs-vsctl
           type: File
         name: ovs-vsctl

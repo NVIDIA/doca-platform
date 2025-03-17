@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dpf-servicechain-controller-manager
+  namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/component: manager
     app.kubernetes.io/created-by: dpf-operator

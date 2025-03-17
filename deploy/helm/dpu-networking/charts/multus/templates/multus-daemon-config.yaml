@@ -2,6 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: multus-daemon-config
+  namespace: {{ .Release.Namespace }}
   labels:
     app: multus
     tier: node

@@ -8,6 +8,8 @@ A Helm chart for Kubernetes
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| cniBinDir | string | `"/opt/cni/bin"` |  |
+| cniConfDir | string | `"/etc/cni/net.d"` |  |
 | imagePullSecrets | list | `[]` |  |
 | nvIpam.fullnameOverride | string | `""` |  |
 | nvIpam.image.repository | string | `"ghcr.io/mellanox/nvidia-k8s-ipam"` |  |

@@ -48,8 +48,9 @@ const (
 )
 
 const (
-	DMSImageFolder  string = "/bfb"
-	DMSClientSecret string = "dpf-provisioning-client-secret"
+	DMSImageFolder        string = "/bfb"
+	DMSClientSecret       string = "dpf-provisioning-client-secret"
+	DMSServiceAccountName string = "dpf-provisioning-dms-service-account"
 )
 
 func Address(ip string) string {
@@ -172,7 +173,8 @@ func CreateDMSPod(ctx context.Context, client client.Client, dpu *provisioningv1
 			OwnerReferences: []metav1.OwnerReference{*owner},
 		},
 		Spec: corev1.PodSpec{
-			HostNetwork: true,
+			HostNetwork:        true,
+			ServiceAccountName: DMSServiceAccountName,
 			InitContainers: []corev1.Container{
 				{
 					Name:            "rshim-preflight",

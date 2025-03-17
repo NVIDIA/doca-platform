@@ -29,7 +29,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/argocd"
 	argov1 "github.com/nvidia/doca-platform/internal/argocd/api/application/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/conditions"
-	dpucluster "github.com/nvidia/doca-platform/internal/dpucluster"
+	"github.com/nvidia/doca-platform/internal/dpucluster"
 	"github.com/nvidia/doca-platform/internal/dpuservice/predicates"
 	dpuserviceutils "github.com/nvidia/doca-platform/internal/dpuservice/utils"
 	kamajiv1 "github.com/nvidia/doca-platform/internal/kamaji/api/v1alpha1"
@@ -540,7 +540,7 @@ func (r *DPUServiceReconciler) reconcileArgoSecrets(ctx context.Context, dpuClus
 		}
 
 		// Template an argoSecret using information from the control plane secret.
-		argoSecret, err := createArgoSecretFromKubeconfig(adminConfig, dpfOperatorConfig.GetNamespace(), dpuClusterConfig.ClusterNamespaceName())
+		argoSecret, err := createArgoSecretFromKubeconfig(adminConfig, dpfOperatorConfig.GetNamespace(), dpuClusterConfig)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -825,7 +825,7 @@ type tlsClientConfig struct {
 }
 
 // createArgoSecretFromKubeconfig generates an ArgoCD cluster secret from the given kubeconfig.
-func createArgoSecretFromKubeconfig(kubeconfig *api.Config, dpfOperatorConfigNamespace, clusterName string) (*corev1.Secret, error) {
+func createArgoSecretFromKubeconfig(kubeconfig *api.Config, dpfOperatorConfigNamespace string, dpuClusterConfig *dpucluster.Config) (*corev1.Secret, error) {
 	name, cluster := getRandomKVPair(kubeconfig.Clusters)
 	if name == "" {
 		return nil, fmt.Errorf("no clusters found in kubeconfig")
@@ -835,8 +835,6 @@ func createArgoSecretFromKubeconfig(kubeconfig *api.Config, dpfOperatorConfigNam
 		return nil, fmt.Errorf("no users found in kubeconfig")
 	}
 
-	clusterConfigName := name
-	clusterConfigServer := cluster.Server
 	secretConfig, err := json.Marshal(config{TLSClientConfig: tlsClientConfig{
 		CaData:   cluster.CertificateAuthorityData,
 		KeyData:  user.ClientKeyData,
@@ -845,23 +843,23 @@ func createArgoSecretFromKubeconfig(kubeconfig *api.Config, dpfOperatorConfigNam
 	if err != nil {
 		return nil, err
 	}
-	return createArgoCDSecret(secretConfig, dpfOperatorConfigNamespace, clusterName, clusterConfigName, clusterConfigServer), nil
+	return createArgoCDSecret(secretConfig, dpfOperatorConfigNamespace, dpuClusterConfig, cluster.Server), nil
 }
 
 // createArgoCDSecret templates an ArgoCD cluster Secret with the passed values.
-func createArgoCDSecret(secretConfig []byte, dpfOperatorConfigNamespace, clusterName, clusterConfigName, clusterConfigServer string) *corev1.Secret {
+func createArgoCDSecret(secretConfig []byte, dpfOperatorConfigNamespace string, dpuCluster *dpucluster.Config, clusterConfigServer string) *corev1.Secret {
 	return &corev1.Secret{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Secret",
 			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			// The secret name is the cluster name. DPUClusters must have unique names.
-			Name:      clusterName,
+			// The secret name is the dpuCluster name. DPUClusters must have unique names.
+			Name:      dpuCluster.ClusterNamespaceName(),
 			Namespace: dpfOperatorConfigNamespace,
 			Labels: map[string]string{
 				argoCDSecretLabelKey:              argoCDSecretLabelValue,
-				provisioningv1.DPUClusterLabelKey: clusterName,
+				provisioningv1.DPUClusterLabelKey: dpuCluster.ClusterNamespaceName(),
 				operatorv1.DPFComponentLabelKey:   dpuServiceControllerName,
 			},
 			OwnerReferences: nil,
@@ -869,7 +867,7 @@ func createArgoCDSecret(secretConfig []byte, dpfOperatorConfigNamespace, cluster
 		},
 		Type: corev1.SecretTypeOpaque,
 		Data: map[string][]byte{
-			"name":   []byte(clusterConfigName),
+			"name":   []byte(dpuCluster.Cluster.Name),
 			"server": []byte(clusterConfigServer),
 			"config": secretConfig,
 		},

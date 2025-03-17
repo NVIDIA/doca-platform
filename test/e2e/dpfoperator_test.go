@@ -679,6 +679,97 @@ func VerifyDPFOperatorConfiguration(ctx context.Context, config *operatorv1.DPFO
 			}, time.Second*30).Should(Succeed())
 		}
 	})
+
+	It("verify overrides path setting for system DPUServices", func() {
+		modifiedConfig := &operatorv1.DPFOperatorConfig{}
+		Expect(testClient.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: config.Name}, modifiedConfig)).To(Succeed())
+		originalConfig := modifiedConfig.DeepCopy()
+
+		modifiedOVSRunPath := "/ovsrun"
+		modifiedOVSBinPath := "/ovsbin"
+		modifiedCNIConfigPath := "/cniconf"
+		modifiedCNIBinPath := "/cnibin"
+		modifiedOVSharedLibPath := "/ovssharedlib"
+		modifiedConfig.Spec.Overrides = &operatorv1.Overrides{
+			DPUCNIBinPath:                     ptr.To(modifiedCNIBinPath),
+			DPUCNIConfigPath:                  ptr.To(modifiedCNIConfigPath),
+			DPUOpenvSwitchRunPath:             ptr.To(modifiedOVSRunPath),
+			DPUOpenvSwitchBinPath:             ptr.To(modifiedOVSBinPath),
+			DPUOpenvSwitchSystemSharedLibPath: ptr.To(modifiedOVSharedLibPath),
+		}
+		Expect(testClient.Patch(ctx, modifiedConfig, client.MergeFrom(originalConfig))).To(Succeed())
+
+		dpuServiceDaemonSetsWithPathChanges := map[string]bool{
+			operatorv1.SFCControllerName: true,
+			operatorv1.OVSCNIName:        true,
+			operatorv1.NVIPAMName:        true,
+			operatorv1.MultusName:        true,
+			operatorv1.OVSHelperName:     true,
+			operatorv1.FlannelName:       true,
+		}
+
+		// Assert the images are set for the system components.
+		Eventually(func(g Gomega) {
+			for name := range dpuServiceDaemonSetsWithPathChanges {
+				daemonSets := appsv1.DaemonSetList{}
+				dpuConfigs, err := dpucluster.GetConfigs(ctx, testClient)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(dpuConfigs).To(HaveLen(1))
+				dpuClient, _ := dpuConfigs[0].Client(ctx)
+				nameForCluster := fmt.Sprintf("%s-%s", dpuConfigs[0].Cluster.Name, name)
+
+				g.Expect(dpuClient.List(ctx, &daemonSets,
+					client.MatchingLabels{argoCDInstanceLabel: nameForCluster})).To(Succeed())
+				g.Expect(daemonSets.Items).To(HaveLen(1))
+				volumes := daemonSets.Items[0].Spec.Template.Spec.Volumes
+				switch name {
+				case operatorv1.SFCControllerName:
+					g.Expect(volumeNameHasPath("ovs", volumes, filepath.Join(modifiedOVSRunPath))).To(BeTrue())
+					g.Expect(volumeNameHasPath("ovs-ofctl", volumes, filepath.Join(modifiedOVSBinPath, "ovs-ofctl"))).To(BeTrue())
+					g.Expect(volumeNameHasPath("ovs-vsctl", volumes, filepath.Join(modifiedOVSBinPath, "ovs-vsctl"))).To(BeTrue())
+					g.Expect(volumeNameHasPath("lib", volumes, filepath.Join(modifiedOVSharedLibPath))).To(BeTrue())
+				case operatorv1.OVSCNIName:
+					g.Expect(volumeNameHasPath("cnibin", volumes, filepath.Join(modifiedCNIBinPath))).To(BeTrue())
+					g.Expect(volumeNameHasPath("ovs-var-run", volumes, filepath.Join(modifiedOVSRunPath))).To(BeTrue())
+				case operatorv1.OVSHelperName:
+					g.Expect(volumeNameHasPath("ovs", volumes, filepath.Join(modifiedOVSRunPath))).To(BeTrue())
+					g.Expect(volumeNameHasPath("ovs-appctl", volumes, filepath.Join(modifiedOVSBinPath, "ovs-appctl"))).To(BeTrue())
+					g.Expect(volumeNameHasPath("ovs-vsctl", volumes, filepath.Join(modifiedOVSBinPath, "ovs-vsctl"))).To(BeTrue())
+					g.Expect(volumeNameHasPath("lib", volumes, filepath.Join(modifiedOVSharedLibPath))).To(BeTrue())
+				case operatorv1.NVIPAMName:
+					g.Expect(volumeNameHasPath("cnibin", volumes, filepath.Join(modifiedCNIBinPath))).To(BeTrue())
+					g.Expect(volumeNameHasPath("cniconf", volumes, filepath.Join(modifiedCNIConfigPath, "nv-ipam.d"))).To(BeTrue())
+				case operatorv1.MultusName:
+					g.Expect(volumeNameHasPath("cnibin", volumes, filepath.Join(modifiedCNIBinPath))).To(BeTrue())
+					g.Expect(volumeNameHasPath("cni", volumes, filepath.Join(modifiedCNIConfigPath))).To(BeTrue())
+				case operatorv1.FlannelName:
+					g.Expect(volumeNameHasPath("cni-plugin", volumes, filepath.Join(modifiedCNIBinPath))).To(BeTrue())
+					g.Expect(volumeNameHasPath("cni", volumes, filepath.Join(modifiedCNIConfigPath))).To(BeTrue())
+				}
+			}
+		}).WithTimeout(120 * time.Second).Should(Succeed())
+
+		By("reverting the DPFOperatorConfig to its original setting.")
+		Eventually(func(g Gomega) {
+			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(modifiedConfig), modifiedConfig)).To(Succeed())
+			resetConfig := modifiedConfig.DeepCopy()
+			resetConfig.Spec = originalConfig.Spec
+			// Revert the image versions to their previous values.
+			g.Expect(testClient.Patch(ctx, resetConfig, client.MergeFrom(modifiedConfig))).To(Succeed())
+			// Ensure the changes are reverted before continuing.
+		}).Should(Succeed())
+	})
+}
+
+func volumeNameHasPath(name string, volumes []corev1.Volume, path string) bool {
+	for _, volume := range volumes {
+		if volume.Name == name {
+			if volume.HostPath.Path == path {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func ValidateDPUService(ctx context.Context, config *operatorv1.DPFOperatorConfig) {

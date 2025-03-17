@@ -23,6 +23,7 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/utils"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/bfcfg"
 	"github.com/nvidia/doca-platform/internal/release"
 
 	. "github.com/onsi/gomega"
@@ -32,6 +33,7 @@ import (
 	v1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 )
 
 func TestDPFProvisioningControllerObjects_Parse(t *testing.T) {
@@ -172,6 +174,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 	g.Expect(provCtrl.Parse()).NotTo(HaveOccurred())
 	defaults := &release.Defaults{}
 	g.Expect(defaults.Parse()).To(Succeed())
+	managerName := "manager"
 
 	t.Run("no objects if disable is set", func(t *testing.T) {
 		vars := newDefaultVariables(defaults)
@@ -336,7 +339,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		// * check args of the manager container
 		var container *corev1.Container
 		for _, c := range gotDeployment.Spec.Template.Spec.Containers {
-			if c.Name == "manager" {
+			if c.Name == managerName {
 				container = c.DeepCopy()
 				break
 			}
@@ -357,4 +360,52 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			g.Expect(container.Args[i]).To(Equal(ea))
 		}
 	})
+	t.Run("test adding a custom bfb cfg configmap", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+
+		expectedPVC := "test-pvc"
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: expectedPVC,
+			BFCFGTemplateConfig:          ptr.To("configmap"),
+		}
+		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		g.Expect(err).NotTo(HaveOccurred())
+		gotDeployment := &appsv1.Deployment{}
+		for i, obj := range generatedObjs {
+			if obj.GetObjectKind().GroupVersionKind().Kind == string(DeploymentKind) {
+				deployment, ok := generatedObjs[i].(*unstructured.Unstructured)
+				g.Expect(ok).To(BeTrue())
+				g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(deployment.UnstructuredContent(), gotDeployment)).ToNot(HaveOccurred())
+				continue
+			}
+		}
+		podTemplate := gotDeployment.Spec.Template
+		// * ensure that the expected modifications have been made to the deployment.
+		g.Expect(gotDeployment).NotTo(BeNil())
+		g.Expect(podTemplate.Spec.Containers).To(HaveLen(1))
+		// * ensure the arg is added to the container
+		g.Expect(podTemplate.Spec.Containers[0].Args).To(ContainElement(fmt.Sprintf("--bf-cfg-template-file=%s", "/bfb-config/bf.cfg.template")))
+		// * ensure the volume is added to the pod spec
+		g.Expect(podTemplate.Spec.Volumes).To(ContainElement(corev1.Volume{
+			Name: customBFConfigVolumeName,
+			VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: *vars.DPFProvisioningController.BFCFGTemplateConfig},
+				Items: []corev1.KeyToPath{
+					{
+						Key:  bfcfg.ConfigMapDataKey,
+						Path: customBFConfigFileName,
+					},
+				},
+			}},
+		}))
+
+		// *ensure the volumemount is added ot the pod spec
+		g.Expect(podTemplate.Spec.Containers[0].VolumeMounts).To(
+			ContainElement(corev1.VolumeMount{
+				Name:      customBFConfigVolumeName,
+				MountPath: "/bfb-config",
+			}))
+	})
+
 }

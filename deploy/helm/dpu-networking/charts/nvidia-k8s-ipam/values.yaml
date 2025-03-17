@@ -9,3 +9,6 @@ nvIpam:
   nameOverride: ""
   fullnameOverride: ""  
   pullPolicy: IfNotPresent
+
+cniBinDir: /opt/cni/bin
+cniConfDir: /etc/cni/net.d

@@ -44,10 +44,41 @@ var (
 )
 
 // Overrides exposes a set of fields which impact the recommended behavior of the DPF Operator.
+// These fields should only be set for advanced use cases. The fields here have no stability guarantees.
 type Overrides struct {
 	// Paused disables all reconciliation of the DPFOperatorConfig when set to true.
 	// +optional
 	Paused *bool `json:"paused,omitempty"`
+
+	// DPUCNIBinPath is the path at which the CNI binaries will be installed to on the DPU.
+	// This is /opt/cni/bin by default.
+	// This setting does not change where kubelet is configured to use the CNI from.
+	// +optional
+	DPUCNIBinPath *string `json:"dpuCNIBinPath,omitempty"`
+
+	// DPUCNIConfigPath is the path to which the CNI config files will be installed on the DPU.
+	// This is /etc/cni/net.d by default.
+	// This setting does not change where kubelet is configured to read the CNI config from.
+	// +optional
+	DPUCNIConfigPath *string `json:"dpuCNIPath,omitempty"`
+
+	// DPUOpenvSwitchPath is the path at which the openvSwitch run directory can be found on the DPU.
+	// This is /var/run/openvswitch by default.
+	// This setting does not change where components are installed. Installation location fixed in the BFB.
+	// +optional
+	DPUOpenvSwitchRunPath *string `json:"dpuOpenvSwitchRunPath,omitempty"`
+
+	// DPUOpenvSwitchBinPath is the path at which the openvSwitch bin directory can be found on the DPU node.
+	// This is /usr/bin/ by default.
+	// This setting does not change where components are installed. Installation location fixed in the BFB.
+	// +optional
+	DPUOpenvSwitchBinPath *string `json:"dpuOpenvSwitchBinPath,omitempty"`
+
+	// DPUOpenvSwitchSystemSharedLibPath is the path at which the system lib used by OVS components can be found on the DPU.
+	// This is /lib by default.
+	// This setting does not change where components are installed. Installation location fixed in the BFB.
+	// +optional
+	DPUOpenvSwitchSystemSharedLibPath *string `json:"dpuOpenvSwitchSystemSharedPath,omitempty"`
 }
 
 // Networking defines the networking configuration for the system components.

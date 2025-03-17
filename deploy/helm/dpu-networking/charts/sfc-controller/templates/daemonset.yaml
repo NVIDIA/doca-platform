@@ -87,27 +87,30 @@ spec:
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
       terminationGracePeriodSeconds: 10
       volumes:
-      - name: ovs
-        hostPath:
-          path: /var/run/openvswitch
+      ## TODO: Revisit if ovs-systemd-config is needed.
       - name: ovs-systemd-config
         hostPath:
           path: /etc/default/openvswitch-switch
+      ## TODO: Revisit if var-run-systemd is needed.
       - name: var-run-systemd
         hostPath:
           path: /var/run/systemd
+      ## TODO: Revisit if systemd-dbus is needed.
       - name: systemd-dbus
         hostPath:
           path: /var/run/dbus/system_bus_socket
+      - name: ovs
+        hostPath:
+          path: {{ .Values.openvSwitchRunDir }}
       - hostPath:
-          path: /usr/bin/ovs-vsctl
+          path: {{ .Values.openvSwitchBinDir }}/ovs-vsctl
           type: File
         name: ovs-vsctl
       - hostPath:
-          path: /usr/bin/ovs-ofctl
+          path: {{ .Values.openvSwitchBinDir }}/ovs-ofctl
           type: File
         name: ovs-ofctl
       - hostPath:
-          path: /lib
+          path: {{ .Values.openvSwitchSharedLibraryDir }}
           type: Directory
         name: lib

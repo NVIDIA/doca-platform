@@ -180,9 +180,40 @@ spec:
                     type: string
                 type: object
               overrides:
-                description: Overrides exposes a set of fields which impact the recommended
-                  behavior of the DPF Operator.
+                description: |-
+                  Overrides exposes a set of fields which impact the recommended behavior of the DPF Operator.
+                  These fields should only be set for advanced use cases. The fields here have no stability guarantees.
                 properties:
+                  dpuCNIBinPath:
+                    description: |-
+                      DPUCNIBinPath is the path at which the CNI binaries will be installed to on the DPU.
+                      This is /opt/cni/bin by default.
+                      This setting does not change where kubelet is configured to use the CNI from.
+                    type: string
+                  dpuCNIPath:
+                    description: |-
+                      DPUCNIConfigPath is the path to which the CNI config files will be installed on the DPU.
+                      This is /etc/cni/net.d by default.
+                      This setting does not change where kubelet is configured to read the CNI config from.
+                    type: string
+                  dpuOpenvSwitchBinPath:
+                    description: |-
+                      DPUOpenvSwitchBinPath is the path at which the openvSwitch bin directory can be found on the DPU node.
+                      This is /usr/bin/ by default.
+                      This setting does not change where components are installed. Installation location fixed in the BFB.
+                    type: string
+                  dpuOpenvSwitchRunPath:
+                    description: |-
+                      DPUOpenvSwitchPath is the path at which the openvSwitch run directory can be found on the DPU.
+                      This is /var/run/openvswitch by default.
+                      This setting does not change where components are installed. Installation location fixed in the BFB.
+                    type: string
+                  dpuOpenvSwitchSystemSharedPath:
+                    description: |-
+                      DPUOpenvSwitchSystemSharedLibPath is the path at which the system lib used by OVS components can be found on the DPU.
+                      This is /lib by default.
+                      This setting does not change where components are installed. Installation location fixed in the BFB.
+                    type: string
                   paused:
                     description: Paused disables all reconciliation of the DPFOperatorConfig
                       when set to true.
@@ -231,6 +262,12 @@ spec:
               provisioningController:
                 description: ProvisioningController is the configuration for the ProvisioningController
                 properties:
+                  bfCFGTemplateConfigMap:
+                    description: |-
+                      BFCFGTemplateConfigMap is the name of a configMap containing a template for the BF.cfg file used by the DPU controller.
+                      By default the provisioning controller use a hardcoded BF.cfg e.g. https://github.com/NVIDIA/doca-platform/blob/release-v24.10/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template
+                      Note: Replacing the bf.cfg is an advanced use case. The default bf.cfg is designed for most use cases.
+                    type: string
                   bfbPVCName:
                     description: BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim
                       used by dpf-provisioning-controller

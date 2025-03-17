@@ -15,7 +15,7 @@ A Helm chart for Kubernetes
 | file://charts/servicechainset-controller | servicechainset-controller | 0.1.0 |
 | file://charts/sfc-controller | sfc-controller | 0.1.0 |
 | file://charts/sriov-device-plugin | sriov-device-plugin | 0.1.0 |
-| https://flannel-io.github.io/flannel | flannel | v0.26.4 |
+| https://flannel-io.github.io/flannel | flannel | v0.26.5 |
 
 ## Values
 

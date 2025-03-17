@@ -2,6 +2,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: dpf-operator-leader-election-role
+  namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/created-by: dpf-operator
@@ -45,6 +46,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: dpf-operator-leader-election-rolebinding
+  namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/created-by: dpf-operator

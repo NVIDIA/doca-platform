@@ -87,7 +87,7 @@ func main() {
 	var dmsTimeout int
 	var dmsPodTimeout time.Duration
 	var syncPeriod time.Duration
-
+	var bfCFGTemplateFile string
 	fs.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	fs.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -104,6 +104,7 @@ func main() {
 	fs.IntVar(&dmsTimeout, "dms-timeout", 900, "The max timeout execution in seconds of a command if not responding, 0 is unlimited.")
 	fs.DurationVar(&dmsPodTimeout, "dms-pod-timeout", 5*time.Minute, "Timeout for DMS pods")
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute, "The minimum interval at which watched resources are reconciled.")
+	fs.StringVar(&bfCFGTemplateFile, "bf-cfg-template-file", "", "A custom bf.cfg template used as part of DPU provisioning.")
 
 	logsv1.AddFlags(logOptions, fs)
 
@@ -188,7 +189,9 @@ func main() {
 		DMSTimeout:              dmsTimeout,
 		DMSPodTimeout:           dmsPodTimeout,
 		ImagePullSecrets:        imagePullSecretsReferences,
+		BFCFGTemplateFile:       bfCFGTemplateFile,
 	}
+
 	setupLog.Info("DPU", "options", dpuOptions)
 	if err = (&dpu.DPUReconciler{
 		Client:     mgr.GetClient(),

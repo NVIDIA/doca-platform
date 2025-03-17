@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: {{ include "ovs-cni.fullname" . }}-arm64
+  namespace: {{ .Release.Namespace }}
   labels:
     app: ovs-cni
     tier: node
@@ -79,8 +80,8 @@ spec:
         operator: Exists
       volumes:
       - hostPath:
-          path: /opt/cni/bin
+          path: {{ .Values.cniBinDir }}
         name: cnibin
       - hostPath:
-          path: /var/run/openvswitch
+          path: {{ .Values.openvSwitchRunDir }}
         name: ovs-var-run

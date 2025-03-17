@@ -337,3 +337,7 @@ maintenance-operator-chart:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
         effect: NoSchedule
+
+## IsOpenShift templates resources - for example ClusterRoleBindings to SecurityContextConstraints - which are relevant
+## when installing DPF using helm on OpenShift.
+isOpenshift: false

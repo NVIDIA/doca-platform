@@ -72,6 +72,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 	disabledTestServiceVars.DisableSystemComponents = map[string]bool{
 		serviceName: true,
 	}
+
 	g.Expect(err).NotTo(HaveOccurred())
 	tests := []struct {
 		name    string

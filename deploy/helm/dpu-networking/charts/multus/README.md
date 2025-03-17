@@ -8,6 +8,8 @@ A Helm chart for Kubernetes
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| cniBinDir | string | `"/opt/cni/bin"` |  |
+| cniConfDir | string | `"/etc/cni/net.d"` |  |
 | imagePullSecrets | list | `[]` |  |
 | kubeMultusDs.installMultusBinary.containerSecurityContext.privileged | bool | `true` |  |
 | kubeMultusDs.installMultusBinary.image.repository | string | `"ghcr.io/k8snetworkplumbingwg/multus-cni"` |  |

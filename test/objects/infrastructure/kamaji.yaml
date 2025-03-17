@@ -14,7 +14,8 @@ spec:
         labels:
           tenant.clastix.io: dpu-cluster-0
       extraArgs:
-        apiServer: []
+        apiServer:
+          - --kubelet-preferred-address-types=InternalIP,Hostname,ExternalIP
         controllerManager: []
         scheduler: []
       affinity:

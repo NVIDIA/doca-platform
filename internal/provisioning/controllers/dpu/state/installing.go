@@ -54,7 +54,6 @@ import (
 )
 
 const (
-	TemplateFile            = "bf.cfg.template"
 	CloudInitDefaultTimeout = 90
 	// The maximum size of the bf.cfg file is expanded to 128k since DOCA 2.8
 	MaxBFSize     = 1024 * 128
@@ -68,7 +67,7 @@ type dpuOSInstallingState struct {
 	dpu *provisioningv1.DPU
 }
 
-func (st *dpuOSInstallingState) Handle(ctx context.Context, client client.Client, _ dutil.DPUOptions) (provisioningv1.DPUStatus, error) {
+func (st *dpuOSInstallingState) Handle(ctx context.Context, client client.Client, options dutil.DPUOptions) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 	dmsTaskName := generateDMSTaskName(st.dpu)
 	state := st.dpu.Status.DeepCopy()
@@ -105,7 +104,7 @@ func (st *dpuOSInstallingState) Handle(ctx context.Context, client client.Client
 					msg := fmt.Sprintf("DMS task %v retried %d times, error: %v", dmsTaskName, retryCount, err)
 					logger.Info(msg)
 					// Retry the os install process
-					dmsHandler(ctx, client, st.dpu, bfb, retryCount+1)
+					dmsHandler(ctx, client, st.dpu, bfb, retryCount+1, options)
 					cond := cutil.DPUCondition(provisioningv1.DPUCondOSInstalled, "", msg)
 					cond.Status = metav1.ConditionFalse
 					cutil.SetDPUCondition(state, cond)
@@ -116,7 +115,7 @@ func (st *dpuOSInstallingState) Handle(ctx context.Context, client client.Client
 			logger.V(3).Info(fmt.Sprintf("DMS task %v is being processed", dmsTaskName))
 		}
 	} else {
-		dmsHandler(ctx, client, st.dpu, bfb, 0)
+		dmsHandler(ctx, client, st.dpu, bfb, 0, options)
 	}
 
 	return *state, nil
@@ -207,7 +206,7 @@ func createGRPCConnection(ctx context.Context, client client.Client, dpu *provis
 	return conn, nil
 }
 
-func dmsHandler(ctx context.Context, k8sClient client.Client, dpu *provisioningv1.DPU, bfb *provisioningv1.BFB, retry int) {
+func dmsHandler(ctx context.Context, k8sClient client.Client, dpu *provisioningv1.DPU, bfb *provisioningv1.BFB, retry int, options dutil.DPUOptions) {
 	dmsTaskName := generateDMSTaskName(dpu)
 	dmsTask := future.New(func() (any, error) {
 		logger := log.FromContext(ctx)
@@ -267,7 +266,7 @@ func dmsHandler(ctx context.Context, k8sClient client.Client, dpu *provisioningv
 		}, node); err != nil {
 			return nil, err
 		}
-		data, err := generateBFConfig(ctx, dpu, node, flavor, dc)
+		data, err := generateBFConfig(ctx, options.BFCFGTemplateFile, dpu, node, flavor, dc)
 		if err != nil || data == nil {
 			logger.Error(err, fmt.Sprintf("failed bf.cfg creation for %s/%s", dpu.Namespace, dpu.Name))
 			return nil, err
@@ -399,7 +398,7 @@ func generateDMSTaskName(dpu *provisioningv1.DPU) string {
 	return fmt.Sprintf("%s/%s", dpu.Namespace, dpu.Name)
 }
 
-func generateBFConfig(ctx context.Context, dpu *provisioningv1.DPU, node *corev1.Node, flavor *provisioningv1.DPUFlavor, dc *provisioningv1.DPUCluster) ([]byte, error) {
+func generateBFConfig(ctx context.Context, bfCFGTemplateFile string, dpu *provisioningv1.DPU, node *corev1.Node, flavor *provisioningv1.DPUFlavor, dc *provisioningv1.DPUCluster) ([]byte, error) {
 	logger := log.FromContext(ctx)
 
 	joinCommand, err := generateJoinCommand(dc)
@@ -418,7 +417,7 @@ func generateBFConfig(ctx context.Context, dpu *provisioningv1.DPU, node *corev1
 		additionalReboot = true
 	}
 
-	buf, err := bfcfg.Generate(flavor, cutil.GenerateNodeName(dpu), joinCommand, additionalReboot)
+	buf, err := bfcfg.Generate(flavor, cutil.GenerateNodeName(dpu), joinCommand, additionalReboot, bfCFGTemplateFile)
 	if err != nil {
 		return nil, err
 	}

@@ -968,7 +968,7 @@ var _ = Describe("DPUFlavor", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(objFetched).To(Equal(obj1))
 
-			data1, err := bfcfg.Generate(obj1, DefaultDPUName, "", false)
+			data1, err := bfcfg.Generate(obj1, DefaultDPUName, "", false, "")
 			Expect(err).To(Succeed())
 			Expect(data1).ShouldNot(BeNil())
 
@@ -986,7 +986,7 @@ metadata:
 			err = k8sClient.Create(ctx, obj2)
 			Expect(err).NotTo(HaveOccurred())
 
-			data2, err := bfcfg.Generate(obj2, DefaultDPUName, "", false)
+			data2, err := bfcfg.Generate(obj2, DefaultDPUName, "", false, "")
 			Expect(err).To(Succeed())
 			Expect(data2).ShouldNot(BeNil())
 
@@ -1058,7 +1058,7 @@ spec:
 			err = k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
-			data, err := bfcfg.Generate(obj, DefaultDPUName, "", false)
+			data, err := bfcfg.Generate(obj, DefaultDPUName, "", false, "")
 			Expect(err).To(Succeed())
 			Expect(data).ShouldNot(BeNil())
 		})

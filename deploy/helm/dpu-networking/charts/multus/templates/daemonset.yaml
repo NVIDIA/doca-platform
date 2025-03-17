@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: kube-multus-ds
+  namespace: {{ .Release.Namespace }}
   labels:
     app: multus
     name: multus
@@ -74,10 +75,10 @@ spec:
       volumes:
       - name: cni
         hostPath:
-          path: /etc/cni/net.d
+          path: {{ .Values.cniConfDir }}
       - name: cnibin
         hostPath:
-          path: /opt/cni/bin
+          path: {{ .Values.cniBinDir }}
       - name: multus-cfg
         configMap:
           name: multus-daemon-config

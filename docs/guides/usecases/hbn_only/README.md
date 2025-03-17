@@ -110,7 +110,7 @@ export NGC_API_KEY=
 export REGISTRY=oci://ghcr.io/nvidia/dpf-operator
 
 ## The DPF TAG is the version of the DPF components which will be deployed in this guide.
-export TAG=v25.1.0
+export TAG=v25.1.1
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
 export BLUEFIELD_BITSTREAM="https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-2.9.1-40_24.11_ubuntu-22.04_prod.bfb"

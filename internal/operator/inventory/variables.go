@@ -23,6 +23,11 @@ import (
 
 func newDefaultVariables(defaults *release.Defaults) Variables {
 	return Variables{
+		DPUCNIBinPath:               "/opt/cni/bin",
+		DPUCNIConfPath:              "/etc/cni/net.d/",
+		DPUOpenvSwitchRunPath:       "/var/run/openvswitch/",
+		DPUOpenvSwitchBinPath:       "/usr/bin/",
+		DPUOpenvSwitchSharedLibPath: "/lib",
 		DisableSystemComponents: map[string]bool{
 			operatorv1.ProvisioningControllerName: false,
 			operatorv1.DPUServiceControllerName:   false,
@@ -73,19 +78,25 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 
 // Variables contains information required to generate manifests from the inventory.
 type Variables struct {
-	Namespace                 string
-	DPFProvisioningController DPFProvisioningVariables
-	Networking                Networking
-	DisableSystemComponents   map[string]bool
-	ImagePullSecrets          []string
-	Images                    map[string]string
-	HelmCharts                map[string]string
-	DPUDetectorCollectors     map[string]bool
+	Namespace                   string
+	DPUCNIBinPath               string
+	DPUCNIConfPath              string
+	DPUOpenvSwitchRunPath       string
+	DPUOpenvSwitchBinPath       string
+	DPUOpenvSwitchSharedLibPath string
+	DPFProvisioningController   DPFProvisioningVariables
+	Networking                  Networking
+	DisableSystemComponents     map[string]bool
+	ImagePullSecrets            []string
+	Images                      map[string]string
+	HelmCharts                  map[string]string
+	DPUDetectorCollectors       map[string]bool
 }
 
 type DPFProvisioningVariables struct {
 	BFBPersistentVolumeClaimName string
 	DMSTimeout                   *int
+	BFCFGTemplateConfig          *string
 }
 
 type Networking struct {
@@ -128,6 +139,7 @@ func VariablesFromDPFOperatorConfig(defaults *release.Defaults, config *operator
 	variables.DPFProvisioningController = DPFProvisioningVariables{
 		BFBPersistentVolumeClaimName: config.Spec.ProvisioningController.BFBPersistentVolumeClaimName,
 		DMSTimeout:                   config.Spec.ProvisioningController.DMSTimeout,
+		BFCFGTemplateConfig:          config.Spec.ProvisioningController.BFCFGTemplateConfigMap,
 	}
 	variables.ImagePullSecrets = config.Spec.ImagePullSecrets
 	variables.DisableSystemComponents = disableComponents
@@ -144,6 +156,24 @@ func VariablesFromDPFOperatorConfig(defaults *release.Defaults, config *operator
 		if config.Spec.Networking.HighSpeedMTU != nil {
 			variables.Networking.HighSpeedMTU = *config.Spec.Networking.HighSpeedMTU
 		}
+	}
+	if config.Spec.Overrides != nil {
+		if config.Spec.Overrides.DPUCNIConfigPath != nil {
+			variables.DPUCNIConfPath = *config.Spec.Overrides.DPUCNIConfigPath
+		}
+		if config.Spec.Overrides.DPUCNIBinPath != nil {
+			variables.DPUCNIBinPath = *config.Spec.Overrides.DPUCNIBinPath
+		}
+		if config.Spec.Overrides.DPUOpenvSwitchBinPath != nil {
+			variables.DPUOpenvSwitchBinPath = *config.Spec.Overrides.DPUOpenvSwitchBinPath
+		}
+		if config.Spec.Overrides.DPUOpenvSwitchSystemSharedLibPath != nil {
+			variables.DPUOpenvSwitchSharedLibPath = *config.Spec.Overrides.DPUOpenvSwitchSystemSharedLibPath
+		}
+		if config.Spec.Overrides.DPUOpenvSwitchRunPath != nil {
+			variables.DPUOpenvSwitchRunPath = *config.Spec.Overrides.DPUOpenvSwitchRunPath
+		}
+
 	}
 	return variables
 }

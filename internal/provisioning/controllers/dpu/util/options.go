@@ -41,4 +41,5 @@ type DPUOptions struct {
 	BFBPVC                   string
 	DMSTimeout               int
 	DMSPodTimeout            time.Duration
+	BFCFGTemplateFile        string
 }

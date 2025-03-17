@@ -20,6 +20,7 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -32,9 +33,22 @@ import (
 
 var (
 	//go:embed bf.cfg.template
-	tmplData string
-	tmpl     = template.Must(template.New("").Funcs(sprig.FuncMap()).Parse(tmplData))
+	defaultBFCFGTemplateData string
+	// ConfigMapDataKey is the key in the configmap where the bfb.cfg.template is stored if overwritten.
+	ConfigMapDataKey = "BF_CFG_TEMPLATE"
+	defaultTemplate  = template.Must(template.New("").Funcs(sprig.FuncMap()).Parse(defaultBFCFGTemplateData))
 )
+
+func getTemplate(bfbCFGFilePath string) (*template.Template, error) {
+	if bfbCFGFilePath == "" {
+		return defaultTemplate, nil
+	}
+	data, err := os.ReadFile(bfbCFGFilePath)
+	if err != nil {
+		return nil, err
+	}
+	return template.New("").Funcs(sprig.FuncMap()).Parse(string(data))
+}
 
 type BFCFGData struct {
 	KubeadmJoinCMD             string
@@ -59,7 +73,7 @@ type BFCFGWriteFile struct {
 	Permissions string
 }
 
-func Generate(flavor *provisioningv1.DPUFlavor, dpuName, joinCmd string, additionalReboot bool) ([]byte, error) {
+func Generate(flavor *provisioningv1.DPUFlavor, dpuName, joinCmd string, additionalReboot bool, bfbCFGFilepath string) ([]byte, error) {
 	config := &BFCFGData{
 		KubeadmJoinCMD:   joinCmd,
 		DPUHostName:      dpuName,
@@ -89,9 +103,13 @@ func Generate(flavor *provisioningv1.DPUFlavor, dpuName, joinCmd string, additio
 		config.SFNum = num
 	}
 
+	bfbCFGTemplate, err := getTemplate(bfbCFGFilepath)
+	if err != nil {
+		return nil, err
+	}
 	buf := bytes.NewBuffer(nil)
-	if err := tmpl.Execute(buf, config); err != nil {
-		return nil, fmt.Errorf("execute template failed, err: %v", err)
+	if err := bfbCFGTemplate.Execute(buf, config); err != nil {
+		return nil, fmt.Errorf("execute bfbCFGTemplate failed, err: %v", err)
 	}
 	return buf.Bytes(), nil
 }

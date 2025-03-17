@@ -69,6 +69,7 @@ DPF Operator manages the lifecycle of a DOCA Platform Framework system.
 | grafana.enabled | bool | `false` |  |
 | grafana.persistence.enabled | bool | `true` |  |
 | imagePullSecrets | list | `[]` |  |
+| isOpenshift | bool | `false` |  |
 | kamaji-etcd-defrag.backoffLimit | int | `6` |  |
 | kamaji-etcd-defrag.defragRule | string | `"dbQuotaUsage > 0.8 || dbSize - dbSizeInUse > 200*1024*1024"` |  |
 | kamaji-etcd-defrag.enabled | bool | `true` |  |

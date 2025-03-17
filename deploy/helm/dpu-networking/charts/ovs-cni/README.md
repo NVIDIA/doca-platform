@@ -31,7 +31,9 @@ A Helm chart for Kubernetes
 | arm64.ovsCniPlugin.imagePullPolicy | string | `"Always"` |  |
 | arm64.ovsCniPlugin.resources.requests.cpu | string | `"10m"` |  |
 | arm64.ovsCniPlugin.resources.requests.memory | string | `"15Mi"` |  |
+| cniBinDir | string | `"/opt/cni/bin"` |  |
 | imagePullSecrets | list | `[]` |  |
 | kubernetesClusterDomain | string | `"cluster.local"` |  |
 | marker.serviceAccount.annotations | object | `{}` |  |
+| openvSwitchRunDir | string | `"/var/run/openvswitch"` |  |
 

@@ -41,3 +41,6 @@ kubernetesClusterDomain: cluster.local
 marker:
   serviceAccount:
     annotations: {}
+
+cniBinDir: /opt/cni/bin
+openvSwitchRunDir: /var/run/openvswitch

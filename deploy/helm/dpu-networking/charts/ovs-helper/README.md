@@ -9,6 +9,9 @@ A Helm chart for Kubernetes
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | imagePullSecrets | list | `[]` |  |
+| openvSwitchBinDir | string | `"/usr/bin"` |  |
+| openvSwitchRunDir | string | `"/var/run/openvswitch"` |  |
+| openvSwitchSharedLibraryDir | string | `"/lib"` |  |
 | ovsHelper.image.repository | string | `"example.com/dpf-system"` |  |
 | ovsHelper.image.tag | string | `"v0.1.0"` |  |
 

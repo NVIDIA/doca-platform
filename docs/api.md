@@ -334,6 +334,7 @@ _Appears in:_
 
 
 Overrides exposes a set of fields which impact the recommended behavior of the DPF Operator.
+These fields should only be set for advanced use cases. The fields here have no stability guarantees.
 
 
 
@@ -343,6 +344,11 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `paused` _boolean_ | Paused disables all reconciliation of the DPFOperatorConfig when set to true. |  |  |
+| `dpuCNIBinPath` _string_ | DPUCNIBinPath is the path at which the CNI binaries will be installed to on the DPU.<br />This is /opt/cni/bin by default.<br />This setting does not change where kubelet is configured to use the CNI from. |  |  |
+| `dpuCNIPath` _string_ | DPUCNIConfigPath is the path to which the CNI config files will be installed on the DPU.<br />This is /etc/cni/net.d by default.<br />This setting does not change where kubelet is configured to read the CNI config from. |  |  |
+| `dpuOpenvSwitchRunPath` _string_ | DPUOpenvSwitchPath is the path at which the openvSwitch run directory can be found on the DPU.<br />This is /var/run/openvswitch by default.<br />This setting does not change where components are installed. Installation location fixed in the BFB. |  |  |
+| `dpuOpenvSwitchBinPath` _string_ | DPUOpenvSwitchBinPath is the path at which the openvSwitch bin directory can be found on the DPU node.<br />This is /usr/bin/ by default.<br />This setting does not change where components are installed. Installation location fixed in the BFB. |  |  |
+| `dpuOpenvSwitchSystemSharedPath` _string_ | DPUOpenvSwitchSystemSharedLibPath is the path at which the system lib used by OVS components can be found on the DPU.<br />This is /lib by default.<br />This setting does not change where components are installed. Installation location fixed in the BFB. |  |  |
 
 
 #### ProvisioningControllerConfiguration
@@ -360,6 +366,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
 | `image` _[Image](#image)_ | Image overrides the container image used by the Provisioning controller |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `bfCFGTemplateConfigMap` _string_ | BFCFGTemplateConfigMap is the name of a configMap containing a template for the BF.cfg file used by the DPU controller.<br />By default the provisioning controller use a hardcoded BF.cfg e.g. https://github.com/NVIDIA/doca-platform/blob/release-v24.10/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template<br />Note: Replacing the bf.cfg is an advanced use case. The default bf.cfg is designed for most use cases. |  |  |
 | `bfbPVCName` _string_ | BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim used by dpf-provisioning-controller |  | MinLength: 1 <br /> |
 | `dmsTimeout` _integer_ | DMSTimeout is the max time in seconds within which a DMS API must respond, 0 is unlimited |  | Minimum: 1 <br /> |
 
