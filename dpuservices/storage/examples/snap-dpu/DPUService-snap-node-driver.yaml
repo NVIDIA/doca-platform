@@ -1,0 +1,17 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: snap-node-driver
+  namespace: dpf-operator-system
+spec:
+  serviceID: snap-node-driver
+  helmChart:
+    source:
+      repoURL: oci://example.com/chart
+      version: v0.1.0
+      chart: dpf-storage
+    values:
+      dpu:
+        snapNodeDriver:
+          enabled: true

@@ -1,0 +1,15 @@
+FROM ubuntu:24.10
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ovn-central \
+    ovn-host \
+    ovn-common \
+    openvswitch-common \
+    && rm -rf /var/lib/apt/lists/*
+
+# Expose ovn-central northbound and southbound ports
+EXPOSE 6641 6642
+
+# Volume /etc/ovn volume can be used for ovn-central configuration.
+# The rest needed for ovn-controller
+VOLUME ["/etc/ovn", "/var/run/openvswitch", "/var/run/ovn", "/var/log/ovn"]

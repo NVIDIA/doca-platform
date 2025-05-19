@@ -1,0 +1,48 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: firefly-dpu
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: firefly-dpu
+  interfaces:
+    - name: fireflyiface
+      network: mybrsfc-firefly
+  serviceConfiguration:
+    serviceDaemonSet:
+      labels:
+        svc.dpu.nvidia.com/custom-flows: firefly
+    configPorts:
+      ports:
+        - name: monitor
+          port: 25600
+          protocol: TCP
+      serviceType: ClusterIP
+    helmChart:
+      values:
+        exposedPorts:
+          ports:
+            monitor: true
+        ptpConfig: ptp.conf
+        ptpInterfaces: fireflyiface
+        config:
+          content:
+            ptp.conf: |
+              [global]
+              domainNumber                    24
+              clientOnly                      1
+              verbose                         1
+              logging_level                   6
+              dataset_comparison              G.8275.x
+              G.8275.defaultDS.localPriority  128
+              maxStepsRemoved                 255
+              logAnnounceInterval             -3
+              logSyncInterval                 -4
+              logMinDelayReqInterval          -4
+              G.8275.portDS.localPriority     128
+              ptp_dst_mac                     01:80:C2:00:00:0E
+              network_transport               L2
+              fault_reset_interval            1
+              hybrid_e2e                      0
+  
+              [fireflyiface]

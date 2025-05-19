@@ -1,0 +1,33 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: snap-configuration
+  namespace: dpf-operator-system
+spec:
+  serviceID: snap-configuration
+  helmChart:
+    source:
+      repoURL: oci://example.com/chart
+      version: v0.1.0
+      chart: dpf-storage
+    values:
+      dpu:
+        deployCrds: true
+        configuration:
+          enabled: true
+          storageVendors:
+            - name: nvidia
+              storageClassName: spdkcsi-sc
+              pluginName: nvidia
+          storagePolicies:
+            - name: policy1
+              storageVendors: ["nvidia"]
+              storageSelectionAlg: "Random"
+          # RBAC roles for clients from host cluster
+          # serviceAccount names must be aligned with the serviceAccount names from DPUServiceCredentialRequest
+          rbacRoles:
+            snapCsiPlugin:
+              serviceAccount: snap-csi-plugin-sa
+            snapController:
+              serviceAccount: snap-controller-sa

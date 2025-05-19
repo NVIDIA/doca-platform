@@ -1,0 +1,12 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: dpudeployment-example-servicetemplate
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "example"
+  helmChart:
+    source:
+      repoURL: https://helm.github.io/examples
+      chart: hello-world
+      version: 0.1.0

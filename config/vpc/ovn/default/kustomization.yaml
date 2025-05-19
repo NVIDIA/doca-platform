@@ -1,0 +1,63 @@
+# Adds namespace to all resources.
+namespace: dpf-operator-system
+
+# Value of this field is prepended to the
+# names of all resources, e.g. a deployment named
+# "wordpress" becomes "alices-wordpress".
+# Note that it should also match with the prefix (text before '-') of the namespace
+# field above.
+namePrefix: ovn-vpc-
+
+resources:
+- ../rbac
+- ../manager
+
+sortOptions:
+  order: legacy
+  legacySortOptions:
+    orderFirst:
+      -  PriorityClass
+      -  Namespace
+      -  NetworkPolicy
+      -  ResourceQuota
+      -  LimitRange
+      -  PodSecurityPolicy
+      -  PodDisruptionBudget
+      -  ServiceAccount
+      -  Secret
+      -  SecretList
+      -  ConfigMap
+      -  StorageClass
+      -  PersistentVolume
+      -  PersistentVolumeClaim
+      -  CustomResourceDefinition
+      -  ClusterRole
+      -  ClusterRoleList
+      -  ClusterRoleBinding
+      -  ClusterRoleBindingList
+      -  Role
+      -  RoleList
+      -  RoleBinding
+      -  RoleBindingList
+      -  Service
+      -  DaemonSet
+      -  Pod
+      -  ReplicationController
+      -  ReplicaSet
+      -  Deployment
+      -  HorizontalPodAutoscaler
+      -  StatefulSet
+      -  Job
+      -  CronJob
+      -  IngressClass
+      -  Ingress
+      -  APIService
+      - Certificate
+      - Issuer
+
+labels:
+  - includeTemplates: true
+    includeSelectors: true
+    pairs:
+      dpu.nvidia.com/component: ovn-vpc-controller-manager
+      app.kubernetes.io/part-of: ovn-vpc-controller-manager

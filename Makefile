@@ -1,0 +1,1316 @@
+#
+#Copyright 2024 NVIDIA
+#
+#Licensed under the Apache License, Version 2.0 (the "License");
+#you may not use this file except in compliance with the License.
+#You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+#Unless required by applicable law or agreed to in writing, software
+#distributed under the License is distributed on an "AS IS" BASIS,
+#WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#See the License for the specific language governing permissions and
+#limitations under the License.
+
+## Include Make modules which are split up in this repo for better structure.
+include hack/tools/tools.mk
+
+PROJECT_NAME="DOCA Platform Framework"
+PROJECT_REPO="https://github.com/NVIDIA/doca-platform"
+export DATE="$(shell date --rfc-3339=seconds)"
+export FULL_COMMIT=$(shell git rev-parse HEAD)
+
+# Export is needed here so that the envsubst used in make targets has access to those variables even when they are not
+# explicitly set when calling make.
+# The tag must have three digits with a leading v - i.e. v9.9.1
+export TAG ?= v0.1.0
+# Note: Registry defaults to non-existing registry intentionally to avoid overriding useful images.
+export REGISTRY ?= example.com
+# This variable should be overwritten with the registry of the upstream artifacts. Needed when making a release upstream.
+# This variable ensures that the values injected in the operator and charts point to the upstream artifacts.
+export UPSTREAM_REGISTRY ?= $(REGISTRY)
+
+# If V is set to 1 the output will be verbose.
+Q = $(if $(filter 1,$V),,@)
+
+# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
+ENVTEST_K8S_VERSION = 1.29.0
+
+# Get the current OS and Architecture
+ARCH ?= $(shell go env GOARCH)
+OS ?= $(shell go env GOOS)
+
+# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
+ifeq (,$(shell go env GOBIN))
+GOBIN=$(shell go env GOPATH)/bin
+else
+GOBIN=$(shell go env GOBIN)
+endif
+
+GO_VERSION ?= $(shell awk '/^go /{print $$2}' go.mod)
+
+# Allows for defining additional Go test args, e.g. '-tags integration'.
+GO_TEST_ARGS ?= -race
+
+# CONTAINER_TOOL defines the container tool to be used for building images.
+# Be aware that the target commands are only tested with Docker which is
+# scaffolded by default. However, you might want to replace it to use other
+# tools. (i.e. podman)
+CONTAINER_TOOL ?= docker
+
+# Setting SHELL to bash allows bash commands to be executed by recipes.
+# Options are set to exit when a recipe line exits non-zero or a piped command fails.
+SHELL = /usr/bin/env bash -o pipefail
+.SHELLFLAGS = -ec
+
+##@ General
+
+# The help target prints out all targets with their descriptions organized
+# beneath their categories. The categories are represented by '##@' and the
+# target descriptions by '##'. The awk command is responsible for reading the
+# entire set of makefiles included in this invocation, looking for lines of the
+# file as xyz: ## something, and then pretty-format the target and help. Then,
+# if there's a line with ##@ something, that gets pretty-printed as a category.
+# More info on the usage of ANSI control characters for terminal formatting:
+# https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_parameters
+# More info on the awk command:
+# http://linuxcommand.org/lc3_adv_awk.php
+
+.PHONY: help
+help: ## Display this help.
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+
+LOCALBIN ?= $(CURDIR)/bin
+export CHARTSDIR ?= $(CURDIR)/hack/charts
+DPUSERVICESDIR ?= $(CURDIR)/dpuservices
+REPOSDIR ?= $(CURDIR)/hack/repos
+HELMDIR ?= $(CURDIR)/charts
+THIRDPARTYDIR ?= $(CURDIR)/third_party/forked
+EXAMPLE ?= $(CURDIR)/example
+
+$(LOCALBIN) $(CHARTSDIR) $(DPUSERVICESDIR) $(REPOSDIR):
+	@mkdir -p $@
+
+.PHONY: clean
+clean: ; $(info  Cleaning...)	 @ ## Clean non-essential files from the repo
+	@rm -rf $(CHARTSDIR)
+	@rm -rf $(TOOLSDIR)
+	@rm -rf $(REPOSDIR)
+
+# Note: This helps resolve errors with `docker manifest create`
+.PHONY: clean-images-for-registry
+clean-images-for-registry: ## Clean release deletes local images with the $REGISTRY
+	for image in $$(docker images $$REGISTRY/* --format "{{.ID}}"); do \
+	docker rmi -f $$image ; \
+	done
+
+##@ Dependencies
+
+# OVS CNI
+# A third party import to the repo. In future this will be further integrated.
+OVS_CNI_DIR=$(THIRDPARTYDIR)/ovs-cni
+
+# OVN Kubernetes dependencies to be able to build its docker image
+OVNKUBERNETES_REF=2cb0cfbed8a0bb1f77ed9c62d0fe80d815d32b26
+OVNKUBERNETES_DIR=$(REPOSDIR)/ovn-kubernetes-$(OVNKUBERNETES_REF)
+$(OVNKUBERNETES_DIR): | $(REPOSDIR)
+	git clone https://github.com/mellanox/ovn-kubernetes $(OVNKUBERNETES_DIR)-tmp
+	cd $(OVNKUBERNETES_DIR)-tmp && git reset --hard $(OVNKUBERNETES_REF)
+	mv $(OVNKUBERNETES_DIR)-tmp $(OVNKUBERNETES_DIR)
+
+DOCA_SOSREPORT_REPO_URL=https://github.com/NVIDIA/doca-sosreport/archive/$(DOCA_SOSREPORT_REF).tar.gz
+DOCA_SOSREPORT_REF=6b4289b9f0d9f26af177b0d1c4c009ca74bb514a
+SOS_REPORT_DIR=$(REPOSDIR)/doca-sosreport-$(DOCA_SOSREPORT_REF)
+$(SOS_REPORT_DIR): | $(REPOSDIR)
+	curl -sL ${DOCA_SOSREPORT_REPO_URL} | tar -xz -C ${REPOSDIR}
+
+##@ GRPC
+
+# go package for generated code
+API_PKG_GO_MOD ?= github.com/nvidia/doca-platform/api/grpc
+
+## Temporary location for GRPC files
+GRPC_TMP_DIR  ?= $(CURDIR)/_tmp
+$(GRPC_TMP_DIR):
+	@mkdir -p $@
+
+# GRPC DIRs
+GRPC_DIR ?= $(CURDIR)/api/grpc
+PROTO_DIR ?= $(GRPC_DIR)/proto
+GENERATED_CODE_DIR ?= $(GRPC_DIR)
+
+.PHONY: grpc-generate
+grpc-generate: protoc protoc-gen-go protoc-gen-go-grpc ## Generate GO client and server GRPC code
+	@echo "generate GRPC API"; \
+	echo "   go module: $(API_PKG_GO_MOD)"; \
+	echo "   output dir: $(GENERATED_CODE_DIR) "; \
+	echo "   proto dir: $(PROTO_DIR) "; \
+	cd $(PROTO_DIR) && \
+	TARGET_FILES=""; \
+	PROTOC_OPTIONS="--plugin=protoc-gen-go=$(PROTOC_GEN_GO) \
+					--plugin=protoc-gen-go-grpc=$(PROTOC_GEN_GO_GRPC) \
+					--go_out=$(GENERATED_CODE_DIR) \
+					--go_opt=module=$(API_PKG_GO_MOD) \
+					--proto_path=$(PROTO_DIR) \
+					--go-grpc_out=$(GENERATED_CODE_DIR) \
+					--go-grpc_opt=module=$(API_PKG_GO_MOD)"; \
+	echo "discovered proto files:"; \
+	for proto_file in $$(find . -name "*.proto"); do \
+		proto_file=$$(echo $$proto_file | cut -d'/' -f2-); \
+		proto_dir=$$(dirname $$proto_file); \
+		pkg_name=M$$proto_file=$(API_PKG_GO_MOD)/$$proto_dir; \
+		echo "    $$proto_file"; \
+		TARGET_FILES="$$TARGET_FILES $$proto_file"; \
+		PROTOC_OPTIONS="$$PROTOC_OPTIONS \
+						--go_opt=$$pkg_name \
+						--go-grpc_opt=$$pkg_name" ; \
+	done; \
+	$(PROTOC) $$PROTOC_OPTIONS $$TARGET_FILES
+
+.PHONY: grpc-check
+grpc-check: grpc-format grpc-lint protoc protoc-gen-go protoc-gen-go-grpc $(GRPC_TMP_DIR)  ## Check that generated GO client code match proto files
+	@rm -rf $(GRPC_TMP_DIR)/nvidia/
+	@$(MAKE) GENERATED_CODE_DIR=$(GRPC_TMP_DIR) grpc-generate
+	@diff -Naur $(GRPC_TMP_DIR)/nvidia/ $(GENERATED_CODE_DIR)/nvidia/ || \
+		(printf "\n\nOutdated files detected!\nPlease, run 'make generate' to regenerate GO code\n\n" && exit 1)
+	@echo "generated files are up to date"
+
+.PHONY: grpc-lint
+grpc-lint: buf  ## Lint GRPC files
+	@echo "lint protobuf files";
+	cd $(PROTO_DIR) && \
+	$(BUF) lint --config ../buf.yaml .
+
+.PHONY: grpc-format
+grpc-format: buf  ## Format GRPC files
+	@echo "format protobuf files";
+	cd $(PROTO_DIR) && \
+	$(BUF) format -w --exit-code
+
+##@ Development
+GENERATE_TARGETS ?= dpuservice provisioning servicechainset sfc-controller vpc-crds operator \
+	operator-embedded release-defaults kamaji-cluster-manager static-cluster-manager \
+	ovn-kubernetes storage ovn-vpc
+
+.PHONY: generate
+generate: ## Run all generate-* targets: generate-modules generate-manifests-* and generate-go-deepcopy-*.
+	$(MAKE) generate-mocks generate-dbmodels generate-modules generate-manifests generate-go-deepcopy generate-docs
+
+.PHONY: generate-mocks
+generate-mocks: mockgen ## Generate mocks
+	## Prepend the TOOLSDIR to the path for this command as `mockgen` is called from the $PATH inline in the code.
+	## The DPF TOOLSDIR should be first in the path to ensure user tools are not used.
+	## See go:generate comments for examples.
+
+	export PATH="$(TOOLSDIR):$(PATH)"; go generate $$(go list ./... | grep -v /nbdb)
+
+.PHONY: generate-dbmodels ## Generate database models
+generate-dbmodels: generate-ovnnb-dbmodel
+
+.PHONY: generate-modules
+generate-modules: ## Run go mod tidy to update go modules
+	go mod tidy
+
+.PHONY: generate-manifests
+generate-manifests: $(addprefix generate-manifests-,$(GENERATE_TARGETS)) ## Run all generate-manifests-* targets
+
+.PHONY: generate-manifests-operator
+generate-manifests-operator: controller-gen kustomize ## Generate manifests e.g. CRD, RBAC. for the operator controller.
+	$(MAKE) clean-generated-yaml SRC_DIRS="./charts/dpf-operator/templates/crds/"
+	$(CONTROLLER_GEN) \
+	paths="./cmd/operator/..." \
+	paths="./cmd/kamaji-cluster-manager/..." \
+	paths="./cmd/static-cluster-manager/..." \
+	paths="./internal/operator/..." \
+	paths="./internal/clustermanager/..." \
+	paths="./internal/provisioning/..." \
+	paths="./api/operator/..." \
+	crd:crdVersions=v1 \
+	rbac:roleName="dpf-operator-manager-role" \
+	output:crd:dir=./config/operator-crds \
+	output:rbac:dir=./charts/dpf-operator/templates
+	## Copy CRD definitions to the operator helm directory
+	$(KUSTOMIZE) build config/operator-crds -o  charts/dpf-operator/templates/crds/;
+
+.PHONY: generate-manifests-dpuservice
+generate-manifests-dpuservice: controller-gen ## Generate manifests e.g. CRD, RBAC. for the dpuservice controller.
+	$(MAKE) clean-generated-yaml SRC_DIRS="./config/dpuservice/crd/bases"
+	$(CONTROLLER_GEN) \
+	paths="./cmd/dpuservice/..." \
+	paths="./internal/dpuservice/..." \
+	paths="./internal/dpuservicechain/..." \
+	paths="./api/dpuservice/..." \
+	crd:crdVersions=v1 \
+	rbac:roleName=manager-role \
+	output:crd:dir=./config/dpuservice/crd/bases \
+	output:rbac:dir=./config/dpuservice/rbac \
+	output:webhook:dir=./config/dpuservice/webhook \
+	webhook
+
+.PHONY: generate-manifests-servicechainset
+generate-manifests-servicechainset: controller-gen kustomize envsubst ## Generate manifests e.g. CRD, RBAC. for the servicechainset controller.
+	# TODO: Clean up pod-ipam-injector generation
+	$(CONTROLLER_GEN) \
+	paths="./cmd/servicechainset/..." \
+	paths="./internal/servicechainset/..." \
+	paths="./internal/pod-ipam-injector/..." \
+	rbac:roleName=servicechainset-controller-manager \
+	output:rbac:dir=charts/dpu-networking/charts/servicechainset-controller/templates;
+	find config/dpuservice/crd/bases/ -type f -not -name '*_dpu*' -exec cp {} charts/dpu-networking/charts/servicechainset-controller/templates/crds/ \;
+
+.PHONY: generate-manifests-storage
+generate-manifests-storage: controller-gen kustomize ## Generate CRDs for SNAP storage in DPU cluster 
+	$(MAKE) clean-generated-yaml SRC_DIRS="./config/snap/crd"
+	$(CONTROLLER_GEN) \
+	paths="./api/storage/..." \
+	crd:crdVersions=v1,generateEmbeddedObjectMeta=true \
+	output:crd:dir=./config/snap/crd
+	rm -rf $(STORAGE_CHART)/templates/crd && cp -r config/snap/crd $(STORAGE_CHART)/templates
+	@for f in $(STORAGE_CHART)/templates/crd/*.yaml; do \
+		(echo "{{- if .Values.dpu.deployCrds }}" && cat "$$f" && echo "{{- end }}") > "$$f.tmp" && mv "$$f.tmp" "$$f"; \
+	done
+	## Set the image names and tags for storage-related charts
+	$(ENVSUBST) < $(STORAGE_CHART)/values.yaml.tmpl > $(STORAGE_CHART)/values.yaml
+
+.PHONY: generate-manifests-ovn-kubernetes-resource-injector
+generate-manifests-ovn-kubernetes-resource-injector: envsubst ## Generate manifests e.g. CRD, RBAC. for the OVN Kubernetes Resource Injector
+	$(ENVSUBST) < charts/ovn-kubernetes-resource-injector/values.yaml.tmpl > charts/ovn-kubernetes-resource-injector/values.yaml
+
+RELEASE_FILE = ./internal/release/manifests/defaults.yaml
+
+.PHONY: generate-manifests-release-defaults
+generate-manifests-release-defaults: envsubst ## Generates manifests that contain the default values that should be used by the operators
+	$(ENVSUBST) <  ./internal/release/templates/defaults.yaml.tmpl > $(RELEASE_FILE)
+
+TEMPLATES_DIR ?= $(CURDIR)/internal/operator/inventory/templates
+EMBEDDED_MANIFESTS_DIR ?= $(CURDIR)/internal/operator/inventory/manifests
+.PHONY: generate-manifests-operator-embedded
+generate-manifests-operator-embedded: kustomize envsubst generate-manifests-dpuservice generate-manifests-provisioning generate-manifests-release-defaults generate-manifests-kamaji-cluster-manager generate-manifests-static-cluster-manager ## Generates manifests that are embedded into the operator binary.
+	# Reorder none here ensure that we generate the kustomize files in a specific order to be consumed by the DPF Operator.
+	$(KUSTOMIZE) build --reorder=none config/provisioning/default > $(EMBEDDED_MANIFESTS_DIR)/provisioning-controller.yaml
+	$(KUSTOMIZE) build --reorder=none config/dpu-detector > $(EMBEDDED_MANIFESTS_DIR)/dpu-detector.yaml
+	$(KUSTOMIZE) build --reorder=none config/dpuservice/default > $(EMBEDDED_MANIFESTS_DIR)/dpuservice-controller.yaml
+	$(KUSTOMIZE) build --reorder=none config/kamaji-cluster-manager/default > $(EMBEDDED_MANIFESTS_DIR)/kamaji-cluster-manager.yaml
+	$(KUSTOMIZE) build --reorder=none config/static-cluster-manager/default > $(EMBEDDED_MANIFESTS_DIR)/static-cluster-manager.yaml
+	$(KUSTOMIZE) build --reorder=none config/bfb_registry > $(EMBEDDED_MANIFESTS_DIR)/bfb-registry.yaml
+
+.PHONY: generate-manifests-sfc-controller
+generate-manifests-sfc-controller: envsubst generate-manifests-servicechainset
+	cp charts/dpu-networking/charts/servicechainset-controller/templates/crds/svc.dpu.nvidia.com_servicechains.yaml charts/dpu-networking/charts/sfc-controller/templates/crds/
+	cp charts/dpu-networking/charts/servicechainset-controller/templates/crds/svc.dpu.nvidia.com_serviceinterfaces.yaml charts/dpu-networking/charts/sfc-controller/templates/crds/
+
+.PHONY: generate-manifests-provisioning
+generate-manifests-provisioning: controller-gen kustomize ## Generate manifests e.g. CRD, RBAC. for the DPF provisioning controller.
+	$(MAKE) clean-generated-yaml SRC_DIRS="./config/provisioning/crd/bases"
+	$(CONTROLLER_GEN) \
+	paths="./cmd/provisioning/..." \
+	paths="./internal/provisioning/..." \
+	paths="./api/provisioning/..." \
+	crd:crdVersions=v1,generateEmbeddedObjectMeta=true \
+	rbac:roleName=manager-role \
+	output:crd:dir=./config/provisioning/crd/bases \
+	output:rbac:dir=./config/provisioning/rbac \
+	output:webhook:dir=./config/provisioning/webhook \
+	webhook
+
+.PHONY: generate-manifests-kamaji-cluster-manager
+generate-manifests-kamaji-cluster-manager: controller-gen kustomize ## Generate manifests e.g. CRD, RBAC. for the DPF provisioning controller.
+	$(CONTROLLER_GEN) \
+	paths="./cmd/kamaji-cluster-manager/..." \
+	paths="./internal/clustermanager/controller/..." \
+	paths="./internal/clustermanager/kamaji/..." \
+	rbac:roleName=manager-role \
+	output:rbac:dir=./config/kamaji-cluster-manager/rbac
+
+.PHONY: generate-manifests-static-cluster-manager
+generate-manifests-static-cluster-manager: controller-gen kustomize ## Generate manifests e.g. CRD, RBAC. for the DPF provisioning controller.
+	$(CONTROLLER_GEN) \
+	paths="./cmd/static-cluster-manager/..." \
+	paths="./internal/clustermanager/controller/..." \
+	paths="./internal/clustermanager/static/..." \
+	rbac:roleName=manager-role \
+	output:rbac:dir=./config/static-cluster-manager/rbac
+
+.PHONY: generate-manifests-vpc-crds
+generate-manifests-vpc-crds: controller-gen kustomize ## Generate manifests for VPC (CRDs)
+	$(MAKE) clean-generated-yaml SRC_DIRS="./config/vpc/crd/bases"
+	$(CONTROLLER_GEN) \
+	paths="./api/vpc/..." \
+	crd:crdVersions=v1 \
+	output:crd:dir=./config/vpc/crd/bases
+
+.PHONY: generate-manifests-ovn-vpc
+generate-manifests-ovn-vpc: controller-gen kustomize ## Generate manifests e.g. CRD, RBAC for OVN VPC controller
+	$(CONTROLLER_GEN) \
+	paths="./cmd/vpc/ovn/..." \
+	paths="./internal/vpc/ovn/controllers/..." \
+	rbac:roleName=manager-role \
+	output:rbac:dir=./config/vpc/ovn/rbac
+
+.PHONY: generate-manifests-ovn-kubernetes
+generate-manifests-ovn-kubernetes: $(OVNKUBERNETES_DIR) envsubst ## Generate manifests for ovn-kubernetes
+	$(ENVSUBST) < $(OVNKUBERNETES_HELM_CHART)/values.yaml.tmpl > $(OVNKUBERNETES_HELM_CHART)/values.yaml
+
+.PHONY: clean-generated-yaml
+clean-generated-yaml: ## Remove files generated by controller-tools from the mentioned dirs.
+	(IFS=','; for i in $(SRC_DIRS); do find $$i -type f -name '*.yaml' -exec rm -f {} \;; done)
+
+.PHONY: generate-go-deepcopy
+generate-go-deepcopy: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+	$(MAKE) clean-generated-deepcopy SRC_DIRS="./api"
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/..."
+
+.PHONY: clean-generated-deepcopy
+clean-generated-deepcopy: ## Remove files generated by golang from the mentioned dirs.
+	(IFS=','; for i in $(SRC_DIRS); do find $$i -type f -name 'zz_generated.deepcopy*' -exec rm -f {} \;; done)
+
+##@ Documentation
+GENERATE_DOC_TARGETS ?= api helm embedmd
+.PHONY: generate-docs
+generate-docs: $(addprefix generate-docs-,$(GENERATE_DOC_TARGETS))
+	$(MAKE)
+
+.PHONY: generate-docs-api
+generate-docs-api: gen-crd-api-reference-docs ## Generate docs for the API.
+	$(GEN_CRD_API_REFERENCE_DOCS) --renderer=markdown --source-path=api --config=hack/tools/api-docs/config.yaml --output-path=docs/public/api/api.md.tmp
+	@echo '---' > docs/public/api/api.md
+	@echo 'title: API reference' >> docs/public/api/api.md
+	@echo '---' >> docs/public/api/api.md
+	@echo '' >> docs/public/api/api.md
+	@cat docs/public/api/api.md.tmp >> docs/public/api/api.md
+	@rm docs/public/api/api.md.tmp
+
+.PHONY: generate-docs-helm
+generate-docs-helm: helm-docs ## Generate helm chart documentation.
+	$(HELM_DOCS) --ignore-file=.helmdocsignore
+
+.PHONY: generate-docs-embedmd
+generate-docs-embedmd: embedmd ## Embed additional files into markdown docs.
+	grep -rl --include \*.md -e '\[embedmd\]' docs | xargs $(EMBEDMD) -w
+
+.PHONY: verify-md-links
+verify-md-links: $(LYCHEE) ## Check links in markdown docs are working
+	$(LYCHEE) --accept 200,429 . *.md --exclude-path third_party --exclude-path ./charts --exclude-path docs/do_not_publish # Exclude the external `third_party` docs and the generated `charts` docs.
+
+##@ Testing
+
+TESTPKGS ?= $$(go list ./... | grep -v /e2e | grep -v /third_party)
+
+.PHONY: test-build-images
+test-build-images: build-ovn-central ## Build required images for unit tests
+
+.PHONY: test
+test: envtest test-build-images ## Run tests.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test $(TESTPKGS) $(GO_TEST_ARGS)
+
+.PHONY: test-report
+test-report: envtest gotestsum test-build-images ## Run tests and generate a junit style report
+	set +o errexit; KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test -count 1 -race -json $(TESTPKGS) -coverprofile cover.out > junit.stdout; echo $$? > junit.exitcode;
+	$(GOTESTSUM) --junitfile junit.xml --raw-command cat junit.stdout
+	exit $$(cat junit.exitcode)
+
+.PHONY: test-release-e2e-quick
+test-release-e2e-quick: # Build images required for the quick DPF e2e test.
+	$(MAKE) docker-build-dpf-system-for-$(ARCH) docker-push-dpf-system-for-$(ARCH)
+	$(MAKE) docker-build-dummydpuservice docker-push-dummydpuservice
+	# Build and push all the helm charts
+	$(MAKE) helm-package-all helm-push-all
+	$(MAKE) helm-package-dummydpuservice helm-push-dummydpuservice
+
+.PHONY: test-release-e2e-slow
+test-release-e2e-slow: release # Build images required for the slow DPF e2e tests.
+	$(MAKE) docker-build-dummydpuservice docker-push-dummydpuservice
+	$(MAKE) helm-package-dummydpuservice helm-push-dummydpuservice
+
+
+TEST_CLUSTER_NAME := dpf-test
+ADD_CONTROL_PLANE_TAINTS ?= true
+test-env-e2e: minikube helm ## Setup a Kubernetes environment to run tests.
+
+	# Create a minikube cluster to host the test.
+	CLUSTER_NAME=$(TEST_CLUSTER_NAME) MINIKUBE_BIN=$(MINIKUBE) ADD_CONTROL_PLANE_TAINTS=$(ADD_CONTROL_PLANE_TAINTS) $(CURDIR)/hack/scripts/minikube-install.sh
+
+	$(KUBECTL) get namespace dpf-operator-system || $(KUBECTL) create namespace dpf-operator-system
+
+	# Create secrets required for using artefacts if required.
+	$(CURDIR)/hack/scripts/create-artefact-secrets.sh
+
+OPERATOR_NAMESPACE ?= dpf-operator-system
+DEPLOY_KSM ?= false
+DEPLOY_GRAFANA ?= false
+DEPLOY_PROMETHEUS ?= false
+DEPLOY_PARCA ?= false
+
+.PHONY: test-deploy-operator-helm
+test-deploy-operator-helm: helm helm-package-operator ## Deploy the DPF Operator using helm
+	$(HELM) upgrade --install --create-namespace --namespace $(OPERATOR_NAMESPACE) \
+		--set controllerManager.image.repository=$(DPF_SYSTEM_IMAGE)\
+		--set controllerManager.image.tag=$(TAG) \
+		--set imagePullSecrets[0].name=dpf-pull-secret \
+		--set kube-state-metrics.enabled=$(DEPLOY_KSM) \
+		--set grafana.enabled=$(DEPLOY_GRAFANA) \
+		--set prometheus.enabled=$(DEPLOY_PROMETHEUS) \
+		--set parca.enabled=$(DEPLOY_PARCA) \
+		dpf-operator $(OPERATOR_HELM_CHART)
+
+ARTIFACTS_DIR ?= $(CURDIR)/artifacts
+
+E2E_TEST_ARGS ?= -v -ginkgo.v -e2e.config=./config-quick.yaml
+# Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
+.PHONY: test-e2e ## Run the e2e tests against a Kind k8s instance that is spun up.
+test-e2e: stern ## Run e2e tests
+	STERN=$(STERN) ARTIFACTS=$(ARTIFACTS_DIR) $(CURDIR)/hack/scripts/stern-log-collector.sh \
+	  go test -timeout 0 ./test/e2e/ $(E2E_TEST_ARGS)
+
+.PHONY: clean-test-env
+clean-test-env: minikube ## Clean test environment (teardown minikube cluster)
+	$(MINIKUBE) delete -p $(TEST_CLUSTER_NAME)
+
+
+##@ validate commit
+.PHONY: commit-check
+commit-check: conform ## Run conform to validate commit message
+	$(CONFORM) enforce
+
+##@ lint and verify
+GOLANGCI_LINT_GOGC ?= "100"
+.PHONY: lint
+lint: golangci-lint ## Run golangci-lint linter & yamllint
+	GOOS=linux GOGC=$(GOLANGCI_LINT_GOGC) $(GOLANGCI_LINT) run --timeout 5m
+
+.PHONY: lint-fix
+lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
+	GOOS=linux $(GOLANGCI_LINT) run --fix
+
+.PHONY: verify-generate
+verify-generate: generate ## Verify auto-generated code did not change
+	$(info checking for git diff after running 'make generate')
+	# Use intent-to-add to check for untracked files after generation.
+	git add -N .
+	$Q git diff --quiet ; if [ $$? -eq 1 ] ; then echo "Please, commit manifests after running 'make generate'"; exit 1 ; fi
+
+.PHONY: verify-copyright
+verify-copyright: ## Verify copyrights for project files
+	$Q $(CURDIR)/hack/scripts/copyright-validation.sh
+
+.PHONY: lint-helm
+lint-helm: lint-helm-dpu-networking lint-helm-ovn-kubernetes lint-helm-dummydpuservice lint-helm-storage lint-helm-spdk-csi-controller
+
+.PHONY: lint-helm-dpu-networking
+lint-helm-dpu-networking: helm ## Run helm lint for servicechainset chart
+	$Q $(HELM) lint $(DPU_NETWORKING_HELM_CHART)
+
+.PHONY: lint-helm-ovn-kubernetes
+lint-helm-ovn-kubernetes: generate-manifests-ovn-kubernetes helm ## Run helm lint for ovn-kubernetes chart
+	$Q $(HELM) lint $(OVNKUBERNETES_HELM_CHART)
+
+.PHONY: lint-helm-dummydpuservice
+lint-helm-dummydpuservice: helm ## Run helm lint for dummydpuservice chart
+	$Q $(HELM) lint $(DUMMYDPUSERVICE_HELM_CHART)
+
+.PHONY: lint-helm-spdk-csi-controller
+lint-helm-spdk-csi-controller: helm ## Run helm lint for spdk csi controller chart
+	$Q $(HELM) lint $(SPDK_CSI_CONTROLLER_CHART)
+
+.PHONY: lint-helm-storage
+lint-helm-storage: helm ## Run helm lint for snap dpu chart
+	$Q $(HELM) lint $(STORAGE_CHART)
+
+##@ Release
+
+.PHONY: release-build
+release-build: generate ## Build helm and container images for release.
+	# Build multiarch images which will run on both DPUs and x86 hosts.
+	$(MAKE) $(addprefix docker-build-,$(MULTI_ARCH_DOCKER_BUILD_TARGETS))
+	# Build arm64 images which will run on DPUs.
+	$(MAKE) ARCH=$(DPU_ARCH) $(addprefix docker-build-,$(DPU_ARCH_DOCKER_BUILD_TARGETS))
+	# Build amd64 images which will run on x86 hosts.
+	$(MAKE) ARCH=$(HOST_ARCH) $(addprefix docker-build-,$(HOST_ARCH_DOCKER_BUILD_TARGETS))
+
+	# Package the helm charts.
+	$(MAKE) helm-package-all
+
+
+# controls whether the charts should be pushed in both REGISTRY and HELM_REGISTRY, in case the two are different
+export RELEASE_PUSH_HELM_CHARTS_TO_REGISTRY ?= false
+
+.PHONY: release
+release: release-build release-dpfctl-ngc ## Build and push helm and container images for release.
+
+	# Push all of the images
+	$(MAKE) docker-push-all
+
+	# Push the helm charts.
+	$(MAKE) helm-push-all
+
+ifeq ($(RELEASE_PUSH_HELM_CHARTS_TO_REGISTRY),true)
+ifneq ($(HELM_REGISTRY),$(DEFAULT_HELM_REGISTRY))
+	# Push the helm charts to the REGISTRY as well in case the 2 conditions are satisfied. This assumes that the REGISTRY
+	# is an OCI compliant registry.
+	$(MAKE) HELM_REGISTRY=$(DEFAULT_HELM_REGISTRY) helm-push-all
+endif
+endif
+
+export DPFCTL_NGC_ENABLED ?= false
+export DPFCTL_NGC_ORG ?= nvstaging
+.PHONY: release-dpfctl-ngc
+release-dpfctl-ngc: $(NGC) ## Release the dpfctl binary to NGC.
+ifeq ($(DPFCTL_NGC_ENABLED),true)
+	@if [ -z "$$NGC_API_KEY" ]; then \
+		echo "Error: NGC_API_KEY environment variable is not set. Please set it before running this target"; \
+		exit 1; \
+	fi
+
+	# Make dpfctl binaries for Linux and MacOS
+	$(MAKE) binary-dpfctl-release
+
+	# Push the dpfctl binaries to NGC
+	$(NGC) registry resource info --org $(DPFCTL_NGC_ORG) $(DPFCTL_NGC_ORG)/doca/dpfctl:$(TAG) &>/dev/null \
+	&& echo "dpfctl $(TAG) already exists in nvstaging" \
+	|| $(NGC) registry resource upload-version --org $(DPFCTL_NGC_ORG) $(DPFCTL_NGC_ORG)/doca/dpfctl:$(TAG) --source $(LOCALBIN)/dpfctl-$(TAG)-release/
+endif
+
+.PHONY: warm-cache
+warm-cache: ## Warm the cache for the tests.
+
+	$(MAKE) release-build test lint
+
+##@ Build
+
+GO_GCFLAGS ?= ""
+GO_LDFLAGS ?= "-extldflags '-static'"
+
+STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS ?= "$(shell echo $(GO_LDFLAGS)) -X github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/common.VendorVersion=$(TAG)"
+
+BUILD_TARGETS ?= $(DPU_ARCH_BUILD_TARGETS)
+DPF_SYSTEM_BUILD_TARGETS ?= operator provisioning dpuservice servicechainset kamaji-cluster-manager static-cluster-manager \
+	sfc-controller ovs-helper dpfctl dpudetector
+DPU_ARCH_BUILD_TARGETS ?=
+VPC_SYSTEM_BUILD_TARGETS ?= ovn-vpc-controller
+# contains list of storage-related binaries that have no system-level dependencies
+STORAGE_SYSTEM_BUILD_TARGETS ?= storage-snap-controller storage-snap-node-driver storage-vendor-dpu-plugin storage-snap-csi-plugin
+# contains list of storage-related binaries that have system-level dependencies (depend on some linux utils from the container)
+STORAGE_HOST_BUILD_TARGETS ?= storage-snap-csi-plugin
+
+BUILD_IMAGE ?= docker.io/library/golang:$(GO_VERSION)
+
+HOST_ARCH = amd64
+DPU_ARCH = arm64
+
+# Use distroless as minimal base image to package the manager binary
+BASE_IMAGE = nvcr.io/nvidia/doca/dpf_containers:1.0.2-ubuntu22.04-distroless
+ALPINE_IMAGE = alpine:3.19
+
+.PHONY: binaries
+binaries: $(addprefix binary-,$(BUILD_TARGETS)) ## Build all binaries
+
+.PHONY: binaries-dpf-system
+binaries-dpf-system: $(addprefix binary-,$(DPF_SYSTEM_BUILD_TARGETS)) ## Build binaries for the dpf-system image.
+
+.PHONY: binaries-vpc-system
+binaries-vpc-system: $(addprefix binary-,$(VPC_SYSTEM_BUILD_TARGETS)) ## Build binaries for the vpc-system image.
+
+.PHONY: binaries-storage-system
+binaries-storage-system: $(addprefix binary-,$(STORAGE_SYSTEM_BUILD_TARGETS)) ## Build binaries for the storage-system image.
+
+.PHONY: binaries-storage-host
+binaries-storage-host: $(addprefix binary-,$(STORAGE_HOST_BUILD_TARGETS)) ## Build binaries for the storage-host image.
+
+.PHONY: binary-operator
+binary-operator: ## Build the operator controller binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/operator github.com/nvidia/doca-platform/cmd/operator
+
+.PHONY: binary-provisioning
+binary-provisioning: ## Build the provisioning controller binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/provisioning github.com/nvidia/doca-platform/cmd/provisioning
+
+.PHONY: binary-kamaji-cluster-manager
+binary-kamaji-cluster-manager: ## Build the kamaji-cluster-manager binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/kamaji-cluster-manager github.com/nvidia/doca-platform/cmd/kamaji-cluster-manager
+
+.PHONY: binary-static-cluster-manager
+binary-static-cluster-manager: ## Build the static-cluster-manager binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/static-cluster-manager github.com/nvidia/doca-platform/cmd/static-cluster-manager
+
+.PHONY: binary-dpuservice
+binary-dpuservice: ## Build the dpuservice controller binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpuservice github.com/nvidia/doca-platform/cmd/dpuservice
+
+.PHONY: binary-servicechainset
+binary-servicechainset: ## Build the servicechainset controller binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/servicechainset github.com/nvidia/doca-platform/cmd/servicechainset
+
+.PHONY: binary-dpucniprovisioner
+binary-dpucniprovisioner: ## Build the DPU CNI Provisioner binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpucniprovisioner github.com/nvidia/doca-platform/cmd/dpucniprovisioner
+
+.PHONY: binary-ovs-helper
+binary-ovs-helper: ## Build the OVS Helper binary
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/ovshelper github.com/nvidia/doca-platform/cmd/ovshelper
+
+.PHONY: binary-sfc-controller
+binary-sfc-controller: ## Build the Host CNI Provisioner binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/sfc-controller github.com/nvidia/doca-platform/cmd/sfc-controller
+
+.PHONY: binary-ipallocator
+binary-ipallocator: ## Build the IP allocator binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/ipallocator github.com/nvidia/doca-platform/cmd/ipallocator
+
+.PHONY: binary-dpudetector
+binary-dpudetector: ## Build the DPU detector binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpu-detector github.com/nvidia/doca-platform/cmd/dpudetector
+
+.PHONY: binary-ovn-kubernetes-resource-injector
+binary-ovn-kubernetes-resource-injector: ## Build the OVN Kubernetes Resource Injector.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/ovnkubernetesresourceinjector github.com/nvidia/doca-platform/cmd/ovnkubernetesresourceinjector
+
+.PHONY: binary-storage-snap-controller
+binary-storage-snap-controller: ## Build the snap controller controller binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/snap-controller github.com/nvidia/doca-platform/cmd/storage/snap-controller
+
+.PHONY: binary-storage-snap-node-driver
+binary-storage-snap-node-driver: ## Build the snap node driver controller binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/snap-node-driver github.com/nvidia/doca-platform/cmd/storage/snap-node-driver
+
+.PHONY: binary-storage-vendor-dpu-plugin
+binary-storage-vendor-dpu-plugin: ## Build the storage vendor DPU plugin controller binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/storage-vendor-dpu-plugin github.com/nvidia/doca-platform/cmd/storage/storage-vendor-dpu-plugin
+
+.PHONY: binary-storage-snap-csi-plugin
+binary-storage-snap-csi-plugin: ## Build the snap-csi-plugin binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build \
+		-ldflags=$(STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS) \
+		-gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/snap-csi-plugin github.com/nvidia/doca-platform/cmd/storage/snap-csi-plugin
+
+.PHONY: binary-ovn-vpc-controller
+binary-ovn-vpc-controller: ## Build ovn vpc-controller binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build \
+	-ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/ovn-vpc-controller github.com/nvidia/doca-platform/cmd/vpc/ovn/vpc-controller
+
+.PHONY: binary-dpfctl
+binary-dpfctl: ## Build the dpfctl binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build \
+		-ldflags="$(shell echo $(GO_LDFLAGS)) -X main.version=$(TAG)" \
+		-gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpfctl github.com/nvidia/doca-platform/cmd/dpfctl
+
+.PHONY: binary-dpfctl-release
+binary-dpfctl-release: ## Build the dpfctl binary for all architectures.
+	$Q mkdir -p $(LOCALBIN)/dpfctl-$(TAG)-release
+
+	# Build for linux/amd64
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+		-ldflags="$(shell echo $(GO_LDFLAGS)) -X main.version=$(TAG)" \
+		-gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpfctl-$(TAG)-release/dpfctl-linux-amd64 github.com/nvidia/doca-platform/cmd/dpfctl
+
+	# Build for linux/arm64
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+		-ldflags="$(shell echo $(GO_LDFLAGS)) -X main.version=$(TAG)" \
+		-gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpfctl-$(TAG)-release/dpfctl-linux-arm64 github.com/nvidia/doca-platform/cmd/dpfctl
+
+	# Build for darwin/arm64
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+		-ldflags="$(shell echo $(GO_LDFLAGS)) -X main.version=$(TAG)" \
+		-gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpfctl-$(TAG)-release/dpfctl-darwin-arm64 github.com/nvidia/doca-platform/cmd/dpfctl
+
+.PHONY: install-dpfctl
+install-dpfctl: binary-dpfctl ## Install the dpfctl binary.
+	install -m 755 $(LOCALBIN)/dpfctl $(GOPATH)/bin/dpfctl
+
+DOCKER_BUILD_TARGETS=$(HOST_ARCH_DOCKER_BUILD_TARGETS) $(DPU_ARCH_DOCKER_BUILD_TARGETS) $(MULTI_ARCH_DOCKER_BUILD_TARGETS)
+HOST_ARCH_DOCKER_BUILD_TARGETS=hostdriver storage-host bfb-registry
+DPU_ARCH_DOCKER_BUILD_TARGETS=$(DPU_ARCH_BUILD_TARGETS) ovs-cni
+MULTI_ARCH_DOCKER_BUILD_TARGETS= dpf-system ovn-kubernetes storage-system
+
+.PHONY: docker-build-all
+docker-build-all: $(addprefix docker-build-,$(DOCKER_BUILD_TARGETS)) ## Build docker images for all DOCKER_BUILD_TARGETS. Architecture defaults to build system architecture unless overridden or hardcoded.
+
+DPF_SYSTEM_IMAGE_NAME ?= dpf-system
+export DPF_SYSTEM_IMAGE ?= $(REGISTRY)/$(DPF_SYSTEM_IMAGE_NAME)
+export DPF_SYSTEM_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(DPF_SYSTEM_IMAGE_NAME)
+
+OVNKUBERNETES_IMAGE_NAME = ovn-kubernetes
+export OVNKUBERNETES_IMAGE = $(REGISTRY)/$(OVNKUBERNETES_IMAGE_NAME)
+
+OVNKUBERNETES_RESOURCE_INJECTOR_IMAGE_NAME = ovn-kubernetes-resource-injector
+export OVNKUBERNETES_RESOURCE_INJECTOR_IMAGE = $(REGISTRY)/$(OVNKUBERNETES_RESOURCE_INJECTOR_IMAGE_NAME)
+
+OVS_CNI_IMAGE_NAME ?= ovs-cni-plugin
+export OVS_CNI_IMAGE ?= $(REGISTRY)/$(OVS_CNI_IMAGE_NAME)
+export OVS_CNI_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(OVS_CNI_IMAGE_NAME)
+
+HOSTDRIVER_IMAGE_NAME ?= hostdriver
+export HOSTDRIVER_IMAGE ?= $(REGISTRY)/$(HOSTDRIVER_IMAGE_NAME)
+export HOSTDRIVER_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(HOSTDRIVER_IMAGE_NAME)
+
+IPALLOCATOR_IMAGE_NAME ?= ip-allocator
+export IPALLOCATOR_IMAGE ?= $(REGISTRY)/$(IPALLOCATOR_IMAGE_NAME)
+
+BFB_REGISTRY_IMAGE_NAME ?= bfb-registry
+export BFB_REGISTRY_IMAGE ?= $(REGISTRY)/$(BFB_REGISTRY_IMAGE_NAME)
+export BFB_REGISTRY_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(BFB_REGISTRY_IMAGE_NAME)
+
+
+# Images that are running on DPU worker nodes (arm64)
+DPUCNIPROVISIONER_IMAGE_NAME ?= dpu-cni-provisioner
+DPUCNIPROVISIONER_IMAGE ?= $(REGISTRY)/$(DPUCNIPROVISIONER_IMAGE_NAME)
+
+DUMMYDPUSERVICE_IMAGE_NAME ?= dummydpuservice
+export DUMMYDPUSERVICE_IMAGE ?= $(REGISTRY)/$(DUMMYDPUSERVICE_IMAGE_NAME)
+
+STORAGE_SYSTEM_IMAGE_NAME = storage-system
+export STORAGE_SYSTEM_IMAGE ?= $(REGISTRY)/$(STORAGE_SYSTEM_IMAGE_NAME)
+export STORAGE_SYSTEM_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(STORAGE_SYSTEM_IMAGE_NAME)
+
+STORAGE_HOST_IMAGE_NAME = storage-host
+export STORAGE_HOST_IMAGE ?= $(REGISTRY)/$(STORAGE_HOST_IMAGE_NAME)
+export STORAGE_HOST_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(STORAGE_HOST_IMAGE_NAME)
+
+VPC_SYSTEM_IMAGE_NAME = vpc-system
+export VPC_SYSTEM_IMAGE ?= $(REGISTRY)/$(VPC_SYSTEM_IMAGE_NAME)
+
+OVN_IMAGE_NAME = ovn
+export OVN_IMAGE = $(REGISTRY)/$(OVN_IMAGE_NAME)
+
+DPF_SYSTEM_ARCH ?= $(HOST_ARCH) $(DPU_ARCH)
+
+.PHONY: docker-build-dpf-system # Build a multi-arch image for DPF System. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
+docker-build-dpf-system: $(addprefix docker-build-dpf-system-for-,$(DPF_SYSTEM_ARCH))
+
+docker-build-dpf-system-for-%:
+	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
+	docker buildx build \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform=linux/$* \
+		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg base_image=$(BASE_IMAGE) \
+		--build-arg ldflags=$(GO_LDFLAGS) \
+		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg TAG=$(TAG) \
+		-f Dockerfile.dpf-system \
+		. \
+		-t $(DPF_SYSTEM_IMAGE):$(TAG)-$*
+
+.PHONY: docker-push-dpf-system # Push a multi-arch image for DPF System using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
+docker-push-dpf-system: $(addprefix docker-push-dpf-system-for-,$(DPF_SYSTEM_ARCH))
+	docker manifest push --purge $(DPF_SYSTEM_IMAGE):$(TAG)
+
+docker-push-dpf-system-for-%:
+	# Tag and push the arch-specific image with the single arch-agnostic tag.
+	docker tag $(DPF_SYSTEM_IMAGE):$(TAG)-$* $(DPF_SYSTEM_IMAGE):$(TAG)
+	docker push $(DPF_SYSTEM_IMAGE):$(TAG)
+	# This must be called in a separate target to ensure the shell command is called in the correct order.
+	$(MAKE) docker-create-manifest-for-dpf-system
+
+docker-create-manifest-for-dpf-system:
+	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
+	docker manifest create --amend $(DPF_SYSTEM_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(DPF_SYSTEM_IMAGE):$(TAG))
+
+.PHONY: docker-build-ipallocator
+docker-build-ipallocator: ## Build docker image for the IP Allocator
+	# Base image can't be distroless because of the readiness probe that is using cat which doesn't exist in distroless
+	docker buildx build \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform=linux/$(ARCH) \
+		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg base_image=$(ALPINE_IMAGE) \
+		--build-arg ldflags=$(GO_LDFLAGS) \
+		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg package=./cmd/ipallocator \
+		  -f Dockerfile \
+		. \
+		-t $(IPALLOCATOR_IMAGE):$(TAG)
+
+.PHONY: docker-build-ovs-cni
+docker-build-ovs-cni: $(OVS_CNI_DIR) ## Builds the OVS CNI image
+	cd $(OVS_CNI_DIR) && \
+	$(OVS_CNI_DIR)/hack/get_version.sh > .version && \
+	docker buildx build \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--build-arg goarch=$(DPU_ARCH) \
+		--platform linux/${DPU_ARCH} \
+		-f ./cmd/Dockerfile \
+		-t $(OVS_CNI_IMAGE):${TAG} \
+		.
+
+.PHONY: docker-build-ovn-kubernetes # Build a multi-arch image for DPF System. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
+docker-build-ovn-kubernetes: $(addprefix docker-build-ovn-kubernetes-for-,$(DPF_SYSTEM_ARCH))
+
+docker-build-ovn-kubernetes-for-%: $(OVNKUBERNETES_DIR)
+	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
+	docker buildx build \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform=linux/$* \
+		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg ldflags=$(GO_LDFLAGS) \
+		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg ovn_kubernetes_dir=$(subst $(CURDIR)/,,$(OVNKUBERNETES_DIR)) \
+		-f Dockerfile.ovn-kubernetes \
+		. \
+		-t $(OVNKUBERNETES_IMAGE):$(TAG)-$*
+
+.PHONY: docker-push-ovn-kubernetes # Push a multi-arch image for ovn-kubernetes using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
+docker-push-ovn-kubernetes: $(addprefix docker-push-ovn-kubernetes-for-,$(DPF_SYSTEM_ARCH))
+	docker manifest push --purge $(OVNKUBERNETES_IMAGE):$(TAG)
+
+docker-push-ovn-kubernetes-for-%:
+	# Tag and push the arch-specific image with the single arch-agnostic tag.
+	docker tag $(OVNKUBERNETES_IMAGE):$(TAG)-$* $(OVNKUBERNETES_IMAGE):$(TAG)
+	docker push $(OVNKUBERNETES_IMAGE):$(TAG)
+	# This must be called in a separate target to ensure the shell command is called in the correct order.
+	$(MAKE) docker-create-manifest-for-ovn-kubernetes
+
+docker-create-manifest-for-ovn-kubernetes:
+	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
+	docker manifest create --amend $(OVNKUBERNETES_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(OVNKUBERNETES_IMAGE):$(TAG))
+
+.PHONY: docker-build-hostdriver
+docker-build-hostdriver: ## Build docker image for DMS and hostnetwork.
+	docker buildx build \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform linux/${HOST_ARCH} \
+		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg ldflags=$(GO_LDFLAGS) \
+		--build-arg gcflags=$(GO_GCFLAGS) \
+		-t $(HOSTDRIVER_IMAGE):$(TAG) \
+		-f Dockerfile.hostdriver \
+		.
+
+.PHONY: docker-build-dummydpuservice
+docker-build-dummydpuservice: ## Build docker images for the dummydpuservice
+	docker buildx build \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform=linux/$(DPU_ARCH) \
+		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg base_image=$(BASE_IMAGE) \
+		--build-arg ldflags=$(GO_LDFLAGS) \
+		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg package=./cmd/dummydpuservice \
+		-f Dockerfile \
+		. \
+		-t $(DUMMYDPUSERVICE_IMAGE):$(TAG)
+
+.PHONY: docker-build-ovn-kubernetes-resource-injector
+docker-build-ovn-kubernetes-resource-injector: ## Build docker image for the OVN Kubernetes Resource Injector
+	docker buildx build \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform=linux/$(ARCH) \
+		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg base_image=$(BASE_IMAGE) \
+		--build-arg ldflags=$(GO_LDFLAGS) \
+		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg package=./cmd/ovnkubernetesresourceinjector \
+		-f Dockerfile \
+		. \
+		-t $(OVNKUBERNETES_RESOURCE_INJECTOR_IMAGE):$(TAG)
+
+.PHONY: docker-build-storage-system # Build a multi-arch image for DPF storage system. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
+docker-build-storage-system: $(addprefix docker-build-storage-system-for-,$(DPF_SYSTEM_ARCH))
+
+docker-build-storage-system-for-%:
+	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
+	docker buildx build \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform=linux/$* \
+		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg base_image=$(BASE_IMAGE) \
+		--build-arg ldflags=$(GO_LDFLAGS) \
+		--build-arg storage_snap_csi_driver_go_ldflags=$(STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS) \
+		--build-arg gcflags=$(GO_GCFLAGS) \
+		-f Dockerfile.storage-system \
+		. \
+		-t $(STORAGE_SYSTEM_IMAGE):$(TAG)-$*
+
+.PHONY: docker-push-storage-system # Push a multi-arch image for snap-csi-plugin using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
+docker-push-storage-system: $(addprefix docker-push-storage-system-for-,$(DPF_SYSTEM_ARCH))
+	docker manifest push --purge $(STORAGE_SYSTEM_IMAGE):$(TAG)
+
+docker-push-storage-system-for-%:
+	# Tag and push the arch-specific image with the single arch-agnostic tag.
+	docker tag $(STORAGE_SYSTEM_IMAGE):$(TAG)-$* $(STORAGE_SYSTEM_IMAGE):$(TAG)
+	docker push $(STORAGE_SYSTEM_IMAGE):$(TAG)
+	# This must be called in a separate target to ensure the shell command is called in the correct order.
+	$(MAKE) docker-create-manifest-for-storage-system
+
+docker-create-manifest-for-storage-system:
+	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
+	docker manifest create --amend $(STORAGE_SYSTEM_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(STORAGE_SYSTEM_IMAGE):$(TAG))
+
+.PHONY: docker-build-storage-host
+docker-build-storage-host: ## Build docker image for host storage components that depend on system tools
+	docker buildx build \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform linux/${HOST_ARCH} \
+		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg ldflags=$(GO_LDFLAGS) \
+		--build-arg storage_snap_csi_driver_go_ldflags=$(STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS) \
+		--build-arg gcflags=$(GO_GCFLAGS) \
+		-t $(STORAGE_HOST_IMAGE):$(TAG) \
+		-f Dockerfile.storage-host \
+		.
+
+.PHONY: docker-push-storage-host
+docker-push-storage-host: ## Push the Docker image for host storage components that depend on system tools
+	docker push $(STORAGE_HOST_IMAGE):$(TAG)
+
+.PHONY: docker-build-vpc-system # Build a multi-arch image for vpc System. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
+docker-build-vpc-system: $(addprefix docker-build-vpc-system-for-,$(DPF_SYSTEM_ARCH))
+
+docker-build-vpc-system-for-%:
+	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
+	docker buildx build \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform=linux/$* \
+		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg base_image=$(BASE_IMAGE) \
+		--build-arg ldflags=$(GO_LDFLAGS) \
+		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg TAG=$(TAG) \
+		-f Dockerfile.vpc-system \
+		. \
+		-t $(VPC_SYSTEM_IMAGE):$(TAG)-$*
+
+.PHONY: docker-push-vpc-system # Push a multi-arch image for VPC System using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
+docker-push-vpc-system: $(addprefix docker-push-vpc-system-for-,$(DPF_SYSTEM_ARCH))
+	docker manifest push --purge $(VPC_SYSTEM_IMAGE):$(TAG)
+
+docker-push-vpc-system-for-%:
+	# Tag and push the arch-specific image with the single arch-agnostic tag.
+	docker tag $(VPC_SYSTEM_IMAGE):$(TAG)-$* $(VPC_SYSTEM_IMAGE):$(TAG)
+	docker push $(VPC_SYSTEM_IMAGE):$(TAG)
+	# This must be called in a separate target to ensure the shell command is called in the correct order.
+	$(MAKE) docker-create-manifest-for-vpc-system
+
+docker-create-manifest-for-vpc-system:
+	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
+	docker manifest create --amend $(VPC_SYSTEM_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(VPC_SYSTEM_IMAGE):$(TAG))
+
+.PHONY: docker-build-bfb-registry # Build a multi-arch image for BFB Registry. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
+docker-build-bfb-registry: $(addprefix docker-build-bfb-registry-for-,$(HOST_ARCH))
+
+docker-build-bfb-registry-for-%:
+	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
+	docker buildx build \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform=linux/$* \
+		-f Dockerfile.bfb-registry \
+		. \
+		-t $(BFB_REGISTRY_IMAGE):$(TAG)-$*
+
+.PHONY: docker-push-bfb-registry # Push a multi-arch image for BFB Registry using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
+docker-push-bfb-registry: $(addprefix docker-push-bfb-registry-for-,$(HOST_ARCH))
+	docker manifest push --purge $(BFB_REGISTRY_IMAGE):$(TAG)
+
+docker-push-bfb-registry-for-%:
+	# Tag and push the arch-specific image with the single arch-agnostic tag.
+	docker tag $(BFB_REGISTRY_IMAGE):$(TAG)-$* $(BFB_REGISTRY_IMAGE):$(TAG)
+	docker push $(BFB_REGISTRY_IMAGE):$(TAG)
+	# This must be called in a separate target to ensure the shell command is called in the correct order.
+	$(MAKE) docker-create-manifest-for-bfb-registry
+
+docker-create-manifest-for-bfb-registry:
+	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
+	docker manifest create --amend $(BFB_REGISTRY_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(BFB_REGISTRY_IMAGE):$(TAG))
+
+.PHONY: docker-build-ovn # Build a multi-arch image for DPF System. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
+docker-build-ovn: $(addprefix docker-build-ovn-for-,$(DPF_SYSTEM_ARCH))
+
+docker-build-ovn-for-%:
+# Provenance false ensures this target builds an image rather than a manifest when using buildx.
+	docker buildx build \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform=linux/$* \
+		-f Dockerfile.ovn\
+		. \
+		-t $(OVN_IMAGE):$(TAG)-$*
+
+
+.PHONY: docker-push-ovn # Push a multi-arch image for ovn.
+docker-push-ovn: $(addprefix docker-push-ovn-for-,$(DPF_SYSTEM_ARCH))
+	docker manifest push --purge $(OVN_IMAGE):$(TAG)
+
+docker-push-ovn-for-%:
+	# Tag and push the arch-specific image with the single arch-agnostic tag.
+	docker tag $(OVN_IMAGE):$(TAG)-$* $(OVN_IMAGE):$(TAG)
+	docker push $(OVN_IMAGE):$(TAG)
+	# This must be called in a separate target to ensure the shell command is called in the correct order.
+	$(MAKE) docker-create-manifest-for-ovn
+
+docker-create-manifest-for-ovn:
+	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
+	docker manifest create --amend $(OVN_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(OVN_IMAGE):$(TAG))
+
+.PHONY: docker-push-all
+docker-push-all: $(addprefix docker-push-,$(DOCKER_BUILD_TARGETS))  ## Push the docker images for all DOCKER_BUILD_TARGETS.
+
+.PHONY: docker-push-dpf-system
+docker-push-dpf-system: ## This is a no-op to allow using DOCKER_BUILD_TARGETS.
+
+.PHONY: docker-push-ovs-cni
+docker-push-ovs-cni: ## Push the docker image for ovs-cni
+	docker push $(OVS_CNI_IMAGE):$(TAG)
+
+.PHONY: docker-push-hostdriver
+docker-push-hostdriver: ## Push the docker image for DMS and hostnetwork.
+	docker push $(HOSTDRIVER_IMAGE):$(TAG)
+
+.PHONY: docker-push-dpucniprovisioner
+docker-push-dpucniprovisioner: ## Push the docker image for DPU CNI Provisioner.
+	docker push $(DPUCNIPROVISIONER_IMAGE):$(TAG)
+
+.PHONY: docker-push-ipallocator
+docker-push-ipallocator: ## Push the docker image for IP Allocator.
+	docker push $(IPALLOCATOR_IMAGE):$(TAG)
+
+.PHONY: docker-push-dummydpuservice
+docker-push-dummydpuservice: ## Push the docker image for dummydpuservice
+	docker push $(DUMMYDPUSERVICE_IMAGE):$(TAG)
+
+.PHONY: docker-push-ovn-kubernetes-resource-injector
+docker-push-ovn-kubernetes-resource-injector: ## Push the docker image for the OVN Kubernetes Resource Injector
+	docker push $(OVNKUBERNETES_RESOURCE_INJECTOR_IMAGE):$(TAG)
+
+# helm charts
+
+# By default the helm registry is assumed to be an OCI registry.
+DEFAULT_HELM_REGISTRY=oci://$(REGISTRY)
+# This variable should be overwritten when using a https helm repository.
+export HELM_REGISTRY ?= $(DEFAULT_HELM_REGISTRY)
+# This variable should be overwritten with the registry of the upstream artifacts. Needed when making a release upstream.
+# This variable ensures that the values injected in the operator and charts point to the upstream artifacts.
+export UPSTREAM_HELM_REGISTRY ?= $(HELM_REGISTRY)
+
+HELM_TARGETS ?= dpu-networking operator ovn-kubernetes storage
+
+# metadata for the operator helm chart
+OPERATOR_HELM_CHART_NAME ?= dpf-operator
+OPERATOR_HELM_CHART ?= $(HELMDIR)/$(OPERATOR_HELM_CHART_NAME)
+
+## metadata for dpu-networking helm chart.
+export DPU_NETWORKING_HELM_CHART_NAME = dpu-networking
+DPU_NETWORKING_HELM_CHART ?= $(HELMDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)
+DPU_NETWORKING_HELM_CHART_VER ?= $(TAG)
+
+## metadata for ovn-kubernetes
+export OVNKUBERNETES_HELM_CHART_NAME = ovn-kubernetes-chart
+OVNKUBERNETES_HELM_CHART ?= $(OVNKUBERNETES_DIR)/helm/ovn-kubernetes-dpf
+OVNKUBERNETES_HELM_CHART_VER ?= $(TAG)
+
+## metadata for ovn-kubernetes-resource-injector
+export OVNKUBERNETES_RESOURCE_INJECTOR_HELM_CHART_NAME = ovn-kubernetes-resource-injector-chart
+OVNKUBERNETES_RESOURCE_INJECTOR_HELM_CHART ?= $(HELMDIR)/ovn-kubernetes-resource-injector
+OVNKUBERNETES_RESOURCE_INJECTOR_HELM_CHART_VER ?= $(TAG)
+
+# metadata for dummydpuservice.
+DUMMYDPUSERVICE_HELM_CHART_NAME = dummydpuservice-chart
+DUMMYDPUSERVICE_HELM_CHART ?= $(DPUSERVICESDIR)/dummydpuservice/chart
+
+# metadata for spdk csi controller.
+SPDK_CSI_CONTROLLER_CHART_NAME = spdk-csi-controller-chart
+SPDK_CSI_CONTROLLER_CHART ?= $(DPUSERVICESDIR)/storage/examples/spdk-csi/helm
+SPDK_CSI_CONTROLLER_CHART_VER ?= $(TAG)
+
+# metadata for storage chart.
+STORAGE_CHART_NAME = dpf-storage
+STORAGE_CHART ?= $(DPUSERVICESDIR)/storage/chart
+STORAGE_CHART_VER ?= $(TAG)
+
+
+.PHONY: helm-package-all
+helm-package-all: $(addprefix helm-package-,$(HELM_TARGETS))  ## Package the helm charts for all components.
+
+.PHONY: helm-package-dpu-networking
+helm-package-dpu-networking: $(CHARTSDIR) helm yq ## Package helm chart for service chain controller
+	HELM_CHART_DIR="$(DPU_NETWORKING_HELM_CHART)" \
+	HELM_CHART_TAGS="$(DPU_NETWORKING_HELM_CHART_VER)" \
+	./hack/scripts/release-helm-package.sh
+
+OPERATOR_CHART_TAGS ?=$(TAG)
+.PHONY: helm-package-operator
+helm-package-operator: $(CHARTSDIR) helm yq ## Package helm chart for DPF Operator
+	HELM_CHART_DIR="$(OPERATOR_HELM_CHART)" \
+	HELM_CHART_TAGS="$(OPERATOR_CHART_TAGS)" \
+	SET_IMAGE_IN_VALUES=true \
+	REPO="$(DPF_SYSTEM_UPSTREAM_IMAGE)" \
+	IMAGE_REPO_PATH=controllerManager.image.repository \
+	IMAGE_TAG_PATH=controllerManager.image.tag \
+	./hack/scripts/release-helm-package.sh
+
+.PHONY: helm-package-ovn-kubernetes
+helm-package-ovn-kubernetes: $(OVNKUBERNETES_DIR) $(CHARTSDIR) helm yq ## Package helm chart for ovn-kubernetes
+	HELM_CHART_DIR="$(OVNKUBERNETES_HELM_CHART)" \
+	HELM_CHART_TAGS="$(TAG)" \
+	./hack/scripts/release-helm-package.sh
+
+.PHONY: helm-package-ovn-kubernetes-resource-injector
+helm-package-ovn-kubernetes-resource-injector: $(CHARTSDIR) helm generate-manifests-ovn-kubernetes-resource-injector yq ## Package helm chart for OVN Kubernetes Resource Injector
+	HELM_CHART_DIR="$(OVNKUBERNETES_RESOURCE_INJECTOR_HELM_CHART)" \
+	HELM_CHART_TAGS="$(TAG)" \
+	./hack/scripts/release-helm-package.sh
+
+.PHONY: helm-package-dummydpuservice
+helm-package-dummydpuservice: $(DPUSERVICESDIR) helm ## Package helm chart for dummydpuservice
+	HELM_CHART_DIR="$(DUMMYDPUSERVICE_HELM_CHART)" \
+	HELM_CHART_TAGS="$(TAG)" \
+	SET_IMAGE_IN_VALUES=true \
+	REPO="$(DUMMYDPUSERVICE_IMAGE)" \
+	IMAGE_REPO_PATH=image.repository \
+	IMAGE_TAG_PATH=image.tag \
+	RELEASE_HELM_SET_ANNOTATIONS="false" \
+	./hack/scripts/release-helm-package.sh
+
+.PHONY: helm-package-spdk-csi-controller
+helm-package-spdk-csi-controller: $(CHARTSDIR) helm
+	HELM_CHART_DIR="$(SPDK_CSI_CONTROLLER_CHART)" \
+	HELM_CHART_TAGS="$(TAG)" \
+	./hack/scripts/release-helm-package.sh
+
+.PHONY: helm-package-storage
+helm-package-storage: $(CHARTSDIR) helm yq generate-manifests-storage
+	HELM_CHART_DIR="$(STORAGE_CHART)" \
+	HELM_CHART_TAGS="$(TAG)" \
+	./hack/scripts/release-helm-package.sh
+
+
+HELM_CM_PUSH_OPTS ?=
+HELM_PUSH_CMD ?= $(shell if echo $(HELM_REGISTRY) | grep -q '^http'; then echo cm-push $(HELM_CM_PUSH_OPTS); else echo push; fi)
+
+.PHONY: helm-push-all
+helm-push-all: $(addprefix helm-push-,$(HELM_TARGETS))  ## Push the helm charts for all components.
+
+.PHONY: helm-push-operator
+helm-push-operator: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for dpf-operator
+	for tag in $(OPERATOR_CHART_TAGS); do \
+		$(HELM) $(HELM_PUSH_CMD) $(CHARTSDIR)/$(OPERATOR_HELM_CHART_NAME)-$$tag.tgz $(HELM_REGISTRY); \
+	done
+
+.PHONY: helm-push-dpu-networking
+helm-push-dpu-networking: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for service chain controller
+	$(HELM) $(HELM_PUSH_CMD) $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz $(HELM_REGISTRY)
+
+.PHONY: helm-push-ovn-kubernetes
+helm-push-ovn-kubernetes: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for ovn-kubernetes
+	$(HELM) $(HELM_PUSH_CMD) $(CHARTSDIR)/$(OVNKUBERNETES_HELM_CHART_NAME)-$(OVNKUBERNETES_HELM_CHART_VER).tgz $(HELM_REGISTRY)
+
+.PHONY: helm-push-ovn-kubernetes-resource-injector
+helm-push-ovn-kubernetes-resource-injector: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for OVN Kubernetes Resource Injector
+	$(HELM) $(HELM_PUSH_CMD) $(CHARTSDIR)/$(OVNKUBERNETES_RESOURCE_INJECTOR_HELM_CHART_NAME)-$(OVNKUBERNETES_RESOURCE_INJECTOR_HELM_CHART_VER).tgz $(HELM_REGISTRY)
+
+.PHONY: helm-push-dummydpuservice
+helm-push-dummydpuservice: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for dummydpuservice
+	$(HELM) $(HELM_PUSH_CMD) $(CHARTSDIR)/$(DUMMYDPUSERVICE_HELM_CHART_NAME)-$(TAG).tgz $(HELM_REGISTRY)
+
+.PHONY: helm-push-spdk-csi-controller
+helm-push-spdk-csi-controller: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for spdk csi controller
+	$(HELM) $(HELM_PUSH_CMD) $(CHARTSDIR)/$(SPDK_CSI_CONTROLLER_CHART_NAME)-$(TAG).tgz $(HELM_REGISTRY)
+
+.PHONY: helm-push-storage
+helm-push-storage: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for storage
+	$(HELM) $(HELM_PUSH_CMD) $(CHARTSDIR)/$(STORAGE_CHART_NAME)-$(TAG).tgz $(HELM_REGISTRY)
+
+# OVN Library
+
+OVN_SCHEMA_VERSION ?= v24.09.0
+
+## fetch ovn northbound database schema version with specific version $OVN_SCHEMA_VERSION
+internal/vpc/ovn/nbdb/ovn-nb.ovsschema: ## Fetch OVN northbound database schema
+	curl -sSL https://raw.githubusercontent.com/ovn-org/ovn/$(OVN_SCHEMA_VERSION)/ovn-nb.ovsschema -o $@
+
+generate-ovnnb-dbmodel: modelgen internal/vpc/ovn/nbdb/ovn-nb.ovsschema ## Generate model using modelgen
+				export PATH="$(TOOLSDIR):$(PATH)"; go generate ./internal/vpc/ovn/nbdb/...
+				rm -f internal/vpc/ovn/nbdb/ovn-nb.ovsschema
+
+.PHONY: build-ovn-central
+build-ovn-central: ## Build OVN central Docker image
+	docker build -t ovn-central:$(OVN_SCHEMA_VERSION) -f ./Dockerfile.ovn .
+
+.PHONY: run-ovn-central
+run-ovn-central: ## Run OVN central Docker container (not in use - for developing purposes)
+	docker run --rm --name ovn-central -d -p 6641:6641 ovn-central:$(OVN_SCHEMA_VERSION) bash -c \
+	"/usr/share/ovn/scripts/ovn-ctl --db-nb-create-insecure-remote=yes \
+	--db-sb-create-insecure-remote=yes start_northd && tail -f /dev/null"
+
+.PHONY: prepare-ovn-central
+prepare-ovn-central: build-ovn-central run-ovn-central ## Build and run OVN central (not in use - for developing purposes)
+
+.PHONY: test-ovn-central
+test-ovn-central: build-ovn-central ## Run OVN central tests, this run containarized setup within the testsuite
+	OVN_CENTRAL_IMAGE_NAME=ovn-central:$(OVN_SCHEMA_VERSION) go test ./internal/vpc/ovn/ovnlib/... -v -ginkgo.v \
+		-ginkgo.focus="$(FOCUS)"
+
+.PHONY: clear-ovn-central
+clear-ovn-central: ## Stop OVN central Docker container (not in use - for developing purposes)
+	docker stop ovn-central
+

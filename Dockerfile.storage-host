@@ -1,0 +1,47 @@
+ARG builder_image
+
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS builder
+
+WORKDIR /workspace
+
+# Copy the Go Modules manifests
+COPY go.mod go.mod
+COPY go.sum go.sum
+
+# Cache deps before building and copying source so that we don't need to re-download as much
+# and so that source changes don't invalidate our downloaded layer
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY ./ ./
+
+# Ensure that no additional tools or artifacts are included.
+RUN make clean
+
+ARG gcflags
+ARG ldflags
+ARG storage_snap_csi_driver_go_ldflags
+ARG TARGETARCH
+
+ENV STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS=\"${storage_snap_csi_driver_go_ldflags}\"
+ENV GO_LDFLAGS=\"${ldflags}\"
+ENV GO_GCFLAGS=\"${gcflags}\"
+ENV ARCH=${TARGETARCH}
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    make binaries-storage-host
+
+# Copy the go source code so it can be distributed in the final image.
+RUN go mod vendor
+RUN mkdir src && \
+    find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" -exec cp --parents \{\}  src/ \; && \
+    tar -czf source-code.tar.gz src
+
+FROM nvcr.io/nvidia/doca/doca:2.9.1-base-rt-host
+
+# Add the source code.
+COPY --from=builder /workspace/source-code.tar.gz source-code.tar.gz
+
+# Add the DPF binaries
+COPY --from=builder /workspace/bin/snap-csi-plugin /snap-csi-plugin

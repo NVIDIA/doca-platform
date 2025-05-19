@@ -1,0 +1,48 @@
+- groupVersionKind:
+    group: provisioning.dpu.nvidia.com
+    kind: BFB
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: bfb
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a BFB. This is a placeholder to get at least one info metric per BFB.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            name:
+              - metadata
+              - name
+    - name: status_phase
+      help: The BFBs current phase.
+      each:
+        stateSet:
+          labelName: phase
+          list:
+            - Initializing
+            - Downloading
+            - Ready
+            - Deleting
+            - Error
+          path:
+            - status
+            - phase
+        type: StateSet

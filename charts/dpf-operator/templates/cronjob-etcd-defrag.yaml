@@ -1,0 +1,52 @@
+{{ if and (index .Values "kamaji-etcd" "enabled") (index .Values "kamaji-etcd-defrag" "enabled") }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-kamaji-etcd-defrag-job
+  namespace: {{ .Release.Namespace }}
+spec:
+  schedule: {{ index .Values "kamaji-etcd-defrag" "schedule" }}
+  successfulJobsHistoryLimit: {{ index .Values "kamaji-etcd" "successfulJobsHistoryLimit" }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ index .Values "kamaji-etcd" "backoffLimit" }}
+      template:
+        spec:
+          tolerations:
+          {{- index .Values "kamaji-etcd" "tolerations" | toYaml | nindent 12 }}
+          affinity:
+          {{- index .Values "kamaji-etcd" "affinity" | toYaml | nindent 12 }}
+          containers:
+            - name: etcd-defrag
+              image: {{ index .Values "kamaji-etcd-defrag" "image" }}
+              args:
+                - --endpoints={{- $replicas := index .Values "kamaji-etcd" "replicas" | int -}}
+                {{- $port := index .Values "kamaji-etcd" "clientPort" | int -}}
+                {{- $name := .Release.Name -}}
+                {{- $namespace := .Release.Namespace -}}
+                {{- range $i, $_ := until $replicas -}}
+                  {{- printf "https://%s-kamaji-etcd-%d.%s-kamaji-etcd.%s.svc.cluster.local:%d" $name $i $name $namespace $port -}}
+                  {{- if lt (add1 $i) $replicas }},{{ end -}}
+                {{- end }}
+                - --cacert=/opt/certs/ca/ca.crt
+                - --cert=/opt/certs/root-client-certs/tls.crt
+                - --key=/opt/certs/root-client-certs/tls.key
+                - --cluster
+                - --defrag-rule
+                - {{ index .Values "kamaji-etcd-defrag" "defragRule" | quote }}
+              volumeMounts:
+                - mountPath: /opt/certs/root-client-certs
+                  name: root-client-certs
+                - mountPath: /opt/certs/ca
+                  name: certs
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 0
+          volumes:
+            - name: root-client-certs
+              secret:
+                secretName: {{ .Release.Name }}-kamaji-etcd-root-client-certs
+            - name: certs
+              secret:
+                secretName: {{ .Release.Name }}-kamaji-etcd-certs
+{{ end }}

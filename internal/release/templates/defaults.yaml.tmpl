@@ -1,0 +1,9 @@
+## Images built as part of the DPF release.
+dmsImage: ${HOSTDRIVER_UPSTREAM_IMAGE}:${TAG}
+hostNetworkSetupImage: ${HOSTDRIVER_UPSTREAM_IMAGE}:${TAG}
+dpfSystemImage: ${DPF_SYSTEM_UPSTREAM_IMAGE}:${TAG}
+ovsCniImage: ${OVS_CNI_UPSTREAM_IMAGE}:${TAG}
+bfbRegistryImage: ${BFB_REGISTRY_UPSTREAM_IMAGE}:${TAG}
+
+## Helm charts built as part of the DPF release.
+dpuNetworkingHelmChart: ${UPSTREAM_HELM_REGISTRY}/${DPU_NETWORKING_HELM_CHART_NAME}:${TAG}

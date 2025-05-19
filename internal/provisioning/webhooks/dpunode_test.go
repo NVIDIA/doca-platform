@@ -1,0 +1,429 @@
+/*
+Copyright 2025 NVIDIA
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package webhooks
+
+import (
+	"context"
+
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/yaml"
+)
+
+var _ = Describe("DPUNode", func() {
+
+	var getObjKey = func(obj *provisioningv1.DPUNode) types.NamespacedName {
+		return types.NamespacedName{
+			Name:      obj.Name,
+			Namespace: obj.Namespace,
+		}
+	}
+
+	var createObj = func(name string) *provisioningv1.DPUNode {
+		return &provisioningv1.DPUNode{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: "default",
+			},
+			Spec:   provisioningv1.DPUNodeSpec{},
+			Status: provisioningv1.DPUNodeStatus{},
+		}
+	}
+
+	BeforeEach(func() {
+		// Add any setup steps that needs to be executed before each test
+	})
+
+	AfterEach(func() {
+		// Add any teardown steps that needs to be executed after each test
+	})
+
+	Context("obj test context", func() {
+		ctx := context.Background()
+
+		It("create and get object", func() {
+			obj := createObj("obj-1")
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUNode{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched).To(Equal(obj))
+		})
+
+		It("delete object", func() {
+			obj := createObj("obj-2")
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			err = k8sClient.Delete(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			err = k8sClient.Get(ctx, getObjKey(obj), obj)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("update object", func() {
+			obj := createObj("obj-3")
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUNode{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched).To(Equal(obj))
+		})
+		It("create from yaml", func() {
+			dpudeviceYml := []byte(`
+            apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+            kind: DPUDevice
+            metadata:
+              name: dpu-device-1
+              namespace: default
+            spec:
+              bmcIp: 3.3.3.3
+              pciAddress: 0000-04-00
+              psid: MT_0000000034
+              opn: 900-9D3B4-00SV-EA0
+            `)
+			dpudeviceObj := &provisioningv1.DPUDevice{}
+			err := yaml.UnmarshalStrict(dpudeviceYml, dpudeviceObj)
+			Expect(err).To(Succeed())
+			err = k8sClient.Create(ctx, dpudeviceObj)
+			Expect(err).NotTo(HaveOccurred())
+
+			dpunodeYml := []byte(`
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUNode
+metadata:
+  name: obj-4
+  namespace: default
+spec:
+  nodeRebootMethod:
+    external: {}
+  nodeDMSAddress: 
+    ip: 4.4.4.4
+    port: 50
+  dpus:
+  - name: dpu-device-1
+`)
+			obj := &provisioningv1.DPUNode{}
+			err = yaml.UnmarshalStrict(dpunodeYml, obj)
+			Expect(err).To(Succeed())
+			err = k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("create from yaml minimal", func() {
+			yml := []byte(`
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUNode
+metadata:
+  name: obj-5
+  namespace: default
+spec:
+  nodeRebootMethod:
+    external: {}
+`)
+			obj := &provisioningv1.DPUNode{}
+			err := yaml.UnmarshalStrict(yml, obj)
+			Expect(err).To(Succeed())
+			err = k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+		Context("create from yaml with invalid NodeRebootMethod", func() {
+			It("should not create a DPUNode with an invalid NodeRebootMethod value", func() {
+				dpunodeYml := []byte(`
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUNode
+metadata:
+  name: obj-6
+  namespace: default
+spec:
+  nodeRebootMethod: {}
+  nodeDMSAddress:
+    ip: 4.4.4.4
+    port: 50
+  dpus:
+  - name: dpu-device-1
+`)
+				obj := &provisioningv1.DPUNode{}
+				err := yaml.UnmarshalStrict(dpunodeYml, obj)
+				Expect(err).To(Succeed())
+				err = k8sClient.Create(ctx, obj)
+				Expect(err).To(HaveOccurred())
+			})
+		})
+
+		Context("create from yaml with invalid NodeDMSAddress", func() {
+			It("should not create a DPUNode with an invalid NodeDMSAddress value", func() {
+				dpunodeYml := []byte(`
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUNode
+metadata:
+  name: obj-7
+  namespace: default
+spec:
+  nodeRebootMethod:
+    external: {}
+  nodeDMSAddress:
+    ip: invalid-ip
+    port: 50
+  dpus:
+  - name: dpu-device-1
+`)
+				obj := &provisioningv1.DPUNode{}
+				err := yaml.UnmarshalStrict(dpunodeYml, obj)
+				Expect(err).To(Succeed())
+				err = k8sClient.Create(ctx, obj)
+				Expect(err).To(HaveOccurred())
+			})
+		})
+
+		It("update object - check immutability of kubeNodeRef", func() {
+			obj := createObj("obj-8")
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUNode{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			node2Ref := "node-2"
+			objFetched.Status.KubeNodeRef = &node2Ref
+			err = k8sClient.Status().Update(ctx, objFetched)
+			Expect(err).NotTo(HaveOccurred())
+
+			objUpdatedFetched := &provisioningv1.DPUNode{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objUpdatedFetched)
+			Expect(err).NotTo(HaveOccurred())
+			node3Ref := "node-3"
+			objUpdatedFetched.Status.KubeNodeRef = &node3Ref
+			err = k8sClient.Status().Update(ctx, objUpdatedFetched)
+			Expect(err).To(HaveOccurred())
+		})
+		It("create from yaml", func() {
+			dpudeviceYml := []byte(`
+            apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+            kind: DPUDevice
+            metadata:
+              name: dpu-device-2
+              namespace: default
+            spec:
+              bmcIp: 3.3.3.4
+              pciAddress: 0000-02-00
+              psid: MT_0000000034
+              opn: 900-9D3B4-00SV-EA0
+            `)
+			dpudeviceObj := &provisioningv1.DPUDevice{}
+			err := yaml.UnmarshalStrict(dpudeviceYml, dpudeviceObj)
+			Expect(err).To(Succeed())
+			err = k8sClient.Create(ctx, dpudeviceObj)
+			Expect(err).NotTo(HaveOccurred())
+
+			dpunodeYml := []byte(`
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUNode
+metadata:
+  name: obj-10
+  namespace: default
+spec:
+  nodeRebootMethod:
+    external: {}
+  nodeDMSAddress:
+    ip: 4.4.4.4
+    port: 50
+  dpus:
+  - name: dpu-device-1
+  - name: dpu-device-2
+`)
+			obj := &provisioningv1.DPUNode{}
+			err = yaml.UnmarshalStrict(dpunodeYml, obj)
+			Expect(err).To(Succeed())
+			err = k8sClient.Create(ctx, obj)
+			Expect(err).ToNot(HaveOccurred())
+		})
+		It("create DPUNode with missing NodeRebootMethod", func() {
+			obj := createObj("obj-13")
+			obj.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("update DPUNode with new NodeRebootMethod", func() {
+			obj := createObj("obj-15")
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			obj.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				Script: &provisioningv1.Script{
+					Name: "test",
+				},
+			}
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			objFetched := &provisioningv1.DPUNode{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Spec.NodeRebootMethod).To(Equal(obj.Spec.NodeRebootMethod))
+		})
+		It("create and update status with condition", func() {
+			obj := createObj("obj-16")
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			condition := metav1.Condition{
+				Type:               string(provisioningv1.DPUNodeConditionReady),
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.Now(),
+				Reason:             "Initialized",
+				Message:            "DPUNode is ready",
+			}
+			obj.Status.Conditions = append(obj.Status.Conditions, condition)
+			dpuInstallInterface := string(provisioningv1.DPUNodeInstallInterfaceGNOI)
+			obj.Status.DPUInstallInterface = &dpuInstallInterface
+			err = k8sClient.Status().Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUNode{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Status.Conditions).To(HaveLen(1))
+			Expect(objFetched.Status.Conditions[0].Type).To(Equal(string(provisioningv1.DPUNodeConditionReady)))
+			Expect(objFetched.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
+		})
+		It("create and update status with multiple conditions", func() {
+			obj := createObj("obj-17")
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			condition1 := metav1.Condition{
+				Type:               string(provisioningv1.DPUNodeConditionReady),
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.Now(),
+				Reason:             "Initialized",
+				Message:            "DPUNode is ready",
+			}
+			condition2 := metav1.Condition{
+				Type:               string(provisioningv1.DPUNodeConditionRebootInProgress),
+				Status:             metav1.ConditionFalse,
+				LastTransitionTime: metav1.Now(),
+				Reason:             "RebootNotStarted",
+				Message:            "DPUNode reboot has not started",
+			}
+			condition3 := metav1.Condition{
+				Type:               string(provisioningv1.DPUNodeConditionInvalidDPUDetails),
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.Now(),
+				Reason:             "InvalidDetails",
+				Message:            "Invalid DPU details provided",
+			}
+			condition4 := metav1.Condition{
+				Type:               string(provisioningv1.DPUNodeConditionRebootInProgress),
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.Now(),
+				Reason:             "RebootInProgress",
+				Message:            "DPUNode reboot in progress",
+			}
+			obj.Status.Conditions = append(obj.Status.Conditions, condition1, condition2, condition3, condition4)
+			err = k8sClient.Status().Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUNode{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Status.Conditions).To(HaveLen(4))
+			Expect(objFetched.Status.Conditions[0].Type).To(Equal(string(provisioningv1.DPUNodeConditionReady)))
+			Expect(objFetched.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
+			Expect(objFetched.Status.Conditions[1].Type).To(Equal(string(provisioningv1.DPUNodeConditionRebootInProgress)))
+			Expect(objFetched.Status.Conditions[1].Status).To(Equal(metav1.ConditionFalse))
+			Expect(objFetched.Status.Conditions[2].Type).To(Equal(string(provisioningv1.DPUNodeConditionInvalidDPUDetails)))
+			Expect(objFetched.Status.Conditions[2].Status).To(Equal(metav1.ConditionTrue))
+			Expect(objFetched.Status.Conditions[3].Type).To(Equal(string(provisioningv1.DPUNodeConditionRebootInProgress)))
+			Expect(objFetched.Status.Conditions[3].Status).To(Equal(metav1.ConditionTrue))
+		})
+		It("create DPUNode with default DPUInstallInterface", func() {
+			obj := createObj("obj-18")
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			err = k8sClient.Status().Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			objFetched := &provisioningv1.DPUNode{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Status.DPUInstallInterface).To(BeNil())
+		})
+
+		It("update DPUNode DPUInstallInterface", func() {
+			obj := createObj("obj-19")
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			dpuInstallInterface := string(provisioningv1.DPUNodeInstallIntrefaceRedfish)
+			obj.Status.DPUInstallInterface = &dpuInstallInterface
+			err = k8sClient.Status().Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			objFetched := &provisioningv1.DPUNode{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*objFetched.Status.DPUInstallInterface).To(Equal(string(provisioningv1.DPUNodeInstallIntrefaceRedfish)))
+		})
+
+		It("update DPUNode DPUInstallInterface to invalid value", func() {
+			obj := createObj("obj-20")
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			dpuInstallInterface := "InvalidInterface"
+			obj.Status.DPUInstallInterface = &dpuInstallInterface
+			err = k8sClient.Status().Update(ctx, obj)
+			Expect(err).To(HaveOccurred())
+		})
+		It("spec.nodeRebootMethod default", func() {
+			obj := createObj("obj-21")
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUNode{}
+			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+			Expect(*objFetched.Spec.NodeRebootMethod).To(Equal(provisioningv1.NodeRebootMethod{GNOI: &provisioningv1.GNOI{}}))
+		})
+		It("spec.nodeRebootMethod can not be updated by nil", func() {
+			obj := createObj("obj-22")
+			obj.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{External: &provisioningv1.External{}}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUNode{}
+			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+			Expect(*objFetched.Spec.NodeRebootMethod).To(Equal(provisioningv1.NodeRebootMethod{External: &provisioningv1.External{}}))
+
+			obj.Spec.NodeRebootMethod = nil
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+			Expect(*objFetched.Spec.NodeRebootMethod).To(Equal(provisioningv1.NodeRebootMethod{GNOI: &provisioningv1.GNOI{}}))
+		})
+	})
+})

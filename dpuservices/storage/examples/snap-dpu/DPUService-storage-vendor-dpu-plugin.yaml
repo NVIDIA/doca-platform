@@ -1,0 +1,17 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: storage-vendor-dpu-plugin
+  namespace: dpf-operator-system
+spec:
+  serviceID: storage-vendor-dpu-plugin
+  helmChart:
+    source:
+      repoURL: oci://example.com/chart
+      version: v0.1.0
+      chart: dpf-storage
+    values:
+      dpu:
+        storageVendorDpuPlugin:
+          enabled: true

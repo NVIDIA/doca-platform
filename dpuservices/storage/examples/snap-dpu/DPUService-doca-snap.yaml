@@ -1,0 +1,28 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: doca-snap
+  namespace: dpf-operator-system
+spec:
+  serviceID: doca-snap
+  interfaces:
+    - snap-sf
+  helmChart:
+    source:
+      repoURL: oci://example.com/chart
+      version: v0.1.0
+      chart: dpf-storage
+    values:
+      serviceDaemonSet:
+        resources:
+          memory: "2Gi"
+          hugepages-2Mi: "4Gi"
+          cpu: "8"
+          nvidia.com/bf_sf: 1
+      dpu:
+        docaSnap:
+          enabled: true
+          snapRpcInitConf: |
+            nvme_subsystem_create --nqn nqn.2022-10.io.nvda.nvme:0
+            nvme_controller_create --nqn nqn.2022-10.io.nvda.nvme:0 --ctrl NVMeCtrl1 --pf_id 0 --admin_only

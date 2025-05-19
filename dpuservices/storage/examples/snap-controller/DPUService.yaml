@@ -1,0 +1,36 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: snap-controller
+  namespace: dpf-operator-system
+spec:
+  serviceID: snap-controller
+  deployInCluster: true
+  helmChart:
+    source:
+      repoURL: oci://example.com/chart
+      version: v0.1.0
+      chart: dpf-storage
+    values:
+      imagePullSecrets: $DPF_IMAGE_PULL_SECRET
+      host:
+        snapController:
+          enabled: true
+          config:
+            # required parameter, name of the secret that contains connection
+            # details to access the DPU cluster.
+            # this secret should be created by the DPUServiceCredentialRequest API.
+            dpuClusterSecret: snap-controller-dpu-cluster-credentials
+            # controls where to search for StorageVendor and StoragePolicy CRs
+            configNamespace: dpf-operator-system
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: "node-role.kubernetes.io/master"
+                    operator: Exists
+                - matchExpressions:
+                  - key: "node-role.kubernetes.io/control-plane"
+                    operator: Exists

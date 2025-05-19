@@ -1,0 +1,9 @@
+imagePullSecrets: []
+ovsHelper:
+  image:
+    repository: example.com/dpf-system
+    tag: v0.1.0
+
+openvSwitchRunDir: /var/run/openvswitch
+openvSwitchBinDir: /usr/bin
+openvSwitchSharedLibraryDir: /lib

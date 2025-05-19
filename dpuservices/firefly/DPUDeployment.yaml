@@ -1,0 +1,36 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: ovn-firefly
+  namespace: dpf-operator-system
+spec:
+  dpus:
+    bfb: bf-bundle
+    dpuSets:
+      - nameSuffix: dpuset1
+        nodeSelector:
+          matchLabels:
+            feature.node.kubernetes.io/dpu-enabled: "true"
+    flavor: dpf-provisioning-firefly
+  serviceChains:
+    switches:
+      - ports:
+          - serviceInterface:
+              matchLabels:
+                uplink: p0
+          - serviceInterface:
+              matchLabels:
+                port: ovn
+          - service:
+              interface: fireflyiface
+              name: firefly-dpu
+  services:
+    firefly-dpu:
+      serviceConfiguration: firefly-dpu
+      serviceTemplate: firefly-dpu
+    firefly-host:
+      serviceConfiguration: firefly-host
+      serviceTemplate: firefly-host
+    ovn:
+      serviceConfiguration: ovn
+      serviceTemplate: ovn

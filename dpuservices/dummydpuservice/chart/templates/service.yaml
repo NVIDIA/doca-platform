@@ -1,0 +1,33 @@
+{{- if .Values.exposedPorts }}
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ include "dummydpuservice.fullname" . }}
+  labels:
+    {{- include "dummydpuservice.labels" . | nindent 4 }}
+    {{- with .Values.exposedPorts.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    {{- include "dummydpuservice.selectorLabels" . | nindent 4 }}
+    {{- with .Values.serviceDaemonSet.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  internalTrafficPolicy: Local
+  externalTrafficPolicy: Local
+  type: NodePort
+  ports:
+    {{- if (.Values.exposedPorts.ports).exampletcp }}
+    - name: exampletcp
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+    {{- end }}
+    {{- if (.Values.exposedPorts.ports).exampleudp }}
+    - name: exampleudp
+      protocol: UDP
+      port: 8081
+      targetPort: 8081
+    {{- end }}
+{{- end }}

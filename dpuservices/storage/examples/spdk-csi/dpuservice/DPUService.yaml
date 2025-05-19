@@ -1,0 +1,37 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: spdk-csi-controller
+  namespace: dpf-operator-system
+spec:
+  serviceID: spdk-csi-controller
+  deployInCluster: true
+  helmChart:
+    source:
+      repoURL: oci://example.com/chart
+      version: v0.1.0
+      chart: spdk-csi-controller-chart
+    values:
+      host:
+        enabled: true
+        imagePullSecrets:
+          - name: dpf-pull-secret
+        plugin:
+          image:
+            repository: example.com/spdk-csi
+            tag: v0.1.0
+        config:
+          targets:
+            nodes:
+              # name of the target
+              - name: spdk-target
+                # management address
+                rpcURL: http://10.44.44.100:8000
+                # type of the target, e.g. nvme-tcp, nvme-rdma
+                targetType: nvme-tcp
+                # target service IP
+                targetAddr: 10.44.44.100
+          # required parameter, name of the secret that contains connection
+          # details to access the DPU cluster.
+          # this secret should be created by the DPUServiceCredentialRequest API.
+          dpuClusterSecret: spdk-csi-controller-dpu-cluster-credentials

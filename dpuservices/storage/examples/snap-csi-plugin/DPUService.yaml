@@ -1,0 +1,36 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: snap-csi-plugin
+  namespace: dpf-operator-system
+spec:
+  serviceID: snap-csi-plugin
+  deployInCluster: true
+  helmChart:
+    source:
+      repoURL: oci://example.com/chart
+      version: v0.1.0
+      chart: dpf-storage
+    values:
+      host:
+        snapCsiPlugin:
+          enabled: true
+          controller:
+            config:
+              # required parameter, name of the secret that contains connection
+              # details to access the DPU cluster.
+              # this secret should be created by the DPUServiceCredentialRequest API.
+              dpuClusterSecret: snap-csi-plugin-dpu-cluster-credentials
+              # required parameter, target namespace in the DPU cluster to create storage-related CRs
+              targetNamespace: dpf-operator-system
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                  - matchExpressions:
+                    - key: "node-role.kubernetes.io/master"
+                      operator: Exists
+                  - matchExpressions:
+                    - key: "node-role.kubernetes.io/control-plane"
+                      operator: Exists

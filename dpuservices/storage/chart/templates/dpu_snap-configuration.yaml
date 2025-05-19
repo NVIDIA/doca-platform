@@ -1,0 +1,115 @@
+{{ include "validate" . }}
+{{- if .Values.dpu.configuration.enabled }}
+{{- if and .Values.dpu.configuration.rbacRoles.enabled .Values.dpu.configuration.rbacRoles.snapCsiPlugin.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "snap-configuration.fullname" . }}-snap-csi-plugin-role
+rules:
+  - apiGroups: [ "storage.dpu.nvidia.com" ]
+    resources: [ "volumes", "volumeattachments" ]
+    verbs: [ "get", "list", "watch", "create", "delete" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "snap-configuration.fullname" . }}-snap-csi-plugin-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "snap-configuration.fullname" . }}-snap-csi-plugin-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.dpu.configuration.rbacRoles.snapCsiPlugin.serviceAccount }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if and .Values.dpu.configuration.rbacRoles.enabled .Values.dpu.configuration.rbacRoles.snapController.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "snap-configuration.fullname" . }}-snap-controller-role
+rules:
+- apiGroups:
+  - "storage.dpu.nvidia.com"
+  resources:
+  - volumes
+  - volumes/status
+  - volumes/finalizers
+  - volumeattachments
+  - svvolumeattachments
+  - volumeattachments/status
+  - volumeattachments/finalizers
+  - svvolumeattachments/status
+  - storagepolicies
+  - storagepolicies/status
+  - storagevendors
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  - persistentvolumes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups: 
+  - "storage.k8s.io"
+  resources: 
+  - "storageclasses"
+  - "csidrivers"
+  verbs:
+  - "get"
+  - "list"
+  - "watch"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "snap-configuration.fullname" . }}-snap-controller-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "snap-configuration.fullname" . }}-snap-controller-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.dpu.configuration.rbacRoles.snapController.serviceAccount }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- range .Values.dpu.configuration.storageVendors }}
+---
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: StorageVendor
+metadata:
+  name: "{{ .name }}"
+  namespace: "{{ .namespace | default $.Release.Namespace }}"
+spec:
+  storageClassName: "{{ .storageClassName }}"
+  pluginName: "{{ .pluginName }}"
+{{- end }}
+{{- range .Values.dpu.configuration.storagePolicies }}
+---
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: StoragePolicy
+metadata:
+  name: "{{ .name }}"
+  namespace: "{{ .namespace | default $.Release.Namespace }}"
+spec:
+  storageVendors: {{ .storageVendors | default list | toJson }}
+  storageSelectionAlg: "{{ .storageSelectionAlg }}"
+  storageParameters: {{ .storageParameters | default dict | toJson }}
+{{- end }}
+{{- end }}

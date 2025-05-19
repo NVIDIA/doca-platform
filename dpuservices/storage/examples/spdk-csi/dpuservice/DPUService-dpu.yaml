@@ -1,0 +1,29 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: spdk-csi-controller-dpu
+  namespace: dpf-operator-system
+spec:
+  serviceID: spdk-csi-controller-dpu
+  helmChart:
+    source:
+      repoURL: oci://example.com/chart
+      version: v0.1.0
+      chart: spdk-csi-controller-chart
+    values:
+      dpu:
+        enabled: true
+        storageClass:
+          # the name of the storage class that will be created for spdk-csi,
+          # this StorageClass name should be used in the StorageVendor settings
+          name: spdkcsi-sc
+          # name of the secret that contains credentials for the remote SPDK target,
+          # content of the secret is injected during CreateVolume request
+          secretName: spdkcsi-secret
+          # namespace of the secret with credentials for the remote SPDK target
+          secretNamespace: dpf-operator-system
+        rbacRoles:
+          spdkCsiController:
+            # the name of the service account for spdk-csi-controller
+            # this value must be aligned with the value from the DPUServiceCredentialRequest
+            serviceAccount: spdk-csi-controller-sa

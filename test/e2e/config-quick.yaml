@@ -1,0 +1,19 @@
+provisioningControllerPVC: "../objects/infrastructure/pvc-quick.yaml"
+bfb: "../objects/infrastructure/fake-bfb.yaml"
+dpuCluster: "../objects/infrastructure/dpucluster.yaml"
+dpuSet: "../objects/infrastructure/dpuset.yaml"
+dpuClusterPrerequisiteObjectPath:
+  - "../objects/infrastructure/kamaji-quick.yaml"
+  - "../objects/infrastructure/nodeport-dpucluster.yaml"
+dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"
+dpuServiceChain: "../objects/application/dpuservicechain.yaml"
+dpuDeployment: "../objects/application/dpudeployment.yaml"
+dpuServiceChainTemplate: "../objects/application/dpuservicechain.yaml"
+dpuServiceConfiguration: "../objects/application/dpuserviceconfiguration.yaml"
+dpuServiceCredentialRequest: "../objects/application/dpuservicecredentialrequest.yaml"
+ipPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_subnet.yaml"
+cidrPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_cidr.yaml"
+dpuService: "../objects/application/dpuservice.yaml"
+dpuServiceTemplate: "../objects/application/dpuservicetemplate.yaml"
+numberOfDPUNodes: 0
+
