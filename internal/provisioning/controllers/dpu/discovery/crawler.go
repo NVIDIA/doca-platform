@@ -66,7 +66,7 @@ func (c *CrawlerService) Crawl(ctx context.Context, ipRange provisioningv1.IPRan
 	logger := log.FromContext(ctx)
 
 	// Preload existing DPU devices to avoid re-crawling known IPs
-	existingIPs, err := c.preloadExistingDPUDevices(ctx)
+	existingIPs, existingSerialNumbers, err := c.preloadExistingDPUDevices(ctx)
 	if err != nil {
 		logger.Error(err, "Failed to preload existing DPU devices")
 		return 0, err
@@ -91,7 +91,7 @@ func (c *CrawlerService) Crawl(ctx context.Context, ipRange provisioningv1.IPRan
 	var wg sync.WaitGroup
 	for i := 0; i < c.workers; i++ {
 		wg.Add(1)
-		go c.worker(ctx, &wg, jobs, results, existingIPs)
+		go c.worker(ctx, &wg, jobs, results, existingIPs, existingSerialNumbers)
 	}
 
 	// Send jobs
@@ -125,7 +125,7 @@ func (c *CrawlerService) Crawl(ctx context.Context, ipRange provisioningv1.IPRan
 
 // preloadExistingDPUDevices retrieves all existing DPU devices from the cluster
 // and returns a map of their BMC IP addresses for quick lookup
-func (c *CrawlerService) preloadExistingDPUDevices(ctx context.Context) (map[string]bool, error) {
+func (c *CrawlerService) preloadExistingDPUDevices(ctx context.Context) (map[string]bool, map[string]bool, error) {
 	logger := log.FromContext(ctx)
 
 	// List all DPU devices in the namespace
@@ -135,21 +135,25 @@ func (c *CrawlerService) preloadExistingDPUDevices(ctx context.Context) (map[str
 	}
 
 	if err := c.client.List(ctx, dpuDeviceList, listOpts...); err != nil {
-		return nil, fmt.Errorf("failed to list existing DPU devices: %w", err)
+		return nil, nil, fmt.Errorf("failed to list existing DPU devices: %w", err)
 	}
 
 	existingIPs := make(map[string]bool, len(dpuDeviceList.Items))
+	existingSerialNumbers := make(map[string]bool, len(dpuDeviceList.Items))
 	for _, dpuDevice := range dpuDeviceList.Items {
 		if dpuDevice.Spec.BMCIP != nil && *dpuDevice.Spec.BMCIP != "" {
 			existingIPs[*dpuDevice.Spec.BMCIP] = true
 			logger.V(1).Info("Found existing DPU device", "name", dpuDevice.Name, "bmcIP", *dpuDevice.Spec.BMCIP)
 		}
+		if dpuDevice.Spec.SerialNumber != "" {
+			existingSerialNumbers[dpuDevice.Spec.SerialNumber] = true
+		}
 	}
 
-	return existingIPs, nil
+	return existingIPs, existingSerialNumbers, nil
 }
 
-func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-chan uint32, results chan<- CrawlResult, existingIPs map[string]bool) {
+func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-chan uint32, results chan<- CrawlResult, existingIPs map[string]bool, existingSerialNumbers map[string]bool) {
 	defer wg.Done()
 	logger := log.FromContext(ctx)
 
@@ -212,6 +216,15 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 		}
 
 		result.SerialNumber = strings.Trim(chassisInfo.SerialNumber, " ")
+		if existingSerialNumbers[result.SerialNumber] {
+			logger.V(1).Info("Skipping – serial already discovered",
+				"ip", ipStr, "serial", result.SerialNumber)
+			result.Error = fmt.Errorf("serial %s already has an associated DPU device", result.SerialNumber)
+
+			results <- result
+			continue
+		}
+
 		result.OPN = strings.Trim(chassisInfo.PartNumber, " ")
 		result.Found = true
 		logger.Info("Found DPU BMC %s", ipStr)
@@ -243,6 +256,24 @@ func (c *CrawlerService) createDPUDeviceAndNode(ctx context.Context, result Craw
 		}
 		return err
 	}
+
+	dpuNodeList := &provisioningv1.DPUNodeList{}
+	if err := c.client.List(ctx, dpuNodeList, client.InNamespace(c.namespace)); err != nil {
+		logger.Error(err, "Failed to list DPU nodes", "namespace", c.namespace)
+		return err
+	}
+
+	for _, dpuNode := range dpuNodeList.Items {
+		if dpuNode.Spec.DPUs != nil {
+			for _, dpuRef := range dpuNode.Spec.DPUs {
+				if dpuRef.Name == dpu.Name {
+					logger.Info("DPU node with specified DPUDevice already exists", "name", dpuNode.Name)
+					return nil
+				}
+			}
+		}
+	}
+
 	dpuNode := &provisioningv1.DPUNode{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("dpu-node-%s", strings.ToLower(result.SerialNumber)),
