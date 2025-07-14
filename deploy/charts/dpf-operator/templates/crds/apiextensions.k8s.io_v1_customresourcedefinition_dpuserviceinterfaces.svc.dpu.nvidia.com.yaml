@@ -18,17 +18,17 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.conditions[?(@.type=='Ready')].status
-      name: Ready
-      type: string
-    - jsonPath: .status.conditions[?(@.type=='Ready')].reason
-      name: Phase
-      type: string
     - jsonPath: .spec.template.spec.template.spec.interfaceType
       name: IfType
       type: string
     - jsonPath: .spec.template.spec.template.spec['service','physical'].interfaceName
       name: IfName
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Ready')].reason
+      name: Reason
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age

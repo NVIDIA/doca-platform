@@ -236,6 +236,8 @@ type ServiceInterfaceStatus struct {
 // +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 // +kubebuilder:printcolumn:name="IfType",type=string,JSONPath=`.spec.interfaceType`
 // +kubebuilder:printcolumn:name="IfName",type=string,JSONPath=`.spec.interfaceName`
+// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].status`
+// +kubebuilder:printcolumn:name="Reason",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].reason`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // ServiceInterface is the Schema for the serviceinterfaces API

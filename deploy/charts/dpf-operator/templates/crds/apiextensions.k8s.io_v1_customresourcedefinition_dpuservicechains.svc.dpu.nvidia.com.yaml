@@ -22,7 +22,7 @@ spec:
       name: Ready
       type: string
     - jsonPath: .status.conditions[?(@.type=='Ready')].reason
-      name: Phase
+      name: Reason
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age

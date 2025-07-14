@@ -100,6 +100,9 @@ type ServiceChainSetStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 // +kubebuilder:validation:XValidation:rule="self.metadata.name.size() <= 63", message="name length can't be bigger than 63 chars"
+// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].status`
+// +kubebuilder:printcolumn:name="Reason",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].reason`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // ServiceChainSet is the Schema for the servicechainsets API
 type ServiceChainSet struct {
