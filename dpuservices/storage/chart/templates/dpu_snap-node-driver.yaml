@@ -57,6 +57,8 @@ spec:
           imagePullPolicy: {{ .Values.dpu.snapNodeDriver.imagePullPolicy }}
           command:
             - /snap-node-driver
+          args:
+            - --leader-elect=true
           env:
             {{- range .Values.dpu.snapNodeDriver.env }}
             - name: "{{ .name }}"
@@ -129,7 +131,38 @@ rules:
   - get
   - patch
   - update
-
+# Leader election permissions
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

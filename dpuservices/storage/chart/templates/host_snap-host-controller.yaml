@@ -39,6 +39,7 @@ spec:
           command:
           - /snap-host-controller
           args:
+          - --leader-elect=true
           - --namespace={{ .Values.host.snapHostController.config.namespace | default .Release.Namespace }}
           - --target-namespace={{ .Values.host.snapHostController.config.targetNamespace }}
           - --dpucluster-name={{ .Values.host.snapHostController.config.dpuClusterName }}

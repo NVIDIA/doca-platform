@@ -66,12 +66,15 @@ func main() {
 	var probeAddr string
 	var syncPeriod time.Duration
 	var configNamespace string
+	var leaderElectionNamespace string
 
 	fs.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	fs.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	fs.StringVar(&leaderElectionNamespace, "leader-election-namespace", storage.DefaultNS,
+		"The namespace in which to perform leader election.")
 	fs.BoolVar(&insecureMetrics, "insecure-metrics", false,
 		"If set the metrics endpoint is served insecure without AuthN/AuthZ.")
 	fs.BoolVar(&enableHTTP2, "enable-http2", false,
@@ -126,8 +129,9 @@ func main() {
 		Cache: cache.Options{
 			SyncPeriod: &syncPeriod,
 		},
-		LeaderElection:   enableLeaderElection,
-		LeaderElectionID: "snap-controller.nvidia.com",
+		LeaderElection:          enableLeaderElection,
+		LeaderElectionID:        "snap-controller.nvidia.com",
+		LeaderElectionNamespace: leaderElectionNamespace,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly

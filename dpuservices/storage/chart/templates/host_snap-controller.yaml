@@ -36,6 +36,8 @@ spec:
           - /snap-controller
           args:
            - --config-namespace={{ .Values.host.snapController.config.configNamespace | default .Release.Namespace }}
+           - --leader-elect=true
+           - --leader-election-namespace={{ .Values.host.snapController.config.configNamespace | default .Release.Namespace }}
           env:
           - name: KUBERNETES_SERVICE_HOST
             valueFrom:
