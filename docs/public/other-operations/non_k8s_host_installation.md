@@ -620,7 +620,9 @@ discover_dpu() {
 			fi
 
 			# Get PF0 name
-			pf0_name=$(get_pf0_name "$pci_name")
+			if ! pf0_name=$(get_pf0_name "$pci_name"); then
+				error "get_pf0_name failed for $pci_name"
+			fi
 
 			# Add PCI address to array
 			pci_addr_list+=("$pci_addr")
@@ -658,8 +660,7 @@ check_and_install_kubectl() {
 	else
 		log "kubectl already installed"
 	fi
-	output=$($kubectl_cmd version 2>&1)
-	if [ $? -ne 0 ]; then
+	if ! output=$($kubectl_cmd version 2>&1); then
 		error "Failed to check kubectl version: $output"
 	fi
 }
@@ -929,7 +930,9 @@ get_the_first_pci_address() {
 
 create_dms_config() {
 	mkdir -p $dms_conf_dir
-	dms_pci=$(get_the_first_pci_address "$pci_addr_file")
+	if ! dms_pci=$(get_the_first_pci_address "$pci_addr_file"); then
+		error "get_the_first_pci_address failed for $pci_addr_file"
+	fi
 
 	cat << EOF > $dms_conf_dir/$DEFAULT_DMS_CONF_FILE
 -bind_address $dms_ip:$dms_port -v 99 -auth cert -ca $dms_conf_dir/certs/ca.crt -tls_key_file $dms_conf_dir/certs/tls.key -tls_cert_file $dms_conf_dir/certs/tls.crt -password admin -username admin -image_folder $dms_image_dir -target_pci $dms_pci -exec_timeout 900 -disable_unbind_at_activate -reboot_status_check none -debug_command=true
@@ -1212,7 +1215,9 @@ check_rshim_not_occupied() {
 		output=/dev/termination-log
 	fi
 
-	local pci_addr=$(get_the_first_pci_address "$pci_addr_file")
+	if ! pci_addr=$(get_the_first_pci_address "$pci_addr_file"); then
+		error "get_the_first_pci_address failed for $pci_addr_file"
+	fi
 	log "Get PCI address: $pci_addr"
 	while read dev; do
 		if echo 'DISPLAY_LEVEL 1' > "/dev/$dev/misc" && grep -q "$pci_addr" "/dev/$dev/misc"; then
@@ -1299,7 +1304,9 @@ main() {
 		#   This is consistent with the behavior of the hostnetwork Pod, which also limits its handling to these PFs.
 		# - All VFs associated with these PFs will also be handled and recovered, but only after their corresponding PFs
 		#   have been successfully processed to ensure a stable recovery sequence.
-		local pci_addr=$(get_the_first_pci_address "$pci_addr_file")
+		if ! pci_addr=$(get_the_first_pci_address "$pci_addr_file"); then
+			error "get_the_first_pci_address failed for $pci_addr_file"
+		fi
 		log "Get PCI address: $pci_addr"
 		readlink /sys/bus/pci/devices/"$pci_addr".[01] /sys/bus/pci/devices/"$pci_addr".[01]/virtfn* | xargs -n1 basename | sort -u | while read pci_device; do
 			devlink health set pci/$pci_device reporter fw_fatal grace_period 0
