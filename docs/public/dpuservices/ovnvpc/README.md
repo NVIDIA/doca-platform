@@ -8,7 +8,7 @@ title: DOCA VPC OVN Service
 
 ## Overview
 
-The DOCA VPC OVN Service provides accelerated Virtual Private Cloud (VPC) networking functionality for the DPU Platform Framework (DPF). Built on top of Open Virtual Network (OVN), this service enables network isolation, virtualization, and advanced SDN capabilities directly on NVIDIA DPUs.
+The DOCA VPC OVN Service provides accelerated Virtual Private Cloud (VPC) networking functionality for the DOCA Platform Framework (DPF). Built on top of Open Virtual Network (OVN), this service enables network isolation, virtualization, and advanced SDN capabilities directly on NVIDIA DPUs.
 
 ### Key Features
 
