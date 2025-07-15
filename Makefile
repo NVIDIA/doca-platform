@@ -381,9 +381,13 @@ GENERATE_DOC_TARGETS ?= mdtoc api helm embedmd
 generate-docs: $(addprefix generate-docs-,$(GENERATE_DOC_TARGETS))
 	$(MAKE)
 
-.PHONY: generate-docs-mdtoc
 generate-docs-mdtoc: mdtoc ## Generate table of contents for our documentation.
-	grep -rl -e '<!-- toc -->' docs | grep '\.md$$' | xargs $(MDTOC) --inplace
+	@files=$$(grep -rl -e '<!-- toc -->' docs | grep '\.md$$' || true); \
+	if [ -n "$$files" ]; then \
+		echo "$$files" | xargs $(MDTOC) --inplace; \
+	else \
+		echo "No files with TOC markers found, skipping mdtoc"; \
+	fi
 
 .PHONY: generate-docs-api
 generate-docs-api: gen-crd-api-reference-docs ## Generate docs for the API.
