@@ -141,7 +141,7 @@ Follow the [Deletion and clean up steps](../user-guides/ovn_only/README.md#7-del
 
 ```yaml
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
-kind:  DpuDiscovery
+kind:  DPUDiscovery
 metadata:
   name: dpu-discovery-192.168.1-10
   namespace: dpf-operator-system
