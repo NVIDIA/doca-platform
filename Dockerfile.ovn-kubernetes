@@ -45,36 +45,64 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     -gcflags="${gcflags}" \
     -o ovnkubernetesresourceinjector ./cmd/ovnkubernetesresourceinjector
 
-FROM ubuntu:24.04
+# Create source code archive excluding .gocache, and test files.
+# Skipping `.gocache` since it contains pre-compiled versions of packages and other build artifacts for speeding up subsequent builds
+RUN mkdir src && \
+    find . -name '*.go' \
+      -not -path "./hack/*" \
+      -not -path "./.gocache/*" \
+      -not -name "*_test.go" \
+      -exec cp --parents {} src/ \; && \
+    tar -czf source-code.tar.gz src
+
+# Build the final image
+FROM ubuntu:24.10
 
 ARG TARGETARCH
 
-ARG ubuntu_mirror=http://archive.ubuntu.com/ubuntu/
-RUN find /etc/apt/sources.list* -type f -exec sed -i \
-      -e "s|http://archive.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
-      -e "s|http://security.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" '{}' \; && \
-    apt-get update
-
 USER root
 
-RUN apt-get install -y iproute2 curl software-properties-common util-linux dnsmasq
+ARG ubuntu_mirror=http://archive.ubuntu.com/ubuntu/
+ARG BASE_PACKAGES="iproute2 curl software-properties-common util-linux dnsmasq"
+
+# Dependencies for installing OVN (Netplan, systemd and udev required by dpucniprovisioner).
+ARG OVN_PACKAGES="openvswitch-switch openvswitch-common netplan.io udev systemd"
+
+RUN find /etc/apt/sources.list* -type f -exec sed -i \
+      -e "s|http://archive.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
+      -e "s|http://security.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" '{}' \;
+
+RUN apt-get update && \
+    apt-get install -y ${BASE_PACKAGES} && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 RUN curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
 
-# Install OVS, OVN , netplan, systemd and udev packages (netplan, systemd and udev required by dpucniprovisioner).
-RUN apt-get update && apt-get install -y openvswitch-switch openvswitch-common netplan.io udev systemd
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ${OVN_PACKAGES} && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN curl -LO "https://github.com/Mellanox/ovn/releases/download/v24.03.6/ovn-common_24.03.6-1_${TARGETARCH}.deb" && \
-    dpkg -i "ovn-common_24.03.6-1_${TARGETARCH}.deb"
+ARG KUBECTL_VERSION=1.33.2
+RUN curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
-RUN curl -LO "https://github.com/Mellanox/ovn/releases/download/v24.03.6/ovn-central_24.03.6-1_${TARGETARCH}.deb" && \
-    dpkg -i "ovn-central_24.03.6-1_${TARGETARCH}.deb"
+ARG OVN_VERSION="24.03.6"
 
-RUN curl -LO "https://github.com/Mellanox/ovn/releases/download/v24.03.6/ovn-host_24.03.6-1_${TARGETARCH}.deb" && \
-    dpkg -i "ovn-host_24.03.6-1_${TARGETARCH}.deb"
+RUN curl -fsSL "https://github.com/Mellanox/ovn/releases/download/v${OVN_VERSION}/ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+    -o ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb && \
+    curl -fsSL "https://github.com/Mellanox/ovn/releases/download/v${OVN_VERSION}/ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+    -o ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb && \
+    curl -fsSL "https://github.com/Mellanox/ovn/releases/download/v${OVN_VERSION}/ovn-host_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+    -o ovn-host_${OVN_VERSION}-1_${TARGETARCH}.deb
 
-RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${TARGETARCH}/kubectl" \
-    && install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+RUN dpkg -i "ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+        "ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+        "ovn-host_${OVN_VERSION}-1_${TARGETARCH}.deb" && \
+    rm "ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+        "ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+        "ovn-host_${OVN_VERSION}-1_${TARGETARCH}.deb"
 
 RUN mkdir -p /var/run/openvswitch
 
@@ -109,8 +137,31 @@ COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables
 COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables-scripts/ip6tables-save /usr/sbin/
 COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables-scripts/ip6tables-restore /usr/sbin/
 
+# Get all the source code
+RUN mkdir -p /src
+WORKDIR /src
+
+# Copy ovn-kubernetes source code from builder stage
+COPY --from=ovnkubernetes-builder /workspace/source-code.tar.gz ovn-kubernetes-source-code.tar.gz
+
+# Download source code for apt packages.
+# Starting from Ubuntu 24.04 shifted to the new deb822 format for source management.
+# Enable `deb-src` to be able to fetch sources using `apt-get source`
+RUN sed -i 's/^# deb-src/deb-src/g' /etc/apt/sources.list /etc/apt/sources.list.d/* && \
+    sed -i 's/^Types: deb$/Types: deb deb-src/g' /etc/apt/sources.list.d/*.sources && \
+    apt-get update && \
+    apt-get source --download-only ${BASE_PACKAGES} ${OVN_PACKAGES}  && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL -o kubectl-${KUBECTL_VERSION}.tar.gz \
+    https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz
+
+RUN curl -fsSL -o ovn-${OVN_VERSION}.tar.gz \
+    https://github.com/Mellanox/ovn/archive/refs/tags/v${OVN_VERSION}.tar.gz
+
 LABEL io.k8s.display-name="ovn-kubernetes" \
-      io.k8s.description="ovnkube ubuntu image"
+      io.k8s.description="ovn-kubernetes ubuntu image"
 
 WORKDIR /root
 ENTRYPOINT /root/ovnkube.sh
