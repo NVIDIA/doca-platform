@@ -125,6 +125,16 @@ var _ = Describe("DPF Upgrade validation", Labels{dpfUpgradeValidationTestLabel}
 		It("validate DPU and DPUService generations after upgrade", func() {
 			validateGenerationsAfterUpgrade()
 		})
+
+		It("perform DPU and DPUService rollout test", func() {
+			By("performing DPU and DPUService rollout test")
+			rolloutDPU(ctx, input)
+			rolloutDPUService(ctx, input)
+			By("waiting for provisioning")
+			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
+			By("waiting for system components to be ready")
+			verifySystemReady()
+		})
 	})
 })
 
@@ -174,7 +184,6 @@ func validateGenerationsAfterUpgrade() {
 	})
 	Expect(allGenerationsAfter).To(BeComparableTo(allGenerationsBefore),
 		"Generation data (ignoring order) should remain identical after upgrade")
-
 }
 
 func collectGenerations(configMapName string) {
@@ -265,4 +274,43 @@ func verifySystemReady() {
 		"nvidia-k8s-ipam", "ovs-cni", "sfc-controller",
 		"servicechainset-rbac-and-crds",
 	})
+}
+
+func rolloutDPU(ctx context.Context, input *systemTestInput) {
+	By("selecting one DPU for deletion")
+	dpuList := &provisioningv1.DPUList{}
+	Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(dpuList.Items).NotTo(BeEmpty(), "No DPUs found for rollout test")
+	selectedDPU := &dpuList.Items[0]
+	uuid := selectedDPU.GetUID()
+	By(fmt.Sprintf("selected DPU: %s", selectedDPU.GetName()))
+
+	By("deleting selected DPU")
+	Expect(client.IgnoreNotFound(input.client.Delete(ctx, selectedDPU))).To(Succeed())
+
+	By("waiting for DPU to be recreated")
+	Eventually(func(g Gomega) {
+		updatedDPU := &provisioningv1.DPU{}
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(selectedDPU), updatedDPU)).To(Succeed())
+		g.Expect(updatedDPU.GetUID()).ToNot(Equal(uuid), "DPU should be recreated with a new UID")
+	}).WithTimeout(20 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+}
+
+func rolloutDPUService(ctx context.Context, input *systemTestInput) {
+	By("selecting system component DPUService flannel for deletion")
+	selectedDPUService := &dpuservicev1.DPUService{}
+	selectedDPUService.SetName(operatorv1.FlannelName)
+	selectedDPUService.SetNamespace(dpfOperatorSystemNamespace)
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(selectedDPUService), selectedDPUService)).To(Succeed())
+	uuid := selectedDPUService.GetUID()
+
+	By("deleting system component DPUService flannel")
+	Expect(input.client.Delete(ctx, selectedDPUService)).To(Succeed())
+
+	By("waiting for DPUService to be recreated")
+	Eventually(func(g Gomega) {
+		updatedDPUService := &dpuservicev1.DPUService{}
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(selectedDPUService), updatedDPUService)).To(Succeed())
+		g.Expect(updatedDPUService.GetUID()).ToNot(Equal(uuid), "DPUService should be recreated with a new UID")
+	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 }
