@@ -27,7 +27,6 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
-	"github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
@@ -248,7 +247,6 @@ func TestDPFOperatorConfigReconciler_Validation(t *testing.T) {
 	t.Run("ImagePullSecretsReconciled Error when secret can not be found", func(t *testing.T) {
 		g.Eventually(func(g Gomega) {
 			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(config), config)).To(Succeed())
-			g.Expect(config.Annotations).To(HaveKeyWithValue(utils.NewDPFOperatorConfigAnnotationKey, "true"))
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 	})
 
@@ -1002,9 +1000,6 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "config-new",
 				Namespace: testNS.Name,
-				Annotations: map[string]string{
-					utils.NewDPFOperatorConfigAnnotationKey: "true",
-				},
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
 				ProvisioningController: operatorv1.ProvisioningControllerConfiguration{

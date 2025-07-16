@@ -28,10 +28,6 @@ import (
 const (
 	// minSupportedVersion is the minimum supported DPF version for upgrades.
 	minSupportedVersion = "v25.7.0"
-
-	// NewDPFOperatorConfigAnnotationKey is the label key used to indicate that it is a new DPF operator config.
-	// This is necessary to be able to block upgrades from old DPF Operator versions.
-	NewDPFOperatorConfigAnnotationKey = "operator.dpu.nvidia.com/new-config"
 )
 
 // allowSourceVersions is the version we allow upgrades from.

@@ -186,12 +186,9 @@ func (r *DPFOperatorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 	}()
 
-	// TODO: Remove this workaround after a few releases.
-	// If the DPFOperatorConfig is a new config, we set an annotation to indicate that it is a new.
-	// We have to requeue here to not miss the patching of the object.
-	// Further, if we not requeue here, the reconcilePreUpgradeValidations is stuck.
-	if r.reconcileNewConfigAnnotation(ctx, dpfOperatorConfig) {
-		return ctrl.Result{Requeue: true}, nil
+	// If this is a new config we have to set the version to the current DPF version.
+	if dpfOperatorConfig.IsNewConfig() {
+		dpfOperatorConfig.Status.Version = ptr.To(release.DPFVersion())
 	}
 
 	conditions.EnsureConditions(dpfOperatorConfig, operatorv1.Conditions)
@@ -208,21 +205,6 @@ func (r *DPFOperatorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, nil
 	}
 	return r.reconcile(ctx, dpfOperatorConfig, dpuClusters)
-}
-
-func (r *DPFOperatorConfigReconciler) reconcileNewConfigAnnotation(ctx context.Context, config *operatorv1.DPFOperatorConfig) bool {
-	if !config.IsNewConfig() {
-		return false
-	}
-
-	ctrllog.FromContext(ctx).Info("Setting default DPF version in DPFOperatorConfig status", "version", release.DPFVersion())
-	annotations := map[string]string{}
-	if config.GetAnnotations() != nil {
-		annotations = config.GetAnnotations()
-	}
-	annotations[utils.NewDPFOperatorConfigAnnotationKey] = "true"
-	config.SetAnnotations(annotations)
-	return true
 }
 
 func isPaused(config *operatorv1.DPFOperatorConfig) bool {
@@ -275,9 +257,8 @@ func (r *DPFOperatorConfigReconciler) reconcile(ctx context.Context, dpfOperator
 	}
 	conditions.AddTrue(dpfOperatorConfig, operatorv1.SystemComponentsReconciledCondition)
 
-	// Set the DPF version in the status of the DPFOperatorConfig and remove the new-config annotation if it exists.
+	// Update the DPF version in the status of the DPFOperatorConfig after a successful reconciliation.
 	dpfOperatorConfig.Status.Version = ptr.To(release.DPFVersion())
-	delete(dpfOperatorConfig.Annotations, utils.NewDPFOperatorConfigAnnotationKey)
 
 	return ctrl.Result{}, nil
 }

@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
@@ -236,7 +235,5 @@ func (c *DPFOperatorConfig) UpgradeInProgress() bool {
 }
 
 func (c *DPFOperatorConfig) IsNewConfig() bool {
-	// If the new config label is set, it means this is a new config.
-	// This is used to block upgrades from old DPF Operator versions.
-	return c.ObjectMeta.Annotations[utils.NewDPFOperatorConfigAnnotationKey] == "" && c.Status.ObservedGeneration == 0
+	return c.Status.ObservedGeneration == 0
 }
