@@ -171,7 +171,6 @@ func (s *SystemComponents) AllComponents() []Component {
 		s.NvIPAM,
 		s.OvsCni,
 		s.SfcController,
-		s.DPUDetector,
 	}
 }
 
