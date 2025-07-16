@@ -56,7 +56,7 @@ YQ_VERSION ?= v4.45.1
 HELM_VER ?= v3.16.3
 HELM_CM_PUSH_VERSION ?= 0.10.4
 HELMFILE_VERSION ?= v1.1.2
-HELM_DIFF_VERSION ?= v3.12.2
+HELM_DIFF_VERSION ?= 3.12.2
 KUSTOMIZE_VERSION ?= v5.5.0
 CONTROLLER_TOOLS_VERSION ?= v0.16.5
 ENVTEST_VERSION ?= v0.0.0-20250604165838-d6126d850224
@@ -157,8 +157,11 @@ helm-cm-push: helm
 
 .PHONY: helm-diff
 helm-diff: helm
-	$Q $(HELM) plugin list | grep diff || \
-		$(HELM) plugin install https://github.com/databus23/helm-diff --version $(HELM_DIFF_VERSION)
+	$Q $(HELM) plugin list | grep diff | grep $(HELM_DIFF_VERSION) || \
+		( \
+			($(HELM) plugin uninstall diff || true) && \
+			$(HELM) plugin install https://github.com/databus23/helm-diff --version $(HELM_DIFF_VERSION) \
+		)
 
 .PHONY: conform
 conform: $(CONFORM) ## Download conform locally if necessary.
