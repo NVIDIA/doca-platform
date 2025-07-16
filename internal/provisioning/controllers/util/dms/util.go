@@ -390,27 +390,10 @@ func CreateDMSPod(ctx context.Context, client client.Client, node *corev1.Node, 
 			},
 			Tolerations: []corev1.Toleration{
 				{
-					Key:      cutil.TolerationNotReadyKey,
 					Operator: corev1.TolerationOpExists,
 					Effect:   corev1.TaintEffectNoExecute,
 				},
 				{
-					Key:      cutil.TolerationNotReadyKey,
-					Operator: corev1.TolerationOpExists,
-					Effect:   corev1.TaintEffectNoSchedule,
-				},
-				{
-					Key:      cutil.TolerationUnreachableKey,
-					Operator: corev1.TolerationOpExists,
-					Effect:   corev1.TaintEffectNoExecute,
-				},
-				{
-					Key:      cutil.TolerationUnschedulableKey,
-					Operator: corev1.TolerationOpExists,
-					Effect:   corev1.TaintEffectNoSchedule,
-				},
-				{
-					Key:      cutil.TolerationOVNKubernetesNetworkUnavailableKey,
 					Operator: corev1.TolerationOpExists,
 					Effect:   corev1.TaintEffectNoSchedule,
 				},
