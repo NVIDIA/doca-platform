@@ -51,7 +51,10 @@ endif
 GO_VERSION ?= $(shell awk '/^go /{print $$2}' go.mod | awk -F '.' '{print $$1 "." $$2}')
 
 # Allows for defining additional Go test args, e.g. '-tags integration'.
-GO_TEST_ARGS ?= -race
+# The linkmode=internal flag is used to force using Go linker to do the linking.
+# This suppresses warnings like ".../00NNNN.o has malformed LC_DYSYMTAB".
+# See the following issue for more details: https://github.com/golang/go/issues/61229#issuecomment-1988965927
+GO_TEST_ARGS ?= -race -ldflags=-linkmode=internal
 
 # CONTAINER_TOOL defines the container tool to be used for building images.
 # Be aware that the target commands are only tested with Docker which is
