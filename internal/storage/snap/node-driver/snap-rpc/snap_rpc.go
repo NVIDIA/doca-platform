@@ -353,14 +353,16 @@ func NvmeControllerCreate(client JSONRPCClient, subsystems NvmeSubsystemListResp
 	params := make(map[string]any)
 	if pciBDF != "00:00.0" {
 		params = map[string]interface{}{
-			"nqn":     targetSubsystem.NQN,
-			"pci_bdf": pciBDF,
+			"nqn":       targetSubsystem.NQN,
+			"pci_bdf":   pciBDF,
+			"suspended": true,
 		}
 	} else {
 		if parameters["vuid"] != "" {
 			params = map[string]interface{}{
-				"nqn":  targetSubsystem.NQN,
-				"vuid": parameters["vuid"],
+				"nqn":       targetSubsystem.NQN,
+				"vuid":      parameters["vuid"],
+				"suspended": true,
 			}
 		}
 	}
