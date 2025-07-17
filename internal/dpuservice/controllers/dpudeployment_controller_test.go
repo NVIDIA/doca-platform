@@ -1376,6 +1376,87 @@ var _ = Describe("DPUDeployment Controller", func() {
 					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 			})
+			It("should update the DPUSets on setting and unsetting the .spec.dpus.nodeEffect in the DPUDeployment", func() {
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
+
+				By("retrieving the DPUServiceChain and DPUService")
+				var dpuServiceChain *dpuservicev1.DPUServiceChain
+				Eventually(func(g Gomega) {
+					dpuServiceChainList := getDPUServiceChainList()
+					g.Expect(dpuServiceChainList.Items).To(HaveLen(1))
+					dpuServiceChain = &dpuServiceChainList.Items[0]
+					g.Expect(dpuServiceChain).ToNot(BeNil())
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				var gotDPUService *dpuservicev1.DPUService
+				Eventually(func(g Gomega) {
+					dpuServiceList := getDPUServiceList()
+					g.Expect(dpuServiceList.Items).To(HaveLen(1))
+					gotDPUService = &dpuServiceList.Items[0]
+					g.Expect(gotDPUService).ToNot(BeNil())
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				for i := range expectedDPUSetSpecs {
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
+						NodeLabels: map[string]string{
+							"svc.dpu.nvidia.com/dpuservicechain-version":        dpuServiceChain.Name,
+							"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
+							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
+						},
+					}
+				}
+
+				By("waiting for the initial DPUSets to be applied")
+				Eventually(func(g Gomega) {
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				By("modifying the DPUDeployment object to use a different nodeEffect and checking the outcome")
+				dpuDeployment.Spec.DPUs.NodeEffect = &provisioningv1.NodeEffect{NoEffect: ptr.To(true)}
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+
+				By("checking that DPUSets are updated")
+				Eventually(func(g Gomega) {
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+
+					By("checking the specs")
+					specs := make([]provisioningv1.DPUSetSpec, 0, len(gotDPUSetList.Items))
+					for _, dpuSet := range gotDPUSetList.Items {
+						specs = append(specs, dpuSet.Spec)
+					}
+					expectedDPUSetSpecs[0].DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{NoEffect: ptr.To(true)}
+					expectedDPUSetSpecs[1].DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{NoEffect: ptr.To(true)}
+					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				By("modifying the DPUDeployment object with no nodeEffect and checking the outcome")
+				dpuDeployment.Spec.DPUs.NodeEffect = nil
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+
+				By("checking that DPUSets are updated")
+				Eventually(func(g Gomega) {
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+
+					By("checking the specs")
+					specs := make([]provisioningv1.DPUSetSpec, 0, len(gotDPUSetList.Items))
+					for _, dpuSet := range gotDPUSetList.Items {
+						specs = append(specs, dpuSet.Spec)
+					}
+					expectedDPUSetSpecs[0].DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{Drain: ptr.To(true)}
+					expectedDPUSetSpecs[1].DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{Drain: ptr.To(true)}
+					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+			})
 			It("should keep the existing DPUSets labels on update of a DPUServiceConfiguration", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings

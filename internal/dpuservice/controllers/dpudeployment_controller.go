@@ -748,6 +748,10 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 
 	if dpuDeployment.Spec.DPUs.NodeEffect != nil {
 		dpuSet.Spec.DPUTemplate.Spec.NodeEffect = dpuDeployment.Spec.DPUs.NodeEffect
+	} else {
+		// We need to patch with the default which is drain in order to avoid issues with updating the nodeEffect on
+		// subsequent edits.
+		dpuSet.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{Drain: ptr.To(true)}
 	}
 
 	nodeLabels := map[string]string{
