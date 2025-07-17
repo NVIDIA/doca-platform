@@ -133,29 +133,6 @@ var _ = Describe("Phase ConfigFWParams", func() {
 				),
 			))
 		})
-		It("Error if flavor is in nic mode", func() {
-			flavor := flavorObj(defaultFlavorName)
-			flavor.Spec.DpuMode = provisioningv1.NicMode
-			createObject(flavor)
-			dpu := dpuObj(defaultDPUName, testDPUNode.Name, flavor.Name)
-			dpu.Status.Phase = provisioningv1.DPUConfigFWParameters
-			status, err := gnoi.ConfigFWParameters(ctx, dpu,
-				&dutil.ControllerContext{
-					Client: k8sClient,
-					Options: dutil.DPUOptions{
-						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
-					},
-				})
-			Expect(err).To(Succeed())
-			Expect(status.Phase).To(Equal(provisioningv1.DPUError))
-			Expect(status.Conditions).Should(ContainElements(
-				And(
-					HaveField("Type", provisioningv1.DPUCondFWConfigured.String()),
-					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", "RequestedDPUModeUnsupported"),
-				),
-			))
-		})
 		It("Error if flavor is in zero-trust mode", func() {
 			flavor := flavorObj(defaultFlavorName)
 			flavor.Spec.DpuMode = provisioningv1.ZeroTrustMode

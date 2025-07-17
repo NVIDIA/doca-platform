@@ -311,7 +311,9 @@ func main() {
 		setupLog.Error(err, "unable to create webhook", "webhook", "DPUSet")
 		os.Exit(1)
 	}
-	if err = (&provisioningwebhooks.DPUFlavor{}).SetupWebhookWithManager(mgr); err != nil {
+	if err = (&provisioningwebhooks.DPUFlavor{
+		DPUInstallInterface: &dpuInstallInterface,
+	}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "DPUFlavor")
 		os.Exit(1)
 	}

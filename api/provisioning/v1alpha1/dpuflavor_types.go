@@ -65,7 +65,8 @@ type DPUFlavorSpec struct {
 	// +optional
 	SystemReservedResources corev1.ResourceList `json:"systemReservedResources,omitempty"`
 
-	// Specifies the DPU Mode type: one of dpu,zero-trust,nic
+	// Specifies the DPU Mode type: one of dpu,zero-trust
+	// +kubebuilder:default=dpu
 	// +optional
 	DpuMode DpuModeType `json:"dpuMode,omitempty"`
 }
@@ -101,13 +102,12 @@ type DPUFlavorOVS struct {
 }
 
 // DpuModeType defines the mode of the DPU
-// +kubebuilder:validation:Enum=dpu;zero-trust;nic
+// +kubebuilder:validation:Enum=dpu;zero-trust
 type DpuModeType string
 
 const (
 	DpuMode       DpuModeType = "dpu"
 	ZeroTrustMode DpuModeType = "zero-trust"
-	NicMode       DpuModeType = "nic"
 )
 
 // DPUFlavorFileOp defines the operation to be performed on the file

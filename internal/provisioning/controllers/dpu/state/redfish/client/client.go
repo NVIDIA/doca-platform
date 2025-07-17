@@ -435,8 +435,6 @@ func (c *Client) SetDpuMode(desiredMode provisioningv1.DpuModeType) (*resty.Resp
 			return resp, err
 		}
 		body = []byte(`{"Mode": "DpuMode"}`)
-	case provisioningv1.NicMode:
-		body = []byte(`{"Mode": "NicMode"}`)
 	}
 
 	return c.Client.R().SetBody(body).Post(APISetMode)

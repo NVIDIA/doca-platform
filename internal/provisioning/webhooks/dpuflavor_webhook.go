@@ -37,7 +37,11 @@ import (
 // +kubebuilder:webhook:path=/validate-provisioning-dpu-nvidia-com-v1alpha1-dpuflavor,mutating=false,failurePolicy=fail,sideEffects=None,groups=provisioning.dpu.nvidia.com,resources=dpuflavors,verbs=create;update;delete,versions=v1alpha1,name=vdpuflavor.kb.io,admissionReviewVersions=v1
 
 // DPUFlavor implements a webhook for the DPUFlavor object.
-type DPUFlavor struct{}
+type DPUFlavor struct {
+	// Pointer to a cluster-level install interface configuration.
+	// When nil, validation of install interface is skipped.
+	DPUInstallInterface *string
+}
 
 var _ webhook.CustomValidator = &DPUFlavor{}
 
@@ -67,6 +71,12 @@ func (r *DPUFlavor) ValidateCreate(ctx context.Context, obj runtime.Object) (adm
 
 	if err := validateResources(dpuFlavor); err != nil {
 		return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("resources are misconfigured: %s", err.Error()))
+	}
+
+	if r.DPUInstallInterface != nil {
+		if err := r.validateDPUInstallInterface(obj); err != nil {
+			return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("dpu install interface is misconfigured: %s", err.Error()))
+		}
 	}
 
 	return nil, validateNVConfig(dpuFlavor)
@@ -147,6 +157,37 @@ func validateResources(flavor *provisioningv1.DPUFlavor) error {
 			return fmt.Errorf("reserved resource specified in spec.systemReservedResources exceed the ones defined in spec.dpuResources: Additional resources needed in spec.dpuResources: %v", e.AdditionalResourcesRequired)
 		}
 		return err
+	}
+	return nil
+}
+
+// validateDPUInstallInterface validates the DPUInstallInterface field
+func (r *DPUFlavor) validateDPUInstallInterface(obj runtime.Object) error {
+	// Nothing to validate if the interface is not configured.
+	if r.DPUInstallInterface == nil {
+		return nil
+	}
+
+	dpuFlavor, ok := obj.(*provisioningv1.DPUFlavor)
+	if !ok {
+		return fmt.Errorf("invalid object type expected DPUFlavor got %s", obj.GetObjectKind().GroupVersionKind().String())
+	}
+
+	dpuflavorlog.V(4).Info("validate dpu install interface", "name", dpuFlavor.Name)
+	switch *r.DPUInstallInterface {
+	case string(provisioningv1.InstallViaGNOI):
+		if dpuFlavor.Spec.DpuMode != provisioningv1.DpuMode {
+			return fmt.Errorf("dpu mode is the only supported mode for gNOI install interface")
+		}
+	case string(provisioningv1.InstallViaRedFish):
+		if dpuFlavor.Spec.DpuMode != provisioningv1.ZeroTrustMode && dpuFlavor.Spec.DpuMode != provisioningv1.DpuMode {
+			return fmt.Errorf("dpu mode or zero-trust is the only supported mode for RedFish install interface")
+		}
+	case string(provisioningv1.InstallViaMock):
+		{
+		}
+	default:
+		return fmt.Errorf("invalid install interface: %s", *r.DPUInstallInterface)
 	}
 	return nil
 }
