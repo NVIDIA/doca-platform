@@ -67,6 +67,7 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 			return *state, nil
 		} else if resp.StatusCode() != http.StatusAccepted {
 			err = fmt.Errorf("get status: %s", resp.Status())
+			logger.Error(err, "Failed to install BFB", "status", resp.Status(), "body", resp.String())
 			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToInstall", err.Error()))
 			state.Phase = provisioningv1.DPUError
 			return *state, nil
