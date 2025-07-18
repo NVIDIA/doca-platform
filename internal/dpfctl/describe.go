@@ -640,10 +640,6 @@ func addDPUServiceTemplates(ctx context.Context, o objectScope, root client.Obje
 	return addResourceByGVK(ctx, o, root, dpuservicev1.DPUServiceTemplateGroupVersionKind, matchLabels, skipFunc)
 }
 
-func addDPUServiceConfigurations(ctx context.Context, o objectScope, root client.Object, matchLabels client.MatchingLabels, skipFunc func(map[string]string) bool) error {
-	return addResourceByGVK(ctx, o, root, dpuservicev1.DPUServiceConfigurationGroupVersionKind, matchLabels, skipFunc)
-}
-
 func addResourceByGVK(ctx context.Context, o objectScope, root client.Object, gvk schema.GroupVersionKind, matchLabels client.MatchingLabels, skipFunc func(map[string]string) bool) error {
 	if !showResource(o.opts, gvk.Kind) {
 		return nil
@@ -722,12 +718,6 @@ func addDPUDeployments(ctx context.Context, o objectScope, root client.Object) e
 		o.tree.Add(&dpuDeployment, servicesObj)
 
 		if err := addDPUServiceTemplates(ctx, o, servicesObj, client.MatchingLabels{
-			dpuDeployment.GetDependentLabelKey(): dpuservicev1.DependentDPUDeploymentLabelValue,
-		}, nil); err != nil {
-			return err
-		}
-
-		if err := addDPUServiceConfigurations(ctx, o, servicesObj, client.MatchingLabels{
 			dpuDeployment.GetDependentLabelKey(): dpuservicev1.DependentDPUDeploymentLabelValue,
 		}, nil); err != nil {
 			return err

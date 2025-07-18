@@ -382,7 +382,6 @@ func Test_dpfctlTreeDiscovery(t *testing.T) {
 				{object: defaultDPUFromDPUSetsFromDPUDeployment(), conditions: getTrueCondition()},
 				{object: defaultDPUServiceInterfaceFromDPUDeployment(), conditions: getTrueCondition()},
 				{object: defaultDPUServiceTemplate(), conditions: getTrueCondition()},
-				{object: defaultDPUServiceConfiguration(), conditions: nil},
 				{object: defaultArgoCDApplication(), argoStatus: getRandomArgoCDApplicationConditions()},
 			},
 			opts: ObjectTreeOptions{
@@ -403,8 +402,6 @@ func Test_dpfctlTreeDiscovery(t *testing.T) {
 				"│   │   └─DPUs",
 				"│   │     └─DPU/test-from-dpudeployment              default  Ready: True  Success",
 				"│   └─Services",
-				"│     ├─DPUServiceConfigurations",
-				"│     │ └─DPUServiceConfiguration/test               default",
 				"│     ├─DPUServiceTemplates",
 				"│     │ └─DPUServiceTemplate/test                    default  Ready: True  Success",
 				"│     └─DPUServices",
@@ -455,7 +452,6 @@ func Test_dpfctlTreeDiscovery(t *testing.T) {
 				{object: defaultDPUFromDPUSetsFromDPUDeployment(), conditions: getRandomConditionsWithReadyTrueCondition()},
 				{object: defaultDPUServiceInterfaceFromDPUDeployment(), conditions: getRandomConditionsWithReadyTrueCondition()},
 				{object: defaultDPUServiceTemplate(), conditions: getTrueCondition()},
-				{object: defaultDPUServiceConfiguration(), conditions: nil},
 				{object: defaultArgoCDApplication(), argoStatus: getRandomArgoCDApplicationConditions()},
 			},
 			opts: ObjectTreeOptions{
@@ -495,8 +491,6 @@ func Test_dpfctlTreeDiscovery(t *testing.T) {
 				"│   │                   ├─RandomReady                         False   SomethingWentWrong",
 				"│   │                   └─RandomReconciled                    True    Success",
 				"│   └─Services",
-				"│     ├─DPUServiceConfigurations",
-				"│     │ └─DPUServiceConfiguration/test               default",
 				"│     ├─DPUServiceTemplates",
 				"│     │ └─DPUServiceTemplate/test                    default",
 				"│     │               └─Ready                                 True    Success",
@@ -593,12 +587,11 @@ func Test_dpfctlTreeDiscovery(t *testing.T) {
 			},
 		},
 		{
-			name: "Add DPUServiceTemplate, DPUServiceConfiguration, and DPUService with conditions",
+			name: "Add DPUServiceTemplate and DPUService with conditions",
 			objectsTree: []objectsWithConditions{
 				{object: defaultDPFOperatorConfig(), conditions: getTrueCondition()},
 				{object: defaultDPUDeployment(), conditions: getTrueCondition()},
 				{object: defaultDPUServiceTemplate(), conditions: getRandomConditionsWithReadyTrueCondition()},
-				{object: defaultDPUServiceConfiguration(), conditions: getRandomConditionsWithReadyTrueCondition()},
 				{object: defaultDPUServiceFromDPUDeployment(), conditions: getRandomConditionsWithReadyTrueCondition()},
 			},
 			opts: ObjectTreeOptions{
@@ -613,8 +606,6 @@ func Test_dpfctlTreeDiscovery(t *testing.T) {
 				"  └─DPUDeployment/test                        default",
 				"    │           └─Ready                                True   Success",
 				"    └─Services",
-				"      ├─DPUServiceConfigurations",
-				"      │ └─DPUServiceConfiguration/test        default",
 				"      ├─DPUServiceTemplates",
 				"      │ └─DPUServiceTemplate/test             default",
 				"      │               ├─Ready                          True   Success",
@@ -1247,22 +1238,6 @@ func defaultDPUServiceTemplate() *dpuservicev1.DPUServiceTemplate {
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
 			},
-		},
-	}
-}
-
-func defaultDPUServiceConfiguration() *dpuservicev1.DPUServiceConfiguration {
-	return &dpuservicev1.DPUServiceConfiguration{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test",
-			Namespace: "default",
-			Labels: map[string]string{
-				defaultDPUDeployment().GetDependentLabelKey(): dpuservicev1.DependentDPUDeploymentLabelValue,
-			},
-		},
-		Spec: dpuservicev1.DPUServiceConfigurationSpec{
-			DeploymentServiceName: "test-service",
-			UpgradePolicy:         dpuservicev1.UpgradePolicy{},
 		},
 	}
 }
