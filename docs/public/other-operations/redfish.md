@@ -170,7 +170,7 @@ kubectl get dpudiscovery dpu-discovery-192.168.1-10 -o yaml
 
 The DPU discovery will:
 1. Start scanning the specified IP range
-2. Create DPUDevice and DPUNode resources for any discovered DPUs
+2. Create DPUDevice and DPUNode\* resources for any discovered DPUs
 3. Continue scanning at the specified interval
 4. Update its status with the last scan time and found DPUs
 
@@ -183,3 +183,8 @@ kubectl get dpudevices
 kubectl get dpunodes
 ```
 
+\* DPUDiscovery will skip the creation of a DPUNode if there is an existing one with the spec.dpus field containing the DPUDevices serial number.
+
+## Limitations
+
+* When using autodiscovery for DPUNodes, the created DPUNodes will be named after `dpunode-<DPU_SERIAL_NUMBER>`. In case the HBN DPUService is used in conjuction with this DPU provisioning mode, the HBN configuration needs to be adjusted to match the discovered nodes accordingly.
