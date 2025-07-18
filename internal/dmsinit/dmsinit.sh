@@ -184,7 +184,7 @@ check_and_install_kubectl() {
 		log "kubectl already installed"
 	fi
 	if ! output=$($kubectl_cmd version 2>&1); then
-		error "Failed to check kubectl version: $output"
+		error "Failed to check kubectl version: $output. This error may be caused by not configuring the KubernetesAPIServerVIP and kubernetesAPIServerPort parameters correctly in DPFOperatorConfig."
 	fi
 }
 
