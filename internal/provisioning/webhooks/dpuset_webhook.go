@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -74,12 +73,6 @@ func (r *DPUSet) Default(ctx context.Context, obj runtime.Object) error {
 			dpuSet.Spec.Strategy.RollingUpdate = &provisioningv1.RollingUpdateDPU{
 				MaxUnavailable: &defaultValue,
 			}
-		}
-	}
-
-	if dpuSet.Spec.DPUTemplate.Spec.NodeEffect == nil {
-		dpuSet.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-			NoEffect: ptr.To(true),
 		}
 	}
 	return nil
