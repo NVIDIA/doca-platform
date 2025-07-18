@@ -416,7 +416,7 @@ func addDPUSets(ctx context.Context, o objectScope, root client.Object, matchLab
 // TODO: add serviceinterfacesets and serviceinterfaces from DPU cluster
 // TODO: add cidrpools and ippools from DPU cluster
 func addDPUs(ctx context.Context, o objectScope, root client.Object, matchLabels client.MatchingLabels, skipFunc func(map[string]string) bool) error {
-	if !showResource(o.opts, provisioningv1.DPUKind) {
+	if !showResource(o.opts, provisioningv1.DPUKind) && !showResource(o.opts, provisioningv1.DPUSetKind) {
 		return nil
 	}
 
@@ -430,7 +430,7 @@ func addDPUs(ctx context.Context, o objectScope, root client.Object, matchLabels
 
 	addToTree := []client.Object{}
 	for _, dpu := range dpuList.Items {
-		if !isObjDebug(&dpu, o.opts.ShowResources) {
+		if !isObjDebug(&dpu, o.opts.ShowResources) && !isObjDebug(root, o.opts.ShowResources) {
 			continue
 		}
 		if showDPUSets && skipFunc != nil && skipFunc(dpu.Labels) {
@@ -476,15 +476,7 @@ func addDPUs(ctx context.Context, o objectScope, root client.Object, matchLabels
 		addToTree = append(addToTree, &dpu)
 	}
 
-	// If matchLabels is nil, it means that the DPUs are not part of a DPUSet.
-	if matchLabels == nil {
-		o.tree.AddMultipleWithHeader(root, addToTree, "DPUs", GroupingObject(true))
-		return nil
-	}
-
-	for _, dpu := range addToTree {
-		o.tree.Add(root, dpu)
-	}
+	o.tree.AddMultipleWithHeader(root, addToTree, "DPUs", GroupingObject(true))
 
 	return nil
 }
