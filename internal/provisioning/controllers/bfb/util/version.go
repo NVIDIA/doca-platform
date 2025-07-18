@@ -125,13 +125,16 @@ func extractJSONLinesFromBFB(file *os.File) ([]string, error) {
 
 // The DOCA version contains a build version.
 // The first digit of the patch version will be aligned with the user-facing documented version.
-// e.g. 3.0.0058 becomes 3.0.0, 2.9.3008 becomes 2.9.3
+// Anything after a dash is ignored.
+// e.g. 3.0.0058 becomes 3.0.0, 2.9.3008 becomes 2.9.3, 3.0.0058-abcde becomes 3.0.0
 func formatDOCAVersion(version string) (string, error) {
 	if version == "" {
 		return "", fmt.Errorf("DOCA version cannot be empty")
 	}
 
-	parts := strings.Split(version, ".")
+	// The doca version may have trailing information after a dash "-". This additional information is ignored.
+	majorMinorPatch := strings.Split(version, "-")[0]
+	parts := strings.Split(majorMinorPatch, ".")
 	if len(parts) != 3 {
 		return "", fmt.Errorf("DOCA version must have 3 components (major.minor.patchbuild), got: %s", version)
 	}
@@ -142,6 +145,9 @@ func formatDOCAVersion(version string) (string, error) {
 		return "", fmt.Errorf("DOCA version patchbuild component cannot be empty")
 	}
 
+	if patchBuild[0] < '0' || patchBuild[0] > '9' {
+		return "", fmt.Errorf("patchbuild contains non-numeric leading character: %s", patchBuild)
+	}
 	patch := string(patchBuild[0])
 
 	return fmt.Sprintf("%s.%s.%s", parts[0], parts[1], patch), nil

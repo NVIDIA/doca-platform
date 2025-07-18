@@ -43,3 +43,67 @@ func TestVersionFromBFBFileWithTestData(t *testing.T) {
 		t.Errorf("Test file versions don't match expected. Got: %+v, Expected: %+v", versions, expected)
 	}
 }
+
+func Test_formatDOCAVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		want    string
+		wantErr bool
+	}{
+		{
+			name:    "valid version",
+			version: "3.0.0058",
+			want:    "3.0.0",
+			wantErr: false,
+		},
+		{
+			name:    "valid version with suffix",
+			version: "3.0.0058-abdslsl",
+			want:    "3.0.0",
+			wantErr: false,
+		},
+		{
+			name:    "error on empty version string",
+			version: "",
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name:    "error on version with 2 components",
+			version: "3.0",
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name:    "error on version with 4 components",
+			version: "3.0.0.1",
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name:    "error on version with empty patchbuild component",
+			version: "3.0.",
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name:    "error on version with non-numeric patchbuild component",
+			version: "3.0.a0053",
+			want:    "",
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := formatDOCAVersion(tt.version)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("formatDOCAVersion() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("formatDOCAVersion() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
