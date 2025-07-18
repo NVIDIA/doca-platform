@@ -323,7 +323,7 @@ write_files:
         Type=simple
         ExecStart=/opt/dpf/netplan-ip-check.sh
         Restart=always
-        RestartSec=5
+        RestartSec=20
 
 
         [Install]
