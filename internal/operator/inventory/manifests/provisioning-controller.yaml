@@ -702,6 +702,7 @@ spec:
       _ovs-vsctl set bridge br-hbn fail_mode=secure
       _ovs-vsctl --may-exist add-port br-sfc p0
       _ovs-vsctl set Interface p0 type=dpdk
+      _ovs-vsctl set Interface p0 mtu_request=9216
       _ovs-vsctl set Port p0 external_ids:dpf-type=physical
 
       _ovs-vsctl set Open_vSwitch . external-ids:ovn-bridge-datapath-type=netdev
@@ -711,3 +712,4 @@ spec:
       _ovs-vsctl br-set-external-id br-ovn bridge-uplink puplinkbrovntobrsfc
       _ovs-vsctl --may-exist add-port br-ovn pf0hpf
       _ovs-vsctl set Interface pf0hpf type=dpdk
+      _ovs-vsctl set Interface pf0hpf mtu_request=9216
