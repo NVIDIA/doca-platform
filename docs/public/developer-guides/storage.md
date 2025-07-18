@@ -28,7 +28,6 @@ The hosts run the [SNAP CSI Plugin](#snap-csi-plugin), which performs all necess
 
 In this scenario, the following emulation methods are supported:
 * NVMe over VF on top of a static PF
-* NVMe over hot-plugged PF
 
 The list below contains the components that are deployed in this scenario.
 
@@ -471,9 +470,9 @@ flowchart-elk LR
     style api_host fill:#afdaed
 ```
 
-The SNAP CSI Plugin currently supports only emulated NVMe block devices. Virtio-FS devices are not supported yet.
+The SNAP CSI Plugin currently supports only emulated NVMe block devices with functionType set to `vf`. Virtio-FS devices are not supported yet.
 
-Function type can be controlled via StorageClass parameters:
+Example of the StorageClass object:
 
 ```yaml
 apiVersion: storage.k8s.io/v1
@@ -483,8 +482,8 @@ metadata:
 provisioner: csi.snap.nvidia.com
 parameters:
   policy: "example-policy"
-  functionType: "vf"        # pf or vf
-  hotplugFunction: "false"  # true or false
+  functionType: "vf"
+  hotplugFunction: "false"
 ```
 
 
