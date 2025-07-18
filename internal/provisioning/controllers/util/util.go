@@ -22,7 +22,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
 	"strings"
 	"time"
 
@@ -137,12 +136,6 @@ func GenerateBFBFilePath(filename string) string {
 
 func GenerateBFBTMPFilePath(uid string) string {
 	return string(os.PathSeparator) + BFBBaseDir + string(os.PathSeparator) + fmt.Sprintf("bfb-%s", uid)
-}
-
-func GenerateBFBVersionFromURL(bfbURL string) string {
-	base := path.Base(bfbURL)
-	version := strings.TrimSuffix(base, path.Ext(base))
-	return version
 }
 
 // GenerateDMSPodName creates a name for the DMS pod based off the name of the passed object.

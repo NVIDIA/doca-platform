@@ -202,7 +202,6 @@ var _ = Describe("Phase Installing", func() {
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpuFetched)).To(Succeed())
 			Expect(dpuFetched.Spec.Cluster.NodeLabels).To(
 				And(
-					HaveKeyWithValue("provisioning.dpu.nvidia.com/DOCA-BFB-version", "bfb-file"),
 					HaveKeyWithValue(release.DPFVersionLabelKey, release.DPFVersion()),
 				))
 			Expect(dpuFetched.Spec.Cluster.NodeLabels).To(HaveKeyWithValue(

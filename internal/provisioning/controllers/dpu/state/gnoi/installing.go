@@ -288,7 +288,6 @@ func dmsHandler(ctx context.Context, k8sClient client.Client, inDPU *provisionin
 						// cat /etc/mlnx-release
 						// bf-bundle-2.7.0-33_24.04_ubuntu-22.04_prod
 						patch := client.MergeFrom(dpu.DeepCopy())
-						dpu.Spec.Cluster.NodeLabels["provisioning.dpu.nvidia.com/DOCA-BFB-version"] = cutil.GenerateBFBVersionFromURL(bfb.Spec.URL)
 						dpu.Spec.Cluster.NodeLabels[HostNameDPULabelKey] = dpu.Spec.DPUNodeName
 						// Set the DPU version in the node labels. This is necessary to be able to schedule Pods
 						// on the DPU Node based on the DPF version.
