@@ -26,6 +26,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -289,6 +290,10 @@ func (c *CrawlerService) createDPUDeviceAndNode(ctx context.Context, result Craw
 				},
 			},
 		},
+	}
+
+	dpuNode.Labels = map[string]string{
+		util.NodeSelectorLabel: "true",
 	}
 
 	err = c.client.Create(ctx, dpuNode)
