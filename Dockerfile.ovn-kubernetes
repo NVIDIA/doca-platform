@@ -68,6 +68,8 @@ ARG BASE_PACKAGES="iproute2 curl software-properties-common util-linux dnsmasq"
 # Dependencies for installing OVN (Netplan, systemd and udev required by dpucniprovisioner).
 ARG OVN_PACKAGES="openvswitch-switch openvswitch-common netplan.io udev systemd"
 
+RUN dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /initial-dpkg-list.txt
+
 RUN find /etc/apt/sources.list* -type f -exec sed -i \
       -e "s|http://archive.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
       -e "s|http://security.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" '{}' \;
@@ -83,6 +85,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ${OVN_PACKAGES} && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+RUN dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /after-ovn-dpkg-list.txt
 
 ARG KUBECTL_VERSION=1.33.2
 RUN curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" && \
@@ -144,25 +148,29 @@ WORKDIR /src
 # Copy ovn-kubernetes source code from builder stage
 COPY --from=ovnkubernetes-builder /workspace/source-code.tar.gz ovn-kubernetes-source-code.tar.gz
 
-# Download source code for apt packages.
-# Starting from Ubuntu 24.04 shifted to the new deb822 format for source management.
-# Enable `deb-src` to be able to fetch sources using `apt-get source`
-RUN sed -i 's/^# deb-src/deb-src/g' /etc/apt/sources.list /etc/apt/sources.list.d/* && \
-    sed -i 's/^Types: deb$/Types: deb deb-src/g' /etc/apt/sources.list.d/*.sources && \
-    apt-get update && \
-    apt-get source --download-only ${BASE_PACKAGES} ${OVN_PACKAGES}  && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
 RUN curl -fsSL -o kubectl-${KUBECTL_VERSION}.tar.gz \
     https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz
 
 RUN curl -fsSL -o ovn-${OVN_VERSION}.tar.gz \
     https://github.com/Mellanox/ovn/archive/refs/tags/v${OVN_VERSION}.tar.gz
 
+# Download source code for apt packages.
+# Starting from Ubuntu 24.04 shifted to the new deb822 format for source management.
+# Enable `deb-src` to be able to fetch sources using `apt-get source`
+RUN sed -i 's/^# deb-src/deb-src/g' /etc/apt/sources.list /etc/apt/sources.list.d/* && \
+    sed -i 's/^Types: deb$/Types: deb deb-src/g' /etc/apt/sources.list.d/*.sources && \
+    apt-get update && \
+    apt-get source --download-only ${BASE_PACKAGES} ${OVN_PACKAGES} && \
+    comm -23 /after-ovn-dpkg-list.txt /initial-dpkg-list.txt | xargs -r apt-get source --download-only && \
+    apt-get clean && \
+    rm -f /initial-dpkg-list.txt /after-ovn-dpkg-list.txt && \
+    rm -rf /var/lib/apt/lists/* && \
+    cd / && \
+    tar -czf source-code.tar.gz /src && \
+    rm -rf /src
+
 LABEL io.k8s.display-name="ovn-kubernetes" \
       io.k8s.description="ovn-kubernetes ubuntu image"
 
 WORKDIR /root
 ENTRYPOINT /root/ovnkube.sh
-
