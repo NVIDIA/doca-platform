@@ -173,6 +173,11 @@ func (r *DPUVolumeAttachmentReconciler) reconcile(ctx context.Context, dpuCluste
 			fmt.Sprintf("%s %s is being deleted", storagev1.DPUVolumeKind, dpuVolumeNamespacedName.String()))
 	}
 
+	if !conditions.IsTrue(dpuVolume, conditions.TypeReady) {
+		return r.reconcilePending(reqLog, dpuVolumeAttachment,
+			fmt.Sprintf("%s %s is not ready yet", storagev1.DPUVolumeKind, dpuVolumeNamespacedName.String()))
+	}
+
 	dpuNodeNamespacedName := types.NamespacedName{Name: dpuVolumeAttachment.Spec.DPUNodeName, Namespace: dpuVolumeAttachment.Namespace}
 	dpuNode := &provisioningv1.DPUNode{}
 
@@ -557,7 +562,7 @@ func (r *DPUVolumeAttachmentReconciler) SetupWithManager(mgr ctrl.Manager) error
 			builder.WithPredicates(utilsPredicates.PredicateFuncsByEventTypes(event.CreateEvent{}))).
 		// watch for DPUVolume creation and reconcile all attachments that have reference to it
 		Watches(&storagev1.DPUVolume{}, handler.EnqueueRequestsFromMapFunc(r.enqueueDPUVolumeAttachmentsByDPUVolume()),
-			builder.WithPredicates(utilsPredicates.PredicateFuncsByEventTypes(event.CreateEvent{}))).
+			builder.WithPredicates(utilsPredicates.PredicateFuncsByEventTypes(event.CreateEvent{}, event.UpdateEvent{}))).
 		Build(r)
 	if err != nil {
 		return err

@@ -338,3 +338,36 @@ func getDPU() *provisioningv1.DPU {
 		},
 	}
 }
+
+func updateVolumeStatusToAvailable(name string) {
+	EventuallyWithOffset(1, func(g Gomega) {
+		vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNsNameDPU}}
+		volKey := client.ObjectKeyFromObject(vol)
+		g.Expect(testClientDPU.Get(ctx, volKey, vol)).NotTo(HaveOccurred())
+
+		// Set VolumeSpecDPU fields to simulate controller behavior and make DPUVolume ready
+		vol.Spec.VolumeSpecDPU = storagev1.VolumeSpecDPU{
+			ID:                      "test-vol-id-123",
+			Capacity:                *resource.NewQuantity(1073741824, resource.BinarySI),
+			AccessModes:             []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			ReclaimPolicy:           corev1.PersistentVolumeReclaimDelete,
+			StorageVendorName:       "test-vendor",
+			StorageVendorPluginName: "test-plugin",
+			VolumeAttributes: map[string]string{
+				"test-attr1": "value1",
+				"test-attr2": "value2",
+			},
+			CSIReference: storagev1.CSIReference{
+				CSIDriverName:    "test-csi-driver",
+				StorageClassName: "test-storage-class",
+				PVCRef: &storagev1.ObjectRef{
+					Name:      "test-pvc",
+					Namespace: testNsNameDPU,
+				},
+			},
+		}
+		g.Expect(testClientDPU.Update(ctx, vol)).NotTo(HaveOccurred())
+		vol.Status.State = storagev1.VolumeStateAvailable
+		g.Expect(testClientDPU.Status().Update(ctx, vol)).NotTo(HaveOccurred())
+	}, timeout, interval).Should(Succeed())
+}

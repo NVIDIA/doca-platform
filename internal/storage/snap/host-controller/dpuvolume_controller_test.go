@@ -30,7 +30,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -74,33 +73,7 @@ var _ = Describe("DPUVolume Controller", func() {
 			Expect(vol.Spec.Request.AccessModes).To(Equal(dpuVolume.Spec.AccessModes))
 
 			By("Check status is reported back to DPUVolume")
-			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volKey, vol)).NotTo(HaveOccurred())
-				// Set VolumeSpecDPU fields to simulate controller behavior
-				vol.Spec.VolumeSpecDPU = storagev1.VolumeSpecDPU{
-					ID:                      "test-vol-id-123",
-					Capacity:                *resource.NewQuantity(1073741824, resource.BinarySI),
-					AccessModes:             []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-					ReclaimPolicy:           corev1.PersistentVolumeReclaimDelete,
-					StorageVendorName:       "test-vendor",
-					StorageVendorPluginName: "test-plugin",
-					VolumeAttributes: map[string]string{
-						"test-attr1": "value1",
-						"test-attr2": "value2",
-					},
-					CSIReference: storagev1.CSIReference{
-						CSIDriverName:    "test-csi-driver",
-						StorageClassName: "test-storage-class",
-						PVCRef: &storagev1.ObjectRef{
-							Name:      "test-pvc",
-							Namespace: testNsNameDPU,
-						},
-					},
-				}
-				g.Expect(testClientDPU.Update(ctx, vol)).NotTo(HaveOccurred())
-				vol.Status.State = storagev1.VolumeStateAvailable
-				g.Expect(testClientDPU.Status().Update(ctx, vol)).NotTo(HaveOccurred())
-			}, timeout, interval).Should(Succeed())
+			updateVolumeStatusToAvailable(vol.Name)
 
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())

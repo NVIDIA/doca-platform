@@ -51,6 +51,9 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			cleanupObjects = append(cleanupObjects, dpuVolumeAttachment, dpuVolume, dpuNode, dpu)
 			createObjects(dpuVolume, dpuVolumeAttachment, dpuNode, dpu)
 
+			By("Update Volume status to Available in DPU cluster")
+			updateVolumeStatusToAvailable(dpuVolume.Name)
+
 			By("Verify VolumeAttachment is created")
 			volAttach := &storagev1.VolumeAttachment{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1-attach1", Namespace: testNsNameDPU}}
 			volAttachKey := client.ObjectKeyFromObject(volAttach)
@@ -104,6 +107,9 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			cleanupObjects = append(cleanupObjects, dpuVolumeAttachment, dpuVolume, dpuNode, dpu)
 			createObjects(dpuVolume, dpuVolumeAttachment, dpuNode, dpu)
 
+			By("Update Volume status to Available in DPU cluster")
+			updateVolumeStatusToAvailable(dpuVolume.Name)
+
 			By("Verify VolumeAttachment is created")
 			volAttach := &storagev1.VolumeAttachment{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1-attach1", Namespace: testNsNameDPU}}
 			volAttachKey := client.ObjectKeyFromObject(volAttach)
@@ -133,6 +139,9 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			dpu := getDPU()
 			cleanupObjects = append(cleanupObjects, dpuVolumeAttachment, dpuVolume, dpuNode, dpu)
 			createObjects(dpuVolume, dpuVolumeAttachment, dpuNode, dpu)
+
+			By("Update Volume status to Available in DPU cluster")
+			updateVolumeStatusToAvailable(dpuVolume.Name)
 
 			By("Verify VolumeAttachment is created and update NodeName")
 			volAttach := &storagev1.VolumeAttachment{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1-attach1", Namespace: testNsNameDPU}}
@@ -171,6 +180,19 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			By("Create DPUVolume")
 			createObjects(dpuVolume)
 
+			By("Verify DPUVolumeAttachment is pending because DPUVolume is not ready")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolumeAttachment), dpuVolumeAttachment)).NotTo(HaveOccurred())
+				reconciledCondition := conditions.Get(dpuVolumeAttachment, storagev1.ConditionDPUVolumeAttachmentReconciled)
+				g.Expect(reconciledCondition).NotTo(BeNil())
+				g.Expect(reconciledCondition.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(reconciledCondition.Reason).To(Equal(string(conditions.ReasonPending)))
+				g.Expect(reconciledCondition.Message).To(And(ContainSubstring("DPUVolume"), ContainSubstring("is not ready yet")))
+			}, timeout, interval).Should(Succeed())
+
+			By("Update Volume status to Available in DPU cluster")
+			updateVolumeStatusToAvailable(dpuVolume.Name)
+
 			By("Verify VolumeAttachment is created")
 			Eventually(func(g Gomega) {
 				g.Expect(testClientDPU.Get(ctx, volAttachKey, volAttach)).NotTo(HaveOccurred())
@@ -185,6 +207,9 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			dpu := getDPU()
 			cleanupObjects = append(cleanupObjects, dpuVolumeAttachment, dpuVolume, dpuNode, dpu)
 			createObjects(dpuVolume, dpuVolumeAttachment, dpu)
+
+			By("Update Volume status to Available in DPU cluster")
+			updateVolumeStatusToAvailable(dpuVolume.Name)
 
 			By("Verify VolumeAttachment is not created")
 			volAttach := &storagev1.VolumeAttachment{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1-attach1", Namespace: testNsNameDPU}}
@@ -210,6 +235,9 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			dpu := getDPU()
 			cleanupObjects = append(cleanupObjects, dpuVolumeAttachment, dpuVolume, dpuNode, dpu)
 			createObjects(dpuVolume, dpuVolumeAttachment, dpuNode)
+
+			By("Update Volume status to Available in DPU cluster")
+			updateVolumeStatusToAvailable(dpuVolume.Name)
 
 			By("Verify VolumeAttachment is not created")
 			volAttach := &storagev1.VolumeAttachment{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1-attach1", Namespace: testNsNameDPU}}
@@ -263,6 +291,9 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			dpu := getDPU()
 			cleanupObjects = append(cleanupObjects, dpuVolume, dpuNode, dpu)
 			createObjects(dpuVolume, dpuNode, dpu)
+
+			By("Update Volume status to Available in DPU cluster")
+			updateVolumeStatusToAvailable(dpuVolume.Name)
 
 			By("Create the first DPUVolumeAttachment")
 			firstAttachment := getDPUVolumeAttachment()
@@ -327,6 +358,9 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			dpu := getDPU()
 			cleanupObjects = append(cleanupObjects, dpuVolumeAttachment, dpuVolume, dpuNode, dpu)
 			createObjects(dpuVolume, dpuVolumeAttachment, dpuNode, dpu)
+
+			By("Update Volume status to Available in DPU cluster")
+			updateVolumeStatusToAvailable(dpuVolume.Name)
 			Eventually(func(g Gomega) []metav1.Condition {
 				ev := &informer.Event{}
 				g.Eventually(i.UpdateEvents).Should(Receive(ev))
@@ -368,6 +402,9 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			dpu := getDPU()
 			cleanupObjects = append(cleanupObjects, dpuVolumeAttachment, dpuVolume, dpuNode, dpu)
 			createObjects(dpuVolume, dpuVolumeAttachment, dpuNode, dpu)
+
+			By("Update Volume status to Available in DPU cluster")
+			updateVolumeStatusToAvailable(dpuVolume.Name)
 			Eventually(func(g Gomega) []metav1.Condition {
 				ev := &informer.Event{}
 				g.Eventually(i.UpdateEvents).Should(Receive(ev))
@@ -404,6 +441,9 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			dpu := getDPU()
 			cleanupObjects = append(cleanupObjects, dpuVolumeAttachment, dpuVolume, dpuNode, dpu)
 			createObjects(dpuVolume, dpuVolumeAttachment, dpuNode, dpu)
+
+			By("Update Volume status to Available in DPU cluster")
+			updateVolumeStatusToAvailable(dpuVolume.Name)
 			Eventually(func(g Gomega) {
 				volAttach := &storagev1.VolumeAttachment{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1-attach1", Namespace: testNsNameDPU}}
 				volAttachKey := client.ObjectKeyFromObject(volAttach)
@@ -449,6 +489,9 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			cleanupObjects = append(cleanupObjects, dpuVolumeAttachment, dpuVolume, dpuNode, dpu)
 			createObjects(dpuVolume, dpuVolumeAttachment, dpuNode, dpu)
 
+			By("Update Volume status to Available in DPU cluster")
+			updateVolumeStatusToAvailable(dpuVolume.Name)
+
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolumeAttachment), dpuVolumeAttachment)).NotTo(HaveOccurred())
 				g.Expect(conditions.IsTrue(dpuVolumeAttachment, storagev1.ConditionDPUVolumeAttachmentReconciled)).To(BeTrue())
@@ -489,6 +532,14 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			func(msgSubstring string, objs ...client.Object) {
 				cleanupObjects = append(cleanupObjects, objs...)
 				createObjects(objs...)
+
+				// Update Volume status to Available if DPUVolume is created
+				for _, obj := range objs {
+					if dpuVolume, ok := obj.(*storagev1.DPUVolume); ok {
+						By("Update Volume status to Available in DPU cluster")
+						updateVolumeStatusToAvailable(dpuVolume.Name)
+					}
+				}
 				Eventually(func(g Gomega) []metav1.Condition {
 					ev := &informer.Event{}
 					g.Eventually(i.UpdateEvents).Should(Receive(ev))
