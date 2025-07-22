@@ -64,7 +64,7 @@ var _ = Describe("Phase Initializing", func() {
 			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
 
 			By("prepare DPUCluster CR")
-			dpuCluster := dpuClusterObj(defaultDPUClusterName)
+			dpuCluster := dpuClusterObj(defaultDPUClusterName, "static")
 			createObject(dpuCluster)
 
 			By("prepare DPU CR")

@@ -280,7 +280,7 @@ func UpdateLabelsToNode(ctx context.Context, client crclient.Client, node *corev
 	}
 
 	// Remove labels
-	for key := range removedLabels {
+	for _, key := range removedLabels {
 		delete(node.GetLabels(), key)
 	}
 
@@ -299,11 +299,11 @@ func UpdateLabelsToNode(ctx context.Context, client crclient.Client, node *corev
 }
 
 // GetRemovedLabels returns the labels that are present in oldLabels but not in newLabels
-func GetRemovedLabels(oldLabels, newLabels map[string]string) map[string]string {
-	removedLabels := make(map[string]string)
+func GetRemovedLabels(oldLabels, newLabels map[string]string) []string {
+	var removedLabels []string
 	for key := range oldLabels {
 		if _, ok := newLabels[key]; !ok {
-			removedLabels[key] = oldLabels[key]
+			removedLabels = append(removedLabels, key)
 		}
 	}
 	return removedLabels

@@ -194,14 +194,15 @@ func dpuDeviceObj(name string) *provisioningv1.DPUDevice {
 	return dpuDevice
 }
 
-func dpuClusterObj(name string) *provisioningv1.DPUCluster {
+func dpuClusterObj(name string, dpuType string) *provisioningv1.DPUCluster {
 	dpuCluster := &provisioningv1.DPUCluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: testNS.Name,
 		},
 		Spec: provisioningv1.DPUClusterSpec{
-			Type: "static",
+			Type:       dpuType,
+			Kubeconfig: fmt.Sprintf("%v-admin-kubeconfig", name),
 		},
 	}
 	return dpuCluster

@@ -505,7 +505,7 @@ func (r *DPUSetReconciler) updateNodeLabelsForDPUs(ctx context.Context, dpuSet *
 			for k, v := range newLabels {
 				dpu.Spec.Cluster.NodeLabels[k] = v
 			}
-			for k := range removedLabels {
+			for _, k := range removedLabels {
 				delete(dpu.Spec.Cluster.NodeLabels, k)
 			}
 			if err := patcher.Patch(ctx, &dpu); err != nil {
