@@ -255,9 +255,6 @@ spec:
               ovn.vpc.dpu.nvidia.com/interface: p0
         - serviceInterface:
             matchLabels:
-              ovn.vpc.dpu.nvidia.com/interface: ovn-vtep-patch
-        - serviceInterface:
-            matchLabels:
               ovn.vpc.dpu.nvidia.com/interface: ovn-ext-patch
 ```
 
@@ -503,23 +500,6 @@ spec:
           interfaceType: physical
           physical:
             interfaceName: p0
----
-apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-kind: DPUServiceInterface
-metadata:
-  name: ovn-vtep-patch
-  namespace: dpf-operator-system
-spec:
-  template:
-    spec:
-      template:
-        metadata:
-          labels:
-            ovn.vpc.dpu.nvidia.com/interface: "ovn-vtep-patch"
-        spec:
-          interfaceType: ovn
-          ovn:
-            externalBridge: br-ovn-vtep
 ---
 apiVersion: "svc.dpu.nvidia.com/v1alpha1"
 kind: DPUServiceInterface

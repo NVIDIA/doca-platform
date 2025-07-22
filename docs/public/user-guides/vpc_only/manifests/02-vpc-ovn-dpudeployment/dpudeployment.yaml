@@ -36,7 +36,4 @@ spec:
               ovn.vpc.dpu.nvidia.com/interface: p0
         - serviceInterface:
             matchLabels:
-              ovn.vpc.dpu.nvidia.com/interface: ovn-vtep-patch
-        - serviceInterface:
-            matchLabels:
               ovn.vpc.dpu.nvidia.com/interface: ovn-ext-patch
