@@ -18,6 +18,7 @@ package dpuset
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 
@@ -140,6 +141,10 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 		if err := r.rolloutRolling(ctx, dpuSet, dpuMap, len(dpuDeviceMap)); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to rollout DPU %w", err)
 		}
+	}
+
+	if err := r.updateNodeLabelsForDPUs(ctx, dpuSet, dpuMap); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to update node labels for DPU node %w", err)
 	}
 
 	updateDPUSetStatus(dpuSet, dpuMap)
@@ -373,9 +378,7 @@ func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provision
 	}
 
 	for _, dpu := range dpuMap {
-		if update, err := r.needUpdate(ctx, *dpuSet, dpu); err != nil {
-			return err
-		} else if !update {
+		if disrupted := r.needDisruptDPU(*dpuSet, dpu); !disrupted {
 			continue
 		}
 
@@ -405,36 +408,13 @@ func isUnavailable(dpu *provisioningv1.DPU) bool {
 }
 
 // TODO: check more informations
-func (r *DPUSetReconciler) needUpdate(ctx context.Context, dpuSet provisioningv1.DPUSet, dpu provisioningv1.DPU) (bool, error) {
-	logger := log.FromContext(ctx)
-
+// needDisruptDPU is used to check if the DPU needs to be disrupted.
+func (r *DPUSetReconciler) needDisruptDPU(dpuSet provisioningv1.DPUSet, dpu provisioningv1.DPU) bool {
 	if (dpu.Spec.BFB != dpuSet.Spec.DPUTemplate.Spec.BFB.Name) || (dpu.Spec.DPUFlavor != dpuSet.Spec.DPUTemplate.Spec.DPUFlavor) {
-		return true, nil
-	}
-	// update dpu label
-	newLabel := map[string]string{}
-	if dpuSet.Spec.DPUTemplate.Spec.Cluster != nil {
-		newLabel = dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels
-	}
-	oldLabel := dpu.Spec.Cluster.NodeLabels
-
-	if cutil.NeedUpdateLabels(newLabel, oldLabel) {
-		if dpu.Spec.Cluster.NodeLabels == nil {
-			dpu.Spec.Cluster.NodeLabels = make(map[string]string)
-		}
-		patcher := patch.NewSerialPatcher(&dpu, r.Client)
-		// merge label from DPUSet to DPU CR
-		for k, v := range newLabel {
-			dpu.Spec.Cluster.NodeLabels[k] = v
-		}
-		if err := patcher.Patch(ctx, &dpu); err != nil {
-			return false, err
-		} else {
-			logger.V(3).Info(fmt.Sprintf("DPU (%s/%s) label update to %v", dpu.Namespace, dpu.Name, newLabel))
-		}
+		return true
 	}
 
-	return false, nil
+	return false
 }
 
 func updateDPUSetStatus(dpuSet *provisioningv1.DPUSet,
@@ -482,5 +462,65 @@ func (r *DPUSetReconciler) deleteStaleDPUs(ctx context.Context, dpuSet *provisio
 			r.Recorder.Eventf(dpuSet, corev1.EventTypeNormal, events.EventSuccessfulDeleteDPUReason, msg)
 		}
 	}
+	return nil
+}
+
+func (r *DPUSetReconciler) updateNodeLabelsForDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuMap map[string]provisioningv1.DPU) error {
+	logger := log.FromContext(ctx)
+	if dpuSet.Spec.DPUTemplate.Spec.Cluster == nil {
+		return nil
+	}
+
+	if dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels == nil {
+		return nil
+	}
+
+	newLabels := dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels
+	oldLabels := make(map[string]string)
+	if dpuSet.Annotations != nil {
+		if lastAppliedLabelsStr, ok := dpuSet.Annotations[cutil.LastAppliedLabelsOnDPUKey]; ok {
+			if err := json.Unmarshal([]byte(lastAppliedLabelsStr), &oldLabels); err != nil {
+				return fmt.Errorf("failed to unmarshal last applied labels: %w", err)
+			}
+		}
+	} else {
+		dpuSet.Annotations = make(map[string]string)
+		if jsonStr, err := cutil.MarshalJSON(newLabels); err != nil {
+			return fmt.Errorf("failed to marshal new labels: %w", err)
+		} else {
+			dpuSet.Annotations[cutil.LastAppliedLabelsOnDPUKey] = jsonStr
+		}
+	}
+
+	if !reflect.DeepEqual(newLabels, oldLabels) {
+		removedLabels := cutil.GetRemovedLabels(oldLabels, newLabels)
+
+		// Update the node labels for the DPUs
+		for i := range dpuMap {
+			dpu := dpuMap[i] // copy into new variable
+			patcher := patch.NewSerialPatcher(&dpu, r.Client)
+			if dpu.Spec.Cluster.NodeLabels == nil {
+				dpu.Spec.Cluster.NodeLabels = make(map[string]string)
+			}
+			for k, v := range newLabels {
+				dpu.Spec.Cluster.NodeLabels[k] = v
+			}
+			for k := range removedLabels {
+				delete(dpu.Spec.Cluster.NodeLabels, k)
+			}
+			if err := patcher.Patch(ctx, &dpu); err != nil {
+				return fmt.Errorf("failed to patch DPU (%s/%s): %w", dpu.Namespace, dpu.Name, err)
+			}
+			logger.V(3).Info(fmt.Sprintf("DPU (%s/%s) label update to %v", dpu.Namespace, dpu.Name, newLabels))
+		}
+
+		// Update the last applied labels annotation
+		if jsonStr, err := cutil.MarshalJSON(newLabels); err != nil {
+			return fmt.Errorf("failed to marshal new labels: %w", err)
+		} else {
+			dpuSet.Annotations[cutil.LastAppliedLabelsOnDPUKey] = jsonStr
+		}
+	}
+
 	return nil
 }

@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -28,6 +29,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
+	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -97,6 +99,9 @@ const (
 	ProvisioningGroupName = "provisioning.dpu.nvidia.com"
 
 	OverrideDMSPodNameAnnotationKey = "provisioning.dpu.nvidia.com/override-dms-pod-name"
+
+	// LastAppliedLabelsOnDPUKey is the key for the last applied labels.
+	LastAppliedLabelsOnDPUKey = "provisioning.dpu.nvidia.com/last-applied-labels-on-dpu"
 
 	HoldNodeEffectKey             = DPUProvisioningLabelPrefix + "wait-for-external-nodeeffect"
 	TrustedSFCount                = DPUProvisioningLabelPrefix + "num-of-trusted-sfs"
@@ -232,6 +237,7 @@ func IsNodeReady(node *corev1.Node) bool {
 
 // AddLabelsToObject adds the given labels to any Kubernetes object implementing metav1.Object
 func AddLabelsToObject(ctx context.Context, client crclient.Client, obj metav1.Object, labels map[string]string) error {
+	patcher := patch.NewSerialPatcher(obj.(crclient.Object), client)
 	if obj.GetLabels() == nil {
 		obj.SetLabels(make(map[string]string))
 	}
@@ -240,11 +246,67 @@ func AddLabelsToObject(ctx context.Context, client crclient.Client, obj metav1.O
 		obj.GetLabels()[key] = value
 	}
 
-	if err := client.Update(ctx, obj.(crclient.Object)); err != nil {
+	if err := patcher.Patch(ctx, obj.(crclient.Object)); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// UpdateLabelsToNode updates the labels of the given node.
+// It will add the new labels and remove the labels that are not in the new labels.
+// It will also update the last applied labels annotation.
+func UpdateLabelsToNode(ctx context.Context, client crclient.Client, node *corev1.Node, labels map[string]string) error {
+	if node.Labels == nil {
+		node.Labels = make(map[string]string)
+	}
+
+	if node.Annotations == nil {
+		node.Annotations = make(map[string]string)
+	}
+
+	oldLabels := make(map[string]string)
+	if lastAppliedLabelsStr, ok := node.Annotations[LastAppliedLabelsOnDPUKey]; ok {
+		if err := json.Unmarshal([]byte(lastAppliedLabelsStr), &oldLabels); err != nil {
+			return err
+		}
+	}
+
+	removedLabels := GetRemovedLabels(oldLabels, labels)
+
+	// Add labels
+	for key, value := range labels {
+		node.GetLabels()[key] = value
+	}
+
+	// Remove labels
+	for key := range removedLabels {
+		delete(node.GetLabels(), key)
+	}
+
+	// Update last applied labels
+	if jsonStr, err := MarshalJSON(labels); err != nil {
+		return fmt.Errorf("failed to marshal labels: %w", err)
+	} else {
+		node.Annotations[LastAppliedLabelsOnDPUKey] = jsonStr
+	}
+
+	if err := client.Update(ctx, node); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// GetRemovedLabels returns the labels that are present in oldLabels but not in newLabels
+func GetRemovedLabels(oldLabels, newLabels map[string]string) map[string]string {
+	removedLabels := make(map[string]string)
+	for key := range oldLabels {
+		if _, ok := newLabels[key]; !ok {
+			removedLabels[key] = oldLabels[key]
+		}
+	}
+	return removedLabels
 }
 
 func DeleteObjects(ctx context.Context, client crclient.Client, objs ...crclient.Object) error {
@@ -501,4 +563,12 @@ func GenerateDPUName(dpuNodeName string, dpuDeviceName string) string {
 		dpuNodeName = dpuNodeName[:maxPrefix]
 	}
 	return fmt.Sprintf("%s-%s", dpuNodeName, dpuDeviceName)
+}
+
+func MarshalJSON(obj interface{}) (string, error) {
+	json, err := json.Marshal(obj)
+	if err != nil {
+		return "", err
+	}
+	return string(json), nil
 }

@@ -18,6 +18,7 @@ package state
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 
@@ -93,7 +94,20 @@ func Ready(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Controll
 	} else {
 		cond := cutil.DPUCondition(provisioningv1.DPUCondReady, "DPUReady", "")
 		cutil.SetDPUCondition(state, cond)
-		if cutil.NeedUpdateLabels(dpu.Spec.Cluster.NodeLabels, node.Labels) {
+		lastAppliedLabels := make(map[string]string)
+		if node.Annotations != nil {
+			if lastAppliedLabelsStr, ok := node.Annotations[cutil.LastAppliedLabelsOnDPUKey]; ok {
+				if err := json.Unmarshal([]byte(lastAppliedLabelsStr), &lastAppliedLabels); err != nil {
+					logger.Error(err, "Failed to unmarshal last applied labels")
+					return *state, err
+				}
+			}
+		}
+		// If the last applied labels are not equal to the DPU's cluster node labels, then we need to update the labels
+		if dpu.Spec.Cluster.NodeLabels == nil {
+			dpu.Spec.Cluster.NodeLabels = make(map[string]string)
+		}
+		if !reflect.DeepEqual(dpu.Spec.Cluster.NodeLabels, lastAppliedLabels) {
 			state.Phase = provisioningv1.DPUClusterConfig
 			logger.V(3).Info(fmt.Sprintf("node %s needs to update label", node.Name))
 			return *state, nil

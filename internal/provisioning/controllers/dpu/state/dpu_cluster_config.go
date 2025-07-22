@@ -79,14 +79,14 @@ func ClusterConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.
 		return *state, err
 	}
 
-	// Patch DPU labels to Kamaji Node
-	if err = cutil.AddLabelsToObject(ctx, newClient, node, dpu.Spec.Cluster.NodeLabels); err != nil {
+	// Patch DPU labels to DPU Node
+	if err = cutil.UpdateLabelsToNode(ctx, newClient, node, dpu.Spec.Cluster.NodeLabels); err != nil {
 		err = fmt.Errorf("failed to add labels to object: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUClusterReady.String(), err, "AddLabelsToObjectError", err.Error()))
 		return *state, err
 	}
 
-	logger.V(3).Info(fmt.Sprintf("DPU %s joined Kamaji Cluster", dpuName))
+	logger.V(3).Info(fmt.Sprintf("DPU %s joins the %s DPU Cluster", dpuName, dpuCluster.Name))
 
 	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondDPUClusterReady, "", "cluster configured"))
 	state.Phase = provisioningv1.DPUReady
