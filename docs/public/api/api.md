@@ -3775,7 +3775,6 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `name` _string_ | Name is the name of the object |  |  |
-| `wait` _boolean_ | Wait defines if the object readiness should be waited for<br />If false, the reconciler will make sure that dependent objects are created in order but will not wait for<br />them to be ready. |  |  |
 
 
 #### NamespacedName

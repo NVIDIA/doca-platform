@@ -4626,7 +4626,6 @@ var _ = Describe("DPUDeployment Controller", func() {
 					DependsOn: []dpuservicev1.LocalObjectDependency{
 						{
 							Name: "service1",
-							Wait: ptr.To(false),
 						},
 					},
 				}
@@ -4636,7 +4635,6 @@ var _ = Describe("DPUDeployment Controller", func() {
 					DependsOn: []dpuservicev1.LocalObjectDependency{
 						{
 							Name: "service2",
-							Wait: ptr.To(true),
 						},
 					},
 				}
@@ -4647,50 +4645,25 @@ var _ = Describe("DPUDeployment Controller", func() {
 					"service1": versionDigest1,
 					"service2": versionDigest2,
 				}
-
-				var gotDPUService dpuservicev1.DPUService
-				By("checking that correct DPUServices are created")
-				Eventually(func(g Gomega) {
-					gotDPUServiceList := &dpuservicev1.DPUServiceList{}
-					g.Expect(testClient.List(ctx, gotDPUServiceList, &client.ListOptions{
-						Namespace: testNS.Name,
-					})).To(Succeed())
-					g.Expect(gotDPUServiceList.Items).To(HaveLen(2))
-
-					By("checking the object metadata")
-					for _, dpuService := range gotDPUServiceList.Items {
-						g.Expect(dpuService.Labels).To(HaveLen(1))
-						g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
-						g.Expect(dpuService.Annotations).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpuservice-version", versions[strings.SplitN(dpuService.Name, "-", 2)[0]]))
-						g.Expect(dpuService.OwnerReferences).To(ConsistOf(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
-
-						if strings.HasPrefix(dpuService.GetName(), "service2") {
-							gotDPUService = dpuService
-						}
-					}
-				}).WithTimeout(30 * time.Second).Should(Succeed())
-
-				By("make the dependency available")
-				Expect(gotDPUService).ToNot(BeNil())
-				patcher := patch.NewSerialPatcher(&gotDPUService, testClient)
-				gotDPUService.Status.Conditions = []metav1.Condition{
-					{
-						Type:               string(conditions.TypeReady),
-						Status:             metav1.ConditionTrue,
-						Reason:             string(conditions.ReasonSuccess),
-						LastTransitionTime: metav1.NewTime(time.Now()),
-					},
-				}
-				Expect(patcher.Patch(ctx, &gotDPUService, patch.WithFieldOwner("test"))).To(Succeed())
-
-				// At this point, by patching the status of the DPUService, we should have triggered the creation of the dependent DPUService
-				// But also because service-1 is inCluster and the dpuDeployment has no dpuset, we can test that nil nodeSelector causes no issue
-				By("checking that the dependent DPUServices are created")
 				var (
 					gotDPUService3 dpuservicev1.DPUService
 					gotDPUService2 dpuservicev1.DPUService
 				)
+				By("checking that correct DPUServices are created")
 				Eventually(func(g Gomega) {
+					By("capturing the created DPUServiceInterface")
+					gotDPUServiceInterfaceNames := make(map[string][]string)
+					gotDPUServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
+					g.Expect(testClient.List(ctx, gotDPUServiceInterfaceList)).To(Succeed())
+					g.Expect(gotDPUServiceInterfaceList.Items).To(HaveLen(2))
+					for _, dpuServiceInterface := range gotDPUServiceInterfaceList.Items {
+						for serviceName := range dpuDeployment.Spec.Services {
+							if strings.Contains(dpuServiceInterface.Name, serviceName) {
+								gotDPUServiceInterfaceNames[serviceName] = append(gotDPUServiceInterfaceNames[serviceName], dpuServiceInterface.Name)
+								slices.Sort(gotDPUServiceInterfaceNames[serviceName])
+							}
+						}
+					}
 					gotDPUServiceList := &dpuservicev1.DPUServiceList{}
 					g.Expect(testClient.List(ctx, gotDPUServiceList, &client.ListOptions{
 						Namespace: testNS.Name,
@@ -4699,115 +4672,35 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 					By("checking the object metadata")
 					for _, dpuService := range gotDPUServiceList.Items {
-						g.Expect(dpuService.Labels).To(HaveLen(1))
-						g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
-						g.Expect(dpuService.OwnerReferences).To(ConsistOf(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
-						if strings.HasPrefix(dpuService.GetName(), "service3") {
-							gotDPUService3 = dpuService
+						if !strings.HasPrefix(dpuService.GetName(), "service3") {
+							// we discard service3 here, as it values is mutated by template rendering
+							// so we don't know the exact digest
+							g.Expect(dpuService.Labels).To(HaveLen(1))
+							g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
+							g.Expect(dpuService.Annotations).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpuservice-version", versions[strings.SplitN(dpuService.Name, "-", 2)[0]]))
+							g.Expect(dpuService.OwnerReferences).To(ConsistOf(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
 						}
+
 						if strings.HasPrefix(dpuService.GetName(), "service2") {
+							// service2 should have its interface created
+							g.Expect(gotDPUServiceInterfaceNames).To(HaveKey("service2"))
+							g.Expect(gotDPUServiceInterfaceNames["service2"]).To(HaveLen(1))
+							g.Expect(dpuService.Spec.Interfaces).To(ConsistOf(gotDPUServiceInterfaceNames["service2"]))
 							gotDPUService2 = dpuService
 						}
+
+						if strings.HasPrefix(dpuService.GetName(), "service3") {
+							g.Expect(gotDPUServiceInterfaceNames).To(HaveKey("service3"))
+							g.Expect(gotDPUServiceInterfaceNames["service3"]).To(HaveLen(1))
+							g.Expect(dpuService.Spec.Interfaces).To(ConsistOf(gotDPUServiceInterfaceNames["service3"]))
+							gotDPUService3 = dpuService
+						}
 					}
+
 					g.Expect(gotDPUService2).ToNot(BeNil())
 					g.Expect(gotDPUService3).ToNot(BeNil())
 					gotValue := `{"service2Name":"` + gotDPUService2.Name + `","service2Namespace":"` + gotDPUService2.Namespace + `"}`
 					g.Expect(gotDPUService3.Spec.HelmChart.Values.Raw).To(Equal([]byte(gotValue)))
-
-				}).WithTimeout(30 * time.Second).Should(Succeed())
-
-				// save the version digest
-				versionDigest3 := gotDPUService3.Annotations["svc.dpu.nvidia.com/dpuservice-version"]
-				By(" make service2 unavailable")
-				patcher = patch.NewSerialPatcher(&gotDPUService2, testClient)
-				gotDPUService2.Status.Conditions = []metav1.Condition{
-					{
-						Type:               string(conditions.TypeReady),
-						Status:             metav1.ConditionFalse,
-						Reason:             string(conditions.ReasonFailure),
-						LastTransitionTime: metav1.NewTime(time.Now()),
-					},
-				}
-				Expect(patcher.Patch(ctx, &gotDPUService2, patch.WithFieldOwner("test"))).To(Succeed())
-
-				By("Add a value in service3")
-				dpuServiceConfiguration = &dpuservicev1.DPUServiceConfiguration{}
-				Expect(testClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "service3"}, dpuServiceConfiguration)).To(Succeed())
-				dpuServiceConfiguration.Spec.ServiceConfiguration.HelmChart.Values = &runtime.RawExtension{Raw: []byte(`{"service2Name":"{{.Services.service2.Name}}","additional":"value"}`)}
-				dpuServiceConfiguration.SetManagedFields(nil)
-				dpuServiceConfiguration.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
-				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName))).To(Succeed())
-
-				By("checking that the dependent DPUServices is not updated")
-				Consistently(func(g Gomega) {
-					gotDPUServiceList := &dpuservicev1.DPUServiceList{}
-					g.Expect(testClient.List(ctx, gotDPUServiceList, &client.ListOptions{
-						Namespace: testNS.Name,
-					})).To(Succeed())
-					g.Expect(gotDPUServiceList.Items).To(HaveLen(3))
-				}).WithTimeout(5 * time.Second).Should(Succeed())
-
-				By("make service2 available")
-				gotDPUService = dpuservicev1.DPUService{}
-				Expect(testClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: gotDPUService2.Name}, &gotDPUService)).To(Succeed())
-				patcher = patch.NewSerialPatcher(&gotDPUService, testClient)
-				gotDPUService.Status.Conditions = []metav1.Condition{
-					{
-						Type:               string(conditions.TypeReady),
-						Status:             metav1.ConditionTrue,
-						Reason:             string(conditions.ReasonSuccess),
-						LastTransitionTime: metav1.NewTime(time.Now()),
-					},
-				}
-				Expect(patcher.Patch(ctx, &gotDPUService, patch.WithFieldOwner("test"))).To(Succeed())
-
-				By("checking that a new DPUService is created")
-				Eventually(func(g Gomega) {
-					gotDPUServiceList := &dpuservicev1.DPUServiceList{}
-					g.Expect(testClient.List(ctx, gotDPUServiceList, &client.ListOptions{
-						Namespace: testNS.Name,
-					})).To(Succeed())
-					// service3 is disruptive, so we should have 4 DPUService
-					g.Expect(gotDPUServiceList.Items).To(HaveLen(4))
-					for _, dpuService := range gotDPUServiceList.Items {
-						if strings.HasPrefix(dpuService.GetName(), "service3") && dpuService.Spec.Paused == nil {
-							gotDPUService3 = dpuService
-						}
-					}
-				}).WithTimeout(30 * time.Second).Should(Succeed())
-
-				By("make service3 available")
-				gotDPUService = dpuservicev1.DPUService{}
-				Expect(testClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: gotDPUService3.Name}, &gotDPUService)).To(Succeed())
-				patcher = patch.NewSerialPatcher(&gotDPUService, testClient)
-				gotDPUService.Status.Conditions = []metav1.Condition{
-					{
-						Type:               string(conditions.TypeReady),
-						Status:             metav1.ConditionTrue,
-						Reason:             string(conditions.ReasonSuccess),
-						LastTransitionTime: metav1.NewTime(time.Now()),
-					},
-				}
-				Expect(patcher.Patch(ctx, &gotDPUService, patch.WithFieldOwner("test"))).To(Succeed())
-
-				By("checking that the dependent DPUServices is updated")
-				Eventually(func(g Gomega) {
-					gotDPUServiceList := &dpuservicev1.DPUServiceList{}
-					g.Expect(testClient.List(ctx, gotDPUServiceList, &client.ListOptions{
-						Namespace: testNS.Name,
-					})).To(Succeed())
-					g.Expect(gotDPUServiceList.Items).To(HaveLen(3))
-					for _, dpuService := range gotDPUServiceList.Items {
-						g.Expect(dpuService.Labels).To(HaveLen(1))
-						g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
-						g.Expect(dpuService.OwnerReferences).To(ConsistOf(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
-						if strings.HasPrefix(dpuService.GetName(), "service3") {
-							g.Expect(dpuService.Annotations["svc.dpu.nvidia.com/dpuservice-version"]).ToNot(Equal(versionDigest3))
-							g.Expect(dpuService.Annotations["svc.dpu.nvidia.com/dpuservice-version"]).To(Equal(gotDPUService3.Annotations["svc.dpu.nvidia.com/dpuservice-version"]))
-							gotValue := `{"additional":"value","service2Name":"` + gotDPUService2.Name + `","service2Namespace":"` + gotDPUService2.Namespace + `"}`
-							g.Expect(dpuService.Spec.HelmChart.Values.Raw).To(Equal([]byte(gotValue)))
-						}
-					}
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 			})
 			It("should patch a manually modified DPUService as long as the modification is not on the version annotation", func() {

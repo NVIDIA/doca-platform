@@ -87,14 +87,9 @@ func reconcileDPUServices(
 		serviceTemplate := dependencies.DPUServiceTemplates[serviceName]
 		if len(dpuDeployment.Spec.Services[serviceName].DependsOn) != 0 {
 			// Check dependencies and requeue the reconciliation if the check fails.
-			ready, err := checkDPUServiceDependencies(ctx, c, dpuDeployment.Spec.Services[serviceName].DependsOn, patchedDPUServices)
+			err := checkDPUServiceDependencies(ctx, c, dpuDeployment.Spec.Services[serviceName].DependsOn, patchedDPUServices)
 			if err != nil {
 				return ctrl.Result{}, fmt.Errorf("failed to check dependencies for DPUService %s: %w", serviceName, err)
-			}
-			if !ready {
-				// If dependencies are not ready, continue to the next service.
-				errs = append(errs, fmt.Errorf("dependencies for DPUService %s are not ready", serviceName))
-				continue
 			}
 			rendered, err := templateDPUServiceConfigurationValues(serviceConfig, dpuDeployment.Spec.Services[serviceName].DependsOn, patchedDPUServices)
 			if err != nil {
@@ -598,15 +593,10 @@ func servicesTopologicalSort(dpuDeployment *dpuservicev1.DPUDeployment) ([]strin
 	return sortedNames, nil
 }
 
-// checkDPUServiceDependencies checks if the dependencies of a DPUService are ready.
-func checkDPUServiceDependencies(ctx context.Context, c client.Client, dependencies []dpuservicev1.LocalObjectDependency, dpuServices map[string]*dpuservicev1.DPUService) (bool, error) {
+// checkDPUServiceDependencies checks if the dependencies of a DPUService exist.
+func checkDPUServiceDependencies(ctx context.Context, c client.Client, dependencies []dpuservicev1.LocalObjectDependency, dpuServices map[string]*dpuservicev1.DPUService) error {
 	var errs []error
-	ready := true
 	for _, dependency := range dependencies {
-		if !dependency.ShouldWait() {
-			continue
-		}
-
 		dependentService, exists := dpuServices[dependency.Name]
 		if !exists {
 			errs = append(errs, fmt.Errorf("DPUService %s not found in patched services", dependency.Name))
@@ -617,17 +607,12 @@ func checkDPUServiceDependencies(ctx context.Context, c client.Client, dependenc
 			errs = append(errs, fmt.Errorf("failed to get DPUService %s: %w", dependency.Name, err))
 			continue
 		}
-		if !conditions.IsTrue(currentService, conditions.TypeReady) {
-			ready = false
-		}
-
+		// We do not check the status of the DPUService, we just check if it exists.
+		// Checking for their readiness implies that the DPUService is already created and
+		// deployed on a dpuset nodes. This implies a full reconciliation for a subset
+		// of the DPUServices. This is not supported here.
 	}
-
-	// update the ready status based on the dependencies
-	if len(errs) != 0 {
-		ready = false
-	}
-	return ready, kerrors.NewAggregate(errs)
+	return kerrors.NewAggregate(errs)
 }
 
 // TemplateDPUServiceConfigurationValuesParams are the values that are made available to the template

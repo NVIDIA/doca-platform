@@ -381,12 +381,6 @@ spec:
                           name:
                             description: Name is the name of the object
                             type: string
-                          wait:
-                            description: |-
-                              Wait defines if the object readiness should be waited for
-                              If false, the reconciler will make sure that dependent objects are created in order but will not wait for
-                              them to be ready.
-                            type: boolean
                         required:
                         - name
                         type: object

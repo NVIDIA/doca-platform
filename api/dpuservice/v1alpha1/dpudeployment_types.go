@@ -226,19 +226,6 @@ type LocalObjectDependency struct {
 	// Name is the name of the object
 	// +required
 	Name string `json:"name"`
-
-	// Wait defines if the object readiness should be waited for
-	// If false, the reconciler will make sure that dependent objects are created in order but will not wait for
-	// them to be ready.
-	// +optional
-	Wait *bool `json:"wait,omitempty"`
-}
-
-func (d *LocalObjectDependency) ShouldWait() bool {
-	if d.Wait == nil {
-		return false
-	}
-	return *d.Wait
 }
 
 // DPUDeploymentSwitch holds the ports that are connected in switch topology
