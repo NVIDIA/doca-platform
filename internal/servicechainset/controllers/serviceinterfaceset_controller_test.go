@@ -18,7 +18,6 @@ package controller //nolint:dupl
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
 
@@ -291,7 +290,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 				for _, si := range serviceInterfaceList.Items {
 					serviceInterface := si
 					cleanupObjects = append(cleanupObjects, &serviceInterface)
-					siNodes = append(siNodes, si.Labels[ServiceInterfaceNodeNameLabel])
+					siNodes = append(siNodes, *si.Spec.Node)
 				}
 				sort.Strings(siNodes)
 				g.Expect(siNodes).To(HaveLen(3))
@@ -397,10 +396,11 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 
 			By("Update created ServiceInterface with labels and annotations")
 			si := &dpuservicev1.ServiceInterface{}
-			si.Name = fmt.Sprintf("%s-%s", sis.Name, "node1")
-			si.Namespace = sis.Namespace
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(si), si)).To(Succeed())
+				var err error
+				si, err = getServiceInterfaceForNode(ctx, testClient, sis, "node1")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(si).NotTo(BeNil())
 				g.Expect(si.Annotations).To(HaveKeyWithValue(fooAnnotKey, fooAnnotValue))
 				g.Expect(si.Labels).To(HaveKeyWithValue(fooLabelKey, fooLabelValue))
 			}, timeout*3, interval).Should(Succeed())
@@ -553,7 +553,7 @@ func assertServiceInterface(g Gomega, si *dpuservicev1.ServiceInterface, testSpe
 	specCopy.Node = node
 	g.ExpectWithOffset(2, si.Spec).To(Equal(*specCopy))
 	g.ExpectWithOffset(2, *node).NotTo(BeEmpty())
-	g.ExpectWithOffset(2, si.Name).To(Equal(svcIfcSetName + "-" + *node))
+	g.ExpectWithOffset(2, si.Name).To(HavePrefix(svcIfcSetName))
 	g.ExpectWithOffset(2, si.Labels[ServiceInterfaceSetNameLabel]).To(Equal(svcIfcSetName))
 	g.ExpectWithOffset(2, si.Labels[ServiceInterfaceSetNamespaceLabel]).To(Equal(defaultNS))
 	g.ExpectWithOffset(2, si.OwnerReferences).To(HaveLen(1))

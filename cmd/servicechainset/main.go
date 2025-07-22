@@ -157,18 +157,18 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-
+	managerContext := ctrl.SetupSignalHandler()
 	if err = (&sfcsetcontroller.ServiceInterfaceSetReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	}).SetupWithManager(managerContext, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ServiceInterfaceSet")
 		os.Exit(1)
 	}
 	if err = (&sfcsetcontroller.ServiceChainSetReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	}).SetupWithManager(managerContext, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ServiceChainSet")
 		os.Exit(1)
 	}
@@ -191,7 +191,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(managerContext); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}

@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -45,9 +46,9 @@ import (
 const (
 	ServiceInterfaceSetNameLabel      = dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-name"
 	ServiceInterfaceSetNamespaceLabel = dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-namespace"
-	ServiceInterfaceNodeNameLabel     = dpuservicev1.SvcDpuGroupName + "/nodeName"
 	ServiceInterfaceServiceIDLabel    = dpuservicev1.SvcDpuGroupName + "/service-id"
 	serviceInterfaceSetControllerName = "service-interface-set-controller"
+	nodeFieldKey                      = "spec.node"
 )
 
 var _ serviceSetReconciler = &ServiceInterfaceSetReconciler{}
@@ -152,34 +153,61 @@ func (r *ServiceInterfaceSetReconciler) getChildMap(ctx context.Context, set cli
 	return serviceInterfaceMap, nil
 }
 
+func getServiceInterfaceForNode(ctx context.Context, cl client.Client, set *dpuservicev1.ServiceInterfaceSet, nodeName string) (*dpuservicev1.ServiceInterface, error) { //nolint:dupl
+	serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
+	if err := cl.List(ctx, serviceInterfaceList,
+		client.MatchingLabels(map[string]string{
+			ServiceInterfaceSetNameLabel:      set.GetName(),
+			ServiceInterfaceSetNamespaceLabel: set.GetNamespace(),
+		}),
+		client.MatchingFields{nodeFieldKey: nodeName},
+	); err != nil {
+		return nil, err
+	}
+	switch len(serviceInterfaceList.Items) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &serviceInterfaceList.Items[0], nil
+	default:
+		return nil, fmt.Errorf("more than one ServiceInterface found for ServiceInterfaceSet %s and node: %s", set.GetName(), nodeName)
+	}
+}
+
 func (r *ServiceInterfaceSetReconciler) createOrUpdateChild(ctx context.Context, set client.Object, nodeName string) error {
 	log := ctrllog.FromContext(ctx)
 
 	serviceInterfaceSet := set.(*dpuservicev1.ServiceInterfaceSet)
-	serviceInteraceName := fmt.Sprintf("%s-%s", serviceInterfaceSet.Name, nodeName)
 	defaultLabels := map[string]string{
 		ServiceInterfaceSetNameLabel:      serviceInterfaceSet.Name,
 		ServiceInterfaceSetNamespaceLabel: serviceInterfaceSet.Namespace,
-		ServiceInterfaceNodeNameLabel:     nodeName,
 	}
 	if serviceInterfaceSet.Spec.Template.Spec.Service != nil {
 		defaultLabels[ServiceInterfaceServiceIDLabel] = serviceInterfaceSet.Spec.Template.Spec.Service.ServiceID
 	}
 
-	// merge labels and annotation from ServiceInterface if exsits
-	si := &dpuservicev1.ServiceInterface{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: serviceInteraceName, Namespace: serviceInterfaceSet.Namespace}, si); err != nil && !apierrors.IsNotFound(err) {
+	si, err := getServiceInterfaceForNode(ctx, r.Client, serviceInterfaceSet, nodeName)
+	if err != nil {
 		return err
 	}
 
-	finalLabels := mergeMaps(si.Labels, defaultLabels, serviceInterfaceSet.Spec.Template.ObjectMeta.Labels)
-	finalAnnotations := mergeMaps(si.Annotations, serviceInterfaceSet.Spec.Template.ObjectMeta.Annotations)
+	siName := names.SimpleNameGenerator.GenerateName(serviceInterfaceSet.Name)
+	siLabels := map[string]string{}
+	siAnnotations := map[string]string{}
+	if si != nil {
+		siName = si.Name
+		siLabels = si.Labels
+		siAnnotations = si.Annotations
+	}
+	// merge labels and annotation from ServiceInterface if exists
+	finalLabels := mergeMaps(siLabels, defaultLabels, serviceInterfaceSet.Spec.Template.ObjectMeta.Labels)
+	finalAnnotations := mergeMaps(siAnnotations, serviceInterfaceSet.Spec.Template.ObjectMeta.Annotations)
 
 	owner := metav1.NewControllerRef(serviceInterfaceSet, dpuservicev1.GroupVersion.WithKind("ServiceInterfaceSet"))
 
 	serviceInterface := &dpuservicev1.ServiceInterface{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            serviceInteraceName,
+			Name:            siName,
 			Namespace:       serviceInterfaceSet.Namespace,
 			Labels:          finalLabels,
 			Annotations:     finalAnnotations,
@@ -273,7 +301,21 @@ func (r *ServiceInterfaceSetReconciler) setReadyStatus(serviceSet client.Object,
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ServiceInterfaceSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ServiceInterfaceSetReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(
+		ctx,
+		&dpuservicev1.ServiceInterface{},
+		nodeFieldKey,
+		func(o client.Object) []string {
+			if si, ok := o.(*dpuservicev1.ServiceInterface); ok && si.Spec.Node != nil {
+				return []string{*si.Spec.Node}
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dpuservicev1.ServiceInterfaceSet{}).
 		Owns(&dpuservicev1.ServiceInterface{}).

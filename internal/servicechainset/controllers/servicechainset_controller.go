@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -53,7 +54,6 @@ type ServiceChainSetReconciler struct {
 const (
 	ServiceChainSetNameLabel      = dpuservicev1.SvcDpuGroupName + "/servicechainset-name"
 	ServiceChainSetNamespaceLabel = dpuservicev1.SvcDpuGroupName + "/servicechainset-namespace"
-	ServiceChainNodeNameLabel     = dpuservicev1.SvcDpuGroupName + "/nodeName"
 	serviceChainSetControllerName = "service-chain-set-controller"
 )
 
@@ -150,25 +150,53 @@ func (r *ServiceChainSetReconciler) getChildMap(ctx context.Context, set client.
 	return serviceChainMap, nil
 }
 
+func getServiceChainForNode(ctx context.Context, cl client.Client, set *dpuservicev1.ServiceChainSet, nodeName string) (*dpuservicev1.ServiceChain, error) { //nolint:dupl
+	serviceChainList := &dpuservicev1.ServiceChainList{}
+	if err := cl.List(ctx, serviceChainList,
+		client.MatchingLabels(map[string]string{
+			ServiceChainSetNameLabel:      set.GetName(),
+			ServiceChainSetNamespaceLabel: set.GetNamespace(),
+		}),
+		client.InNamespace(set.GetNamespace()),
+		client.MatchingFields{nodeFieldKey: nodeName},
+	); err != nil {
+		return nil, err
+	}
+	switch len(serviceChainList.Items) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &serviceChainList.Items[0], nil
+	default:
+		return nil, fmt.Errorf("more than one ServiceChain found for ServiceChainSet %s and node: %s", set.GetName(), nodeName)
+	}
+}
+
 func (r *ServiceChainSetReconciler) createOrUpdateChild(ctx context.Context, set client.Object, nodeName string) error {
 	log := ctrllog.FromContext(ctx)
 
 	serviceChainSet := set.(*dpuservicev1.ServiceChainSet)
-	serviceChainName := fmt.Sprintf("%s-%s", serviceChainSet.Name, nodeName)
 	defaultLabels := map[string]string{
 		ServiceChainSetNameLabel:      serviceChainSet.Name,
 		ServiceChainSetNamespaceLabel: serviceChainSet.Namespace,
-		ServiceChainNodeNameLabel:     nodeName,
 	}
 
-	// merge labels and annotation from ServiceInterface if exists
-	sc := &dpuservicev1.ServiceChain{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: serviceChainName, Namespace: serviceChainSet.Namespace}, sc); err != nil && !apierrors.IsNotFound(err) {
+	sc, err := getServiceChainForNode(ctx, r.Client, serviceChainSet, nodeName)
+	if err != nil {
 		return err
 	}
 
-	finalLabels := mergeMaps(sc.Labels, defaultLabels, serviceChainSet.Spec.Template.ObjectMeta.Labels)
-	finalAnnotations := mergeMaps(sc.Annotations, serviceChainSet.Spec.Template.ObjectMeta.Annotations)
+	scName := names.SimpleNameGenerator.GenerateName(serviceChainSet.Name)
+	scLabels := map[string]string{}
+	scAnnotations := map[string]string{}
+	if sc != nil {
+		scName = sc.Name
+		scLabels = sc.Labels
+		scAnnotations = sc.Annotations
+	}
+	// merge labels and annotation from ServiceChain if it exists.
+	finalLabels := mergeMaps(scLabels, defaultLabels, serviceChainSet.Spec.Template.ObjectMeta.Labels)
+	finalAnnotations := mergeMaps(scAnnotations, serviceChainSet.Spec.Template.ObjectMeta.Annotations)
 
 	switches := make([]dpuservicev1.Switch, len(serviceChainSet.Spec.Template.Spec.Switches))
 	for i, serviceChainSwitch := range serviceChainSet.Spec.Template.Spec.Switches {
@@ -178,7 +206,7 @@ func (r *ServiceChainSetReconciler) createOrUpdateChild(ctx context.Context, set
 	owner := metav1.NewControllerRef(serviceChainSet, dpuservicev1.GroupVersion.WithKind("ServiceChainSet"))
 	serviceChain := &dpuservicev1.ServiceChain{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            serviceChainName,
+			Name:            scName,
 			Namespace:       serviceChainSet.Namespace,
 			Labels:          finalLabels,
 			Annotations:     finalAnnotations,
@@ -231,7 +259,21 @@ func (r *ServiceChainSetReconciler) setReadyStatus(serviceSet client.Object, num
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ServiceChainSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ServiceChainSetReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(
+		ctx,
+		&dpuservicev1.ServiceChain{},
+		nodeFieldKey,
+		func(o client.Object) []string {
+			if sc, ok := o.(*dpuservicev1.ServiceChain); ok && sc.Spec.Node != nil {
+				return []string{*sc.Spec.Node}
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dpuservicev1.ServiceChainSet{}).
 		Owns(&dpuservicev1.ServiceChain{}).

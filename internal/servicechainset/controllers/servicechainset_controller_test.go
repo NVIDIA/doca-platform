@@ -18,7 +18,6 @@ package controller //nolint:dupl
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
 
@@ -293,7 +292,7 @@ var _ = Describe("ServiceChainSet Controller", func() {
 				for _, si := range serviceChainList.Items {
 					serviceInterface := si
 					cleanupObjects = append(cleanupObjects, &serviceInterface)
-					scNodes = append(scNodes, si.Labels[ServiceInterfaceNodeNameLabel])
+					scNodes = append(scNodes, *si.Spec.Node)
 				}
 				sort.Strings(scNodes)
 				g.Expect(scNodes).To(HaveLen(3))
@@ -329,10 +328,11 @@ var _ = Describe("ServiceChainSet Controller", func() {
 
 			By("Update created ServiceChain with labels and annotations")
 			sc := &dpuservicev1.ServiceChain{}
-			sc.Name = fmt.Sprintf("%s-%s", scs.Name, "node1")
-			sc.Namespace = scs.Namespace
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(sc), sc)).To(Succeed())
+				var err error
+				sc, err = getServiceChainForNode(ctx, testClient, scs, "node1")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(sc).NotTo(BeNil())
 				g.Expect(sc.Annotations).To(HaveKeyWithValue(fooAnnotKey, fooAnnotValue))
 				g.Expect(sc.Labels).To(HaveKeyWithValue(fooLabelKey, fooAnnotValue))
 			}, timeout*3, interval).Should(Succeed())
@@ -508,7 +508,7 @@ func assertServiceChain(g Gomega, sc *dpuservicev1.ServiceChain, testSpec *dpuse
 	specCopy.Node = node
 	g.ExpectWithOffset(2, sc.Spec).To(Equal(*specCopy))
 	g.ExpectWithOffset(2, *node).NotTo(BeEmpty())
-	g.ExpectWithOffset(2, sc.Name).To(Equal(resourceName + "-" + *node))
+	g.ExpectWithOffset(2, sc.Name).To(HavePrefix(resourceName))
 	g.ExpectWithOffset(2, sc.Labels[ServiceChainSetNameLabel]).To(Equal(resourceName))
 	g.ExpectWithOffset(2, sc.Labels[ServiceChainSetNamespaceLabel]).To(Equal(defaultNS))
 	g.ExpectWithOffset(2, sc.OwnerReferences).To(HaveLen(1))

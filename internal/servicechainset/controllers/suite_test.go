@@ -80,13 +80,6 @@ var _ = BeforeSuite(func() {
 	err = dpuservicev1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	s := scheme.Scheme
-	// +kubebuilder:scaffold:scheme
-
-	testClient, err = client.New(cfg, client.Options{Scheme: s})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(testClient).NotTo(BeNil())
-
 	By("setting up and running the test reconciler")
 	testManager, err := ctrl.NewManager(cfg,
 		ctrl.Options{
@@ -97,18 +90,19 @@ var _ = BeforeSuite(func() {
 			}})
 	Expect(err).ToNot(HaveOccurred())
 
+	testClient = testManager.GetClient()
 	reconciler := &ServiceChainSetReconciler{
 		Client: testClient,
 		Scheme: testManager.GetScheme(),
 	}
-	err = reconciler.SetupWithManager(testManager)
+	err = reconciler.SetupWithManager(ctx, testManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	sisr := &ServiceInterfaceSetReconciler{
 		Client: testClient,
 		Scheme: testManager.GetScheme(),
 	}
-	err = sisr.SetupWithManager(testManager)
+	err = sisr.SetupWithManager(ctx, testManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	go func() {
