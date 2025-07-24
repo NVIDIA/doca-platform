@@ -53,3 +53,7 @@ Each service combination may require tailored configurations on the DPU for opti
 | DPU Services                    | Comments                                                         |
 |---------------------------------|------------------------------------------------------------------|
 | DOCA VPC OVN for DPF            | Provides Accelerated VPC networking functionality leveraging OVN |
+
+### Zero trust
+
+* [Zero trust bare metal with Redfish](zero_trust/README.md)
