@@ -281,7 +281,7 @@ Traffic can be routed through HBN on the worker node by mounting the DPU physica
 
 ```shell
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia --force-update
-helm upgrade --no-hooks --install --create-namespace --namespace nvidia-network-operator network-operator nvidia/network-operator --version 24.7.0 -f ./manifests/03-enable-accelerated-interfaces/helm-values/network-operator.yml
+helm upgrade --no-hooks --install --create-namespace --namespace nvidia-network-operator network-operator nvidia/network-operator --version 25.4.0 -f ./manifests/03-enable-accelerated-interfaces/helm-values/network-operator.yml
 ```
 
 <details markdown="1"><summary>NVIDIA Network Operator Helm values</summary>
