@@ -912,7 +912,7 @@ spec:
       "mtu": 1500,
       "type": "ovs",
       "ipam": {
-        "type": "dhcp"
+        "type": "dhcp",
         "daemonSocketPath": "/run/vpc/cni/dhcp.sock"
       }
     }
@@ -949,13 +949,14 @@ spec:
     source:
       ...
     values:
-      resources:
-        nvidia.com/bf_sf: 1
+      ...
   serviceID: my-service
   serviceDaemonSet:
+    resources:
+      nvidia.com/bf_sf: 1
     annotations:
       k8s.v1.cni.cncf.io/networks: |
-        [{"name": "mybrint-vpc", "interface": "my_sf"}]
+        [{"name": "mybrint-vpc", "namespace": "dpf-operator-system", "interface": "my_sf"}]
 ```
 
 ### Connecting a DPUServiceInterface of type Service to VPC with unknown MAC
@@ -1023,5 +1024,5 @@ spec:
   serviceDaemonSet:
     annotations:
       k8s.v1.cni.cncf.io/networks: |
-        [{"name": "mybrint-vpc", "interface": "my_sf"}]
+        [{"name": "mybrint-vpc", "namespace": "dpf-operator-system", "interface": "my_sf"}]
 ```
