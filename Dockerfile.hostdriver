@@ -42,8 +42,8 @@ COPY ./internal/dmsinit/dmsinit.sh /opt/dpf/
 # Move source code to a directory
 RUN mkdir src && \
     cd src && \
-    apt-get source ${PACKAGES} && \
+    apt-get source --download-only ${PACKAGES} && \
     curl -LO https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz && \
     cd / && \
-    tar -czf source-code.tar.gz src && \
+    tar -cf source-code.tar src && \
     rm -rf src

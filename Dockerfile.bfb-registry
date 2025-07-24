@@ -32,16 +32,16 @@ WORKDIR /workspace
 RUN mkdir src && \
     cd src && \
     cp /workspace/${tengine_version}.zip . && \
-    apt-get source ${PACKAGES} && \
+    apt-get source --download-only ${PACKAGES} && \
     cd /workspace && \
-    tar -czf source-code.tar.gz src
+    tar -cf source-code.tar src
 
 # Stage 2: Create final image based on distroless
 FROM nvcr.io/nvidia/doca/dpf_containers:1.0.2-ubuntu22.04-distroless AS distroless
 
 # copy the tengine source code
 ARG version=3.1.0
-COPY --from=builder /workspace/source-code.tar.gz source-code.tar.gz
+COPY --from=builder /workspace/source-code.tar source-code.tar
 
 # libraries for the nginx binary
 COPY --from=builder /lib/x86_64-linux-gnu/libpcre.so* /lib/x86_64-linux-gnu/

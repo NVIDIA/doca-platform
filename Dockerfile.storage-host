@@ -60,9 +60,9 @@ WORKDIR /
 # Move source code to a directory
 RUN mkdir /src && \
     cd /src && \
-    apt-get source ${PACKAGES} && \
+    apt-get source --download-only ${PACKAGES} && \
     cd / && \
-    tar -czf pkg-source-code.tar.gz /src && \
+    tar -cf pkg-source-code.tar /src && \
     rm -rf /src && rm -rf /var/lib/apt/lists/*
 
 # Add the source code.
