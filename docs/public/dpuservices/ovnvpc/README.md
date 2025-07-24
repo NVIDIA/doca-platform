@@ -859,6 +859,7 @@ DPFOperatorConfig/dpfoperatorconfig                      dpf-operator-system
 * **High Availability**: No built-in HA for OVN Central components.
 * **DPUVirtualNetwork nodeSelector**: The DPUVirtualNetwork `spec.nodeSelector` currently has no effect.
 * **OVN Central connection is not secure**: Currently only `tcp` transport is supported.
+* **Disabling Masquerade is not supported**: The DPUVirtualNetwork `spec.masquerade` should not be set to `false` as this use-case is not currently supported.
 
 ## Advanced Use-cases
 
