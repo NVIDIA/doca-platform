@@ -921,21 +921,21 @@ its underlying objects. The `dpfctl` tool provides a detailed description of the
 
 ```bash
 $ dpfctl describe dpudeployments
-NAME                                        NAMESPACE            STATUS        REASON        SINCE  MESSAGE
-DPFOperatorConfig/dpfoperatorconfig         dpf-operator-system  Ready: True   Success       2h
+NAME                                   NAMESPACE            STATUS       REASON    SINCE  MESSAGE
+DPFOperatorConfig/dpfoperatorconfig    dpf-operator-system  Ready: True  Success   28h
 └─DPUDeployments
-  └─DPUDeployment/ovn-hbn                   dpf-operator-system  Ready: False  Pending       2h     The following conditions are not ready:
-    │                                                                                               * DPUServicesReady
+  └─DPUDeployment/vpc-ovn              dpf-operator-system  Ready: True  Success   28h
     ├─DPUServiceChains
-    │ └─DPUServiceChain/ovn-hbn-wkdhz       dpf-operator-system  Ready: True   Success       2h
-    ├─DPUServices
-    │ ├─DPUService/blueman-l2xsl            dpf-operator-system  Ready: False  Pending       2h     The following conditions are not ready:
-    │ │                                                                                             * ApplicationsReady
-    │ └─DPUService/dts-rrjlp                dpf-operator-system  Ready: False  Pending       2h     The following conditions are not ready:
-    │                                                                                               * ApplicationsReady
-    └─DPUSets
-      └─DPUSet/ovn-hbn-dpuset1              dpf-operator-system
-        ├─BFB/bf-bundle-2.9.0               dpf-operator-system
-        ├─DPU/c-234-181-120-125-0000-08-00  dpf-operator-system  Ready: True   DPUNodeReady  2h
-        └─DPU/c-234-181-120-126-0000-08-00  dpf-operator-system  Ready: True   DPUNodeReady  2h
+    │ └─DPUServiceChain/vpc-ovn-trsq6  dpf-operator-system  Ready: True  Success   28h
+    ├─DPUSets
+    │ └─DPUSet/vpc-ovn-dpuset1         dpf-operator-system
+    │   ├─BFB/bf-bundle                dpf-operator-system  Ready: True  Ready     3d23h  File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
+    │   └─DPUs
+    │     └─4 DPUs...                  dpf-operator-system  Ready: True  DPUReady  3d22h  See dpu-node-mt2310xz03lr-mt2310xz03lr, dpu-node-mt2310xz03m2-mt2310xz03m2,
+    │                                                                                     dpu-node-mt2425601x13-mt2425601x13, dpu-node-mt2425601xqy-mt2425601xqy
+    └─Services
+      ├─DPUServiceTemplates
+      │ └─4 DPUServiceTemplates...     dpf-operator-system  Ready: True  Success   3d23h  See ovn-central, ovn-controller, vpc-ovn-controller, vpc-ovn-node
+      └─DPUServices
+        └─4 DPUServices...             dpf-operator-system  Ready: True  Success   3d7h   See ovn-central-9558p, ovn-controller-v5bkr, vpc-ovn-controller-7sbp6, vpc-ovn-node-r84zn
 ```

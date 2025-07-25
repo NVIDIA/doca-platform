@@ -819,15 +819,16 @@ DPFOperatorConfig/dpfoperatorconfig         dpf-operator-system  Ready: True   S
   └─DPUDeployment/ovn                       dpf-operator-system  Ready: True   Success       2h     
     ├─DPUServiceChains
     │ └─DPUServiceChain/ovn-wkdhz           dpf-operator-system  Ready: True   Success       2h
-    ├─DPUServices  
-    │ │ DPUService/ovn-blueman-4tlmp        dpf-operator-system  Ready: True   Success       2h 
-    │ │ DPUService/ovn-dts-49282            dpf-operator-system  Ready: True   Success       2h 
-    │ └─DPUService/ovn-ovn-l2xsl            dpf-operator-system  Ready: True   Success       2h     
-    └─DPUSets
-      └─DPUSet/hbn-only-dpuset1             dpf-operator-system
-        ├─BFB/bf-bundle                     dpf-operator-system
-        ├─DPU/c-234-181-120-125-0000-08-00  dpf-operator-system  Ready: True   DPUNodeReady  2h
-        └─DPU/c-234-181-120-126-0000-08-00  dpf-operator-system  Ready: True   DPUNodeReady  2h
+    ├─DPUSets
+    │ └─DPUSet/hbn-only-dpuset1             dpf-operator-system
+    │   ├─BFB/bf-bundle                     dpf-operator-system    Ready: True   Ready       2h     File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
+    │   └─DPUs
+    │     └─2 DPUs...                       dpf-operator-system    Ready: True   DPUReady    2h     See dpu-node-mt2310xz03lr-mt2310xz03lr, dpu-node-mt2310xz03m2-mt2310xz03m2
+    └─Services
+      ├─DPUServiceTemplates
+      │ └─4 DPUServiceTemplates...          dpf-operator-system    Ready: True   Success     2h     See ovn-blueman, ovn-dts, ovn-ovn
+      └─DPUServices
+        └─4 DPUServices...                  dpf-operator-system    Ready: True   Success     2h     See ovn-blueman-4tlmp, ovn-dts-49282, ovn-ovn-l2xsl
 ```
 
 ### 6. Test traffic

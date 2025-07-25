@@ -262,32 +262,24 @@ in the DPU cluster.
 
 ```bash
 $ dpfctl describe dpuservices --show-conditions=all
-NAME                                                  NAMESPACE            READY  REASON   SINCE  MESSAGE
-DPFOperatorConfig/dpfoperatorconfig                   dpf-operator-system  True   Success  2h
-│           ├─ImagePullSecretsReconciled                                   True   Success  3h
-│           ├─SystemComponentsReady                                        True   Success  2h
-│           └─SystemComponentsReconciled                                   True   Success  2h
+NAME                                                  NAMESPACE            STATUS       REASON   SINCE  MESSAGE
+DPFOperatorConfig/dpfoperatorconfig                   dpf-operator-system
+│           ├─Ready                                                        True         Success  28h
+│           ├─ImagePullSecretsReconciled                                   True         Success  5d1h
+│           ├─PreUpgradeValidationReady                                    True         Success  5d1h
+│           ├─SystemComponentsReady                                        True         Success  28h
+│           └─SystemComponentsReconciled                                   True         Success  5d1h
 ├─DPUServiceCredentialRequests
-│ └─DPUServiceCredentialRequest/servicesetcontroller  dpf-operator-system  True   Success  3h
-│               ├─SecretReconciled                                         True   Success  3h
-│               └─ServiceAccountReconciled                                 True   Success  3h
-└─DPUServices
-  ├─8 DPUServices...                                  dpf-operator-system  True   Success  3h      See flannel, multus, nvidia-k8s-ipam, ovs-cni, servicechainset-controller,
-  │                                                                                                servicechainset-rbac-and-crds, sfc-controller, sriov-device-plugin
-  ├─DPUService/blueman-l2xsl                          dpf-operator-system  False  Pending  2h      The following conditions are not ready: ApplicationsReady
-  │             ├─ApplicationPrereqsReconciled                             True   Success  2h
-  │             ├─ApplicationsReady                                        False  Pending  2h      Application is not ready (Sync: OutOfSync, Health: Healthy). Run 'kubectl describe application
-  │             │                                                                                  dpu-cplane-tenant1-blueman-l2xsl -n dpf-operator-system' for details.
-  │             ├─ApplicationsReconciled                                   True   Success  2h
-  │             ├─ConfigPortsReconciled                                    True   Success  2h
-  │             └─DPUServiceInterfaceReconciled                            True   Success  2h
-  └─DPUService/dts-rrjlp                              dpf-operator-system  False  Pending  2h      The following conditions are not ready: ApplicationsReady
-                ├─ApplicationPrereqsReconciled                             True   Success  2h
-                ├─ApplicationsReady                                        False  Pending  2h      Application is not ready (Sync: OutOfSync, Health: Healthy). Run 'kubectl describe application
-                │                                                                                  dpu-cplane-tenant1-dts-rrjlp -n dpf-operator-system' for details.
-                ├─ApplicationsReconciled                                   True   Success  2h
-                ├─ConfigPortsReconciled                                    True   Success  2h
-                └─DPUServiceInterfaceReconciled                            True   Success  2h
+│ └─DPUServiceCredentialRequest/servicesetcontroller  dpf-operator-system
+│               ├─Ready                                                    True         Success  5d1h
+│               ├─SecretReconciled                                         True         Success  5d1h
+│               └─ServiceAccountReconciled                                 True         Success  5d1h
+├─DPUServices
+│ └─4 DPUServices...                                  dpf-operator-system  Ready: True  Success  3d7h   See ovn-central-9558p, ovn-controller-v5bkr, vpc-ovn-controller-7sbp6, vpc-ovn-node-r84zn
+└─System Components                                   dpf-operator-system
+  └─DPUServices
+    └─8 DPUServices...                                dpf-operator-system  Ready: True  Success  5d1h   See flannel, multus, nvidia-k8s-ipam, ovs-cni, servicechainset-controller,
+                                                                                                        servicechainset-rbac-and-crds, sfc-controller, sriov-device-plugin
 ```
 
 ## Critical DPUServices :Configuring DPUService for DPU Readiness

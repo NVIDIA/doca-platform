@@ -896,19 +896,19 @@ or with `dpfctl`:
 
 ```shell
 $ kubectl -n dpf-operator-system exec deploy/dpf-operator-controller-manager -- /dpfctl describe dpudeployments
-NAME                                        NAMESPACE            STATUS        REASON        SINCE  MESSAGE
-DPFOperatorConfig/dpfoperatorconfig         dpf-operator-system  Ready: True   Success       2h
+NAME                                          NAMESPACE            STATUS        REASON     SINCE  MESSAGE
+DPFOperatorConfig/dpfoperatorconfig           dpf-operator-system  Ready: True   Success    2h
 └─DPUDeployments
-  └─DPUDeployment/hbn-only                  dpf-operator-system  Ready: True   Success       2h     
+  └─DPUDeployment/hbn-only                    dpf-operator-system  Ready: True   Success    2h     
     ├─DPUServiceChains
-    │ └─DPUServiceChain/hbn-only-wkdhz      dpf-operator-system  Ready: True   Success       2h
+    │ └─DPUServiceChain/hbn-only-wkdhz        dpf-operator-system  Ready: True   Success    2h
     ├─DPUServices   
-    │ └─DPUService/doca-hbn-l2xsl           dpf-operator-system  Ready: True   Success       2h     
+    │ └─DPUService/doca-hbn-l2xsl             dpf-operator-system  Ready: True   Success    2h     
     └─DPUSets
-      └─DPUSet/hbn-only-dpuset1             dpf-operator-system
-        ├─BFB/bf-bundle                     dpf-operator-system
-        ├─DPU/c-234-181-120-125-0000-08-00  dpf-operator-system  Ready: True   DPUNodeReady  2h
-        └─DPU/c-234-181-120-126-0000-08-00  dpf-operator-system  Ready: True   DPUNodeReady  2h
+      └─DPUSet/hbn-only-dpuset1               dpf-operator-system
+        ├─BFB/bf-bundle                       dpf-operator-system  Ready: True   Ready      2h     File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
+        └─DPUs
+          └─2 DPUs...                         dpf-operator-system  Ready: True   DPUReady   2h     See dpu-node-mt2310xz03lr-mt2310xz03lr, dpu-node-mt2310xz03m2-mt2310xz03m2
 ```
 
 ### 5. Test traffic
