@@ -31,9 +31,11 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	argov1 "github.com/nvidia/doca-platform/third_party/api/argocd/api/application/v1alpha1"
+	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
 
 	"github.com/olekukonko/tablewriter"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -720,6 +722,54 @@ func Test_dpfctlTreeDiscovery(t *testing.T) {
 				"      └─DPU/test-from-dpudeployment  default  Ready: True  Success  0s",
 			},
 		},
+		{
+			name: "Add DPUCluster with Kamaji TenantControlPlane",
+			objectsTree: []objectsWithConditions{
+				{object: defaultDPFOperatorConfig(), conditions: getTrueCondition()},
+				{object: defaultDPUCluster(), conditions: getTrueCondition()},
+				{object: defaultTenantControlPlane(), customStatus: getTenantControlPlaneStatus()},
+			},
+			expectedPrefix: []string{
+				"DPFOperatorConfig/test         default  Ready: True  Success  0s",
+				"└─DPUClusters",
+				"  └─DPUCluster/test            default  Ready: True  Success  0s",
+				"    └─TenantControlPlane/test  default  Ready: True  Ready    0s",
+			},
+		},
+		{
+			name: "Add DPUCluster with Kamaji TenantControlPlane with failed conditions",
+			objectsTree: []objectsWithConditions{
+				{object: defaultDPFOperatorConfig(), conditions: getTrueCondition()},
+				{object: defaultDPUCluster(), conditions: getTrueCondition()},
+				{object: defaultTenantControlPlane(), customStatus: getTenantControlPlaneStatusWithFailures()},
+			},
+			opts: ObjectTreeOptions{
+				ShowOtherConditions: all,
+			},
+			expectedPrefix: []string{
+				"DPFOperatorConfig/test                    default",
+				"│           └─Ready                                True   Success",
+				"└─DPUClusters",
+				"  └─DPUCluster/test                       default",
+				"    │           └─Ready                            True   Success",
+				"    └─TenantControlPlane/test             default",
+				"                  ├─Service/Ready                  False  NotReady  0s  Service is not ready",
+				"                  ├─Deployment/Available           False  NotReady  0s  Deployment is not ready",
+				"                  └─Ready                          False  Unknown   0s  The TenantControlPlane is not ready",
+			},
+		},
+		{
+			name: "Add static DPUCluster without TenantControlPlane",
+			objectsTree: []objectsWithConditions{
+				{object: defaultDPFOperatorConfig(), conditions: getTrueCondition()},
+				{object: defaultStaticDPUCluster(), conditions: getTrueCondition()},
+			},
+			expectedPrefix: []string{
+				"DPFOperatorConfig/test  default  Ready: True  Success",
+				"└─DPUClusters",
+				"  └─DPUCluster/test     default  Ready: True  Success",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -786,7 +836,7 @@ func defaultDPUCluster() *provisioningv1.DPUCluster {
 	return &provisioningv1.DPUCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec: provisioningv1.DPUClusterSpec{
-			Type: "static",
+			Type: string(provisioningv1.KamajiCluster),
 		},
 	}
 }
@@ -1293,6 +1343,140 @@ func defaultDPUVolumeAttachment() *storagev1.DPUVolumeAttachment {
 				FunctionType:    storagev1.FunctionTypeVF,
 				HotplugFunction: false,
 			},
+		},
+	}
+}
+
+func defaultTenantControlPlane() *kamajiv1.TenantControlPlane {
+	return &kamajiv1.TenantControlPlane{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test",
+			Namespace: "default",
+			Labels: map[string]string{
+				provisioningv1.DPUClusterNameLabelKey: "test",
+			},
+		},
+		Spec: kamajiv1.TenantControlPlaneSpec{
+			DataStore:       "default",
+			DataStoreSchema: "default",
+			ControlPlane: kamajiv1.ControlPlane{
+				Deployment: kamajiv1.DeploymentSpec{
+					Replicas: ptr.To[int32](3),
+				},
+				Service: kamajiv1.ServiceSpec{
+					ServiceType: kamajiv1.ServiceTypeClusterIP,
+				},
+			},
+			Kubernetes: kamajiv1.KubernetesSpec{
+				Version: util.KubernetesVersion,
+			},
+		},
+	}
+}
+
+func getTenantControlPlaneStatus() map[string]interface{} {
+	tcp := &kamajiv1.TenantControlPlane{
+		Status: kamajiv1.TenantControlPlaneStatus{
+			Kubernetes: kamajiv1.KubernetesStatus{
+				Service: kamajiv1.KubernetesServiceStatus{
+					Name:      "test-service",
+					Namespace: "default",
+					Port:      6443,
+					ServiceStatus: corev1.ServiceStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               "Ready",
+								Status:             metav1.ConditionTrue,
+								Reason:             "Ready",
+								Message:            "Service is ready",
+								LastTransitionTime: metav1.Now(),
+							},
+						},
+					},
+				},
+				Deployment: kamajiv1.KubernetesDeploymentStatus{
+					Name:      "test-deployment",
+					Namespace: "default",
+					Selector:  "app=test",
+					DeploymentStatus: appsv1.DeploymentStatus{
+						Conditions: []appsv1.DeploymentCondition{
+							{
+								Type:               appsv1.DeploymentAvailable,
+								Status:             corev1.ConditionTrue,
+								Reason:             "Ready",
+								Message:            "Deployment is ready",
+								LastTransitionTime: metav1.Now(),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Convert to unstructured for the test
+	u := &unstructured.Unstructured{}
+	if err := scheme.Scheme.Convert(tcp, u, nil); err != nil {
+		panic(fmt.Sprintf("Failed to convert TenantControlPlane.Status: %v", err))
+	}
+
+	return u.Object["status"].(map[string]interface{})
+}
+
+func getTenantControlPlaneStatusWithFailures() map[string]interface{} {
+	tcp := &kamajiv1.TenantControlPlane{
+		Status: kamajiv1.TenantControlPlaneStatus{
+			Kubernetes: kamajiv1.KubernetesStatus{
+				Service: kamajiv1.KubernetesServiceStatus{
+					Name:      "test-service",
+					Namespace: "default",
+					Port:      6443,
+					ServiceStatus: corev1.ServiceStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               "Ready",
+								Status:             metav1.ConditionFalse,
+								Reason:             "NotReady",
+								Message:            "Service is not ready",
+								LastTransitionTime: metav1.Now(),
+							},
+						},
+					},
+				},
+				Deployment: kamajiv1.KubernetesDeploymentStatus{
+					Name:      "test-deployment",
+					Namespace: "default",
+					Selector:  "app=test",
+					DeploymentStatus: appsv1.DeploymentStatus{
+						Conditions: []appsv1.DeploymentCondition{
+							{
+								Type:               appsv1.DeploymentAvailable,
+								Status:             corev1.ConditionFalse,
+								Reason:             "NotReady",
+								Message:            "Deployment is not ready",
+								LastTransitionTime: metav1.Now(),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Convert to unstructured for the test
+	u := &unstructured.Unstructured{}
+	if err := scheme.Scheme.Convert(tcp, u, nil); err != nil {
+		panic(fmt.Sprintf("Failed to convert TenantControlPlane.Status: %v", err))
+	}
+
+	return u.Object["status"].(map[string]interface{})
+}
+
+func defaultStaticDPUCluster() *provisioningv1.DPUCluster {
+	return &provisioningv1.DPUCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: provisioningv1.DPUClusterSpec{
+			Type: string(provisioningv1.StaticCluster),
 		},
 	}
 }

@@ -29,6 +29,7 @@ import (
 	storagev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
 	argov1 "github.com/nvidia/doca-platform/third_party/api/argocd/api/application/v1alpha1"
+	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
 
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -47,6 +48,7 @@ func TestMain(m *testing.M) {
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "..", "deploy", "charts", "dpf-operator", "templates", "crds"),
 			filepath.Join("..", "..", "test", "objects", "crd", "argocd"),
+			filepath.Join("..", "..", "test", "objects", "crd", "kamaji"),
 		},
 		ErrorIfCRDPathMissing: true,
 
@@ -80,6 +82,9 @@ func TestMain(m *testing.M) {
 	}
 	if err := storagev1.AddToScheme(scheme.Scheme); err != nil {
 		panic(fmt.Sprintf("Failed to add Storage v1 scheme: %v", err))
+	}
+	if err := kamajiv1.AddToScheme(scheme.Scheme); err != nil {
+		panic(fmt.Sprintf("Failed to add Kamaji v1 scheme: %v", err))
 	}
 
 	// cfg is defined in this file globally in this package. This allows the resource collector to use this

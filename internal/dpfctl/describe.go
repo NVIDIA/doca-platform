@@ -32,6 +32,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/third_party/api/argocd/api/application"
 	argov1 "github.com/nvidia/doca-platform/third_party/api/argocd/api/application/v1alpha1"
+	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -322,11 +323,95 @@ func addDPUClusters(ctx context.Context, o objectScope, root client.Object) erro
 			APIVersion: provisioningv1.GroupVersion.String(),
 		}
 		addToTree = append(addToTree, &dpuCluster)
-		// TODO: add KamajiControlPlane to the loop, enabled via feature flag
+
+		// Continue if it's a static cluster. We cannot add more resources to the tree
+		// because we are not aware of the resources that are part of the static cluster.
+		if dpuCluster.Spec.Type == string(provisioningv1.StaticCluster) {
+			continue
+		}
+
+		if err := addKamajisTenantControlPlane(ctx, o, dpuCluster.DeepCopy(), client.MatchingLabels{
+			provisioningv1.DPUClusterNameLabelKey: dpuCluster.Name,
+		}); err != nil {
+			return err
+		}
 	}
 
 	o.tree.AddMultipleWithHeader(root, addToTree, "DPUClusters")
 	return nil
+}
+
+func addKamajisTenantControlPlane(ctx context.Context, o objectScope, root client.Object, matchLabels client.MatchingLabels) error {
+	if !showResource(o.opts, kamajiv1.TenantControlPlaneKind) {
+		return nil
+	}
+
+	tcps := &kamajiv1.TenantControlPlaneList{}
+	if err := o.client.List(ctx, tcps, matchLabels); err != nil {
+		return err
+	}
+
+	addToTree := []client.Object{}
+	for _, tcp := range tcps.Items {
+		if !isObjDebug(&tcp, o.opts.ShowResources) {
+			continue
+		}
+
+		conds := kamajisTenantControlPlaneStatusConditions(tcp)
+		fakeTCP := VirtualObjectForVisualization(&tcp, kamajiv1.TenantControlPlaneKind)
+		fakeTCP.Object["status"] = map[string]interface{}{
+			"conditions": conds,
+		}
+		addToTree = append(addToTree, fakeTCP)
+	}
+
+	for _, tcp := range addToTree {
+		o.tree.Add(root, tcp)
+	}
+	return nil
+}
+
+func kamajisTenantControlPlaneStatusConditions(tcp kamajiv1.TenantControlPlane) []metav1.Condition {
+	conds := []metav1.Condition{}
+	allConditionsReady := true
+	// The Service conditions are already metav1.Condition, we can start with them directly.
+	for _, cond := range tcp.Status.Kubernetes.Service.Conditions {
+		cond.Type = fmt.Sprintf("Service/%s", cond.Type)
+		conds = append(conds, cond)
+		if cond.Status != metav1.ConditionTrue {
+			allConditionsReady = false
+		}
+	}
+
+	// The Deployment conditions are not metav1.Condition, we need to convert them.
+	for _, cond := range tcp.Status.Kubernetes.Deployment.Conditions {
+		conds = append(conds, metav1.Condition{
+			Type:               fmt.Sprintf("Deployment/%s", string(cond.Type)),
+			Status:             metav1.ConditionStatus(cond.Status),
+			LastTransitionTime: cond.LastTransitionTime,
+			Reason:             cond.Reason,
+			Message:            cond.Message,
+		})
+		if metav1.ConditionStatus(cond.Status) != metav1.ConditionTrue {
+			allConditionsReady = false
+		}
+	}
+
+	// Create Ready condition based on the overall status of the TenantControlPlane.
+	readyCondition := metav1.Condition{
+		Type:               string(conditions.TypeReady),
+		Status:             metav1.ConditionFalse,
+		LastTransitionTime: tcp.ObjectMeta.GetCreationTimestamp(),
+		Reason:             "Unknown",
+		Message:            "The TenantControlPlane is not ready",
+	}
+	if allConditionsReady {
+		readyCondition.Status = metav1.ConditionTrue
+		readyCondition.Reason = "Ready"
+		readyCondition.Message = ""
+	}
+	conds = append(conds, readyCondition)
+	return conds
 }
 
 func addDPUSets(ctx context.Context, o objectScope, root client.Object, matchLabels client.MatchingLabels, skipFunc func(map[string]string) bool) error {

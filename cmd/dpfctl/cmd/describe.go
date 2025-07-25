@@ -29,6 +29,7 @@ import (
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/dpfctl"
 	argov1 "github.com/nvidia/doca-platform/third_party/api/argocd/api/application/v1alpha1"
+	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -155,6 +156,7 @@ func newClient() (client.Client, error) {
 	_ = argov1.AddToScheme(c.Scheme())
 	_ = vpcv1.AddToScheme(c.Scheme())
 	_ = storagev1.AddToScheme(c.Scheme())
+	_ = kamajiv1.AddToScheme(c.Scheme())
 
 	return c, nil
 }
