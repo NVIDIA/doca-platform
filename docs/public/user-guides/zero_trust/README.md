@@ -88,16 +88,17 @@ export BLUEFIELD_BITSTREAM="https://content.mellanox.com/BlueField/BFBs/Ubuntu22
 ## export IP_RANGE_START=192.168.1.100
 ## export IP_RANGE_END=192.168.1.110
 
-## Start of DpuDiscovery IpRange
+## Start of DPUDiscovery IpRange
 export IP_RANGE_START=
-## End of DpuDiscovery IpRange
+
+## End of DPUDiscovery IpRange
 export IP_RANGE_END=
 
 ## Serial number of DPU1
 export DPU1_SERIAL=
 
 ## Serial number of DPU2
-export DPU2_SERIAl
+export DPU2_SERIAL=
 ```
 
 ### 1. DPF Operator installation
