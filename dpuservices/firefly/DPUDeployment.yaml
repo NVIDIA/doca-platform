@@ -33,7 +33,6 @@ spec:
       serviceTemplate: firefly-host
       dependsOn:
         - name: firefly-dpu
-          wait: false
     ovn:
       serviceConfiguration: ovn
       serviceTemplate: ovn

@@ -334,7 +334,7 @@ spec:
   resourceType: sf
   ipam: false
   bridge: "br-sfc"
-  mtu: 1500
+  serviceMTU: 1500
 ```
 </details>
 
@@ -380,7 +380,6 @@ spec:
       serviceTemplate: firefly-host
       dependsOn:
         - name: firefly-dpu
-          wait: false
     ovn:
       serviceConfiguration: ovn
       serviceTemplate: ovn
