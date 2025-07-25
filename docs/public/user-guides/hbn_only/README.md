@@ -892,7 +892,14 @@ kubectl wait --for=condition=ServiceInterfaceSetReconciled --namespace dpf-opera
 kubectl wait --for=condition=ServiceChainSetReconciled --namespace dpf-operator-system dpuservicechain --all
 ```
 
-or with `dpfctl`:
+### 5. Test traffic
+
+#### Add worker nodes to the cluster
+
+At this point workers should be added to the cluster. Each worker node should be configured in line with [the prerequisites](../prerequisites/prerequisites.md).
+As workers are added to the cluster DPUs will be provisioned and DPUServices will begin to be spun up.
+
+You can verify the status of the DPUDeployment and its components with the following command:
 
 ```shell
 $ kubectl -n dpf-operator-system exec deploy/dpf-operator-controller-manager -- /dpfctl describe dpudeployments
@@ -901,22 +908,18 @@ DPFOperatorConfig/dpfoperatorconfig           dpf-operator-system  Ready: True  
 └─DPUDeployments
   └─DPUDeployment/hbn-only                    dpf-operator-system  Ready: True   Success    2h     
     ├─DPUServiceChains
-    │ └─DPUServiceChain/hbn-only-wkdhz        dpf-operator-system  Ready: True   Success    2h
-    ├─DPUServices   
-    │ └─DPUService/doca-hbn-l2xsl             dpf-operator-system  Ready: True   Success    2h     
-    └─DPUSets
-      └─DPUSet/hbn-only-dpuset1               dpf-operator-system
-        ├─BFB/bf-bundle                       dpf-operator-system  Ready: True   Ready      2h     File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
-        └─DPUs
-          └─2 DPUs...                         dpf-operator-system  Ready: True   DPUReady   2h     See dpu-node-mt2310xz03lr-mt2310xz03lr, dpu-node-mt2310xz03m2-mt2310xz03m2
+    │ └─DPUServiceChain/hbn-only-wkdhz        dpf-operator-system  Ready: True   Success    2h   
+    ├─DPUSets
+    │ └─DPUSet/hbn-only-dpuset1               dpf-operator-system
+    │   ├─BFB/bf-bundle                       dpf-operator-system  Ready: True   Ready      2h     File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
+    │   └─DPUs
+    │     └─2 DPUs...                         dpf-operator-system  Ready: True   DPUReady   2h     See dpu-node-mt2310xz03lr-mt2310xz03lr, dpu-node-mt2310xz03m2-mt2310xz03m2
+    └─Services
+      ├─DPUServiceTemplates
+      │ └─DPUServiceTemplate/doca-hbn         dpf-operator-system  Ready: True   Success    2h
+      └─DPUServices   
+        └─DPUService/doca-hbn-l2xsl           dpf-operator-system  Ready: True   Success    2h   
 ```
-
-### 5. Test traffic
-
-#### Add worker nodes to the cluster
-
-At this point workers should be added to the cluster. Each worker node should be configured in line with [the prerequisites](../prerequisites/prerequisites.md).
-As workers are added to the cluster DPUs will be provisioned and DPUServices will begin to be spun up.
 
 #### Deploy test pods 
 
@@ -930,6 +933,7 @@ TODO: Add specific user commands to test traffic.
 
 
 ### 6. Deletion and clean up
+
 For DPF deletion follows a specific order defined below. The OVN Kubernetes primary CNI can not be safely deleted from the cluster.
 
 #### Delete DPF CNI acceleration components

@@ -809,7 +809,14 @@ kubectl wait --for=condition=ServiceInterfaceSetReconciled --namespace dpf-opera
 kubectl wait --for=condition=ServiceChainSetReconciled --namespace dpf-operator-system dpuservicechain --all
 ```
 
-or with `dpfctl`:
+### 6. Test traffic
+
+#### Add worker nodes to the cluster
+
+At this point workers should be added to the cluster. Each worker node should be configured in line with [the prerequisites](../prerequisites/prerequisites.md).
+As workers are added to the cluster DPUs will be provisioned and DPUServices will begin to be spun up.
+
+You can verify the status of the DPUDeployment and its components with the following command:
 
 ```shell
 $ kubectl -n dpf-operator-system exec deploy/dpf-operator-controller-manager -- /dpfctl describe dpudeployments
@@ -830,15 +837,6 @@ DPFOperatorConfig/dpfoperatorconfig         dpf-operator-system  Ready: True   S
       └─DPUServices
         └─4 DPUServices...                  dpf-operator-system    Ready: True   Success     2h     See ovn-blueman-4tlmp, ovn-dts-49282, ovn-ovn-l2xsl
 ```
-
-### 6. Test traffic
-
-#### Add worker nodes to the cluster
-
-At this point workers should be added to the cluster. Each worker node should be
-configured in line with [the prerequisites](../prerequisites/prerequisites.md) and the specific [OVN Kubernetes prerequisites](#worker-nodes).
-
-As workers are added to the cluster DPUs will be provisioned and DPUServices will begin to be spun up.
 
 #### Deploy test pods 
 
