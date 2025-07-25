@@ -38,6 +38,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -640,10 +641,6 @@ func addDPUServiceCredentialRequests(ctx context.Context, o objectScope, root cl
 	return addResourceByGVK(ctx, o, root, dpuservicev1.DPUServiceCredentialRequestGroupVersionKind, matchLabels, skipFunc)
 }
 
-func addDPUServiceTemplates(ctx context.Context, o objectScope, root client.Object, matchLabels client.MatchingLabels, skipFunc func(map[string]string) bool) error {
-	return addResourceByGVK(ctx, o, root, dpuservicev1.DPUServiceTemplateGroupVersionKind, matchLabels, skipFunc)
-}
-
 func addDPUServiceNADs(ctx context.Context, o objectScope, root client.Object, matchLabels client.MatchingLabels, skipFunc func(map[string]string) bool) error {
 	return addResourceByGVK(ctx, o, root, dpuservicev1.DPUServiceNADGroupVersionKind, matchLabels, skipFunc)
 }
@@ -668,6 +665,31 @@ func addResourceByGVK(ctx context.Context, o objectScope, root client.Object, gv
 	}
 
 	o.tree.AddMultipleWithHeader(root, addToTree, gvk.Kind, GroupingObject(true))
+	return nil
+}
+
+func addDPUServiceTemplate(ctx context.Context, o objectScope, root client.Object, nsn types.NamespacedName) error {
+	return addResourceByGVKAndNSN(ctx, o, root, dpuservicev1.DPUServiceTemplateGroupVersionKind, nsn)
+}
+
+func addResourceByGVKAndNSN(ctx context.Context, o objectScope, root client.Object, gvk schema.GroupVersionKind, nsn types.NamespacedName) error {
+	if !showResource(o.opts, gvk.Kind) {
+		return nil
+	}
+
+	resource := &unstructured.Unstructured{}
+	resource.SetGroupVersionKind(gvk)
+	resource.SetNamespace(nsn.Namespace)
+	resource.SetName(nsn.Name)
+
+	if err := o.client.Get(ctx, nsn, resource); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	o.tree.Add(root, resource)
 	return nil
 }
 
@@ -721,14 +743,15 @@ func addDPUDeployments(ctx context.Context, o objectScope, root client.Object) e
 			return err
 		}
 
-		headerName := "Services"
-		servicesObj := VirtualObject("", headerName, headerName)
+		servicesObj := VirtualObject("", "Services", "Services")
 		o.tree.Add(&dpuDeployment, servicesObj)
 
-		if err := addDPUServiceTemplates(ctx, o, servicesObj, client.MatchingLabels{
-			dpuDeployment.GetDependentLabelKey(): dpuservicev1.DependentDPUDeploymentLabelValue,
-		}, nil); err != nil {
-			return err
+		templatesObj := VirtualObject("", "DPUServiceTemplates", "DPUServiceTemplates")
+		o.tree.Add(servicesObj, templatesObj)
+		for _, svc := range dpuDeployment.Spec.Services {
+			if err := addDPUServiceTemplate(ctx, o, templatesObj, types.NamespacedName{Namespace: dpuDeployment.GetNamespace(), Name: svc.ServiceTemplate}); err != nil {
+				return err
+			}
 		}
 
 		if err := addDPUServices(ctx, o, servicesObj, client.MatchingLabels{
