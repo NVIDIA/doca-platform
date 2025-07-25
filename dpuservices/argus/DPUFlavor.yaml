@@ -53,8 +53,6 @@ spec:
         - SRIOV_EN=1
         - NUM_OF_VFS=46
         - LAG_RESOURCE_ALLOCATION=1
-        # Argus specific parameters
-        - NVME_EMULATION_ENABLE=1
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {

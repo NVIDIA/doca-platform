@@ -10,4 +10,4 @@ spec:
       values:
         config:
           isLocalPath: false
-        containerImage: nvcr.io/nvidia/doca/doca_argus:1.0.0-doca3.0.0
+        containerImage: nvcr.io/nvidia/doca/doca_argus:1.0.0-doca3.1.0

@@ -34,7 +34,7 @@ spec:
       values:
         config:
           isLocalPath: false
-        containerImage: nvcr.io/nvidia/doca/doca_argus:1.0.0-doca3.0.0
+        containerImage: nvcr.io/nvidia/doca/doca_argus:1.0.0-doca3.1.0
 ```
 
 </details>
@@ -122,8 +122,6 @@ spec:
         - SRIOV_EN=1
         - NUM_OF_VFS=46
         - LAG_RESOURCE_ALLOCATION=1
-        # Argus specific parameters
-        - NVME_EMULATION_ENABLE=1
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
