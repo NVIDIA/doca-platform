@@ -22,11 +22,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+var DPUServiceNADGroupVersionKind = GroupVersion.WithKind(DPUServiceNADKind)
+
 // Status related variables
 const (
+	DPUServiceNADKind                                        = "DPUServiceNAD"
 	ConditionDPUNADObjectReconciled conditions.ConditionType = "DPUNADObjectReconciled"
 	ConditionDPUNADObjectReady      conditions.ConditionType = "DPUNADObjectReady"
-	// trustedSfAnnotationKey is the key of the annotation that may be added to a DPUServiceNAD to
+	// TrustedSfAnnotationKey is the key of the annotation that may be added to a DPUServiceNAD to
 	// indicate that the SFs to be used should be trusted instead of the normal ones.
 	TrustedSfAnnotationKey = "dpuservicenad.svc.dpu.nvidia.com/use-trusted-sfs"
 )

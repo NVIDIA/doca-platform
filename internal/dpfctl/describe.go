@@ -237,6 +237,10 @@ func DiscoverDPUSets(ctx context.Context, tree *ObjectTree, scope objectScope, d
 		return nil, err
 	}
 
+	if err := addDPUServiceNADs(ctx, scope, dpfOperatorConfig, nil, nil); err != nil {
+		return nil, err
+	}
+
 	return tree, nil
 }
 
@@ -638,6 +642,10 @@ func addDPUServiceCredentialRequests(ctx context.Context, o objectScope, root cl
 
 func addDPUServiceTemplates(ctx context.Context, o objectScope, root client.Object, matchLabels client.MatchingLabels, skipFunc func(map[string]string) bool) error {
 	return addResourceByGVK(ctx, o, root, dpuservicev1.DPUServiceTemplateGroupVersionKind, matchLabels, skipFunc)
+}
+
+func addDPUServiceNADs(ctx context.Context, o objectScope, root client.Object, matchLabels client.MatchingLabels, skipFunc func(map[string]string) bool) error {
+	return addResourceByGVK(ctx, o, root, dpuservicev1.DPUServiceNADGroupVersionKind, matchLabels, skipFunc)
 }
 
 func addResourceByGVK(ctx context.Context, o objectScope, root client.Object, gvk schema.GroupVersionKind, matchLabels client.MatchingLabels, skipFunc func(map[string]string) bool) error {
