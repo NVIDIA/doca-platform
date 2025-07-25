@@ -2,7 +2,7 @@ FROM nvcr.io/nvidia/doca/doca:3.0.0-full-rt-host
 
 ARG TARGETARCH
 ARG MFT_VERSION=4.29.0-131
-ARG KUBECTL_VERSION=1.32.0
+ARG KUBECTL_VERSION=1.33.0
 ARG PACKAGES="dpkg-dev=1.21.1ubuntu2.3 libusb-1.0-0=2:1.0.25-1ubuntu2 ipmitool=1.8.18-11ubuntu2.2 rshim curl=7.81.0-1ubuntu1.20 screen=4.9.0-1 pv=1.6.6-1build2 bridge-utils=1.7-1ubuntu3 iptables=1.8.7-1ubuntu5.2 iproute2=5.15.0-1ubuntu2"
 
 # Enable deb-src to be able to fetch sources
