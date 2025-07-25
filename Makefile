@@ -131,7 +131,7 @@ $(SOS_REPORT_DIR): | $(REPOSDIR)
 	curl -sL ${DOCA_SOSREPORT_REPO_URL} | tar -xz -C ${REPOSDIR}
 
 # nvidia-external-attacher dependencies to be able to build its docker image
-EXTERNAL_ATTACHER_BRANCH=release-4.8
+EXTERNAL_ATTACHER_BRANCH=release-4.9
 NVIDIA_EXTERNAL_ATTACHER_DIR=third_party/forked/nvidia-external-attacher
 
 ##@ GRPC
