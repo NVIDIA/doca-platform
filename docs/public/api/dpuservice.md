@@ -282,100 +282,84 @@ DPFOperatorConfig/dpfoperatorconfig                   dpf-operator-system
                                                                                                         servicechainset-rbac-and-crds, sfc-controller, sriov-device-plugin
 ```
 
-## Critical DPUServices :Configuring DPUService for DPU Readiness
-### Issue
-DPF by design treats host worker nodes and DPU nodes separately in two different clusters. Pods running on host worker nodes rely on the pods (DPUService) running on the DPU. If for some reason a pod (DPUService) is not in a running state on the DPU (either it did not start or it was started at some point but is no longer running), the host needs to stop accepting new workloads to avoid further instability.
+## Configuring Critical DPUService for DPU Readiness
+### Overview
+In DPF architecture, host worker nodes and DPUs run in separate Kubernetes clusters. Some host workloads rely on corresponding DPU pods (DPUServices). If a critical DPUService is missing or not running on the DPU, the host should stop accepting new workloads to avoid instability.
 
-### Configuring a critical DPUService
-Not every DPUService is considered critical. It is not ideal to taint the node when regular DPUService instances are not running. To be considered critical, a DPUService must meet the following requirement:
+To enforce this, DPF introduces a mechanism that taints the host node when a critical DPUService is not running.
 
-* The DPUService must have the label: `svc.dpu.nvidia.com/critical: ""`
+### How to Mark a DPUService as Critical
+To mark a DPUService as critical, add the following label:
+`svc.dpu.nvidia.com/critical: ""`
 
-This label tells the controller to treat the DPUService as critical for node readiness.
+Example:
+`kubectl label dpuservice sriov-device-plugin svc.dpu.nvidia.com/critical="" -n dpf-operator-system`
 
-For example, `sriov-device-plugin` below is marked as a critical DPUService.
+To remove the critical label, use:
+`kubectl label dpuservice sriov-device-plugin svc.dpu.nvidia.com/critical- -n dpf-operator-system`
 
+### Example Manifest Snippet
 ```yaml
-kubectl get dpuservice sriov-device-plugin -n dpf-operator-system -o yaml
 apiVersion: svc.dpu.nvidia.com/v1alpha1
 kind: DPUService
 metadata:
-  creationTimestamp: "2025-06-19T07:51:46Z"
-  finalizers:
-  - dpu.nvidia.com/DPUService
-  generation: 3
+  name: sriov-device-plugin
+  namespace: dpf-operator-system
   labels:
-    applyset.kubernetes.io/part-of: applyset-9XbQ4jCMXrB8b5F-kLrpO_qeoD1ZsDVozUW4QxCTkiU-v1
-    dpu.nvidia.com/component: sriov-device-plugin
     svc.dpu.nvidia.com/critical: ""
 ```
 
-### Node taint
-
-If the pod corresponding to a critical DPUService is not running on the DPU, host worker nodes will be marked with a taint so that they do not accept new workloads.
-
+### Taint Behavior
+When a pod of a critical DPUService is not in a Running state on the DPU, the corresponding host node is tainted:
 ```yaml
-kubectl get node host-01 -o yaml
 spec:
-  podCIDR: 10.244.1.0/24
-  podCIDRs:
-  - 10.244.1.0/24
   taints:
   - effect: NoSchedule
     key: dpu.nvidia.com/dpu-ready
 ```
+When the pod becomes `Ready` again, the taint is removed.
 
-```bash
-kubectl get pods --kubeconfig=/tmp/dpukubeconfig -A
-NAMESPACE             NAME                                                            READY   STATUS    RESTARTS      AGE
-dpf-operator-system   dpu-cplane-tenant1-nvidia-k8s-ipam-controller-df56b65b4-p2476   1/1     Running   0             82m
-dpf-operator-system   dpu-cplane-tenant1-nvidia-k8s-ipam-node-ds-drv78                1/1     Running   0             62m
-dpf-operator-system   dpu-cplane-tenant1-ovn-dpu-ovn-kubernete-node-rmbml             7/7     Running   0             35m
-dpf-operator-system   dpu-cplane-tenant1-ovs-cni-arm64-b5fqh                          1/1     Running   0             62m
-dpf-operator-system   dpu-cplane-tenant1-sfc-controller-node-ds-fjsp5                 1/1     Running   0             62m
-dpf-operator-system   kube-flannel-ds-5cctx                                           1/1     Running   1 (54m ago)   62m
-dpf-operator-system   kube-multus-ds-nlbnd                                            1/1     Running   0             62m
-kube-system           coredns-68d4f9776f-5p2qm                                        1/1     Running   0             82m
-kube-system           coredns-68d4f9776f-8mxs9                                        1/1     Running   0             82m
-kube-system           kube-proxy-jlh58                                                1/1     Running   0             62m
-```
+### Recovery Process
+Once the failed critical DPUService pod is running again, the following occurs:
 
-When the pod comes back up, the taint on the node will be removed and it will be ready to accept new customer workloads.
-
-```yaml
-kubectl get node host-01 -o yaml
-spec:
-  podCIDR: 10.244.1.0/24
-  podCIDRs:
-  - 10.244.1.0/24
-```
-```bash
-kubectl get pods --kubeconfig=/tmp/dpukubeconfig -A
-NAMESPACE             NAME                                                            READY   STATUS    RESTARTS       AGE
-dpf-operator-system   dpu-cplane-tenant1-nvidia-k8s-ipam-controller-df56b65b4-p2476   1/1     Running   0              133m
-dpf-operator-system   dpu-cplane-tenant1-nvidia-k8s-ipam-node-ds-drv78                1/1     Running   0              113m
-dpf-operator-system   dpu-cplane-tenant1-ovn-dpu-ovn-kubernete-node-rmbml             7/7     Running   0              86m
-dpf-operator-system   dpu-cplane-tenant1-ovs-cni-arm64-b5fqh                          1/1     Running   0              113m
-dpf-operator-system   dpu-cplane-tenant1-sfc-controller-node-ds-fjsp5                 1/1     Running   0              113m
-dpf-operator-system   kube-flannel-ds-5cctx                                           1/1     Running   1 (105m ago)   113m
-dpf-operator-system   kube-multus-ds-nlbnd                                            1/1     Running   0              113m
-dpf-operator-system   kube-sriov-device-plugin-shnd4                                  1/1     Running   0              38m
-kube-system           coredns-68d4f9776f-5p2qm                                        1/1     Running   0              134m
-kube-system           coredns-68d4f9776f-8mxs9                                        1/1     Running   0              134m
-kube-system           kube-proxy-jlh58                                                1/1     Running   0              113m
-```
+- The controller detects this change during its next reconciliation loop.
+- The `dpu.nvidia.com/dpu-ready` taint is removed.
+- Host node resumes scheduling workloads.
 
 ### Troubleshooting
-Users can grep for the `dpuready` string in the dpuservice-controller-manager pod logs:
+To check controller logs, use:
 
-```bash
-kubectl logs dpuservice-controller-manager-56cdc86468-qvjdw -n dpf-operator-system | grep dpuready
-I0619 09:39:35.905116       1 dpuready_controller.go:198] "Adding taint to node" controller="node" controllerGroup="" controllerKind="Node" Node="host-01" namespace="" name="host-01" reconcileID="6c4cf2cb-d271-4184-9e4c-da41e3fe62bc" nodeName="host-01"
-I0619 09:46:01.170252       1 dpuready_controller.go:216] "Removing taint from node" controller="node" controllerGroup="" controllerKind="Node" Node="host-01" namespace="" name="host-01" reconcileID="445f574a-0a10-49c2-a1c2-7d6ebbca9d96" nodeName="host-01"
+```
+kubectl logs dpuservice-controller-manager-<pod> -n dpf-operator-system | grep dpuready
 ```
 
-**Note:**
-Adding/removing the taint on the node does not happen immediately at the moment. It happens as part of a periodic 10-minute loop. In the future, it will be changed to react instantly.
+Example:
+
+```
+I0619 09:39:35.905116 dpuready_controller.go:198] Adding taint to node Node="host-01"
+I0619 09:46:01.170252 dpuready_controller.go:216] Removing taint from node Node="host-01"
+```
+
+### Limitations
+- Tainting is based on a 10-minute periodic reconciliation.
+- Only DPUService pods labeled as svc.dpu.nvidia.com/critical are considered.
+- Taint is only removed once the pod is Ready.
+- Feature currently does not trigger instant reconciliation (planned for future releases).
+
+### Quick Reference
+
+| Item | Description |
+|------|-------------|
+| Label key | `svc.dpu.nvidia.com/critical` |
+| Taint key | `dpu.nvidia.com/dpu-ready` |
+| Taint effect | `NoSchedule` |
+| Taint behavior | Applied if a critical DPUService pod is not running on the DPU |
+| Recovery | Taint is removed once the pod is running and ready |
+| Check logs with | `kubectl logs \| grep dpuready` |
+| Reconciliation interval | Every 10 minutes (will become event-driven in next release) |
+
+### Final Notes
+This feature is essential for ensuring host-side stability when critical DPU infrastructure is missing or unhealthy. Proper labeling and understanding of the DPU-host relationship are required for effective use of this functionality.
 
 ## Dividing the cluster into several zones (DEPRECATED - Use DPUDeployment instead)
 
