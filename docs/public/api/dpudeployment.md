@@ -462,11 +462,6 @@ of the `DPUServices`. The `LocalObjectDependency` object contains the following 
 
 * `name`: The name of the dependency. This field is required and must match the
   name of the `DPUService` that is being depended on, i.e. it must exist in `spec.services`. 
-* `wait`: A boolean that indicates whether the `DPUService` should wait for the
-  dependency to be ready before being deployed. The default is `false`, which means
-  that the `DPUService` will not wait for the dependency to be ready, but dependency
-  order will be enforced during services deployment. If set to `true`, the `DPUService`
-  will wait for the dependency to be ready before being deployed.
 
 ```yaml
 spec:
@@ -479,7 +474,6 @@ spec:
       serviceConfiguration: "consumer"
       dependsOn:
       - name: producer
-        wait: true
 ```
 
 In the above example, the `consumer` service depends on the `producer` service.
