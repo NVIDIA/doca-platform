@@ -38,20 +38,3 @@ spec:
       "bridge": "br-hbn",
       "interface_type": "dpdk"
     }
----
-apiVersion: "k8s.cni.cncf.io/v1"
-kind: NetworkAttachmentDefinition
-metadata:
-  name: iprequest
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "multus.labels" . | nindent 4 }}
-spec:
-  config: |-
-    {
-      "cniVersion": "0.4.0",
-      "type": "dummy",
-      "ipam": {
-        "type": "nv-ipam"
-      }
-    }
