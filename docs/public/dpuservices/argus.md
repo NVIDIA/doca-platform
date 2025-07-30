@@ -16,6 +16,33 @@ The DOCA Argus usecase in DPF is container threat detection in AI workloads and 
 Argus component runs on the DPU and analyzes specific snippets of volatile memory directly, providing attested insights into the operation of various workloads, whether they are bare-metal, virtualized, or containerized.
 By default, Argus scans all systems of the host, so for scanning specific systems only refer to [official DOCA Argus documentation](https://docs.nvidia.com/doca/sdk/doca+argus+service+guide/index.html).
 
+# IOMMU Kernel Parameters Requirements
+
+## Virtualized environments (running inside a VM)
+
+You must set **both** of the following kernel parameters on the **host**:
+
+- `intel_iommu=on` **or** `amd_iommu=on`  
+- `iommu=pt`
+
+> Example: `intel_iommu=on iommu=pt`
+
+## Bare-metal environments (running directly on hardware)
+
+You have **two valid options**:
+
+1. **Disable IOMMU completely**  
+   - `intel_iommu=off` **or** `amd_iommu=off`
+
+2. **Enable IOMMU with passthrough**  
+   - `intel_iommu=on` **or** `amd_iommu=on`  
+   - `iommu=pt`
+
+For more details, refer to the [official NVIDIA DOCA Argus documentation](https://docs.nvidia.com/doca/sdk/doca+argus+service+guide/index.html).
+
+
+# Configuration
+
 Configuration files:
    
 <details markdown="1"><summary>DPUServiceConfiguration</summary>
