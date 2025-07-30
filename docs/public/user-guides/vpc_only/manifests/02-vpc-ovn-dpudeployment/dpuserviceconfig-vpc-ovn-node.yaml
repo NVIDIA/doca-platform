@@ -21,5 +21,7 @@ spec:
             ipRequests:
               - name: "vtep"
                 poolName: "vpc-ippool-vtep"
+                allocateIPWithIndex: 1
               - name: "gateway"
                 poolName: "vpc-ippool-gateway"
+                allocateIPWithIndex: 1

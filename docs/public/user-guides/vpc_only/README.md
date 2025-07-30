@@ -377,8 +377,10 @@ spec:
             ipRequests:
               - name: "vtep"
                 poolName: "vpc-ippool-vtep"
+                allocateIPWithIndex: 1
               - name: "gateway"
                 poolName: "vpc-ippool-gateway"
+                allocateIPWithIndex: 1
 ```
 
 [embedmd]:#(manifests/02-vpc-ovn-dpudeployment/dpuservicetemplate-ovn-central.yaml)
