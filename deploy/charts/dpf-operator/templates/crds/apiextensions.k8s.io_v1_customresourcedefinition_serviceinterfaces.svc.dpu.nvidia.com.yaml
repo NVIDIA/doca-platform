@@ -24,6 +24,9 @@ spec:
     - jsonPath: .spec.interfaceName
       name: IfName
       type: string
+    - jsonPath: .spec.node
+      name: Node
+      type: string
     - jsonPath: .status.conditions[?(@.type=='Ready')].status
       name: Ready
       type: string
