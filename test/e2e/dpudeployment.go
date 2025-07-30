@@ -24,12 +24,14 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/test/utils/metrics"
 	argov1 "github.com/nvidia/doca-platform/third_party/api/argocd/api/application/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	machineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -153,9 +155,14 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 				"svc.dpu.nvidia.com/owned-by-dpudeployment": fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName()),
 			})).To(Succeed())
 
-		// Ensure that DPUDeployment has marked all the DPUServices for removal
+		// Ensure that DPUDeployment has marked all the DPUServices for removal and that the dpuservice controller has
+		// already ran reconcileDelete once to ensure that the Application spec is no longer patched
 		for _, dpuService := range gotDPUServiceList.Items {
 			g.Expect(dpuService.DeletionTimestamp).ToNot(BeNil())
+			conditionReady := conditions.Get(&dpuService, conditions.TypeReady)
+			g.Expect(conditionReady).ToNot(BeNil())
+			g.Expect(conditionReady.Status).To(Equal(metav1.ConditionFalse))
+			g.Expect(conditionReady.Reason).To(BeEquivalentTo(conditions.ReasonAwaitingDeletion))
 		}
 
 		gotApplicationList := &argov1.ApplicationList{}
