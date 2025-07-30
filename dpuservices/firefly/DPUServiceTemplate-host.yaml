@@ -1,0 +1,27 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: firefly-host
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: firefly-host
+  helmChart:
+    source:
+      chart: doca-firefly
+      repoURL: https://helm.ngc.nvidia.com/nvidia/doca
+      version: 1.1.5
+    values:
+      containerImage: nvcr.io/nvidia/doca/doca_firefly:1.7.1-doca3.0.0-host
+      hostNetwork: false
+      monitorClientPhc2sysInterface: eth0
+      monitorClientType: phc2sys
+      phc2sysState: disable
+      ppsDevice: disable
+      ppsState: do_nothing
+      ptpState: disable
+      tolerations:
+        - effect: NoSchedule
+          key: k8s.ovn.org/network-unavailable
+          operator: Exists
+  resourceRequirements:
+    memory: 512Mi

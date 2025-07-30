@@ -1,0 +1,29 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: ovn-controller
+  namespace: dpf-operator-system
+spec:
+  serviceDaemonSet:
+    nodeSelector:
+      nodeSelectorTerms:
+      - matchExpressions:
+          - key: kubernetes.io/os
+            operator: In
+            values:
+            - linux
+          - key: kubernetes.io/arch
+            operator: In
+            values:
+            - arm64
+    labels:
+      dpuservice.dpu.nvidia.com/name: ovn-controller
+  helmChart:
+    source:
+      repoURL: oci://example.com/chart
+      version: v0.1.0
+      chart: ovn-chart
+    values:
+      dpu:
+        ovnController:
+          enabled: true

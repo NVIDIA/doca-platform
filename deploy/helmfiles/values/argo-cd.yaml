@@ -1,0 +1,25 @@
+## Disable the ApplicationSet controller.
+applicationSet:
+  replicas: 0
+dex:
+  enabled: false
+notifications:
+  enabled: false
+global:
+  podLabels:
+    ovn.dpu.nvidia.com/skip-injection: ""
+  affinity:
+    nodeAffinity:
+      # -- Default node affinity rules. Either: `none`, `soft` or `hard`
+      type: hard
+      # -- Default match expressions for node affinity
+      matchExpressions:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: Exists
+  tolerations:
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule

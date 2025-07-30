@@ -1,0 +1,10 @@
+apiVersion: v2
+name: ovn-chart
+description: A Helm chart for OVN
+type: application
+version: 0.1.0
+appVersion: "v24.09.0"
+annotations:
+  dpfVersion: ""
+  created: ""
+  commit: ""

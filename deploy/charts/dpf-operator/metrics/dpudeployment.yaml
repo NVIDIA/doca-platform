@@ -1,0 +1,86 @@
+- groupVersionKind:
+    group: svc.dpu.nvidia.com
+    kind: DPUDeployment
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: dpudeployment
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a DPUDeployment.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            flavor:
+              - spec
+              - dpus
+              - flavor
+            service_template:
+              - spec
+              - services
+              - serviceTemplate
+            service_configuration:
+              - spec
+              - services
+              - serviceConfiguration
+            service:
+              - spec
+              - serviceChains
+              - ports
+              - service
+            service_interface:
+              - spec
+              - serviceChains
+              - ports
+              - serviceInterface
+    - name: status_conditions
+      help: The condition of a DPUDeployment.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: status_condition_last_transition_time
+      help: The condition last transition time of a DPUDeployment.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge

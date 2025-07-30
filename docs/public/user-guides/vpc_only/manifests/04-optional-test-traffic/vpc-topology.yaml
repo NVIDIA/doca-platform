@@ -1,0 +1,43 @@
+apiVersion: vpc.dpu.nvidia.com/v1alpha1
+kind: DPUVPC
+metadata:
+  name: myvpc
+  namespace: default
+spec:
+  tenant: foo
+  isolationClassName: ovn.vpc.dpu.nvidia.com
+  interNetworkAccess: true
+  nodeSelector: {}
+---
+apiVersion: vpc.dpu.nvidia.com/v1alpha1
+kind: DPUVirtualNetwork
+metadata:
+  name: testnet1
+  namespace: default
+spec:
+  vpcName: myvpc
+  type: Bridged
+  externallyRouted: true
+  masquerade: true
+  bridgedNetwork:
+    ipam:
+      ipv4:
+        dhcp: true
+        subnet: 192.178.0.0/16
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: vf2-test
+  namespace: default
+spec:
+  template:
+    spec:
+      template:
+        spec:
+          interfaceType: vf
+          vf:
+            pfID: 0
+            vfID: 2
+            virtualNetwork: testnet1
+            parentInterfaceRef: ""

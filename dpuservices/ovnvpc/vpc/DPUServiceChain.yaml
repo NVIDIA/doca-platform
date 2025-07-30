@@ -1,0 +1,22 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceChain
+metadata:
+  name: vpc-ovn-vtep-ext-to-p0
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        spec:
+          switches:
+            - ports:
+              - serviceInterface:
+                  matchLabels:
+                    ovn.vpc.dpu.nvidia.com/interface: p0
+              - serviceInterface:
+                  matchLabels:
+                    ovn.vpc.dpu.nvidia.com/interface: ovn-vtep-patch
+              - serviceInterface:
+                  matchLabels:
+                    ovn.vpc.dpu.nvidia.com/interface: ovn-ext-patch

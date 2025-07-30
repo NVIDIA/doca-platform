@@ -1,0 +1,22 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: firefly-dpu
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: firefly-dpu
+  helmChart:
+    source:
+      chart: doca-firefly
+      repoURL: https://helm.ngc.nvidia.com/nvidia/doca
+      version: 1.1.5
+    values:
+      containerImage: nvcr.io/nvidia/doca/doca_firefly:1.7.1-doca3.0.0
+      hostNetwork: false
+      enableTXPortTimestampOffloading: true
+      monitorState: 0.0.0.0
+      phc2sysArgs: -a -r -l 6
+      config:
+        isLocalPath: false
+  resourceRequirements:
+    memory: 512Mi

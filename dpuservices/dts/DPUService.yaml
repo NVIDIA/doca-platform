@@ -1,0 +1,57 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: doca-telemetry-service
+  namespace: dpf-operator-system
+spec:
+  helmChart:
+    source:
+      repoURL: https://helm.ngc.nvidia.com/nvidia/doca
+      version: 1.0.7
+      chart: doca-telemetry
+    values:
+      configMapData:
+        providers: "sysfs,ethtool"
+        # aggregator_providers: "fluent_aggr,prometheus_aggr"
+        general:
+          update: 1000
+          sync-time-limit: 10000
+          event-buffer-size: 65536
+          counter-buffer-size: 65536
+
+        fluent:
+          forward:
+            enable: 0
+            port: 24224
+            host: "127.0.0.1"
+            tag: "doca_telemetry"
+
+          kafka:
+            enable: 0
+            brokers: "127.0.0.1:9092"
+            topics: "telemetry"
+            format: "json"
+
+          influxdb:
+            enable: 0
+            host: "127.0.0.1"
+            port: 8086
+            tag: "dts_measurement"
+
+          elasticsearch:
+            enable: 0
+            host: "127.0.0.1"
+            port: 9200
+            index: "dts"
+
+
+
+  serviceDaemonSet:
+    updateStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: 2
+    labels:
+      dpuservice.dpu.nvidia.com/name: doca-telemetry-service
+    annotations:
+      dpuservice.dpu.nvidia.com/name: doca-telemetry-service

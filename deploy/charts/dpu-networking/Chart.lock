@@ -1,0 +1,24 @@
+dependencies:
+- name: multus
+  repository: file://charts/multus
+  version: 0.1.0
+- name: sriov-device-plugin
+  repository: file://charts/sriov-device-plugin
+  version: 0.1.0
+- name: servicechainset-controller
+  repository: file://charts/servicechainset-controller
+  version: 0.1.0
+- name: nvidia-k8s-ipam
+  repository: file://charts/nvidia-k8s-ipam
+  version: 0.1.0
+- name: ovs-cni
+  repository: file://charts/ovs-cni
+  version: 0.1.0
+- name: sfc-controller
+  repository: file://charts/sfc-controller
+  version: 0.1.0
+- name: flannel
+  repository: https://flannel-io.github.io/flannel
+  version: v0.26.5
+digest: sha256:51a3b0588001ea5393ceb3dbe6e37afaae3ea0703de2461a8695b3f930cb4862
+generated: "2025-07-02T15:04:43.568552401+02:00"

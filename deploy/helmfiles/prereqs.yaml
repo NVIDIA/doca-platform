@@ -1,0 +1,94 @@
+repositories:
+  - name: argoproj
+    url: https://argoproj.github.io/argo-helm
+  - name: node-feature-discovery
+    url: https://kubernetes-sigs.github.io/node-feature-discovery/charts
+  - name: clastix
+    url: https://clastix.github.io/charts
+  - name: jetstack
+    url: https://charts.jetstack.io
+
+helmDefaults:
+  atomic: true
+  cleanupOnFail: true
+  skipDeps: false
+  wait: false
+
+releases:
+  - name: cert-manager
+    namespace: cert-manager
+    createNamespace: true
+    chart: jetstack/cert-manager
+    version: v1.18.1
+    labels:
+      app: cert-manager
+    values:
+      - values/cert-manager.yaml
+    hooks:
+      - events: [ "postsync" ]
+        command: "kubectl"
+        args: ["wait", "--for=jsonpath={.webhooks[0].clientConfig.caBundle}", "--timeout=300s", "validatingwebhookconfiguration", "cert-manager-webhook"]
+        showlogs: true
+      - events: [ "postsync" ]
+        command: "kubectl"
+        args: ["wait", "--for=jsonpath={.webhooks[0].clientConfig.caBundle}", "--timeout=300s", "mutatingwebhookconfiguration", "cert-manager-webhook"]
+        showlogs: true
+
+  - name: kamaji
+    namespace: dpf-operator-system
+    createNamespace: true
+    chart: oci://ghcr.io/nvidia/charts/kamaji
+    version: 1.1.0
+    labels:
+      app: kamaji
+    values:
+      - values/kamaji.yaml
+    needs:
+      - cert-manager/cert-manager
+    hooks:
+      - events: [ "preapply" ]
+        command: "./apply-crds.sh"
+        args: ["oci://ghcr.io/nvidia/charts/kamaji", "1.1.0"]
+        showlogs: true
+
+  - name: maintenance-operator
+    namespace: dpf-operator-system
+    createNamespace: true
+    chart: oci://ghcr.io/mellanox/maintenance-operator-chart
+    version: 0.2.0
+    labels:
+      app: maintenance-operator
+    values:
+      - values/maintenance-operator-chart.yaml
+    needs:
+      - cert-manager/cert-manager
+    hooks:
+      - events: [ "preapply" ]
+        command: "./apply-crds.sh"
+        args: ["oci://ghcr.io/mellanox/maintenance-operator-chart", "0.2.0"]
+        showlogs: true
+
+  - name: argo-cd
+    namespace: dpf-operator-system
+    createNamespace: true
+    chart: argoproj/argo-cd
+    version: 7.8.2
+    labels:
+      app: argo-cd
+    values:
+      - values/argo-cd.yaml
+
+  - name: node-feature-discovery
+    namespace: dpf-operator-system
+    createNamespace: true
+    chart: node-feature-discovery/node-feature-discovery
+    version: 0.17.1
+    labels:
+      app: node-feature-discovery
+    values:
+      - values/node-feature-discovery.yaml
+    hooks:
+      - events: [ "preapply" ]
+        command: "./apply-crds.sh"
+        args: ["node-feature-discovery/node-feature-discovery", "0.17.1"]
+        showlogs: true

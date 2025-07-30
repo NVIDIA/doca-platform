@@ -1,0 +1,69 @@
+## dpf-operator configuration.
+controllerManager:
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  image:
+    repository: ""
+    tag: ""
+  replicas: 1
+  serviceAccount:
+    annotations: {}
+imagePullSecrets: []
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/master"
+              operator: Exists
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/control-plane"
+              operator: Exists
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+## enableNFDRules decides whether additional NodeFeatureRules for DPF will be created.
+## Note: NFD must be installed to support this. NFD is deployed by default as part of the DPF Operator chart.
+enableNodeFeatureRules: true
+## IsOpenShift templates resources - for example ClusterRoleBindings to SecurityContextConstraints - which are relevant
+## when installing DPF using helm on OpenShift.
+isOpenshift: false
+## kubeStateMetricsCRDMetrics enables the kube-state-metrics custom resource state metrics.
+## This is used to collect metrics for custom resources defined by the DPF Operator.
+kubeStateMetricsCRDMetrics:
+  enabled: true
+## grafanaDashboards enables the Grafana dashboards for the DPF Operator.
+grafanaDashboards:
+  enabled: true
+## prometheusSecureMetrics enables the secure metrics endpoint for Prometheus.
+## This is used to expose metrics securely for Prometheus scraping.
+prometheusSecureMetrics:
+  enabled: true
+## kamajiEtcdDefrag enables the etcd-defrag job for Kamaji.
+## This job is used to defragment the etcd database used by Kamaji.
+kamajiEtcdDefrag:
+  enabled: true
+  ## releaseName is the name of the kamaji-etcd release name.
+  ## If it is deployed by the kamaji chart itself it will be "kamaji-etcd".
+  releaseName: kamaji-etcd
+  ## The replica count of the etcd cluster.
+  replicas: 3
+  ## The client port of the etcd cluster.
+  clientPort: 2379
+  ## The schedule for the etcd-defrag job.
+  schedule: 0 0 * * *
+  image: ghcr.io/ahrtr/etcd-defrag:v0.22.0
+  ## The defrag rule for the etcd-defrag job.
+  ## See: https://github.com/ahrtr/etcd-defrag?tab=readme-ov-file#defragmentation-rule
+  defragRule: "dbQuotaUsage > 0.8 || dbSize - dbSizeInUse > 200*1024*1024"
+  ## # Keep only the X recent successful jobs.
+  successfulJobsHistoryLimit: 3
+  ## Limit the number of retries on failure
+  backoffLimit: 6

@@ -1,0 +1,174 @@
+#!/bin/bash
+
+#  2025 NVIDIA CORPORATION & AFFILIATES
+#
+#  Licensed under the Apache License, Version 2.0 (the License);
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an AS IS BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+set -o nounset
+set -o pipefail
+set -o errexit
+
+if [[ "${TRACE-0}" == "1" ]]; then
+	set -o xtrace
+fi
+
+CLUSTER_NAME="${CLUSTER_NAME:-"dpf-dev"}"
+KIND_BIN="${KIND_BIN:-"unknown"}"
+KIND_KUBERNETES_VERSION="${KIND_KUBERNETES_VERSION:-"v1.31.9"}"
+ADD_CONTROL_PLANE_TAINTS="${ADD_CONTROL_PLANE_TAINTS:-"false"}"
+DPUCLUSTER_NODE_PORT="32443"
+KIND_CONFIG_FILE="/tmp/kind-config-${CLUSTER_NAME}.yaml"
+# Registry mirror configuration (comma-separated list of endpoints)
+# Example: "https://registry-1.docker.io,https://mirror.gcr.io"
+REGISTRY_MIRRORS="${REGISTRY_MIRRORS:-""}"
+
+echo "Setting up Kind cluster..."
+
+## Exit early if the cluster already exists.
+if $KIND_BIN get clusters | grep -q "^${CLUSTER_NAME}$"; then
+	echo "Kind cluster '$CLUSTER_NAME' found. Skipping cluster set-up"
+	exit 0
+fi
+
+# Create containerd configuration with registry mirrors if specified
+CONTAINERD_CONFIG_PATCH=""
+if [[ -n "$REGISTRY_MIRRORS" ]]; then
+	echo "Configuring registry mirrors: $REGISTRY_MIRRORS"
+
+	# Start building the containerd config patch
+	CONTAINERD_CONFIG_PATCH=$(
+		cat << EOF
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    config_path = "/etc/containerd/certs.d"
+EOF
+	)
+
+	# Add registry mirrors configuration
+	IFS=',' read -ra MIRROR_ARRAY <<< "$REGISTRY_MIRRORS"
+	for MIRROR in "${MIRROR_ARRAY[@]}"; do
+		# Extract the hostname from the URL
+		MIRROR_HOST=$(echo "$MIRROR" | sed -e 's|^[^/]*//||' -e 's|/.*$||')
+		MIRROR_URL=$(echo "$MIRROR" | sed -e 's|/*$||') # Remove trailing slashes
+
+		CONTAINERD_CONFIG_PATCH+=$(
+			cat << EOF
+
+  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."$MIRROR_HOST"]
+    endpoint = ["$MIRROR_URL"]
+EOF
+		)
+	done
+
+	# Add Docker Hub mirror configuration if not explicitly specified
+	if ! [[ "$REGISTRY_MIRRORS" == *"docker.io"* ]]; then
+		CONTAINERD_CONFIG_PATCH+=$(
+			cat << EOF
+
+  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+    endpoint = ["https://registry-1.docker.io"]
+EOF
+		)
+	fi
+
+	echo "Registry mirror configuration created"
+fi
+
+# Create Kind config file
+cat > ${KIND_CONFIG_FILE} << EOF
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: ${CLUSTER_NAME}
+$CONTAINERD_CONFIG_PATCH
+nodes:
+- role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "ingress-ready=true"
+  extraPortMappings:
+  - containerPort: ${DPUCLUSTER_NODE_PORT}
+    hostPort: ${DPUCLUSTER_NODE_PORT}
+    protocol: TCP
+  image: kindest/node:${KIND_KUBERNETES_VERSION}
+EOF
+
+# Create the cluster
+$KIND_BIN create cluster --config=${KIND_CONFIG_FILE}
+
+# Set control-plane and master taint if requested
+if [[ "$ADD_CONTROL_PLANE_TAINTS" == "true" ]]; then
+	# We have to patch those 2 Deployments to tolerate the control-plane and master taint.
+	kubectl -n kube-system patch deploy coredns -p '{"spec":{"template":{"spec":{"tolerations":[{"key":"node-role.kubernetes.io/master","operator":"Exists","effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}]}}}}'
+
+	# No need to add taints for control-plane as they are already present in Kind
+	# But we add the master taint for compatibility
+	kubectl taint node "${CLUSTER_NAME}-control-plane" node-role.kubernetes.io/master:NoSchedule --overwrite
+fi
+
+# Install MetalLB
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml
+
+# If we're adding taints, patch the MetalLB controller to tolerate them
+if [[ "$ADD_CONTROL_PLANE_TAINTS" == "true" ]]; then
+	echo "Patching MetalLB controller deployment to tolerate control-plane and master taints..."
+	kubectl -n metallb-system patch deployment controller -p '{"spec":{"template":{"spec":{"tolerations":[{"key":"node-role.kubernetes.io/master","operator":"Exists","effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}]}}}}'
+fi
+
+# Wait for MetalLB controller deployment to exist
+echo "Waiting for MetalLB controller deployment to be ready."
+kubectl -n metallb-system rollout status deployment/controller --timeout=180s
+
+# Create the MetalLB config.
+kubectl get namespace metallb-system || kubectl create namespace metallb-system
+
+# Configure MetalLB with a range of IPs from the kind docker network
+DOCKER_NETWORK_CIDR=$(docker network inspect kind | jq -r '.[0].IPAM.Config[].Subnet' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
+NETWORK_PREFIX=$(echo $DOCKER_NETWORK_CIDR | sed -E 's/([0-9]+\.[0-9]+\.[0-9]+)\.[0-9]+.*/\1/')
+METALLB_IP_RANGE="${NETWORK_PREFIX}.200-${NETWORK_PREFIX}.250"
+
+cat << EOF | kubectl apply -f -
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: default
+  namespace: metallb-system
+spec:
+  addresses:
+  - ${METALLB_IP_RANGE}
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: default
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+  - default
+EOF
+
+echo "Deploy local-path storage class next to default."
+kubectl apply -f - << EOF
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-path
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+EOF
+
+echo "Kind cluster '${CLUSTER_NAME}' setup complete."
