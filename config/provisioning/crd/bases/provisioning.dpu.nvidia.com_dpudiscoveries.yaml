@@ -80,6 +80,7 @@ spec:
                 - message: Only IPv4 addresses are supported (IPv6 not allowed)
                   rule: '!self.ipRange.startIP.contains('':'') && !self.ipRange.endIP.contains('':'')'
               scanInterval:
+                default: 1h
                 description: ScanInterval defines how often to perform the scan
                 type: string
               workers:

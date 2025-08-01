@@ -88,6 +88,7 @@ var provisioningResources = []schema.GroupVersionKind{
 	provisioningv1.DPUFlavorGroupVersionKind,
 	provisioningv1.DPUNodeGroupVersionKind,
 	provisioningv1.DPUDeviceGroupVersionKind,
+	provisioningv1.DPUDiscoveryGroupVersionKind,
 }
 
 // serviceChainResources tracks the DPUService resources which need to be deleted by the DPF Operator.

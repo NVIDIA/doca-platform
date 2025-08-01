@@ -20,6 +20,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// DPUDiscoveryGroupVersionKind is the GroupVersionKind of the DPUDiscovery object
+var DPUDiscoveryGroupVersionKind = GroupVersion.WithKind(DPUDiscoveryKind)
+
+const (
+	// DPUDiscoveryKind is the kind of the DPUDiscovery object
+	DPUDiscoveryKind = "DPUDiscovery"
+)
+
 // DPUDiscovery is the custom resource for DPU discovery
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
@@ -40,6 +48,7 @@ type DPUDiscoverySpec struct {
 	// IPRange defines the range of IP addresses to scan
 	IPRangeSpec IPRangeValidationSpec `json:"ipRangeSpec"`
 	// ScanInterval defines how often to perform the scan
+	// +kubebuilder:default="1h"
 	ScanInterval metav1.Duration `json:"scanInterval,omitempty"`
 	// Workers defines the number of workers to use for the scan (default 1 worker for each 255 IPs in the range)
 	// +optional

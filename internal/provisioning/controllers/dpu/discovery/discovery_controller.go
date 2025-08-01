@@ -86,9 +86,6 @@ func (r *DPUDiscoveryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Check if it's time to scan
 	if dpuDiscovery.Status.LastScanTime != nil {
 		nextScan := dpuDiscovery.Status.LastScanTime.Add(dpuDiscovery.Spec.ScanInterval.Duration)
-		if dpuDiscovery.Spec.ScanInterval.Duration == 0 {
-			dpuDiscovery.Spec.ScanInterval.Duration = time.Hour
-		}
 
 		if time.Now().Before(nextScan) {
 			return ctrl.Result{

@@ -1004,7 +1004,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `ipRangeSpec` _[IPRangeValidationSpec](#iprangevalidationspec)_ | IPRange defines the range of IP addresses to scan |  |  |
-| `scanInterval` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#duration-v1-meta)_ | ScanInterval defines how often to perform the scan |  |  |
+| `scanInterval` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#duration-v1-meta)_ | ScanInterval defines how often to perform the scan | 1h |  |
 | `workers` _integer_ | Workers defines the number of workers to use for the scan (default 1 worker for each 255 IPs in the range) |  |  |
 
 
