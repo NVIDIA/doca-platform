@@ -111,6 +111,10 @@ const (
 	KubernetesVersion = "v1.33.0"
 	// MaxNameLength is the maximum length of the name of the K8s resource.
 	MaxNameLength = validation.DNS1123SubdomainMaxLength // 253
+
+	// HostNameDPULabelKey is the label added to the DPU Kubernetes Node that indicates the hostname of the host that
+	// this DPU belongs to.
+	HostNameDPULabelKey = "provisioning.dpu.nvidia.com/host"
 )
 
 var (

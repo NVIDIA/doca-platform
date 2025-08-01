@@ -48,9 +48,6 @@ import (
 
 const (
 	CloudInitDefaultTimeout = 90
-	// HostNameDPULabelKey is the label added to the DPU Kubernetes Node that indicates the hostname of the host that
-	// this DPU belongs to.
-	HostNameDPULabelKey = "provisioning.dpu.nvidia.com/host"
 )
 
 func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
@@ -288,7 +285,7 @@ func dmsHandler(ctx context.Context, k8sClient client.Client, inDPU *provisionin
 						// cat /etc/mlnx-release
 						// bf-bundle-2.7.0-33_24.04_ubuntu-22.04_prod
 						patch := client.MergeFrom(dpu.DeepCopy())
-						dpu.Spec.Cluster.NodeLabels[HostNameDPULabelKey] = dpu.Spec.DPUNodeName
+						dpu.Spec.Cluster.NodeLabels[cutil.HostNameDPULabelKey] = dpu.Spec.DPUNodeName
 						// Set the DPU version in the node labels. This is necessary to be able to schedule Pods
 						// on the DPU Node based on the DPF version.
 						// The DPF version in the status should never be nil, but we check it here to avoid nil pointer dereference.

@@ -27,6 +27,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/gnoi"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/dms"
 	"github.com/nvidia/doca-platform/internal/release"
 
@@ -205,7 +206,7 @@ var _ = Describe("Phase Installing", func() {
 					HaveKeyWithValue(release.DPFVersionLabelKey, release.DPFVersion()),
 				))
 			Expect(dpuFetched.Spec.Cluster.NodeLabels).To(HaveKeyWithValue(
-				gnoi.HostNameDPULabelKey, defaultDPUNodeName,
+				cutil.HostNameDPULabelKey, defaultDPUNodeName,
 			))
 		})
 	})
