@@ -851,6 +851,22 @@ DPFOperatorConfig/dpfoperatorconfig                      dpf-operator-system
 * Check for IP conflicts in subnet ranges.
 * Ensure the target ServiceInterface is ready.
 
+**E/W Traffic Not Passing within Same VPC after DPU Reprovisioning**:
+
+If you experience issues where east-west (E/W) traffic is not passing between nodes under the same VPC after DPU reprovisioning, follow these steps:
+
+* Verify the ServiceInterfaces are ready on all nodes.
+* Confirm that these ServiceInterfaces are associated with the same DPUVirtualNetwork and are part of the expected DPUVPC.
+* Locate the ovn-central pod running in the management cluster, example:
+```sh
+kubectl get pods -n dpf-operator-system | grep ovn-central
+```
+* run the following command in ovn-central pod to remove leftover chassis records:
+```sh
+kubectl exec -it -n dpf-operator-system <in-cluster-ovn-central> -- \
+sh -c 'for chassis in $(ovn-sbctl list Chassis | awk "/_uuid/ {print \$3}"); do ovn-sbctl destroy Chassis $chassis; done'
+```
+
 ## Limitations
 
 * **Production Use**: Not recommended for production use.
