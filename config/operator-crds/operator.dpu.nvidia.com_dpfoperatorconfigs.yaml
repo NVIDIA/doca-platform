@@ -364,8 +364,10 @@ spec:
                         || (!has(self.installViaGNOI) && has(self.installViaRedfish))
                   maxDPUParallelInstallations:
                     default: 50
-                    description: MaxDPUParallelInstallations specifies the maximum
-                      number of DPUs that can be provisioned concurrently.
+                    description: |-
+                      MaxDPUParallelInstallations specifies the maximum number of DPUs that can be provisioned concurrently.
+                      A DPU is removed from the concurrent provisioning count as soon as it finishes the "OS Installing" phase and
+                      enters the "Rebooting" phase of its provisioning lifecycle.
                     format: int32
                     minimum: 1
                     type: integer

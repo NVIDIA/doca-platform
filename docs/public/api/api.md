@@ -416,7 +416,7 @@ _Appears in:_
 | `dmsTimeout` _integer_ | DMSTimeout is the max time in seconds within which a DMS API must respond, 0 is unlimited |  | Minimum: 1 <br /> |
 | `customCASecretName` _string_ | CustomCASecretName indicates the name of the Kubernetes secret object<br />which containing the custom CA certificate |  |  |
 | `installInterface` _[ProvisioningInstallInterface](#provisioninginstallinterface)_ | InstallInterface is the interface through which the BFB is installed |  |  |
-| `maxDPUParallelInstallations` _integer_ | MaxDPUParallelInstallations specifies the maximum number of DPUs that can be provisioned concurrently. | 50 | Minimum: 1 <br /> |
+| `maxDPUParallelInstallations` _integer_ | MaxDPUParallelInstallations specifies the maximum number of DPUs that can be provisioned concurrently.<br />A DPU is removed from the concurrent provisioning count as soon as it finishes the "OS Installing" phase and<br />enters the "Rebooting" phase of its provisioning lifecycle. | 50 | Minimum: 1 <br /> |
 
 
 #### ProvisioningInstallInterface

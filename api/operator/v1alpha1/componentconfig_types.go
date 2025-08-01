@@ -157,6 +157,8 @@ type ProvisioningControllerConfiguration struct {
 	InstallInterface *ProvisioningInstallInterface `json:"installInterface,omitempty"`
 
 	// MaxDPUParallelInstallations specifies the maximum number of DPUs that can be provisioned concurrently.
+	// A DPU is removed from the concurrent provisioning count as soon as it finishes the "OS Installing" phase and
+	// enters the "Rebooting" phase of its provisioning lifecycle.
 	// +kubebuilder:default=50
 	// +kubebuilder:validation:Minimum=1
 	// +optional
