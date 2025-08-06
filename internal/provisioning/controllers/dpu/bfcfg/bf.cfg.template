@@ -3,7 +3,7 @@
 
 {{- if .RedfishInterface}}
 BMC_PASSWORD="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 4)-$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 4)_$(tr -dc '0-9' </dev/urandom | head -c 2)$(tr -dc 'a-z' </dev/urandom | head -c 1)$(tr -dc 'A-Z' </dev/urandom | head -c 1)"
-BMC_USER="firmware_updater"
+BMC_USER="fw_updater"
 BMC_REBOOT="yes"
 CEC_REBOOT="yes"
 USER_ID=8
