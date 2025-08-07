@@ -17,23 +17,25 @@
 STERN=${STERN:-"stern"}
 ARTIFACTS=${ARTIFACTS:-"artifacts"}
 # Remove the trailing slash via %/
-LOGS_DIR=${ARTIFACTS%/}/main/Logs
+LOGS_DIR=${ARTIFACTS%/}/final/main/Logs
 
 # Clean the logs directory before starting the process.
 rm -rf "$LOGS_DIR"
 
 # Call stern to get the logs of all pods in the cluster and write them to files in the artifacts directory.
 # Send the process to the background to be able to run the command passed to the script.
-# Log files are written to the artifacts directory in the format: $ARTIFACTS/main/Logs/$namespace/$pod/$container.log
-$STERN --max-log-requests=500 -A . 2> /dev/null \
-	| while read ns pod container log; do
+# Log files are written to the artifacts directory in the format: $ARTIFACTS/final/main/Logs/$namespace/$pod/$container.log
+# Start stern in background and capture its PID.
+$STERN --max-log-requests=500 -A . 2> /dev/null > >(
+	while read ns pod container log; do
 		mkdir -p "$LOGS_DIR/$ns/$pod"
 		echo $log >> "$LOGS_DIR/$ns/$pod/$container.log"
-	done &
+	done
+) &
 
 # Get the pid of the stern process and kill it when the script exits.
 STERN_PID=$!
-trap "kill $STERN_PID" EXIT
+trap "kill -9 $STERN_PID" EXIT
 
 # Call the command passed to the script.
 "$@"
