@@ -33,7 +33,7 @@ A Helm chart for DPF storage subsystem
 | dpu.docaSnap.env.SPDK_RPC_INIT_CONF_JSON | string | `""` |  |
 | dpu.docaSnap.env.SPDK_XLIO_PATH | string | `""` |  |
 | dpu.docaSnap.hostNetwork | bool | `false` |  |
-| dpu.docaSnap.image.repository | string | `"nvcr.io/nvstaging/doca/doca_vfs"` |  |
+| dpu.docaSnap.image.repository | string | `"nvcr.io/nvidia/doca/doca_vfs"` |  |
 | dpu.docaSnap.image.tag | string | `"1.4.0-doca3.1.0"` |  |
 | dpu.docaSnap.imagePullPolicy | string | `"IfNotPresent"` |  |
 | dpu.docaSnap.imagePullSecrets | list | `[]` |  |
