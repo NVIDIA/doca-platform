@@ -57,8 +57,6 @@ spec:
           imagePullPolicy: {{ .Values.dpu.snapNodeDriver.imagePullPolicy }}
           command:
             - /snap-node-driver
-          args:
-            - --leader-elect=true
           env:
             {{- range .Values.dpu.snapNodeDriver.env }}
             - name: "{{ .name }}"
