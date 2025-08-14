@@ -52,4 +52,4 @@ go.work
 third_party/forked/ovs-cni/.version
 
 # Ignore the rendered helmfiles in the dpf-operator chart
-deploy/charts/dpf-operator/dev/helmfiles
+deploy/charts/dpf-operator/dev/helmfiles/**
