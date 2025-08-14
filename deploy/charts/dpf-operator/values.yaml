@@ -30,7 +30,7 @@ tolerations:
     operator: Exists
     effect: NoSchedule
 ## enableNFDRules decides whether additional NodeFeatureRules for DPF will be created.
-## Note: NFD must be installed to support this. NFD is deployed by default as part of the DPF Operator chart.
+## Note: NFD must be installed to support this.
 enableNodeFeatureRules: true
 ## IsOpenShift templates resources - for example ClusterRoleBindings to SecurityContextConstraints - which are relevant
 ## when installing DPF using helm on OpenShift.
