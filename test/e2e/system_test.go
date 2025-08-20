@@ -18,6 +18,10 @@ package e2e
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"maps"
 	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -78,6 +82,10 @@ func SystemSetupBeforeSuite() {
 
 	AnnotateAndLabelNodes(ctx, input.client, input.useExternalNodeReboot)
 
+	if ngcAPIKey != "" {
+		createNGCImagePullSecret(ctx, input.client)
+	}
+
 	By("Deploy DPF System components")
 	DeployDPFSystemComponents(ctx, DeployDPFSystemComponentsInput{
 		systemNamespace:           input.namespace,
@@ -86,6 +94,48 @@ func SystemSetupBeforeSuite() {
 		ProvisioningControllerPVC: input.pvc,
 		client:                    input.client,
 	})
+}
+
+// createNGCImagePullSecret creates a secret to be able to pull images from NGC, this secret can be used by DPUservices and should not be used for core components.
+func createNGCImagePullSecret(ctx context.Context, client client.Client) {
+	// Docker registry credentials
+	registry := "nvcr.io"
+	username := "$oauthtoken"
+	password := ngcAPIKey
+
+	// Create the auth string
+	auth := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", username, password)))
+
+	// Build the config.json structure
+	dockerConfig := map[string]interface{}{
+		"auths": map[string]interface{}{
+			registry: map[string]string{
+				"auth": auth,
+			},
+		},
+	}
+
+	dockerConfigJSON, err := json.Marshal(dockerConfig)
+	Expect(err).ToNot(HaveOccurred())
+
+	labels := maps.Clone(afterAllCleanupLabels)
+	labels["dpu.nvidia.com/image-pull-secret"] = ""
+
+	// Create the Secret object
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ngcPullSecretName,
+			Namespace: dpfOperatorSystemNamespace,
+			Labels:    labels,
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{
+			".dockerconfigjson": dockerConfigJSON,
+		},
+	}
+
+	// Create the secret
+	Expect(client.Create(ctx, secret)).To(Succeed())
 }
 
 func AnnotateAndLabelNodes(ctx context.Context, c client.Client, useExternalNodeReboot bool) {

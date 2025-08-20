@@ -70,6 +70,10 @@ var (
 
 	// bfbImageURL can be used to override the default BFB image URL used in the tests.
 	bfbImageURL = ""
+	// hbnImageURL can be used to override the default HBN image URL used in the tests.
+	hbnImageURL = ""
+	// ngcAPIKey can be used to create a secret to be able to pull images from NGC, this secret can be used by DPUservices and should not be used for core components.
+	ngcAPIKey = ""
 )
 
 func getEnvVariables() {
@@ -86,6 +90,16 @@ func getEnvVariables() {
 		if err != nil {
 			panic(err)
 		}
+	}
+	if url, found := os.LookupEnv("HBN_IMAGE_URL"); found {
+		var err error
+		hbnImageURL, err = utils.ResolveHBNImageURL(url)
+		if err != nil {
+			panic(err)
+		}
+	}
+	if key, found := os.LookupEnv("NGC_API_KEY"); found {
+		ngcAPIKey = key
 	}
 	if v, found := os.LookupEnv("DPF_E2E_COLLECT_RESOURCES"); found {
 		var err error

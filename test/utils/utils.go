@@ -239,3 +239,19 @@ func ResolveBFBImageURL(bfbURL string) (string, error) {
 
 	return fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, file[0]), nil
 }
+
+// ResolveHBNImageURL processes the HBN image URL and returns it if valid.
+func ResolveHBNImageURL(hbnURL string) (string, error) {
+	// If URL doesn't contain a colon, return as-is
+	if !strings.Contains(hbnURL, ":") {
+		return hbnURL, nil
+	}
+
+	// Basic validation - should have repository:tag format
+	parts := strings.SplitN(hbnURL, ":", 2)
+	if len(parts) != 2 {
+		return hbnURL, fmt.Errorf("invalid format, expected repository:tag")
+	}
+
+	return hbnURL, nil
+}

@@ -98,6 +98,19 @@ func (t *systemTestInput) applySDNConfig(conf config) {
 
 	dpuServiceHBN := &dpuservicev1.DPUService{}
 	svcHBN := unstructuredFromFile(conf.DPUServiceHBNPath)
+
+	// Override HBN image if HBN_IMAGE_URL is set
+	if hbnImageURL != "" {
+		parts := strings.SplitN(hbnImageURL, ":", 2)
+		repository := parts[0]
+		tag := parts[1]
+		updateHBNImage(svcHBN, repository, tag)
+	}
+
+	if ngcAPIKey != "" {
+		updateImagePullSecret(svcHBN, ngcPullSecretName)
+	}
+
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcHBN.Object, dpuServiceHBN)).To(Succeed())
 	t.dpuServiceHBN = dpuServiceHBN
 
@@ -110,6 +123,29 @@ func (t *systemTestInput) applySDNConfig(conf config) {
 	chainTemplate := unstructuredFromFile(conf.DPUServiceChainTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(chainTemplate.Object, dpuServiceChainTemplate)).To(Succeed())
 	t.dpuServiceChainTemplate = dpuServiceChainTemplate
+}
+
+func updateHBNImage(svcHBN *unstructured.Unstructured, repository, tag string) {
+	err := unstructured.SetNestedField(svcHBN.Object, repository,
+		"spec", "helmChart", "values", "image", "repository")
+	Expect(err).ToNot(HaveOccurred())
+
+	err = unstructured.SetNestedField(svcHBN.Object, tag,
+		"spec", "helmChart", "values", "image", "tag")
+	Expect(err).ToNot(HaveOccurred())
+}
+
+func updateImagePullSecret(svc *unstructured.Unstructured, secretName string) {
+	pullSecrets, found, err := unstructured.NestedSlice(svc.Object, "spec", "helmChart", "values", "imagePullSecrets")
+	Expect(err).ToNot(HaveOccurred())
+	if !found {
+		pullSecrets = make([]interface{}, 0)
+	}
+
+	pullSecrets = append(pullSecrets, map[string]interface{}{"name": secretName})
+
+	err = unstructured.SetNestedSlice(svc.Object, pullSecrets, "spec", "helmChart", "values", "imagePullSecrets")
+	Expect(err).ToNot(HaveOccurred())
 }
 
 func (t *systemTestInput) applyConfig(conf config) {

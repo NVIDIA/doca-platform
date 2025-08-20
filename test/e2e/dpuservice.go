@@ -180,8 +180,12 @@ func ValidateImagePullSecretsSync(ctx context.Context, input *systemTestInput) {
 	testNSImagePullSecret = generateImagePullSecret(input, dpuServiceNamespace)
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, testNSImagePullSecret))).ToNot(HaveOccurred())
 
-	// Verify that we have 2 secrets in the DPU Cluster.
-	verifyImagePullSecretsCount(ctx, input.client, dpfOperatorSystemNamespace, 2)
+	// Verify that we have the precreated secrets + the new secret in the DPU Cluster.
+	secretCount := 2
+	if ngcAPIKey != "" {
+		secretCount += 1
+	}
+	verifyImagePullSecretsCount(ctx, dpuClusterClient, dpfOperatorSystemNamespace, secretCount)
 
 	desiredConf := &operatorv1.DPFOperatorConfig{}
 	Eventually(input.client.Get).WithArguments(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, desiredConf).Should(Succeed())
@@ -196,8 +200,12 @@ func ValidateImagePullSecretsSync(ctx context.Context, input *systemTestInput) {
 	// clusters to which it was previously mirrored.
 	Eventually(utils.ForceObjectReconcileWithAnnotation).WithArguments(ctx, input.client,
 		&dpuservicev1.DPUService{ObjectMeta: metav1.ObjectMeta{Name: operatorv1.MultusName, Namespace: dpfOperatorSystemNamespace}}).Should(Succeed())
-	// Verify we only have one image pull secret.
-	verifyImagePullSecretsCount(ctx, input.client, dpfOperatorSystemNamespace, 1)
+	// Verify that we have only the precreated secrets in the DPU Cluster.
+	secretCount = 1
+	if ngcAPIKey != "" {
+		secretCount += 1
+	}
+	verifyImagePullSecretsCount(ctx, dpuClusterClient, dpfOperatorSystemNamespace, secretCount)
 }
 
 func ValidateDPUServiceTemplateCreationNoAnnotations(ctx context.Context, input *systemTestInput) {

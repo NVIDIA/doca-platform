@@ -68,6 +68,7 @@ var (
 		&corev1.NodeList{},
 		&corev1.ServiceList{},
 		&corev1.PodList{},
+		&corev1.SecretList{},
 	}
 	// systemPodsToVerify is a list of pod name patterns that should be verified in the DPU cluster
 	systemPodsToVerify = []string{
@@ -81,6 +82,8 @@ const (
 	configName                 = "dpfoperatorconfig"
 	dpfOperatorSystemNamespace = "dpf-operator-system"
 	argoCDInstanceLabel        = "argocd.argoproj.io/instance"
+	// ngcPullSecretName is the name of the secret used to pull images from NGC
+	ngcPullSecretName = "ngc-pull-secret"
 	// scaleLabel is used to mark the tests related to the Scale test suite
 	scaleLabel = "SCALE"
 	// dpfSystemLabel is used to mark the tests related to the DPFSystem test suite, ex: e2e, provisioning-e2e
