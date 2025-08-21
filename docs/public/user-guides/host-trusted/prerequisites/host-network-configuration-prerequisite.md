@@ -77,9 +77,7 @@ network:
         route-metric: 5
   version: 2
 ```
-> Note:
-> 
-> Please ensure that the configuration on `br-dpu` matches the configuration on your DHCP server. You may need additional configurations to make the DHCP procedure work. For example:
+> [!NOTE] Please ensure that the configuration on `br-dpu` matches the configuration on your DHCP server. You may need additional configurations to make the DHCP procedure work. For example:
 > 1. Set `macaddress` to explicitly assign a MAC address to `br-dpu`
 > 2. Set `dhcp-identifier: mac` to use MAC address as the DHCP client identifier
 
@@ -114,9 +112,7 @@ network:
           - "xxx"
   version: 2
 ```
-> Note:
-> 
-> The metric of the default route must be at least 2
+> [!NOTE] The metric of the default route must be at least 2
 
 
 ## Host Routes and network acceleration

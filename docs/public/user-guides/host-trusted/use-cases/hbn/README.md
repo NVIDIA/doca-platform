@@ -3,8 +3,7 @@ title: "Host Based Networking"
 ---
 
 
-> Note:
-> Follow this guide from the source GitHub repo at [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform) and moving to the `docs/public/user-guides/hbn_only/README.md` for better formatting of the code.
+> [!NOTE] Follow this guide from the source GitHub repo at [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform) and moving to the `docs/public/user-guides/hbn_only/README.md` for better formatting of the code.
 
 
 In this configuration [NVIDIA Host Based Networking (HBN)](https://docs.nvidia.com/doca/sdk/doca+hbn+service+guide/index.html) is installed as a DPUService.
@@ -140,9 +139,7 @@ spec:
 
 Before deploying the DPF Operator, ensure that Helm is properly configured according to the [Helm prerequisites](../../../../getting-started/helm-prerequisites.md).
 
-> [!WARNING]
-> 
-> This is a critical prerequisite step that must be completed for the DPF Operator to function properly.
+> [!WARNING] This is a critical prerequisite step that must be completed for the DPF Operator to function properly.
 
 #### Deploy the DPF Operator
 
