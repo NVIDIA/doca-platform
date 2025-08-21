@@ -21,10 +21,9 @@ An update to the DPUSet can be done for upgrading the BFB or modifying provision
 These are the required steps for upgrading the BFB on a set of DPUs
 (The BFB is specified as part of the DPU Set CRD):
 
-**1.** Create a BFB YAML that includes the required BFB file and also assigns a distinct name for the object (Different from
-the currently used BFB objects). After applying the YAML, the BFB will be
-[pulled from the specified URL](https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.0.0-135_25.04_ubuntu-22.04_prod.bfb)
-to the shared storage:
+**1.** Create a BFB YAML that includes the required BFB file and also assigns a distinct name for the object (Different
+from the currently used BFB objects). After applying the YAML, the BFB will be pulled from the specified URL to the
+shared storage:
 
 ```yaml
 ---
@@ -34,7 +33,7 @@ metadata:
   name: bf-bundle-new
   namespace: dpf-operator-system
 spec:
-  url: https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.0.0-135_25.04_ubuntu-22.04_prod.bfb
+  url: https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.1.0-76_25.07_ubuntu-22.04_prod.bfb
 ```
 
 **2.** Update the DPUSet YAML to point to the new BFB object:

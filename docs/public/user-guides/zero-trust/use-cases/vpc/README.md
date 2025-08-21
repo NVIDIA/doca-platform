@@ -106,7 +106,7 @@ export EXTERNAL_GATEWAY=30.30.0.1
 export TAG=v25.7.0
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
-export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.0.0-135_25.04_ubuntu-22.04_prod.bfb"
+export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.1.0-76_25.07_ubuntu-22.04_prod.bfb"
 ```
 </details>
 
