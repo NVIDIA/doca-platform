@@ -1,8 +1,7 @@
 # Prometheus configuration
-prometheus:
-  enabled: false
 server:
-  enabled: false
+  persistentVolume:
+    storageClass: local-path
   affinity:
     nodeAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:

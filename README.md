@@ -13,13 +13,15 @@ DPF supports dual port NVIDIA BlueField-3 DPUs.
 
 BlueField DPUs are installed as PCI devices in servers to manage various types of network traffic, such as data center communication and storage traffic, through dedicated ports. They feature arm64 CPUs running Linux OS and [NVIDIA DOCA Software](https://developer.nvidia.com/networking/doca) components.
 
-Refer to [Prerequisites](docs/public/user-guides/prerequisites/prerequisites.md) for detailed hardware requirements.
+Refer to Prerequisites for detailed hardware requirements:
+- [Zero Trust Mode](docs/public/user-guides/zero-trust/prerequisites/README.md) 
+- [Host Trusted Mode](docs/public/user-guides/host-trusted/prerequisites/README.md) 
 
 ## Documentation
 
-- [System overview](docs/public/architecture/system_overview.md): High-level description of DPF components and functionality.
+- [System overview](docs/public/developer-guides/architecture/system-overview.md): High-level description of DPF components and functionality.
 
-- [System architecture](docs/public/architecture/component_description.md): Detailed explanation of DPF components and their interactions.
+- [System architecture](docs/public/developer-guides/architecture/component-description.md): Detailed explanation of DPF components and their interactions.
 
 - [User guide](docs/public/user-guides/README.md): Guides on installing and utilizing DPF effectively for specific use-cases.
 
@@ -27,4 +29,4 @@ Refer to [Prerequisites](docs/public/user-guides/prerequisites/prerequisites.md)
 
 ## API reference
 
-Comprehensive DPF API documentation is available [here](docs/public/api/README.md).
+Comprehensive DPF API documentation is available [here](docs/public/developer-guides/api/README.md).

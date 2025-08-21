@@ -394,13 +394,13 @@ generate-docs-mdtoc: mdtoc ## Generate table of contents for our documentation.
 
 .PHONY: generate-docs-api
 generate-docs-api: gen-crd-api-reference-docs ## Generate docs for the API.
-	$(GEN_CRD_API_REFERENCE_DOCS) --renderer=markdown --source-path=api --config=hack/tools/api-docs/config.yaml --output-path=docs/public/api/api.md.tmp
-	@echo '---' > docs/public/api/api.md
-	@echo 'title: API reference' >> docs/public/api/api.md
-	@echo '---' >> docs/public/api/api.md
-	@echo '' >> docs/public/api/api.md
-	@cat docs/public/api/api.md.tmp >> docs/public/api/api.md
-	@rm docs/public/api/api.md.tmp
+	$(GEN_CRD_API_REFERENCE_DOCS) --renderer=markdown --source-path=api --config=hack/tools/api-docs/config.yaml --output-path=docs/public/developer-guides/api/api.md.tmp
+	@echo '---' > docs/public/developer-guides/api/api.md
+	@echo 'title: "API reference"' >> docs/public/developer-guides/api/api.md
+	@echo '---' >> docs/public/developer-guides/api/api.md
+	@echo '' >> docs/public/developer-guides/api/api.md
+	@cat docs/public/developer-guides/api/api.md.tmp >> docs/public/developer-guides/api/api.md
+	@rm docs/public/developer-guides/api/api.md.tmp
 
 .PHONY: generate-docs-helm
 generate-docs-helm: helm-docs ## Generate helm chart documentation.

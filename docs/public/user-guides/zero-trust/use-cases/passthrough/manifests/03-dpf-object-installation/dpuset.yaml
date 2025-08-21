@@ -1,0 +1,17 @@
+---
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUSet
+metadata:
+  name: passthrough
+  namespace: dpf-operator-system
+spec:
+  dpuNodeSelector:
+    matchLabels:
+      feature.node.kubernetes.io/dpu-enabled: "true"
+  dpuTemplate:
+    spec:
+      dpuFlavor: passthrough
+      bfb:
+        name: "bf-bundle"
+      nodeEffect:
+        noEffect: true

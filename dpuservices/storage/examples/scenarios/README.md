@@ -66,7 +66,7 @@ export SPDK_CSI_IMAGE_PULL_SECRET='[]'
 
 # Workload environment variables
 
-# For non-trusted host workloads only, set to the name of the node to which to attach the DPU volume
+# For zero trust workloads only, set to the name of the node to which to attach the DPU volume
 export KUBE_NODE_NAME="<kubernetes-node-name>"
 ```
 
@@ -3563,9 +3563,9 @@ spec:
 ### Workload Examples
 Each scenario includes a `workload/` directory with:
 * `StorageClass` and `StatefulSet` examples for trusted k8s cluster scenarios
-* `DPUVolume` and `DPUVolumeAttachment` examples for non-trusted host scenarios
+* `DPUVolume` and `DPUVolumeAttachment` examples for Zero Trust scenarios
 
 ## Links
 
 * [DPF Documentation](../../../../docs)
-* [DPF Storage Subsystem Documentation](../../../../docs/public/developer-guides/storage.md)
+* [DPF Storage Subsystem Documentation](../../../../docs/public/developer-guides/services/storage.md)

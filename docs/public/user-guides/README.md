@@ -2,58 +2,44 @@
 title: "User Guides"
 ---
 
-[TOC]
+# DPF User Guides
 
-## System requirements
+These guides walk you through deploying and configuring the DOCA Platform Foundation (DPF) for different scenarios.
 
-Before deploying DPF, ensure the following prerequisites are met:
+## Deployment Scenarios
 
-* [DPF System Setup Prerequisites](prerequisites/prerequisites.md)
-* [Host Network Configuration Prerequisites](prerequisites/host-network-configuration-prerequisite.md)
+We have two primary deployment scenarios for DPF -  Zero Trust and Host Trusted. Each scenario has its own
+deployment guide and configuration details.
 
-## User guide
+In the below diagram, you can see the differences between the two deployment modes:
 
-DPF enables a range of deployment scenarios by combining specific DPU services into service chains. These chains provide flexibility and efficiency for complex networking workflows.
+![Deployment Modes](modes.png)
 
-Each service combination may require tailored configurations on the DPU for optimal performance. Below are the validated user guides with corresponding deployment guides.
+### Zero Trust Deployment
 
-### HBN and OVN
+[Zero Trust Guide](zero-trust/README.md)
 
-* [Host Based Networking and OVN Kubernetes](hbn_ovn/README.md)
+In Zero Trust deployments, the DPU acts as a host accelerator card managed by DPF via BMC and Redfish. Your host
+machines stay outside the DPF management cluster, while the DPU provides secure acceleration for those hosts.
 
-| DPU Services                    | Comments                                                  |
-|---------------------------------|-----------------------------------------------------------|
-| DOCA Host-Based Networking (HBN)| Accelerates underlay BGP routing with ECMP from the DPU   |
-| OVN-Kubernetes with DPU offload | Provides SDN overlay services and Kubernetes CNI offloads |
-| DOCA Telemetry Service (DTS)    | Provides enhanced DPU telemetry                           |
-| DOCA BlueMan                    | Offers a user-friendly GUI for DTS                        |
+This approach gives you:
 
-### OVN Only
+* DPU managed through DPF via BMC and Redfish
+* Secure isolation between management plane and host systems
+* DPU services managed via Kubernetes APIs within the DPF cluster
+* Ideal for isolation use cases: HBN, VPC, SNAP isolated storage, and Argus
 
-* [OVN Kubernetes on its own](ovn_only/README.md)
+### Host Trusted Deployment
 
-| DPU Services                    | Comments                                                        |
-|---------------------------------|-----------------------------------------------------------------|
-| OVN-Kubernetes with DPU offload | Provides SDN overlay services and Kubernetes CNI offloads       |
-| DOCA Telemetry Service (DTS)    | Provides enhanced DPU telemetry                                 |
-| DOCA BlueMan                    | Offers a user-friendly GUI for DTS                              |
+[Host Trusted Guide](host-trusted/README.md)
 
-### HBN Only
+In Host Trusted deployments, the DPU acts as a host accelerator card managed by the host. Your host machines function as
+worker nodes within the DPF management cluster, with the DPU serving as an integrated acceleration resource.
 
-* [Host Based Networking on its own](hbn_only/README.md)
+This approach gives you:
 
-| DPU Services                    | Comments                                                            |
-|---------------------------------|---------------------------------------------------------------------|
-| DOCA Host-Based Networking (HBN)| Accelerates underlay BGP routing with ECMP and EVPN-based overlays  |
-
-### VPC OVN Only
-
-* [VPC OVN on its own](vpc_only/README.md)
-
-| DPU Services                    | Comments                                                         |
-|---------------------------------|------------------------------------------------------------------|
-| DOCA VPC OVN for DPF            | Provides Accelerated VPC networking functionality leveraging OVN |
-
-### Zero trust
-
-* [Zero trust bare metal with Redfish](zero_trust/README.md)
+* Host-managed DPU
+* Standard Kubernetes APIs for both host workloads and DPU services
+* End-to-end Kubernetes-native experience
+* Support for HBN, OVN Kubernetes, and HBN+OVN Kubernetes use cases
+* DPU configuration through DOCA Management Service (DMS)

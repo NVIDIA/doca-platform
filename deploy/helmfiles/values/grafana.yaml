@@ -18,6 +18,7 @@ tolerations:
     effect: NoSchedule
 persistence:
   enabled: true
+  storageClassName: local-path
 datasources:
   datasources.yaml:
     apiVersion: 1
