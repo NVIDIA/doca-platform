@@ -4,8 +4,7 @@ title: "DOCA Platform Framework"
 
 [TOC]
 
-> Note:
-> The source for this documentation is the GitHub repo at [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform/) under `docs/public/`.
+> [!NOTE] The source for this documentation is the GitHub repo at [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform/) under `docs/public/`.
 
 ## Introduction
 
