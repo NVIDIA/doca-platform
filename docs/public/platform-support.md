@@ -17,18 +17,22 @@ The following component versions are deployed as part of DPF:
 
 | Component                   | Version | Notes    |
 |-----------------------------|---------|----------|
-| ArgoCD                      | 7.8.2   |          |
-| Node Feature Discovery      | 0.17.1  | Optional |
-| Kamaji etcd                 | 0.9.0   | Optional |
-| Kamaji                      | 1.0.0   | Optional |
-| NVIDIA Maintenance Operator | 0.2.0   |          |
-| Kube State Metrics          | 5.25.1  | Optional |
-| Grafana                     | 8.4.6   | Optional |
-| Prometheus                  | 25.26.0 | Optional |
-| Multus                      | v3.9.3  |          |
-| SR-IOV Device Plugin        | v3.6.2  |          |
-| NVIDIA K8s IPAM             | v0.3.5  |          |
+| ArgoCD                      | v2.14.2 |          |
+| Cert Manager                | v1.18.1 |          |
 | Flannel                     | v0.26.5 |          |
+| Multus                      | v3.9.3  |          |
+| NVIDIA K8s IPAM             | v0.3.5  |          |
+| NVIDIA Maintenance Operator | 0.2.0   |          |
+| NVIDIA Network Operator     | v25.4.0 |          |
+| Node Feature Discovery      | 0.17.1  |          |
+| SR-IOV Device Plugin        | v3.9.0  |          |
+| Etcd Defrag                 | v0.22.0 | Optional |
+| Grafana                     | 8.4.6   | Optional |
+| Kamaji                      | v1.33.0 | Optional |
+| Keepalived                  | 2.0.20  | Optional |
+| Kube State Metrics          | 5.25.1  | Optional |
+| Local Path Provisioner      | 0.0.31  | Optional |
+| Prometheus                  | 25.26.0 | Optional |
 
 ## Tested Network Adapters
 
