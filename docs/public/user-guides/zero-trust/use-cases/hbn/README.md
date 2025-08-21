@@ -866,10 +866,6 @@ DPFOperatorConfig/dpfoperatorconfig                 dpf-operator-system
     │ └─DPUSet/hbn-dpuset1                          dpf-operator-system
     │   ├─BFB/bf-bundle                             dpf-operator-system  Ready: True  Ready                 13m    File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
     │   └─DPUs
-    │     ├─DPU/dpu-node-mt2306xz0370-mt2306xz0370  dpf-operator-system
-    │     │             └─Ready                                          False        Config FW Parameters  65s
-    │     ├─DPU/dpu-node-mt2333xz0xq3-mt2333xz0xq3  dpf-operator-system
-    │     │             └─Ready                                          False        Initialize Interface  66s
     │     ├─DPU/dpu-node-mt2402xz0f6v-mt2402xz0f6v  dpf-operator-system
     │     │             └─Ready                                          False        OS Installing         8m39s
     │     └─DPU/dpu-node-mt2404xz0c98-mt2404xz0c98  dpf-operator-system
@@ -919,12 +915,6 @@ DPFOperatorConfig/dpfoperatorconfig                 dpf-operator-system
     │ └─DPUSet/hbn-dpuset1                          dpf-operator-system
     │   ├─BFB/bf-bundle                             dpf-operator-system  Ready: True  Ready                               62m    File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
     │   └─DPUs
-    │     ├─DPU/dpu-node-mt2306xz0370-mt2306xz0370  dpf-operator-system
-    │     │             ├─Rebooted                                       False        WaitingForManualPowerCycleOrReboot  12m
-    │     │             └─Ready                                          False        Rebooting                           12m
-    │     ├─DPU/dpu-node-mt2333xz0xq3-mt2333xz0xq3  dpf-operator-system
-    │     │             ├─Rebooted                                       False        WaitingForManualPowerCycleOrReboot  12m
-    │     │             └─Ready                                          False        Rebooting                           12m
     │     ├─DPU/dpu-node-mt2402xz0f6v-mt2402xz0f6v  dpf-operator-system
     │     │             ├─Rebooted                                       False        WaitingForManualPowerCycleOrReboot  11m
     │     │             └─Ready                                          False        Rebooting                           11m
@@ -968,8 +958,7 @@ DPFOperatorConfig/dpfoperatorconfig    dpf-operator-system  Ready: True  Success
     │ └─DPUSet/hbn-dpuset1             dpf-operator-system
     │   ├─BFB/bf-bundle                dpf-operator-system  Ready: True  Ready     91m    File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
     │   └─DPUs
-    │     └─4 DPUs...                  dpf-operator-system  Ready: True  DPUReady  25m    See dpu-node-mt2306xz0370-mt2306xz0370, dpu-node-mt2333xz0xq3-mt2333xz0xq3,
-    │                                                                                     dpu-node-mt2402xz0f6v-mt2402xz0f6v, dpu-node-mt2404xz0c98-mt2404xz0c98
+    │     └─2 DPUs...                  dpf-operator-system  Ready: True  DPUReady  25m    See dpu-node-mt2402xz0f6v-mt2402xz0f6v, dpu-node-mt2404xz0c98-mt2404xz0c98
     └─Services
       ├─DPUServiceTemplates
       │ └─DPUServiceTemplate/doca-hbn  dpf-operator-system  Ready: True  Success   91m
@@ -1705,10 +1694,6 @@ DPFOperatorConfig/dpfoperatorconfig                 dpf-operator-system
     │ └─DPUSet/hbn-dpuset1                          dpf-operator-system
     │   ├─BFB/bf-bundle                             dpf-operator-system  Ready: True  Ready          105s   File: bf-bundle-3.1.0-76_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
     │   └─DPUs
-    │     ├─DPU/dpu-node-mt2306xz0370-mt2306xz0370  dpf-operator-system
-    │     │             └─Ready                                          False        OS Installing  73s
-    │     ├─DPU/dpu-node-mt2333xz0xq3-mt2333xz0xq3  dpf-operator-system
-    │     │             └─Ready                                          False        OS Installing  74s
     │     ├─DPU/dpu-node-mt2402xz0f6v-mt2402xz0f6v  dpf-operator-system
     │     │             └─Ready                                          False        OS Installing  72s
     │     └─DPU/dpu-node-mt2404xz0c98-mt2404xz0c98  dpf-operator-system
@@ -1759,12 +1744,6 @@ DPFOperatorConfig/dpfoperatorconfig                 dpf-operator-system
     │ └─DPUSet/hbn-dpuset1                          dpf-operator-system
     │   ├─BFB/bf-bundle                             dpf-operator-system  Ready: True  Ready                               15m    File: bf-bundle-3.1.0-76_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
     │   └─DPUs
-    │     ├─DPU/dpu-node-mt2306xz0370-mt2306xz0370  dpf-operator-system
-    │     │             ├─Rebooted                                       False        WaitingForManualPowerCycleOrReboot  2m39s
-    │     │             └─Ready                                          False        Rebooting                           2m39s
-    │     ├─DPU/dpu-node-mt2333xz0xq3-mt2333xz0xq3  dpf-operator-system
-    │     │             ├─Rebooted                                       False        WaitingForManualPowerCycleOrReboot  2m35s
-    │     │             └─Ready                                          False        Rebooting                           2m35s
     │     ├─DPU/dpu-node-mt2402xz0f6v-mt2402xz0f6v  dpf-operator-system
     │     │             ├─Rebooted                                       False        WaitingForManualPowerCycleOrReboot  2m36s
     │     │             └─Ready                                          False        Rebooting                           2m36s
@@ -1810,8 +1789,7 @@ DPFOperatorConfig/dpfoperatorconfig    dpf-operator-system  Ready: True  Success
     │ └─DPUSet/hbn-dpuset1             dpf-operator-system
     │   ├─BFB/bf-bundle                dpf-operator-system  Ready: True  Ready     28m    File: bf-bundle-3.1.0-76_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
     │   └─DPUs
-    │     └─4 DPUs...                  dpf-operator-system  Ready: True  DPUReady  5m52s  See dpu-node-mt2306xz0370-mt2306xz0370, dpu-node-mt2333xz0xq3-mt2333xz0xq3,
-    │                                                                                     dpu-node-mt2402xz0f6v-mt2402xz0f6v, dpu-node-mt2404xz0c98-mt2404xz0c98
+    │     └─2 DPUs...                  dpf-operator-system  Ready: True  DPUReady  5m52s  See dpu-node-mt2402xz0f6v-mt2402xz0f6v, dpu-node-mt2404xz0c98-mt2404xz0c98
     └─Services
       ├─DPUServiceTemplates
       │ └─DPUServiceTemplate/doca-hbn  dpf-operator-system  Ready: True  Success   28m

@@ -577,10 +577,6 @@ DPFOperatorConfig/dpfoperatorconfig             dpf-operator-system  Ready: True
   └─DPUSet/passthrough                          dpf-operator-system
     ├─BFB/bf-bundle                             dpf-operator-system  Ready: True  Ready          78m    File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
     └─DPUs
-      ├─DPU/dpu-node-mt2306xz0370-mt2306xz0370  dpf-operator-system
-      │             └─Ready                                          False        OS Installing  1s
-      ├─DPU/dpu-node-mt2333xz0xq3-mt2333xz0xq3  dpf-operator-system
-      │             └─Ready                                          False        OS Installing  1s
       ├─DPU/dpu-node-mt2402xz0f6v-mt2402xz0f6v  dpf-operator-system
       │             └─Ready                                          False        OS Installing  1s
       └─DPU/dpu-node-mt2404xz0c98-mt2404xz0c98  dpf-operator-system
@@ -619,12 +615,6 @@ DPFOperatorConfig/dpfoperatorconfig             dpf-operator-system
   └─DPUSet/passthrough                          dpf-operator-system
     ├─BFB/bf-bundle                             dpf-operator-system  Ready: True  Ready                               34m    File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
     └─DPUs
-      ├─DPU/dpu-node-mt2306xz0370-mt2306xz0370  dpf-operator-system
-      │             ├─Rebooted                                       False        WaitingForManualPowerCycleOrReboot  12m
-      │             └─Ready                                          False        Rebooting                           12m
-      ├─DPU/dpu-node-mt2333xz0xq3-mt2333xz0xq3  dpf-operator-system
-      │             ├─Rebooted                                       False        WaitingForManualPowerCycleOrReboot  10m
-      │             └─Ready                                          False        Rebooting                           10m
       ├─DPU/dpu-node-mt2402xz0f6v-mt2402xz0f6v  dpf-operator-system
       │             ├─Rebooted                                       False        WaitingForManualPowerCycleOrReboot  12m
       │             └─Ready                                          False        Rebooting                           12m
@@ -661,8 +651,7 @@ DPFOperatorConfig/dpfoperatorconfig  dpf-operator-system  Ready: True  Success  
   └─DPUSet/passthrough               dpf-operator-system
     ├─BFB/bf-bundle                  dpf-operator-system  Ready: True  Ready     54m    File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
     └─DPUs
-      └─4 DPUs...                    dpf-operator-system  Ready: True  DPUReady  2m33s  See dpu-node-mt2306xz0370-mt2306xz0370, dpu-node-mt2333xz0xq3-mt2333xz0xq3,
-                                                                                        dpu-node-mt2402xz0f6v-mt2402xz0f6v, dpu-node-mt2404xz0c98-mt2404xz0c98
+      └─2 DPUs...                    dpf-operator-system  Ready: True  DPUReady  2m33s  See dpu-node-mt2402xz0f6v-mt2402xz0f6v, dpu-node-mt2404xz0c98-mt2404xz0c98
 ```
 
 #### Test Traffic
