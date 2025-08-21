@@ -3,7 +3,8 @@ title: "Host Based Networking"
 ---
 
 
-> [!NOTE] Follow this guide from the source GitHub repo at [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform) and moving to the `docs/public/user-guides/hbn_only/README.md` for better formatting of the code.
+> [!NOTE] Follow this guide from the source GitHub repo at [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform)
+> and moving to the `docs/public/user-guides/host-trusted/use-cases/hbn/README.md` for better formatting of the code.
 
 
 In this configuration [NVIDIA Host Based Networking (HBN)](https://docs.nvidia.com/doca/sdk/doca+hbn+service+guide/index.html) is installed as a DPUService.
