@@ -16,7 +16,7 @@ them according to the configuration.
 This basic config example enables the Kamaji cluster manager and sets the PVC name of the BFB PVC which is necessary for
 the provisioning controller to download the bf-bundle.
 
-> [!NOTE]  
+> [!NOTE]
 > In the current implementation the `DPFOperatorConfig` resource is a singleton. This means that only one instance of
 > this resource can exist in the cluster. If you try to create a second instance, the controllers will not work as
 > expected.

@@ -2,7 +2,8 @@
 title: "DOCA VPC OVN Service"
 ---
 
-> [!NOTE] The OVN VPC service is considered a tech preview and is not recommended for production use.
+> [!NOTE]
+> The OVN VPC service is considered a tech preview and is not recommended for production use.
 
 [TOC]
 
@@ -146,7 +147,8 @@ spec:
 ```
 </details>
 
-> [!NOTE] `ovn-nb-endpoint` should be set to an IP address through which the OVN service is accessible (e.g. the IP of a control plane node).
+> [!NOTE]
+> `ovn-nb-endpoint` should be set to an IP address through which the OVN service is accessible (e.g. the IP of a control plane node).
 
 ### DPUVPC
 
@@ -181,7 +183,8 @@ spec:
 ```
 </details>
 
-> [!NOTE] A DPU node can belong to at most one DPUVPC, as selected by the `spec.nodeSelector` field.
+> [!NOTE]
+> A DPU node can belong to at most one DPUVPC, as selected by the `spec.nodeSelector` field.
 
 ### DPUVirtualNetwork
 
@@ -237,7 +240,8 @@ A DPUServiceInterface defines a network interface for DPUs that can be used by w
 
 Supported interface types: `PF`, `VF`, `Service`.
 
-> [!NOTE] A DPUServiceInterface of type `Service` is intended for advanced use cases where a DPUService network interface needs to be connected to a virtual network. see *Advanced Use-Cases* section below
+> [!NOTE]
+> A DPUServiceInterface of type `Service` is intended for advanced use cases where a DPUService network interface needs to be connected to a virtual network. see *Advanced Use-Cases* section below
 
 <details markdown="1"><summary>Reference Example</summary>
 
@@ -686,7 +690,8 @@ The following conditions are used to indicate the status of the virtual network:
 
 #### DPUServiceInterface
 
-> [!NOTE] Due to a DPF limitation, the overall readiness of a DPUServiceInterface does not reflect the readiness of the individual ServiceInterfaces for each DPU. Refer to the ServiceInterface section below.
+> [!NOTE]
+> Due to a DPF limitation, the overall readiness of a DPUServiceInterface does not reflect the readiness of the individual ServiceInterfaces for each DPU. Refer to the ServiceInterface section below.
 
 ```yaml
 apiVersion: svc.dpu.nvidia.com/v1alpha1

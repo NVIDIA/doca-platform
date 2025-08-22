@@ -2,12 +2,14 @@
 title: "OVN Kubernetes"
 ---
 
-> [!NOTE] Follow this guide from the source GitHub repo at [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform)
+> [!NOTE]
+> Follow this guide from the source GitHub repo at [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform)
 > and moving to the `docs/public/user-guides/host-trusted/use-cases/ovnk/README.md` for better formatting of the code.
 
 In this configuration OVN Kubernetes is offloaded to the DPU.
 
-> [!WARNING] Due to several known issues regarding the stability of this specific deployment 
+> [!WARNING]
+> Due to several known issues regarding the stability of this specific deployment 
 > use-case (OVN Kubernetes), it should be considered a proof-of-concept in this release.  
 >
 > Please use it at your own risk!
@@ -257,7 +259,8 @@ spec:
 
 Before deploying the DPF Operator, ensure that Helm is properly configured according to the [Helm prerequisites](../../../../getting-started/helm-prerequisites.md).  
 
-> [!WARNING] This is a critical prerequisite step that must be completed for the DPF Operator to function properly.
+> [!WARNING]
+> This is a critical prerequisite step that must be completed for the DPF Operator to function properly.
 
 After applying the additional dependencies you MUST ensure that the KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT
 environment variables are set in the node-feature-discovery-worker DaemonSet.  

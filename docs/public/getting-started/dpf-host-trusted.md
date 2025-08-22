@@ -58,7 +58,6 @@ helm repo update
 ### 2. Install the DPF Operator
 
 > [!NOTE]
->
 > Ensure you have completed the [Helm Prerequisites Guide](./helm-prerequisites.md) before proceeding with the DPF
 > Operator installation.
 

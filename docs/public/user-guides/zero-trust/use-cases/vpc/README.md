@@ -2,7 +2,8 @@
 title: "OVN VPC Service Deployment Guide"
 ---
 
-> [!NOTE] OVN VPC service is considered tech preview and is not recommended for
+> [!NOTE]
+> OVN VPC service is considered tech preview and is not recommended for
 > production use.
 
 This configuration provides instructions for deploying the NVIDIA DOCA Platform Framework (DPF) on high-performance,
@@ -182,7 +183,8 @@ kubectl create secret generic -n dpf-operator-system bmc-shared-password --from-
 Before deploying the DPF Operator, ensure that Helm is properly configured according to the
 [Helm prerequisites](../../../../getting-started/helm-prerequisites.md).
 
-> [!WARNING] This is a critical prerequisite step that must be completed for the DPF Operator to function properly.
+> [!WARNING]
+> This is a critical prerequisite step that must be completed for the DPF Operator to function properly.
 
 #### Deploy the DPF Operator
 
@@ -1168,6 +1170,7 @@ kubectl -n dpf-operator-system delete pvc bfb-pvc
 kubectl delete pv bfb-pv
 ```
 
-> [!NOTE]   There can be a race condition with deleting the underlying Kamaji cluster which runs the DPU cluster control
+> [!NOTE]
+> There can be a race condition with deleting the underlying Kamaji cluster which runs the DPU cluster control
 > plane in this guide. If that happens it may be necessary to remove finalizers manually from `DPUCluster` and `Datastore`
 > objects.

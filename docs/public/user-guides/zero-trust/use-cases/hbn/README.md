@@ -3,7 +3,8 @@ title: "HBN in DPF Zero Trust"
 ---
 
 
-> [!NOTE] Follow this guide from the source GitHub repo at [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform)
+> [!NOTE]
+> Follow this guide from the source GitHub repo at [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform)
 > and moving to the `docs/public/user-guides/zero-trust/use-cases/hbn/README.md` for better formatting of
 > the code.
 
@@ -177,7 +178,8 @@ kubectl create secret generic -n dpf-operator-system bmc-shared-password --from-
 Before deploying the DPF Operator, ensure that Helm is properly configured according to the
 [Helm prerequisites](../../../../getting-started/helm-prerequisites.md).
 
-> [!WARNING] This is a critical prerequisite step that must be completed for the DPF Operator to function properly.
+> [!WARNING]
+> This is a critical prerequisite step that must be completed for the DPF Operator to function properly.
 
 #### Deploy the DPF Operator
 

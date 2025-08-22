@@ -83,7 +83,7 @@ Available Commands:
 | dpuvpcs        | Describe DPF DPUVPCs and VPC related resources |
 | storage        | Describe DPF Storage resources                 |
 
-> [!NOTE]  
+> [!NOTE]
 > Available flags can be found with `dpfctl describe --help`.
 
 By default, `dpfctl describe` provides an overview of key **DPU-related resources and their conditions**.
@@ -210,7 +210,7 @@ NAME                                                                   NAMESPACE
 │ │               └─Ready                                                                   True         Success  31s
 ```
 
-> [!NOTE]  
+> [!NOTE]
 > The flag `--expand-resources` is currently supported only for `DPUServices`. Further support for other resources will
 > be added in future releases.
 
