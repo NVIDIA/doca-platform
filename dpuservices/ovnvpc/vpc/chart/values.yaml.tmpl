@@ -43,7 +43,7 @@ host:
     enabled: false
     # image settings
     image:
-      repository: ${VPC_SYSTEM_IMAGE}
+      repository: ${VPC_SYSTEM_UPSTREAM_IMAGE}
       tag: ${TAG}
     imagePullPolicy: IfNotPresent
     imagePullSecrets: []
@@ -84,7 +84,7 @@ dpu:
       vpcOVNNodeController:
         # image settings
         image:
-          repository: ${VPC_SYSTEM_IMAGE}
+          repository: ${VPC_SYSTEM_UPSTREAM_IMAGE}
           tag: ${TAG}
           pullPolicy: IfNotPresent
         # security context for the container
@@ -92,18 +92,18 @@ dpu:
       dhcpCNIDaemon:
         enabled: true
         image:
-          repository: ${VPC_SYSTEM_IMAGE}
+          repository: ${VPC_SYSTEM_UPSTREAM_IMAGE}
           tag: ${TAG}
           pullPolicy: IfNotPresent
     initContainers:
       allocator:
         image:
-          repository: ${VPC_SYSTEM_IMAGE}
+          repository: ${VPC_SYSTEM_UPSTREAM_IMAGE}
           tag: ${TAG}
           pullPolicy: IfNotPresent
       vpcOVNDpuProvisioner:
         image:
-          repository: ${VPC_SYSTEM_IMAGE}
+          repository: ${VPC_SYSTEM_UPSTREAM_IMAGE}
           tag: ${TAG}
           pullPolicy: IfNotPresent
         env:
