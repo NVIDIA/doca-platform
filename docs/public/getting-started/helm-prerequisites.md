@@ -177,6 +177,9 @@ global:
     - key: node-role.kubernetes.io/control-plane
       operator: Exists
       effect: NoSchedule
+redis:
+  image:
+    repository: mirror.gcr.io/redis
 ```
 
 </details>
