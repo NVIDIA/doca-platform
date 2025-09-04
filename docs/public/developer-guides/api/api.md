@@ -1437,6 +1437,8 @@ _Appears in:_
 | `dpuResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#resourcelist-v1-core)_ | DPUResources indicates the minimum amount of resources needed for a BFB with that flavor to be installed on a<br />DPU. Using this field, the controller can understand if that flavor can be installed on a particular DPU. It<br />should be set to the total amount of resources the system needs + the resources that should be made available for<br />DPUServices to consume. |  |  |
 | `systemReservedResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#resourcelist-v1-core)_ | SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are<br />not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and<br />SystemReservedResources. This field must not be specified if dpuResources are not specified. |  |  |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | Specifies the DPU Mode type: one of dpu,zero-trust | dpu | Enum: [dpu zero-trust] <br /> |
+| `p0NetworkInterfaceConfig` _[NetworkInterfaceConfig](#networkinterfaceconfig)_ | P0NetworkInterfaceConfig contains the configuration for the host-side P0 network interface. |  |  |
+| `p1NetworkInterfaceConfig` _[NetworkInterfaceConfig](#networkinterfaceconfig)_ | P1NetworkInterfaceConfig contains the configuration for the host-side P1 network interface. |  |  |
 
 
 
@@ -1971,6 +1973,23 @@ _Appears in:_
 | `virtualRouterID` _integer_ | VirtualRouterID is the virtual_router_id in keepalived.conf |  | Maximum: 255 <br />Minimum: 1 <br /> |
 | `interface` _string_ | Interface specifies on which interface the VIP should be assigned |  | MinLength: 1 <br /> |
 | `nodeSelector` _object (keys:string, values:string)_ | NodeSelector is used to specify a subnet of control plane nodes to deploy keepalived instances.<br />Note: keepalived instances are always deployed on control plane nodes |  |  |
+
+
+#### NetworkInterfaceConfig
+
+
+
+NetworkInterfaceConfig defines the configuration for a network interface
+
+
+
+_Appears in:_
+- [DPUFlavorSpec](#dpuflavorspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `mtu` _integer_ | MTU is the MTU value to be set on the network interface. |  | Maximum: 9216 <br />Minimum: 1000 <br /> |
+| `dhcp` _boolean_ | DHCP is the DHCP configuration for the network interface. |  |  |
 
 
 #### NodeEffect
