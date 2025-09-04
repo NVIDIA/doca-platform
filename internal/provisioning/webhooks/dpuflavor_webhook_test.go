@@ -138,6 +138,8 @@ var _ = Describe("DPUFlavor", func() {
 			Expect(objFetched.Spec.BFCfgParameters).To(BeEmpty())
 			Expect(objFetched.Spec.ConfigFiles).To(BeEmpty())
 			Expect(objFetched.Spec.ContainerdConfig.RegistryEndpoint).To(BeEmpty())
+			Expect(objFetched.Spec.P0NetworkInterfaceConfig).To(BeNil())
+			Expect(objFetched.Spec.P1NetworkInterfaceConfig).To(BeNil())
 		})
 
 		It("spec.grub is immutable", func() {
@@ -368,6 +370,94 @@ metadata:
 			err = k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 		})
+
+		It("validates p0/p1 network interface config fields", func() {
+			obj := createObj("network-config-test")
+			mtu1500 := int32(1500)
+			dhcpTrue := true
+
+			obj.Spec.P0NetworkInterfaceConfig = &provisioningv1.NetworkInterfaceConfig{
+				MTU:  &mtu1500,
+				DHCP: &dhcpTrue,
+			}
+			obj.Spec.P1NetworkInterfaceConfig = &provisioningv1.NetworkInterfaceConfig{
+				MTU:  &mtu1500,
+				DHCP: &dhcpTrue,
+			}
+
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUFlavor{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Spec.P0NetworkInterfaceConfig).ToNot(BeNil())
+			Expect(*objFetched.Spec.P0NetworkInterfaceConfig.MTU).To(Equal(int32(1500)))
+			Expect(*objFetched.Spec.P0NetworkInterfaceConfig.DHCP).To(BeTrue())
+			Expect(objFetched.Spec.P1NetworkInterfaceConfig).ToNot(BeNil())
+			Expect(*objFetched.Spec.P1NetworkInterfaceConfig.MTU).To(Equal(int32(1500)))
+			Expect(*objFetched.Spec.P1NetworkInterfaceConfig.DHCP).To(BeTrue())
+		})
+
+		DescribeTable("MTU validation works as expected",
+			func(mtu int32, expectError bool) {
+				obj := &provisioningv1.DPUFlavor{
+					ObjectMeta: metav1.ObjectMeta{
+						GenerateName: "mtu-validation-",
+						Namespace:    "default",
+					},
+					Spec: provisioningv1.DPUFlavorSpec{},
+				}
+				obj.Spec.P0NetworkInterfaceConfig = &provisioningv1.NetworkInterfaceConfig{
+					MTU: &mtu,
+				}
+				err := k8sClient.Create(ctx, obj)
+				if expectError {
+					Expect(err).To(HaveOccurred())
+				} else {
+					Expect(err).NotTo(HaveOccurred())
+				}
+			},
+			Entry("valid MTU 1500", int32(1500), false),
+			Entry("valid MTU 9000", int32(9000), false),
+			Entry("valid MTU 1000 (minimum)", int32(1000), false),
+			Entry("valid MTU 9216 (maximum)", int32(9216), false),
+			Entry("invalid MTU too low", int32(999), true),
+			Entry("invalid MTU too high", int32(9217), true),
+		)
+
+		It("create from yaml with network interface config", func() {
+			yml := []byte(`
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUFlavor
+metadata:
+  name: network-config-yaml
+  namespace: default
+spec:
+  p0NetworkInterfaceConfig:
+    mtu: 9000
+    dhcp: true
+  p1NetworkInterfaceConfig:
+    mtu: 1500
+    dhcp: false
+`)
+			obj := &provisioningv1.DPUFlavor{}
+			err := yaml.UnmarshalStrict(yml, obj)
+			Expect(err).To(Succeed())
+			err = k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUFlavor{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "network-config-yaml", Namespace: "default"}, objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Spec.P0NetworkInterfaceConfig).ToNot(BeNil())
+			Expect(*objFetched.Spec.P0NetworkInterfaceConfig.MTU).To(Equal(int32(9000)))
+			Expect(*objFetched.Spec.P0NetworkInterfaceConfig.DHCP).To(BeTrue())
+			Expect(objFetched.Spec.P1NetworkInterfaceConfig).ToNot(BeNil())
+			Expect(*objFetched.Spec.P1NetworkInterfaceConfig.MTU).To(Equal(int32(1500)))
+			Expect(*objFetched.Spec.P1NetworkInterfaceConfig.DHCP).To(BeFalse())
+		})
+
 		DescribeTable("resource validation works as expected", func(dpuResources corev1.ResourceList, systemReservedResources corev1.ResourceList, expectError bool) {
 			obj := &provisioningv1.DPUFlavor{
 				ObjectMeta: metav1.ObjectMeta{
