@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"k8s.io/klog/v2"
@@ -127,6 +128,26 @@ func (h *PCIHelper) SetNumOfVFs(num int) error {
 		return fmt.Errorf("failed to stat sriov_numvfs path: %w", err)
 	}
 	return os.WriteFile(numvfsPath, []byte(fmt.Sprintf("%d", num)), 0644)
+}
+
+// GetMTU returns the current MTU of the PF interface
+func (h *PCIHelper) GetMTU() (int, error) {
+	interfaceName, err := h.InterfaceName()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get interface name: %w", err)
+	}
+
+	mtuPath := filepath.Join("/sys/class/net", interfaceName, "mtu")
+	mtuBytes, err := os.ReadFile(mtuPath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read MTU for interface %s: %w", interfaceName, err)
+	}
+	mtuStr := strings.TrimSpace(string(mtuBytes))
+	mtu, err := strconv.Atoi(mtuStr)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse MTU %s for interface %s: %w", mtuStr, interfaceName, err)
+	}
+	return mtu, nil
 }
 
 // ReadDeviceSerialNumberFromVPD reads the serial number from a PCI device's VPD data

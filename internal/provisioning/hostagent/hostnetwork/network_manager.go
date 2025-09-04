@@ -52,6 +52,8 @@ type NetworkManager struct {
 	devicesBySN map[string]networkutil.Device
 	// reqs is a map of DPU CR UID to its network request
 	reqs map[string]NetworkRequest
+	// osType caches the detected operating system type
+	osType string
 }
 
 func NewNetworkManager(client client.Client) *NetworkManager {
@@ -65,6 +67,13 @@ func NewNetworkManager(client client.Client) *NetworkManager {
 func (nm *NetworkManager) Start() error {
 	nm.Lock()
 	defer nm.Unlock()
+
+	// Detect and cache OS type
+	osType, err := networkutil.GetOSType()
+	if err != nil {
+		return fmt.Errorf("failed to detect OS type: %w", err)
+	}
+	nm.osType = osType
 
 	devices, err := networkutil.DiscoverDPUs()
 	if err != nil {
@@ -173,6 +182,14 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 		"SetControlPlaneMTU": func(nr NetworkRequest) error {
 			return networkutil.SetLinkMTU(BridgeName, nr.ControlPlaneMTU)
 		},
+		"ConfigurePFNetplan": func(nr NetworkRequest) error {
+			// Only configure netplan on Ubuntu systems
+			if nr.OSType != "ubuntu" {
+				klog.Infof("Skipping netplan configuration for OS type: %s (only supported on Ubuntu)", nr.OSType)
+				return nil
+			}
+			return networkutil.ConfigurePFNetplan(nr.PCIAddress, nr.PF0MTU, nr.PF0DHCP, nr.PF1MTU, nr.PF1DHCP)
+		},
 	}
 	cpy := dpu.DeepCopy()
 	for opName, op := range operations {
@@ -234,6 +251,19 @@ func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU) error {
 	}
 	nr.ControlPlaneMTU = controlPlaneMTU
 
+	// Get PF network configuration for both P0 and P1
+	pf0MTU, pf0DHCP, pf1MTU, pf1DHCP, err := nm.getPFNetworkConfig(dpu, dev.Address)
+	if err != nil {
+		return fmt.Errorf("failed to get PF network configuration: %w", err)
+	}
+	nr.PF0MTU = pf0MTU
+	nr.PF0DHCP = pf0DHCP
+	nr.PF1MTU = pf1MTU
+	nr.PF1DHCP = pf1DHCP
+
+	// Use cached OS type
+	nr.OSType = nm.osType
+
 	if err := writeNetworkRequestFile(&nr); err != nil {
 		return fmt.Errorf("failed to write network request file: %w", err)
 	}
@@ -274,4 +304,79 @@ func (nm *NetworkManager) getControlPlaneMTU() (int, error) {
 		return *dpfOperatorConfigList.Items[0].Spec.Networking.ControlPlaneMTU, nil
 	}
 	return 1500, nil
+}
+
+func (nm *NetworkManager) getPFNetworkConfig(dpu *provisioningv1.DPU, pciAddress string) (int32, *bool, int32, *bool, error) {
+	// Get desired configuration from DPUFlavor for both P0 and P1
+	p0DesiredMTU, p0DesiredDHCP, p1DesiredMTU, p1DesiredDHCP, err := nm.getDesiredPFConfig(dpu)
+	if err != nil {
+		return 0, nil, 0, nil, fmt.Errorf("failed to get desired PF config from DPUFlavor: %w", err)
+	}
+
+	// Check if any configuration is requested
+	needP0Config := p0DesiredMTU != nil || p0DesiredDHCP != nil
+	needP1Config := p1DesiredMTU != nil || p1DesiredDHCP != nil
+
+	if !needP0Config && !needP1Config {
+		return 0, nil, 0, nil, nil // No configuration to apply
+	}
+
+	// Only read current config if we need to configure something
+	pciHelper := networkutil.NewPCIHelper(pciAddress)
+	var pf0MTU, pf1MTU int32 = 0, 0
+	var pf0DHCP, pf1DHCP *bool = nil, nil
+
+	if needP0Config {
+		pf0 := pciHelper.PF(0)
+		_, err := pf0.InterfaceName()
+		if err != nil {
+			return 0, nil, 0, nil, fmt.Errorf("PF0 interface not available but configuration requested: %v", err)
+		}
+		if p0DesiredMTU != nil {
+			pf0MTU = *p0DesiredMTU
+		}
+		if p0DesiredDHCP != nil {
+			pf0DHCP = p0DesiredDHCP
+		}
+	}
+
+	if needP1Config {
+		pf1 := pciHelper.PF(1)
+		_, err := pf1.InterfaceName()
+		if err != nil {
+			return 0, nil, 0, nil, fmt.Errorf("PF1 interface not available but configuration requested: %v", err)
+		}
+		if p1DesiredMTU != nil {
+			pf1MTU = *p1DesiredMTU
+		}
+		if p1DesiredDHCP != nil {
+			pf1DHCP = p1DesiredDHCP
+		}
+	}
+
+	return pf0MTU, pf0DHCP, pf1MTU, pf1DHCP, nil
+}
+
+func (nm *NetworkManager) getDesiredPFConfig(dpu *provisioningv1.DPU) (*int32, *bool, *int32, *bool, error) {
+	flavor := &provisioningv1.DPUFlavor{}
+	if err := nm.Get(context.TODO(), types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUFlavor}, flavor); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to get DPU flavor: %w", err)
+	}
+
+	var p0MTU, p1MTU *int32
+	var p0DHCP, p1DHCP *bool
+
+	// Get P0 configuration
+	if flavor.Spec.P0NetworkInterfaceConfig != nil {
+		p0MTU = flavor.Spec.P0NetworkInterfaceConfig.MTU
+		p0DHCP = flavor.Spec.P0NetworkInterfaceConfig.DHCP
+	}
+
+	// Get P1 configuration
+	if flavor.Spec.P1NetworkInterfaceConfig != nil {
+		p1MTU = flavor.Spec.P1NetworkInterfaceConfig.MTU
+		p1DHCP = flavor.Spec.P1NetworkInterfaceConfig.DHCP
+	}
+
+	return p0MTU, p0DHCP, p1MTU, p1DHCP, nil
 }
