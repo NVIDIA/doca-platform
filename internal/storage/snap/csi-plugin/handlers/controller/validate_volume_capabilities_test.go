@@ -47,8 +47,9 @@ var _ = Describe("ValidateVolumeCapabilities", func() {
 			Client: getClusterClient(),
 		}
 		controllerHandler = &controller{
-			clusterhelper:    clients,
+			commonConfig:     config.Common{EmulationMode: config.EmulationModeNVMe},
 			controllerConfig: config.Controller{Namespace: "test-namespace"},
+			clusterhelper:    clients,
 		}
 		ctx = context.Background()
 		req = &csi.ValidateVolumeCapabilitiesRequest{

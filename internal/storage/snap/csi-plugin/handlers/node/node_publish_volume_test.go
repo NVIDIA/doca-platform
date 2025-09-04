@@ -20,6 +20,7 @@ import (
 	"context"
 	"os"
 
+	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
 	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/handlers/common"
 	mountUtilsMockPkg "github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/utils/mount/mock"
 
@@ -39,7 +40,7 @@ var _ = Describe("NodePublishVolume", func() {
 	)
 
 	BeforeEach(func() {
-		nodeHandler = &node{}
+		nodeHandler = &node{commonConfig: config.Common{EmulationMode: config.EmulationModeNVMe}}
 		ctx = context.Background()
 		req = &csi.NodePublishVolumeRequest{
 			VolumeId:          "test-volume-id",
