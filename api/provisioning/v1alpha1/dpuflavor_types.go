@@ -69,6 +69,14 @@ type DPUFlavorSpec struct {
 	// +kubebuilder:default=dpu
 	// +optional
 	DpuMode DpuModeType `json:"dpuMode,omitempty"`
+
+	// P0NetworkInterfaceConfig contains the configuration for the host-side P0 network interface.
+	// +optional
+	P0NetworkInterfaceConfig *NetworkInterfaceConfig `json:"p0NetworkInterfaceConfig,omitempty"`
+
+	// P1NetworkInterfaceConfig contains the configuration for the host-side P1 network interface.
+	// +optional
+	P1NetworkInterfaceConfig *NetworkInterfaceConfig `json:"p1NetworkInterfaceConfig,omitempty"`
 }
 
 type DPUFlavorGrub struct {
@@ -138,6 +146,19 @@ type ContainerdConfig struct {
 	// RegistryEndpoint is the endpoint of the container registry.
 	// +optional
 	RegistryEndpoint string `json:"registryEndpoint,omitempty"`
+}
+
+// NetworkInterfaceConfig defines the configuration for a network interface
+type NetworkInterfaceConfig struct {
+	// MTU is the MTU value to be set on the network interface.
+	// +kubebuilder:validation:Minimum=1000
+	// +kubebuilder:validation:Maximum=9216
+	// +optional
+	MTU *int32 `json:"mtu,omitempty"`
+
+	// DHCP is the DHCP configuration for the network interface.
+	// +optional
+	DHCP *bool `json:"dhcp,omitempty"`
 }
 
 // +kubebuilder:object:root=true

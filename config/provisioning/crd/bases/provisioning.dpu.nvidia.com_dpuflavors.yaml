@@ -135,6 +135,34 @@ spec:
                       OVS.
                     type: string
                 type: object
+              p0NetworkInterfaceConfig:
+                description: P0NetworkInterfaceConfig contains the configuration for
+                  the host-side P0 network interface.
+                properties:
+                  dhcp:
+                    description: DHCP is the DHCP configuration for the network interface.
+                    type: boolean
+                  mtu:
+                    description: MTU is the MTU value to be set on the network interface.
+                    format: int32
+                    maximum: 9216
+                    minimum: 1000
+                    type: integer
+                type: object
+              p1NetworkInterfaceConfig:
+                description: P1NetworkInterfaceConfig contains the configuration for
+                  the host-side P1 network interface.
+                properties:
+                  dhcp:
+                    description: DHCP is the DHCP configuration for the network interface.
+                    type: boolean
+                  mtu:
+                    description: MTU is the MTU value to be set on the network interface.
+                    format: int32
+                    maximum: 9216
+                    minimum: 1000
+                    type: integer
+                type: object
               sysctl:
                 description: Sysctl contains the sysctl configuration for the DPUFlavor.
                 properties:
