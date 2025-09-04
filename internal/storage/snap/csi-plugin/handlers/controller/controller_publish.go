@@ -22,6 +22,7 @@ import (
 	"strconv"
 
 	storagev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
 	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/handlers/common"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -48,7 +49,7 @@ func (h *controller) ControllerPublishVolume(
 		return nil, common.FieldIsRequiredError("NodeId")
 	}
 
-	if err := common.ValidateVolumeCapability(req.VolumeCapability); err != nil {
+	if err := common.ValidateVolumeCapability(h.commonConfig.EmulationMode, req.VolumeCapability); err != nil {
 		return nil, err
 	}
 
@@ -77,7 +78,7 @@ func (h *controller) ControllerPublishVolume(
 	attachmentName := generateDPUVolumeAttachmentName(dpuNodeName, volumeName)
 
 	reqLog = reqLog.WithValues("name", attachmentName)
-	functionTypeConfig, err := getFunctionTypeConfig(reqLog, req.VolumeContext)
+	functionTypeConfig, err := getFunctionTypeConfig(h.commonConfig, reqLog, req.VolumeContext)
 	if err != nil {
 		return nil, err
 	}
@@ -172,8 +173,8 @@ func controllerPublishValidateExisting(reqLog logr.Logger, desired, actual *stor
 }
 
 // getFunctionTypeConfig constructs a FunctionTypeConfig from volume context parameters.
-func getFunctionTypeConfig(reqLog logr.Logger, volCtx map[string]string) (storagev1.FunctionTypeConfig, error) {
-	functionTypeConfig, err := common.FunctionTypeConfigFromStrings(volCtx[common.VolumeCtxFunctionType], volCtx[common.VolumeCtxHotplugFunction])
+func getFunctionTypeConfig(commonConfig config.Common, reqLog logr.Logger, volCtx map[string]string) (storagev1.FunctionTypeConfig, error) {
+	functionTypeConfig, err := common.FunctionTypeConfigFromStrings(commonConfig, volCtx[common.VolumeCtxFunctionType], volCtx[common.VolumeCtxHotplugFunction])
 	if err != nil {
 		reqLog.Error(err, "invalid function type config")
 		return storagev1.FunctionTypeConfig{}, status.Error(codes.InvalidArgument, "invalid function type config")

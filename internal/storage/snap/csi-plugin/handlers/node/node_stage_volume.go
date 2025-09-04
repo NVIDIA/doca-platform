@@ -47,7 +47,7 @@ func (h *node) NodeStageVolume(
 	if req.StagingTargetPath == "" {
 		return nil, common.FieldIsRequiredError("StagingTargetPath")
 	}
-	if err := common.ValidateVolumeCapability(req.VolumeCapability); err != nil {
+	if err := common.ValidateVolumeCapability(h.commonConfig.EmulationMode, req.VolumeCapability); err != nil {
 		return nil, err
 	}
 	if req.PublishContext[common.PublishCtxDevicePciAddress] == "" {
