@@ -41,6 +41,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -276,19 +277,6 @@ var _ = Describe("DPU", func() {
 		return dpuDevice
 	}
 
-	patchPhase := func(name string, phase provisioningv1.DPUPhase) {
-		key := client.ObjectKey{Namespace: testNS.Name, Name: name}
-		dpu := &provisioningv1.DPU{}
-		Expect(k8sClient.Get(ctx, key, dpu)).To(Succeed())
-		orig := dpu.DeepCopy()
-		dpu.Status.Phase = phase
-		Expect(k8sClient.Status().Patch(ctx, dpu, client.MergeFrom(orig))).To(Succeed())
-		Eventually(func() provisioningv1.DPUPhase {
-			Expect(k8sClient.Get(ctx, key, dpu)).To(Succeed())
-			return dpu.Status.Phase
-		}).Should(Equal(phase))
-	}
-
 	BeforeEach(func() {
 		By("creating location for bfb files")
 		// Notes:
@@ -401,91 +389,134 @@ var _ = Describe("DPU", func() {
 			}, 10*time.Second).Should(Succeed())
 		})
 		Describe("DPUInProvisioningMap", func() {
+			var (
+				fakeMapClient client.Client
+			)
+
+			var createFakeDPU = func(name string) *provisioningv1.DPU {
+				return &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      name,
+						Namespace: testNS.Name,
+					},
+					Spec: provisioningv1.DPUSpec{
+						SerialNumber: DefaultSerialNumber,
+					},
+					Status: provisioningv1.DPUStatus{},
+				}
+			}
+
+			var patchFakePhase = func(name string, phase provisioningv1.DPUPhase) {
+				key := client.ObjectKey{Namespace: testNS.Name, Name: name}
+				dpu := &provisioningv1.DPU{}
+				Expect(fakeMapClient.Get(ctx, key, dpu)).To(Succeed())
+				orig := dpu.DeepCopy()
+				dpu.Status.Phase = phase
+				Expect(fakeMapClient.Status().Patch(ctx, dpu, client.MergeFrom(orig))).To(Succeed())
+			}
+
+			BeforeEach(func() {
+				By("creating isolated fake client for DPUInProvisioningMap tests")
+				fakeMapClient = fake.NewClientBuilder().
+					WithScheme(k8sClient.Scheme()).
+					WithStatusSubresource(&provisioningv1.DPU{}).
+					Build()
+			})
+
 			It("DPUInProvisioningMap: should initialize with existing DPUs in provisioning", func() {
 				By("creating DPUs in provisioning state")
-				dpu := createObj("dpu-1")
+				dpu := createFakeDPU("dpu-1")
 				dpu.Spec.DPUDeviceName = testDPUDevice.Name
-				Expect(k8sClient.Create(ctx, dpu)).To(Succeed())
+				Expect(fakeMapClient.Create(ctx, dpu)).To(Succeed())
 
 				By("setting DPU phases to provisioning states")
-				patchPhase(dpu.Name, provisioningv1.DPUNodeEffect)
+				patchFakePhase(dpu.Name, provisioningv1.DPUNodeEffect)
 
 				By("initializing the map")
-				Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, k8sClient)).To(Succeed())
+				Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, fakeMapClient)).To(Succeed())
 
 				By("verifying map state")
 				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-extra"))).To(BeFalse())
 			})
 
 			It("DPUInProvisioningMap: should handle empty initialization", func() {
-				By("initializing the map")
-				Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, k8sClient)).To(Succeed())
+				By("initializing the map with empty fake client")
+				Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, fakeMapClient)).To(Succeed())
 
 				By("verifying map state")
 				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-extra"))).To(BeTrue())
 			})
 
 			It("DPUInProvisioningMap: should handle initialization with non-provisioning DPUs", func() {
-				By("creating a DPU in non-provisioning state")
-				dpu1 := createObj("dpu-1")
+				By("creating DPUs in non-provisioning state")
+				dpu1 := createFakeDPU("dpu-1")
 				dpu1.Spec.DPUDeviceName = testDPUDevice.Name
-				Expect(k8sClient.Create(ctx, dpu1)).To(Succeed())
+				Expect(fakeMapClient.Create(ctx, dpu1)).To(Succeed())
 
-				dpu2 := createObj("dpu-2")
+				dpu2 := createFakeDPU("dpu-2")
 				dpu2.Spec.DPUDeviceName = testDPUDevice.Name
-				Expect(k8sClient.Create(ctx, dpu2)).To(Succeed())
+				Expect(fakeMapClient.Create(ctx, dpu2)).To(Succeed())
 
 				By("setting DPU phase to non-provisioning state")
-				patchPhase(dpu1.Name, provisioningv1.DPUReady)
-				patchPhase(dpu2.Name, provisioningv1.DPUInitializing)
+				patchFakePhase(dpu1.Name, provisioningv1.DPUReady)
+				patchFakePhase(dpu2.Name, provisioningv1.DPUInitializing)
 
 				By("initializing the map")
-				Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, k8sClient)).To(Succeed())
+				Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, fakeMapClient)).To(Succeed())
 
 				By("verifying map state")
 				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeTrue())
 			})
-		})
-		It("DPUInProvisioningMap: should handle phase transitions - provisioning to deleting", func() {
-			By("creating a DPU")
-			dpu := createObj("dpu-phase")
-			dpu.Spec.DPUDeviceName = testDPUDevice.Name
-			dpu.Spec.BFB = testBFB.Name
-			Expect(k8sClient.Create(ctx, dpu)).To(Succeed())
 
-			By("setting initial state to Provisioning state")
-			patchPhase(dpu.Name, provisioningv1.DPUNodeEffect)
+			It("DPUInProvisioningMap: should handle phase transitions - provisioning to deleting", func() {
+				By("creating a DPU")
+				dpu := createFakeDPU("dpu-phase")
+				dpu.Spec.DPUDeviceName = testDPUDevice.Name
+				dpu.Spec.BFB = testBFB.Name
+				Expect(fakeMapClient.Create(ctx, dpu)).To(Succeed())
 
-			By("initializing the map")
-			Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, k8sClient)).To(Succeed())
+				By("setting initial state to Provisioning state")
+				patchFakePhase(dpu.Name, provisioningv1.DPUNodeEffect)
 
-			By("verifying CanProceed is false in Provisioning state")
-			Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeFalse())
+				By("initializing the map")
+				Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, fakeMapClient)).To(Succeed())
 
-			By("transitioning to Deleting state")
-			patchPhase(dpu.Name, provisioningv1.DPUDeleting)
-			Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeTrue())
+				By("verifying CanProceed is false in Provisioning state")
+				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeFalse())
 
-		})
-		It("DPUInProvisioningMap: should handle phase transitions - provisioning to Error", func() {
-			By("creating a DPU")
-			dpu := createObj("dpu-phase")
-			dpu.Spec.DPUDeviceName = testDPUDevice.Name
-			dpu.Spec.BFB = testBFB.Name
-			Expect(k8sClient.Create(ctx, dpu)).To(Succeed())
+				By("transitioning to Deleting state")
+				patchFakePhase(dpu.Name, provisioningv1.DPUDeleting)
 
-			By("setting initial state to Provisioning state")
-			patchPhase(dpu.Name, provisioningv1.DPUNodeEffect)
+				By("removing DPU from map as it's no longer in provisioning state")
+				dpuReconciler.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
 
-			By("initializing the map")
-			Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, k8sClient)).To(Succeed())
+				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeTrue())
+			})
 
-			By("verifying CanProceed is false in Provisioning state")
-			Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeFalse())
+			It("DPUInProvisioningMap: should handle phase transitions - provisioning to Error", func() {
+				By("creating a DPU")
+				dpu := createFakeDPU("dpu-phase")
+				dpu.Spec.DPUDeviceName = testDPUDevice.Name
+				dpu.Spec.BFB = testBFB.Name
+				Expect(fakeMapClient.Create(ctx, dpu)).To(Succeed())
 
-			By("transitioning to Error state")
-			patchPhase(dpu.Name, provisioningv1.DPUError)
-			Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeTrue())
+				By("setting initial state to Provisioning state")
+				patchFakePhase(dpu.Name, provisioningv1.DPUNodeEffect)
+
+				By("initializing the map")
+				Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, fakeMapClient)).To(Succeed())
+
+				By("verifying CanProceed is false in Provisioning state")
+				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeFalse())
+
+				By("transitioning to Error state")
+				patchFakePhase(dpu.Name, provisioningv1.DPUError)
+
+				By("removing DPU from map as it's no longer in provisioning state")
+				dpuReconciler.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
+
+				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeTrue())
+			})
 		})
 	})
 })
