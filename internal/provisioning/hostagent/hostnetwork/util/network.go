@@ -17,10 +17,36 @@ limitations under the License.
 package util
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/vishvananda/netlink"
+	"gopkg.in/yaml.v3"
 )
+
+const (
+	NetplanConfigFilePrefix = "/etc/netplan/99-dpu"
+)
+
+// generateNetplanFilePath creates a unique netplan file path for a DPU device using its serial number
+func generateNetplanFilePath(pciHelper *PCIHelper) (string, error) {
+	serialNumber, err := pciHelper.SerialNumber()
+	if err != nil {
+		return "", fmt.Errorf("failed to get device serial number for %s: %w", pciHelper.Path(), err)
+	}
+
+	// Sanitize serial number for filename (remove/replace problematic characters)
+	sanitized := strings.ReplaceAll(serialNumber, "/", "-")
+	sanitized = strings.ReplaceAll(sanitized, "\\", "-")
+	sanitized = strings.ReplaceAll(sanitized, " ", "-")
+	sanitized = strings.ReplaceAll(sanitized, ":", "-")
+
+	return fmt.Sprintf("%s-%s.yaml", NetplanConfigFilePrefix, sanitized), nil
+}
 
 func CreateVF(pciAddress string, numOfVFs int) error {
 	err := NewPCIHelper(pciAddress).SetNumOfVFs(numOfVFs)
@@ -65,4 +91,151 @@ func RemoveVFFromBridge(vfName string) error {
 		return fmt.Errorf("failed to get VF link: %w", err)
 	}
 	return netlink.LinkSetNoMaster(vf)
+}
+
+// NetplanConfig represents the netplan configuration structure
+type NetplanConfig struct {
+	Network NetplanNetwork `yaml:"network"`
+}
+
+type NetplanNetwork struct {
+	Version   int                        `yaml:"version"`
+	Ethernets map[string]NetplanEthernet `yaml:"ethernets"`
+}
+
+type NetplanEthernet struct {
+	DHCP4 *bool  `yaml:"dhcp4,omitempty"`
+	MTU   *int32 `yaml:"mtu,omitempty"`
+}
+
+// ConfigurePFNetplan configures the PF network interfaces using netplan
+func ConfigurePFNetplan(pciAddress string, pf0MTU int32, pf0DHCP *bool, pf1MTU int32, pf1DHCP *bool) error {
+	pciHelper := NewPCIHelper(pciAddress)
+	config := NetplanConfig{
+		Network: NetplanNetwork{
+			Version:   2,
+			Ethernets: make(map[string]NetplanEthernet),
+		},
+	}
+
+	// Configure P0 if needed
+	if pf0MTU > 0 || pf0DHCP != nil {
+		pf0 := pciHelper.PF(0)
+		interfaceName, err := pf0.InterfaceName()
+		if err != nil {
+			return fmt.Errorf("failed to get PF0 interface name: %w", err)
+		}
+		ethernet := NetplanEthernet{}
+		if pf0MTU > 0 {
+			ethernet.MTU = &pf0MTU
+		}
+		if pf0DHCP != nil {
+			ethernet.DHCP4 = pf0DHCP
+		}
+		config.Network.Ethernets[interfaceName] = ethernet
+	}
+
+	// Configure P1 if needed
+	if pf1MTU > 0 || pf1DHCP != nil {
+		pf1 := pciHelper.PF(1)
+		interfaceName, err := pf1.InterfaceName()
+		if err != nil {
+			return fmt.Errorf("failed to get PF1 interface name: %w", err)
+		}
+		ethernet := NetplanEthernet{}
+		if pf1MTU > 0 {
+			ethernet.MTU = &pf1MTU
+		}
+		if pf1DHCP != nil {
+			ethernet.DHCP4 = pf1DHCP
+		}
+		config.Network.Ethernets[interfaceName] = ethernet
+
+	}
+
+	// Only create netplan file if we have something to configure
+	if len(config.Network.Ethernets) == 0 {
+		return nil
+	}
+
+	// Write netplan configuration file
+	netplanFilePath, err := generateNetplanFilePath(pciHelper)
+	if err != nil {
+		return fmt.Errorf("failed to generate netplan file path: %w", err)
+	}
+	if err = writeNetplanFile(netplanFilePath, &config); err != nil {
+		return fmt.Errorf("failed to write netplan file: %w", err)
+	}
+
+	// Apply netplan configuration
+	if err = applyNetplan(); err != nil {
+		return fmt.Errorf("failed to apply netplan configuration: %w", err)
+	}
+
+	return nil
+}
+
+// writeNetplanFile writes the netplan configuration to a file
+func writeNetplanFile(filePath string, config *NetplanConfig) error {
+	// Ensure directory exists
+	dir := filepath.Dir(filePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create netplan directory: %w", err)
+	}
+
+	// Marshal to YAML
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal netplan config: %w", err)
+	}
+
+	// Write file with correct permissions (netplan requires 0600)
+	if err := os.WriteFile(filePath, data, 0600); err != nil {
+		return fmt.Errorf("failed to write netplan file: %w", err)
+	}
+
+	return nil
+}
+
+// applyNetplan applies the netplan configuration
+func applyNetplan() error {
+	// Check if netplan command exists
+	if _, err := exec.LookPath("netplan"); err != nil {
+		return fmt.Errorf("netplan command not found: %w", err)
+	}
+
+	cmd := exec.Command("netplan", "apply")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("netplan apply failed: %w, output: %s", err, string(output))
+	}
+	return nil
+}
+
+// GetOSType detects the operating system type by reading /etc/os-release
+func GetOSType() (string, error) {
+	osReleaseFilePath := "/etc/os-release"
+	osReleaseFile, err := os.Open(osReleaseFilePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open %s: %w", osReleaseFilePath, err)
+	}
+	defer func() {
+		_ = osReleaseFile.Close()
+	}()
+
+	scanner := bufio.NewScanner(osReleaseFile)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "ID=") {
+			// Extract the value after ID=, removing quotes if present
+			osID := strings.TrimPrefix(line, "ID=")
+			osID = strings.Trim(osID, `"'`)
+			return strings.ToLower(osID), nil
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("failed to scan %s: %w", osReleaseFilePath, err)
+	}
+
+	return "", fmt.Errorf("ID field not found in %s", osReleaseFilePath)
 }
