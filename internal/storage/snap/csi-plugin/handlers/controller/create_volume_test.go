@@ -50,8 +50,9 @@ var _ = Describe("CreateVolume", func() {
 			Client: getClusterClient(),
 		}
 		controllerHandler = &controller{
-			clusterhelper:    clients,
+			commonConfig:     config.Common{EmulationMode: config.EmulationModeNVMe},
 			controllerConfig: config.Controller{Namespace: "test-namespace"},
+			clusterhelper:    clients,
 		}
 		ctx, cancel = context.WithCancel(context.Background())
 		DeferCleanup(cancel)
@@ -98,7 +99,7 @@ var _ = Describe("CreateVolume", func() {
 			}
 			resp, err := controllerHandler.CreateVolume(ctx, req)
 			Expect(resp).To(BeNil())
-			common.CheckGRPCErr(err, codes.Unimplemented, "accessType Mount is not supported")
+			common.CheckGRPCErr(err, codes.Unimplemented, "VolumeCapabilities[0].Mount is not supported")
 		})
 		It("should return error if VolumeContentSource set", func() {
 			req.VolumeContentSource = &csi.VolumeContentSource{}

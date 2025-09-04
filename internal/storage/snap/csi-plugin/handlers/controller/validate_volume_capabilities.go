@@ -41,7 +41,7 @@ func (h *controller) ValidateVolumeCapabilities(
 	if req.VolumeId == "" {
 		return nil, common.FieldIsRequiredError("VolumeId")
 	}
-	if err := common.ValidateVolumeCapabilities(req.VolumeCapabilities); err != nil {
+	if err := common.ValidateVolumeCapabilities(h.commonConfig.EmulationMode, req.VolumeCapabilities); err != nil {
 		return nil, err
 	}
 
@@ -66,7 +66,7 @@ func (h *controller) ValidateVolumeCapabilities(
 	reqLog = reqLog.WithValues("name", apiVolume.GetName())
 	reqLog.Info("volume found")
 
-	volumeCtx, err := getCSIVolumeCtx(req.Parameters, apiVolume)
+	volumeCtx, err := getCSIVolumeCtx(h.commonConfig, req.Parameters, apiVolume)
 	if err != nil {
 		reqLog.Error(err, "failed to get volume context")
 		return nil, status.Error(codes.Internal, "failed to get volume context")

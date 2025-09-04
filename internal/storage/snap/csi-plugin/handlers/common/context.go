@@ -38,8 +38,10 @@ const (
 	PublishCtxNvVolumeName = VendorPrefix + "volumeName"
 	// PublishCtxNvVolumeAttachmentName contains the name of the volume attachment
 	PublishCtxNvVolumeAttachmentName = VendorPrefix + "volumeAttachmentName"
-	// PublishCtxDevicePciAddress contains the PCI address of the device to which the volume is attached.
+	// PublishCtxDevicePciAddress contains the PCI address of the device to which the volume is attached, must be set for all emulation modes
 	PublishCtxDevicePciAddress = VendorPrefix + "pciDeviceAddress"
-	// PublishCtxNvmeNsID contains the NVMe namespace ID to which the volume is attached.
+	// PublishCtxNvmeNsID contains the NVMe namespace ID to which the volume is attached, must be set when the plugin is running with emulationMode=nvme
 	PublishCtxNvmeNsID = VendorPrefix + "nvmeNsID"
+	// PublishCtxVirtioFsTag contains the tag of the VirtioFS volume, must be set when the plugin is running with emulationMode=virtiofs
+	PublishCtxVirtioFsTag = VendorPrefix + "virtioFsTag"
 )

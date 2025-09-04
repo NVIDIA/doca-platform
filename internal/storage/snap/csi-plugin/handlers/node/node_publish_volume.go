@@ -43,7 +43,7 @@ func (h *node) NodePublishVolume(ctx context.Context,
 		return nil, common.FieldIsRequiredError("TargetPath")
 	}
 
-	if err := common.ValidateVolumeCapability(req.VolumeCapability); err != nil {
+	if err := common.ValidateVolumeCapability(h.commonConfig.EmulationMode, req.VolumeCapability); err != nil {
 		return nil, err
 	}
 

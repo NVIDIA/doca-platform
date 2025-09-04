@@ -50,8 +50,9 @@ var _ = Describe("ControllerUnpublish", func() {
 			Client: getClusterClient(),
 		}
 		controllerHandler = &controller{
-			clusterhelper:    clients,
+			commonConfig:     config.Common{EmulationMode: config.EmulationModeNVMe},
 			controllerConfig: config.Controller{Namespace: "test-namespace"},
+			clusterhelper:    clients,
 		}
 		ctx, cancel = context.WithCancel(context.Background())
 		DeferCleanup(cancel)

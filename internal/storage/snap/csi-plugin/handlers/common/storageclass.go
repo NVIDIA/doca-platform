@@ -18,6 +18,8 @@ package common
 
 import (
 	"maps"
+
+	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
 )
 
 // Name of the Keys in StorageClass that supported by the plugin.
@@ -38,11 +40,11 @@ const (
 )
 
 // ValidateCreateVolumeParameters validates the parameters for the CreateVolumeRequest.Parameters field.
-func ValidateCreateVolumeParameters(params map[string]string) error {
+func ValidateCreateVolumeParameters(commonConfig config.Common, params map[string]string) error {
 	if params[StorageClassPolicyKey] == "" {
 		return FieldIsRequiredError("Parameters.policy")
 	}
-	_, err := FunctionTypeConfigFromStrings(params[StorageClassFunctionTypeKey], params[StorageClassHotplugFunctionKey])
+	_, err := FunctionTypeConfigFromStrings(commonConfig, params[StorageClassFunctionTypeKey], params[StorageClassHotplugFunctionKey])
 	if err != nil {
 		return FieldIsInvalidError("Parameters", err.Error())
 	}
