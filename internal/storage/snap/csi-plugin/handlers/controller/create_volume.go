@@ -51,13 +51,13 @@ func (h *controller) CreateVolume(
 	if req.Name == "" {
 		return nil, common.FieldIsRequiredError("Name")
 	}
-	if err := common.ValidateVolumeCapabilities(req.VolumeCapabilities); err != nil {
+	if err := common.ValidateVolumeCapabilities(h.commonConfig.EmulationMode, req.VolumeCapabilities); err != nil {
 		return nil, err
 	}
 	if req.VolumeContentSource != nil {
 		return nil, status.Error(codes.InvalidArgument, "volume content source is not supported")
 	}
-	if err := common.ValidateCreateVolumeParameters(req.Parameters); err != nil {
+	if err := common.ValidateCreateVolumeParameters(h.commonConfig, req.Parameters); err != nil {
 		return nil, err
 	}
 	client, err := h.clusterhelper.GetClient(ctx)
@@ -123,7 +123,7 @@ func (h *controller) CreateVolume(
 		// we use internal error because it is not something the user can fix and this is propbaly caused by a bug in implementation.
 		return nil, status.Error(codes.Internal, "volume capacity is 0")
 	}
-	volumeCtx, err := getCSIVolumeCtx(req.Parameters, apiVolume)
+	volumeCtx, err := getCSIVolumeCtx(h.commonConfig, req.Parameters, apiVolume)
 	if err != nil {
 		reqLog.Error(err, "failed to get volume context")
 		return nil, status.Error(codes.Internal, "failed to get volume context")
