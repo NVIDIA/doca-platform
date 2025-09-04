@@ -22,6 +22,7 @@ import (
 	"time"
 
 	storagev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
 	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/handlers/common"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -56,7 +57,7 @@ func generateID(prefix string, identifiers ...string) string {
 }
 
 // getCSIVolumeCtx constructs a volume context map by combining information from the CreateVolumeRequest.Parameters and DPUVolume object.
-func getCSIVolumeCtx(createParams map[string]string, vol *storagev1.DPUVolume) (map[string]string, error) {
+func getCSIVolumeCtx(commonConfig config.Common, createParams map[string]string, vol *storagev1.DPUVolume) (map[string]string, error) {
 	volumeCtx := map[string]string{
 		common.VolumeCtxStoragePolicyName: vol.Spec.DPUStoragePolicyName,
 	}
@@ -72,6 +73,7 @@ func getCSIVolumeCtx(createParams map[string]string, vol *storagev1.DPUVolume) (
 	// run through the validation and defaulting logic and add to the volumeCtx
 	if createParams[common.StorageClassFunctionTypeKey] != "" || createParams[common.StorageClassHotplugFunctionKey] != "" {
 		functionTypeConfig, err := common.FunctionTypeConfigFromStrings(
+			commonConfig,
 			createParams[common.StorageClassFunctionTypeKey],
 			createParams[common.StorageClassHotplugFunctionKey])
 		if err != nil {

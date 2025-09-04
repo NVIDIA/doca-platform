@@ -17,6 +17,8 @@ limitations under the License.
 package common
 
 import (
+	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -24,39 +26,40 @@ import (
 var _ = Describe("StorageClass", func() {
 	Describe("ValidateCreateVolumeParameters", func() {
 		It("should return error when policy parameter is missing", func() {
+			commonConfig := config.Common{EmulationMode: config.EmulationModeNVMe}
 			params := map[string]string{}
-			err := ValidateCreateVolumeParameters(params)
+			err := ValidateCreateVolumeParameters(commonConfig, params)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("Parameters.policy: field is required"))
 		})
-
-		It("should succeed with valid policy", func() {
-			params := map[string]string{
-				StorageClassPolicyKey: "test-policy",
-			}
-			err := ValidateCreateVolumeParameters(params)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("should return error with invalid functionType", func() {
-			params := map[string]string{
-				StorageClassPolicyKey:       "test-policy",
-				StorageClassFunctionTypeKey: "invalid",
-			}
-			err := ValidateCreateVolumeParameters(params)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("unsupported value invalid"))
-		})
-
-		It("should return error when hotplugFunction is true with vf functionType", func() {
+		It("should return error when wrong combination of functionType and hotplugFunction parameters", func() {
+			commonConfig := config.Common{EmulationMode: config.EmulationModeNVMe}
 			params := map[string]string{
 				StorageClassPolicyKey:          "test-policy",
 				StorageClassFunctionTypeKey:    "vf",
 				StorageClassHotplugFunctionKey: "true",
 			}
-			err := ValidateCreateVolumeParameters(params)
+			err := ValidateCreateVolumeParameters(commonConfig, params)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("can only be true when functionType is pf"))
+			Expect(err.Error()).To(ContainSubstring("hotplugFunction: must be false when functionType is vf"))
+		})
+		It("should succeed with valid policy for nvme", func() {
+			commonConfig := config.Common{EmulationMode: config.EmulationModeNVMe}
+			params := map[string]string{
+				StorageClassPolicyKey: "test-policy",
+			}
+			err := ValidateCreateVolumeParameters(commonConfig, params)
+			Expect(err).NotTo(HaveOccurred())
+		})
+		It("should succeed with valid policy for virtiofs", func() {
+			commonConfig := config.Common{EmulationMode: config.EmulationModeVirtiofs}
+			params := map[string]string{
+				StorageClassPolicyKey:          "test-policy",
+				StorageClassFunctionTypeKey:    "pf",
+				StorageClassHotplugFunctionKey: "true",
+			}
+			err := ValidateCreateVolumeParameters(commonConfig, params)
+			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 

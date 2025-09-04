@@ -20,6 +20,7 @@ import (
 	"context"
 	"os"
 
+	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
 	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/handlers/common"
 	mountUtilsMockPkg "github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/utils/mount/mock"
 	utilsNvme "github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/utils/nvme"
@@ -52,9 +53,10 @@ var _ = Describe("NodeStageVolume", func() {
 		mountUtils = mountUtilsMockPkg.NewMockUtils(ctrl)
 		nvmeUtils = nvmeUtilsMockPkg.NewMockUtils(ctrl)
 		nodeHandler = &node{
-			pci:   pciUtils,
-			mount: mountUtils,
-			nvme:  nvmeUtils,
+			commonConfig: config.Common{EmulationMode: config.EmulationModeNVMe},
+			pci:          pciUtils,
+			mount:        mountUtils,
+			nvme:         nvmeUtils,
 		}
 		ctx, cancel = context.WithCancel(context.Background())
 		req = &csi.NodeStageVolumeRequest{

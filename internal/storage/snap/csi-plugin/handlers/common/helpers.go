@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	storagev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
@@ -29,15 +30,15 @@ import (
 )
 
 // ValidateVolumeCapability validates a single VolumeCapability entry.
-func ValidateVolumeCapability(volCap *csi.VolumeCapability) error {
+func ValidateVolumeCapability(emulationMode string, volCap *csi.VolumeCapability) error {
 	if volCap == nil {
 		return FieldIsRequiredError("VolumeCapability")
 	}
-	return CheckVolumeCapability("VolumeCapability", volCap)
+	return CheckVolumeCapability(emulationMode, "VolumeCapability", volCap)
 }
 
 // ValidateVolumeCapabilities validates a list of VolumeCapability entries.
-func ValidateVolumeCapabilities(volCaps []*csi.VolumeCapability) error {
+func ValidateVolumeCapabilities(emulationMode string, volCaps []*csi.VolumeCapability) error {
 	if len(volCaps) == 0 {
 		return FieldIsRequiredError("VolumeCapabilities")
 	}
@@ -45,7 +46,7 @@ func ValidateVolumeCapabilities(volCaps []*csi.VolumeCapability) error {
 		if volCap == nil {
 			return FieldIsRequiredError("VolumeCapabilities")
 		}
-		err := CheckVolumeCapability(fmt.Sprintf("VolumeCapabilities[%d]", i), volCap)
+		err := CheckVolumeCapability(emulationMode, fmt.Sprintf("VolumeCapabilities[%d]", i), volCap)
 		if err != nil {
 			return err
 		}
@@ -54,8 +55,8 @@ func ValidateVolumeCapabilities(volCaps []*csi.VolumeCapability) error {
 }
 
 // CheckVolumeCapability validates a single VolumeCapability entry.
-// accepts fieldName as a parameter to provide more detailed error message
-func CheckVolumeCapability(fieldName string, volCap *csi.VolumeCapability) error {
+// accepts fieldName as a parameter to provide more detailed error message, validation logic is different for different emulation modes
+func CheckVolumeCapability(emulationMode string, fieldName string, volCap *csi.VolumeCapability) error {
 	if volCap.AccessMode == nil || volCap.AccessMode.Mode == 0 {
 		return FieldIsRequiredError(fieldName + ".AccessMode")
 	}
@@ -64,8 +65,16 @@ func CheckVolumeCapability(fieldName string, volCap *csi.VolumeCapability) error
 		if aType.Block == nil {
 			return FieldIsRequiredError(fieldName + ".Block")
 		}
+		if emulationMode != config.EmulationModeNVMe {
+			return CallIsNotSupportedError(fieldName + ".Block")
+		}
 	case *csi.VolumeCapability_Mount:
-		return CallIsNotSupportedError("accessType Mount")
+		if aType.Mount == nil {
+			return FieldIsRequiredError(fieldName + ".Mount")
+		}
+		if emulationMode != config.EmulationModeVirtiofs {
+			return CallIsNotSupportedError(fieldName + ".Mount")
+		}
 	default:
 		return FieldIsRequiredError(fieldName + ".AccessType")
 	}
@@ -94,9 +103,10 @@ func FieldIsRequired(fieldName string) string {
 
 // FunctionTypeConfigFromStrings constructs a FunctionTypeConfig from functionType and hotplugFunction strings.
 // The function validates that functionType is either "vf" or "pf" (case-insensitive) and that hotplugFunction
-// is a valid boolean value. It also ensures that hotplugFunction cannot be true when functionType is "vf".
+// is a valid boolean value.
 // If functionType is empty, it defaults to "vf". If hotplugFunction is empty, it defaults to false.
-func FunctionTypeConfigFromStrings(functionType string, hotplugFunction string) (storagev1.FunctionTypeConfig, error) {
+// Validation logic specific to the plugin mode is enforced as a last step (after defaulting).
+func FunctionTypeConfigFromStrings(commonConfig config.Common, functionType string, hotplugFunction string) (storagev1.FunctionTypeConfig, error) {
 	result := storagev1.FunctionTypeConfig{
 		FunctionType:    DefaultFunctionType,
 		HotplugFunction: DefaultHotplugFunction,
@@ -119,9 +129,20 @@ func FunctionTypeConfigFromStrings(functionType string, hotplugFunction string) 
 			return storagev1.FunctionTypeConfig{}, fmt.Errorf("hotplugFunction: is not a boolean value")
 		}
 	}
+
 	if result.FunctionType == storagev1.FunctionTypeVF && result.HotplugFunction {
-		return storagev1.FunctionTypeConfig{}, fmt.Errorf("hotplugFunction: can only be true when functionType is %s", storagev1.FunctionTypePF)
+		return storagev1.FunctionTypeConfig{}, fmt.Errorf("hotplugFunction: must be false when functionType is %s", storagev1.FunctionTypeVF)
 	}
+
+	if result.FunctionType == storagev1.FunctionTypePF && !result.HotplugFunction {
+		return storagev1.FunctionTypeConfig{}, fmt.Errorf("hotplugFunction: must be true when functionType is %s", storagev1.FunctionTypePF)
+	}
+
+	if commonConfig.EmulationMode == config.EmulationModeVirtiofs &&
+		result.FunctionType != storagev1.FunctionTypePF {
+		return storagev1.FunctionTypeConfig{}, fmt.Errorf("functionType: must be %s, for the current plugin mode", storagev1.FunctionTypePF)
+	}
+
 	return result, nil
 }
 

@@ -22,7 +22,7 @@ import (
 
 const (
 	// DefaultMaxVolumesPerNode defines the fallback value for maximum number of volumes that can be published to a node.
-	DefaultMaxVolumesPerNode = 32
+	DefaultMaxVolumesPerNode = 30
 )
 
 const (
