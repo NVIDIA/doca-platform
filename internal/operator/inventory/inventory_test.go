@@ -222,6 +222,14 @@ func TestManifests_Parse_Generate_All(t *testing.T) {
 			}),
 			wantErr: true,
 		},
+		{
+			name: "fail if cni-installer is missing the DPUService",
+			inventory: New().setCNIInstaller(fromDPUService{
+				name: operatorv1.CNIInstallerName,
+				data: removeKindFromObjects(g, "DPUService", cniInstallerData),
+			}),
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -340,6 +348,12 @@ func TestManifests_generateAllManifests(t *testing.T) {
 			componentToDisable: operatorv1.SFCControllerName,
 			wantErr:            false,
 			expectedMissing:    operatorv1.SFCControllerName,
+		},
+		{
+			name:               "Disable cni-installer manifests",
+			componentToDisable: operatorv1.CNIInstallerName,
+			wantErr:            false,
+			expectedMissing:    operatorv1.CNIInstallerName,
 		},
 	}
 	for _, tt := range tests {

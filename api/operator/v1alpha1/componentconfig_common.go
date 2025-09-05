@@ -36,6 +36,7 @@ const (
 	KamajiClusterManagerName   = "kamaji-cluster-manager"
 	StaticClusterManagerName   = "static-cluster-manager"
 	BFBRegistryName            = "bfb-registry"
+	CNIInstallerName           = "cni-installer"
 )
 
 // Container names for the helm path provider in internal/operator/inventory/helm_paths_provider.go.
@@ -94,6 +95,9 @@ func (c *DPFOperatorConfig) ComponentConfigs() []ComponentConfigurable {
 	}
 	if c.Spec.StaticClusterManager != nil {
 		out = append(out, c.Spec.StaticClusterManager)
+	}
+	if c.Spec.CNIInstaller != nil {
+		out = append(out, c.Spec.CNIInstaller)
 	}
 	return out
 }

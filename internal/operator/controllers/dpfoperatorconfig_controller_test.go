@@ -764,6 +764,7 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMName, initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.CNIInstallerName, initialImagePullSecrets)
 		g.Eventually(func(g Gomega) {
 			dpuservices := &dpuservicev1.DPUServiceList{}
 			g.Expect(testClient.List(ctx, dpuservices)).To(Succeed())
@@ -1305,6 +1306,8 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				KamajiClusterManager: &operatorv1.KamajiClusterManagerConfiguration{
 					BaseComponentConfig: operatorv1.BaseComponentConfig{Disable: ptr.To(true)}},
 				StaticClusterManager: &operatorv1.StaticClusterManagerConfiguration{
+					BaseComponentConfig: operatorv1.BaseComponentConfig{Disable: ptr.To(true)}},
+				CNIInstaller: &operatorv1.CNIInstallerConfiguration{
 					BaseComponentConfig: operatorv1.BaseComponentConfig{Disable: ptr.To(true)}},
 			},
 		}
