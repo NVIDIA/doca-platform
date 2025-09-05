@@ -72,11 +72,10 @@ const (
 	// later connected with br-sfc. In the current OVN IC w/ DPU implementation, the internal port of this bridge acts
 	// as the VTEP.
 	brOVN = "br-ovn"
+	brDPU = "br-dpu"
 
-	// ovnInputGatewayOptsPath is the path to the file in which kubeovn-controller expects the additional gateway opts
-	ovnInputGatewayOptsPath = "/etc/init-output/ovn_gateway_opts"
-	// ovnInputRouterSubnetPath is the path to the file in which kubeovn-controller expects the Gateway Router Subnet
-	ovnInputRouterSubnetPath = "/etc/init-output/ovn_gateway_router_subnet"
+	// ovnkInputPath is the path to the file in which ovnkube-controller expects the additional gateway opts
+	ovnkInputPath = "/etc/openvswitch/ovn_k8s.conf"
 	// brOVNNetplanConfigPath is the path to the file which contains the netplan configuration for br-ovn
 	brOVNNetplanConfigPath = "/etc/netplan/80-br-ovn.yaml"
 	// netplanApplyDonePath is a file that indicates that a netplan apply has already ran and was successful. The content
@@ -212,6 +211,7 @@ func (p *DPUCNIProvisioner) configure() error {
 	if err := p.findAndSetKubernetesHostNameInOVS(); err != nil {
 		return fmt.Errorf("error while setting the Kubernetes Host Name in OVS: %w", err)
 	}
+
 	if p.mode == ExternalIPAM {
 		klog.Info("Configuring br-ovn")
 		if err := p.configureBROVN(); err != nil {
@@ -348,12 +348,22 @@ func (p *DPUCNIProvisioner) addRuleIfNotExists(network *net.IPNet, table int, pr
 
 // writeFilesForOVN writes the input files that the ovnkube-controller expects
 func (p *DPUCNIProvisioner) writeFilesForOVN() error {
-	if err := p.writeOVNInputGatewayOptsFile(); err != nil {
-		return fmt.Errorf("error while writing the file OVN expects to find additional gateway options: %w", err)
-	}
+	configPath := filepath.Join(p.FileSystemRoot, ovnkInputPath)
 
-	if err := p.writeOVNInputRouterSubnetPath(); err != nil {
-		return fmt.Errorf("error while writing the file OVN expects to find the gateway router subnet: %w", err)
+	// Build the complete content in one operation
+	content := "[Gateway]\n"
+	content += p.writeOVNInputGatewayOptsFile()
+
+	routerSubnetContent, err := p.writeOVNInputRouterSubnetPath()
+	if err != nil {
+		return fmt.Errorf("error while getting the gateway router subnet content: %w", err)
+	}
+	content += routerSubnetContent
+
+	// Write the complete content to the file in one operation
+	err = os.WriteFile(configPath, []byte(content), 0644)
+	if err != nil {
+		return fmt.Errorf("error writing to file %s: %w", configPath, err)
 	}
 
 	return nil
@@ -389,30 +399,20 @@ func (p *DPUCNIProvisioner) configureBROVN() error {
 	return nil
 }
 
-// writeOVNInputGatewayOptsFile writes the file in which kubeovn-controller expects the additional gateway opts
-func (p *DPUCNIProvisioner) writeOVNInputGatewayOptsFile() error {
-	configPath := filepath.Join(p.FileSystemRoot, ovnInputGatewayOptsPath)
-	content := fmt.Sprintf("--gateway-nexthop=%s", p.gateway.String())
-	err := os.WriteFile(configPath, []byte(content), 0644)
-	if err != nil {
-		return fmt.Errorf("error while writing file %s: %w", configPath, err)
-	}
-	return nil
+// writeOVNInputGatewayOptsFile returns the gateway options content
+// that ovnkube-controller reads from.
+func (p *DPUCNIProvisioner) writeOVNInputGatewayOptsFile() string {
+	return "next-hop=" + p.gateway.String() + "\n"
 }
 
-// writeOVNInputRouterSubnetPath writes the file in which kubeovn-controller expects the Gateway Router Subnet
-func (p *DPUCNIProvisioner) writeOVNInputRouterSubnetPath() error {
-	configPath := filepath.Join(p.FileSystemRoot, ovnInputRouterSubnetPath)
+// writeOVNInputRouterSubnetPath returns the Gateway Router Subnet content
+// that kubeovn-controller reads.
+func (p *DPUCNIProvisioner) writeOVNInputRouterSubnetPath() (string, error) {
 	_, vtepNetwork, err := net.ParseCIDR(p.vtepIPNet.String())
 	if err != nil {
-		return fmt.Errorf("error while parsing network from VTEP IP %s: %w", p.vtepIPNet.String(), err)
+		return "", fmt.Errorf("error while parsing network from VTEP IP %s: %w", p.vtepIPNet.String(), err)
 	}
-	content := vtepNetwork.String()
-	err = os.WriteFile(configPath, []byte(content), 0644)
-	if err != nil {
-		return fmt.Errorf("error while writing file %s: %w", configPath, err)
-	}
-	return nil
+	return "router-subnet=" + vtepNetwork.String() + "\n", nil
 }
 
 // writeNetplanFileForBROVN writes a netplan file for br-ovn to request dhcp

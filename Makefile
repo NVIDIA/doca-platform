@@ -115,10 +115,10 @@ clean-images-for-registry: ## Clean release deletes local images with the $REGIS
 OVS_CNI_DIR=$(THIRDPARTYDIR)/ovs-cni
 
 # OVN Kubernetes dependencies to be able to build its docker image
-OVNKUBERNETES_REF=0e52b4064cff900e862c035efbb2650fdff63e94
+OVNKUBERNETES_REF=e42a9f0a3b9838981cfd4d71a73b66fb72c7957f
 OVNKUBERNETES_DIR=$(REPOSDIR)/ovn-kubernetes/ovn-kubernetes-$(OVNKUBERNETES_REF)
 $(OVNKUBERNETES_DIR): | $(REPOSDIR)
-	git clone https://github.com/mellanox/ovn-kubernetes $(OVNKUBERNETES_DIR)-tmp
+	git clone --recurse-submodules https://github.com/Mellanox/ovn-kubernetes-dpf $(OVNKUBERNETES_DIR)-tmp
 	cd $(OVNKUBERNETES_DIR)-tmp && git reset --hard $(OVNKUBERNETES_REF)
 	mv $(OVNKUBERNETES_DIR)-tmp $(OVNKUBERNETES_DIR)
 	# Delete old ovn-kubernetes directories.

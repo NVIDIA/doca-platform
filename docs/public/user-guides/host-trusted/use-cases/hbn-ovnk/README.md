@@ -123,6 +123,13 @@ export HBN_NGC_IMAGE_URL=nvcr.io/nvidia/doca/doca_hbn
 ## Usually this is the NVIDIA GHCR repository. For development purposes, this can be set to a different repository.
 export OVN_KUBERNETES_REPO_URL=oci://ghcr.io/nvidia
 
+## The ovn-kubernetes multi-arch image. This should point to a release from upstream
+export OVN_KUBERNETES_IMAGE=ghcr.io/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubuntu
+export OVNK_TAG=release-1.1
+
+## The ovn-kubernetes-dpf tool image. This should point to a DPF release image
+export DPF_OVNK_CNI_UTILS_IMAGE=oci://ghcr.io/nvidia/ovn-kubernetes
+
 ## POD_CIDR is the CIDR used for pods in the target Kubernetes cluster.
 export POD_CIDR=10.233.64.0/18
 
@@ -653,8 +660,14 @@ spec:
         enabled: true
       dpuManifests:
         enabled: true
+        image:
+          repository: $OVN_KUBERNETES_IMAGE
+          tag: $OVNK_TAG
+        imagedpf:
+          repository: $DPF_OVNK_CNI_UTILS_IMAGE
+          tag: $TAG
       leaseNamespace: "ovn-kubernetes"
-      gatewayOpts: "--gateway-interface=br-ovn"
+      gatewayOpts: "--gateway-interface=br-dpu"
 ```
 </details>
 
