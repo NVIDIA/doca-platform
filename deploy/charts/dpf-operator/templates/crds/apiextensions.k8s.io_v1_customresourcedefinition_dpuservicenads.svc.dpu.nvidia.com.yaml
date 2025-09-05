@@ -44,6 +44,20 @@ spec:
             properties:
               bridge:
                 type: string
+              chainCNI:
+                items:
+                  properties:
+                    config:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    type:
+                      enum:
+                      - rdma
+                      type: string
+                  required:
+                  - type
+                  type: object
+                type: array
               ipam:
                 type: boolean
               metadata:
