@@ -20,6 +20,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -73,6 +74,14 @@ func (c *DPUServiceNAD) GetResourceName() string {
 	}
 }
 
+type CNIPlugin struct {
+	// +kubebuilder:validation:Enum={"rdma"}
+	// +required
+	Type *string `json:"type"`
+	// +optional
+	Config *runtime.RawExtension `json:"config,omitempty"`
+}
+
 // DPUServiceNADSpec defines the desired state of DPUServiceNAD.
 type DPUServiceNADSpec struct {
 	ObjectMeta `json:"metadata,omitempty"`
@@ -85,6 +94,8 @@ type DPUServiceNADSpec struct {
 	ServiceMTU int `json:"serviceMTU,omitempty"`
 	// +optional
 	IPAM bool `json:"ipam,omitempty"`
+	// +optional
+	Chain []CNIPlugin `json:"chainCNI,omitempty"`
 }
 
 // DPUServiceNADStatus defines the observed state of DPUServiceNAD.

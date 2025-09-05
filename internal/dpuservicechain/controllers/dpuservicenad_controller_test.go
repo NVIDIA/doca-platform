@@ -366,6 +366,68 @@ var _ = Describe("DPUServiceNAD Controller", func() {
 			dpuServiceNAD.Name = utilrand.String(64)
 			Expect(testClient.Create(ctx, dpuServiceNAD)).To(HaveOccurred())
 		})
+
+		It("should reconcile NAD with chained CNI in DPU cluster", func() {
+			By("Creating the DPUServiceNAD resource with chained CNI")
+			DPUServiceNAD := getDPUServiceNADWithChainedCNI(testNS.Name)
+
+			Expect(testClient.Create(ctx, DPUServiceNAD)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, DPUServiceNAD)
+
+			Eventually(func(g Gomega) {
+				got := &unstructured.Unstructured{}
+				got.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "k8s.cni.cncf.io",
+					Version: "v1",
+					Kind:    "NetworkAttachmentDefinition",
+				})
+				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "mynad"}, got)).To(Succeed())
+
+				var data map[string]interface{}
+				spec, found, err := unstructured.NestedString(got.Object, "spec", "config")
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+				err = json.Unmarshal([]byte(spec), &data)
+				g.Expect(err).ToNot(HaveOccurred())
+
+				// Check chained CNI structure
+				g.Expect(data["cniVersion"].(string)).To(Equal("0.3.1"))
+				g.Expect(data["name"].(string)).To(Equal("mynad"))
+
+				// Check plugins array exists
+				plugins, ok := data["plugins"].([]interface{})
+				g.Expect(ok).To(BeTrue())
+				g.Expect(plugins).To(HaveLen(2))
+
+				// Check first plugin (ovs)
+				ovsPlugin, ok := plugins[0].(map[string]interface{})
+				g.Expect(ok).To(BeTrue())
+				g.Expect(ovsPlugin["type"].(string)).To(Equal("ovs"))
+				g.Expect(ovsPlugin["bridge"].(string)).To(Equal("test-ovsbridge"))
+				g.Expect(ovsPlugin["interface_type"].(string)).To(Equal("dpdk"))
+				g.Expect(int(ovsPlugin["mtu"].(float64))).To(Equal(1500))
+
+				// Check second plugin (rdma)
+				rdmaPlugin, ok := plugins[1].(map[string]interface{})
+				g.Expect(ok).To(BeTrue())
+				g.Expect(rdmaPlugin["type"].(string)).To(Equal("rdma"))
+
+			}).WithTimeout(60 * time.Second).Should(Succeed())
+
+			By("Removing the DPUServiceNAD resource")
+			Expect(testClient.Delete(ctx, DPUServiceNAD)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				got := &unstructured.UnstructuredList{}
+				got.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "k8s.cni.cncf.io",
+					Version: "v1",
+					Kind:    "NetworkAttachmentDefinitionList",
+				})
+				g.Expect(dpuClusterClient.List(ctx, got)).To(Succeed())
+				g.Expect(got.Items).To(BeEmpty())
+			}).WithTimeout(60 * time.Second).Should(Succeed())
+		})
 	})
 })
 
@@ -418,6 +480,30 @@ func getDPUServiceNADWithSpec(namespace string) *dpuservicev1.DPUServiceNAD {
 			Bridge:       "test-ovsbridge",
 			ServiceMTU:   1500,
 			IPAM:         true,
+		},
+	}
+}
+
+func getDPUServiceNADWithChainedCNI(namespace string) *dpuservicev1.DPUServiceNAD {
+	rdmaType := "rdma"
+
+	return &dpuservicev1.DPUServiceNAD{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "mynad",
+			Namespace:   namespace,
+			Labels:      map[string]string{"labelTest": "labelTestValue"},
+			Annotations: map[string]string{"annotTest": "annotTestValue"},
+		},
+		Spec: dpuservicev1.DPUServiceNADSpec{
+			ResourceType: "sf",
+			Bridge:       "test-ovsbridge",
+			ServiceMTU:   1500,
+			IPAM:         false,
+			Chain: []dpuservicev1.CNIPlugin{
+				{
+					Type: &rdmaType,
+				},
+			},
 		},
 	}
 }

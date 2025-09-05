@@ -3233,6 +3233,23 @@ _Appears in:_
 | `releaseName` _string_ | ReleaseName is the name to give to the release generate from the DPUService. |  |  |
 
 
+#### CNIPlugin
+
+
+
+
+
+
+
+_Appears in:_
+- [DPUServiceNADSpec](#dpuservicenadspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `type` _string_ |  |  | Enum: [rdma] <br /> |
+| `config` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#rawextension-runtime-pkg)_ |  |  |  |
+
+
 #### ConfigPort
 
 
@@ -3909,6 +3926,7 @@ _Appears in:_
 | `bridge` _string_ |  |  |  |
 | `serviceMTU` _integer_ |  |  |  |
 | `ipam` _boolean_ |  |  |  |
+| `chainCNI` _[CNIPlugin](#cniplugin) array_ |  |  |  |
 
 
 #### DPUServiceNADStatus
