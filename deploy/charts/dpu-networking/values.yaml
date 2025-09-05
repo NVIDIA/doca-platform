@@ -16,3 +16,5 @@ servicechainset-controller:
     enabled: false
 sfc-controller:
     enabled: false
+cni-installer:
+    enabled: false

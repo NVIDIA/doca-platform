@@ -837,6 +837,10 @@ binary-dpfctl-release: ## Build the dpfctl binary for all architectures.
 		-ldflags="$(shell echo $(GO_LDFLAGS)) -X main.version=$(TAG)" \
 		-gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpfctl-$(TAG)-release/dpfctl-darwin-arm64 github.com/nvidia/doca-platform/cmd/dpfctl
 
+.PHONY: binary-cni-installer
+binary-cni-installer: ## Build the CNI installer binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/cni-installer github.com/nvidia/doca-platform/cmd/cniinstaller
+
 .PHONY: install-dpfctl
 install-dpfctl: binary-dpfctl ## Install the dpfctl binary.
 	install -m 755 $(LOCALBIN)/dpfctl $(GOPATH)/bin/dpfctl
@@ -849,7 +853,7 @@ binary-dpfdev: ## Build the dpfdev CLI tool
 
 DOCKER_BUILD_TARGETS=$(HOST_ARCH_DOCKER_BUILD_TARGETS) $(DPU_ARCH_DOCKER_BUILD_TARGETS) $(MULTI_ARCH_DOCKER_BUILD_TARGETS)
 HOST_ARCH_DOCKER_BUILD_TARGETS=hostdriver bfb-registry
-DPU_ARCH_DOCKER_BUILD_TARGETS=$(DPU_ARCH_BUILD_TARGETS) ovs-cni
+DPU_ARCH_DOCKER_BUILD_TARGETS=$(DPU_ARCH_BUILD_TARGETS) ovs-cni cni-installer
 MULTI_ARCH_DOCKER_BUILD_TARGETS= dpf-system ovn-kubernetes storage-system storage-host
 
 .PHONY: docker-build-all
@@ -887,6 +891,10 @@ DPUCNIPROVISIONER_IMAGE ?= $(REGISTRY)/$(DPUCNIPROVISIONER_IMAGE_NAME)
 
 DUMMYDPUSERVICE_IMAGE_NAME ?= dummydpuservice
 export DUMMYDPUSERVICE_IMAGE ?= $(REGISTRY)/$(DUMMYDPUSERVICE_IMAGE_NAME)
+
+CNIINSTALLER_IMAGE_NAME ?= dpf-cni-installer
+export CNIINSTALLER_IMAGE ?= $(REGISTRY)/$(CNIINSTALLER_IMAGE_NAME)
+export CNIINSTALLER_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(CNIINSTALLER_IMAGE_NAME)
 
 MOCK_DMS_IMAGE_NAME ?= mock-dms
 MOCK_DMS_IMAGE ?= $(REGISTRY)/$(MOCK_DMS_IMAGE_NAME)
@@ -1202,6 +1210,25 @@ docker-build-bfb-registry-for-%:
 		. \
 		-t $(BFB_REGISTRY_IMAGE):$(TAG)-$*
 
+.PHONY: docker-build-cni-installer
+docker-build-cni-installer: ## Build docker image for the CNI installer
+	docker buildx build \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform=linux/$(DPU_ARCH) \
+		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg base_image=$(BASE_IMAGE) \
+		--build-arg ldflags=$(GO_LDFLAGS) \
+		--build-arg gcflags=$(GO_GCFLAGS) \
+		-f Dockerfile.cni-installer \
+		. \
+		-t $(CNIINSTALLER_IMAGE):$(TAG)
+
 .PHONY: docker-push-bfb-registry # Push a multi-arch image for BFB Registry using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
 docker-push-bfb-registry: $(addprefix docker-push-bfb-registry-for-,$(HOST_ARCH))
 	docker manifest push --purge $(BFB_REGISTRY_IMAGE):$(TAG)
@@ -1250,6 +1277,10 @@ docker-push-mock-dms: ## Push the docker image for dummydpuservice
 .PHONY: docker-push-ovn-kubernetes-resource-injector
 docker-push-ovn-kubernetes-resource-injector: ## Push the docker image for the OVN Kubernetes Resource Injector
 	docker push $(OVNKUBERNETES_RESOURCE_INJECTOR_IMAGE):$(TAG)
+
+.PHONY: docker-push-cni-installer
+docker-push-cni-installer: ## Push the docker image for the CNI installer
+	docker push $(CNIINSTALLER_IMAGE):$(TAG)
 
 # helm charts
 
