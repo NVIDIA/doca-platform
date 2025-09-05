@@ -5,6 +5,7 @@ ovsCniImage: example.com/ovs-cni-plugin:v0.1.0
 bfbRegistryImage: example.com/bfb-registry:v0.1.0
 dpfStorageSystemImage: example.com/storage-system:v0.1.0
 dpfStorageHostImage: example.com/storage-host:v0.1.0
+cniInstallerImage: example.com/dpf-cni-installer:v0.1.0
 
 ## Helm charts built as part of the DPF release.
 dpuNetworkingHelmChart: oci://example.com/dpu-networking:v0.1.0

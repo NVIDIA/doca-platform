@@ -320,7 +320,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 	Eventually(func(g Gomega) {
 		dpuServices := &dpuservicev1.DPUServiceList{}
 		g.Expect(testClient.List(ctx, dpuServices)).To(Succeed())
-		g.Expect(dpuServices.Items).To(HaveLen(8))
+		g.Expect(dpuServices.Items).To(HaveLen(9))
 		found := map[string]bool{}
 		for i := range dpuServices.Items {
 			found[dpuServices.Items[i].Name] = true
@@ -334,6 +334,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		g.Expect(found).To(HaveKey(operatorv1.NVIPAMName))
 		g.Expect(found).To(HaveKey(operatorv1.OVSCNIName))
 		g.Expect(found).To(HaveKey(operatorv1.SFCControllerName))
+		g.Expect(found).To(HaveKey(operatorv1.CNIInstallerName))
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 }
 

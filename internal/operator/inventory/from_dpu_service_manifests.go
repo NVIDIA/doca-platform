@@ -55,6 +55,7 @@ var dpuNetworkingSubCharts = map[string]bool{
 	operatorv1.OVSCNIName:               true,
 	operatorv1.NVIPAMName:               true,
 	operatorv1.SFCControllerName:        true,
+	operatorv1.CNIInstallerName:         true,
 }
 
 func (f *fromDPUService) Name() string {
