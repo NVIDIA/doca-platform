@@ -27,11 +27,14 @@ func TestDefaults_Parse(t *testing.T) {
 	g := NewGomegaWithT(t)
 
 	defaultValues := map[string]string{
-		"customOVNKubernetesDPUImage":    "example.com/cloud-orchestration-dev/dpf/killian/test/ovn-kubernetes-dpu:v0.0.0",
-		"customOVNKubernetesNonDPUImage": "example.com/cloud-orchestration-dev/dpf/killian/test/ovn-kubernetes-non-dpu:v0.0.0",
-		"dmsImage":                       "example.com/cloud-orchestration-dev/dpf/killian/test/hostdriver:v0.0.0",
-		"dpfSystemImage":                 "example.com/cloud-orchestration-dev/dpf/killian/test/dpfSystem:v0.0.0",
-		"dpuNetworkingHelmChart":         "example.com/cloud-orchestration-dev/dpf/killian/test/hostnetworksetup:v0.0.0",
+		"dmsImage":               "example.com/hostdriver:v0.1.0",
+		"dpfSystemImage":         "example.com/dpf-system:v0.1.0",
+		"ovsCniImage":            "example.com/ovs-cni-plugin:v0.1.0",
+		"bfbRegistryImage":       "example.com/bfb-registry:v0.1.0",
+		"dpfStorageSystemImage":  "example.com/storage-system:v0.1.0",
+		"dpfStorageHostImage":    "example.com/storage-host:v0.1.0",
+		"cniInstallerImage":      "example.com/dpf-cni-installer:v0.1.0",
+		"dpuNetworkingHelmChart": "oci://example.com/dpu-networking:v0.1.0",
 	}
 	tests := []struct {
 		name    string
@@ -46,6 +49,16 @@ func TestDefaults_Parse(t *testing.T) {
 		{
 			name:    "fail when dmsImage empty/missing",
 			content: withoutValue(g, defaultValues, "dmsImage"),
+			wantErr: true,
+		},
+		{
+			name:    "fail when dpfSystemImage empty/missing",
+			content: withoutValue(g, defaultValues, "dpfSystemImage"),
+			wantErr: true,
+		},
+		{
+			name:    "fail when cniInstallerImage empty/missing",
+			content: withoutValue(g, defaultValues, "cniInstallerImage"),
 			wantErr: true,
 		},
 		{

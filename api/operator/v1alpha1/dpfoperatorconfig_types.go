@@ -171,6 +171,9 @@ type DPFOperatorConfigSpec struct {
 	// NVIPAM is the configuration for NVIPAM
 	// +optional
 	NVIPAM *NVIPAMConfiguration `json:"nvipam,omitempty"`
+	// CNIInstaller is the configuration for the cni-installer
+	// +optional
+	CNIInstaller *CNIInstallerConfiguration `json:"cniInstaller,omitempty"`
 	// SFCController is the configuration for the SFCController
 	// +optional
 	SFCController *SFCControllerConfiguration `json:"sfcController,omitempty"`

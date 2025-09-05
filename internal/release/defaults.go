@@ -30,6 +30,7 @@ var defaultsContent []byte
 type Defaults struct {
 	DMSImage               string `yaml:"dmsImage"`
 	DPFSystemImage         string `yaml:"dpfSystemImage"`
+	CNIInstallerImage      string `yaml:"cniInstallerImage"`
 	DPUNetworkingHelmChart string `yaml:"dpuNetworkingHelmChart"`
 
 	OVSCNIImage      string `yaml:"ovsCniImage"`
@@ -48,6 +49,9 @@ func (d *Defaults) Parse() error {
 	}
 	if len(d.DPFSystemImage) == 0 {
 		return errors.New("dpfSystemImage can't be empty")
+	}
+	if len(d.CNIInstallerImage) == 0 {
+		return errors.New("cniInstallerImage can't be empty")
 	}
 	if len(d.DPUNetworkingHelmChart) == 0 {
 		return errors.New("DPUNetworkingHelmChart can't be empty")

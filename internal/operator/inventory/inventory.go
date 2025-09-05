@@ -66,6 +66,7 @@ type SystemComponents struct {
 	KamajiClusterManager    Component
 	StaticClusterManager    Component
 	DPUDetector             Component
+	CNIInstaller            Component
 }
 
 // Embed manifests for Kubernetes objects created by the controller.
@@ -108,6 +109,9 @@ var (
 
 	//go:embed manifests/dpu-detector.yaml
 	dpuDetectorData []byte
+
+	//go:embed manifests/cni-installer.yaml
+	cniInstallerData []byte
 )
 
 // New returns a new SystemComponents inventory with data preloaded but parsing not completed.
@@ -150,6 +154,10 @@ func New() *SystemComponents {
 		},
 		KamajiClusterManager: newClusterManagerObjects(operatorv1.KamajiClusterManagerName, kamajiCMData),
 		StaticClusterManager: newClusterManagerObjects(operatorv1.StaticClusterManagerName, staticCMData),
+		CNIInstaller: &fromDPUService{
+			name: operatorv1.CNIInstallerName,
+			data: cniInstallerData,
+		},
 	}
 }
 
@@ -163,6 +171,7 @@ func (s *SystemComponents) SystemDPUServices() []Component {
 		s.NvIPAM,
 		s.OvsCni,
 		s.SfcController,
+		s.CNIInstaller,
 	}
 }
 
@@ -181,6 +190,7 @@ func (s *SystemComponents) AllComponents() []Component {
 		s.NvIPAM,
 		s.OvsCni,
 		s.SfcController,
+		s.CNIInstaller,
 	}
 }
 
@@ -276,5 +286,10 @@ func (s *SystemComponents) setOvsCni(input fromDPUService) *SystemComponents {
 
 func (s *SystemComponents) setSfcController(input fromDPUService) *SystemComponents {
 	s.SfcController = &input
+	return s
+}
+
+func (s *SystemComponents) setCNIInstaller(input fromDPUService) *SystemComponents {
+	s.CNIInstaller = &input
 	return s
 }

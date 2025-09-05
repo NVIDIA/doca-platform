@@ -384,6 +384,7 @@ func (r *DPFOperatorConfigReconciler) reconcileImagePullSecrets(ctx context.Cont
 // 7. NVIDIA Kubernetes IPAM
 // 8. OVS CNI
 // 9. SFC Controller
+// 10. CNI Installer
 func (r *DPFOperatorConfigReconciler) reconcileSystemComponents(ctx context.Context, config *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config) error {
 	var errs []error
 	vars := inventory.VariablesFromDPFOperatorConfig(r.Defaults, config, dpuClusters)

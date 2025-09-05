@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/created-by: dpf-operator
+    app.kubernetes.io/part-of: dpf-operator
+  {{- include "cni-installer.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      name: cni-installer
+  template:
+    metadata:
+      labels:
+        name: cni-installer
+    spec:
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      serviceAccountName: {{ include "cni-installer.fullname" . }}
+      containers:
+      - args: {{ toJson .Values.cniInstaller.args }}
+        command:
+        - /cni-installer
+        name: cni-installer
+        image: {{ .Values.cniInstaller.image.repository }}:{{ .Values.cniInstaller.image.tag | default .Chart.AppVersion }}
+        resources: {{- toYaml .Values.cniInstaller.resources | nindent 10 }}
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
