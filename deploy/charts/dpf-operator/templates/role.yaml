@@ -27,6 +27,20 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - endpoints
+  - services
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - namespaces
   verbs:
   - create
@@ -41,19 +55,6 @@ rules:
   - list
   - patch
   - update
-- apiGroups:
-  - ""
-  resources:
-  - services
-  verbs:
-  - create
-  - delete
-  - deletecollection
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - admissionregistration.k8s.io
   resources:
