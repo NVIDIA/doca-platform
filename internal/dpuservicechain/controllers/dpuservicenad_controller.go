@@ -268,18 +268,53 @@ func (r *DPUServiceNADReconciler) createOrUpdateObjectsInDPUCluster(ctx context.
 
 	config := make(map[string]interface{})
 	config["cniVersion"] = "0.3.1"
-	config["type"] = "ovs"
-	config["mtu"] = DPUServiceNAD.Spec.ServiceMTU
-	config["bridge"] = DPUServiceNAD.Spec.Bridge
-	// TODO: Consider if we want to make this configurable by the user based on the use cases that may arise
-	config["interface_type"] = "dpdk"
+	config["name"] = DPUServiceNAD.Name
 
+	// Create OVS plugin configuration
+	ovsPlugin := map[string]interface{}{
+		"type":           "ovs",
+		"mtu":            DPUServiceNAD.Spec.ServiceMTU,
+		"bridge":         DPUServiceNAD.Spec.Bridge,
+		"interface_type": "dpdk",
+	}
 	if DPUServiceNAD.Spec.IPAM {
-		config["ipam"] = map[string]string{
+		ipamConfig := map[string]string{
 			"type": "nv-ipam",
 		}
+		ovsPlugin["ipam"] = ipamConfig
 	}
 
+	// Check if we need chained CNI format (backward compatible)
+	if len(DPUServiceNAD.Spec.Chain) == 0 {
+		// Use old single-plugin format for backward compatibility
+		for k, v := range ovsPlugin {
+			config[k] = v
+		}
+	} else {
+		// Use new chained CNI format when additional plugins are specified
+		plugins := []map[string]interface{}{}
+		plugins = append(plugins, ovsPlugin)
+
+		// Add additional plugins from Chain
+		for _, plugin := range DPUServiceNAD.Spec.Chain {
+			pluginConfig := map[string]interface{}{
+				"type": *plugin.Type,
+			}
+			if plugin.Config != nil {
+				var pluginConfigData map[string]interface{}
+				if err := json.Unmarshal(plugin.Config.Raw, &pluginConfigData); err != nil {
+					return fmt.Errorf("error while unmarshalling plugin config: %w", err)
+				}
+				// Merge config into pluginConfig
+				for k, v := range pluginConfigData {
+					pluginConfig[k] = v
+				}
+			}
+			plugins = append(plugins, pluginConfig)
+		}
+
+		config["plugins"] = plugins
+	}
 	jsonConfig, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err
