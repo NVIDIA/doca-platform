@@ -49,6 +49,7 @@ by all component configurations to reduce code duplication.
 
 
 _Appears in:_
+- [CNIInstallerConfiguration](#cniinstallerconfiguration)
 - [DPUDetectorConfiguration](#dpudetectorconfiguration)
 - [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
 - [FlannelConfiguration](#flannelconfiguration)
@@ -65,6 +66,26 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
+
+
+#### CNIInstallerConfiguration
+
+
+
+
+
+
+
+_Appears in:_
+- [DPFOperatorConfigSpec](#dpfoperatorconfigspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
+| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
+| `deployInTargetCluster` _boolean_ |  |  |  |
+| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
 
 
 
@@ -132,6 +153,7 @@ _Appears in:_
 | `flannel` _[FlannelConfiguration](#flannelconfiguration)_ | Flannel is the configuration for Flannel |  |  |
 | `ovsCNI` _[OVSCNIConfiguration](#ovscniconfiguration)_ | OVSCNI is the configuration for OVSCNI |  |  |
 | `nvipam` _[NVIPAMConfiguration](#nvipamconfiguration)_ | NVIPAM is the configuration for NVIPAM |  |  |
+| `cniInstaller` _[CNIInstallerConfiguration](#cniinstallerconfiguration)_ | CNIInstaller is the configuration for the cni-installer |  |  |
 | `sfcController` _[SFCControllerConfiguration](#sfccontrollerconfiguration)_ | SFCController is the configuration for the SFCController |  |  |
 | `kamajiClusterManager` _[KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)_ | KamajiClusterManager is the configuration for the kamaji-cluster-manager |  |  |
 | `staticClusterManager` _[StaticClusterManagerConfiguration](#staticclustermanagerconfiguration)_ | StaticClusterManager is the configuration for the static-cluster-manager |  |  |
@@ -277,6 +299,7 @@ _Validation:_
 - Pattern: `^(oci://|https://).+$`
 
 _Appears in:_
+- [CNIInstallerConfiguration](#cniinstallerconfiguration)
 - [FlannelConfiguration](#flannelconfiguration)
 - [HelmComponentConfig](#helmcomponentconfig)
 - [MultusConfiguration](#multusconfiguration)
@@ -297,6 +320,7 @@ _Appears in:_
 
 
 _Appears in:_
+- [CNIInstallerConfiguration](#cniinstallerconfiguration)
 - [FlannelConfiguration](#flannelconfiguration)
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
@@ -322,6 +346,7 @@ _Validation:_
 - Pattern: `^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$`
 
 _Appears in:_
+- [CNIInstallerConfiguration](#cniinstallerconfiguration)
 - [DPUDetectorConfiguration](#dpudetectorconfiguration)
 - [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
 - [FlannelCNI](#flannelcni)
@@ -349,6 +374,7 @@ by all component configurations to reduce code duplication.
 
 
 _Appears in:_
+- [CNIInstallerConfiguration](#cniinstallerconfiguration)
 - [DPUDetectorConfiguration](#dpudetectorconfiguration)
 - [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
 - [FlannelCNI](#flannelcni)
@@ -379,6 +405,7 @@ _Appears in:_
 
 
 _Appears in:_
+- [CNIInstallerConfiguration](#cniinstallerconfiguration)
 - [FlannelConfiguration](#flannelconfiguration)
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
@@ -630,6 +657,7 @@ ResourceComponentConfig defines the resource requirements for a container.
 
 
 _Appears in:_
+- [CNIInstallerConfiguration](#cniinstallerconfiguration)
 - [DPUDetectorConfiguration](#dpudetectorconfiguration)
 - [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
 - [FlannelDaemon](#flanneldaemon)
@@ -658,6 +686,7 @@ _Appears in:_
 
 
 _Appears in:_
+- [CNIInstallerConfiguration](#cniinstallerconfiguration)
 - [DPUDetectorConfiguration](#dpudetectorconfiguration)
 - [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
 - [FlannelDaemon](#flanneldaemon)

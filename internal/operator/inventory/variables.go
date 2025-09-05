@@ -49,6 +49,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.SFCControllerName:          false,
 			operatorv1.DPUDetectorName:            false,
 			operatorv1.KamajiClusterManagerName:   false,
+			operatorv1.CNIInstallerName:           false,
 
 			// Static cluster manager is disabled by default.
 			operatorv1.StaticClusterManagerName: true,
@@ -64,6 +65,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.SFCControllerName:          defaults.DPFSystemImage,
 			operatorv1.DPUDetectorName:            defaults.DPFSystemImage,
 			operatorv1.BFBRegistryName:            defaults.BFBRegistryImage,
+			operatorv1.CNIInstallerName:           defaults.CNIInstallerImage,
 		},
 		HelmCharts: map[string]string{
 			operatorv1.FlannelName:              defaults.DPUNetworkingHelmChart,
@@ -73,6 +75,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.OVSCNIName:               defaults.DPUNetworkingHelmChart,
 			operatorv1.SFCControllerName:        defaults.DPUNetworkingHelmChart,
 			operatorv1.ServiceSetControllerName: defaults.DPUNetworkingHelmChart,
+			operatorv1.CNIInstallerName:         defaults.DPUNetworkingHelmChart,
 		},
 		DeployInCluster: map[string]bool{
 			operatorv1.FlannelName:              false,

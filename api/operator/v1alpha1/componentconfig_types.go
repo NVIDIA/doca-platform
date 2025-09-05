@@ -354,6 +354,18 @@ type SFCControllerConfiguration struct {
 	SecureFlowDeletionTimeout *metav1.Duration `json:"secureFlowDeletionTimeout,omitempty"`
 }
 
+type CNIInstallerConfiguration struct {
+	BaseComponentConfig       `json:",inline"`
+	ImageComponentConfig      `json:",inline"`
+	HelmComponentConfig       `json:",inline"`
+	InClusterDeploymentConfig `json:",inline"`
+	ResourceComponentConfig   `json:",inline"`
+}
+
+func (c *CNIInstallerConfiguration) Name() string {
+	return CNIInstallerName
+}
+
 func (c *SFCControllerConfiguration) Name() string {
 	return SFCControllerName
 }
