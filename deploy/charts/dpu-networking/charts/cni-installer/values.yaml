@@ -1,0 +1,14 @@
+cniInstaller:
+  args: []
+  image:
+    repository: example.com/dpf-system
+    tag: v0.1.0
+  resources:
+    limits:
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  serviceAccount:
+    annotations: {}
+imagePullSecrets: []

@@ -8,6 +8,7 @@ A Helm chart for Kubernetes
 
 | Repository | Name | Version |
 |------------|------|---------|
+| file://charts/cni-installer | cni-installer | 0.1.0 |
 | file://charts/multus | multus | 0.1.0 |
 | file://charts/nvidia-k8s-ipam | nvidia-k8s-ipam | 0.1.0 |
 | file://charts/ovs-cni | ovs-cni | 0.1.0 |
@@ -20,6 +21,7 @@ A Helm chart for Kubernetes
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| cni-installer.enabled | bool | `false` |  |
 | flannel.enabled | bool | `false` |  |
 | flannel.podCidr | string | `"10.244.0.0/14"` |  |
 | multus.enabled | bool | `false` |  |
