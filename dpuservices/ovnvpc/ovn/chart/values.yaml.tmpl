@@ -55,6 +55,10 @@ management:
     # Image pull secrets
     imagePullSecrets: []
 
+    # Deployment strategy
+    strategy:
+      type: Recreate
+
     # Affinity settings
     affinity:
       nodeAffinity:

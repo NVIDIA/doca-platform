@@ -216,6 +216,7 @@ func (p *VPCOVNDPUProvisioner) setOVSExternalIDs(vtepIP *net.IPNet, systemID str
 		"ovn-bridge-mappings":      p.bridgeMappingConfig(),
 		"ovn-encap-ip":             vtepIP.IP.String(),
 		"system-id":                systemID,
+		"ovn-match-northd-version": "true",
 	}
 
 	return p.ovsClient.SetOpenVSwitchExternalIDs(p.ctx, externalIDs)
