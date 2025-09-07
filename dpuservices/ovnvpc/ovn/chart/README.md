@@ -49,6 +49,7 @@ A Helm chart for OVN
 | management.ovnCentral.service.ovnsb.port | int | `6642` |  |
 | management.ovnCentral.service.ovnsb.protocol | string | `"TCP"` |  |
 | management.ovnCentral.service.ovnsb.targetPort | int | `6642` |  |
+| management.ovnCentral.strategy.type | string | `"Recreate"` |  |
 | management.ovnCentral.tolerations[0].effect | string | `"NoSchedule"` |  |
 | management.ovnCentral.tolerations[0].key | string | `"node-role.kubernetes.io/master"` |  |
 | management.ovnCentral.tolerations[0].operator | string | `"Exists"` |  |
