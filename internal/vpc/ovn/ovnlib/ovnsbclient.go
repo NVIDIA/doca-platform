@@ -12,6 +12,8 @@ its affiliates is strictly prohibited.
 
 package ovnlib
 
+//go:generate mockgen -copyright_file ../../hack/boilerplate.go.txt -package mock -destination mock/OVNSBWrapper.go . OVNSBWrapper
+
 import (
 	"context"
 	"fmt"
@@ -54,6 +56,8 @@ type OVNSBWrapper interface {
 	GetChassis(ctx context.Context, params *sbdb.ChassisGetParams) (*sbdb.Chassis, error)
 	// ListChassis returns a list of all chassis.
 	ListChassis(ctx context.Context, params *sbdb.ChassisListParams) ([]*sbdb.Chassis, error)
+	// GetEncap retrieves information about a specific encap.
+	GetEncap(ctx context.Context, params *sbdb.EncapGetParams) (*sbdb.Encap, error)
 	// ClearAll removes all entries from the OVN Southbound database.
 	ClearAll(ctx context.Context) error
 	// Embed the client.Client interface
@@ -87,6 +91,7 @@ func GetOvnSBClient(ctx context.Context, ovnSBConfig *SBConfig, tlsOption []clie
 func (ovnSBClient *OVNSBClient) ClearAll(ctx context.Context) error {
 	var errs []error
 	var ops []ovsdb.Operation
+
 	chassisList := []*sbdb.Chassis{}
 	err := ovnSBClient.Client.List(ctx, &chassisList)
 	if err != nil {
