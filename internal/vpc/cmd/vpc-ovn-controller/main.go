@@ -81,7 +81,7 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
 		"The minimum interval at which watched resources are reconciled.")
-	fs.DurationVar(&topologyCleanerReconcilePeriod, "topology-cleaner-reconcile-period", 12*time.Hour,
+	fs.DurationVar(&topologyCleanerReconcilePeriod, "topology-cleaner-reconcile-period", 10*time.Minute,
 		"The period for the topology cleaner reconciles. If set to 0, the topology cleaner is disabled.")
 	logsv1.AddFlags(logOptions, fs)
 

@@ -15,6 +15,7 @@ package controllers
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -29,6 +30,11 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+var (
+	// ErrIsolationClassMissingParameter is returned when a parameter is missing from IsolationClass
+	ErrIsolationClassMissingParameter = errors.New("missing parameter")
 )
 
 // NodeInVPC returns true if Node belongs to the VPC.
@@ -95,13 +101,43 @@ func VPCsForIsolationClass(ctx context.Context, c client.Client, isoCls *vpcv1.I
 	return ToPointerSlice(vpcList.Items), nil
 }
 
+// OVNSBClientFromIsolationClass returns OVNSBWrapper which is a wrapper interface over ovn sb client
+// to interact with OVN SB database based on connection information from IsolationClass.
+func OVNSBClientFromIsolationClass(ctx context.Context, isoCls *vpcv1.IsolationClass) (ovnlib.OVNSBWrapper, error) {
+	endpoint := isoCls.Spec.Parameters["ovn-sb-endpoint"]
+	if endpoint == "" {
+		return nil, fmt.Errorf("ovn-sb-endpoint parameter not set in isolation class %s. %w", isoCls.Name, ErrIsolationClassMissingParameter)
+	}
+	reconnectTimeSeconds := 5
+	reconnectTimeStr := isoCls.Spec.Parameters["ovn-sb-reconnect-time"]
+	if reconnectTimeStr != "" {
+		var err error
+		if reconnectTimeSeconds, err = strconv.Atoi(reconnectTimeStr); err != nil {
+			return nil, fmt.Errorf("failed to parse ovn-sb-reconnect-time parameter: %w", err)
+		}
+	}
+
+	ovnsb, err := ovnlib.GetOvnSBClient(
+		ctx,
+		&ovnlib.SBConfig{
+			EndPoint:           endpoint,
+			OVNSBReconnectTime: reconnectTimeSeconds,
+		},
+		nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ovn sb client: %w", err)
+	}
+
+	return ovnsb, nil
+}
+
 // OVNClientFromIsolationClass returns OVNWrapper which is a wrapper interface over ovn client
 // to interact with OVN NB database based on connection information from IsolationClass.
 func OVNClientFromIsolationClass(ctx context.Context, isoCls *vpcv1.IsolationClass) (ovnlib.OVNWrapper, error) {
 	// get ovn client
 	endpoint := isoCls.Spec.Parameters["ovn-nb-endpoint"]
 	if endpoint == "" {
-		return nil, fmt.Errorf("ovn-nb-endpoint parameter not set in isolation class %s", isoCls.Name)
+		return nil, fmt.Errorf("ovn-nb-endpoint parameter not set in isolation class %s. %w", isoCls.Name, ErrIsolationClassMissingParameter)
 	}
 	reconnectTimeSeconds := 5
 	reconnectTimeStr := isoCls.Spec.Parameters["ovn-nb-reconnect-time"]
