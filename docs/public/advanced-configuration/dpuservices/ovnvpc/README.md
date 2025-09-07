@@ -1048,3 +1048,7 @@ spec:
       k8s.v1.cni.cncf.io/networks: |
         [{"name": "mybrint-vpc", "namespace": "dpf-operator-system", "interface": "my_sf"}]
 ```
+
+## VPC OVN upgrade guide
+
+For zero‑downtime VPC OVN upgrade guide refer to [VPC OVN upgrade guide](vpc-upgrade-guide.md)
