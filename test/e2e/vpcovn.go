@@ -352,6 +352,7 @@ func cleanupDPUClusterNodeLabels(ctx context.Context) {
 func createOVNIsolationClass(ctx context.Context, testClient client.Client, name string, namespace string, labels map[string]string) {
 	controlPlaneIP := getClusterControlPlaneIP(ctx, testClient)
 	ovnNbEndpoint := fmt.Sprintf("tcp:%s:%d", controlPlaneIP, vpcutils.OvnNbPort)
+	ovnSbEndpoint := fmt.Sprintf("tcp:%s:%d", controlPlaneIP, vpcutils.OvnSbPort)
 	ovni := &vpcv1.IsolationClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -363,6 +364,8 @@ func createOVNIsolationClass(ctx context.Context, testClient client.Client, name
 			Parameters: map[string]string{
 				"ovn-nb-endpoint":       ovnNbEndpoint,
 				"ovn-nb-reconnect-time": "5",
+				"ovn-sb-endpoint":       ovnSbEndpoint,
+				"ovn-sb-reconnect-time": "5",
 			},
 		},
 	}
