@@ -14,15 +14,22 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
+	"gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/ovn/common"
+	"gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/ovn/ovnlib"
+	"gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/ovn/sbdb"
 	"gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/ovn/topology"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -80,12 +87,17 @@ type TopologyCleaner struct {
 
 	// used for dependency injection
 	topologyManagerFromIsolationClassFn func(ctx context.Context, isoCls *vpcv1.IsolationClass) (topology.Manager, error)
+	ovnSBClientFromIsolationClassFn     func(ctx context.Context, isoCls *vpcv1.IsolationClass) (ovnlib.OVNSBWrapper, error)
 }
 
-// SetupWithManager sets up the topology cleaner controller with the manager–
+// SetupWithManager sets up the topology cleaner controller with the manager
 func (t *TopologyCleaner) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	if t.topologyManagerFromIsolationClassFn == nil {
 		t.topologyManagerFromIsolationClassFn = TopologyManagerFromIsolationClass
+	}
+
+	if t.ovnSBClientFromIsolationClassFn == nil {
+		t.ovnSBClientFromIsolationClassFn = OVNSBClientFromIsolationClass
 	}
 
 	return mgr.Add(t)
@@ -141,6 +153,16 @@ func (t *TopologyCleaner) reconcile(ctx context.Context) error {
 		return fmt.Errorf("failed to get DPUCluster clients. %w", err)
 	}
 
+	// ensure we have clients for all DPUClusters
+	dpuclusters := &provisioningv1.DPUClusterList{}
+	if err := t.Client.List(ctx, dpuclusters); err != nil {
+		return fmt.Errorf("failed to list DPUClusters. %w", err)
+	}
+
+	if len(dpuClusterClients) != len(dpuclusters.Items) {
+		return fmt.Errorf("number of DPUCluster clients (%d) does not match number of DPUClusters (%d), retry later", len(dpuClusterClients), len(dpuclusters.Items))
+	}
+
 	// get all isolationclasses
 	isolationClasses := &vpcv1.IsolationClassList{}
 	if err := t.Client.List(ctx, isolationClasses); err != nil {
@@ -156,6 +178,10 @@ func (t *TopologyCleaner) reconcile(ctx context.Context) error {
 
 		if err := t.cleanupTopologyForIsolationClass(ctx, &isoCls, dpuClusterClients); err != nil {
 			errs = append(errs, fmt.Errorf("failed to cleanup topology for isolation class %s. %w", isoCls.Name, err))
+		}
+
+		if err := t.cleanupStaleChassisForIsolationClass(ctx, &isoCls, dpuClusterClients); err != nil {
+			errs = append(errs, fmt.Errorf("failed to cleanup stale chassis for isolation class %s. %w", isoCls.Name, err))
 		}
 	}
 
@@ -291,4 +317,153 @@ func (t *TopologyCleaner) cleanupStaleServiceInterfaces(ctx context.Context, tm 
 	}
 
 	return kerrors.NewAggregate(errs)
+}
+
+// cleanupStaleChassisForIsolationClass cleans up stale chassis from ovn
+func (t *TopologyCleaner) cleanupStaleChassisForIsolationClass(ctx context.Context, isoCls *vpcv1.IsolationClass, dpuClusterClients []client.Client) error {
+	reqLog := ctrllog.FromContext(ctx)
+	reqLog.Info("Cleaning up stale chassis")
+
+	ovnsbClient, err := t.ovnSBClientFromIsolationClassFn(ctx, isoCls)
+	if err != nil {
+		if errors.Is(err, ErrIsolationClassMissingParameter) {
+			reqLog.Info("OVN SB endpoint not set in isolation class, skipping chassis cleanup", "isolationClass", client.ObjectKeyFromObject(isoCls).String())
+			return nil
+		}
+		return fmt.Errorf("failed to get ovn sb client for isolation class %s. %w", client.ObjectKeyFromObject(isoCls), err)
+	}
+
+	// list nodes from all dpuClusters
+	nodesByName := make(map[string]*corev1.Node)
+	for _, dpuClusterClient := range dpuClusterClients {
+		nodes := &corev1.NodeList{}
+		if err := dpuClusterClient.List(ctx, nodes); err != nil {
+			return fmt.Errorf("failed to list nodes. %w", err)
+		}
+		for _, node := range nodes.Items {
+			nodesByName[node.Name] = &node
+		}
+	}
+
+	// list chassis from OVN SB database
+	chassis, err := ovnsbClient.ListChassis(ctx, &sbdb.ChassisListParams{})
+	if err != nil {
+		return fmt.Errorf("failed to list chassis. %w", err)
+	}
+
+	chassisByName := make(map[string]*sbdb.Chassis)
+	for _, c := range chassis {
+		chassisByName[c.Name] = c
+	}
+
+	// construct set of expected chassis from current nodes
+	expectedChassis := sets.New[string]()
+	for _, node := range nodesByName {
+		expectedChassis.Insert(node.Name)
+	}
+
+	// construct set of current chassis from OVN SB database
+	currentChassis := sets.New[string]()
+	for _, chassis := range chassisByName {
+		currentChassis.Insert(chassis.Name)
+	}
+
+	// compare the two sets and delete the stale ones
+	staleChassis := currentChassis.Difference(expectedChassis)
+	for chassisName := range staleChassis {
+		reqLog.Info("Deleting stale chassis", "chassis", chassisName)
+		if err := ovnsbClient.DeleteChassis(ctx, &sbdb.ChassisDeleteParams{Name: chassisName}); err != nil {
+			return fmt.Errorf("failed to delete stale chassis %s. %w", chassisName, err)
+		}
+	}
+	reqLog.Info("Check for stale chassis completed")
+
+	// for nodes that are present check the vtep ip, if its not the current one, delete the chassis
+	presentChassis := currentChassis.Intersection(expectedChassis)
+	if err := t.deleteChassisWithOutdatedVTEPIP(ctx, ovnsbClient, nodesByName, chassisByName, presentChassis.UnsortedList()); err != nil {
+		return fmt.Errorf("failed to delete chassis with outdated VTEP IP. %w", err)
+	}
+	reqLog.Info("Check for chassis with outdated VTEP IP completed")
+
+	return nil
+}
+
+// deleteChassisWithOutdatedVTEPIP deletes chassis specified chassisToCheck if their VTEP IP is out of sync with the VTEP IP set in the node annotations
+func (t *TopologyCleaner) deleteChassisWithOutdatedVTEPIP(
+	ctx context.Context,
+	ovnsbClient ovnlib.OVNSBWrapper,
+	nodesByName map[string]*corev1.Node,
+	chassisByName map[string]*sbdb.Chassis,
+	chassisToCheck []string,
+) error {
+	reqLog := ctrllog.FromContext(ctx)
+
+	for _, chassisName := range chassisToCheck {
+		chassis := chassisByName[chassisName]
+		if chassis == nil { // this should never happen
+			reqLog.Error(nil, "chassis not found in OVN SB database. skipping", "chassis", chassisName)
+			continue
+		}
+
+		node := nodesByName[chassis.Name]
+		if node == nil { // this should never happen
+			reqLog.Error(nil, "node not found for chassis. skipping", "chassis", chassisName)
+			continue
+		}
+
+		nodeVTEPIP, err := t.getVTEPIPFromNode(node)
+		if err != nil {
+			reqLog.Error(err, "failed to get vtep ip from node. skipping", "node", node.Name, "chassis", chassisName)
+			continue
+		}
+
+		// get chassiss encaps
+		encaps := []*sbdb.Encap{}
+		for _, encapUUID := range chassis.Encaps {
+			encap, err := ovnsbClient.GetEncap(ctx, &sbdb.EncapGetParams{UUID: encapUUID})
+			if err != nil {
+				return fmt.Errorf("failed to get encap for chassis %s. %w", chassisName, err)
+			}
+			encaps = append(encaps, encap)
+		}
+
+		if !t.encapsHaveIP(encaps, nodeVTEPIP) {
+			reqLog.Info("VTEP IP mismatch, deleting chassis", "chassis", chassisName)
+			if err := ovnsbClient.DeleteChassis(ctx, &sbdb.ChassisDeleteParams{Name: chassisName}); err != nil {
+				return fmt.Errorf("failed to delete stale chassis %s. %w", chassisName, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// encapsHaveIP checks if any of the encaps have the given ip
+func (t *TopologyCleaner) encapsHaveIP(encaps []*sbdb.Encap, ip string) bool {
+	for _, encap := range encaps {
+		if encap.IP == ip {
+			return true
+		}
+	}
+	return false
+}
+
+// getVTEPIPFromNode returns the vtep ipv4 address from the node annotations. if the vtep ip annotation is not set or invalid, it returns an error
+func (t *TopologyCleaner) getVTEPIPFromNode(node *corev1.Node) (string, error) {
+	ipnetconfig, err := common.IPNetConfigurationFromAnnotation(node.Annotations, common.OVNVtepIPAnnotationKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to get vtep ip from node. %w", err)
+	}
+
+	// only ipv4 is supported for now
+	if ipnetconfig.IPv4 == "" {
+		return "", fmt.Errorf("vtep ipv4 is not set in node annotations")
+	}
+
+	ip4, _, err := net.ParseCIDR(ipnetconfig.IPv4)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse vtep ipv4 from node annotations. %w", err)
+	}
+
+	return ip4.String(), nil
 }

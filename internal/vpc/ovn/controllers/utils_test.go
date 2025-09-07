@@ -180,4 +180,22 @@ var _ = Describe("Controllers utils", func() {
 			Expect(iso).To(BeNil())
 		})
 	})
+
+	Context("OVNSBClientFromIsolationClass", func() {
+		It("should return error if ovn-sb-endpoint parameter is not set in isolation class", func() {
+			isoCls := getTestIsolationClass("test")
+			_, err := OVNSBClientFromIsolationClass(context.TODO(), isoCls)
+			Expect(err).To(HaveOccurred())
+			Expect(err).To(MatchError(ErrIsolationClassMissingParameter))
+		})
+	})
+
+	Context("OVNClientFromIsolationClass", func() {
+		It("should return error if ovn-nb-endpoint parameter is not set in isolation class", func() {
+			isoCls := getTestIsolationClass("test")
+			_, err := OVNClientFromIsolationClass(context.TODO(), isoCls)
+			Expect(err).To(HaveOccurred())
+			Expect(err).To(MatchError(ErrIsolationClassMissingParameter))
+		})
+	})
 })
