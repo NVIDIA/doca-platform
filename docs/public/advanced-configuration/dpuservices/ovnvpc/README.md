@@ -142,17 +142,21 @@ spec:
   parameters:
     # OVN northbound database endpoint
     ovn-nb-endpoint: "tcp:10.1.1.100:30641"
-    # Connection retry interval (Default: 5 seconds)
+    # Connection retry interval for northbound database (Default: 5 seconds)
     ovn-nb-reconnect-time: "5"
+    # OVN southbound database endpoint
+    ovn-sb-endpoint: "tcp:10.1.1.100:30642"
+    # Connection retry interval for southbound database (Default: 5 seconds)
+    ovn-sb-reconnect-time: "5"
 ```
 </details>
 
 > [!NOTE]
-> `ovn-nb-endpoint` should be set to an IP address through which the OVN service is accessible (e.g. the IP of a control plane node).
+> `ovn-nb-endpoint, ovn-sb-endpoint` should be set to an IP address through which the OVN service is accessible (e.g. the IP of a control plane node).
 
 ### DPUVPC
 
-A DPUVPC represents a Virtual Private Cloud—an isolated network environment for a specific tenant. It defines:
+A DPUVPC represents a Virtual Private Cloud isolated network environment for a specific tenant. It defines:
 
 * **Tenant Ownership**: Each VPC belongs to a specific tenant.
 * **Node Selection**: Specifies which DPU nodes participate in the VPC.
@@ -862,15 +866,6 @@ If you experience issues where east-west (E/W) traffic is not passing between no
 
 * Verify the ServiceInterfaces are ready on all nodes.
 * Confirm that these ServiceInterfaces are associated with the same DPUVirtualNetwork and are part of the expected DPUVPC.
-* Locate the ovn-central pod running in the management cluster, example:
-```sh
-kubectl get pods -n dpf-operator-system | grep ovn-central
-```
-* run the following command in ovn-central pod to remove leftover chassis records:
-```sh
-kubectl exec -it -n dpf-operator-system <in-cluster-ovn-central> -- \
-sh -c 'for chassis in $(ovn-sbctl list Chassis | awk "/_uuid/ {print \$3}"); do ovn-sbctl destroy Chassis $chassis; done'
-```
 
 ## Limitations
 
