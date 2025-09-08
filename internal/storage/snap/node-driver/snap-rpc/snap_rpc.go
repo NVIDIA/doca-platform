@@ -310,76 +310,20 @@ func NvmeNamespaceCreate(client JSONRPCClient, crdDeviceName string, subsystems 
 
 // NvmeControllerCreate creates a new NVMe controller with only nqn, pf_id, and vf_id
 func NvmeControllerCreate(client JSONRPCClient, subsystems NvmeSubsystemListResponse, emulationFunctions EmulationFunctionListResponse,
-	dpuStatus snapstoragev1.VolumeAttachmentStatusDPU, parameters map[string]string) (string, string, error) {
+	dpuStatus snapstoragev1.VolumeAttachmentStatusDPU, parameters map[string]string, functionType string) (string, string, error) {
 	if len(subsystems) == 0 {
 		klog.Error("No subsystems found")
 		return "", "", fmt.Errorf("no subsystems found")
 	}
 	targetSubsystem := &subsystems[0]
 
-	var currEmFunc EmulationFunction
-	var pciBDF string
-
-	switch {
-	case dpuStatus.PCIDeviceAddress != "":
-		pciBDF = dpuStatus.PCIDeviceAddress
-	case parameters["vuid"] != "":
-		for _, emFunc := range emulationFunctions {
-			if emFunc.EmulationType == NVMeProtocol && emFunc.Hotplugged && emFunc.VUID == parameters["vuid"] {
-				pciBDF = emFunc.PCIBDF
-				break
-			}
-		}
-	default:
-		for _, emFunc := range emulationFunctions {
-			if emFunc.EmulationType == NVMeProtocol {
-				currEmFunc = emFunc
-				break
-			}
-		}
-		for _, vf := range currEmFunc.VFs {
-			if vf.CtrlID == "" {
-				pciBDF = vf.PCIBDF
-				break
-			}
-		}
+	pciBDF, err := getPCI(emulationFunctions, dpuStatus, parameters, functionType)
+	if err != nil {
+		return "", "", err
 	}
 
-	if pciBDF == "" {
-		klog.Error("No PCI BDF found")
-		return "", "", fmt.Errorf("no pci bdf found")
-	}
-
-	params := make(map[string]any)
-	if pciBDF != "00:00.0" {
-		params = map[string]interface{}{
-			"nqn":       targetSubsystem.NQN,
-			"pci_bdf":   pciBDF,
-			"suspended": true,
-		}
-	} else {
-		if parameters["vuid"] != "" {
-			params = map[string]interface{}{
-				"nqn":       targetSubsystem.NQN,
-				"vuid":      parameters["vuid"],
-				"suspended": true,
-			}
-		}
-	}
-
-	// Merge all parameters from the input parameters map
-	for key, value := range parameters {
-		// Try to convert to integer first
-		if intVal, err := strconv.Atoi(value); err == nil {
-			params[key] = intVal
-		} else if boolVal, err := strconv.ParseBool(value); err == nil {
-			// Try to convert to boolean
-			params[key] = boolVal
-		} else {
-			// Keep as string if not convertible
-			params[key] = value
-		}
-	}
+	params := getControllerParams(targetSubsystem.NQN, pciBDF, parameters)
+	klog.Infof("Creating controller with params: %v", params)
 
 	result, err := client.Call("nvme_controller_create", params)
 	if err != nil {
@@ -561,19 +505,21 @@ func NvmeEmulationDeviceDetach(client JSONRPCClient, vuid string) error {
 	return nil
 }
 
-// getNvmeControllerByPciAddr retrieves the NVMe controller ID associated with a given PCI address
+// getNvmeControllerByPciAddr returns the controller ID for a given PCI BDF.
+// It first checks Physical Functions, then scans all Virtual Functions belonging
+// to each PF. Returns empty string if no match is found.
 func getNvmeControllerByPciAddr(pciAddr string, emulationFunctions EmulationFunctionListResponse) string {
-	var currEmFunc EmulationFunction
 	for _, emFunc := range emulationFunctions {
-		if emFunc.EmulationType == NVMeProtocol {
-			currEmFunc = emFunc
-			break
+		if emFunc.EmulationType != NVMeProtocol {
+			continue
 		}
-	}
-
-	for _, vf := range currEmFunc.VFs {
-		if vf.EmulationType == NVMeProtocol && vf.PCIBDF == pciAddr {
-			return vf.CtrlID
+		if emFunc.PCIBDF == pciAddr {
+			return emFunc.CtrlID
+		}
+		for _, vf := range emFunc.VFs {
+			if vf.PCIBDF == pciAddr {
+				return vf.CtrlID
+			}
 		}
 	}
 
@@ -581,24 +527,23 @@ func getNvmeControllerByPciAddr(pciAddr string, emulationFunctions EmulationFunc
 }
 
 // getPciAddrByCtrlID retrieves the PCI address associated with a given NVMe controller ID
+// If hotplug is true, only hotplugged PFs are considered valid; VFs are never treated as hotplugged.
 func getPciAddrByCtrlID(ctrlID string, emulationFunctions EmulationFunctionListResponse, hotplug bool) (string, error) {
 	for _, emFunc := range emulationFunctions {
 		if emFunc.EmulationType != NVMeProtocol {
 			continue
 		}
-
-		if hotplug {
-			if !emFunc.Hotplugged || emFunc.CtrlID != ctrlID {
-				continue
+		if emFunc.CtrlID == ctrlID {
+			if hotplug && !emFunc.Hotplugged {
+				return "", fmt.Errorf("found non-hotplugged function with ctrl ID %s while searching for hotplugged device", ctrlID)
 			}
 			return emFunc.PCIBDF, nil
-		} else {
-			for _, vf := range emFunc.VFs {
-				if vf.EmulationType != NVMeProtocol || vf.CtrlID != ctrlID {
-					continue
-				}
-				return vf.PCIBDF, nil
+		}
+		for _, vf := range emFunc.VFs {
+			if vf.CtrlID != ctrlID {
+				continue
 			}
+			return vf.PCIBDF, nil
 		}
 	}
 
@@ -712,4 +657,96 @@ func getNvmeHotplugByPciAddr(pciAddr string, emulationFunctions EmulationFunctio
 	}
 
 	return "", "", fmt.Errorf("no hotplugged NVMe device found for PCI address %s", pciAddr)
+}
+
+// getPCIByVUID finds PCI BDF for a hotplugged NVMe device by its VUID
+func getPCIByVUID(emulationFunctions EmulationFunctionListResponse, vuid string) (string, error) {
+	for _, emFunc := range emulationFunctions {
+		if emFunc.EmulationType == NVMeProtocol && emFunc.Hotplugged && emFunc.VUID == vuid {
+			return emFunc.PCIBDF, nil
+		}
+	}
+	return "", fmt.Errorf("no device found with VUID %s", vuid)
+}
+
+// getPCIForStaticPF finds first available NVMe Physical Function without a controller
+func getPCIForStaticPF(emulationFunctions EmulationFunctionListResponse) (string, error) {
+	for _, emFunc := range emulationFunctions {
+		if emFunc.EmulationType == NVMeProtocol && !emFunc.Hotplugged && emFunc.CtrlID == "" {
+			return emFunc.PCIBDF, nil
+		}
+	}
+	return "", fmt.Errorf("no available pci bdf found for pf")
+}
+
+// getPCIForVF finds first available NVMe Virtual Function without a controller
+func getPCIForVF(emulationFunctions EmulationFunctionListResponse) (string, error) {
+	for _, emFunc := range emulationFunctions {
+		if emFunc.EmulationType != NVMeProtocol {
+			continue
+		}
+		for _, vf := range emFunc.VFs {
+			if vf.CtrlID == "" {
+				return vf.PCIBDF, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no available pci bdf found for vf")
+}
+
+// getPCI selects the PCI BDF based on the following priority:
+// 1. Use existing PCI address from DPU status if available
+// 2. Find PCI address by VUID for hotplugged devices (fails if VUID provided but not found)
+// 3. For PF: find first available NVMe PF without a controller
+// 4. For VF: find first available NVMe VF without a controller
+func getPCI(emulationFunctions EmulationFunctionListResponse, dpuStatus snapstoragev1.VolumeAttachmentStatusDPU,
+	parameters map[string]string, functionType string) (string, error) {
+	if dpuStatus.PCIDeviceAddress != "" {
+		return dpuStatus.PCIDeviceAddress, nil
+	}
+
+	if vuid := parameters["vuid"]; vuid != "" {
+		pciBDF, err := getPCIByVUID(emulationFunctions, vuid)
+		return pciBDF, err
+	}
+
+	if functionType == "pf" {
+		return getPCIForStaticPF(emulationFunctions)
+	}
+
+	// Handle VF case
+	return getPCIForVF(emulationFunctions)
+}
+
+// convertStringMapToInterfaceMap converts a map[string]string to map[string]interface{}
+func convertStringMapToInterfaceMap(input map[string]string) map[string]interface{} {
+	result := make(map[string]interface{})
+	for key, value := range input {
+		if intVal, err := strconv.Atoi(value); err == nil {
+			result[key] = intVal
+			continue
+		}
+		if boolVal, err := strconv.ParseBool(value); err == nil {
+			result[key] = boolVal
+			continue
+		}
+		result[key] = value
+	}
+	return result
+}
+
+// getControllerParams builds the parameters for a controller creation request
+func getControllerParams(nqn string, pciBDF string, parameters map[string]string) map[string]interface{} {
+	params := convertStringMapToInterfaceMap(parameters)
+
+	params["nqn"] = nqn
+	params["suspended"] = true
+
+	if pciBDF != "00:00.0" {
+		params["pci_bdf"] = pciBDF
+	} else if parameters["vuid"] != "" {
+		params["vuid"] = parameters["vuid"]
+	}
+
+	return params
 }
