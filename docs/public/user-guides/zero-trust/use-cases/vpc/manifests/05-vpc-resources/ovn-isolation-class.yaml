@@ -7,4 +7,4 @@ spec:
   provisioner: ovn.vpc.dpu.nvidia.com
   parameters:
     ovn-nb-endpoint: "tcp:$TARGETCLUSTER_OVN_CENTRAL_IP:30641"
-    ovn-nb-reconnect-time: "5"
+    ovn-sb-endpoint: "tcp:$TARGETCLUSTER_OVN_CENTRAL_IP:30642"

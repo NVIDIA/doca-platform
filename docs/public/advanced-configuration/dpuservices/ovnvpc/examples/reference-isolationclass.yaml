@@ -10,5 +10,9 @@ spec:
   parameters:
     # OVN northbound database endpoint
     ovn-nb-endpoint: "tcp:10.1.1.100:30641"
-    # Connection retry interval (Default: 5 seconds)
+    # Connection retry interval for northbound database (Default: 5 seconds)
     ovn-nb-reconnect-time: "5"
+    # OVN southbound database endpoint
+    ovn-sb-endpoint: "tcp:10.1.1.100:30642"
+    # Connection retry interval for southbound database (Default: 5 seconds)
+    ovn-sb-reconnect-time: "5"
