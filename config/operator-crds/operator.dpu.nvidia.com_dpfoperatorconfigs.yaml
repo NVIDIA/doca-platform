@@ -828,6 +828,11 @@ spec:
                               BFB Registry
                             minLength: 1
                             type: string
+                          skipDpuNodeDiscovery:
+                            default: true
+                            description: SkipDpuNodeDiscovery is a flag to skip the
+                              DPU node discovery.
+                            type: boolean
                         type: object
                     type: object
                     x-kubernetes-validations:

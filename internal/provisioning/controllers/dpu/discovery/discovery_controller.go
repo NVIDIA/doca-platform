@@ -24,6 +24,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -80,7 +81,21 @@ func (r *DPUDiscoveryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	crawler := NewCrawlerService(r.Client, dpuDiscovery.Namespace, workers)
+	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, r.Client)
+	if err != nil {
+		logger.Error(err, "Failed to get operator config")
+		return ctrl.Result{}, err
+	}
+
+	if dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish == nil {
+		return ctrl.Result{}, fmt.Errorf("InstallViaRedfish not configured in DPFOperatorConfig")
+	}
+
+	skipDpuNodeDiscovery := true
+	if dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDpuNodeDiscovery != nil {
+		skipDpuNodeDiscovery = *dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDpuNodeDiscovery
+	}
+	crawler := NewCrawlerService(r.Client, dpuDiscovery.Namespace, workers, skipDpuNodeDiscovery)
 
 	// Check if it's time to scan
 	if dpuDiscovery.Status.LastScanTime != nil {

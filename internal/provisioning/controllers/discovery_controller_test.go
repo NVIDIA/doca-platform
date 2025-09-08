@@ -28,6 +28,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -142,10 +143,21 @@ var _ = Describe("Redfish Mock Server Tests", func() {
 		It("DPU discovery should successfully discover DPU devices", func() {
 			bmcIP := mockServer.GetIPAddress()
 			bmcPort := uint32(mockServer.GetPort())
+			dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDpuNodeDiscovery = ptr.To(false)
+			Expect(k8sClient.Update(ctx, dpfOperatorConfig)).To(Succeed())
 
 			By("Getting mock server address information")
 			Expect(bmcIP).NotTo(BeEmpty())
 			Expect(bmcPort).To(BeNumerically(">", 0))
+
+			By("verifying no DpuNodes and DpuDevices exist")
+			dpuNodeList := &provisioningv1.DPUNodeList{}
+			Expect(k8sClient.List(ctx, dpuNodeList, client.InNamespace(testNS.Name))).To(Succeed())
+			Expect(dpuNodeList.Items).To(BeEmpty())
+
+			dpuDeviceList := &provisioningv1.DPUDeviceList{}
+			Expect(k8sClient.List(ctx, dpuDeviceList, client.InNamespace(testNS.Name))).To(Succeed())
+			Expect(dpuDeviceList.Items).To(BeEmpty())
 
 			By("creating DpuDiscovery")
 			discovery := &provisioningv1.DPUDiscovery{
@@ -177,7 +189,6 @@ var _ = Describe("Redfish Mock Server Tests", func() {
 			}, timeout, interval).Should(Equal(1))
 
 			By("verifying the created DPU device")
-			dpuDeviceList := &provisioningv1.DPUDeviceList{}
 			Expect(k8sClient.List(ctx, dpuDeviceList, client.InNamespace(testNS.Name))).To(Succeed())
 			Expect(dpuDeviceList.Items).To(HaveLen(1))
 
@@ -186,9 +197,79 @@ var _ = Describe("Redfish Mock Server Tests", func() {
 			Expect(*dpuDevice.Spec.BMCIP).To(Equal(bmcIP))
 
 			By("waiting for DPU node to be created")
+			Eventually(func() int {
+				dpuNodeList := &provisioningv1.DPUNodeList{}
+				err := k8sClient.List(ctx, dpuNodeList, client.InNamespace(testNS.Name))
+				Expect(err).NotTo(HaveOccurred())
+				return len(dpuNodeList.Items)
+			}, timeout, interval).Should(Equal(1))
+
+			By("deleting the DPU device")
+			Expect(k8sClient.Delete(ctx, &dpuDevice)).To(Succeed())
+
+			By("waiting for DPU node to be deleted")
+			Expect(k8sClient.List(ctx, dpuNodeList, client.InNamespace(testNS.Name))).To(Succeed())
+			if len(dpuNodeList.Items) > 0 {
+				dpuNode := dpuNodeList.Items[0]
+				Expect(k8sClient.Delete(ctx, &dpuNode)).To(Succeed())
+			}
+		})
+
+		It("DPU discovery should not create DPU nodes if SkipDpuNodeDiscovery is true", func() {
+			bmcIP := mockServer.GetIPAddress()
+			bmcPort := uint32(mockServer.GetPort())
+			dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDpuNodeDiscovery = ptr.To(true)
+
+			By("setting SkipDpuNodeDiscovery to true")
+			Expect(k8sClient.Update(ctx, dpfOperatorConfig)).To(Succeed())
+
+			By("verifying no DpuNodes and DpuDevices exist")
 			dpuNodeList := &provisioningv1.DPUNodeList{}
 			Expect(k8sClient.List(ctx, dpuNodeList, client.InNamespace(testNS.Name))).To(Succeed())
-			Expect(dpuNodeList.Items).To(HaveLen(1))
+			Expect(dpuNodeList.Items).To(BeEmpty())
+
+			dpuDeviceList := &provisioningv1.DPUDeviceList{}
+			Expect(k8sClient.List(ctx, dpuDeviceList, client.InNamespace(testNS.Name))).To(Succeed())
+			Expect(dpuDeviceList.Items).To(BeEmpty())
+
+			By("Creating DpuDiscovery")
+			discovery := &provisioningv1.DPUDiscovery{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: "dpu-discovery-",
+					Namespace:    testNS.Name,
+				},
+				Spec: provisioningv1.DPUDiscoverySpec{
+					IPRangeSpec: provisioningv1.IPRangeValidationSpec{
+						IPRange: provisioningv1.IPRange{
+							StartIP: bmcIP,
+							EndIP:   bmcIP,
+							Port:    &bmcPort,
+						},
+					},
+					ScanInterval: metav1.Duration{Duration: time.Second * 5},
+				},
+			}
+			Expect(k8sClient.Create(ctx, discovery)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(k8sClient.Delete(ctx, discovery)).To(Or(Succeed(), MatchError(ContainSubstring("not found"))))
+			})
+
+			By("waiting for DPU discovery to complete and create DPU devices")
+			Eventually(func() int {
+				err := k8sClient.List(ctx, dpuDeviceList, client.InNamespace(testNS.Name))
+				Expect(err).NotTo(HaveOccurred())
+				return len(dpuDeviceList.Items)
+			}, timeout, interval).Should(Equal(1))
+
+			Expect(k8sClient.List(ctx, dpuNodeList, client.InNamespace(testNS.Name))).To(Succeed())
+			Expect(dpuNodeList.Items).To(BeEmpty())
+
+			dpuDevice := dpuDeviceList.Items[0]
+			Expect(dpuDevice.Spec.BMCIP).NotTo(BeNil())
+			Expect(*dpuDevice.Spec.BMCIP).To(Equal(bmcIP))
+
+			Expect(k8sClient.Delete(ctx, &dpuDevice)).To(Succeed())
+
 		})
 	})
 })
