@@ -449,6 +449,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `bfbRegistryAddress` _string_ | BFBRegistryAddress is the address of the BFB Registry |  | MinLength: 1 <br /> |
 | `bfbRegistry` _[BFBRegistryConfiguration](#bfbregistryconfiguration)_ | BFBRegistry is the configuration for the BFB Registry |  |  |
+| `skipDpuNodeDiscovery` _boolean_ | SkipDpuNodeDiscovery is a flag to skip the DPU node discovery. | true |  |
 
 
 #### KamajiClusterManagerConfiguration

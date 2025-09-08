@@ -103,6 +103,10 @@ type InstallViaRedfish struct {
 	// BFBRegistry is the configuration for the BFB Registry
 	// +optional
 	BFBRegistry *BFBRegistryConfiguration `json:"bfbRegistry,omitempty"`
+	// SkipDpuNodeDiscovery is a flag to skip the DPU node discovery.
+	// +optional
+	// +kubebuilder:default=true
+	SkipDpuNodeDiscovery *bool `json:"skipDpuNodeDiscovery,omitempty"`
 }
 
 type BFBRegistryConfiguration struct {

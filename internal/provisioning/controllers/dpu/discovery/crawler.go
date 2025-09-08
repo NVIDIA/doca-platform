@@ -38,10 +38,11 @@ import (
 
 // CrawlerService handles the discovery of DPU BMCs in a given IP range
 type CrawlerService struct {
-	client    client.Client
-	scheme    *runtime.Scheme
-	namespace string
-	workers   int
+	client               client.Client
+	scheme               *runtime.Scheme
+	namespace            string
+	workers              int
+	skipDpuNodeDiscovery bool
 }
 
 type CrawlResult struct {
@@ -53,12 +54,13 @@ type CrawlResult struct {
 }
 
 // NewCrawlerService creates a new instance of CrawlerService
-func NewCrawlerService(client client.Client, namespace string, workers int) *CrawlerService {
+func NewCrawlerService(client client.Client, namespace string, workers int, skipDpuNodeDiscovery bool) *CrawlerService {
 	return &CrawlerService{
-		client:    client,
-		scheme:    scheme.Scheme,
-		namespace: namespace,
-		workers:   workers,
+		client:               client,
+		scheme:               scheme.Scheme,
+		namespace:            namespace,
+		workers:              workers,
+		skipDpuNodeDiscovery: skipDpuNodeDiscovery,
 	}
 }
 
@@ -259,6 +261,16 @@ func (c *CrawlerService) createDPUDeviceAndNode(ctx context.Context, result Craw
 		return err
 	}
 
+	if !c.skipDpuNodeDiscovery {
+		return c.createDPUNode(ctx, dpu, result)
+	}
+
+	return nil
+}
+
+func (c *CrawlerService) createDPUNode(ctx context.Context, dpu *provisioningv1.DPUDevice, result CrawlResult) error {
+	logger := log.FromContext(ctx)
+
 	dpuNodeList := &provisioningv1.DPUNodeList{}
 	if err := c.client.List(ctx, dpuNodeList, client.InNamespace(c.namespace)); err != nil {
 		logger.Error(err, "Failed to list DPU nodes", "namespace", c.namespace)
@@ -297,17 +309,13 @@ func (c *CrawlerService) createDPUDeviceAndNode(ctx context.Context, result Craw
 		util.NodeSelectorLabel: "true",
 	}
 
-	err = c.client.Create(ctx, dpuNode)
+	err := c.client.Create(ctx, dpuNode)
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			logger.Info("DPU node already exists", "name", dpuNode.Name)
 			return nil
 		}
 		logger.Error(err, "Failed to create DPU node", "name", dpuNode.Name)
-		err = c.client.Delete(ctx, dpu)
-		if err != nil {
-			logger.Error(err, "Failed to delete DPU device", "name", dpu.Name, "error", err)
-		}
 		return err
 	}
 	return nil
