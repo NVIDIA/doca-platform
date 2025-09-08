@@ -31,8 +31,7 @@ const hotplugAttachDelay = 5 * time.Second
 // Client defines the interface for managing device operations
 type Client interface {
 	// ExposeBlockDevice exposes a block device on the SNAP controller
-	ExposeBlockDevice(deviceName string, dpuStatus snapstoragev1.VolumeAttachmentStatusDPU,
-		parameters map[string]string, hotplug bool) (int, string, string, error)
+	ExposeBlockDevice(dpuStatus snapstoragev1.VolumeAttachmentStatusDPU, spec snapstoragev1.VolumeAttachmentSpec) (int, string, string, error)
 	// ExposeFSDevice exposes a filesystem device on the SNAP controller
 	ExposeFSDevice(deviceName string, dpuStatus snapstoragev1.VolumeAttachmentStatusDPU,
 		parameters map[string]string) (string, string, error)
@@ -58,8 +57,11 @@ type client struct {
 }
 
 // ExposeBlockDevice exposes a block device on the SNAP controller
-func (c *client) ExposeBlockDevice(deviceName string, dpuStatus snapstoragev1.VolumeAttachmentStatusDPU,
-	parameters map[string]string, hotplug bool) (int, string, string, error) {
+func (c *client) ExposeBlockDevice(dpuStatus snapstoragev1.VolumeAttachmentStatusDPU, spec snapstoragev1.VolumeAttachmentSpec) (int, string, string, error) {
+	deviceName := dpuStatus.DeviceName
+	parameters := spec.Parameters
+	hotplug := spec.FunctionTypeConfig.HotplugFunction
+	functionType := string(spec.FunctionTypeConfig.FunctionType)
 	if hotplug && dpuStatus.PCIDeviceAddress == "" {
 		vuid, err := NvmeEmulationDeviceAttach(c.rpcClient)
 		if err != nil {
@@ -110,7 +112,7 @@ func (c *client) ExposeBlockDevice(deviceName string, dpuStatus snapstoragev1.Vo
 			return nsid, "", currUUID, fmt.Errorf("failed to get PCI BDF for controller: %v", err)
 		}
 	} else {
-		ctrlID, pciBDF, err = NvmeControllerCreate(c.rpcClient, subsystems, emulationFunctions, dpuStatus, parameters)
+		ctrlID, pciBDF, err = NvmeControllerCreate(c.rpcClient, subsystems, emulationFunctions, dpuStatus, parameters, functionType)
 		if err != nil {
 			return nsid, "", currUUID, fmt.Errorf("failed to create controller: %v", err)
 		}

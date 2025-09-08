@@ -332,6 +332,7 @@ func TestNvmeControllerCreate(t *testing.T) {
 		emulationFuncs EmulationFunctionListResponse
 		dpuStatus      snapstoragev1.VolumeAttachmentStatusDPU
 		parameters     map[string]string
+		functionType   string
 		expectError    bool
 		expectCtrlID   string
 		expectPciBDF   string
@@ -342,26 +343,49 @@ func TestNvmeControllerCreate(t *testing.T) {
 			emulationFuncs: mockEmulationFunctionList,
 			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
 			parameters:     map[string]string{},
+			functionType:   "vf",
 			expectError:    false,
 			expectCtrlID:   "NVMeCtrl_26:0c.1",
 			expectPciBDF:   "26:0c.1",
 		},
 		{
+			name:           "Create controller with PF",
+			subsystems:     mockNvmeSubsystemList,
+			emulationFuncs: mockEmulationFunctionList,
+			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
+			parameters:     map[string]string{},
+			functionType:   "pf",
+			expectError:    false,
+			expectCtrlID:   "NVMeCtrl_26:00.2",
+			expectPciBDF:   "26:00.2",
+		},
+		{
 			name:           "Create controller with existing DPU status",
 			subsystems:     mockNvmeSubsystemList,
 			emulationFuncs: mockEmulationFunctionList,
-			dpuStatus: snapstoragev1.VolumeAttachmentStatusDPU{
-				PCIDeviceAddress: "26:0c.3",
-			},
-			expectError:  false,
-			expectCtrlID: "NVMeCtrl_26:0c.3",
-			expectPciBDF: "26:0c.3",
+			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{PCIDeviceAddress: "26:0c.3"},
+			functionType:   "vf",
+			expectError:    false,
+			expectCtrlID:   "NVMeCtrl_26:0c.3",
+			expectPciBDF:   "26:0c.3",
+		},
+		{
+			name:           "Create controller with VUID",
+			subsystems:     mockNvmeSubsystemList,
+			emulationFuncs: mockEmulationFunctionList,
+			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
+			parameters:     map[string]string{"vuid": "MT2323XZ09G2NVMES1D0F0"},
+			functionType:   "vf",
+			expectError:    false,
+			expectCtrlID:   "NVMeCtrl_26:00.3",
+			expectPciBDF:   "26:00.3",
 		},
 		{
 			name:           "Empty subsystems list",
 			subsystems:     NvmeSubsystemListResponse{},
 			emulationFuncs: mockEmulationFunctionList,
 			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
+			functionType:   "vf",
 			expectError:    true,
 			expectCtrlID:   "",
 			expectPciBDF:   "",
@@ -392,9 +416,20 @@ func TestNvmeControllerCreate(t *testing.T) {
 				},
 			},
 			dpuStatus:    snapstoragev1.VolumeAttachmentStatusDPU{},
+			functionType: "vf",
 			expectError:  true,
 			expectCtrlID: "",
 			expectPciBDF: "",
+		},
+		{
+			name:           "No available PF",
+			subsystems:     mockNvmeSubsystemList,
+			emulationFuncs: EmulationFunctionListResponse{},
+			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
+			functionType:   "pf",
+			expectError:    true,
+			expectCtrlID:   "",
+			expectPciBDF:   "",
 		},
 	}
 
@@ -402,7 +437,7 @@ func TestNvmeControllerCreate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := NewMockClient()
 
-			ctrlID, pciBDF, err := NvmeControllerCreate(client, tt.subsystems, tt.emulationFuncs, tt.dpuStatus, tt.parameters)
+			ctrlID, pciBDF, err := NvmeControllerCreate(client, tt.subsystems, tt.emulationFuncs, tt.dpuStatus, tt.parameters, tt.functionType)
 
 			if tt.expectError {
 				if err == nil {
@@ -717,5 +752,243 @@ func TestIsControllerAttachedToNamespace(t *testing.T) {
 				t.Errorf("Test failed: Expected %v, but got %v", tt.expectedResult, result)
 			}
 		})
+	}
+}
+
+func TestGetPCI(t *testing.T) {
+	tests := []struct {
+		name           string
+		emFuncs        EmulationFunctionListResponse
+		dpuStatus      snapstoragev1.VolumeAttachmentStatusDPU
+		parameters     map[string]string
+		functionType   string
+		expectedPCIBDF string
+		expectError    bool
+	}{
+		{
+			name:           "Uses DPU status PCI address",
+			emFuncs:        mockEmulationFunctionList,
+			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{PCIDeviceAddress: "26:0c.9"},
+			parameters:     map[string]string{},
+			functionType:   "vf",
+			expectedPCIBDF: "26:0c.9",
+			expectError:    false,
+		},
+		{
+			name:           "Resolves by VUID (hotplugged PF)",
+			emFuncs:        mockEmulationFunctionList,
+			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
+			parameters:     map[string]string{"vuid": "MT2323XZ09G2NVMES1D0F0"},
+			functionType:   "vf",
+			expectedPCIBDF: "26:00.3",
+			expectError:    false,
+		},
+		{
+			name:           "Selects PF when requested",
+			emFuncs:        mockEmulationFunctionList,
+			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
+			parameters:     map[string]string{},
+			functionType:   "pf",
+			expectedPCIBDF: "26:00.2",
+			expectError:    false,
+		},
+		{
+			name:           "Selects first free VF",
+			emFuncs:        mockEmulationFunctionList,
+			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
+			parameters:     map[string]string{},
+			functionType:   "vf",
+			expectedPCIBDF: "26:0c.1",
+			expectError:    false,
+		},
+		{
+			name: "Errors when no PF available",
+			emFuncs: EmulationFunctionListResponse{
+				{
+					Hotplugged:    false,
+					EmulationType: NVMeProtocol,
+					PFIndex:       0,
+					PCIBDF:        "26:aa.0",
+					VUID:          "pf-used",
+					CtrlID:        "NVMeCtrlUsed",
+				},
+			},
+			dpuStatus:    snapstoragev1.VolumeAttachmentStatusDPU{},
+			parameters:   map[string]string{},
+			functionType: "pf",
+			expectError:  true,
+		},
+		{
+			name: "Errors when no free VF available",
+			emFuncs: EmulationFunctionListResponse{
+				{
+					Hotplugged:    false,
+					EmulationType: NVMeProtocol,
+					PFIndex:       0,
+					PCIBDF:        "26:00.2",
+					VUID:          "pf",
+					VFs: []VF{
+						{EmulationType: NVMeProtocol, PCIBDF: "26:0c.0", CtrlID: "NVMeCtrlA"},
+					},
+				},
+			},
+			dpuStatus:    snapstoragev1.VolumeAttachmentStatusDPU{},
+			parameters:   map[string]string{},
+			functionType: "vf",
+			expectError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bdf, err := getPCI(tt.emFuncs, tt.dpuStatus, tt.parameters, tt.functionType)
+			if tt.expectError {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if bdf != tt.expectedPCIBDF {
+				t.Errorf("expected %s, got %s", tt.expectedPCIBDF, bdf)
+			}
+		})
+	}
+}
+
+func TestGetControllerParams(t *testing.T) {
+	t.Run("suspended set when pciBDF provided", func(t *testing.T) {
+		params := getControllerParams("nqn.x", "26:0c.1", map[string]string{
+			"num_queues": "4",
+		})
+
+		if params["nqn"] != "nqn.x" {
+			t.Errorf("expected nqn=nqn.x")
+		}
+		if params["pci_bdf"] != "26:0c.1" {
+			t.Errorf("expected pci_bdf=26:0c.1")
+		}
+		if v, ok := params["suspended"].(bool); !ok || !v {
+			t.Errorf("expected suspended=true")
+		}
+		if v, ok := params["num_queues"].(int); !ok || v != 4 {
+			t.Errorf("expected num_queues=4 (int)")
+		}
+	})
+
+	t.Run("suspended set when using VUID path", func(t *testing.T) {
+		params := getControllerParams("nqn.z", "00:00.0", map[string]string{
+			"vuid": "v-1",
+		})
+
+		if params["nqn"] != "nqn.z" {
+			t.Errorf("expected nqn=nqn.z")
+		}
+		if params["vuid"] != "v-1" {
+			t.Errorf("expected vuid=v-1")
+		}
+		if v, ok := params["suspended"].(bool); !ok || !v {
+			t.Errorf("expected suspended=true")
+		}
+	})
+}
+
+func TestConvertStringMapToInterfaceMap(t *testing.T) {
+	input := map[string]string{
+		"a": "123",
+		"b": "true",
+		"c": "False",
+		"d": "hello",
+		"e": "001",
+		"f": "notbool",
+	}
+
+	result := convertStringMapToInterfaceMap(input)
+
+	if v, ok := result["a"].(int); !ok || v != 123 {
+		t.Errorf("expected a=123 (int), got %#v", result["a"])
+	}
+	if v, ok := result["b"].(bool); !ok || v != true {
+		t.Errorf("expected b=true (bool), got %#v", result["b"])
+	}
+	if v, ok := result["c"].(bool); !ok || v != false {
+		t.Errorf("expected c=false (bool), got %#v", result["c"])
+	}
+	if v, ok := result["d"].(string); !ok || v != "hello" {
+		t.Errorf("expected d=hello (string), got %#v", result["d"])
+	}
+	if v, ok := result["e"].(int); !ok || v != 1 {
+		t.Errorf("expected e=1 (int), got %#v", result["e"])
+	}
+	if v, ok := result["f"].(string); !ok || v != "notbool" {
+		t.Errorf("expected f=notbool (string), got %#v", result["f"])
+	}
+}
+
+func TestGetPCIByVUID(t *testing.T) {
+	// Success: hotplugged PF with matching VUID exists in mockEmulationFunctionList
+	bdf, err := getPCIByVUID(mockEmulationFunctionList, "MT2323XZ09G2NVMES1D0F0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bdf != "26:00.3" {
+		t.Errorf("expected 26:00.3, got %s", bdf)
+	}
+
+	// Not found: returns error
+	_, err = getPCIByVUID(mockEmulationFunctionList, "unknown-vuid")
+	if err == nil {
+		t.Fatalf("expected error for unknown VUID, got nil")
+	}
+}
+
+func TestGetPCIForStaticPF(t *testing.T) {
+	// Success: first available PF without controller should be returned
+	bdf, err := getPCIForStaticPF(mockEmulationFunctionList)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bdf != "26:00.2" {
+		t.Errorf("expected 26:00.2, got %s", bdf)
+	}
+
+	// No available PF: expect error
+	emFuncs := EmulationFunctionListResponse{
+		{EmulationType: NVMeProtocol, Hotplugged: false, CtrlID: "in-use", PCIBDF: "00:11.1"},
+		{EmulationType: NVMeProtocol, Hotplugged: true, CtrlID: "", PCIBDF: "00:22.2"},
+	}
+	_, err = getPCIForStaticPF(emFuncs)
+	if err == nil {
+		t.Fatalf("expected error when no available PF, got nil")
+	}
+}
+
+func TestGetPCIForVF(t *testing.T) {
+	// Success: first available VF without controller should be returned
+	bdf, err := getPCIForVF(mockEmulationFunctionList)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bdf != "26:0c.1" {
+		t.Errorf("expected 26:0c.1, got %s", bdf)
+	}
+
+	// No available VF: expect error
+	emFuncs := EmulationFunctionListResponse{
+		{
+			EmulationType: NVMeProtocol,
+			Hotplugged:    false,
+			PCIBDF:        "26:00.2",
+			VFs: []VF{
+				{EmulationType: NVMeProtocol, PCIBDF: "26:0c.0", CtrlID: "used-1"},
+				{EmulationType: NVMeProtocol, PCIBDF: "26:0c.1", CtrlID: "used-2"},
+			},
+		},
+	}
+	_, err = getPCIForVF(emFuncs)
+	if err == nil {
+		t.Fatalf("expected error when no available VF, got nil")
 	}
 }
