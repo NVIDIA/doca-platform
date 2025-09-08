@@ -690,8 +690,7 @@ func (r *VolumeAttachmentReconciler) exposeBlockDeviceOnSNAP(snapProvider string
 		}
 	}()
 
-	return client.ExposeBlockDevice(volumeAttachment.Status.DPU.DeviceName, volumeAttachment.Status.DPU,
-		volumeAttachment.Spec.Parameters, volumeAttachment.Spec.FunctionTypeConfig.HotplugFunction)
+	return client.ExposeBlockDevice(volumeAttachment.Status.DPU, volumeAttachment.Spec)
 }
 
 func (r *VolumeAttachmentReconciler) exposeFSDeviceOnSNAP(snapProvider string,

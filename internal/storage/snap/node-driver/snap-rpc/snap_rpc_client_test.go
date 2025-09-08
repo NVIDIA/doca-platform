@@ -403,9 +403,8 @@ func TestExposeBlockDevice(t *testing.T) {
 	tests := []struct {
 		name                       string
 		snapProvider               string
-		deviceName                 string
 		dpuStatus                  snapstoragev1.VolumeAttachmentStatusDPU
-		parameters                 map[string]string
+		spec                       snapstoragev1.VolumeAttachmentSpec
 		shouldFailEmulationList    bool
 		shouldFailSubsystemList    bool
 		shouldFailNamespaceCreate  bool
@@ -418,108 +417,112 @@ func TestExposeBlockDevice(t *testing.T) {
 		expectedNSID               int
 		expectedPCIBDF             string
 		expectedUUID               string
-		hotplug                    bool
 	}{
 		{
-			name:           "Create new namespace and controller successfully",
-			snapProvider:   "test-provider",
-			deviceName:     "new-device",
-			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
-			parameters:     map[string]string{},
+			name:         "Create new namespace and controller successfully",
+			snapProvider: "test-provider",
+			dpuStatus:    snapstoragev1.VolumeAttachmentStatusDPU{DeviceName: "new-device"},
+			spec: snapstoragev1.VolumeAttachmentSpec{
+				Parameters: map[string]string{},
+				FunctionTypeConfig: snapstoragev1.FunctionTypeConfig{
+					FunctionType: "vf",
+				},
+			},
 			expectError:    false,
 			expectedNSID:   2,
 			expectedPCIBDF: "26:0c.1",
-			hotplug:        false,
 		},
 		{
-			name:           "Use existing namespace",
-			snapProvider:   "test-provider",
-			deviceName:     "null1",
-			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
-			parameters:     map[string]string{},
+			name:         "Use existing namespace",
+			snapProvider: "test-provider",
+			dpuStatus:    snapstoragev1.VolumeAttachmentStatusDPU{DeviceName: "null1"},
+			spec: snapstoragev1.VolumeAttachmentSpec{
+				Parameters: map[string]string{},
+				FunctionTypeConfig: snapstoragev1.FunctionTypeConfig{
+					FunctionType: "vf",
+				},
+			},
 			expectError:    false,
 			expectedNSID:   1,
 			expectedPCIBDF: "26:0c.0",
-			hotplug:        false,
 		},
 		{
-			name:         "Use DPU status values",
-			snapProvider: "test-provider",
-			deviceName:   "test-device",
+			name: "Use DPU status values",
 			dpuStatus: snapstoragev1.VolumeAttachmentStatusDPU{
+				DeviceName:       "test-device",
 				PCIDeviceAddress: "26:0c.2",
 				BdevAttrs: snapstoragev1.BdevAttrs{
 					NVMeNsID: 5,
 					NVMeUUID: "550e8400-e29b-41d4-a716-446655440000",
 				},
 			},
-			parameters:     map[string]string{},
+			spec: snapstoragev1.VolumeAttachmentSpec{
+				Parameters: map[string]string{},
+				FunctionTypeConfig: snapstoragev1.FunctionTypeConfig{
+					FunctionType: "vf",
+				},
+			},
 			expectError:    false,
 			expectedNSID:   5,
 			expectedPCIBDF: "26:0c.2",
 			expectedUUID:   "550e8400-e29b-41d4-a716-446655440000",
-			hotplug:        false,
 		},
 		{
 			name:                    "Emulation function list failure",
-			snapProvider:            "test-provider",
-			deviceName:              "test-device",
-			dpuStatus:               snapstoragev1.VolumeAttachmentStatusDPU{},
-			parameters:              map[string]string{},
+			dpuStatus:               snapstoragev1.VolumeAttachmentStatusDPU{DeviceName: "test-device"},
+			spec:                    snapstoragev1.VolumeAttachmentSpec{},
 			shouldFailEmulationList: true,
 			expectError:             true,
-			hotplug:                 false,
 		},
 		{
 			name:                    "Subsystem list failure",
-			snapProvider:            "test-provider",
-			deviceName:              "test-device",
-			dpuStatus:               snapstoragev1.VolumeAttachmentStatusDPU{},
-			parameters:              map[string]string{},
+			dpuStatus:               snapstoragev1.VolumeAttachmentStatusDPU{DeviceName: "test-device"},
+			spec:                    snapstoragev1.VolumeAttachmentSpec{},
 			shouldFailSubsystemList: true,
 			expectError:             true,
-			hotplug:                 false,
 		},
 		{
 			name:                      "Namespace create failure",
-			snapProvider:              "test-provider",
-			deviceName:                "new-device",
-			dpuStatus:                 snapstoragev1.VolumeAttachmentStatusDPU{},
-			parameters:                map[string]string{},
+			dpuStatus:                 snapstoragev1.VolumeAttachmentStatusDPU{DeviceName: "new-device"},
+			spec:                      snapstoragev1.VolumeAttachmentSpec{},
 			shouldFailNamespaceCreate: true,
 			expectError:               true,
-			hotplug:                   false,
 		},
 		{
 			name:                       "Controller create failure",
-			snapProvider:               "test-provider",
-			deviceName:                 "new-device",
-			dpuStatus:                  snapstoragev1.VolumeAttachmentStatusDPU{},
-			parameters:                 map[string]string{},
+			dpuStatus:                  snapstoragev1.VolumeAttachmentStatusDPU{DeviceName: "new-device"},
+			spec:                       snapstoragev1.VolumeAttachmentSpec{},
 			shouldFailControllerCreate: true,
 			expectError:                true,
-			hotplug:                    false,
 		},
 		{
-			name:           "Use DPU status values with hotplug",
-			snapProvider:   "test-provider",
-			deviceName:     "test-device",
-			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{PCIDeviceAddress: "26:00.3"},
-			parameters:     map[string]string{},
+			name: "Use DPU status values with hotplug",
+			dpuStatus: snapstoragev1.VolumeAttachmentStatusDPU{
+				DeviceName:       "test-device",
+				PCIDeviceAddress: "26:00.3",
+			},
+			spec: snapstoragev1.VolumeAttachmentSpec{
+				Parameters: map[string]string{},
+				FunctionTypeConfig: snapstoragev1.FunctionTypeConfig{
+					FunctionType:    "vf",
+					HotplugFunction: true,
+				},
+			},
 			expectError:    false,
 			expectedNSID:   2,
 			expectedPCIBDF: "26:00.3",
-			hotplug:        true,
 		},
 		{
-			name:                      "Emulation device attach failure with hotplug",
-			snapProvider:              "test-provider",
-			deviceName:                "test-device",
-			dpuStatus:                 snapstoragev1.VolumeAttachmentStatusDPU{},
-			parameters:                map[string]string{},
+			name:      "Emulation device attach failure with hotplug",
+			dpuStatus: snapstoragev1.VolumeAttachmentStatusDPU{DeviceName: "test-device"},
+			spec: snapstoragev1.VolumeAttachmentSpec{
+				FunctionTypeConfig: snapstoragev1.FunctionTypeConfig{
+					FunctionType:    "vf",
+					HotplugFunction: true,
+				},
+			},
 			shouldFailEmulationAttach: true,
 			expectError:               true,
-			hotplug:                   true,
 		},
 	}
 
@@ -537,7 +540,7 @@ func TestExposeBlockDevice(t *testing.T) {
 
 			client := NewClient(rpcClient)
 
-			nsid, pciBDF, uuid, err := client.ExposeBlockDevice(tt.deviceName, tt.dpuStatus, tt.parameters, tt.hotplug)
+			nsid, pciBDF, uuid, err := client.ExposeBlockDevice(tt.dpuStatus, tt.spec)
 
 			if tt.expectError {
 				if err == nil {
