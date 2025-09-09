@@ -19,10 +19,10 @@ package node
 import (
 	"context"
 
+	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
 	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/handlers/common"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/go-logr/logr"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -30,7 +30,6 @@ import (
 // NodePublishVolume is a handler for NodePublishVolume request
 func (h *node) NodePublishVolume(ctx context.Context,
 	req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
-	reqLog := logr.FromContextOrDiscard(ctx)
 	if req.VolumeId == "" {
 		return nil, common.FieldIsRequiredError("VolumeID")
 	}
@@ -46,31 +45,12 @@ func (h *node) NodePublishVolume(ctx context.Context,
 	if err := common.ValidateVolumeCapability(h.commonConfig.EmulationMode, req.VolumeCapability); err != nil {
 		return nil, err
 	}
-
-	if req.Readonly {
-		return nil, status.Error(codes.Unimplemented, "readOnly volumes are not supported")
+	switch h.commonConfig.EmulationMode {
+	case config.EmulationModeNVMe:
+		return h.publishNVMe(ctx, req)
+	case config.EmulationModeVirtiofs:
+		return h.publishVirtioFS(ctx, req)
+	default:
+		return nil, status.Error(codes.Unimplemented, "unsupported emulation mode selected")
 	}
-
-	stagingPath := h.getStagingPath(req.StagingTargetPath, req.VolumeId)
-	reqLog = reqLog.WithValues("stagingPath", stagingPath, "targetPath", req.TargetPath)
-
-	if err := h.mount.EnsureFileExist(req.TargetPath, 0644); err != nil {
-		reqLog.Error(err, "can't create publish path for the volume")
-		return nil, status.Error(codes.Internal, "can't create staging path for the volume")
-	}
-	exist, _, err := h.mount.CheckMountExists(stagingPath, req.TargetPath)
-	if err != nil {
-		reqLog.Error(err, "error occurred while checking if the volume is published")
-		return nil, status.Error(codes.Internal, "error occurred while checking if the volume is published")
-	}
-	if exist {
-		reqLog.Info("volume already published")
-		return &csi.NodePublishVolumeResponse{}, nil
-	}
-	if err := h.mount.Mount(stagingPath, req.TargetPath, "", []string{"bind"}); err != nil {
-		reqLog.Error(err, "failed to publish volume, bind mount failed")
-		return nil, status.Error(codes.Internal, "failed to publish volume, bind mount failed")
-	}
-	reqLog.Info("volume published")
-	return &csi.NodePublishVolumeResponse{}, nil
 }
