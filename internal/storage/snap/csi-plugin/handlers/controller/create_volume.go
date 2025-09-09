@@ -66,7 +66,7 @@ func (h *controller) CreateVolume(
 		return nil, status.Error(codes.Internal, "failed to get kubernetes client for target cluster")
 	}
 
-	desiredVolume := csiCreateVolumeRequestToDPUVolume(h.controllerConfig, req)
+	desiredVolume := csiCreateVolumeRequestToDPUVolume(h.commonConfig, h.controllerConfig, req)
 	apiVolume := &storagev1.DPUVolume{}
 	if err := client.Create(ctx, desiredVolume); err != nil {
 		if apierrors.IsAlreadyExists(err) {
@@ -147,7 +147,7 @@ func createVolumeValidateExisting(reqLog logr.Logger, desired, actual *storagev1
 }
 
 // convert csi CreateVolume request arguments to DPUVolume
-func csiCreateVolumeRequestToDPUVolume(cfg config.Controller, createReq *csi.CreateVolumeRequest) *storagev1.DPUVolume {
+func csiCreateVolumeRequestToDPUVolume(commonConfig config.Common, controllerConfig config.Controller, createReq *csi.CreateVolumeRequest) *storagev1.DPUVolume {
 	requiredBytes := DefaultVolumeCapacityBytes
 	if createReq.CapacityRange != nil && createReq.CapacityRange.RequiredBytes > 0 {
 		requiredBytes = createReq.CapacityRange.RequiredBytes
@@ -169,7 +169,7 @@ func csiCreateVolumeRequestToDPUVolume(cfg config.Controller, createReq *csi.Cre
 	vol := &storagev1.DPUVolume{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      createReq.Name,
-			Namespace: cfg.Namespace,
+			Namespace: controllerConfig.Namespace,
 		},
 		Spec: storagev1.DPUVolumeSpec{
 			DPUStoragePolicyName: policyName,
@@ -178,7 +178,7 @@ func csiCreateVolumeRequestToDPUVolume(cfg config.Controller, createReq *csi.Cre
 			Resources: corev1.VolumeResourceRequirements{
 				Requests: storageReqs,
 			},
-			VolumeMode: convertCSIVolumeMode(createReq.VolumeCapabilities),
+			VolumeMode: getDPUVolumeMode(commonConfig),
 		},
 	}
 	if limitBytes > 0 {

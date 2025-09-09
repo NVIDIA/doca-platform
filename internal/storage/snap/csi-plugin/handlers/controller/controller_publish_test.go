@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	storagev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
@@ -34,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 var _ = Describe("ControllerPublish", func() {
@@ -54,7 +56,7 @@ var _ = Describe("ControllerPublish", func() {
 			controllerConfig: config.Controller{Namespace: "test-namespace"},
 			clusterhelper:    clients,
 		}
-		ctx, cancel = context.WithCancel(context.Background())
+		ctx, cancel = context.WithTimeout(context.Background(), callTimeout)
 		DeferCleanup(cancel)
 		req = &csi.ControllerPublishVolumeRequest{
 			VolumeId: "test-volume-name",
@@ -100,6 +102,139 @@ var _ = Describe("ControllerPublish", func() {
 			vol       *storagev1.DPUVolume
 			volAttach *storagev1.DPUVolumeAttachment
 		)
+		sharedPublishTests := func(emulationMode string) {
+			Context("Common tests for "+emulationMode, func() {
+				BeforeEach(func() {
+					controllerHandler.commonConfig.EmulationMode = emulationMode
+				})
+				It("attached", func() {
+					stop := make(chan struct{})
+					clients.Client = getClusterClient(vol)
+
+					go func() {
+						defer GinkgoRecover()
+						defer close(stop)
+						Eventually(func(g Gomega) {
+							volAttachToUpdate := &storagev1.DPUVolumeAttachment{}
+							g.Expect(clients.Client.Get(ctx, client.ObjectKeyFromObject(volAttach), volAttachToUpdate)).NotTo(HaveOccurred())
+							volAttachToUpdate.Status = volAttach.Status
+							g.Expect(clients.Client.Status().Update(ctx, volAttachToUpdate)).NotTo(HaveOccurred())
+						}).WithTimeout(time.Second * 10).Should(Succeed())
+					}()
+					resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(resp).NotTo(BeNil())
+					Eventually(stop).WithTimeout(time.Second * 15).Should(BeClosed())
+				})
+				It("volume not found", func() {
+					resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+					common.CheckGRPCErr(err, codes.NotFound, "volume not found")
+					Expect(resp).To(BeNil())
+				})
+				It("attached with wrong source", func() {
+					wrongVolAttach := volAttach.DeepCopy()
+					wrongVolAttach.Spec.DPUVolumeName = "test-wrong-volume-name"
+					clients.Client = getClusterClient(vol, wrongVolAttach)
+					resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+					common.CheckGRPCErr(err, codes.AlreadyExists, "DPUVolumeAttachment already exist but contains different parameters")
+					Expect(resp).To(BeNil())
+				})
+				It("attached with wrong nodeName", func() {
+					wrongVolAttach := volAttach.DeepCopy()
+					wrongVolAttach.Spec.DPUNodeName = "test-wrong-dpu-node-name"
+					clients.Client = getClusterClient(vol, wrongVolAttach)
+					resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+					common.CheckGRPCErr(err, codes.AlreadyExists, "DPUVolumeAttachment already exist but contains different parameters")
+					Expect(resp).To(BeNil())
+				})
+				It("timeout", func() {
+					var volAttachCalled atomic.Bool
+					clients.Client = getClusterClientBuilder(vol).WithInterceptorFuncs(interceptor.Funcs{Create: func(
+						ctx context.Context, client client.WithWatch,
+						obj client.Object, opts ...client.CreateOption) error {
+						// Mark that DPUVolumeAttachment creation was attempted
+						if _, ok := obj.(*storagev1.DPUVolumeAttachment); ok {
+							volAttachCalled.Store(true)
+						}
+						return client.Create(ctx, obj, opts...)
+					}}).Build()
+					go func() {
+						// Wait until the attachment creation is observed, then cancel context
+						Eventually(func(g Gomega) {
+							g.Expect(volAttachCalled.Load()).To(BeTrue())
+						}).WithPolling(time.Millisecond * 100).Should(Succeed())
+						cancel()
+					}()
+					resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+					// Expect a timeout error because attachment never becomes "attached"
+					common.CheckGRPCErr(err, codes.DeadlineExceeded, "timeout occurred while waiting for volume attachment")
+					Expect(resp).To(BeNil())
+				})
+				It("failed to get client", func() {
+					clients.Error = errTest
+					resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+					common.CheckGRPCErr(err, codes.Internal, "failed to get kubernetes client for target cluster")
+					Expect(resp).To(BeNil())
+				})
+				It("failed to read volume info", func() {
+					clients.Client = getClusterClientBuilder().WithInterceptorFuncs(interceptor.Funcs{Get: func(
+						ctx context.Context, client client.WithWatch,
+						key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						return errTest
+					}}).Build()
+					resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+					common.CheckGRPCErr(err, codes.Internal, "failed to read volume info")
+					Expect(resp).To(BeNil())
+				})
+				It("failed to create volume attachment", func() {
+					clients.Client = getClusterClientBuilder(vol).WithInterceptorFuncs(interceptor.Funcs{Create: func(
+						ctx context.Context, client client.WithWatch,
+						obj client.Object, opts ...client.CreateOption) error {
+						return errTest
+					}}).Build()
+					resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+					common.CheckGRPCErr(err, codes.Internal, "failed to create DPUVolumeAttachment")
+					Expect(resp).To(BeNil())
+				})
+				It("failed to get volume attachment", func() {
+					clients.Client = getClusterClientBuilder(vol, volAttach).WithInterceptorFuncs(interceptor.Funcs{Get: func(
+						ctx context.Context, client client.WithWatch,
+						key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if _, ok := obj.(*storagev1.DPUVolumeAttachment); ok {
+							return errTest
+						}
+						return client.Get(ctx, key, obj, opts...)
+					}}).Build()
+					resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+					common.CheckGRPCErr(err, codes.Internal, "failed to read DPUVolumeAttachment info")
+					Expect(resp).To(BeNil())
+				})
+				It("called with invalid function type config", func() {
+					req.VolumeContext["functionType"] = "invalid"
+					clients.Client = getClusterClient(vol)
+					resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+					common.CheckGRPCErr(err, codes.InvalidArgument, "invalid function type config")
+					Expect(resp).To(BeNil())
+				})
+				It("should return error when DPUVolumeAttachment status.dpu is nil", func() {
+					invalidVolAttach := volAttach.DeepCopy()
+					invalidVolAttach.Status.DPU = nil
+					clients.Client = getClusterClient(vol, invalidVolAttach)
+					resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+					common.CheckGRPCErr(err, codes.Internal, "DPUVolumeAttachment is ready but status.dpu is missing")
+					Expect(resp).To(BeNil())
+				})
+				It("should return error when DPUVolumeAttachment status.dpu.pciAddress is nil", func() {
+					invalidVolAttach := volAttach.DeepCopy()
+					invalidVolAttach.Status.DPU.PCIAddress = nil
+					clients.Client = getClusterClient(vol, invalidVolAttach)
+					resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+					common.CheckGRPCErr(err, codes.Internal, "DPUVolumeAttachment is ready but status.dpu.pciAddress is missing")
+					Expect(resp).To(BeNil())
+				})
+
+			})
+		}
 
 		BeforeEach(func() {
 			vol = &storagev1.DPUVolume{
@@ -159,71 +294,98 @@ var _ = Describe("ControllerPublish", func() {
 			}
 		})
 
-		It("attached", func() {
-			stop := make(chan struct{})
-			clients.Client = getClusterClient(vol)
-
-			go func() {
-				defer GinkgoRecover()
-				defer close(stop)
-				Eventually(func(g Gomega) {
-					volAttachToUpdate := &storagev1.DPUVolumeAttachment{}
-					g.Expect(clients.Client.Get(ctx, client.ObjectKeyFromObject(volAttach), volAttachToUpdate)).NotTo(HaveOccurred())
-					volAttachToUpdate.Status = volAttach.Status
-					g.Expect(clients.Client.Status().Update(ctx, volAttachToUpdate)).NotTo(HaveOccurred())
-				}).WithTimeout(time.Second * 10).Should(Succeed())
-			}()
-
-			ctx, cancel := context.WithTimeout(ctx, time.Second*10)
-			defer cancel()
-			resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp).NotTo(BeNil())
-			Eventually(stop).WithTimeout(time.Second * 15).Should(BeClosed())
+		Context("NVMe emulation mode", func() {
+			BeforeEach(func() {
+				controllerHandler.commonConfig.EmulationMode = config.EmulationModeNVMe
+			})
+			sharedPublishTests(config.EmulationModeNVMe)
+			It("already attached", func() {
+				clients.Client = getClusterClient(vol, volAttach)
+				resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp).NotTo(BeNil())
+				Expect(resp.PublishContext).To(Equal(
+					map[string]string{
+						"nv-volumeName":           "test-volume-name",
+						"nv-volumeAttachmentName": "test-node-name-test-volume-name",
+						"nv-pciDeviceAddress":     "0000:00:1f.2",
+						"nv-nvmeNsID":             "1",
+						"test-publish-param":      "test-publish-param-value",
+					},
+				))
+			})
+			It("should return error when DPUVolumeAttachment status.dpu.nvmeAttrs is nil", func() {
+				invalidVolAttach := volAttach.DeepCopy()
+				invalidVolAttach.Status.DPU.NVMEAttrs = nil
+				clients.Client = getClusterClient(vol, invalidVolAttach)
+				resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+				common.CheckGRPCErr(err, codes.Internal, "DPUVolumeAttachment is ready but status.dpu.nvmeAttrs is missing")
+				Expect(resp).To(BeNil())
+			})
+			It("should return error when DPUVolumeAttachment status.dpu.nvmeAttrs.namespaceID is nil", func() {
+				invalidVolAttach := volAttach.DeepCopy()
+				invalidVolAttach.Status.DPU.NVMEAttrs.NamespaceID = nil
+				clients.Client = getClusterClient(vol, invalidVolAttach)
+				resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+				common.CheckGRPCErr(err, codes.Internal, "DPUVolumeAttachment is ready but status.dpu.nvmeAttrs.namespaceID is missing")
+				Expect(resp).To(BeNil())
+			})
 		})
-		It("already attached", func() {
-			clients.Client = getClusterClient(vol, volAttach)
-			ctx, cancel := context.WithTimeout(ctx, time.Second*10)
-			defer cancel()
-			resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp).NotTo(BeNil())
-			Expect(resp.PublishContext).To(Equal(
-				map[string]string{
-					"nv-volumeName":           "test-volume-name",
-					"nv-volumeAttachmentName": "test-node-name-test-volume-name",
-					"nv-pciDeviceAddress":     "0000:00:1f.2",
-					"nv-nvmeNsID":             "1",
-					"test-publish-param":      "test-publish-param-value",
-				},
-			))
-		})
-		It("volume not found", func() {
-			ctx, cancel := context.WithTimeout(ctx, time.Second*10)
-			defer cancel()
-			resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
-			common.CheckGRPCErr(err, codes.NotFound, "volume not found")
-			Expect(resp).To(BeNil())
-		})
-		It("attached with wrong source", func() {
-			wrongVolAttach := volAttach.DeepCopy()
-			wrongVolAttach.Spec.DPUVolumeName = "test-wrong-volume-name"
-			clients.Client = getClusterClient(vol, wrongVolAttach)
-			ctx, cancel := context.WithTimeout(ctx, time.Second*10)
-			defer cancel()
-			resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
-			common.CheckGRPCErr(err, codes.AlreadyExists, "DPUVolumeAttachment already exist but contains different parameters")
-			Expect(resp).To(BeNil())
-		})
-		It("attached with wrong nodeName", func() {
-			wrongVolAttach := volAttach.DeepCopy()
-			wrongVolAttach.Spec.DPUNodeName = "test-wrong-dpu-node-name"
-			clients.Client = getClusterClient(vol, wrongVolAttach)
-			ctx, cancel := context.WithTimeout(ctx, time.Second*10)
-			defer cancel()
-			resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
-			common.CheckGRPCErr(err, codes.AlreadyExists, "DPUVolumeAttachment already exist but contains different parameters")
-			Expect(resp).To(BeNil())
+		Context("VirtioFS emulation mode", func() {
+			BeforeEach(func() {
+				controllerHandler.commonConfig.EmulationMode = config.EmulationModeVirtiofs
+				vol.Spec.VolumeMode = ptr.To(corev1.PersistentVolumeFilesystem)
+				volAttach.Spec.FunctionTypeConfig.FunctionType = storagev1.FunctionTypePF
+				volAttach.Spec.FunctionTypeConfig.HotplugFunction = true
+				volAttach.Status.DPU.NVMEAttrs = nil
+				volAttach.Status.DPU.VirtioFSAttrs = &storagev1.VirtioFSAttrs{
+					FilesystemTag: ptr.To("test-virtiofs-tag"),
+				}
+				req.VolumeCapability = &csi.VolumeCapability{
+					AccessType: &csi.VolumeCapability_Mount{
+						Mount: &csi.VolumeCapability_MountVolume{},
+					},
+					AccessMode: &csi.VolumeCapability_AccessMode{
+						Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+					},
+				}
+				req.VolumeContext["functionType"] = "pf"
+				req.VolumeContext["hotplugFunction"] = "true"
+			})
+			sharedPublishTests(config.EmulationModeVirtiofs)
+			It("already attached", func() {
+				clients.Client = getClusterClient(vol, volAttach)
+				resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp).NotTo(BeNil())
+				Expect(resp.PublishContext).To(Equal(
+					map[string]string{
+						"nv-volumeName":           "test-volume-name",
+						"nv-volumeAttachmentName": "test-node-name-test-volume-name",
+						"nv-pciDeviceAddress":     "0000:00:1f.2",
+						"nv-virtioFsTag":          "test-virtiofs-tag",
+						"test-publish-param":      "test-publish-param-value",
+					},
+				))
+			})
+			It("should return error when DPUVolumeAttachment status.dpu.virtioFSAttrs is nil", func() {
+				invalidVolAttach := volAttach.DeepCopy()
+				invalidVolAttach.Status.DPU.VirtioFSAttrs = nil
+				clients.Client = getClusterClient(vol, invalidVolAttach)
+				resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+				common.CheckGRPCErr(err, codes.Internal, "DPUVolumeAttachment is ready but status.dpu.virtioFSAttrs is missing")
+				Expect(resp).To(BeNil())
+			})
+			It("should return error when FilesystemTag is nil in VirtioFS mode", func() {
+				invalidVolAttach := volAttach.DeepCopy()
+				invalidVolAttach.Status.DPU.VirtioFSAttrs = &storagev1.VirtioFSAttrs{
+					FilesystemTag: nil,
+				}
+				clients.Client = getClusterClient(vol, invalidVolAttach)
+				resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+				common.CheckGRPCErr(err, codes.Internal, "DPUVolumeAttachment is ready but status.dpu.virtioFSAttrs.filesystemTag is missing")
+				Expect(resp).To(BeNil())
+			})
 		})
 	})
 })
