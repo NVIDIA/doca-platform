@@ -328,6 +328,11 @@ type DPUServiceStatus struct {
 	// It contains the actual port numbers that are exposed on the DPUService per cluster.
 	// +optional
 	ConfigPorts map[string][]ConfigPort `json:"configPorts,omitempty"`
+
+	// ServiceID is the ID of the service that the DPUService is associated with.
+	// This is set when the DPUService is created.
+	// +optional
+	ServiceID string `json:"serviceID,omitempty"`
 }
 
 // +kubebuilder:object:root=true
