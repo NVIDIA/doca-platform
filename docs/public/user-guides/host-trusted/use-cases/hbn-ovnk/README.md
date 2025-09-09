@@ -6,7 +6,7 @@ title: "OVN Kubernetes with Host Based Networking"
 > Follow this guide from the source GitHub repo at [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform)
 > and moving to the `docs/public/user-guides/host-trusted/use-cases/hbn-ovnk/README.md` for better formatting of the code.
 
-In this configuration OVN Kubernetes is offloaded to the DPU and combined with [NVIDIA Host Based Networking (HBN)](https://docs.nvidia.com/doca/sdk/doca+hbn+service+guide/index.html).
+In this configuration OVN Kubernetes is offloaded to the DPU and combined with [NVIDIA Host Based Networking (HBN)](https://docs.nvidia.com/doca/sdk/doca-hbn-service-guide/index.html).
 
 [TOC]
 
