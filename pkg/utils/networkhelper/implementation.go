@@ -411,3 +411,13 @@ func (n *networkHelper) GetVFRepresentorDPU(pfID, vfIndex string) (string, error
 	}
 	return rep, nil
 }
+
+// GetUplinkRepresentor gets a VF or PF PCI address (e.g '0000:03:00.4') and
+// returns the uplink representor netdev name for that VF or PF.
+func (n *networkHelper) GetUplinkRepresentor(pciAddress string) (string, error) {
+	rep, err := sriovnet.GetUplinkRepresentor(pciAddress)
+	if err != nil {
+		return "", fmt.Errorf("failed to get uplink representor for pciAddress %s: %w", pciAddress, err)
+	}
+	return rep, nil
+}
