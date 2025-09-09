@@ -8,7 +8,7 @@ title: "Host Based Networking"
 > and moving to the `docs/public/user-guides/host-trusted/use-cases/hbn/README.md` for better formatting of the code.
 
 
-In this configuration [NVIDIA Host Based Networking (HBN)](https://docs.nvidia.com/doca/sdk/doca+hbn+service+guide/index.html) is installed as a DPUService.
+In this configuration [NVIDIA Host Based Networking (HBN)](https://docs.nvidia.com/doca/sdk/doca-hbn-service-guide/index.html) is installed as a DPUService.
 
 [TOC]
 
