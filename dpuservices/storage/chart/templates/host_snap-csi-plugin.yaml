@@ -34,6 +34,8 @@ spec:
             - /snap-csi-plugin
           args:
            - --mode=controller
+           - --name={{ .Values.host.snapCsiPlugin.name }}
+           - --emulation-mode={{ .Values.host.snapCsiPlugin.emulationMode }}
            - --bind-address=unix://csi/csi.sock
            - --namespace={{ .Release.Namespace }}
            - --v={{ .Values.host.snapCsiPlugin.controller.plugin.args.logLevel }}
@@ -194,7 +196,7 @@ metadata:
 apiVersion: storage.k8s.io/v1
 kind: CSIDriver
 metadata:
-  name: snap.csi.nvidia.com
+  name: {{ .Values.host.snapCsiPlugin.name }}
 spec:
   attachRequired: true
   volumeLifecycleModes:
@@ -246,11 +248,17 @@ spec:
             - /snap-csi-plugin
           args:
             - --mode=node
+            - --name={{ .Values.host.snapCsiPlugin.name }}
+            - --emulation-mode={{ .Values.host.snapCsiPlugin.emulationMode }}
             - --bind-address=unix:///csi/csi.sock
             - --node-id=$(NODE_NAME)
             - --v={{ .Values.host.snapCsiPlugin.node.plugin.args.logLevel }}
             - --node-snap-controller-device-id={{ .Values.host.snapCsiPlugin.node.config.snapControllerDeviceId }}
             - --max-volumes-per-node={{ .Values.host.snapCsiPlugin.node.config.maxVolumesPerNode | default 0 }}
+            - --node-nvme-load-driver={{ .Values.host.snapCsiPlugin.node.config.nvmeLoadDriver }}
+            - --node-nvme-create-vfs={{ .Values.host.snapCsiPlugin.node.config.nvmeCreateVFs }}
+            - --node-virtiofs-filesystem-type={{ .Values.host.snapCsiPlugin.node.config.virtiofsFSTypeName }}
+            - --node-virtiofs-load-driver={{ .Values.host.snapCsiPlugin.node.config.virtiofsLoadDriver }}
           env:
             - name: NODE_NAME
               valueFrom:
@@ -318,7 +326,7 @@ spec:
             - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
           env:
             - name: DRIVER_REG_SOCK_PATH
-              value: {{ .Values.host.snapCsiPlugin.node.kubeletDir }}/plugins/snap.csi.nvidia.com/csi.sock
+              value: {{ .Values.host.snapCsiPlugin.node.kubeletDir }}/plugins/{{ .Values.host.snapCsiPlugin.name }}/csi.sock
           imagePullPolicy: {{ .Values.host.snapCsiPlugin.node.nodeDriverRegistrar.imagePullPolicy }}
           volumeMounts:
             - name: socket-dir
@@ -338,7 +346,7 @@ spec:
             path: /
         - name: socket-dir
           hostPath:
-            path: {{ .Values.host.snapCsiPlugin.node.kubeletDir }}/plugins/snap.csi.nvidia.com
+            path: {{ .Values.host.snapCsiPlugin.node.kubeletDir }}/plugins/{{ .Values.host.snapCsiPlugin.name }}
             type: DirectoryOrCreate
         - name: pods-mount-dir
           hostPath:
