@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -63,20 +65,17 @@ var _ = Describe("Helpers", func() {
 		})
 	})
 
-	Context("convertCSIVolumeMode", func() {
-		It("typeBlock", func() {
-			volCaps := []*csi.VolumeCapability{{AccessType: &csi.VolumeCapability_Block{}}}
-			result := convertCSIVolumeMode(volCaps)
+	Context("getDPUVolumeMode", func() {
+		It("should return Block mode for nvme emulation mode", func() {
+			result := getDPUVolumeMode(config.Common{EmulationMode: config.EmulationModeNVMe})
 			Expect(result).To(Equal(ptr.To(corev1.PersistentVolumeBlock)))
 		})
-		It("typeFS", func() {
-			volCaps := []*csi.VolumeCapability{{AccessType: &csi.VolumeCapability_Mount{}}}
-			result := convertCSIVolumeMode(volCaps)
+		It("should return Filesystem mode for virtiofs emulation mode", func() {
+			result := getDPUVolumeMode(config.Common{EmulationMode: config.EmulationModeVirtiofs})
 			Expect(result).To(Equal(ptr.To(corev1.PersistentVolumeFilesystem)))
 		})
-		It("typeBlock by default", func() {
-			volCaps := []*csi.VolumeCapability{}
-			result := convertCSIVolumeMode(volCaps)
+		It("should return Block mode by default", func() {
+			result := getDPUVolumeMode(config.Common{})
 			Expect(result).To(Equal(ptr.To(corev1.PersistentVolumeBlock)))
 		})
 	})
