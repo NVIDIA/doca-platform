@@ -48,6 +48,10 @@ import (
 const (
 	// RequeueInterval is the interval to requeue the request.
 	RequeueInterval = 5 * time.Second
+
+	// RebootSyncInterval is the interval to requeue the request for waiting all DPUs get into non-provisioning phase.
+	RebootSyncInterval = 30 * time.Second
+
 	// CFGExtension is the extension of the BFB configuration file.
 	CFGExtension = "cfg"
 	// DPUProvisioningLabelPrefix is the prefix for all DPU provisioning labels.
@@ -618,6 +622,51 @@ func IsNodeEffectApplied(dpunodemaintenance *provisioningv1.DPUNodeMaintenance) 
 func IsDPUNodeReady(dpuNode *provisioningv1.DPUNode) bool {
 	if condition := meta.FindStatusCondition(dpuNode.Status.Conditions, provisioningv1.DPUNodeConditionReady.String()); condition != nil {
 		return condition.Status == metav1.ConditionTrue
+	}
+	return false
+}
+
+func GetDPUPhases(ctx context.Context, client crclient.Client, dpuNode *provisioningv1.DPUNode, dpuPhases map[string]struct{}) (err error) {
+	for _, dpuDevice := range dpuNode.Spec.DPUs {
+		dpu := &provisioningv1.DPU{}
+		if err := client.Get(ctx, types.NamespacedName{Namespace: dpuNode.Namespace, Name: GenerateDPUName(dpuNode.Name, dpuDevice.Name)}, dpu); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return err
+		}
+		dpuPhases[string(dpu.Status.Phase)] = struct{}{}
+	}
+	return nil
+}
+
+func GetDPUsWithPhase(ctx context.Context, client crclient.Client, dpuNode *provisioningv1.DPUNode, phase provisioningv1.DPUPhase) ([]*provisioningv1.DPU, error) {
+	dpus := make([]*provisioningv1.DPU, 0)
+	for _, dpuDevice := range dpuNode.Spec.DPUs {
+		dpu := &provisioningv1.DPU{}
+		if err := client.Get(ctx, types.NamespacedName{Namespace: dpuNode.Namespace, Name: GenerateDPUName(dpuNode.Name, dpuDevice.Name)}, dpu); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return nil, err
+		}
+		if string(dpu.Status.Phase) == string(phase) {
+			dpus = append(dpus, dpu.DeepCopy())
+		}
+	}
+	return dpus, nil
+}
+
+func ContainsDPUPhase(phases map[string]struct{}, phase provisioningv1.DPUPhase) bool {
+	_, exist := phases[string(phase)]
+	return exist
+}
+
+func ContainsDPUPhases(phases map[string]struct{}, subPhases map[string]struct{}) bool {
+	for phase := range subPhases {
+		if _, exist := phases[phase]; exist {
+			return true
+		}
 	}
 	return false
 }
