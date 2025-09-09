@@ -67,4 +67,7 @@ type NetworkHelper interface {
 	GetPFRepresentorDPU(pfID string) (string, error)
 	// GetVFRepresentorDPU returns VF representor on DPU for a host VF identified by pfID and vfIndex
 	GetVFRepresentorDPU(pfID, vfIndex string) (string, error)
+	// GetUplinkRepresentor gets a VF or PF PCI address (e.g '0000:03:00.4') and
+	// returns the uplink representor netdev name for that VF or PF.
+	GetUplinkRepresentor(pciAddress string) (string, error)
 }

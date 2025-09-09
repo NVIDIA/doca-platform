@@ -23,6 +23,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/health"
+	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -134,7 +135,11 @@ func main() {
 	}
 
 	// Create a new VFMAC instance with default configuration
-	vfmacInstance := vfmac.NewVFMAC(nil, "", "")
+	vfmacInstance, err := vfmac.NewVFMAC(nil, networkhelper.New(), "", "")
+	if err != nil {
+		setupLog.Error(err, "failed to create VFMAC instance")
+		os.Exit(1)
+	}
 
 	vfMapping, err := vfmacInstance.LoadIfaceMACAddressMapping()
 	if err != nil {
