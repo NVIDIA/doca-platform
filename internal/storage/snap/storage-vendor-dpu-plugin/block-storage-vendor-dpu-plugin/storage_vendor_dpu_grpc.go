@@ -224,7 +224,7 @@ func (s *StoragePluginServer) CreateDevice(ctx context.Context, req *pb.CreateDe
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to create rpcClient: %v", err)
 		klog.Error(errMsg)
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, status.Errorf(codes.Unavailable, "%s", errMsg)
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
@@ -234,7 +234,7 @@ func (s *StoragePluginServer) CreateDevice(ctx context.Context, req *pb.CreateDe
 
 	bdevs, err := client.BdevGetBdevs()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get bdevs: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to get bdevs: %v", err)
 	}
 
 	attachRequest := BdevNvmeAttachControllerRequest{
@@ -282,7 +282,7 @@ func (s *StoragePluginServer) DeleteDevice(ctx context.Context, req *pb.DeleteDe
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to create rpcClient: %v", err)
 		klog.Error(errMsg)
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, status.Errorf(codes.Unavailable, "%s", errMsg)
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
@@ -292,12 +292,12 @@ func (s *StoragePluginServer) DeleteDevice(ctx context.Context, req *pb.DeleteDe
 
 	bdevs, err := client.BdevGetBdevs()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get bdevs: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to get bdevs: %v", err)
 	}
 
 	controllers, err := client.BdevNvmeGetControllers()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get NVMe controllers: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to get NVMe controllers: %v", err)
 	}
 
 	// Check if the Bdev exists before proceeding
@@ -305,7 +305,7 @@ func (s *StoragePluginServer) DeleteDevice(ctx context.Context, req *pb.DeleteDe
 	if err != nil {
 		errMsg := fmt.Sprintf("Error checking bdev existence: %v", err)
 		klog.Error(errMsg)
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, status.Errorf(codes.Internal, "%s", errMsg)
 	}
 
 	if !bdevExists {
@@ -318,7 +318,7 @@ func (s *StoragePluginServer) DeleteDevice(ctx context.Context, req *pb.DeleteDe
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to extract trid for bdev %s: %v", req.DeviceName, err)
 		klog.Error(errMsg)
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, status.Errorf(codes.Internal, "%s", errMsg)
 	}
 	klog.Infof("Found trid: %+v", targetTrid)
 
@@ -327,7 +327,7 @@ func (s *StoragePluginServer) DeleteDevice(ctx context.Context, req *pb.DeleteDe
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to find controller for trid %+v: %v", targetTrid, err)
 		klog.Error(errMsg)
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, status.Errorf(codes.Internal, "%s", errMsg)
 	}
 
 	klog.Infof("Found controller name: %s", controllerName)
@@ -358,7 +358,7 @@ func (s *StoragePluginServer) GetDevice(ctx context.Context, req *pb.GetDeviceRe
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to create rpcClient: %v", err)
 		klog.Error(errMsg)
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, status.Errorf(codes.Unavailable, "%s", errMsg)
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
@@ -370,7 +370,7 @@ func (s *StoragePluginServer) GetDevice(ctx context.Context, req *pb.GetDeviceRe
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to get Bdevs: %v", err)
 		klog.Error(errMsg)
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, status.Errorf(codes.Internal, "%s", errMsg)
 	}
 
 	// Check if the requested device exists
@@ -378,7 +378,7 @@ func (s *StoragePluginServer) GetDevice(ctx context.Context, req *pb.GetDeviceRe
 	if err != nil {
 		errMsg := fmt.Sprintf("Error checking Bdev existence: %v", err)
 		klog.Error(errMsg)
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, status.Errorf(codes.Internal, "%s", errMsg)
 	}
 
 	if !bdevExists {
@@ -391,7 +391,7 @@ func (s *StoragePluginServer) GetDevice(ctx context.Context, req *pb.GetDeviceRe
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to extract trid for Bdev %s: %v", req.DeviceName, err)
 		klog.Error(errMsg)
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, status.Errorf(codes.Internal, "%s", errMsg)
 	}
 	klog.Infof("Found trid: %+v", trid)
 
