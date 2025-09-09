@@ -216,6 +216,21 @@ func (mr *MockNetworkHelperMockRecorder) GetPFRepresentorDPU(pfID any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPFRepresentorDPU", reflect.TypeOf((*MockNetworkHelper)(nil).GetPFRepresentorDPU), pfID)
 }
 
+// GetUplinkRepresentor mocks base method.
+func (m *MockNetworkHelper) GetUplinkRepresentor(pciAddress string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUplinkRepresentor", pciAddress)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUplinkRepresentor indicates an expected call of GetUplinkRepresentor.
+func (mr *MockNetworkHelperMockRecorder) GetUplinkRepresentor(pciAddress any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUplinkRepresentor", reflect.TypeOf((*MockNetworkHelper)(nil).GetUplinkRepresentor), pciAddress)
+}
+
 // GetVFRepresentorDPU mocks base method.
 func (m *MockNetworkHelper) GetVFRepresentorDPU(pfID, vfIndex string) (string, error) {
 	m.ctrl.T.Helper()

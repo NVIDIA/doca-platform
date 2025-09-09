@@ -36,10 +36,16 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 )
 
 const (
 	sysfsNetPath = "/sys/class/net"
+
+	// p0PCIAddress is the PCI address of the first PF of the DPU
+	p0PCIAddress = "0000:03:00.0"
+	// p1PCIAddress is the PCI address of the second PF of the DPU
+	p1PCIAddress = "0000:03:00.1"
 )
 
 // FileSystem abstracts file and OS operations for testability.
@@ -82,7 +88,7 @@ type VFMAC struct {
 }
 
 // NewVFMAC creates a new VFMAC instance with the given configuration.
-func NewVFMAC(fs FileSystem, configDir, configFile string) *VFMAC {
+func NewVFMAC(fs FileSystem, networkhelper networkhelper.NetworkHelper, configDir, configFile string) (*VFMAC, error) {
 	if fs == nil {
 		fs = OSFileSystem{}
 	}
@@ -92,18 +98,33 @@ func NewVFMAC(fs FileSystem, configDir, configFile string) *VFMAC {
 	if configFile == "" {
 		configFile = getEnv("VFMAC_CONFIG_FILE", "dpf-vf-mac-mapping.toml")
 	}
+
+	// get uplinks
+	uplinks := []string{}
+	p0uplink, err := networkhelper.GetUplinkRepresentor(p0PCIAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get uplink representor for p0: %w", err)
+	}
+	uplinks = append(uplinks, p0uplink)
+
+	p1uplink, err := networkhelper.GetUplinkRepresentor(p1PCIAddress)
+	if err == nil {
+		// p1 might not exist for single port DPUs.
+		uplinks = append(uplinks, p1uplink)
+	}
+
 	return &VFMAC{
 		fs:         fs,
 		configDir:  configDir,
 		configFile: configFile,
-		uplinks:    []string{"p0", "p1"},
-	}
+		uplinks:    uplinks,
+	}, nil
 }
 
 // getMaxVFs queries the maximum number of VFs from /sys/class/net/<uplink>/smart_nic.
 func (v *VFMAC) getMaxVFs(pf string) (int, error) {
 	log.Printf("[INFO] Getting max number of VFs from path %s/%s/smart_nic", sysfsNetPath, pf)
-	count, err := v.CountVFFolders(pf)
+	count, err := v.countVFFolders(pf)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count VF folders: %w", err)
 	}
@@ -142,11 +163,6 @@ func isValidMAC(mac string) bool {
 func (v *VFMAC) setVFMAC(pf, vf, mac string) error {
 	log.Printf("[INFO] Setting MAC for %s/%s to %s", pf, vf, mac)
 
-	// Validate PF name
-	if pf != "p0" && pf != "p1" {
-		return fmt.Errorf("invalid PF name: %s (must be p0 or p1)", pf)
-	}
-
 	// Validate VF name format
 	if !strings.HasPrefix(vf, "vf") {
 		return fmt.Errorf("invalid VF name: %s (must start with 'vf')", vf)
@@ -176,8 +192,8 @@ func (v *VFMAC) setVFMAC(pf, vf, mac string) error {
 	return nil
 }
 
-// LoadConfig loads the VF MAC mapping from the config file.
-func (v *VFMAC) LoadConfig() (*VFMapping, error) {
+// loadConfig loads the VF MAC mapping from the config file.
+func (v *VFMAC) loadConfig() (*VFMapping, error) {
 	log.Printf("[INFO] Loading config from %s", filepath.Join(v.configDir, v.configFile))
 	data, err := v.fs.ReadFile(filepath.Join(v.configDir, v.configFile))
 	if err != nil {
@@ -309,19 +325,25 @@ func (v *VFMAC) processMACAddress(mapping *VFMapping, pf, iface string) error {
 	}
 
 	log.Printf("[INFO] MAC address for %s/%s: %s", pf, iface, macAddr)
-	v.assignMACToMapping(mapping, pf, iface, macAddr)
+	if err := v.assignMACToMapping(mapping, pf, iface, macAddr); err != nil {
+		return fmt.Errorf("failed to assign MAC address to mapping: %w", err)
+	}
 	return nil
 }
 
-// assignMACToMapping assigns a MAC address to the appropriate PF mapping
-func (v *VFMAC) assignMACToMapping(mapping *VFMapping, pf, iface, macAddr string) {
+// assignMACToMapping assigns a MAC address to the appropriate PF mapping. returns an error if the pf is not supported.
+func (v *VFMAC) assignMACToMapping(mapping *VFMapping, pf, iface, macAddr string) error {
 	config := VFConfig{MAC: macAddr}
-	switch pf {
-	case "p0":
+	idx := v.pfToIndex(pf)
+	switch idx {
+	case 0:
 		mapping.P0[iface] = config
-	case "p1":
+	case 1:
 		mapping.P1[iface] = config
+	default:
+		return fmt.Errorf("unsupported PF(%s): got index %d", pf, idx)
 	}
+	return nil
 }
 
 // saveConfig saves the VF MAC mapping to the config file.
@@ -354,18 +376,18 @@ func (v *VFMAC) ProcessVFs() error {
 
 	log.Printf("[INFO] Starting VF processing")
 
-	mapping, err := v.LoadConfig()
+	mapping, err := v.loadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	for _, pf := range v.uplinks {
+	for idx, pf := range v.uplinks {
 		log.Printf("[INFO] Processing physical interface: %s", pf)
 		var vfMap map[string]VFConfig
-		switch pf {
-		case "p0":
+		switch idx {
+		case 0:
 			vfMap = mapping.P0
-		case "p1":
+		case 1:
 			vfMap = mapping.P1
 		default:
 			continue
@@ -421,8 +443,8 @@ func (v *VFMAC) ProcessVFs() error {
 	return nil
 }
 
-// CountVFFolders counts the number of VF folders in the specified smart_nic path.
-func (v *VFMAC) CountVFFolders(pf string) (int, error) {
+// countVFFolders counts the number of VF folders in the specified smart_nic path.
+func (v *VFMAC) countVFFolders(pf string) (int, error) {
 	smartNicPath := filepath.Join(sysfsNetPath, pf, "smart_nic")
 
 	// Read directory entries
@@ -440,6 +462,17 @@ func (v *VFMAC) CountVFFolders(pf string) (int, error) {
 	}
 
 	return count, nil
+}
+
+// pfToIndex returns the index of the provided pf in VFMAC uplink slice
+// if not found, -1 is returned.
+func (v *VFMAC) pfToIndex(pf string) int {
+	for idx, u := range v.uplinks {
+		if u == pf {
+			return idx
+		}
+	}
+	return -1
 }
 
 // GetVFMacAddressFromVFMapping retrieves the MAC address for a VF interface from the VF MAC mapping.

@@ -16,11 +16,16 @@ import (
 	"log"
 
 	"gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/vfmac"
+
+	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 )
 
 func main() {
 	// Create a new VFMAC instance with default configuration
-	vfmacInstance := vfmac.NewVFMAC(nil, "", "")
+	vfmacInstance, err := vfmac.NewVFMAC(nil, networkhelper.New(), "", "")
+	if err != nil {
+		log.Fatalf("[ERROR] Error creating VFMAC instance: %v", err)
+	}
 
 	// Process VFs using the new instance
 	if err := vfmacInstance.ProcessVFs(); err != nil {

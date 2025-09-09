@@ -14,6 +14,7 @@ package vfmac
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	networkhelper_mock "github.com/nvidia/doca-platform/pkg/utils/networkhelper/mock"
+	"go.uber.org/mock/gomock"
 )
 
 // Test Strategy Documentation
@@ -156,6 +159,63 @@ const (
 	testMAC = "fa:b0:b2:04:9f:b1"
 )
 
+// setupMockNetworkHelper creates a mock NetworkHelper with default expectations
+func setupMockNetworkHelper(t *testing.T) *networkhelper_mock.MockNetworkHelper {
+	ctrl := gomock.NewController(t)
+	mockNetworkHelper := networkhelper_mock.NewMockNetworkHelper(ctrl)
+
+	// Set up default expectations for NewVFMAC calls
+	mockNetworkHelper.EXPECT().GetUplinkRepresentor("0000:03:00.0").Return("p0", nil).AnyTimes()
+	mockNetworkHelper.EXPECT().GetUplinkRepresentor("0000:03:00.1").Return("p1", nil).AnyTimes()
+
+	return mockNetworkHelper
+}
+
+// setupMockNetworkHelperError creates a mock NetworkHelper which errors out
+func setupMockNetworkHelperError(t *testing.T) *networkhelper_mock.MockNetworkHelper {
+	ctrl := gomock.NewController(t)
+	mockNetworkHelper := networkhelper_mock.NewMockNetworkHelper(ctrl)
+	mockNetworkHelper.EXPECT().GetUplinkRepresentor(gomock.Any()).Return("", fmt.Errorf("mock error")).AnyTimes()
+
+	return mockNetworkHelper
+}
+
+func TestNewVFMAC(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockNetworkHelper := networkhelper_mock.NewMockNetworkHelper(ctrl)
+	mockNetworkHelper.EXPECT().GetUplinkRepresentor("0000:03:00.0").Return("p0", nil).AnyTimes()
+	mockNetworkHelper.EXPECT().GetUplinkRepresentor("0000:03:00.1").Return("p1", nil).AnyTimes()
+
+	tests := []struct {
+		name              string
+		mockFS            *mockFS
+		mockNetworkHelper *networkhelper_mock.MockNetworkHelper
+		wantErr           bool
+	}{
+		{
+			name:              "success",
+			mockFS:            &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)},
+			mockNetworkHelper: setupMockNetworkHelper(t),
+			wantErr:           false,
+		},
+		{
+			name:              "error",
+			mockFS:            &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)},
+			mockNetworkHelper: setupMockNetworkHelperError(t),
+			wantErr:           true,
+		},
+	}
+
+	for _, tcase := range tests {
+		t.Run(tcase.name, func(t *testing.T) {
+			_, err := NewVFMAC(tcase.mockFS, tcase.mockNetworkHelper, "", "")
+			if (err != nil) != tcase.wantErr {
+				t.Errorf("NewVFMAC() error = %v, wantErr %v", err, tcase.wantErr)
+			}
+		})
+	}
+}
+
 func TestIsValidMAC(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -274,10 +334,14 @@ func TestLoadAndSaveConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vfmac := NewVFMAC(tt.mockFS, "/test/config/dir", "test-config.toml")
+			mockNetworkHelper := setupMockNetworkHelper(t)
+			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+			if err != nil {
+				t.Fatalf("NewVFMAC() error = %v", err)
+			}
 
 			// Test save
-			err := vfmac.saveConfig(tt.mapping)
+			err = vfmac.saveConfig(tt.mapping)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("saveConfig() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -288,7 +352,7 @@ func TestLoadAndSaveConfig(t *testing.T) {
 			}
 
 			// Test load
-			loaded, err := vfmac.LoadConfig()
+			loaded, err := vfmac.loadConfig()
 			if err != nil {
 				t.Errorf("LoadConfig() error = %v", err)
 				return
@@ -374,7 +438,11 @@ func TestLoadIfaceMACAddressMapping(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vfmac := NewVFMAC(tt.mockFS, "/test/config/dir", "test-config.toml")
+			mockNetworkHelper := setupMockNetworkHelper(t)
+			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+			if err != nil {
+				t.Fatalf("NewVFMAC() error = %v", err)
+			}
 
 			// Test load
 			vfmapping, err := vfmac.LoadIfaceMACAddressMapping()
@@ -403,7 +471,11 @@ func TestLoadIfaceMACAddressMapping(t *testing.T) {
 }
 
 func TestSetVFMAC_InvalidMAC(t *testing.T) {
-	vfmac := NewVFMAC(&mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)}, "", "")
+	mockNetworkHelper := setupMockNetworkHelper(t)
+	vfmac, err := NewVFMAC(&mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)}, mockNetworkHelper, "", "")
+	if err != nil {
+		t.Fatalf("NewVFMAC() error = %v", err)
+	}
 	if err := vfmac.setVFMAC("p0", "vf0", "notamac"); err == nil {
 		t.Errorf("expected error for invalid MAC, got nil")
 	}
@@ -554,10 +626,14 @@ func TestGetEnv(t *testing.T) {
 }
 
 func TestLoadConfig_FileNotFound(t *testing.T) {
+	mockNetworkHelper := setupMockNetworkHelper(t)
 	mfs := &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)}
-	vfmac := NewVFMAC(mfs, "/test/config/dir", "test-config.toml")
+	vfmac, err := NewVFMAC(mfs, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+	if err != nil {
+		t.Fatalf("NewVFMAC() error = %v", err)
+	}
 
-	mapping, err := vfmac.LoadConfig()
+	mapping, err := vfmac.loadConfig()
 	if err != nil {
 		t.Errorf("LoadConfig() unexpected error: %v", err)
 	}
@@ -567,12 +643,16 @@ func TestLoadConfig_FileNotFound(t *testing.T) {
 }
 
 func TestLoadConfig_InvalidTOML(t *testing.T) {
+	mockNetworkHelper := setupMockNetworkHelper(t)
 	mfs := &mockFS{
 		files: map[string][]byte{"/test/config/dir/test-config.toml": []byte("not toml")},
 		dirs:  make(map[string]bool),
 	}
-	vfmac := NewVFMAC(mfs, "/test/config/dir", "test-config.toml")
-	_, err := vfmac.LoadConfig()
+	vfmac, err := NewVFMAC(mfs, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+	if err != nil {
+		t.Fatalf("NewVFMAC() error = %v", err)
+	}
+	_, err = vfmac.loadConfig()
 	if err == nil {
 		t.Errorf("expected error for invalid TOML")
 	}
@@ -583,8 +663,12 @@ type failFS struct{ mockFS }
 func (f *failFS) MkdirAll(path string, perm os.FileMode) error { return errors.New("fail mkdir") }
 
 func TestSaveConfig_MkdirFail(t *testing.T) {
+	mockNetworkHelper := setupMockNetworkHelper(t)
 	mfs := &failFS{mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)}}
-	vfmac := NewVFMAC(mfs, "/test/config/dir", "test-config.toml")
+	vfmac, err := NewVFMAC(mfs, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+	if err != nil {
+		t.Fatalf("NewVFMAC() error = %v", err)
+	}
 	mapping := &VFMapping{P0: map[string]VFConfig{}, P1: map[string]VFConfig{}}
 	if err := vfmac.saveConfig(mapping); err == nil {
 		t.Errorf("expected error for mkdir failure")
@@ -619,7 +703,11 @@ func TestGetMaxVFs(t *testing.T) {
 				},
 			}
 
-			vfmac := NewVFMAC(mockedFs, "", "")
+			mockNetworkHelper := setupMockNetworkHelper(t)
+			vfmac, err := NewVFMAC(mockedFs, mockNetworkHelper, "", "")
+			if err != nil {
+				t.Fatalf("NewVFMAC() error = %v", err)
+			}
 
 			got, err := vfmac.getMaxVFs("p0")
 			if (err != nil) != tt.wantErr {
@@ -700,7 +788,11 @@ func TestGetVFConfig(t *testing.T) {
 				},
 				dirs: make(map[string]bool),
 			}
-			vfmac := NewVFMAC(mfs, "", "")
+			mockNetworkHelper := setupMockNetworkHelper(t)
+			vfmac, err := NewVFMAC(mfs, mockNetworkHelper, "", "")
+			if err != nil {
+				t.Fatalf("NewVFMAC() error = %v", err)
+			}
 
 			got, err := vfmac.getVFConfig(tt.pf, tt.vf)
 			if (err != nil) != tt.wantErr {
@@ -811,9 +903,13 @@ func TestSetVFMAC(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vfmac := NewVFMAC(tt.mockFS, "", "")
+			mockNetworkHelper := setupMockNetworkHelper(t)
+			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, "", "")
+			if err != nil {
+				t.Fatalf("NewVFMAC() error = %v", err)
+			}
 
-			err := vfmac.setVFMAC(tt.pf, tt.vf, tt.mac)
+			err = vfmac.setVFMAC(tt.pf, tt.vf, tt.mac)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("setVFMAC() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -877,9 +973,13 @@ func TestLoadConfig_FileErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vfmac := NewVFMAC(tt.mockFS, "/test/config/dir", "test-config.toml")
+			mockNetworkHelper := setupMockNetworkHelper(t)
+			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+			if err != nil {
+				t.Fatalf("NewVFMAC() error = %v", err)
+			}
 
-			_, err := vfmac.LoadConfig()
+			_, err = vfmac.loadConfig()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("LoadConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -924,14 +1024,18 @@ func TestSaveConfig_FileErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vfmac := NewVFMAC(tt.mockFS, "/test/config/dir", "test-config.toml")
+			mockNetworkHelper := setupMockNetworkHelper(t)
+			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+			if err != nil {
+				t.Fatalf("NewVFMAC() error = %v", err)
+			}
 
 			mapping := &VFMapping{
 				P0: map[string]VFConfig{"vf0": {MAC: testMAC}},
 				P1: map[string]VFConfig{"vf0": {MAC: testMAC}},
 			}
 
-			err := vfmac.saveConfig(mapping)
+			err = vfmac.saveConfig(mapping)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("saveConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1022,7 +1126,11 @@ func TestProcessVFs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vfmac := NewVFMAC(tt.mockFS, "/test/config/dir", "test-config.toml")
+			mockNetworkHelper := setupMockNetworkHelper(t)
+			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+			if err != nil {
+				t.Fatalf("NewVFMAC() error = %v", err)
+			}
 
 			// Set up existing config if provided
 			if tt.existingConfig != nil {
@@ -1036,7 +1144,7 @@ func TestProcessVFs(t *testing.T) {
 				}
 			}
 
-			err := vfmac.ProcessVFs()
+			err = vfmac.ProcessVFs()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ProcessVFs() error = %v, wantErr %v", err, tt.wantErr)
 				return
