@@ -19,6 +19,7 @@ package node
 import (
 	"context"
 
+	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
 	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/handlers/common"
 	mountUtilsMockPkg "github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/utils/mount/mock"
 
@@ -36,58 +37,99 @@ var _ = Describe("NodeUnstageVolume", func() {
 		ctx         context.Context
 	)
 
-	BeforeEach(func() {
-		nodeHandler = &node{}
-		ctx = context.Background()
-		req = &csi.NodeUnstageVolumeRequest{
-			VolumeId:          "test-volume-id",
-			StagingTargetPath: "/target/path",
-		}
-	})
-
-	Context("Validation", func() {
-		It("should return error if VolumeId is empty", func() {
-			req.VolumeId = ""
-			resp, err := nodeHandler.NodeUnstageVolume(ctx, req)
-			Expect(err).To(HaveOccurred())
-			common.CheckGRPCErr(err, codes.InvalidArgument, "VolumeID: field is required")
-			Expect(resp).To(BeNil())
-		})
-
-		It("should return error if StagingTargetPath is empty", func() {
-			req.StagingTargetPath = ""
-			resp, err := nodeHandler.NodeUnstageVolume(ctx, req)
-			Expect(err).To(HaveOccurred())
-			common.CheckGRPCErr(err, codes.InvalidArgument, "StagingTargetPath: field is required")
-			Expect(resp).To(BeNil())
-		})
-	})
-	Context("NodeUnstageVolume", func() {
-		var (
-			mountUtils *mountUtilsMockPkg.MockUtils
-			testCtrl   *gomock.Controller
-		)
+	Context("NVMe emulation mode", func() {
 		BeforeEach(func() {
-			testCtrl = gomock.NewController(GinkgoT())
-			mountUtils = mountUtilsMockPkg.NewMockUtils(testCtrl)
-			nodeHandler.mount = mountUtils
-		})
-		AfterEach(func() {
-			testCtrl.Finish()
-		})
-
-		It("should unpublish the volume successfully", func() {
-			mountUtils.EXPECT().UnmountAndRemove("/target/path/test-volume-id").Return(nil)
-			resp, err := nodeHandler.NodeUnstageVolume(ctx, req)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp).NotTo(BeNil())
+			nodeHandler = &node{commonConfig: config.Common{EmulationMode: config.EmulationModeNVMe}}
+			ctx = context.Background()
+			req = &csi.NodeUnstageVolumeRequest{
+				VolumeId:          "test-volume-id",
+				StagingTargetPath: "/target/path",
+			}
 		})
 
-		It("should return error if unmount fails", func() {
-			mountUtils.EXPECT().UnmountAndRemove("/target/path/test-volume-id").Return(errTest)
-			resp, err := nodeHandler.NodeUnstageVolume(ctx, req)
-			common.CheckGRPCErr(err, codes.Internal, "failed to unmount staging path")
-			Expect(resp).To(BeNil())
+		Context("Validation", func() {
+			It("should return error if VolumeId is empty", func() {
+				req.VolumeId = ""
+				resp, err := nodeHandler.NodeUnstageVolume(ctx, req)
+				Expect(err).To(HaveOccurred())
+				common.CheckGRPCErr(err, codes.InvalidArgument, "VolumeID: field is required")
+				Expect(resp).To(BeNil())
+			})
+
+			It("should return error if StagingTargetPath is empty", func() {
+				req.StagingTargetPath = ""
+				resp, err := nodeHandler.NodeUnstageVolume(ctx, req)
+				Expect(err).To(HaveOccurred())
+				common.CheckGRPCErr(err, codes.InvalidArgument, "StagingTargetPath: field is required")
+				Expect(resp).To(BeNil())
+			})
+		})
+
+		Context("Unstage", func() {
+			var (
+				mountUtils *mountUtilsMockPkg.MockUtils
+				testCtrl   *gomock.Controller
+			)
+			BeforeEach(func() {
+				testCtrl = gomock.NewController(GinkgoT())
+				mountUtils = mountUtilsMockPkg.NewMockUtils(testCtrl)
+				nodeHandler.mount = mountUtils
+			})
+			AfterEach(func() {
+				testCtrl.Finish()
+			})
+
+			It("should unstage the volume successfully", func() {
+				mountUtils.EXPECT().UnmountAndRemove("/target/path/test-volume-id").Return(nil)
+				resp, err := nodeHandler.NodeUnstageVolume(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp).NotTo(BeNil())
+			})
+
+			It("should return error if unmount fails", func() {
+				mountUtils.EXPECT().UnmountAndRemove("/target/path/test-volume-id").Return(errTest)
+				resp, err := nodeHandler.NodeUnstageVolume(ctx, req)
+				common.CheckGRPCErr(err, codes.Internal, "failed to unmount staging path")
+				Expect(resp).To(BeNil())
+			})
+		})
+	})
+
+	Context("VirtioFS emulation mode", func() {
+		BeforeEach(func() {
+			nodeHandler = &node{commonConfig: config.Common{EmulationMode: config.EmulationModeVirtiofs}}
+			ctx = context.Background()
+			req = &csi.NodeUnstageVolumeRequest{
+				VolumeId:          "test-volume-id",
+				StagingTargetPath: "/staging/path",
+			}
+		})
+
+		Context("Validation", func() {
+			It("should return error if VolumeId is empty", func() {
+				req.VolumeId = ""
+				resp, err := nodeHandler.NodeUnstageVolume(ctx, req)
+				Expect(err).To(HaveOccurred())
+				common.CheckGRPCErr(err, codes.InvalidArgument, "VolumeID: field is required")
+				Expect(resp).To(BeNil())
+			})
+
+			It("should return error if StagingTargetPath is empty", func() {
+				req.StagingTargetPath = ""
+				resp, err := nodeHandler.NodeUnstageVolume(ctx, req)
+				Expect(err).To(HaveOccurred())
+				common.CheckGRPCErr(err, codes.InvalidArgument, "StagingTargetPath: field is required")
+				Expect(resp).To(BeNil())
+			})
+		})
+
+		Context("Unstage", func() {
+			It("should unstage the volume successfully", func() {
+				// No mount operations expected for VirtioFS mode
+				resp, err := nodeHandler.NodeUnstageVolume(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp).NotTo(BeNil())
+			})
 		})
 	})
 })

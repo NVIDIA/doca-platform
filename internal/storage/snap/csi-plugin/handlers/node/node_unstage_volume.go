@@ -19,6 +19,7 @@ package node
 import (
 	"context"
 
+	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
 	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/handlers/common"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -39,13 +40,22 @@ func (h *node) NodeUnstageVolume(
 	if req.StagingTargetPath == "" {
 		return nil, common.FieldIsRequiredError("StagingTargetPath")
 	}
-	stagingPath := h.getStagingPath(req.StagingTargetPath, req.VolumeId)
-	reqLog = reqLog.WithValues("stagingPath", stagingPath)
 
-	if err := h.mount.UnmountAndRemove(stagingPath); err != nil {
-		reqLog.Error(err, "failed to unmount staging path")
-		return nil, status.Error(codes.Internal, "failed to unmount staging path")
+	switch h.commonConfig.EmulationMode {
+	case config.EmulationModeNVMe:
+		stagingPath := h.getNVMeStagingPath(req.StagingTargetPath, req.VolumeId)
+		reqLog = reqLog.WithValues("stagingPath", stagingPath)
+		if err := h.mount.UnmountAndRemove(stagingPath); err != nil {
+			reqLog.Error(err, "failed to unmount staging path")
+			return nil, status.Error(codes.Internal, "failed to unmount staging path")
+		}
+		reqLog.Info("NVMe volume unstaged")
+	case config.EmulationModeVirtiofs:
+		// nothing to do here
+		reqLog.Info("virtiofs volume unstaged")
+	default:
+		return nil, status.Error(codes.Unimplemented, "unsupported emulation mode selected")
 	}
-	reqLog.Info("volume unstaged")
+
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
