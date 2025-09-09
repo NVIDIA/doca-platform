@@ -40,7 +40,7 @@ func NodeEffectRemoval(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *du
 	if !dpu.Spec.NodeEffect.IsNoEffect() {
 		dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
 		if err != nil {
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "FailedGetDPUNodeMaintenance", err.Error()))
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "FailedGetGenerateDPUNodeMaintenanceObjectName", err.Error()))
 			return *state, err
 		}
 
@@ -52,7 +52,7 @@ func NodeEffectRemoval(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *du
 				state.Phase = provisioningv1.DPUReady
 				return *state, nil
 			} else {
-				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "FailedRemoveRequestor", err.Error()))
+				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "FailedGetDPUNodeMaintenanceObject", err.Error()))
 				return *state, err
 			}
 		} else {
