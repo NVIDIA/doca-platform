@@ -64,6 +64,7 @@ rules:
   - delete
   - get
   - list
+  - watch
 - apiGroups:
   - cert-manager.io
   resources:

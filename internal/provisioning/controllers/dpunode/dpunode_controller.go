@@ -18,6 +18,7 @@ package dpunode
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -32,6 +33,7 @@ import (
 	dpfutils "github.com/nvidia/doca-platform/internal/utils"
 
 	"github.com/fluxcd/pkg/runtime/patch"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -39,6 +41,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,7 +54,15 @@ import (
 
 const (
 	// controller name that will be used when
-	DPUNodeControllerName = "dpunode"
+	DPUNodeControllerName              = "dpunode"
+	PodTemplateConfigMapKey     string = "pod-template"
+	PodInfoVolumeName           string = "dpf-pod-info"
+	PodInfoMountPath            string = "/etc/dpf-pod-info"
+	PodInfoLabelsPath           string = "labels"
+	PodInfoAnnotationsPath      string = "annotations"
+	PodInfoLabelsFieldPath      string = "metadata.labels"
+	PodInfoAnnotationsFieldPath string = "metadata.annotations"
+	DPUNodeNameEnvVar           string = "DPUNODE_NAME"
 )
 
 // DPUNodeReconciler reconciles a DPUNode object
@@ -75,6 +86,7 @@ type DPUNodeReconciler struct {
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;create;delete
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;create;delete;watch
 
 func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := log.FromContext(ctx)
@@ -102,14 +114,9 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 		}
 	}()
 
-	if !dpuNode.DeletionTimestamp.IsZero() {
-		err := removeFinalizer(ctx, r.Client, dpuNode)
+	// Handle deletion and finalizer setup
+	if err := r.handleDeletionAndFinalizer(ctx, dpuNode); err != nil {
 		return ctrl.Result{}, err
-	}
-
-	if !controllerutil.ContainsFinalizer(dpuNode, provisioningv1.DPUNodeFinalizer) {
-		controllerutil.AddFinalizer(dpuNode, provisioningv1.DPUNodeFinalizer)
-		return ctrl.Result{}, nil
 	}
 
 	// TODO: once KubeNodeRef is moved from Status to Spec, change this to check Spec.KubeNodeRef
@@ -165,16 +172,17 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 		}
 	}
 
-	// Handle host agent upgrade
-	if nodeRef != nil {
-		if result, err := r.handleHostAgentUpgrade(ctx, dpuNode, true, pod); err != nil || !result.IsZero() {
-			return result, err
-		}
-	} else {
-		if result, err := r.handleHostAgentUpgrade(ctx, dpuNode, false, nil); err != nil || !result.IsZero() {
-			return result, err
-		}
+	// Handle redfish reboot sync
+	if result, err := r.handleRebootSync(ctx, dpuNode); err != nil || !result.IsZero() {
+		return result, err
 	}
+
+	// Handle host agent upgrade
+	if result, err := r.handleHostAgentUpgrade(ctx, dpuNode, nodeRef != nil, pod); err != nil || !result.IsZero() {
+		return result, err
+	}
+
+	// TODO: handle DPU modified
 
 	// Update DPUNode status - DPUInstallInterface
 	if r.DPUInstallInterface == nil {
@@ -224,6 +232,51 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 	return ctrl.Result{}, nil
 }
 
+// handleDeletionAndFinalizer handles deletion timestamp and finalizer setup
+func (r *DPUNodeReconciler) handleDeletionAndFinalizer(ctx context.Context, dpuNode *provisioningv1.DPUNode) error {
+	if !dpuNode.DeletionTimestamp.IsZero() {
+		return removeFinalizer(ctx, r.Client, dpuNode)
+	}
+	if !controllerutil.ContainsFinalizer(dpuNode, provisioningv1.DPUNodeFinalizer) {
+		controllerutil.AddFinalizer(dpuNode, provisioningv1.DPUNodeFinalizer)
+		return nil
+	}
+
+	return nil
+}
+
+// handleRebootSync handles the host reboot sync for redfish interface
+func (r *DPUNodeReconciler) handleRebootSync(ctx context.Context, dpuNode *provisioningv1.DPUNode) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	if dpuNode.Spec.NodeRebootMethod.External != nil || dpuNode.Spec.NodeRebootMethod.Script != nil {
+		//if dpuNode.Status.DPUInstallInterface != nil && *dpuNode.Status.DPUInstallInterface == string(provisioningv1.DPUNodeInstallIntrefaceRedfish) {
+		dpuPhases := map[string]struct{}{}
+		err := cutil.GetDPUPhases(ctx, r.Client, dpuNode, dpuPhases)
+		log.Info(fmt.Sprintf("dpuNode: %s , dpuPhases: %v", dpuNode.Name, dpuPhases))
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		provisioningPhases := map[string]struct{}{
+			string(provisioningv1.DPUPrepareBFB):          {},
+			string(provisioningv1.DPUConfigFWParameters):  {},
+			string(provisioningv1.DPUInitializeInterface): {},
+			string(provisioningv1.DPUOSInstalling):        {},
+		}
+		if cutil.ContainsDPUPhase(dpuPhases, provisioningv1.DPURebooting) {
+			if len(dpuNode.Spec.DPUs) > 1 && cutil.ContainsDPUPhases(provisioningPhases, dpuPhases) {
+				log.Info("There are DPUs in provisioning phase, requeue 30s.")
+				return ctrl.Result{RequeueAfter: cutil.RebootSyncInterval}, nil
+			}
+			// perform host reboot
+			if result, err := r.rebootNode(ctx, dpuNode); err != nil || !result.IsZero() {
+				return result, err
+			}
+		}
+	}
+	return ctrl.Result{}, nil
+}
+
 func (r *DPUNodeReconciler) noneDPUInNodeEffectOrRebooting(ctx context.Context, dpuNode *provisioningv1.DPUNode) error {
 	// handle DPU modified
 	// if DPU is in NodeEffect or Rebooting phase, and the DPUNode is ready, then set the DPUNode condition to false
@@ -240,6 +293,333 @@ func (r *DPUNodeReconciler) noneDPUInNodeEffectOrRebooting(ctx context.Context, 
 		}
 	}
 	return nil
+}
+
+func (r *DPUNodeReconciler) updateDPUCondition(ctx context.Context, dpus []*provisioningv1.DPU, condition *metav1.Condition) error {
+	for _, dpu := range dpus {
+		cutil.SetDPUCondition(&dpu.Status, condition)
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			return r.Status().Update(ctx, dpu)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisioningv1.DPUNode) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	logger.Info("entry rebootNode")
+	// TODO: handle the rebootCommand == reboot.Skip
+	dpus, err := cutil.GetDPUsWithPhase(ctx, r.Client, dpuNode, provisioningv1.DPURebooting)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	logger.Info(fmt.Sprintf("DPUs in rebooting phase for dpuNode: %s: %v", dpuNode.Name, dpus))
+	if dpuNode.Spec.NodeRebootMethod.External != nil {
+		logger.Info("waiting for manual power cycle or reboot")
+		if err := r.proccessExternalReboot(ctx, dpuNode, dpus); err != nil {
+			err = fmt.Errorf("failed to process external reboot: %w", err)
+			if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "FailedToProcessExternalReboot", err.Error())); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, err
+		}
+	} else if dpuNode.Spec.NodeRebootMethod.Script != nil {
+		logger.Info("waiting for custom script reboot")
+
+		condExists := false
+		c := cutil.DPUCondition(provisioningv1.DPUCondRebooted, "WaitingForScriptToRebootNode", "")
+		for _, dpu := range dpus {
+			if _, existedCond := cutil.GetDPUCondition(&dpu.Status, c.Type); existedCond != nil {
+				condExists = true
+				break
+			}
+		}
+		// Check whether the custom script reboot is already triggerred.
+		if condExists {
+			jobName := r.generateJobName(dpuNode)
+			job := &batchv1.Job{}
+			if err := r.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: jobName}, job); err != nil {
+				if apierrors.IsNotFound(err) {
+					err = fmt.Errorf("job %s not found", jobName)
+					if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "JobNotFound", err.Error())); err != nil {
+						return ctrl.Result{}, err
+					}
+				}
+				err = fmt.Errorf("failed to fetch Job %s: %w", jobName, err)
+				if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "FailedToFetchJob", err.Error())); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, err
+			}
+
+			if job.Status.Succeeded > 0 {
+				logger.Info("The custom reboot script succeeded.")
+
+				r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionFalse, "", "")
+				if err := r.updateDPUCondition(ctx, dpus, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", "")); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, nil
+			} else if job.Status.Failed > 0 {
+				r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionFalse, "", "")
+				// Not remove the failed job for user debuging.
+				err = fmt.Errorf("the custom reboot script failed")
+				if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "RebootFailed", err.Error())); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, nil
+			}
+			return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
+		}
+
+		if err := r.createScriptJob(ctx, dpuNode); err != nil {
+			err = fmt.Errorf("failed to create script job: %w", err)
+			if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "FailedToCreateScriptJob", err.Error())); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, err
+		}
+		err = fmt.Errorf("waiting for script to reboot node")
+		if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "WaitingForScriptToRebootNode", err.Error())); err != nil {
+			return ctrl.Result{}, err
+		}
+		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "", "")
+		logger.Info("Update DPUNode condition UpgradeInProgress to true.")
+		return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
+	} else {
+		panic("should not reach here")
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provisioningv1.DPUNode) error {
+	logger := log.FromContext(ctx)
+	job := &batchv1.Job{}
+	jobName := r.generateJobName(dpuNode)
+	// Checking job existed or not, if yes, delete it.
+	if err := r.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: jobName}, job); err == nil {
+		if err := client.IgnoreNotFound(r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationForeground))); err != nil {
+			logger.Error(err, fmt.Sprintf("Unable to delete Job %s, err: %v", jobName, err))
+			return err
+		}
+	}
+
+	configMap := &corev1.ConfigMap{}
+	configMapNamespacedName := types.NamespacedName{
+		Namespace: dpuNode.Namespace,
+		Name:      dpuNode.Spec.NodeRebootMethod.Script.Name,
+	}
+	if err := r.Get(ctx, configMapNamespacedName, configMap); err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Error(err, fmt.Sprintf("ConfigMap %s not found for DPUNode %s", dpuNode.Spec.NodeRebootMethod.Script.Name, dpuNode.Name))
+			return err
+		}
+		logger.Error(err, fmt.Sprintf("Unable to fetch ConfigMap %s for DPUNode %s", dpuNode.Spec.NodeRebootMethod.Script.Name, dpuNode.Name))
+		return err
+	}
+
+	podTemplateStr, ok := configMap.Data[PodTemplateConfigMapKey]
+	if !ok {
+		err := fmt.Errorf("%s not found in ConfigMap", PodTemplateConfigMapKey)
+		logger.Error(err, fmt.Sprintf("ConfigMap is missing %s key", PodTemplateConfigMapKey))
+		return err
+	}
+
+	var podTemplate corev1.PodTemplateSpec
+	if err := json.Unmarshal([]byte(podTemplateStr), &podTemplate); err != nil {
+		logger.Error(err, fmt.Sprintf("Unable to unmarshal pod template from ConfigMap %s for DPUNode %s", dpuNode.Spec.NodeRebootMethod.Script.Name, dpuNode.Name))
+		return err
+	}
+
+	// Add more information to Job's Pod for rebooting script, e.g. labels, annotations, etc.
+
+	// Add DPUNODE_NAME to pod template containers env
+	for i := range podTemplate.Spec.Containers {
+		podTemplate.Spec.Containers[i].Env = r.ensureEnv(podTemplate.Spec.Containers[i].Env, DPUNodeNameEnvVar, dpuNode.Name)
+	}
+
+	// Add DPUNODE_NAME to pod template init containers env
+	for i := range podTemplate.Spec.InitContainers {
+		podTemplate.Spec.InitContainers[i].Env = r.ensureEnv(podTemplate.Spec.InitContainers[i].Env, DPUNodeNameEnvVar, dpuNode.Name)
+	}
+
+	// Add dpuNode annotations to pod template annotations
+	if podTemplate.Annotations == nil {
+		podTemplate.Annotations = make(map[string]string)
+	}
+
+	for k, v := range dpuNode.Annotations {
+		if _, ok := podTemplate.Annotations[k]; ok {
+			continue
+		}
+		podTemplate.Annotations[k] = v
+	}
+
+	// Add dpuNode labels to pod template labels
+	if podTemplate.Labels == nil {
+		podTemplate.Labels = make(map[string]string)
+	}
+
+	for k, v := range dpuNode.Labels {
+		if _, ok := podTemplate.Labels[k]; ok {
+			continue
+		}
+		podTemplate.Labels[k] = v
+	}
+
+	volumeExists := false
+	for _, v := range podTemplate.Spec.Volumes {
+		if v.Name == PodInfoVolumeName {
+			volumeExists = true
+			break
+		}
+	}
+	if !volumeExists {
+		// Add podInfo volume to pod template
+		podTemplate.Spec.Volumes = append(podTemplate.Spec.Volumes, corev1.Volume{
+			Name: PodInfoVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				DownwardAPI: &corev1.DownwardAPIVolumeSource{
+					Items: []corev1.DownwardAPIVolumeFile{
+						{
+							Path: PodInfoLabelsPath,
+							FieldRef: &corev1.ObjectFieldSelector{
+								FieldPath: PodInfoLabelsFieldPath,
+							},
+						},
+						{
+							Path: PodInfoAnnotationsPath,
+							FieldRef: &corev1.ObjectFieldSelector{
+								FieldPath: PodInfoAnnotationsFieldPath,
+							},
+						},
+					},
+				},
+			},
+		})
+
+		// Add DPUNODE_NAME to pod template containers env
+		for i := range podTemplate.Spec.Containers {
+			podTemplate.Spec.Containers[i].VolumeMounts = r.ensureMount(podTemplate.Spec.Containers[i].VolumeMounts, PodInfoVolumeName, PodInfoMountPath)
+		}
+
+		// Add DPUNODE_NAME to pod template init containers env
+		for i := range podTemplate.Spec.InitContainers {
+			podTemplate.Spec.InitContainers[i].VolumeMounts = r.ensureMount(podTemplate.Spec.InitContainers[i].VolumeMounts, PodInfoVolumeName, PodInfoMountPath)
+		}
+	}
+
+	var backoffLimit int32 = 0
+	var ttlSecondsAfterFinished int32 = 60
+	job = &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: dpuNode.Namespace,
+		},
+		Spec: batchv1.JobSpec{
+			TTLSecondsAfterFinished: &ttlSecondsAfterFinished,
+			Template:                podTemplate,
+			BackoffLimit:            &backoffLimit,
+		},
+	}
+
+	if err := r.Create(ctx, job); err != nil {
+		logger.Error(err, fmt.Sprintf("Unable to create Job for DPUNode %s", dpuNode.Name))
+		return err
+	}
+
+	return nil
+}
+
+func (r *DPUNodeReconciler) proccessExternalReboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) error {
+	logger := log.FromContext(ctx)
+	c := cutil.DPUCondition(provisioningv1.DPUCondRebooted, "WaitingForManualPowerCycleOrReboot", "")
+	// Check whether the external reboot is already triggerred.
+	condExists := false
+	for _, dpu := range dpus {
+		if _, existedCond := cutil.GetDPUCondition(&dpu.Status, c.Type); existedCond != nil {
+			condExists = true
+			break
+		}
+	}
+	if condExists {
+		if _, ok := dpuNode.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation]; ok {
+			return nil
+		}
+
+		for _, dpu := range dpus {
+			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", ""))
+			if err := r.Status().Update(ctx, dpu); err != nil {
+				if apierrors.IsConflict(err) {
+					log.FromContext(ctx).Info("DPU update conflict, will retry", "dpu", dpu.Name, "error", err)
+					return err
+				}
+				return err
+			}
+		}
+		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionFalse, "", "")
+		return nil
+	}
+
+	// Update the DPUNode status condition to true
+	r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "", "")
+
+	newDpuNode := &provisioningv1.DPUNode{}
+	if dpuNode.Annotations == nil {
+		newDpuNode.Annotations = make(map[string]string)
+	}
+
+	// Re-read the dpuNode to get the latest version before updating
+	if err := r.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: dpuNode.Name}, newDpuNode); err != nil {
+		return err
+	}
+	newDpuNode.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation] = "true"
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		return r.Update(ctx, newDpuNode)
+	})
+	if err != nil {
+		logger.Error(err, fmt.Sprintf("failed to add annotation %s to DPUNode %s", provisioningv1.DPUNodeExternalRebootRequiredAnnotation, dpuNode.Name))
+		return err
+	}
+
+	c.Status = metav1.ConditionFalse
+	for _, dpu := range dpus {
+		cutil.SetDPUCondition(&dpu.Status, c)
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			return r.Status().Update(ctx, dpu)
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *DPUNodeReconciler) generateJobName(dpuNode *provisioningv1.DPUNode) string {
+	return fmt.Sprintf("%s-script-job", dpuNode.Name)
+}
+
+func (r *DPUNodeReconciler) ensureEnv(envs []corev1.EnvVar, name, value string) []corev1.EnvVar {
+	for _, e := range envs {
+		if e.Name == name {
+			return envs
+		}
+	}
+	return append(envs, corev1.EnvVar{Name: name, Value: value})
+}
+
+func (r *DPUNodeReconciler) ensureMount(mnts []corev1.VolumeMount, name, path string) []corev1.VolumeMount {
+	for _, m := range mnts {
+		if m.Name == name {
+			return mnts
+		}
+	}
+	return append(mnts, corev1.VolumeMount{Name: name, MountPath: path})
 }
 
 func (r *DPUNodeReconciler) handleHostAgentUpgrade(ctx context.Context, dpuNode *provisioningv1.DPUNode, isKubernetes bool, pod *corev1.Pod) (ctrl.Result, error) {
