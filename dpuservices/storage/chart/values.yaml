@@ -343,6 +343,24 @@ dpu:
       privileged: true
     env: []
 
+  ### nfs-storage-vendor-dpu-plugin ###
+  nfsStorageVendorDpuPlugin:
+    # enable deployment of the nfs-storage-vendor-dpu-plugin component
+    # Note: Only one component can be enabled at a time.
+    enabled: false
+    config:
+      pluginName: "nvidia-nfs"
+      providerName: "nvidia"
+    tolerations: []
+    image:
+      repository: example.com/storage-system
+      tag: v0.1.0
+    imagePullPolicy: IfNotPresent
+    imagePullSecrets: []
+    securityContext:
+      runAsUser: 0
+    env: []
+
   ### doca-snap ###
   docaSnap:
     # enable deployment of the doca-snap component
