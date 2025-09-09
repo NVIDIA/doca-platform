@@ -19,6 +19,7 @@ package node
 import (
 	"context"
 
+	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
 	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/handlers/common"
 	mountUtilsMockPkg "github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/utils/mount/mock"
 
@@ -36,58 +37,119 @@ var _ = Describe("NodeUnpublishVolume", func() {
 		ctx         context.Context
 	)
 
-	BeforeEach(func() {
-		nodeHandler = &node{}
-		ctx = context.Background()
-		req = &csi.NodeUnpublishVolumeRequest{
-			VolumeId:   "test-volume-id",
-			TargetPath: "/target/path",
-		}
-	})
-
-	Context("Validation", func() {
-		It("should return error if VolumeId is empty", func() {
-			req.VolumeId = ""
-			resp, err := nodeHandler.NodeUnpublishVolume(ctx, req)
-			Expect(err).To(HaveOccurred())
-			common.CheckGRPCErr(err, codes.InvalidArgument, "VolumeID: field is required")
-			Expect(resp).To(BeNil())
-		})
-
-		It("should return error if TargetPath is empty", func() {
-			req.TargetPath = ""
-			resp, err := nodeHandler.NodeUnpublishVolume(ctx, req)
-			Expect(err).To(HaveOccurred())
-			common.CheckGRPCErr(err, codes.InvalidArgument, "TargetPath: field is required")
-			Expect(resp).To(BeNil())
-		})
-	})
-	Context("Unpublish", func() {
-		var (
-			mountUtils *mountUtilsMockPkg.MockUtils
-			testCtrl   *gomock.Controller
-		)
+	Context("NVMe emulation mode", func() {
 		BeforeEach(func() {
-			testCtrl = gomock.NewController(GinkgoT())
-			mountUtils = mountUtilsMockPkg.NewMockUtils(testCtrl)
-			nodeHandler.mount = mountUtils
-		})
-		AfterEach(func() {
-			testCtrl.Finish()
-		})
-
-		It("should unpublish the volume successfully", func() {
-			mountUtils.EXPECT().UnmountAndRemove("/target/path").Return(nil)
-			resp, err := nodeHandler.NodeUnpublishVolume(ctx, req)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp).NotTo(BeNil())
+			nodeHandler = &node{commonConfig: config.Common{EmulationMode: config.EmulationModeNVMe}}
+			ctx = context.Background()
+			req = &csi.NodeUnpublishVolumeRequest{
+				VolumeId:   "test-volume-id",
+				TargetPath: "/target/path",
+			}
 		})
 
-		It("should return error if unmount fails", func() {
-			mountUtils.EXPECT().UnmountAndRemove("/target/path").Return(errTest)
-			resp, err := nodeHandler.NodeUnpublishVolume(ctx, req)
-			common.CheckGRPCErr(err, codes.Internal, "failed to unmount publish path")
-			Expect(resp).To(BeNil())
+		Context("Validation", func() {
+			It("should return error if VolumeId is empty", func() {
+				req.VolumeId = ""
+				resp, err := nodeHandler.NodeUnpublishVolume(ctx, req)
+				Expect(err).To(HaveOccurred())
+				common.CheckGRPCErr(err, codes.InvalidArgument, "VolumeID: field is required")
+				Expect(resp).To(BeNil())
+			})
+
+			It("should return error if TargetPath is empty", func() {
+				req.TargetPath = ""
+				resp, err := nodeHandler.NodeUnpublishVolume(ctx, req)
+				Expect(err).To(HaveOccurred())
+				common.CheckGRPCErr(err, codes.InvalidArgument, "TargetPath: field is required")
+				Expect(resp).To(BeNil())
+			})
+		})
+
+		Context("Unpublish", func() {
+			var (
+				mountUtils *mountUtilsMockPkg.MockUtils
+				testCtrl   *gomock.Controller
+			)
+			BeforeEach(func() {
+				testCtrl = gomock.NewController(GinkgoT())
+				mountUtils = mountUtilsMockPkg.NewMockUtils(testCtrl)
+				nodeHandler.mount = mountUtils
+			})
+			AfterEach(func() {
+				testCtrl.Finish()
+			})
+
+			It("should unpublish the volume successfully", func() {
+				mountUtils.EXPECT().UnmountAndRemove("/target/path").Return(nil)
+				resp, err := nodeHandler.NodeUnpublishVolume(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp).NotTo(BeNil())
+			})
+
+			It("should return error if unmount fails", func() {
+				mountUtils.EXPECT().UnmountAndRemove("/target/path").Return(errTest)
+				resp, err := nodeHandler.NodeUnpublishVolume(ctx, req)
+				common.CheckGRPCErr(err, codes.Internal, "failed to unmount publish path")
+				Expect(resp).To(BeNil())
+			})
+		})
+	})
+
+	Context("VirtioFS emulation mode", func() {
+		BeforeEach(func() {
+			nodeHandler = &node{commonConfig: config.Common{EmulationMode: config.EmulationModeVirtiofs}}
+			ctx = context.Background()
+			req = &csi.NodeUnpublishVolumeRequest{
+				VolumeId:   "test-volume-id",
+				TargetPath: "/target/path",
+			}
+		})
+
+		Context("Validation", func() {
+			It("should return error if VolumeId is empty", func() {
+				req.VolumeId = ""
+				resp, err := nodeHandler.NodeUnpublishVolume(ctx, req)
+				Expect(err).To(HaveOccurred())
+				common.CheckGRPCErr(err, codes.InvalidArgument, "VolumeID: field is required")
+				Expect(resp).To(BeNil())
+			})
+
+			It("should return error if TargetPath is empty", func() {
+				req.TargetPath = ""
+				resp, err := nodeHandler.NodeUnpublishVolume(ctx, req)
+				Expect(err).To(HaveOccurred())
+				common.CheckGRPCErr(err, codes.InvalidArgument, "TargetPath: field is required")
+				Expect(resp).To(BeNil())
+			})
+		})
+
+		Context("Unpublish", func() {
+			var (
+				mountUtils *mountUtilsMockPkg.MockUtils
+				testCtrl   *gomock.Controller
+			)
+			BeforeEach(func() {
+				testCtrl = gomock.NewController(GinkgoT())
+				mountUtils = mountUtilsMockPkg.NewMockUtils(testCtrl)
+				nodeHandler.mount = mountUtils
+			})
+			AfterEach(func() {
+				testCtrl.Finish()
+			})
+
+			It("should unpublish the volume successfully", func() {
+				mountUtils.EXPECT().UnmountAndRemove("/target/path").Return(nil)
+				resp, err := nodeHandler.NodeUnpublishVolume(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp).NotTo(BeNil())
+			})
+
+			It("should return error if unmount fails", func() {
+				mountUtils.EXPECT().UnmountAndRemove("/target/path").Return(errTest)
+				resp, err := nodeHandler.NodeUnpublishVolume(ctx, req)
+				common.CheckGRPCErr(err, codes.Internal, "failed to unmount publish path")
+				Expect(resp).To(BeNil())
+			})
 		})
 	})
 })

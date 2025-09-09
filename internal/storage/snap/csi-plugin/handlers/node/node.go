@@ -53,6 +53,7 @@ type node struct {
 	pci          utilsPci.Utils
 }
 
-func (h *node) getStagingPath(stagingPath, volumeID string) string {
+// getNVMeStagingPath returns staging path for the volume in NVMe emulation mode
+func (h *node) getNVMeStagingPath(stagingPath, volumeID string) string {
 	return filepath.Join(stagingPath, volumeID)
 }
