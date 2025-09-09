@@ -18,7 +18,6 @@ package state
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -28,12 +27,9 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -151,102 +147,21 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 				}
 			}
 		}
-	} else if dpuNode.Spec.NodeRebootMethod.External != nil {
-		logger.Info("waiting for manual power cycle or reboot")
-		if err := proccessExternalReboot(ctx, dpuNode, ctrlCtx, state); err != nil {
-			err = fmt.Errorf("failed to process external reboot: %w", err)
-			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "FailedToProcessExternalReboot", err.Error()))
-			return *state, err
+	} else if dpuNode.Spec.NodeRebootMethod.External != nil || dpuNode.Spec.NodeRebootMethod.Script != nil {
+		_, rebootCondition := cutil.GetDPUCondition(state, provisioningv1.DPUCondRebooted.String())
+		if rebootCondition != nil && rebootCondition.Status == metav1.ConditionTrue {
+			state.Phase = provisioningv1.DPUHostNetworkConfiguration
+			if ctrlCtx.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
+				state.Phase = provisioningv1.DPUClusterConfig
+				logger.Info(fmt.Sprintf("DPU %s moves to DPU Cluster Config phase", dpu.Name))
+			}
 		}
 		return *state, nil
-	} else if dpuNode.Spec.NodeRebootMethod.Script != nil {
-		logger.Info("waiting for custom script reboot")
-		c := cutil.DPUCondition(provisioningv1.DPUCondRebooted, "WaitingForScriptToRebootNode", "")
-		// Check whether the external reboot is already triggerred.
-		if _, existedCond := cutil.GetDPUCondition(state, c.Type); existedCond != nil {
-			jobName := generateJobName(dpuNode)
-			job := &batchv1.Job{}
-			if err := ctrlCtx.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: jobName}, job); err != nil {
-				if apierrors.IsNotFound(err) {
-					err = fmt.Errorf("job %s not found", jobName)
-					cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "JobNotFound", err.Error()))
-					return *state, err
-				}
-				err = fmt.Errorf("failed to fetch Job %s: %w", jobName, err)
-				cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "FailedToFetchJob", err.Error()))
-				return *state, err
-			}
-
-			if job.Status.Succeeded > 0 {
-				if err := client.IgnoreNotFound(ctrlCtx.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationForeground))); err != nil {
-					err = fmt.Errorf("failed to delete Job %s: %w", jobName, err)
-					cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "FailedToDeleteJob", err.Error()))
-					return *state, err
-				}
-				state.Phase = provisioningv1.DPUHostNetworkConfiguration
-				if ctrlCtx.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
-					state.Phase = provisioningv1.DPUClusterConfig
-				}
-
-				cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", ""))
-				return *state, nil
-			} else if job.Status.Failed > 0 {
-				// Not remove the failed job for user debuging.
-				err = fmt.Errorf("the custom reboot script failed")
-				cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "RebootFailed", err.Error()))
-				state.Phase = provisioningv1.DPUError
-				return *state, nil
-			}
-			return *state, nil
-		}
-
-		if err := createScriptJob(ctx, dpu, dpuNode, ctrlCtx); err != nil {
-			err = fmt.Errorf("failed to create script job: %w", err)
-			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "FailedToCreateScriptJob", err.Error()))
-			return *state, err
-		}
-		err = fmt.Errorf("waiting for script to reboot node")
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "WaitingForScriptToRebootNode", err.Error()))
-		return *state, err
 	} else {
 		panic("should not reach here")
 	}
 
 	return *state, nil
-}
-
-func proccessExternalReboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, ctrlCtx *dutil.ControllerContext, state *provisioningv1.DPUStatus) error {
-	logger := log.FromContext(ctx)
-	c := cutil.DPUCondition(provisioningv1.DPUCondRebooted, "WaitingForManualPowerCycleOrReboot", "")
-	// Check whether the external reboot is already triggerred.
-	if _, existedCond := cutil.GetDPUCondition(state, c.Type); existedCond != nil {
-		if _, ok := dpuNode.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation]; ok {
-			return nil
-		}
-
-		state.Phase = provisioningv1.DPUHostNetworkConfiguration
-		if ctrlCtx.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
-			state.Phase = provisioningv1.DPUClusterConfig
-		}
-
-		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", ""))
-		return nil
-	}
-
-	// Begin the external reboot.
-	if dpuNode.Annotations == nil {
-		dpuNode.Annotations = make(map[string]string)
-	}
-
-	dpuNode.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation] = "true"
-	if err := ctrlCtx.Update(ctx, dpuNode); err != nil {
-		logger.Error(err, fmt.Sprintf("failed to add annotation %s to DPUNode %s", provisioningv1.DPUNodeExternalRebootRequiredAnnotation, dpuNode.Name))
-		return err
-	}
-
-	c.Status = metav1.ConditionFalse
-	cutil.SetDPUCondition(state, c)
-	return nil
 }
 
 func checkRebootTask(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpu *provisioningv1.DPU, pciAddress string, rebootCommand string, rebootTaskName string, task any) error {
@@ -276,165 +191,6 @@ func checkRebootTask(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpu *
 	}
 
 	logger.V(3).Info(fmt.Sprintf("Reboot task %v is being processed", rebootTaskName))
-	return nil
-}
-
-func generateJobName(dpuNode *provisioningv1.DPUNode) string {
-	return fmt.Sprintf("%s-reboot-script", dpuNode.Name)
-}
-
-func ensureEnv(envs []corev1.EnvVar, name, value string) []corev1.EnvVar {
-	for _, e := range envs {
-		if e.Name == name {
-			return envs
-		}
-	}
-	return append(envs, corev1.EnvVar{Name: name, Value: value})
-}
-
-func ensureMount(mnts []corev1.VolumeMount, name, path string) []corev1.VolumeMount {
-	for _, m := range mnts {
-		if m.Name == name {
-			return mnts
-		}
-	}
-	return append(mnts, corev1.VolumeMount{Name: name, MountPath: path})
-}
-
-func createScriptJob(ctx context.Context, dpu *provisioningv1.DPU, dpuNode *provisioningv1.DPUNode, ctrlCtx *dutil.ControllerContext) error {
-	logger := log.FromContext(ctx)
-	job := &batchv1.Job{}
-	jobName := generateJobName(dpuNode)
-	// Checking job existed or not, if yes, delete it.
-	if err := ctrlCtx.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: jobName}, job); err == nil {
-		if err := client.IgnoreNotFound(ctrlCtx.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationForeground))); err != nil {
-			logger.Error(err, fmt.Sprintf("Unable to delete Job %s, err: %v", jobName, err))
-			return err
-		}
-	}
-
-	configMap := &corev1.ConfigMap{}
-	configMapNamespacedName := types.NamespacedName{
-		Namespace: dpu.Namespace,
-		Name:      dpuNode.Spec.NodeRebootMethod.Script.Name,
-	}
-	if err := ctrlCtx.Get(ctx, configMapNamespacedName, configMap); err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Error(err, fmt.Sprintf("ConfigMap %s not found for DPUNode %s", dpuNode.Spec.NodeRebootMethod.Script.Name, dpuNode.Name))
-			return err
-		}
-		logger.Error(err, fmt.Sprintf("Unable to fetch ConfigMap %s for DPUNode %s", dpuNode.Spec.NodeRebootMethod.Script.Name, dpuNode.Name))
-		return err
-	}
-
-	podTemplateStr, ok := configMap.Data[PodTemplateConfigMapKey]
-	if !ok {
-		err := fmt.Errorf("%s not found in ConfigMap", PodTemplateConfigMapKey)
-		logger.Error(err, fmt.Sprintf("ConfigMap is missing %s key", PodTemplateConfigMapKey))
-		return err
-	}
-
-	var podTemplate corev1.PodTemplateSpec
-	if err := json.Unmarshal([]byte(podTemplateStr), &podTemplate); err != nil {
-		logger.Error(err, fmt.Sprintf("Unable to unmarshal pod template from ConfigMap %s for DPUNode %s", dpuNode.Spec.NodeRebootMethod.Script.Name, dpuNode.Name))
-		return err
-	}
-
-	// Add more information to Job's Pod for rebooting script, e.g. labels, annotations, etc.
-
-	// Add DPUNODE_NAME to pod template containers env
-	for i := range podTemplate.Spec.Containers {
-		podTemplate.Spec.Containers[i].Env = ensureEnv(podTemplate.Spec.Containers[i].Env, DPUNodeNameEnvVar, dpuNode.Name)
-	}
-
-	// Add DPUNODE_NAME to pod template init containers env
-	for i := range podTemplate.Spec.InitContainers {
-		podTemplate.Spec.InitContainers[i].Env = ensureEnv(podTemplate.Spec.InitContainers[i].Env, DPUNodeNameEnvVar, dpuNode.Name)
-	}
-
-	// Add dpuNode annotations to pod template annotations
-	if podTemplate.Annotations == nil {
-		podTemplate.Annotations = make(map[string]string)
-	}
-
-	for k, v := range dpuNode.Annotations {
-		if _, ok := podTemplate.Annotations[k]; ok {
-			continue
-		}
-		podTemplate.Annotations[k] = v
-	}
-
-	// Add dpuNode labels to pod template labels
-	if podTemplate.Labels == nil {
-		podTemplate.Labels = make(map[string]string)
-	}
-
-	for k, v := range dpuNode.Labels {
-		if _, ok := podTemplate.Labels[k]; ok {
-			continue
-		}
-		podTemplate.Labels[k] = v
-	}
-
-	volumeExists := false
-	for _, v := range podTemplate.Spec.Volumes {
-		if v.Name == PodInfoVolumeName {
-			volumeExists = true
-			break
-		}
-	}
-	if !volumeExists {
-		// Add podInfo volume to pod template
-		podTemplate.Spec.Volumes = append(podTemplate.Spec.Volumes, corev1.Volume{
-			Name: PodInfoVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				DownwardAPI: &corev1.DownwardAPIVolumeSource{
-					Items: []corev1.DownwardAPIVolumeFile{
-						{
-							Path: PodInfoLabelsPath,
-							FieldRef: &corev1.ObjectFieldSelector{
-								FieldPath: PodInfoLabelsFieldPath,
-							},
-						},
-						{
-							Path: PodInfoAnnotationsPath,
-							FieldRef: &corev1.ObjectFieldSelector{
-								FieldPath: PodInfoAnnotationsFieldPath,
-							},
-						},
-					},
-				},
-			},
-		})
-
-		// Add DPUNODE_NAME to pod template containers env
-		for i := range podTemplate.Spec.Containers {
-			podTemplate.Spec.Containers[i].VolumeMounts = ensureMount(podTemplate.Spec.Containers[i].VolumeMounts, PodInfoVolumeName, PodInfoMountPath)
-		}
-
-		// Add DPUNODE_NAME to pod template init containers env
-		for i := range podTemplate.Spec.InitContainers {
-			podTemplate.Spec.InitContainers[i].VolumeMounts = ensureMount(podTemplate.Spec.InitContainers[i].VolumeMounts, PodInfoVolumeName, PodInfoMountPath)
-		}
-	}
-
-	var backoffLimit int32 = 0
-	job = &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      jobName,
-			Namespace: dpu.Namespace,
-		},
-		Spec: batchv1.JobSpec{
-			Template:     podTemplate,
-			BackoffLimit: &backoffLimit,
-		},
-	}
-
-	if err := ctrlCtx.Create(ctx, job); err != nil {
-		logger.Error(err, fmt.Sprintf("Unable to create Job for DPUNode %s", dpuNode.Name))
-		return err
-	}
-
 	return nil
 }
 
