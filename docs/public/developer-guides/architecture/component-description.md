@@ -94,7 +94,7 @@ This component set uses the Kamaji Cluster Manager - but other Cluster managers 
 * Node feature discovery - including DPU Detector
     * Add information about DPUs to the Kubernetes Node representing the host node
     * Communicate with the host control plane and host node filesystem
-* [DOCA Management Service (DMS)](https://docs.nvidia.com/doca/sdk/doca+management+service+guide/index.html)
+* [DOCA Management Service (DMS)](https://docs.nvidia.com/doca/sdk/doca-management-service-guide/index.html)
     * Flash a BFB to DPU hardware
     * Communicate with the BlueField DPU and DPU Controller
 * Hostnetwork configuration

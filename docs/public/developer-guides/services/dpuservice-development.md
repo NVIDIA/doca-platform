@@ -8,7 +8,7 @@ The DOCA Platform Framework (DPF) manages application lifecycles through DPUServ
 represents an application that runs on NVIDIA BlueField DPUs and utilizes the DOCA SDK.
 
 DOCA provides libraries for networking and data processing programmability that leverage NVIDIA BlueField DPU hardware
-accelerators. For more information about developing DOCA applications see the [DOCA SDK programming guide](https://docs.nvidia.com/doca/sdk/doca+programming+guide/index.html).
+accelerators. For more information about developing DOCA applications see the [DOCA SDK programming guide](https://docs.nvidia.com/doca/sdk/doca-programming-guide/index.html).
 
 A DPUService consists of the following components:
 

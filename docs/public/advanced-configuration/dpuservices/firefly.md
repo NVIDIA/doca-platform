@@ -5,7 +5,7 @@ title: "DOCA Firefly Service"
 This documentation explains configuration and deployment of DOCA Firefly service as DPUService in DPF.
 
 Main Firefly concepts are explained in the
-[official DOCA Firefly documentation](https://docs.nvidia.com/doca/sdk/doca+firefly+service+guide/index.html).  
+[official DOCA Firefly documentation](https://docs.nvidia.com/doca/sdk/doca-firefly-service-guide/index.html).
 While the official documentation provides a more comprehensive overview, DPUService users should consult it for detailed
 explanation of PTP configuration and monitoring options.
 
@@ -392,7 +392,7 @@ For information about OVN Kubernetes configuration see the [OVN Kubernetes user 
 
 # Configuration
 
-[Official Firefly documentation](https://docs.nvidia.com/doca/sdk/doca+firefly+service+guide/index.html) explains
+[Official Firefly documentation](https://docs.nvidia.com/doca/sdk/doca-firefly-service-guide/index.html) explains
 configuration options.
 
 General note: In the official documentation, all options should be specified in the `ptp.conf` file.  
