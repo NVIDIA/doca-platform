@@ -22,6 +22,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -543,6 +544,11 @@ func NewTLSClient(ctx context.Context, dpu *provisioningv1.DPUDevice, k8sClient 
 		return nil, fmt.Errorf("no BMC IP of DPU device")
 	}
 
+	bmcIP := net.ParseIP(*dpu.Spec.BMCIP)
+	if bmcIP == nil {
+		return nil, fmt.Errorf("invalid BMC IP: %s", *dpu.Spec.BMCIP)
+	}
+
 	caSecret := &corev1.Secret{}
 	if err := k8sClient.Get(ctx, types.NamespacedName{Name: CASecret, Namespace: dpu.Namespace}, caSecret); err != nil {
 		return nil, err
@@ -576,7 +582,8 @@ func NewTLSClient(ctx context.Context, dpu *provisioningv1.DPUDevice, k8sClient 
 		RootCAs:            certPool,
 		Certificates:       []tls.Certificate{clientKeyPair},
 	}
-	c := resty.New().SetBaseURL(*dpu.Spec.BMCIP).SetTLSClientConfig(tlsCfg)
+	c := resty.New().SetBaseURL(fmt.Sprintf("https://%s", bmcIP)).SetTLSClientConfig(tlsCfg)
+	//c := resty.New().SetBaseURL(*dpu.Spec.BMCIP).SetTLSClientConfig(tlsCfg)
 
 	tlsClient := &Client{Client: c}
 
