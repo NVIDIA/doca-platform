@@ -138,19 +138,21 @@ func (h *controller) ControllerPublishVolume(
 		}
 	}
 
+	if err := validateAttachmentInfo(h.commonConfig, apiVolAttach); err != nil {
+		reqLog.Error(err, "DPUVolumeAttachment is ready but status is invalid")
+		return nil, err
+	}
 	publishCtx := map[string]string{
 		common.PublishCtxNvVolumeName:           apiVolume.GetName(),
 		common.PublishCtxNvVolumeAttachmentName: apiVolAttach.GetName(),
+		common.PublishCtxDevicePciAddress:       *apiVolAttach.Status.DPU.PCIAddress,
 	}
-
-	if apiVolAttach.Status.DPU != nil && apiVolAttach.Status.DPU.PCIAddress != nil {
-		publishCtx[common.PublishCtxDevicePciAddress] = *apiVolAttach.Status.DPU.PCIAddress
-	}
-
-	if apiVolAttach.Status.DPU != nil && apiVolAttach.Status.DPU.NVMEAttrs != nil && apiVolAttach.Status.DPU.NVMEAttrs.NamespaceID != nil {
+	switch h.commonConfig.EmulationMode {
+	case config.EmulationModeNVMe:
 		publishCtx[common.PublishCtxNvmeNsID] = strconv.FormatInt(*apiVolAttach.Status.DPU.NVMEAttrs.NamespaceID, 10)
+	case config.EmulationModeVirtiofs:
+		publishCtx[common.PublishCtxVirtioFsTag] = *apiVolAttach.Status.DPU.VirtioFSAttrs.FilesystemTag
 	}
-
 	for k, v := range apiVolAttach.Status.AttachmentMetadata {
 		if k == common.PublishCtxNvVolumeName || k == common.PublishCtxNvVolumeAttachmentName {
 			reqLog.Error(nil, "volume attachment parameters contain forbidden field", "field", k)
@@ -180,4 +182,38 @@ func getFunctionTypeConfig(commonConfig config.Common, reqLog logr.Logger, volCt
 		return storagev1.FunctionTypeConfig{}, status.Error(codes.InvalidArgument, "invalid function type config")
 	}
 	return functionTypeConfig, nil
+}
+
+// validateAttachmentInfo checks that the status of a ready DPUVolumeAttachment
+// contains all required fields for the current emulation mode. It verifies that
+// the DPU section is present, and depending on the emulation mode, ensures that
+// NVMe or VirtioFS attributes are set and contain their required subfields.
+// Returns a gRPC Internal error if any required field is missing or if the
+// emulation mode is unsupported.
+func validateAttachmentInfo(commonConfig config.Common, actual *storagev1.DPUVolumeAttachment) error {
+	if actual.Status.DPU == nil {
+		return status.Error(codes.Internal, "DPUVolumeAttachment is ready but status.dpu is missing")
+	}
+	if actual.Status.DPU.PCIAddress == nil {
+		return status.Error(codes.Internal, "DPUVolumeAttachment is ready but status.dpu.pciAddress is missing")
+	}
+	switch commonConfig.EmulationMode {
+	case config.EmulationModeNVMe:
+		if actual.Status.DPU.NVMEAttrs == nil {
+			return status.Error(codes.Internal, "DPUVolumeAttachment is ready but status.dpu.nvmeAttrs is missing")
+		}
+		if actual.Status.DPU.NVMEAttrs.NamespaceID == nil {
+			return status.Error(codes.Internal, "DPUVolumeAttachment is ready but status.dpu.nvmeAttrs.namespaceID is missing")
+		}
+	case config.EmulationModeVirtiofs:
+		if actual.Status.DPU.VirtioFSAttrs == nil {
+			return status.Error(codes.Internal, "DPUVolumeAttachment is ready but status.dpu.virtioFSAttrs is missing")
+		}
+		if actual.Status.DPU.VirtioFSAttrs.FilesystemTag == nil {
+			return status.Error(codes.Internal, "DPUVolumeAttachment is ready but status.dpu.virtioFSAttrs.filesystemTag is missing")
+		}
+	default:
+		return status.Error(codes.Internal, "unsupported emulation mode")
+	}
+	return nil
 }

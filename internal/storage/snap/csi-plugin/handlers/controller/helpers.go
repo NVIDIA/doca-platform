@@ -86,16 +86,12 @@ func getCSIVolumeCtx(commonConfig config.Common, createParams map[string]string,
 	return volumeCtx, nil
 }
 
-func convertCSIVolumeMode(volCaps []*csi.VolumeCapability) *corev1.PersistentVolumeMode {
+// getDPUVolumeMode returns the volume mode for the DPUVolume based on the emulation mode
+func getDPUVolumeMode(commonConfig config.Common) *corev1.PersistentVolumeMode {
 	typeFS := corev1.PersistentVolumeFilesystem
 	typeBlock := corev1.PersistentVolumeBlock
-	for _, c := range volCaps {
-		switch c.GetAccessType().(type) {
-		case *csi.VolumeCapability_Block:
-			return &typeBlock
-		case *csi.VolumeCapability_Mount:
-			return &typeFS
-		}
+	if commonConfig.EmulationMode == config.EmulationModeVirtiofs {
+		return &typeFS
 	}
 	return &typeBlock
 }
