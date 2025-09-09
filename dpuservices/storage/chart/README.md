@@ -117,9 +117,15 @@ A Helm chart for DPF storage subsystem
 | host.snapCsiPlugin.controller.tolerations[1].effect | string | `"NoSchedule"` |  |
 | host.snapCsiPlugin.controller.tolerations[1].key | string | `"node-role.kubernetes.io/master"` |  |
 | host.snapCsiPlugin.controller.tolerations[1].operator | string | `"Exists"` |  |
+| host.snapCsiPlugin.emulationMode | string | `"nvme"` |  |
 | host.snapCsiPlugin.enabled | bool | `false` |  |
+| host.snapCsiPlugin.name | string | `"csi.snap.nvidia.com"` |  |
 | host.snapCsiPlugin.node.config.maxVolumesPerNode | int | `0` |  |
+| host.snapCsiPlugin.node.config.nvmeCreateVFs | bool | `true` |  |
+| host.snapCsiPlugin.node.config.nvmeLoadDriver | bool | `true` |  |
 | host.snapCsiPlugin.node.config.snapControllerDeviceId | string | `"6001"` |  |
+| host.snapCsiPlugin.node.config.virtiofsFSTypeName | string | `"virtiofs"` |  |
+| host.snapCsiPlugin.node.config.virtiofsLoadDriver | bool | `true` |  |
 | host.snapCsiPlugin.node.imagePullSecrets | list | `[]` |  |
 | host.snapCsiPlugin.node.kubeletDir | string | `"/var/lib/kubelet"` |  |
 | host.snapCsiPlugin.node.livenessProbe.image.repository | string | `"registry.k8s.io/sig-storage/livenessprobe"` |  |
