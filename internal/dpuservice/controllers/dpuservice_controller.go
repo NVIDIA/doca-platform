@@ -27,6 +27,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/argocd"
+	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/internal/dpuservice/predicates"
 	dpuserviceutils "github.com/nvidia/doca-platform/internal/dpuservice/utils"
 	"github.com/nvidia/doca-platform/internal/operator/utils"
@@ -454,7 +455,13 @@ func (r *DPUServiceReconciler) reconcile(ctx context.Context, dpuService *dpuser
 		return nil
 	}
 
-	serviceDaemonSet, interfaces, err := r.reconcileInterfaces(ctx, dpuService)
+	// Ensure the DPUService has a ServiceID.
+	serviceID := generateServiceID(dpuService)
+	// persist the ServiceID so that user can see it in the status early
+	// in case of a failure.
+	dpuService.Status.ServiceID = serviceID
+
+	serviceDaemonSet, interfaces, err := r.reconcileInterfaces(ctx, dpuService, serviceID)
 	if err != nil {
 		message := fmt.Sprintf("Unable to reconcile interfaces for %s", err.Error())
 		conditions.AddFalse(
@@ -496,7 +503,7 @@ func (r *DPUServiceReconciler) reconcile(ctx context.Context, dpuService *dpuser
 	conditions.AddTrue(dpuService, dpuservicev1.ConditionApplicationPrereqsReconciled)
 
 	// Update the ArgoApplication for all target clusters.
-	if err = r.reconcileApplication(ctx, dpuClusterConfigs, dpuService, serviceDaemonSet, dpfOperatorConfig.GetNamespace()); err != nil {
+	if err = r.reconcileApplication(ctx, dpuClusterConfigs, dpuService, serviceDaemonSet, dpfOperatorConfig.GetNamespace(), serviceID); err != nil {
 		message := fmt.Sprintf("Unable to reconcile Applications: %v", err)
 		conditions.AddFalse(
 			dpuService,
@@ -550,7 +557,7 @@ func (r *DPUServiceReconciler) reconcileApplicationPrereqs(ctx context.Context, 
 }
 
 // reconcileInterfaces reconciles the DPUServiceInterfaces associated with the DPUService.
-func (r *DPUServiceReconciler) reconcileInterfaces(ctx context.Context, dpuService *dpuservicev1.DPUService) (*dpuservicev1.ServiceDaemonSetValues, []*dpuservicev1.DPUServiceInterface, error) {
+func (r *DPUServiceReconciler) reconcileInterfaces(ctx context.Context, dpuService *dpuservicev1.DPUService, dpuServiceID string) (*dpuservicev1.ServiceDaemonSetValues, []*dpuservicev1.DPUServiceInterface, error) {
 	log := ctrllog.FromContext(ctx)
 	networkSelectionByInterface := map[string]multusTypes.NetworkSelectionElement{}
 
@@ -572,8 +579,7 @@ func (r *DPUServiceReconciler) reconcileInterfaces(ctx context.Context, dpuServi
 		}
 
 		// report conflicting ServiceID in DPUServiceInterface
-		dpuServiceID := dpuService.Spec.ServiceID
-		if dpuServiceID != nil && service.ServiceID != *dpuServiceID {
+		if dpuServiceID != "" && service.ServiceID != dpuServiceID {
 			return nil, nil, fmt.Errorf("conflicting ServiceID in DPUServiceInterface %s", interfaceName)
 		}
 
@@ -826,24 +832,24 @@ func (r *DPUServiceReconciler) reconcileAppProject(ctx context.Context, dpuClust
 	return nil
 }
 
-func (r *DPUServiceReconciler) reconcileApplication(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpfOperatorConfigNamespace string) error {
+func (r *DPUServiceReconciler) reconcileApplication(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpfOperatorConfigNamespace, serviceID string) error {
 	project := getProjectName(dpuService)
 	if project == dpuAppProjectName {
 		for _, dpuClusterConfig := range dpuClusterConfigs {
-			if err := r.ensureApplication(ctx, dpuService, serviceDaemonSet, dpuClusterConfig.Cluster.Name, dpfOperatorConfigNamespace); err != nil {
+			if err := r.ensureApplication(ctx, dpuService, serviceDaemonSet, dpuClusterConfig.Cluster.Name, dpfOperatorConfigNamespace, serviceID); err != nil {
 				return err
 			}
 		}
 	} else {
-		return r.ensureApplication(ctx, dpuService, serviceDaemonSet, "in-cluster", dpfOperatorConfigNamespace)
+		return r.ensureApplication(ctx, dpuService, serviceDaemonSet, "in-cluster", dpfOperatorConfigNamespace, serviceID)
 	}
 	return nil
 }
 
-func (r *DPUServiceReconciler) ensureApplication(ctx context.Context, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, clusterName, dpfOperatorConfigNamespace string) error {
+func (r *DPUServiceReconciler) ensureApplication(ctx context.Context, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, clusterName, dpfOperatorConfigNamespace, serviceID string) error {
 	log := ctrllog.FromContext(ctx)
 	project := getProjectName(dpuService)
-	values, err := argoCDValuesFromDPUService(serviceDaemonSet, dpuService)
+	values, err := argoCDValuesFromDPUService(serviceDaemonSet, dpuService, serviceID)
 	if err != nil {
 		return err
 	}
@@ -1491,16 +1497,15 @@ func getProjectName(dpuService *dpuservicev1.DPUService) string {
 	return dpuAppProjectName
 }
 
-func argoCDValuesFromDPUService(serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpuService *dpuservicev1.DPUService) (*runtime.RawExtension, error) {
+func argoCDValuesFromDPUService(serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpuService *dpuservicev1.DPUService, serviceID string) (*runtime.RawExtension, error) {
 	if serviceDaemonSet == nil {
 		serviceDaemonSet = &dpuservicev1.ServiceDaemonSetValues{}
 	}
 	if serviceDaemonSet.Labels == nil {
 		serviceDaemonSet.Labels = map[string]string{}
 	}
-	if dpuService.Spec.ServiceID != nil {
-		serviceDaemonSet.Labels[dpuservicev1.DPFServiceIDLabelKey] = *dpuService.Spec.ServiceID
-	}
+
+	serviceDaemonSet.Labels[dpuservicev1.DPFServiceIDLabelKey] = serviceID
 
 	// Marshal the ServiceDaemonSet and other values to map[string]interface to combine them.
 	var otherValues, serviceDaemonSetValues map[string]interface{}
@@ -1585,6 +1590,18 @@ func (r *DPUServiceReconciler) requestsForChangeByLabel(_ context.Context, o cli
 			Name:      name,
 		},
 	}}
+}
+
+// generateServiceID generates a ServiceID for the given DPUService.
+// If the DPUService has a ServiceID in spec, it returns that value.
+// Otherwise, it generates a serviceID with dpuService name, namespace and group kind.
+// The digest is shortened to 10 characters to keep the ServiceID short.
+func generateServiceID(dpuService *dpuservicev1.DPUService) string {
+	if dpuService.Spec.ServiceID != nil {
+		return *dpuService.Spec.ServiceID
+	}
+	serviceDigest := digest.FromObjects(dpuService.GroupVersionKind().GroupKind().String(), dpuService.Name, dpuService.Namespace)
+	return digest.Short(serviceDigest, 10)
 }
 
 func (r *DPUServiceReconciler) requestsForDPUServiceInterfaceChange(ctx context.Context, o client.Object) []reconcile.Request {

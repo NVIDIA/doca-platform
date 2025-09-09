@@ -490,6 +490,11 @@ spec:
                   the object the last time it was patched.
                 format: int64
                 type: integer
+              serviceID:
+                description: |-
+                  ServiceID is the ID of the service that the DPUService is associated with.
+                  This is set when the DPUService is created.
+                type: string
             type: object
         type: object
         x-kubernetes-validations:
