@@ -32,6 +32,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -140,7 +141,7 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods;pods/exec;nodes,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;create;delete
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;create;delete;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;create;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list
 // +kubebuilder:rbac:groups="",resources=events,verbs=patch;update;delete;create
@@ -172,6 +173,29 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			return ctrl.Result{}, fmt.Errorf("failed to add DPU finalizer %w", err)
 		}
 		return ctrl.Result{}, nil
+	}
+
+	if !dpu.DeletionTimestamp.IsZero() || dpu.Spec.DPUNodeName == "" {
+		// Skip reboot check during deletion or if no DPUNode specified
+	} else {
+		// If the DPUNode is rebooting, requeue the DPU request
+		dpuNode := &provisioningv1.DPUNode{}
+		if err := r.ctrlCtx.Client.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Spec.DPUNodeName}, dpuNode); err != nil {
+			// If DPUNode doesn't exist, log and continue processing
+			// This can happen during cleanup or if DPUNode was deleted
+			logger.Info("DPUNode not found, skipping reboot check", "dpuNodeName", dpu.Spec.DPUNodeName, "error", err)
+		} else {
+			var rebootCondition *metav1.Condition
+			for i := range dpuNode.Status.Conditions {
+				if dpuNode.Status.Conditions[i].Type == provisioningv1.DPUNodeConditionRebootInProgress.String() {
+					rebootCondition = &dpuNode.Status.Conditions[i]
+					break
+				}
+			}
+			if rebootCondition != nil && rebootCondition.Status == metav1.ConditionTrue {
+				return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
+			}
+		}
 	}
 
 	// This is to cache the DPUs that are created with the cluster field set in their manifests, such DPUs will not go through the Allocate() procedure in Initialization phase
