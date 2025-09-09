@@ -27,6 +27,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -52,11 +53,23 @@ func TestRemoteCache_Reconcile(t *testing.T) {
 	}).WithTimeout(10 * time.Second).Should(Succeed())
 
 	dpuClusterKey := client.ObjectKeyFromObject(&dpuCluster)
+
+	// Create a mock watcher callback to test callback functionality
+	callbackInvoked := false
+	mockWatcherCallback := func(cluster client.ObjectKey) Watcher {
+		callbackInvoked = true
+		g.Expect(cluster).To(Equal(dpuClusterKey))
+
+		// Return a mock watcher
+		return &mockWatcher{name: "test-watcher"}
+	}
+
 	opts := makeRemoteCacheOptions(OptionScheme{Scheme: testEnv.GetScheme()},
 		OptionHostClient{Client: testEnv.Manager.GetClient()},
 		OptionUserAgent{UserAgent: fmt.Sprintf("test-controller-%s", t.Name())},
 		OptionTimeout{Timeout: 10 * time.Second},
-		OptionRequeueAfter{RequeueAfter: 10 * time.Second})
+		OptionRequeueAfter{RequeueAfter: 10 * time.Second},
+		OptionGetWatcherCallbacks{GetWatcherCallbacks: []GetWatcherCallback{mockWatcherCallback}})
 	rc := &RemoteCache{
 		// Use APIReader to avoid cache issues when reading the Cluster object.
 		client:    testEnv.Manager.GetAPIReader(),
@@ -80,6 +93,9 @@ func TestRemoteCache_Reconcile(t *testing.T) {
 	// check that the accessor is created
 	g.Expect(rc.accessors).To(HaveKey(dpuClusterKey))
 
+	// verify the watch callback was invoked
+	g.Expect(callbackInvoked).To(BeTrue())
+
 	// Get client and test Get & List
 	c, err := rc.GetClient(dpuClusterKey)
 	g.Expect(err).ToNot(HaveOccurred())
@@ -96,4 +112,21 @@ func TestRemoteCache_Reconcile(t *testing.T) {
 
 	// check that the accessor is removed
 	g.Expect(rc.accessors).ToNot(HaveKey(dpuClusterKey))
+}
+
+// mockWatcher is a simple mock implementation of the Watcher interface for testing
+type mockWatcher struct {
+	name string
+}
+
+func (m *mockWatcher) Name() string {
+	return m.name
+}
+
+func (m *mockWatcher) Object() client.Object {
+	return &corev1.Pod{}
+}
+
+func (m *mockWatcher) Watch(cache.Cache) error {
+	return nil
 }

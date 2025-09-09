@@ -51,10 +51,18 @@ const (
 // ErrDPUClusterNotConnected is returned when a dpu cluster that is not connected.
 var ErrDPUClusterNotConnected = fmt.Errorf("dpu cluster is not connected")
 
+// GetWatcherCallback the function is called when a client for a dpu cluster is created.
+// The function should return a Watcher that will be used to watch for events for the given cluster.
+type GetWatcherCallback func(cluster client.ObjectKey) Watcher
+
 type Options struct {
 	// hostClient is the client for the host cluster. It is used to fetch the
 	// kubeconfig secret.
 	hostClient client.Reader
+
+	// getWatcherCallbacks is a list of functions that are called when a client for a dpu cluster is created.
+	// The functions should return a Watcher that will be used to watch for events for the given cluster.
+	getWatcherCallbacks []GetWatcherCallback
 
 	// initialSyncTimeout is the timeout used when waiting for the cache to sync after cache start.
 	initialSyncTimeout time.Duration
@@ -200,6 +208,15 @@ type OptionByObject struct {
 
 func (o OptionByObject) Apply(options *Options) {
 	options.byObject = o.ByObject
+}
+
+// OptionGetWatcherCallbacks is a list of functions that are called when a client for a dpu cluster is created.
+type OptionGetWatcherCallbacks struct {
+	GetWatcherCallbacks []GetWatcherCallback
+}
+
+func (o OptionGetWatcherCallbacks) Apply(options *Options) {
+	options.getWatcherCallbacks = o.GetWatcherCallbacks
 }
 
 // Watcher is an interface that can start a Watch.
@@ -367,6 +384,15 @@ func (rc *RemoteCache) reconcile(ctx context.Context, cluster *provisioningv1.DP
 		rc.deleteAccessor(clusterKey)
 		// still return the error to requeue and attempt a new connection
 		return ctrl.Result{}, err
+	}
+
+	// register watches
+	for _, getWatcher := range rc.options.getWatcherCallbacks {
+		watcher := getWatcher(clusterKey)
+		if err := accessor.watch(ctx, watcher); err != nil {
+			log.Error(err, "failed to register watch", "watcher", watcher.Name())
+			return ctrl.Result{}, err
+		}
 	}
 
 	// get next check time
