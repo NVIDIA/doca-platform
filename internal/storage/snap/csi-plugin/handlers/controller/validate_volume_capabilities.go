@@ -86,7 +86,7 @@ func (h *controller) ValidateVolumeCapabilities(
 		}, nil
 	}
 	if !equality.Semantic.DeepEqual(
-		convertCSIVolumeMode(req.VolumeCapabilities),
+		getDPUVolumeMode(h.commonConfig),
 		apiVolume.Spec.VolumeMode) {
 		reqLog.Info("volume validation failed, volumeMode mismatch")
 		return &csi.ValidateVolumeCapabilitiesResponse{
