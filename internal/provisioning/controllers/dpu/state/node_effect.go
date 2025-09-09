@@ -113,7 +113,7 @@ func NodeEffect(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		}
 		// If DPU is not in Requestor, add it
 		if !isDPUInRequestor(dpunodemaintenance, dpu.Name) {
-			if err := addRequestor(ctx, ctrlCtx.Client, dpunodemaintenance, dpu.Name); err != nil {
+			if err := addRequestorAndUpdateForce(ctx, ctrlCtx.Client, dpunodemaintenance, dpu.Name, *dpu.Spec.NodeEffect.Force); err != nil {
 				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectReady.String(), err, "FailedAddRequestor", err.Error()))
 				return *state, err
 			}
@@ -175,7 +175,10 @@ func createDPUNodeMaintenance(ctx context.Context, k8sClient client.Client, name
 	return nil
 }
 
-func addRequestor(ctx context.Context, k8sClient client.Client, dpunodemaintenance *provisioningv1.DPUNodeMaintenance, requestor string) error {
+// addRequestorAndUpdateForce adds the requestor to the DPUNodeMaintenance CR.
+// if dpu.Spec.NodeEffect.Force is true, and dpunodemaintenance.Spec.NodeEffect.Force is false, update dpunodemaintenance.Spec.NodeEffect.Force to true. Because true is stronger than false
+// setting force to true is used for critical service update, it means the node effect should be applied immediately.
+func addRequestorAndUpdateForce(ctx context.Context, k8sClient client.Client, dpunodemaintenance *provisioningv1.DPUNodeMaintenance, requestor string, force bool) error {
 	originalDPUNodeMaintenance := dpunodemaintenance.DeepCopy()
 	found := false
 	for _, r := range dpunodemaintenance.Spec.Requestor {
@@ -185,6 +188,9 @@ func addRequestor(ctx context.Context, k8sClient client.Client, dpunodemaintenan
 		}
 	}
 	if !found {
+		if force && dpunodemaintenance.Spec.NodeEffect.Force != nil && !*dpunodemaintenance.Spec.NodeEffect.Force {
+			dpunodemaintenance.Spec.NodeEffect.Force = &force
+		}
 		dpunodemaintenance.Spec.Requestor = append(dpunodemaintenance.Spec.Requestor, requestor)
 		patch := client.MergeFrom(originalDPUNodeMaintenance)
 		if err := k8sClient.Patch(ctx, dpunodemaintenance, patch); err != nil {

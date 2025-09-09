@@ -41,6 +41,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpucluster"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode"
 	dnutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunodemaintenance"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpuset"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
@@ -232,6 +233,18 @@ var _ = BeforeSuite(func() {
 		Client: k8sManager.GetClient(),
 	}
 	err = dpuDiscoveryReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	dpunodemaintenanceReconciler := &dpunodemaintenance.DPUNodeMaintenanceReconciler{
+		Client:              k8sManager.GetClient(),
+		DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaGNOI)),
+		Recorder:            k8sManager.GetEventRecorderFor(dpunodemaintenance.DPUNodeMaintenanceControllerName),
+		Options: dpunodemaintenance.DPUNodeMaintenanceOptions{
+			MultiDPUOperationsSyncWaitTime: 30 * time.Second,
+			MaxUnavailableDPUNodes:         50,
+		},
+	}
+	err = dpunodemaintenanceReconciler.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	go func() {
