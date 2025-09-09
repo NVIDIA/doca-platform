@@ -41,6 +41,13 @@ host:
     # enable deployment of the snap-csi-plugin component
     # Note: Only one component can be enabled at a time.
     enabled: false
+    # name of the CSI plugin, this name is returned by the plugin in response to GetPluginInfo call.
+    # this value should be used as a value for the StorageClass.provisioner field
+    name: "csi.snap.nvidia.com"
+    # emulation mode for the plugin. Valid options are "nvme" and "virtiofs".
+    # In "nvme" mode, the plugin creates block DPUVolumes and exposes them as emulated NVMe devices.
+    # In "virtiofs" mode, the plugin creates filesystem DPUVolumes and exposes them as VirtioFS devices.
+    emulationMode: "nvme"
     controller:
       # imagePullSecrets to add to the controller Pod spec,
       # if not set use .Values.imagePullSecrets
@@ -130,6 +137,14 @@ host:
         # the value allows to override the auto-discovered value if it is not accurate.
         # the value is set to 0 by default, which means that the auto-discovered value will be used
         maxVolumesPerNode: 0
+        # controls if NVMe driver should be loaded or not during initialization of the plugin, has meaning only for nvme emulation mode
+        nvmeLoadDriver: true
+        # controls if NVMe VFs should be created or not during initialization of the plugin, has meaning only for nvme emulation mode
+        nvmeCreateVFs: true
+        # name of the virtiofs fs type, this value is used in mount command, has meaning only for virtiofs emulation mode
+        virtiofsFSTypeName: "virtiofs"
+        # controls if virtio-pci driver should be loaded or not during initialization of the plugin, has meaning only for virtiofs emulation mode
+        virtiofsLoadDriver: true
       # imagePullSecrets to add to the controller Pod spec,
       # if not set use .Values.imagePullSecrets
       imagePullSecrets: []
