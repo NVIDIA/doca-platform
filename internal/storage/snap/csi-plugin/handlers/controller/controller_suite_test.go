@@ -18,7 +18,9 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	storagev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
@@ -31,6 +33,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeClientPkg "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+)
+
+const (
+	callTimeout = time.Second * 10
+)
+
+var (
+	errTest = errors.New("test error")
 )
 
 func TestController(t *testing.T) {
@@ -55,7 +65,13 @@ func (f *fakeClusterHelper) GetClient(ctx context.Context) (client.Client, error
 	return f.Client, f.Error
 }
 
+// getClusterClient returns fully configured client for the cluster
 func getClusterClient(initObjs ...client.Object) client.Client {
+	return getClusterClientBuilder(initObjs...).Build()
+}
+
+// getClusterClientBuilder returns a new client builder for the cluster that can be used to additionally configure the client
+func getClusterClientBuilder(initObjs ...client.Object) *fakeClientPkg.ClientBuilder {
 	ExpectWithOffset(1, provisioningv1.AddToScheme(scheme.Scheme)).NotTo(HaveOccurred())
 	ExpectWithOffset(1, storagev1.AddToScheme(scheme.Scheme)).NotTo(HaveOccurred())
 	return fakeClientPkg.NewClientBuilder().
@@ -71,5 +87,5 @@ func getClusterClient(initObjs ...client.Object) client.Client {
 		WithStatusSubresource(&provisioningv1.DPU{}, &storagev1.DPUVolume{}, &storagev1.DPUVolumeAttachment{}).
 		WithIndex(&provisioningv1.DPU{}, "spec.dpuNodeName", func(o client.Object) []string {
 			return []string{o.(*provisioningv1.DPU).Spec.DPUNodeName}
-		}).Build()
+		})
 }
