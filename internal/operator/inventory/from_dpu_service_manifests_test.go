@@ -722,6 +722,7 @@ func Test_fromDPUService_ReadyCheck(t *testing.T) {
 			}
 			config := &operatorv1.DPFOperatorConfig{}
 			config.SetNamespace(dpuService.Namespace)
+			config.Status.Version = ptr.To("1.2.3")
 			err := f.IsReadyForUpgrade(context.Background(), testClient, config)
 			g.Expect(err != nil).To(Equal(tt.wantErr))
 
