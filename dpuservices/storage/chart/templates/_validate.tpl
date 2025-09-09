@@ -11,6 +11,7 @@ This is required to avoid misusage of the chart.
 {{- if .Values.dpu.snapNodeDriver.enabled }}{{ $enabledCount = add1 $enabledCount }}{{- end }}
 {{- if .Values.dpu.blockStorageVendorDpuPlugin.enabled }}{{ $enabledCount = add1 $enabledCount }}{{- end }}
 {{- if .Values.dpu.fsStorageVendorDpuPlugin.enabled }}{{ $enabledCount = add1 $enabledCount }}{{- end }}
+{{- if .Values.dpu.nfsStorageVendorDpuPlugin.enabled }}{{ $enabledCount = add1 $enabledCount }}{{- end }}
 {{- if .Values.host.snapController.enabled }}{{ $enabledCount = add1 $enabledCount }}{{- end }}
 {{- if .Values.host.snapHostController.enabled }}{{ $enabledCount = add1 $enabledCount }}{{- end }}
 {{- if .Values.host.snapCsiPlugin.enabled }}{{ $enabledCount = add1 $enabledCount }}{{- end }}

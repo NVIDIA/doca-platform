@@ -59,5 +59,6 @@ COPY --chown=${uid} --from=builder /workspace/bin/snap-csi-plugin /snap-csi-plug
 COPY --chown=${uid} --from=builder /workspace/bin/snap-controller /snap-controller
 COPY --chown=${uid} --from=builder /workspace/bin/snap-node-driver /snap-node-driver
 COPY --chown=${uid} --from=builder /workspace/bin/block-storage-vendor-dpu-plugin /block-storage-vendor-dpu-plugin
+COPY --chown=${uid} --from=builder /workspace/bin/nfs-storage-vendor-dpu-plugin /nfs-storage-vendor-dpu-plugin
 COPY --chown=${uid} --from=builder /workspace/bin/nvidia-external-attacher /nvidia-external-attacher
 COPY --chown=${uid} --from=builder /workspace/bin/snap-host-controller /snap-host-controller

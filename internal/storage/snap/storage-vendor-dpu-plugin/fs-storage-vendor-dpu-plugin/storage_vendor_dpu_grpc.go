@@ -278,7 +278,7 @@ func (s *StoragePluginServer) CreateDevice(ctx context.Context, req *pb.CreateDe
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to create rpcClient: %v", err)
 		klog.Error(errMsg)
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, status.Errorf(codes.Unavailable, "%s", errMsg)
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
@@ -288,7 +288,7 @@ func (s *StoragePluginServer) CreateDevice(ctx context.Context, req *pb.CreateDe
 
 	fsdevs, err := client.FsdevGetFsdevs()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get fsdevs: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to get fsdevs: %v", err)
 	}
 
 	// Check if filesystem device already exists
@@ -343,7 +343,7 @@ func (s *StoragePluginServer) DeleteDevice(ctx context.Context, req *pb.DeleteDe
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to create rpcClient: %v", err)
 		klog.Error(errMsg)
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, status.Errorf(codes.Unavailable, "%s", errMsg)
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
@@ -353,7 +353,7 @@ func (s *StoragePluginServer) DeleteDevice(ctx context.Context, req *pb.DeleteDe
 
 	fsdevs, err := client.FsdevGetFsdevs()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get fsdevs: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to get fsdevs: %v", err)
 	}
 	if CheckFsdevExists(req.DeviceName, fsdevs.Fsdevs) {
 		// Delete the filesystem device
@@ -395,7 +395,7 @@ func (s *StoragePluginServer) GetDevice(ctx context.Context, req *pb.GetDeviceRe
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to create rpcClient: %v", err)
 		klog.Error(errMsg)
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, status.Errorf(codes.Unavailable, "%s", errMsg)
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
@@ -407,7 +407,7 @@ func (s *StoragePluginServer) GetDevice(ctx context.Context, req *pb.GetDeviceRe
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to get fsdevs: %v", err)
 		klog.Error(errMsg)
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, status.Errorf(codes.Internal, "%s", errMsg)
 	}
 
 	var targetFsdev *Fsdev
