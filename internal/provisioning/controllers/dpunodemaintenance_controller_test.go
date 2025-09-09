@@ -1,0 +1,334 @@
+/*
+Copyright 2025 NVIDIA
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controller
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
+
+	nvidiaNodeMaintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+var _ = Describe("DPUNodeMaintenance", func() {
+
+	const (
+		DefaultNS                 = "dpunodemaintenance-ns-test"
+		DefaultNode               = "node-test"
+		DefaultDPUNodeMaintenance = "dpunodemaintenance-test"
+		DefaultDPFOperatorConfig  = "operator-config-test"
+	)
+
+	var (
+		testNS                *corev1.Namespace
+		testNode              *corev1.Node
+		testDPUNode           *provisioningv1.DPUNode
+		testDPFOperatorConfig *operatorv1.DPFOperatorConfig
+	)
+
+	var createDPFOperatorConfig = func(ctx context.Context, name string) *operatorv1.DPFOperatorConfig {
+		dpfOperatorConfig := &operatorv1.DPFOperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: testNS.Name,
+			},
+			Spec: operatorv1.DPFOperatorConfigSpec{
+				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+					BFBPersistentVolumeClaimName: "foo-pvc",
+				},
+			},
+		}
+
+		Expect(k8sClient.Create(ctx, dpfOperatorConfig)).NotTo(HaveOccurred())
+		return dpfOperatorConfig
+	}
+
+	var createNode = func(ctx context.Context, name string) *corev1.Node {
+		node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}}
+		Expect(k8sClient.Create(ctx, node)).NotTo(HaveOccurred())
+		return node
+	}
+
+	var createDPUNode = func(ctx context.Context, name string) *provisioningv1.DPUNode {
+		dpuNode := &provisioningv1.DPUNode{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: testNS.Name,
+				Labels: map[string]string{
+					cutil.NodeFeatureDiscoveryLabelPrefix + cutil.DPUOOBBridgeConfiguredLabel: "true",
+				},
+				Annotations: map[string]string{
+					reboot.RebootCmdKey: reboot.Skip,
+				},
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: operatorv1.GroupVersion.String(),
+						Kind:       operatorv1.DPFOperatorConfigKind,
+						Name:       "fake-dpf-operator-config",
+						UID:        "fake-uid-123",
+						Controller: ptr.To(false),
+					},
+				},
+			},
+			Spec: provisioningv1.DPUNodeSpec{
+				NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+					GNOI: &provisioningv1.GNOI{},
+				},
+				NodeDMSAddress: &provisioningv1.DMSAddress{IP: "1.1.1.1", Port: 1234},
+				DPUs: []provisioningv1.DPURef{
+					{Name: "dpu-test-device"},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, dpuNode)).NotTo(HaveOccurred())
+		dpuNode.Status.KubeNodeRef = ptr.To(name)
+		Expect(k8sClient.Status().Update(ctx, dpuNode)).To(Succeed())
+		return dpuNode
+	}
+
+	BeforeEach(func() {
+		By("creating the namespaces")
+		// Notes:
+		// 1. Namespace usage limitation:
+		// EnvTest does not support namespace deletion. Deleting a namespace will seem to succeed,
+		// but the namespace will just be put in a Terminating state, and never actually be reclaimed.
+		// See: https://book.kubebuilder.io/reference/envtest.html#namespace-usage-limitation
+		// 2. the value in GenerateName is not defined as a constant intentionally,
+		// because it shouldn't be referenced directly.
+		// 3. testNS is the only way to reference the namespace in the test.
+		// 4. always create a new namespace for each test, never reuse an existing namespace
+		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: DefaultNS}}
+		Eventually(func() error {
+			return k8sClient.Create(ctx, testNS)
+		}).WithTimeout(10 * time.Second).Should(Succeed())
+
+		By("creating the dpfoperatorconfig")
+		testDPFOperatorConfig = createDPFOperatorConfig(ctx, DefaultDPFOperatorConfig)
+
+		By("creating the node")
+		testNode = createNode(ctx, DefaultNode)
+
+		By("creating the dpuNode")
+		testDPUNode = createDPUNode(ctx, DefaultNode)
+	})
+
+	AfterEach(func() {
+		By("deleting the dpuNode")
+		Expect(k8sClient.Delete(ctx, testDPUNode)).To(Succeed())
+
+		By("deleting the node")
+		Expect(k8sClient.Delete(ctx, testNode)).To(Succeed())
+
+		By("deleting the dpfoperatorconfig")
+		Expect(k8sClient.Delete(ctx, testDPFOperatorConfig)).To(Succeed())
+
+		By("deleting the namespace")
+		Expect(k8sClient.Delete(ctx, testNS)).To(Succeed())
+	})
+
+	Context("obj test context", func() {
+
+		It("DPUNodeMaintenance: fail to create with name exceeding the maximum length", func() {
+			By("dpunodemaintenance object")
+			obj := &provisioningv1.DPUNodeMaintenance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      utilrand.String(188),
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUNodeMaintenanceSpec{},
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(HaveOccurred())
+		})
+
+		It("DPUNodeMaintenance: drain node effect should create nvidia node maintenance obj", func() {
+			By("creating the dpunodemaintenance object")
+			obj := &provisioningv1.DPUNodeMaintenance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      DefaultDPUNodeMaintenance,
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUNodeMaintenanceSpec{
+					DPUNodeName: DefaultNode,
+					NodeEffect: &provisioningv1.NodeEffect{
+						Drain: ptr.To(true),
+					},
+					Requestor: []string{"test-requestor"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			By("getting nvidia node maintenance obj")
+			fetchedNodemaintenance := &nvidiaNodeMaintenancev1.NodeMaintenance{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: DefaultNode}, fetchedNodemaintenance)).To(Succeed())
+			}, 10*time.Second).Should(Succeed())
+		})
+
+		It("DPUNodeMaintenance: custom label effect should add label on node obj", func() {
+			By("creating the dpunodemaintenance object")
+			obj := &provisioningv1.DPUNodeMaintenance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      DefaultDPUNodeMaintenance,
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUNodeMaintenanceSpec{
+					DPUNodeName: DefaultNode,
+					NodeEffect: &provisioningv1.NodeEffect{
+						CustomLabel: map[string]string{"test-label": "test-value"},
+					},
+					Requestor: []string{"test-requestor"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			By("getting the node obj")
+			fetchedNode := &corev1.Node{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: DefaultNode}, fetchedNode)).To(Succeed())
+				g.Expect(fetchedNode.Labels["test-label"]).To(Equal("test-value"))
+			}, 10*time.Second).Should(Succeed())
+		})
+
+		It("DPUNodeMaintenance: taint node effect should add taint on node obj", func() {
+			By("creating the dpunodemaintenance object")
+			obj := &provisioningv1.DPUNodeMaintenance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      DefaultDPUNodeMaintenance,
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUNodeMaintenanceSpec{
+					DPUNodeName: DefaultNode,
+					NodeEffect: &provisioningv1.NodeEffect{
+						Taint: &corev1.Taint{
+							Key:    "test-taint",
+							Value:  "test-value",
+							Effect: corev1.TaintEffectNoSchedule,
+						},
+					},
+					Requestor: []string{"test-requestor"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			By("getting the node obj")
+			fetchedNode := &corev1.Node{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: DefaultNode}, fetchedNode)).To(Succeed())
+				g.Expect(fetchedNode.Spec.Taints).To(ContainElement(corev1.Taint{
+					Key:    "test-taint",
+					Value:  "test-value",
+					Effect: corev1.TaintEffectNoSchedule,
+				}))
+			}, 10*time.Second).Should(Succeed())
+		})
+
+		It("DPUNodeMaintenance: custom action node effect should create custom action job", func() {
+			By("creating the configmap")
+			yml := []byte(fmt.Sprintf(`
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dpu-custom-action
+  namespace: %s
+data:
+  pod.yaml: |-
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: dpf-test-pod
+    spec:
+      restartPolicy: "Never"
+      nodeSelector: 
+        noderole: control-plane
+      containers:
+        - name: dpp-test-container
+          image: alpine
+          command: ["/bin/sh"]
+          args: ["-c", "echo 'DPF custom action' | tee /tmp/success "]`, testNS.Name))
+
+			configMap := &corev1.ConfigMap{}
+			err := yaml.UnmarshalStrict(yml, configMap)
+			Expect(err).To(Succeed())
+			Expect(k8sClient.Create(ctx, configMap)).To(Succeed())
+
+			By("creating the dpunodemaintenance object")
+			obj := &provisioningv1.DPUNodeMaintenance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      DefaultDPUNodeMaintenance,
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUNodeMaintenanceSpec{
+					DPUNodeName: DefaultNode,
+					NodeEffect: &provisioningv1.NodeEffect{
+						CustomAction: ptr.To("dpu-custom-action"),
+					},
+					Requestor: []string{"test-requestor"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			By("getting the job obj")
+			jobName, err := cutil.GenerateDPUNodeMaintenanceObjectName(obj.Spec.DPUNodeName, obj.Spec.NodeEffect)
+			Expect(err).To(Succeed())
+
+			fetchedJob := &batchv1.Job{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: jobName}, fetchedJob)).To(Succeed())
+			}, 10*time.Second).Should(Succeed())
+		})
+
+		It("DPUNodeMaintenance: hold node effect should add hold annotation on dpunodemaintenance obj", func() {
+
+			By("creating the dpunodemaintenance object")
+			obj := &provisioningv1.DPUNodeMaintenance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      DefaultDPUNodeMaintenance,
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUNodeMaintenanceSpec{
+					DPUNodeName: DefaultNode,
+					NodeEffect: &provisioningv1.NodeEffect{
+						Hold: ptr.To(true),
+					},
+					Requestor: []string{"test-requestor"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			By("getting the dpunodemaintenance obj")
+			fetchedDPUNodeMaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: DefaultDPUNodeMaintenance}, fetchedDPUNodeMaintenance)).To(Succeed())
+				g.Expect(fetchedDPUNodeMaintenance.Annotations[cutil.HoldNodeEffectKey]).To(Equal("true"))
+			}, 10*time.Second).Should(Succeed())
+		})
+	})
+})
