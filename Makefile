@@ -706,7 +706,7 @@ DPF_SYSTEM_BUILD_TARGETS ?= operator provisioning dpuservice servicechainset kam
 	sfc-controller dpfctl dpudetector
 DPU_ARCH_BUILD_TARGETS ?=
 # contains list of storage-related binaries that have no system-level dependencies
-STORAGE_SYSTEM_BUILD_TARGETS ?= storage-snap-host-controller storage-snap-controller storage-snap-node-driver block-storage-vendor-dpu-plugin storage-snap-csi-plugin storage-nvidia-external-attacher
+STORAGE_SYSTEM_BUILD_TARGETS ?= storage-snap-host-controller storage-snap-controller storage-snap-node-driver block-storage-vendor-dpu-plugin storage-snap-csi-plugin storage-nvidia-external-attacher nfs-storage-vendor-dpu-plugin
 # contains list of storage-related binaries that have system-level dependencies (depend on some linux utils from the container)
 STORAGE_HOST_BUILD_TARGETS ?= storage-snap-csi-plugin fs-storage-vendor-dpu-plugin
 
@@ -792,8 +792,12 @@ binary-block-storage-vendor-dpu-plugin: ## Build the block storage vendor DPU pl
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/block-storage-vendor-dpu-plugin github.com/nvidia/doca-platform/cmd/storage/storage-vendor-dpu-plugin/block-storage-vendor-dpu-plugin
 
 .PHONY: binary-fs-storage-vendor-dpu-plugin
-binary-fs-storage-vendor-dpu-plugin: ## Build the filesystem storage vendor DPU plugin binary.
+binary-fs-storage-vendor-dpu-plugin: ## Build the AIO filesystem storage vendor DPU plugin binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/fs-storage-vendor-dpu-plugin github.com/nvidia/doca-platform/cmd/storage/storage-vendor-dpu-plugin/fs-storage-vendor-dpu-plugin
+
+.PHONY: binary-nfs-storage-vendor-dpu-plugin
+binary-nfs-storage-vendor-dpu-plugin: ## Build the NFS filesystem storage vendor DPU plugin binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/nfs-storage-vendor-dpu-plugin github.com/nvidia/doca-platform/cmd/storage/storage-vendor-dpu-plugin/nfs-storage-vendor-dpu-plugin
 
 .PHONY: binary-storage-snap-csi-plugin
 binary-storage-snap-csi-plugin: ## Build the snap-csi-plugin binary.

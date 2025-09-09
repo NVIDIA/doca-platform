@@ -57,6 +57,16 @@ A Helm chart for DPF storage subsystem
 | dpu.fsStorageVendorDpuPlugin.securityContext.privileged | bool | `true` |  |
 | dpu.fsStorageVendorDpuPlugin.securityContext.runAsUser | int | `0` |  |
 | dpu.fsStorageVendorDpuPlugin.tolerations | list | `[]` |  |
+| dpu.nfsStorageVendorDpuPlugin.config.pluginName | string | `"nvidia-nfs"` |  |
+| dpu.nfsStorageVendorDpuPlugin.config.providerName | string | `"nvidia"` |  |
+| dpu.nfsStorageVendorDpuPlugin.enabled | bool | `false` |  |
+| dpu.nfsStorageVendorDpuPlugin.env | list | `[]` |  |
+| dpu.nfsStorageVendorDpuPlugin.image.repository | string | `"example.com/storage-system"` |  |
+| dpu.nfsStorageVendorDpuPlugin.image.tag | string | `"v0.1.0"` |  |
+| dpu.nfsStorageVendorDpuPlugin.imagePullPolicy | string | `"IfNotPresent"` |  |
+| dpu.nfsStorageVendorDpuPlugin.imagePullSecrets | list | `[]` |  |
+| dpu.nfsStorageVendorDpuPlugin.securityContext.runAsUser | int | `0` |  |
+| dpu.nfsStorageVendorDpuPlugin.tolerations | list | `[]` |  |
 | dpu.snapNodeDriver.enabled | bool | `false` |  |
 | dpu.snapNodeDriver.env | list | `[]` |  |
 | dpu.snapNodeDriver.image.repository | string | `"example.com/storage-system"` |  |

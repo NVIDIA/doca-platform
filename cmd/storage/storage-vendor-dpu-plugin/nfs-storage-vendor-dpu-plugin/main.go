@@ -19,7 +19,7 @@ package main
 import (
 	"log"
 
-	storagevendor "github.com/nvidia/doca-platform/internal/storage/snap/storage-vendor-dpu-plugin/fs-storage-vendor-dpu-plugin"
+	storagevendor "github.com/nvidia/doca-platform/internal/storage/snap/storage-vendor-dpu-plugin/nfs-storage-vendor-dpu-plugin"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -32,13 +32,13 @@ func main() {
 
 	// Start the server in a separate goroutine
 	go func() {
-		log.Println("AIO Filesystem gRPC server starting to serve.")
+		log.Println("NFS Filesystem gRPC server starting to serve.")
 		if serveErr := server.Serve(listener); serveErr != nil {
-			log.Printf("AIO Filesystem gRPC server encountered error: %v\n", serveErr)
+			log.Printf("NFS Filesystem gRPC server encountered error: %v\n", serveErr)
 		}
 	}()
 
-	log.Println("AIO Filesystem gRPC server is running. Press Ctrl+C to stop.")
+	log.Println("NFS Filesystem gRPC server is running. Press Ctrl+C to stop.")
 
 	// Use controller-runtime's signal handler to get a context that will be canceled
 	// when a SIGINT or SIGTERM is caught.
@@ -47,7 +47,7 @@ func main() {
 	// Block until the context is canceled by a signal
 	<-ctx.Done()
 
-	log.Println("Received shutdown signal. Stopping AIO Filesystem gRPC server gracefully...")
+	log.Println("Received shutdown signal. Stopping NFS Filesystem gRPC server gracefully...")
 
 	// Gracefully stop the server, allowing in-flight RPCs to complete.
 	server.GracefulStop()
@@ -57,5 +57,5 @@ func main() {
 		log.Printf("Error closing listener: %v", closeErr)
 	}
 
-	log.Println("AIO Filesystem gRPC server stopped.")
+	log.Println("NFS Filesystem gRPC server stopped.")
 }

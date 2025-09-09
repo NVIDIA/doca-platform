@@ -24,8 +24,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
 
 	pb "github.com/nvidia/doca-platform/api/grpc/nvidia/storage/plugins/v1"
 
@@ -35,7 +33,6 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"k8s.io/klog/v2"
 	"k8s.io/mount-utils"
-	netutil "k8s.io/utils/net"
 )
 
 // StoragePluginServer represents the gRPC server for filesystem storage operations
@@ -56,7 +53,7 @@ type StoragePluginServer struct {
 // Configuration constants and their default values
 const (
 	// default value for the plugin name
-	defaultPluginName = "nvidia-fs"
+	defaultPluginName = "nvidia-nfs"
 	// default value for the provider name
 	defaultProviderName = "nvidia"
 
@@ -270,10 +267,16 @@ func (s *StoragePluginServer) GetSNAPProvider(ctx context.Context, req *pb.GetSN
 func (s *StoragePluginServer) CreateDevice(ctx context.Context, req *pb.CreateDeviceRequest) (*pb.CreateDeviceResponse, error) {
 	klog.Infof("Received CreateDevice request: %+v", req)
 
-	volumeSource, mountOptions, err := getVolumeParamsFromRequest(req)
-	if err != nil {
-		return nil, err
+	serverIP := req.GetVolumeContext()[paramServer]
+	if serverIP == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "parameter %s must be set in volumeContext", paramServer)
 	}
+
+	exportName := req.GetVolumeContext()[paramShare]
+	if exportName == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "parameter %s must be set in volumeContext", paramShare)
+	}
+
 	client, err := s.newRPCClientFunc(s.snapRPCSocketPath)
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to create rpcClient: %v", err)
@@ -301,29 +304,7 @@ func (s *StoragePluginServer) CreateDevice(ctx context.Context, req *pb.CreateDe
 		return resp, nil
 	}
 
-	volumePath := s.constructVolumePath(deviceName)
-
-	// Create the volume directory
-	if err := os.MkdirAll(volumePath, 0755); err != nil {
-		errMsg := fmt.Sprintf("failed to create volume directory %s: %v", volumePath, err)
-		klog.Error(errMsg)
-		return nil, status.Errorf(codes.FailedPrecondition, "%s", errMsg)
-	}
-
-	// Mount NFS
-	klog.Infof("Mounting NFS: %s to %s", volumeSource, volumePath)
-	if err := s.mounter.Mount(volumeSource, volumePath, "nfs", mountOptions); err != nil {
-		errMsg := fmt.Sprintf("failed to mount NFS at %s: %v", volumePath, err)
-		klog.Error(errMsg)
-		// Clean up the created directory on mount failure
-		if rmErr := os.RemoveAll(volumePath); rmErr != nil {
-			klog.Errorf("Failed to clean up directory %s after mount failure: %v", volumePath, rmErr)
-		}
-		return nil, status.Errorf(codes.FailedPrecondition, "%s", errMsg)
-	}
-	klog.Infof("Successfully mounted NFS at: %s", volumePath)
-
-	err = client.FsdevAioCreate(deviceName, volumePath)
+	err = client.FsdevNfsCreate(deviceName, exportName, serverIP)
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to create filesystem device: %v", err)
 		klog.Error(errMsg)
@@ -357,7 +338,7 @@ func (s *StoragePluginServer) DeleteDevice(ctx context.Context, req *pb.DeleteDe
 	}
 	if CheckFsdevExists(req.DeviceName, fsdevs.Fsdevs) {
 		// Delete the filesystem device
-		err = client.FsdevAioDelete(req.DeviceName)
+		err = client.FsdevNfsDelete(req.DeviceName)
 		if err != nil {
 			errMsg := fmt.Sprintf("Failed to delete filesystem device %s: %v", req.DeviceName, err)
 			klog.Error(errMsg)
@@ -365,21 +346,6 @@ func (s *StoragePluginServer) DeleteDevice(ctx context.Context, req *pb.DeleteDe
 		}
 	} else {
 		klog.Infof("Filesystem device %s does not exist. Skipping deletion.", req.DeviceName)
-	}
-	// Calculate the expected volume path based on device name and configuration
-	volumePath := s.constructVolumePath(req.DeviceName)
-
-	klog.Infof("Ensuring volume %s is unmounted", volumePath)
-	extensiveMountPointCheck := true
-	forceUnmounter, ok := s.mounter.(mount.MounterForceUnmounter)
-	if ok {
-		klog.Infof("force unmount %s on %s", req.DeviceName, volumePath)
-		err = mount.CleanupMountWithForce(volumePath, forceUnmounter, extensiveMountPointCheck, 30*time.Second)
-	} else {
-		err = mount.CleanupMountPoint(volumePath, s.mounter, extensiveMountPointCheck)
-	}
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to unmount target %q: %v", volumePath, err)
 	}
 
 	resp := &pb.DeleteDeviceResponse{}
@@ -438,47 +404,4 @@ func (s *StoragePluginServer) GetDevice(ctx context.Context, req *pb.GetDeviceRe
 // ListDevices RPC
 func (s *StoragePluginServer) ListDevices(ctx context.Context, req *pb.ListDevicesRequest) (*pb.ListDevicesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "ListDevices is not implemented")
-}
-
-// constructVolumePath creates the volume path
-func (s *StoragePluginServer) constructVolumePath(deviceName string) string {
-	return filepath.Join(s.volumesPath, deviceName)
-}
-
-// getParamsFromRequest parses the volume parameters from the request, returns volume source and mount options
-// NOTE: parameters names are aligned with the parameters names returned by the https://github.com/kubernetes-csi/csi-driver-nfs
-// the parameters parsing logic is copied from NodePublishVolume call of the csi-driver-nfs
-func getVolumeParamsFromRequest(req *pb.CreateDeviceRequest) (string, []string, error) {
-	var server, baseDir, subDir string
-	var mountOptions []string
-	for k, v := range req.GetVolumeContext() {
-		// handle keys in a case-insensitive manner
-		switch strings.ToLower(k) {
-		case paramServer:
-			server = v
-		case paramShare:
-			baseDir = v
-		case paramSubDir:
-			subDir = v
-		case mountOptionsField:
-			if v != "" {
-				mountOptions = []string{v}
-			}
-		}
-	}
-	if server == "" {
-		return "", nil, status.Error(codes.InvalidArgument, fmt.Sprintf("parameter %s must be set in volumeContext", paramServer))
-	}
-	if baseDir == "" {
-		return "", nil, status.Error(codes.InvalidArgument, fmt.Sprintf("parameter %s must be set in volumeContext", paramShare))
-	}
-	if netutil.IsIPv6String(server) {
-		server = fmt.Sprintf("[%s]", server)
-	}
-	source := fmt.Sprintf("%s:%s", server, baseDir)
-	if subDir != "" {
-		source = strings.TrimRight(source, "/")
-		source = fmt.Sprintf("%s/%s", source, subDir)
-	}
-	return source, mountOptions, nil
 }
