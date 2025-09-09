@@ -3984,6 +3984,7 @@ _Appears in:_
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 | `configPorts` _object (keys:string, values:[ConfigPort](#configport))_ | ConfigPorts defines the observed state of the config ports.<br />It contains the actual port numbers that are exposed on the DPUService per cluster. |  |  |
+| `serviceID` _string_ | ServiceID is the ID of the service that the DPUService is associated with.<br />This is set when the DPUService is created. |  |  |
 
 
 #### DPUServiceTemplate

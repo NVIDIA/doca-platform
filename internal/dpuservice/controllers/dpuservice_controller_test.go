@@ -412,6 +412,95 @@ var _ = Describe("DPUService Controller", func() {
 			Expect(testClient.Create(ctx, dpuService[0])).ToNot(Succeed())
 		})
 
+		It("should successfully create the DPUService without serviceID and generate one automatically", func() {
+			clusters := []provisioningv1.DPUCluster{
+				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
+			}
+			for i := range clusters {
+				kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(clusters[i], cfg)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(testClient.Create(ctx, kamajiSecret)).To(Succeed())
+				cleanupObjs = append(cleanupObjs, kamajiSecret)
+			}
+
+			for _, cl := range clusters {
+				Expect(testClient.Create(ctx, &cl)).To(Succeed())
+				cleanupObjs = append(cleanupObjs, &cl)
+			}
+
+			By("creating the DPUService without serviceID")
+			dpuService := getMinimalDPUServices(testNS.Name)
+			dpuService[0].Spec.ServiceID = nil
+			dpuService[0].Spec.Interfaces = nil
+			Expect(testClient.Create(ctx, dpuService[0])).To(Succeed())
+			cleanupObjs = append(cleanupObjs, dpuService[0])
+
+			Eventually(func(g Gomega) {
+				assertDPUService(g, testClient, []*dpuservicev1.DPUService{dpuService[0]})
+				gotDPUService := &dpuservicev1.DPUService{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuService[0]), gotDPUService)).To(Succeed())
+				g.Expect(gotDPUService.Status.ServiceID).To(MatchRegexp(`^[a-z-0-9]{10}$`))
+			}).WithTimeout(30 * time.Second).Should(BeNil())
+
+			Eventually(func(g Gomega) {
+				assertArgoCDSecrets(g, testClient, clusters, &cleanupObjs, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
+			}).WithTimeout(30 * time.Second).Should(BeNil())
+
+			Eventually(func(g Gomega) {
+				assertAppProject(g, testClient, clusters)
+			}).WithTimeout(30 * time.Second).Should(BeNil())
+
+			// Check that the argo Application has been created correctly with generated serviceID
+			Eventually(func(g Gomega) {
+				applications := &argov1.ApplicationList{}
+				g.Expect(testClient.List(ctx, applications, client.MatchingLabels{
+					dpuservicev1.DPUServiceNameLabelKey:      dpuService[0].Name,
+					dpuservicev1.DPUServiceNamespaceLabelKey: dpuService[0].Namespace,
+				})).To(Succeed())
+				g.Expect(applications.Items).To(HaveLen(1))
+
+				app := applications.Items[0]
+				var appValuesMap map[string]interface{}
+				g.Expect(json.Unmarshal(app.Spec.Source.Helm.ValuesObject.Raw, &appValuesMap)).To(Succeed())
+				g.Expect(appValuesMap).To(HaveKey("serviceDaemonSet"))
+
+				serviceDaemonSet, ok := appValuesMap["serviceDaemonSet"].(map[string]interface{})
+				g.Expect(ok).To(BeTrue())
+				g.Expect(serviceDaemonSet).To(HaveKey("labels"))
+
+				labels, ok := serviceDaemonSet["labels"].(map[string]interface{})
+				g.Expect(ok).To(BeTrue())
+				g.Expect(labels).To(HaveKey(dpuservicev1.DPFServiceIDLabelKey))
+				generatedServiceID := labels[dpuservicev1.DPFServiceIDLabelKey].(string)
+				g.Expect(generatedServiceID).To(MatchRegexp(`^[a-z-0-9]{10}$`))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			Expect(testClient.Delete(ctx, dpuService[0])).To(Succeed())
+			// Ensure the applications are deleted.
+			Eventually(func(g Gomega) {
+				applications := &argov1.ApplicationList{}
+				g.Expect(testClient.List(ctx, applications)).To(Succeed())
+				// We're not running the ArgoCD controllers in this test so the finalizers must be removed here.
+				// Do this in each loop as there's a race condition where the Application is patched again
+				// by the DPUService controller.
+				for i := range applications.Items {
+					err := testClient.Patch(ctx, &applications.Items[i], client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`)))
+					if err != nil && !apierrors.IsNotFound(err) {
+						g.Expect(err).ToNot(HaveOccurred())
+					}
+				}
+				g.Expect(applications.Items).To(BeEmpty())
+
+			}).WithTimeout(30 * time.Second).Should(BeNil())
+
+			// Ensure the DPUService finalizer is removed and they are deleted.
+			Eventually(func(g Gomega) {
+				gotDPUServices := &dpuservicev1.DPUServiceList{}
+				g.Expect(testClient.List(ctx, gotDPUServices)).To(Succeed())
+				g.Expect(gotDPUServices.Items).To(BeEmpty())
+			}).WithTimeout(30 * time.Second).Should(BeNil())
+		})
+
 		// resources inside servicedaemonset
 		It("should successfully request trusted_sf from NAD annotation", func() {
 			// TODO: currently we only support one DPUCluster, but we should support multiple DPUClusters in the future.
@@ -912,7 +1001,11 @@ var _ = Describe("DPUService Controller reconcile interfaces", func() {
 				dpuService.Namespace = testNS.Name
 			}
 			r := &DPUServiceReconciler{Client: testClient, Scheme: testClient.Scheme()}
-			values, _, err := r.reconcileInterfaces(ctx, dpuService)
+			serviceID := ""
+			if dpuService.Spec.ServiceID != nil {
+				serviceID = *dpuService.Spec.ServiceID
+			}
+			values, _, err := r.reconcileInterfaces(ctx, dpuService, serviceID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(values).To(Equal(expected))
 		},
@@ -1801,7 +1894,7 @@ var _ = Describe("unit test DPUService functions", func() {
 				},
 			}
 
-			o, err := argoCDValuesFromDPUService(serviceDaemonSetValues, dpuService)
+			o, err := argoCDValuesFromDPUService(serviceDaemonSetValues, dpuService, *serviceID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(o.Raw).To(BeEquivalentTo([]byte(expectedValues)))
 		},
