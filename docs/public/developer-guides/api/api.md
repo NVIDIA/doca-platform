@@ -105,7 +105,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `operator.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPFOperatorConfig` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPFOperatorConfigSpec](#dpfoperatorconfigspec)_ |  |  |  |
 | `status` _[DPFOperatorConfigStatus](#dpfoperatorconfigstatus)_ |  |  |  |
 
@@ -124,7 +124,7 @@ DPFOperatorConfigList contains a list of DPFOperatorConfig
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `operator.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPFOperatorConfigList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPFOperatorConfig](#dpfoperatorconfig) array_ |  |  |  |
 
 
@@ -172,7 +172,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions exposes the current state of the OperatorConfig. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions exposes the current state of the OperatorConfig. |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 | `version` _string_ | Version is the version of the DPF Operator that is currently deployed. |  |  |
 
@@ -628,7 +628,7 @@ _Appears in:_
 | `customCASecretName` _string_ | CustomCASecretName indicates the name of the Kubernetes secret object<br />which containing the custom CA certificate |  |  |
 | `installInterface` _[ProvisioningInstallInterface](#provisioninginstallinterface)_ | InstallInterface is the interface through which the BFB is installed |  |  |
 | `maxDPUParallelInstallations` _integer_ | MaxDPUParallelInstallations specifies the maximum number of DPUs that can be provisioned concurrently.<br />A DPU is removed from the concurrent provisioning count as soon as it finishes the "OS Installing" phase and<br />enters the "Rebooting" phase of its provisioning lifecycle. | 50 | Minimum: 1 <br /> |
-| `multiDPUOperationsSyncWaitTime` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#duration-v1-meta)_ | MultiDPUOperationsSyncWaitTime is the wait time between DPUs sync operations on the same node.<br />It would take effect only on DPUNode objects which contain more than one DPU. | 30s | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br /> |
+| `multiDPUOperationsSyncWaitTime` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | MultiDPUOperationsSyncWaitTime is the wait time between DPUs sync operations on the same node.<br />It would take effect only on DPUNode objects which contain more than one DPU. | 30s | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br /> |
 | `maxUnavailableDPUNodes` _integer_ | MaxUnavailableDPUNodes is the maximum number of DPUNodes that are unavailable during the node effect period. | 50 | Minimum: 1 <br /> |
 
 
@@ -722,8 +722,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `cpu` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#quantity-resource-api)_ | CPU is the amount of CPU requested by the component. |  |  |
-| `memory` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#quantity-resource-api)_ | Memory is the amount of Memory requested by the component. |  |  |
+| `cpu` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#quantity-resource-api)_ | CPU is the amount of CPU requested by the component. |  |  |
+| `memory` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#quantity-resource-api)_ | Memory is the amount of Memory requested by the component. |  |  |
 
 
 
@@ -746,7 +746,7 @@ _Appears in:_
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
 | `deployInTargetCluster` _boolean_ |  |  |  |
 | `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
-| `secureFlowDeletionTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#duration-v1-meta)_ | SecureFlowDeletionTimeout controls the timeout for which the API server is unreachable after which all the flows<br />are deleted to prevent unintended packet leaks. It has effect when is greater than zero.<br />Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration. |  |  |
+| `secureFlowDeletionTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | SecureFlowDeletionTimeout controls the timeout for which the API server is unreachable after which all the flows<br />are deleted to prevent unintended packet leaks. It has effect when is greater than zero.<br />Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration. |  |  |
 
 
 #### SRIOVDevicePluginConfiguration
@@ -849,7 +849,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `BFB` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[BFBSpec](#bfbspec)_ |  |  |  |
 | `status` _[BFBStatus](#bfbstatus)_ |  | \{ phase:Initializing \} |  |
 
@@ -868,7 +868,7 @@ BFBList contains a list of BFB
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `BFBList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[BFB](#bfb) array_ |  |  |  |
 
 
@@ -1091,7 +1091,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPU` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUSpec](#dpuspec)_ |  |  |  |
 | `status` _[DPUStatus](#dpustatus)_ |  | \{ phase:Initializing \} |  |
 
@@ -1111,7 +1111,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUCluster` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUClusterSpec](#dpuclusterspec)_ |  |  |  |
 | `status` _[DPUClusterStatus](#dpuclusterstatus)_ |  | \{ phase:Pending \} |  |
 
@@ -1130,7 +1130,7 @@ DPUClusterList contains a list of DPUCluster
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUClusterList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUCluster](#dpucluster) array_ |  |  |  |
 
 
@@ -1168,7 +1168,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `phase` _[ClusterPhase](#clusterphase)_ |  | Pending | Enum: [Pending Creating Ready NotReady Failed] <br /> |
 | `version` _string_ | Version is the K8s control-plane version of the cluster |  |  |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ |  |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  |  |
 
 
 
@@ -1190,7 +1190,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUDevice` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUDeviceSpec](#dpudevicespec)_ |  |  |  |
 | `status` _[DPUDeviceStatus](#dpudevicestatus)_ |  |  |  |
 
@@ -1209,7 +1209,7 @@ DPUDeviceList contains a list of DPUDevices
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUDeviceList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUDevice](#dpudevice) array_ |  |  |  |
 
 
@@ -1265,7 +1265,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUDiscovery` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUDiscoverySpec](#dpudiscoveryspec)_ |  |  |  |
 | `status` _[DPUDiscoveryStatus](#dpudiscoverystatus)_ |  |  |  |
 
@@ -1284,7 +1284,7 @@ DPUDiscoveryList contains a list of DPUDiscovery types
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUDiscoveryList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUDiscovery](#dpudiscovery) array_ |  |  |  |
 
 
@@ -1302,7 +1302,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `ipRangeSpec` _[IPRangeValidationSpec](#iprangevalidationspec)_ | IPRange defines the range of IP addresses to scan |  |  |
-| `scanInterval` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#duration-v1-meta)_ | ScanInterval defines how often to perform the scan | 1h |  |
+| `scanInterval` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | ScanInterval defines how often to perform the scan | 1h |  |
 | `workers` _integer_ | Workers defines the number of workers to use for the scan (default 1 worker for each 255 IPs in the range) |  |  |
 
 
@@ -1319,7 +1319,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `lastScanTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#time-v1-meta)_ | LastScanTime is the timestamp of the last successful scan |  |  |
+| `lastScanTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastScanTime is the timestamp of the last successful scan |  |  |
 | `foundDPUs` _integer_ | FoundDPUs is the list of discovered DPU BMC IPs |  |  |
 
 
@@ -1354,7 +1354,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUFlavor` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUFlavorSpec](#dpuflavorspec)_ |  |  |  |
 
 
@@ -1406,7 +1406,7 @@ DPUFlavorList contains a list of DPUFlavor
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUFlavorList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUFlavor](#dpuflavor) array_ |  |  |  |
 
 
@@ -1464,8 +1464,8 @@ _Appears in:_
 | `bfcfgParameters` _string array_ | BFCfgParameters are the parameters to be set in the bf.cfg file. |  |  |
 | `configFiles` _[ConfigFile](#configfile) array_ | ConfigFiles are the files to be written on the DPU. |  |  |
 | `containerdConfig` _[ContainerdConfig](#containerdconfig)_ | ContainerdConfig contains the configuration for containerd. |  |  |
-| `dpuResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#resourcelist-v1-core)_ | DPUResources indicates the minimum amount of resources needed for a BFB with that flavor to be installed on a<br />DPU. Using this field, the controller can understand if that flavor can be installed on a particular DPU. It<br />should be set to the total amount of resources the system needs + the resources that should be made available for<br />DPUServices to consume. |  |  |
-| `systemReservedResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#resourcelist-v1-core)_ | SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are<br />not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and<br />SystemReservedResources. This field must not be specified if dpuResources are not specified. |  |  |
+| `dpuResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | DPUResources indicates the minimum amount of resources needed for a BFB with that flavor to be installed on a<br />DPU. Using this field, the controller can understand if that flavor can be installed on a particular DPU. It<br />should be set to the total amount of resources the system needs + the resources that should be made available for<br />DPUServices to consume. |  |  |
+| `systemReservedResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are<br />not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and<br />SystemReservedResources. This field must not be specified if dpuResources are not specified. |  |  |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | Specifies the DPU Mode type: one of dpu,zero-trust | dpu | Enum: [dpu zero-trust] <br /> |
 | `p0NetworkInterfaceConfig` _[NetworkInterfaceConfig](#networkinterfaceconfig)_ | P0NetworkInterfaceConfig contains the configuration for the host-side P0 network interface. |  |  |
 | `p1NetworkInterfaceConfig` _[NetworkInterfaceConfig](#networkinterfaceconfig)_ | P1NetworkInterfaceConfig contains the configuration for the host-side P1 network interface. |  |  |
@@ -1487,7 +1487,7 @@ DPUList contains a list of DPU
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPU](#dpu) array_ |  |  |  |
 
 
@@ -1506,7 +1506,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUNode` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUNodeSpec](#dpunodespec)_ |  |  |  |
 | `status` _[DPUNodeStatus](#dpunodestatus)_ |  |  |  |
 
@@ -1529,7 +1529,7 @@ DPUNodeList contains a list of DPUNode
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUNodeList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUNode](#dpunode) array_ |  |  |  |
 
 
@@ -1548,7 +1548,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUNodeMaintenance` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUNodeMaintenanceSpec](#dpunodemaintenancespec)_ |  |  |  |
 | `status` _[DPUNodeMaintenanceStatus](#dpunodemaintenancestatus)_ |  |  |  |
 
@@ -1567,7 +1567,7 @@ DPUNodeMaintenanceList contains a list of DPUNodeMaintenance
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUNodeMaintenanceList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUNodeMaintenance](#dpunodemaintenance) array_ |  |  |  |
 
 
@@ -1602,9 +1602,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
-| `nodeEffectSyncStartTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#time-v1-meta)_ | NodeEffectSyncStartTime is the time when the node effect sync started. |  |  |
-| `multiDPUOperationsSyncWaitTime` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#duration-v1-meta)_ | MultiDPUOperationsSyncWaitTime  is the wait time between DPUs on the same node. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+| `nodeEffectSyncStartTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | NodeEffectSyncStartTime is the time when the node effect sync started. |  |  |
+| `multiDPUOperationsSyncWaitTime` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | MultiDPUOperationsSyncWaitTime  is the wait time between DPUs on the same node. |  |  |
 | `maxUnavailableDPUNodes` _integer_ | MaxUnavailableDPUNodes is the maximum number of DPUNodes that are unavailable during the node effect period. |  | Minimum: 1 <br /> |
 
 
@@ -1639,7 +1639,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions represent the latest available observations of an object's state. |  | Type: array <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represent the latest available observations of an object's state. |  | Type: array <br /> |
 | `dpuInstallInterface` _string_ | The name of the interface which will be used to install the bfb image, can be one of gNOI,redfish |  | Enum: [gNOI redfish] <br /> |
 | `kubeNodeRef` _string_ | The name of the Kubernetes Node object that this DPUNode represents.<br />This field is optional and only relevant if the x86 host is part of the DPF Kubernetes cluster. |  |  |
 
@@ -1709,7 +1709,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUSet` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUSetSpec](#dpusetspec)_ |  |  |  |
 | `status` _[DPUSetStatus](#dpusetstatus)_ |  |  |  |
 
@@ -1728,7 +1728,7 @@ DPUSetList contains a list of DPUSet
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUSetList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUSet](#dpuset) array_ |  |  |  |
 
 
@@ -1746,7 +1746,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `strategy` _[DPUSetStrategy](#dpusetstrategy)_ | The rolling update strategy to use to updating existing DPUs with new ones. |  |  |
-| `dpuNodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#labelselector-v1-meta)_ | Select the DPUNodes with specific labels |  |  |
+| `dpuNodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the DPUNodes with specific labels |  |  |
 | `dpuSelector` _object (keys:string, values:string)_ | Select the DPU with specific labels |  |  |
 | `dpuTemplate` _[DPUTemplate](#dputemplate)_ | Object that describes the DPU that will be created if insufficient replicas are detected |  |  |
 
@@ -1822,7 +1822,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Initialize Interface Checking Host Reboot Required Node Effect Removal] <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ |  |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  |  |
 | `bfbFile` _string_ | BFBFile is the path to the BFB file |  |  |
 | `bfCFGFile` _string_ | BFCFGFile is the path to the bf.cfg |  |  |
 | `bfbVersion` _string_ | bfb version of this DPU |  |  |
@@ -1830,7 +1830,7 @@ _Appears in:_
 | `pciDevice` _string_ | pci device information of this DPU |  |  |
 | `requiredReset` _boolean_ | whether require reset of DPU |  |  |
 | `firmware` _[Firmware](#firmware)_ | the firmware information of DPU |  |  |
-| `addresses` _[NodeAddress](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#nodeaddress-v1-core) array_ | The DPU node's IP addresses |  |  |
+| `addresses` _[NodeAddress](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#nodeaddress-v1-core) array_ | The DPU node's IP addresses |  |  |
 | `dpuInstallInterface` _string_ | the name of the interface which will be used to install the bfb image,<br />and communicate with DPU, can be one of gNOI,redfish |  | Enum: [gNOI redfish] <br /> |
 | `postProvisioningNodeEffect` _boolean_ | Indicates that node effect was triggered by post-provisioning label changes |  |  |
 
@@ -2039,7 +2039,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `taint` _[Taint](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#taint-v1-core)_ | Add specify taint on the DPU node |  |  |
+| `taint` _[Taint](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#taint-v1-core)_ | Add specify taint on the DPU node |  |  |
 | `noEffect` _boolean_ | Do not do any action on the DPU node |  |  |
 | `customLabel` _object (keys:string, values:string)_ | Add specify labels on the DPU node |  |  |
 | `drain` _boolean_ | Drain the K8s host node by NodeMaintenance operator |  |  |
@@ -2081,7 +2081,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `maxUnavailable` _[IntOrString](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#intorstring-intstr-util)_ | MaxUnavailable is the maximum number of DPUs that can be unavailable during the update. |  |  |
+| `maxUnavailable` _[IntOrString](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#intorstring-intstr-util)_ | MaxUnavailable is the maximum number of DPUs that can be unavailable during the update. |  |  |
 
 
 #### Script
@@ -2213,8 +2213,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `request` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#quantity-resource-api)_ |  |  |  |
-| `limit` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#quantity-resource-api)_ |  |  |  |
+| `request` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#quantity-resource-api)_ |  |  |  |
+| `limit` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#quantity-resource-api)_ |  |  |  |
 
 
 #### DPUStoragePolicy
@@ -2232,7 +2232,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUStoragePolicy` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUStoragePolicySpec](#dpustoragepolicyspec)_ |  |  |  |
 | `status` _[DPUStoragePolicyStatus](#dpustoragepolicystatus)_ |  |  |  |
 
@@ -2251,7 +2251,7 @@ DPUStoragePolicyList contains a list of DPUStoragePolicy objects
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUStoragePolicyList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUStoragePolicy](#dpustoragepolicy) array_ |  |  |  |
 
 
@@ -2286,7 +2286,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Current service state conditions |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Current service state conditions |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
@@ -2305,7 +2305,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUStorageVendor` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUStorageVendorSpec](#dpustoragevendorspec)_ |  |  |  |
 | `status` _[DPUStorageVendorStatus](#dpustoragevendorstatus)_ |  |  |  |
 
@@ -2324,7 +2324,7 @@ DPUStorageVendorList contains a list of DPUStorageVendor
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUStorageVendorList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUStorageVendor](#dpustoragevendor) array_ |  |  |  |
 
 
@@ -2358,7 +2358,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
@@ -2377,7 +2377,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUVolume` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUVolumeSpec](#dpuvolumespec)_ |  |  |  |
 | `status` _[DPUVolumeStatus](#dpuvolumestatus)_ |  |  |  |
 
@@ -2397,7 +2397,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUVolumeAttachment` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUVolumeAttachmentSpec](#dpuvolumeattachmentspec)_ |  |  |  |
 | `status` _[DPUVolumeAttachmentStatus](#dpuvolumeattachmentstatus)_ |  |  |  |
 
@@ -2416,7 +2416,7 @@ DPUVolumeAttachmentList contains a list of DPUVolumeAttachment
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUVolumeAttachmentList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUVolumeAttachment](#dpuvolumeattachment) array_ |  |  |  |
 
 
@@ -2457,7 +2457,7 @@ _Appears in:_
 | `attachmentMetadata` _object (keys:string, values:string)_ | AttachmentMetadata contains the metadata of the volume attachment returned by the Vendor CSI driver |  |  |
 | `dpu` _[AttachmentStatusDPU](#attachmentstatusdpu)_ | Details about the DPU attachment |  |  |
 | `message` _string_ | The last error encountered during the attach operation, if any |  |  |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
@@ -2475,7 +2475,7 @@ DPUVolumeList contains a list of DPUVolume
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUVolumeList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUVolume](#dpuvolume) array_ |  |  |  |
 
 
@@ -2511,9 +2511,9 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `dpuStoragePolicyName` _string_ | Name of the DPUStoragePolicyName object that will be used to create the volume. |  | MinLength: 1 <br /> |
 | `parameters` _object (keys:string, values:string)_ | Additional parameters for the volume, these parameters are merged with the values from the DPUStoragePolicy object. | \{  \} |  |
-| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#persistentvolumeaccessmode-v1-core) array_ | Access modes define how the volume can be mounted. These modes are directly passed to the<br />PersistentVolumeClaim created for the Vendor CSI Plugin selected by the DPUStoragePolicy. |  | MaxItems: 3 <br />MinItems: 1 <br /> |
-| `resources` _[VolumeResourceRequirements](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#volumeresourcerequirements-v1-core)_ | Resources represents the storage resources requested for the volume. These resource requirements<br />are directly passed to the PersistentVolumeClaim created for the Vendor CSI Plugin selected<br />by the DPUStoragePolicy. Since volume resizing is not supported, modifications to the resource request are prohibited. |  |  |
-| `volumeMode` _[PersistentVolumeMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#persistentvolumemode-v1-core)_ | Volume mode defines how the volume should be mounted and used. This value is directly passed to the<br />PersistentVolumeClaim created for the Vendor CSI Plugin selected by the DPUStoragePolicy. | Filesystem | Enum: [Filesystem Block] <br /> |
+| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumeaccessmode-v1-core) array_ | Access modes define how the volume can be mounted. These modes are directly passed to the<br />PersistentVolumeClaim created for the Vendor CSI Plugin selected by the DPUStoragePolicy. |  | MaxItems: 3 <br />MinItems: 1 <br /> |
+| `resources` _[VolumeResourceRequirements](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#volumeresourcerequirements-v1-core)_ | Resources represents the storage resources requested for the volume. These resource requirements<br />are directly passed to the PersistentVolumeClaim created for the Vendor CSI Plugin selected<br />by the DPUStoragePolicy. Since volume resizing is not supported, modifications to the resource request are prohibited. |  |  |
+| `volumeMode` _[PersistentVolumeMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumemode-v1-core)_ | Volume mode defines how the volume should be mounted and used. This value is directly passed to the<br />PersistentVolumeClaim created for the Vendor CSI Plugin selected by the DPUStoragePolicy. | Filesystem | Enum: [Filesystem Block] <br /> |
 
 
 #### DPUVolumeState
@@ -2554,7 +2554,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `phase` _[DPUVolumePhase](#dpuvolumephase)_ | Phase of the volume |  | Enum: [Pending Bound] <br /> |
 | `state` _[DPUVolumeState](#dpuvolumestate)_ | State of the volume. This field is managed by the controller. User usually do not need to set fields from this struct. |  |  |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
@@ -2682,9 +2682,9 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `SVVolumeAttachment` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `spec` _[VolumeAttachmentSpec](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#volumeattachmentspec-v1-storage)_ |  |  |  |
-| `status` _[VolumeAttachmentStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#volumeattachmentstatus-v1-storage)_ |  |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[VolumeAttachmentSpec](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#volumeattachmentspec-v1-storage)_ |  |  |  |
+| `status` _[VolumeAttachmentStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#volumeattachmentstatus-v1-storage)_ |  |  |  |
 
 
 #### SVVolumeAttachmentList
@@ -2701,7 +2701,7 @@ SVVolumeAttachmentList contains a list of SVVolumeAttachment
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `SVVolumeAttachmentList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[SVVolumeAttachment](#svvolumeattachment) array_ |  |  |  |
 
 
@@ -2738,7 +2738,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `StoragePolicy` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[StoragePolicySpec](#storagepolicyspec)_ |  |  |  |
 | `status` _[StoragePolicyStatus](#storagepolicystatus)_ |  |  |  |
 
@@ -2757,7 +2757,7 @@ StoragePolicyList contains a list of StoragePolicy
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `StoragePolicyList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[StoragePolicy](#storagepolicy) array_ |  |  |  |
 
 
@@ -2831,7 +2831,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `StorageVendor` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[StorageVendorSpec](#storagevendorspec)_ |  |  |  |
 
 
@@ -2849,7 +2849,7 @@ StorageVendorList contains a list of StorageVendor
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `StorageVendorList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[StorageVendor](#storagevendor) array_ |  |  |  |
 
 
@@ -2921,7 +2921,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `Volume` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[VolumeSpec](#volumespec)_ |  |  |  |
 | `status` _[VolumeStatus](#volumestatus)_ |  |  |  |
 
@@ -2942,7 +2942,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `VolumeAttachment` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[VolumeAttachmentSpec](#volumeattachmentspec)_ |  |  |  |
 | `status` _[VolumeAttachmentStatus](#volumeattachmentstatus)_ |  |  |  |
 
@@ -2961,7 +2961,7 @@ VolumeAttachmentList contains a list of VolumeAttachment
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `VolumeAttachmentList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[VolumeAttachment](#volumeattachment) array_ |  |  |  |
 
 
@@ -3038,9 +3038,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `capacity` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#resourcelist-v1-core)_ | Actual capacity of the volume in the DPU cluster |  |  |
-| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#persistentvolumeaccessmode-v1-core) array_ | Actual access modes of the volume in the DPU cluster |  |  |
-| `volumeMode` _[PersistentVolumeMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#persistentvolumemode-v1-core)_ | Actual volume mode of the volume in the DPU cluster |  |  |
+| `capacity` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | Actual capacity of the volume in the DPU cluster |  |  |
+| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumeaccessmode-v1-core) array_ | Actual access modes of the volume in the DPU cluster |  |  |
+| `volumeMode` _[PersistentVolumeMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumemode-v1-core)_ | Actual volume mode of the volume in the DPU cluster |  |  |
 | `volumeAttributes` _object (keys:string, values:string)_ | VolumeAttributes from the PersistentVolume object in the DPU cluster<br />This field usually contains parameters returned by the Vendor CSI plugin on volume creation. |  |  |
 
 
@@ -3058,7 +3058,7 @@ VolumeList contains a list of Volume
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `storage.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `VolumeList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[Volume](#volume) array_ |  |  |  |
 
 
@@ -3076,8 +3076,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `capacityRange` _[CapacityRange](#capacityrange)_ | The capacity of the required storage space in bytes |  |  |
-| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#persistentvolumeaccessmode-v1-core) array_ | Contains the types of access modes required |  |  |
-| `volumeMode` _[PersistentVolumeMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#persistentvolumemode-v1-core)_ | volumeMode defines what type of volume is required by the claim.<br />Value of Filesystem is implied when not included in claim spec. |  |  |
+| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumeaccessmode-v1-core) array_ | Contains the types of access modes required |  |  |
+| `volumeMode` _[PersistentVolumeMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumemode-v1-core)_ | volumeMode defines what type of volume is required by the claim.<br />Value of Filesystem is implied when not included in claim spec. |  |  |
 
 
 #### VolumeSource
@@ -3130,9 +3130,9 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `id` _string_ |  |  |  |
-| `capacity` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#quantity-resource-api)_ |  |  |  |
-| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#persistentvolumeaccessmode-v1-core) array_ |  |  |  |
-| `reclaimPolicy` _[PersistentVolumeReclaimPolicy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#persistentvolumereclaimpolicy-v1-core)_ |  |  | Enum: [Delete Retain] <br /> |
+| `capacity` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#quantity-resource-api)_ |  |  |  |
+| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumeaccessmode-v1-core) array_ |  |  |  |
+| `reclaimPolicy` _[PersistentVolumeReclaimPolicy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumereclaimpolicy-v1-core)_ |  |  | Enum: [Delete Retain] <br /> |
 | `storageVendorName` _string_ |  |  |  |
 | `storageVendorPluginName` _string_ |  |  |  |
 | `volumeAttributes` _object (keys:string, values:string)_ |  |  |  |
@@ -3248,7 +3248,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `type` _string_ |  |  | Enum: [rdma] <br /> |
-| `config` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#rawextension-runtime-pkg)_ |  |  |  |
+| `config` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#rawextension-runtime-pkg)_ |  |  |  |
 
 
 #### ConfigPort
@@ -3268,7 +3268,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `name` _string_ | Name is a unique identifier for the port within the DPUService.<br />This name is used for reference inside the service. |  | MinLength: 1 <br />Pattern: `^[a-z0-9-]+$` <br /> |
 | `port` _integer_ | Port is the port number that will be exposed by the service.<br />Must be within the valid range of TCP/UDP ports (1-65535). |  |  |
-| `protocol` _[Protocol](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#protocol-v1-core)_ | Protocol specifies the transport protocol used by the port.<br />Supported values: TCP, UDP |  | Enum: [TCP UDP] <br /> |
+| `protocol` _[Protocol](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#protocol-v1-core)_ | Protocol specifies the transport protocol used by the port.<br />Supported values: TCP, UDP |  | Enum: [TCP UDP] <br /> |
 | `nodePort` _integer_ | NodePort is the external port assigned on each node in the cluster.<br />If not set, Kubernetes will automatically allocate a NodePort.<br /><br />Constraints:<br />- Can only be set when ServiceType is "NodePort".<br />- Must be within the clusters valid NodePort range (Kubernetes default is 30000-32767). |  |  |
 
 
@@ -3292,7 +3292,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `serviceType` _[ServiceType](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#servicetype-v1-core)_ | ServiceType specifies the type of Kubernetes Service to create.<br />All ports within this ConfigPorts will have the same ServiceType.<br />The value is immutable and cannot be changed after creation.<br />Supported values:<br />- "NodePort": Exposes ports externally on a node.<br />- "ClusterIP": Exposes ports internally within the cluster.<br />- "None": Internal-only service with no cluster IP.<br />Default: "NodePort" | NodePort | Enum: [NodePort ClusterIP None] <br /> |
+| `serviceType` _[ServiceType](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#servicetype-v1-core)_ | ServiceType specifies the type of Kubernetes Service to create.<br />All ports within this ConfigPorts will have the same ServiceType.<br />The value is immutable and cannot be changed after creation.<br />Supported values:<br />- "NodePort": Exposes ports externally on a node.<br />- "ClusterIP": Exposes ports internally within the cluster.<br />- "None": Internal-only service with no cluster IP.<br />Default: "NodePort" | NodePort | Enum: [NodePort ClusterIP None] <br /> |
 | `ports` _[ConfigPort](#configport) array_ | Ports defines the list of port configurations that will be exposed by the DPUService.<br />Each port must specify a name, port number, and protocol.<br /><br />Constraints:<br />- If ServiceType is "NodePort", ports may optionally specify a NodePort.<br />- If ServiceType is "None" or "ClusterIP", ports **cannot** specify a NodePort. |  |  |
 
 
@@ -3312,7 +3312,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUDeployment` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUDeploymentSpec](#dpudeploymentspec)_ |  |  |  |
 | `status` _[DPUDeploymentStatus](#dpudeploymentstatus)_ |  |  |  |
 
@@ -3331,7 +3331,7 @@ DPUDeploymentList contains a list of DPUDeployment
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUDeploymentList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUDeployment](#dpudeployment) array_ |  |  |  |
 
 
@@ -3420,7 +3420,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
@@ -3456,7 +3456,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUService` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUServiceSpec](#dpuservicespec)_ |  |  |  |
 | `status` _[DPUServiceStatus](#dpuservicestatus)_ |  |  |  |
 
@@ -3476,7 +3476,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceChain` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUServiceChainSpec](#dpuservicechainspec)_ |  |  |  |
 | `status` _[DPUServiceChainStatus](#dpuservicechainstatus)_ |  |  |  |
 
@@ -3495,7 +3495,7 @@ DPUServiceChainList contains a list of DPUServiceChain
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceChainList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUServiceChain](#dpuservicechain) array_ |  |  |  |
 
 
@@ -3512,7 +3512,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#labelselector-v1-meta)_ | Select the Clusters with specific labels, ServiceChainSet CRs will be created only for these Clusters |  |  |
+| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Clusters with specific labels, ServiceChainSet CRs will be created only for these Clusters |  |  |
 | `template` _[ServiceChainSetSpecTemplate](#servicechainsetspectemplate)_ | Template describes the ServiceChainSet that will be created for each selected Cluster. |  |  |
 
 
@@ -3529,7 +3529,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
@@ -3552,7 +3552,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceConfiguration` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUServiceConfigurationSpec](#dpuserviceconfigurationspec)_ |  |  |  |
 | `status` _[DPUServiceConfigurationStatus](#dpuserviceconfigurationstatus)_ |  |  |  |
 
@@ -3571,7 +3571,7 @@ DPUServiceConfigurationList contains a list of DPUServiceConfiguration
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceConfigurationList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUServiceConfiguration](#dpuserviceconfiguration) array_ |  |  |  |
 
 
@@ -3588,10 +3588,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `updateStrategy` _[DaemonSetUpdateStrategy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#daemonsetupdatestrategy-v1-apps)_ | UpdateStrategy specifies the DeaemonSet update strategy for the ServiceDaemonset. |  |  |
+| `updateStrategy` _[DaemonSetUpdateStrategy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#daemonsetupdatestrategy-v1-apps)_ | UpdateStrategy specifies the DeaemonSet update strategy for the ServiceDaemonset. |  |  |
 | `labels` _object (keys:string, values:string)_ | Labels specifies labels which are added to the ServiceDaemonSet. |  | MaxProperties: 50 <br /> |
 | `annotations` _object (keys:string, values:string)_ | Annotations specifies annotations which are added to the ServiceDaemonSet. |  | MaxProperties: 50 <br /> |
-| `resources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#resourcelist-v1-core)_ | Resources specifies resources which are added to the ServiceDaemonSet. |  |  |
+| `resources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | Resources specifies resources which are added to the ServiceDaemonSet. |  |  |
 
 
 #### DPUServiceConfigurationSpec
@@ -3641,7 +3641,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceCredentialRequest` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUServiceCredentialRequestSpec](#dpuservicecredentialrequestspec)_ |  |  |  |
 | `status` _[DPUServiceCredentialRequestStatus](#dpuservicecredentialrequeststatus)_ |  |  |  |
 
@@ -3660,7 +3660,7 @@ DPUServiceCredentialRequestList contains a list of DPUServiceCredentialRequest
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceCredentialRequestList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUServiceCredentialRequest](#dpuservicecredentialrequest) array_ |  |  |  |
 
 
@@ -3678,7 +3678,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `serviceAccount` _[NamespacedName](#namespacedname)_ | ServiceAccount defines the needed information to create the service account. |  |  |
-| `duration` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#duration-v1-meta)_ | Duration is the duration for which the token will be valid.<br />Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration.<br />e.g. "1h", "1m", "1s", "1ms", "1.5h", "2h45m".<br />Value duration must not be less than 10 minutes.<br />**Note:** The maximum TTL for a token is 24 hours, after which the token<br />will be rotated. |  | Pattern: `^([0-9]+(\.[0-9]+)?(ms\|s\|m\|h))+$` <br />Type: string <br /> |
+| `duration` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | Duration is the duration for which the token will be valid.<br />Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration.<br />e.g. "1h", "1m", "1s", "1ms", "1.5h", "2h45m".<br />Value duration must not be less than 10 minutes.<br />**Note:** The maximum TTL for a token is 24 hours, after which the token<br />will be rotated. |  | Pattern: `^([0-9]+(\.[0-9]+)?(ms\|s\|m\|h))+$` <br />Type: string <br /> |
 | `targetCluster` _[NamespacedName](#namespacedname)_ | TargetCluster defines the target cluster where the service account will<br />be created, and where a token for that service account will be requested.<br />If not provided, the token will be requested for the same cluster where<br />the DPUServiceCredentialRequest object is created. |  |  |
 | `type` _string_ | Type is the type of the secret that will be created.<br />The supported types are `kubeconfig` and `tokenFile`.<br />If `kubeconfig` is selected, the secret will contain a kubeconfig file,<br />that can be used to access the cluster.<br />If `tokenFile` is selected, the secret will contain a token file and several<br />environment variables that can be used to access the cluster. It can be used<br />with https://github.com/kubernetes/client-go/blob/v11.0.0/rest/config.go#L52<br />to create a client that will handle file rotation. |  | Enum: [kubeconfig tokenFile] <br /> |
 | `secret` _[NamespacedName](#namespacedname)_ | Secret defines the needed information to create the secret.<br />The secret will be of the type specified in the `spec.type` field. |  |  |
@@ -3698,11 +3698,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
 | `serviceAccount` _string_ | ServiceAccount is the namespaced name of the ServiceAccount resource created by<br />the controller for the DPUServiceCredentialRequest. |  |  |
 | `targetCluster` _string_ | TargetCluster is the cluster where the service account was created.<br />It has to be persisted in the status to be able to delete the service account<br />when the DPUServiceCredentialRequest is updated. |  |  |
-| `expirationTimestamp` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#time-v1-meta)_ | ExpirationTimestamp is the time when the token will expire. |  |  |
-| `issuedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#time-v1-meta)_ | IssuedAt is the time when the token was issued. |  |  |
+| `expirationTimestamp` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | ExpirationTimestamp is the time when the token will expire. |  |  |
+| `issuedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | IssuedAt is the time when the token was issued. |  |  |
 | `secret` _string_ | Sercet is the namespaced name of the Secret resource created by the controller for<br />the DPUServiceCredentialRequest. |  |  |
 
 
@@ -3721,7 +3721,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceIPAM` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUServiceIPAMSpec](#dpuserviceipamspec)_ |  |  |  |
 | `status` _[DPUServiceIPAMStatus](#dpuserviceipamstatus)_ |  |  |  |
 
@@ -3740,7 +3740,7 @@ DPUServiceIPAMList contains a list of DPUServiceIPAM
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceIPAMList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUServiceIPAM](#dpuserviceipam) array_ |  |  |  |
 
 
@@ -3760,8 +3760,8 @@ _Appears in:_
 | `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `ipv4Network` _[IPV4Network](#ipv4network)_ | IPV4Network is the configuration related to splitting a network into subnets per node, each with their own gateway. |  |  |
 | `ipv4Subnet` _[IPV4Subnet](#ipv4subnet)_ | IPV4Subnet is the configuration related to splitting a subnet into blocks per node. In this setup, there is a<br />single gateway. |  |  |
-| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#labelselector-v1-meta)_ | ClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration. |  |  |
-| `nodeSelector` _[NodeSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#nodeselector-v1-core)_ | NodeSelector determines in which DPU nodes the DPUServiceIPAM controller should apply the configuration. |  |  |
+| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | ClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration. |  |  |
+| `nodeSelector` _[NodeSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#nodeselector-v1-core)_ | NodeSelector determines in which DPU nodes the DPUServiceIPAM controller should apply the configuration. |  |  |
 
 
 #### DPUServiceIPAMStatus
@@ -3777,7 +3777,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
@@ -3796,7 +3796,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceInterface` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUServiceInterfaceSpec](#dpuserviceinterfacespec)_ |  |  |  |
 | `status` _[DPUServiceInterfaceStatus](#dpuserviceinterfacestatus)_ |  |  |  |
 
@@ -3815,7 +3815,7 @@ DPUServiceInterfaceList contains a list of DPUServiceInterface
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceInterfaceList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUServiceInterface](#dpuserviceinterface) array_ |  |  |  |
 
 
@@ -3832,7 +3832,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#labelselector-v1-meta)_ | Select the Clusters with specific labels, ServiceInterfaceSet CRs will be created only for these Clusters |  |  |
+| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Clusters with specific labels, ServiceInterfaceSet CRs will be created only for these Clusters |  |  |
 | `template` _[ServiceInterfaceSetSpecTemplate](#serviceinterfacesetspectemplate)_ | Template describes the ServiceInterfaceSet that will be created for each selected Cluster. |  |  |
 
 
@@ -3849,7 +3849,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
@@ -3867,7 +3867,7 @@ DPUServiceList contains a list of DPUService
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUService](#dpuservice) array_ |  |  |  |
 
 
@@ -3886,7 +3886,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceNAD` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUServiceNADSpec](#dpuservicenadspec)_ |  |  |  |
 | `status` _[DPUServiceNADStatus](#dpuservicenadstatus)_ |  |  |  |
 
@@ -3905,7 +3905,7 @@ DPUServiceNADList contains a list of DPUServiceNAD.
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceNADList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUServiceNAD](#dpuservicenad) array_ |  |  |  |
 
 
@@ -3943,7 +3943,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
 
 
 #### DPUServiceSpec
@@ -3981,7 +3981,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 | `configPorts` _object (keys:string, values:[ConfigPort](#configport))_ | ConfigPorts defines the observed state of the config ports.<br />It contains the actual port numbers that are exposed on the DPUService per cluster. |  |  |
 | `serviceID` _string_ | ServiceID is the ID of the service that the DPUService is associated with.<br />This is set when the DPUService is created. |  |  |
@@ -4005,7 +4005,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceTemplate` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUServiceTemplateSpec](#dpuservicetemplatespec)_ |  |  |  |
 | `status` _[DPUServiceTemplateStatus](#dpuservicetemplatestatus)_ |  |  |  |
 
@@ -4024,7 +4024,7 @@ DPUServiceTemplateList contains a list of DPUServiceTemplate
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUServiceTemplateList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUServiceTemplate](#dpuservicetemplate) array_ |  |  |  |
 
 
@@ -4043,7 +4043,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `deploymentServiceName` _string_ | DeploymentServiceName is the name of the DPU service this configuration refers to. It must match<br />.spec.deploymentServiceName of a DPUServiceConfiguration object and one of the keys in .spec.services of a<br />DPUDeployment object. |  | MaxLength: 28 <br />MinLength: 1 <br /> |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart reflects the Helm related configuration. The user is supposed to configure the values that are static<br />across any DPUServiceConfiguration used with this DPUServiceTemplate in a DPUDeployment. These values act as a<br />baseline and are merged with values specified in the DPUServiceConfiguration. In case of conflict, the<br />DPUServiceConfiguration values take precedence. |  |  |
-| `resourceRequirements` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#resourcelist-v1-core)_ | ResourceRequirements contains the overall resources required by this particular service to run on a single node |  |  |
+| `resourceRequirements` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | ResourceRequirements contains the overall resources required by this particular service to run on a single node |  |  |
 
 
 #### DPUServiceTemplateStatus
@@ -4059,7 +4059,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 | `versions` _object (keys:string, values:string)_ | Versions reflects the required versions the generated DPUService needs in order to function correctly. |  |  |
 
@@ -4078,7 +4078,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `nameSuffix` _string_ | NameSuffix is the suffix to be added to the name of the DPUSet object created by the DPUDeployment. |  | MaxLength: 24 <br />MinLength: 1 <br /> |
-| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#labelselector-v1-meta)_ | NodeSelector defines the nodes that the DPUSet should target |  |  |
+| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | NodeSelector defines the nodes that the DPUSet should target |  |  |
 | `dpuSelector` _object (keys:string, values:string)_ | DPUSelector defines the DPUs that the DPUSet should target |  |  |
 | `dpuAnnotations` _object (keys:string, values:string)_ | DPUAnnotations is the annotations to be added to the DPU object created by the DPUSet. |  | MaxProperties: 50 <br /> |
 
@@ -4117,7 +4117,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `source` _[ApplicationSource](#applicationsource)_ | Source specifies information about the Helm chart |  |  |
-| `values` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#rawextension-runtime-pkg)_ | Values specifies Helm values to be passed to Helm template, defined as a map. This takes precedence over Values. |  |  |
+| `values` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#rawextension-runtime-pkg)_ | Values specifies Helm values to be passed to Helm template, defined as a map. This takes precedence over Values. |  |  |
 
 
 #### IPAM
@@ -4333,7 +4333,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `ServiceChain` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[ServiceChainSpec](#servicechainspec)_ |  |  |  |
 | `status` _[ServiceChainStatus](#servicechainstatus)_ |  |  |  |
 
@@ -4352,7 +4352,7 @@ ServiceChainList contains a list of ServiceChain
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `ServiceChainList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[ServiceChain](#servicechain) array_ |  |  |  |
 
 
@@ -4371,7 +4371,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `ServiceChainSet` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[ServiceChainSetSpec](#servicechainsetspec)_ |  |  |  |
 | `status` _[ServiceChainSetStatus](#servicechainsetstatus)_ |  |  |  |
 
@@ -4390,7 +4390,7 @@ ServiceChainSetList contains a list of ServiceChainSet
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `ServiceChainSetList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[ServiceChainSet](#servicechainset) array_ |  |  |  |
 
 
@@ -4408,7 +4408,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#labelselector-v1-meta)_ | Select the Nodes with specific labels, ServiceChain CRs will be created<br />only for these Nodes |  |  |
+| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Nodes with specific labels, ServiceChain CRs will be created<br />only for these Nodes |  |  |
 | `template` _[ServiceChainSpecTemplate](#servicechainspectemplate)_ | ServiceChainSpecTemplate holds the template for the ServiceChainSpec |  |  |
 
 
@@ -4442,7 +4442,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 | `numberApplied` _integer_ | The number of nodes where the service chain is applied and is supposed to be applied. |  |  |
 | `numberReady` _integer_ | The number of nodes where the service chain is applied and ready. |  |  |
@@ -4497,7 +4497,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
@@ -4550,7 +4550,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `values` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#rawextension-runtime-pkg)_ | Values specifies Helm values to be passed to Helm template, defined as a map. This takes precedence over Values. |  |  |
+| `values` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#rawextension-runtime-pkg)_ | Values specifies Helm values to be passed to Helm template, defined as a map. This takes precedence over Values. |  |  |
 
 
 #### ServiceDaemonSetValues
@@ -4566,11 +4566,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeSelector` _[NodeSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#nodeselector-v1-core)_ | NodeSelector specifies which Nodes to deploy the ServiceDaemonSet to. |  |  |
-| `updateStrategy` _[DaemonSetUpdateStrategy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#daemonsetupdatestrategy-v1-apps)_ | UpdateStrategy specifies the DeaemonSet update strategy for the ServiceDaemonset. |  |  |
+| `nodeSelector` _[NodeSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#nodeselector-v1-core)_ | NodeSelector specifies which Nodes to deploy the ServiceDaemonSet to. |  |  |
+| `updateStrategy` _[DaemonSetUpdateStrategy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#daemonsetupdatestrategy-v1-apps)_ | UpdateStrategy specifies the DeaemonSet update strategy for the ServiceDaemonset. |  |  |
 | `labels` _object (keys:string, values:string)_ | Labels specifies labels which are added to the ServiceDaemonSet. |  |  |
 | `annotations` _object (keys:string, values:string)_ | Annotations specifies annotations which are added to the ServiceDaemonSet. |  |  |
-| `resources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#resourcelist-v1-core)_ | Resources specifies resources which are added to the ServiceDaemonSet. |  |  |
+| `resources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | Resources specifies resources which are added to the ServiceDaemonSet. |  |  |
 
 
 #### ServiceDef
@@ -4625,7 +4625,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `ServiceInterface` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[ServiceInterfaceSpec](#serviceinterfacespec)_ |  |  |  |
 | `status` _[ServiceInterfaceStatus](#serviceinterfacestatus)_ |  |  |  |
 
@@ -4644,7 +4644,7 @@ ServiceInterfaceList contains a list of ServiceInterface
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `ServiceInterfaceList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[ServiceInterface](#serviceinterface) array_ |  |  |  |
 
 
@@ -4663,7 +4663,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `ServiceInterfaceSet` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[ServiceInterfaceSetSpec](#serviceinterfacesetspec)_ |  |  |  |
 | `status` _[ServiceInterfaceSetStatus](#serviceinterfacesetstatus)_ |  |  |  |
 
@@ -4682,7 +4682,7 @@ ServiceInterfaceSetList contains a list of ServiceInterfaceSet
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `ServiceInterfaceSetList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[ServiceInterfaceSet](#serviceinterfaceset) array_ |  |  |  |
 
 
@@ -4700,7 +4700,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#labelselector-v1-meta)_ | Select the Nodes with specific labels, ServiceInterface CRs will be<br />created only for these Nodes |  |  |
+| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Nodes with specific labels, ServiceInterface CRs will be<br />created only for these Nodes |  |  |
 | `template` _[ServiceInterfaceSpecTemplate](#serviceinterfacespectemplate)_ | Template holds the template for the serviceInterfaceSpec |  |  |
 
 
@@ -4734,7 +4734,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 | `numberApplied` _integer_ | The number of nodes where the service chain is applied and is supposed to be applied. |  |  |
 | `numberReady` _integer_ | The number of nodes where the service chain is applied and ready. |  |  |
@@ -4795,7 +4795,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
@@ -4970,7 +4970,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `vpc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUVPC` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUVPCSpec](#dpuvpcspec)_ |  |  |  |
 | `status` _[DPUVPCStatus](#dpuvpcstatus)_ |  |  |  |
 
@@ -4989,7 +4989,7 @@ DPUVPCList contains a list of DPUVPC
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `vpc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUVPCList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUVPC](#dpuvpc) array_ |  |  |  |
 
 
@@ -5007,7 +5007,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `tenant` _string_ | Tenant which owns the VPC. |  | MinLength: 1 <br /> |
-| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#labelselector-v1-meta)_ | NodeSelector Selects the DPU Nodes with specific labels which belong to this VPC. |  |  |
+| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | NodeSelector Selects the DPU Nodes with specific labels which belong to this VPC. |  |  |
 | `isolationClassName` _string_ | IsolationClassName is the name of the isolation class to use for the VPC |  | MinLength: 1 <br /> |
 | `interNetworkAccess` _boolean_ | InterNetworkAccess defines if virtual networks within the VPC are routed or not.<br />if set to false, communication between virtual networks is not allowed. |  |  |
 
@@ -5026,7 +5026,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `virtualNetworks` _[VirtualNetworkStatus](#virtualnetworkstatus) array_ | VirtualNetworks contains the virtual networks that belong to this VPC |  |  |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
@@ -5045,7 +5045,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `vpc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUVirtualNetwork` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUVirtualNetworkSpec](#dpuvirtualnetworkspec)_ |  |  |  |
 | `status` _[DPUVirtualNetworkStatus](#dpuvirtualnetworkstatus)_ |  |  |  |
 
@@ -5064,7 +5064,7 @@ DPUVirtualNetworkList contains a list of DPUVirtualNetwork
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `vpc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUVirtualNetworkList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[DPUVirtualNetwork](#dpuvirtualnetwork) array_ |  |  |  |
 
 
@@ -5081,7 +5081,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#labelselector-v1-meta)_ | NodeSelector Selects the DPU Nodes with specific labels which can belong to the virtual network. |  |  |
+| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | NodeSelector Selects the DPU Nodes with specific labels which can belong to the virtual network. |  |  |
 | `vpcName` _string_ | vpcName is the name of the DPUVPC the virtual network belongs within the same namespace. |  |  |
 | `type` _[NetworkType](#networktype)_ | Type of the virtual network |  | Enum: [Bridged] <br /> |
 | `externallyRouted` _boolean_ | ExternallyRouted defines if the virtual network can be routed externally |  |  |
@@ -5102,7 +5102,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
@@ -5138,7 +5138,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `vpc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `IsolationClass` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[IsolationClassSpec](#isolationclassspec)_ |  |  |  |
 | `status` _[IsolationClassStatus](#isolationclassstatus)_ |  |  |  |
 
@@ -5157,7 +5157,7 @@ IsolationClassList contains a list of IsolationClass
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `vpc.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `IsolationClassList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `items` _[IsolationClass](#isolationclass) array_ |  |  |  |
 
 

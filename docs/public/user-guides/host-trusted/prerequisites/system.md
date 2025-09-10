@@ -54,7 +54,7 @@ Each worker machine:
 
 ### Kubernetes
 
-* Kubernetes 1.31
+* Kubernetes 1.32 - 1.34
 * Control plane nodes have the labels `"node-role.kubernetes.io/control-plane" : ""`
 
 ## Network setup
