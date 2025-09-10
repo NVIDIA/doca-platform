@@ -15,6 +15,7 @@ package nodeutils
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -22,6 +23,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
+	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 	"github.com/ovn-org/libovsdb/client"
 	"github.com/ovn-org/libovsdb/model"
 	corev1 "k8s.io/api/core/v1"
@@ -191,17 +193,24 @@ func getPortNameForServiceInterfaceTypeService(ctx context.Context, client ctrlc
 	return port.Name, nil
 }
 
-func GetPortNameForInterface(ctx context.Context, client ctrlclient.Client, ovsclient ovsutils.API, serviceInterface *dpuservicev1.ServiceInterface, nodeName string) (string, error) {
+func GetPortNameForInterface(ctx context.Context, client ctrlclient.Client, ovsclient ovsutils.API, networkHelper networkhelper.NetworkHelper, serviceInterface *dpuservicev1.ServiceInterface, nodeName string) (string, error) {
 	log := ctrllog.FromContext(ctx)
 
 	// We only handle relevant interface types
 	switch serviceInterface.Spec.InterfaceType {
 	case dpuservicev1.InterfaceTypePF:
-		interfaceName := fmt.Sprintf("pf%dhpf", serviceInterface.Spec.PF.ID)
+		interfaceName, err := networkHelper.GetPFRepresentorDPU(strconv.Itoa(serviceInterface.Spec.PF.ID))
+		if err != nil {
+			return "", fmt.Errorf("failed to get PF representor, PFID %d. %w", serviceInterface.Spec.PF.ID, err)
+		}
 		log.Info("Matched on interface type: PF", "interface name", interfaceName)
 		return interfaceName, nil
 	case dpuservicev1.InterfaceTypeVF:
-		interfaceName := fmt.Sprintf("pf%dvf%d", serviceInterface.Spec.VF.PFID, serviceInterface.Spec.VF.VFID)
+		interfaceName, err := networkHelper.GetVFRepresentorDPU(
+			strconv.Itoa(serviceInterface.Spec.VF.PFID), strconv.Itoa(serviceInterface.Spec.VF.VFID))
+		if err != nil {
+			return "", fmt.Errorf("failed to get VF representor, PFID %d, VFID %d. %w", serviceInterface.Spec.VF.PFID, serviceInterface.Spec.VF.VFID, err)
+		}
 		log.Info("Matched on interface type: VF", "interface name", interfaceName)
 		return interfaceName, nil
 	case dpuservicev1.InterfaceTypeService:

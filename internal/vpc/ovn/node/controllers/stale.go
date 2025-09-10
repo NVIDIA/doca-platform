@@ -22,6 +22,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
+	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 	"github.com/ovn-org/libovsdb/model"
 	"github.com/ovn-org/libovsdb/ovsdb"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -30,18 +31,20 @@ import (
 )
 
 type StaleObjectRemover struct {
-	duration time.Duration
-	client   client.Client
-	nodeName string
-	OVS      ovsutils.API
+	duration      time.Duration
+	client        client.Client
+	nodeName      string
+	OVS           ovsutils.API
+	NetworkHelper networkhelper.NetworkHelper
 }
 
-func NewStaleObjectRemover(duration time.Duration, client client.Client, nodeName string, ovs ovsutils.API) *StaleObjectRemover {
+func NewStaleObjectRemover(duration time.Duration, client client.Client, nodeName string, ovs ovsutils.API, networkHelper networkhelper.NetworkHelper) *StaleObjectRemover {
 	return &StaleObjectRemover{
-		duration: duration,
-		client:   client,
-		nodeName: nodeName,
-		OVS:      ovs,
+		duration:      duration,
+		client:        client,
+		nodeName:      nodeName,
+		OVS:           ovs,
+		NetworkHelper: networkHelper,
 	}
 }
 
@@ -104,9 +107,9 @@ func (r *StaleObjectRemover) removeStalePorts(ctx context.Context) error {
 		if skipServiceInterface(&serviceInterface) {
 			continue
 		}
-		portName, err := nodeutils.GetPortNameForInterface(ctx, r.client, r.OVS, &serviceInterface, r.nodeName)
+		portName, err := nodeutils.GetPortNameForInterface(ctx, r.client, r.OVS, r.NetworkHelper, &serviceInterface, r.nodeName)
 		if err != nil {
-			return fmt.Errorf("failed to get port name for service interface: %v", err)
+			return fmt.Errorf("failed to get port name for service interface: %w", err)
 		}
 		desiredPortSet.Insert(portName)
 	}
