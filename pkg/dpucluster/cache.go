@@ -53,7 +53,7 @@ var ErrDPUClusterNotConnected = fmt.Errorf("dpu cluster is not connected")
 
 // GetWatcherCallback the function is called when a client for a dpu cluster is created.
 // The function should return a Watcher that will be used to watch for events for the given cluster.
-type GetWatcherCallback func(cluster client.ObjectKey) Watcher
+type GetWatcherCallback func(ctx context.Context, c client.Client, cluster client.ObjectKey) (Watcher, error)
 
 type Options struct {
 	// hostClient is the client for the host cluster. It is used to fetch the
@@ -386,9 +386,17 @@ func (rc *RemoteCache) reconcile(ctx context.Context, cluster *provisioningv1.DP
 		return ctrl.Result{}, err
 	}
 
+	client, err := accessor.getClient()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// register watches
 	for _, getWatcher := range rc.options.getWatcherCallbacks {
-		watcher := getWatcher(clusterKey)
+		watcher, err := getWatcher(ctx, client, clusterKey)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to get watcher: %w", err)
+		}
 		if err := accessor.watch(ctx, watcher); err != nil {
 			log.Error(err, "failed to register watch", "watcher", watcher.Name())
 			return ctrl.Result{}, err

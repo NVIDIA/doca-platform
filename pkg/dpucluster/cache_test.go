@@ -17,6 +17,7 @@ limitations under the License.
 package dpucluster
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -56,12 +57,13 @@ func TestRemoteCache_Reconcile(t *testing.T) {
 
 	// Create a mock watcher callback to test callback functionality
 	callbackInvoked := false
-	mockWatcherCallback := func(cluster client.ObjectKey) Watcher {
+	mockWatcherCallback := func(ctx context.Context, c client.Client, cluster client.ObjectKey) (Watcher, error) {
 		callbackInvoked = true
 		g.Expect(cluster).To(Equal(dpuClusterKey))
+		g.Expect(c).ToNot(BeNil())
 
 		// Return a mock watcher
-		return &mockWatcher{name: "test-watcher"}
+		return &mockWatcher{name: "test-watcher"}, nil
 	}
 
 	opts := makeRemoteCacheOptions(OptionScheme{Scheme: testEnv.GetScheme()},
