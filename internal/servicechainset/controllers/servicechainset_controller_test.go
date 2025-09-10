@@ -18,6 +18,7 @@ package controller //nolint:dupl
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
@@ -245,6 +246,89 @@ var _ = Describe("ServiceChainSet Controller", func() {
 				g.ExpectWithOffset(1, testClient.List(ctx, scList)).NotTo(HaveOccurred())
 				g.Expect(scList.Items).To(HaveLen(1))
 				g.Expect(scList.Items[0].GetNamespace()).NotTo(Equal(testNS.Name))
+			}, timeout*30, interval).Should(Succeed())
+		})
+		It("ServiceChainSet has condition ServiceChainsReconciled with AwaitingDeletion Reason when there are still objects in the DPUCluster", func() {
+			By("Creating ServiceChainSet, with Node Selector")
+			set := createServiceChainSet(ctx, testNS.Name, &metav1.LabelSelector{
+				MatchLabels: map[string]string{"role": "firewall"}})
+
+			By("Creating 2 nodes")
+			labels := map[string]string{"role": "firewall"}
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", labels))
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "node2", labels))
+
+			By("Ensuring that the ServiceChainSet has been reconciled successfully")
+			Eventually(func(g Gomega) []metav1.Condition {
+				got := &dpuservicev1.ServiceChainSet{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: set.Namespace, Name: set.Name}, got)).To(Succeed())
+				return got.Status.Conditions
+			}).WithTimeout(10 * time.Second).Should(ContainElement(
+				And(
+					HaveField("Type", string(dpuservicev1.ConditionServiceChainsReconciled)),
+					HaveField("Status", metav1.ConditionTrue),
+				),
+			))
+
+			By("Adding finalizer to the underlying objects")
+			gotServiceChainsList := &dpuservicev1.ServiceChainList{}
+			Expect(testClient.List(ctx, gotServiceChainsList, client.InNamespace(set.Namespace))).To(Succeed())
+			Expect(gotServiceChainsList.Items).ToNot(BeEmpty())
+			for _, si := range gotServiceChainsList.Items {
+				si.SetFinalizers([]string{"test.dpu.nvidia.com/test"})
+				si.SetGroupVersionKind(dpuservicev1.ServiceChainGroupVersionKind)
+				si.SetManagedFields(nil)
+				Expect(testClient.Patch(ctx, &si, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+			}
+
+			By("Deleting the ServiceChainSet")
+			Expect(testClient.Delete(ctx, set)).To(Succeed())
+
+			By("Checking the deleted condition is added")
+			Eventually(func(g Gomega) []metav1.Condition {
+				got := &dpuservicev1.ServiceChainSet{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: set.Namespace, Name: set.Name}, got)).To(Succeed())
+				return got.Status.Conditions
+			}).WithTimeout(10 * time.Second).Should(ConsistOf(
+				And(
+					HaveField("Type", string(conditions.TypeReady)),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", string(conditions.ReasonAwaitingDeletion)),
+				),
+				And(
+					HaveField("Type", string(dpuservicev1.ConditionServiceChainsReconciled)),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", string(conditions.ReasonAwaitingDeletion)),
+				),
+				And(
+					HaveField("Type", string(dpuservicev1.ConditionServiceChainsReady)),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", string(conditions.ReasonPending)),
+				),
+			))
+
+			By("Removing finalizer from the underlying object to ensure deletion")
+			gotChains := &dpuservicev1.ServiceChainList{}
+			Expect(testClient.List(ctx, gotChains, client.InNamespace(set.Namespace))).To(Succeed())
+			Expect(gotChains.Items).ToNot(BeEmpty())
+			for _, si := range gotChains.Items {
+				si.SetFinalizers(nil)
+				si.SetGroupVersionKind(dpuservicev1.ServiceChainGroupVersionKind)
+				si.SetManagedFields(nil)
+				Expect(testClient.Patch(ctx, &si, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+			}
+
+			By("Checking the ServiceChainSet is deleted")
+			Eventually(func(g Gomega) error {
+				got := &dpuservicev1.ServiceChainSet{}
+				err := testClient.Get(ctx, client.ObjectKey{Namespace: set.Namespace, Name: set.Name}, got)
+				if apierrors.IsNotFound(err) {
+					return nil
+				}
+				if err != nil {
+					return err
+				}
+				return fmt.Errorf("ServiceChainSet still exists")
 			}, timeout*30, interval).Should(Succeed())
 		})
 		It("should successfully reconcile the ServiceChainSet with maximum name length", func() {
