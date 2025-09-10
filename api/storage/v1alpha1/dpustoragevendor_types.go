@@ -37,6 +37,9 @@ const (
 	// ConditionDPUStorageVendorReconciled is the condition type that indicates that the
 	// DPUStorageVendor is reconciled.
 	ConditionDPUStorageVendorReconciled conditions.ConditionType = "DPUStorageVendorReconciled"
+	// ConditionDPUStorageVendorValid is the condition type that indicates that the
+	// DPUStorageVendor is valid (StorageClass and CSIDriver are present in the DPU cluster).
+	ConditionDPUStorageVendorValid conditions.ConditionType = "Valid"
 )
 
 var (
@@ -44,6 +47,7 @@ var (
 	DPUStorageVendorConditions = []conditions.ConditionType{
 		conditions.TypeReady,
 		ConditionDPUStorageVendorReconciled,
+		ConditionDPUStorageVendorValid,
 	}
 )
 
@@ -90,6 +94,8 @@ type DPUStorageVendorSpec struct {
 
 // DPUStorageVendorStatus defines the observed state of DPUStorageVendor
 type DPUStorageVendorStatus struct {
+	// DPUClusters is the list of clusters on which the DPUStorageVendor is deployed.
+	DPUClusters []ObjectReference `json:"dpuClusters,omitempty"`
 	// Conditions defines current service state.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
