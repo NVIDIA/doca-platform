@@ -53,13 +53,8 @@ type NetworkRequest struct {
 	NumOfVFs        int    `json:"numOfVFs"`
 	ControlPlaneMTU int    `json:"controlPlaneMTU"`
 
-	// PF network interface configuration
-	// Note: MTU=0 means "no configuration requested, keep current"
-	// DHCP=nil when no configuration requested
-	PF0MTU  int32 `json:"pf0MTU"`
-	PF0DHCP *bool `json:"pf0DHCP,omitempty"`
-	PF1MTU  int32 `json:"pf1MTU"`
-	PF1DHCP *bool `json:"pf1DHCP,omitempty"`
+	// PortConfigs holds the network interface configuration for each port
+	PortConfigs []networkutil.PortConfig `json:"portConfigs,omitempty"`
 
 	// OSType is the operating system type of the host (e.g., "ubuntu", "rhel", "centos")
 	OSType string `json:"osType,omitempty"`
