@@ -21,6 +21,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
+	mock_networkhelper "github.com/nvidia/doca-platform/pkg/utils/networkhelper/mock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	gomock "go.uber.org/mock/gomock"
@@ -35,6 +36,7 @@ var _ = Describe("stale ports cleanup", func() {
 	var (
 		ctrl                  *gomock.Controller
 		ovsMock               *ovsutils.MockAPI
+		networkHelperMock     *mock_networkhelper.MockNetworkHelper
 		ovsConditionalAPIMock *ovsutils.MockConditionalAPI
 		staleObjRemover       *StaleObjectRemover
 		testNS                *corev1.Namespace
@@ -45,9 +47,10 @@ var _ = Describe("stale ports cleanup", func() {
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
 		ovsMock = ovsutils.NewMockAPI(ctrl)
+		networkHelperMock = mock_networkhelper.NewMockNetworkHelper(ctrl)
 
 		ovsConditionalAPIMock = ovsutils.NewMockConditionalAPI(ctrl)
-		staleObjRemover = NewStaleObjectRemover(0, testClient, "test-node", ovsMock)
+		staleObjRemover = NewStaleObjectRemover(0, testClient, "test-node", ovsMock, networkHelperMock)
 		cleanupObjects = []client.Object{}
 	})
 
@@ -162,6 +165,8 @@ var _ = Describe("stale ports cleanup", func() {
 		}
 		Expect(testClient.Create(ctx, serviceInterface)).To(Succeed())
 		cleanupObjects = append(cleanupObjects, serviceInterface)
+
+		networkHelperMock.EXPECT().GetVFRepresentorDPU("0", "3").Return("pf0vf3", nil).Times(1)
 
 		ovsMock.EXPECT().Get(gomock.Any(), gomock.AssignableToTypeOf(&ovsmodel.Bridge{})).DoAndReturn(
 			func(ctx context.Context, bridge *ovsmodel.Bridge) error {
