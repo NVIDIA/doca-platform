@@ -55,7 +55,7 @@ spec:
     type: RollingUpdate
   dpuTemplate:
     spec:
-      dpuFlavor: dpf-provisioning-hbn-ovn
+      dpuFlavor: passthrough
       bfb:
         name: bf-bundle-new
       nodeEffect:
@@ -103,7 +103,7 @@ spec:
     type: RollingUpdate
   dpuTemplate:
     spec:
-      dpuFlavor: dpf-provisioning-hbn-ovn
+      dpuFlavor: passthrough
       bfb:
       name: bf-bundle-dk-ga
       nodeEffect:
@@ -145,7 +145,7 @@ spec:
     annotations:
       provisioning.dpu.nvidia.com/host-power-cycle-required: "true"
     spec:
-      dpuFlavor: dpf-provisioning-hbn-ovn
+      dpuFlavor: passthrough
       bfb:
         name: bf-bundle-new
       nodeEffect:
@@ -234,7 +234,7 @@ spec:
     type: RollingUpdate
   dpuTemplate:
     spec:
-      dpuFlavor: dpf-provisioning-hbn-ovn
+      dpuFlavor: passthrough
       bfb:
         name: bf-bundle-new
       nodeEffect:
