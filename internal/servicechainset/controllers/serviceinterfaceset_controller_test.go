@@ -18,6 +18,7 @@ package controller //nolint:dupl
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
@@ -251,6 +252,89 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 				g.ExpectWithOffset(1, testClient.List(ctx, siList)).NotTo(HaveOccurred())
 				g.Expect(siList.Items).To(HaveLen(1))
 				g.Expect(siList.Items[0].GetNamespace()).NotTo(Equal(testNS.Name))
+			}, timeout*30, interval).Should(Succeed())
+		})
+		It("ServiceInterfaceSet has condition ServiceInterfacesReconciled with AwaitingDeletion Reason when there are still objects in the DPUCluster", func() {
+			By("Creating ServiceInterfaceSet, with Node Selector")
+			set := createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+				MatchLabels: map[string]string{"role": "firewall"}})
+
+			By("Creating 2 nodes")
+			labels := map[string]string{"role": "firewall"}
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", labels))
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "node2", labels))
+
+			By("Ensuring that the ServiceInterfaceSet has been reconciled successfully")
+			Eventually(func(g Gomega) []metav1.Condition {
+				got := &dpuservicev1.ServiceInterfaceSet{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: set.Namespace, Name: set.Name}, got)).To(Succeed())
+				return got.Status.Conditions
+			}).WithTimeout(10 * time.Second).Should(ContainElement(
+				And(
+					HaveField("Type", string(dpuservicev1.ConditionServiceInterfacesReconciled)),
+					HaveField("Status", metav1.ConditionTrue),
+				),
+			))
+
+			By("Adding finalizer to the underlying objects")
+			gotServiceInterfacesList := &dpuservicev1.ServiceInterfaceList{}
+			Expect(testClient.List(ctx, gotServiceInterfacesList, client.InNamespace(set.Namespace))).To(Succeed())
+			Expect(gotServiceInterfacesList.Items).ToNot(BeEmpty())
+			for _, si := range gotServiceInterfacesList.Items {
+				si.SetFinalizers([]string{"test.dpu.nvidia.com/test"})
+				si.SetGroupVersionKind(dpuservicev1.ServiceInterfaceGroupVersionKind)
+				si.SetManagedFields(nil)
+				Expect(testClient.Patch(ctx, &si, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+			}
+
+			By("Deleting the ServiceInterfaceSet")
+			Expect(testClient.Delete(ctx, set)).To(Succeed())
+
+			By("Checking the deleted condition is added")
+			Eventually(func(g Gomega) []metav1.Condition {
+				got := &dpuservicev1.ServiceInterfaceSet{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: set.Namespace, Name: set.Name}, got)).To(Succeed())
+				return got.Status.Conditions
+			}).WithTimeout(10 * time.Second).Should(ConsistOf(
+				And(
+					HaveField("Type", string(conditions.TypeReady)),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", string(conditions.ReasonAwaitingDeletion)),
+				),
+				And(
+					HaveField("Type", string(dpuservicev1.ConditionServiceInterfacesReconciled)),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", string(conditions.ReasonAwaitingDeletion)),
+				),
+				And(
+					HaveField("Type", string(dpuservicev1.ConditionServiceInterfacesReady)),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", string(conditions.ReasonPending)),
+				),
+			))
+
+			By("Removing finalizer from the underlying object to ensure deletion")
+			gotInterfaces := &dpuservicev1.ServiceInterfaceList{}
+			Expect(testClient.List(ctx, gotInterfaces, client.InNamespace(set.Namespace))).To(Succeed())
+			Expect(gotInterfaces.Items).ToNot(BeEmpty())
+			for _, si := range gotInterfaces.Items {
+				si.SetFinalizers(nil)
+				si.SetGroupVersionKind(dpuservicev1.ServiceInterfaceGroupVersionKind)
+				si.SetManagedFields(nil)
+				Expect(testClient.Patch(ctx, &si, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+			}
+
+			By("Checking the ServiceInterfaceSet is deleted")
+			Eventually(func(g Gomega) error {
+				got := &dpuservicev1.ServiceInterfaceSet{}
+				err := testClient.Get(ctx, client.ObjectKey{Namespace: set.Namespace, Name: set.Name}, got)
+				if apierrors.IsNotFound(err) {
+					return nil
+				}
+				if err != nil {
+					return err
+				}
+				return fmt.Errorf("ServiceInterfaceSet still exists")
 			}, timeout*30, interval).Should(Succeed())
 		})
 		It("should successfully reconcile the ServiceInterface with maximum name length", func() {

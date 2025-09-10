@@ -105,6 +105,9 @@ var _ = BeforeSuite(func() {
 	err = sisr.SetupWithManager(ctx, testManager)
 	Expect(err).ToNot(HaveOccurred())
 
+	// set defaultRequeueAfter to 100 milliseconds
+	defaultRequeueAfter = 100 * time.Millisecond
+
 	go func() {
 		defer GinkgoRecover()
 		err = testManager.Start(ctx)

@@ -105,7 +105,21 @@ func (r *ServiceInterfaceSetReconciler) Reconcile(ctx context.Context, req ctrl.
 	conditions.EnsureConditions(serviceInterfaceSet, dpuservicev1.ServiceInterfaceSetConditions)
 
 	if !serviceInterfaceSet.ObjectMeta.DeletionTimestamp.IsZero() {
-		return reconcileDelete(ctx, serviceInterfaceSet, r.Client, r, dpuservicev1.ServiceInterfaceSetFinalizer)
+		numChildren, err := reconcileDelete(ctx, serviceInterfaceSet, r.Client, r, dpuservicev1.ServiceInterfaceSetFinalizer)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if numChildren > 0 {
+			conditions.AddFalse(
+				serviceInterfaceSet,
+				dpuservicev1.ConditionServiceInterfacesReconciled,
+				conditions.ReasonAwaitingDeletion,
+				conditions.ConditionMessage(fmt.Sprintf("%d child `ServiceInterface`s still exist in DPU cluster", numChildren)),
+			)
+			log.Info("child `ServiceInterface`s still exist, requeueing", "children", numChildren)
+			return ctrl.Result{RequeueAfter: defaultRequeueAfter}, nil
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// Add finalizer if not set.

@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
@@ -44,6 +45,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
+
+var defaultRequeueAfter = 30 * time.Second
 
 var _ serviceSetReconciler = &ServiceChainSetReconciler{}
 
@@ -102,7 +105,21 @@ func (r *ServiceChainSetReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	conditions.EnsureConditions(serviceChainSet, dpuservicev1.ServiceChainSetConditions)
 
 	if !serviceChainSet.ObjectMeta.DeletionTimestamp.IsZero() {
-		return reconcileDelete(ctx, serviceChainSet, r.Client, r, dpuservicev1.ServiceChainSetFinalizer)
+		numChildren, err := reconcileDelete(ctx, serviceChainSet, r.Client, r, dpuservicev1.ServiceChainSetFinalizer)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if numChildren > 0 {
+			conditions.AddFalse(
+				serviceChainSet,
+				dpuservicev1.ConditionServiceChainsReconciled,
+				conditions.ReasonAwaitingDeletion,
+				conditions.ConditionMessage(fmt.Sprintf("%d child `ServiceChain`s still exist in DPU cluster", numChildren)),
+			)
+			log.Info("child `ServiceChain`s still exist, requeueing", "children", numChildren)
+			return ctrl.Result{RequeueAfter: defaultRequeueAfter}, nil
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// Add finalizer if not set.
