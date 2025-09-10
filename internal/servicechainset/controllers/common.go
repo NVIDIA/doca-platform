@@ -134,19 +134,27 @@ func getNodeList(ctx context.Context, k8sClient client.Client, selector *metav1.
 	return nodeList, nil
 }
 
+// reconcileDelete reconciles the deletion of a set.
+//
 //nolint:unparam
 func reconcileDelete(ctx context.Context, set client.Object, k8sClient client.Client,
-	reconciler serviceSetReconciler, finalizerStr string) (ctrl.Result, error) {
-	log := ctrllog.FromContext(ctx)
-	log.Info("Reconciling delete")
+	reconciler serviceSetReconciler, finalizerStr string) (int, error) {
+
 	if err := deleteSet(ctx, set, k8sClient, reconciler); err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 
-	log.Info("Removing finalizer")
+	children, err := reconciler.getChildMap(ctx, set)
+	if err != nil {
+		return 0, err
+	}
+	if len(children) > 0 {
+		return len(children), nil
+	}
+
 	controllerutil.RemoveFinalizer(set, finalizerStr)
 
-	return ctrl.Result{}, nil
+	return 0, nil
 }
 
 // reconcileReadinessOfObjectsInDPUCluster handles the readiness reconciliation loop for objects in a specific DPU cluster.
