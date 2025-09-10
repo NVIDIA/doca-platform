@@ -132,7 +132,6 @@ func SetDPUServiceInterfacePhysical(dpuServiceInterface *dpuservicev1.DPUService
 	if labels == nil {
 		labels = map[string]string{}
 	}
-	labels["uplink"] = config.InterfaceName
 	dpuServiceInterface.Spec.Template.Spec.Template.ObjectMeta = dpuservicev1.ObjectMeta{
 		Labels: labels,
 	}
@@ -149,7 +148,6 @@ func SetDPUServiceInterfaceVF(dpuServiceInterface *dpuservicev1.DPUServiceInterf
 	if labels == nil {
 		labels = map[string]string{}
 	}
-	labels["vf"] = config.InterfaceName
 	dpuServiceInterface.Spec.Template.Spec.Template.ObjectMeta = dpuservicev1.ObjectMeta{
 		Labels: labels,
 	}
@@ -169,8 +167,6 @@ func SetDPUServiceInterfaceSF(dpuServiceInterface *dpuservicev1.DPUServiceInterf
 	if labels == nil {
 		labels = map[string]string{}
 	}
-	labels[dpuservicev1.DPFServiceIDLabelKey] = config.ServiceID
-	labels["svc.dpu.nvidia.com/interface"] = fmt.Sprintf("%s_sf", config.InterfaceName)
 	dpuServiceInterface.Spec.Template.Spec.Template.ObjectMeta = dpuservicev1.ObjectMeta{
 		Labels: labels,
 	}
@@ -179,7 +175,7 @@ func SetDPUServiceInterfaceSF(dpuServiceInterface *dpuservicev1.DPUServiceInterf
 		Service: &dpuservicev1.ServiceDef{
 			ServiceID:     config.ServiceID,
 			Network:       config.Network,
-			InterfaceName: fmt.Sprintf("%s_if", config.InterfaceName),
+			InterfaceName: config.InterfaceName,
 		},
 	}
 	dpuServiceInterface.Spec.Template.Spec.Template.Spec.Service.VirtualNetwork = config.VirtualNetwork
@@ -199,8 +195,8 @@ func SetDPUServiceInterfaceOVN(dpuServiceInterface *dpuservicev1.DPUServiceInter
 }
 
 // WaitForDPUServiceInterfacesReady waits for multiple dpu service interfaces to be ready
-func WaitForDPUServiceInterfacesReady(ctx context.Context, testClient client.Client, dpuClusterClient client.Client, interfaceNames []string, namespace string) {
-	for _, name := range interfaceNames {
+func WaitForDPUServiceInterfacesReady(ctx context.Context, testClient client.Client, dpuClusterClient client.Client, dpuServiceInterfaceNames []string, namespace string) {
+	for _, name := range dpuServiceInterfaceNames {
 		VerifyUnderlyingDPUObjectsReady(ctx, dpuClusterClient, namespace, []TestDPUServiceInterfaceConfig{{Name: name, Namespace: namespace}}, []string{})
 		Eventually(func(g Gomega) {
 			g.Expect(IsDPUServiceInterfaceReady(ctx, g, testClient, name, namespace)).To(BeTrue())

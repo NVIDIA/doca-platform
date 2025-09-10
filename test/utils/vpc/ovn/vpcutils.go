@@ -56,7 +56,6 @@ const (
 	OvnCentralService       = "ovn-central"
 	OvnControllerService    = "ovn-controller"
 	VpcOVNControllerService = "vpc-ovn-controller"
-	DummyDPUService         = "dummy-dpu-service"
 	VpcOVNNodeService       = "vpc-ovn-node"
 
 	// Test timeouts
@@ -64,10 +63,11 @@ const (
 	LongTimeout    = 3 * time.Minute
 
 	// Label keys - frequently used in the code
-	TenantNodeLabelKey = "ovn.vpc.dpu.nvidia.com/tenant-node"
-	TenantLabelKey     = "ovn.vpc.dpu.nvidia.com/tenant"
-	InterfaceLabelKey  = "ovn.vpc.dpu.nvidia.com/interface"
-	PoolLabelKey       = "ovn.vpc.dpu.nvidia.com/pool"
+	TenantNodeLabelKey       = "ovn.vpc.dpu.nvidia.com/tenant-node"
+	TenantLabelKey           = "ovn.vpc.dpu.nvidia.com/tenant"
+	InterfaceLabelKey        = "ovn.vpc.dpu.nvidia.com/interface"
+	ServiceInterfaceLabelKey = "svc.dpu.nvidia.com/interface"
+	PoolLabelKey             = "ovn.vpc.dpu.nvidia.com/pool"
 
 	// Kubernetes annotation keys
 	NetworkStatusAnnotationKey = "k8s.v1.cni.cncf.io/network-status"
@@ -169,18 +169,31 @@ func CreateDPUIntergrationBridgeNetworkAttachmentDefinition(ctx context.Context,
 	return nadName
 }
 
-// GetPodIPAddressFromNetworkStatus returns the IP address of a pod from the network status with the given MAC address
-func GetPodIPAddressFromNetworkStatus(ctx context.Context, testClient client.Client, namespace, podName string, macAddress string) string {
+// GetPodIPAddressFromNetworkStatus returns the IP address of a pod from the network status with the given interface name
+func GetPodIPAddressFromNetworkStatus(ctx context.Context, testClient client.Client, namespace, podName string, interfaceName string) string {
 	pod := &corev1.Pod{}
 	Expect(testClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: podName}, pod)).To(Succeed())
 	networkStatusList, err := nadutils.GetNetworkStatus(pod)
 	Expect(err).NotTo(HaveOccurred())
 	for _, network := range networkStatusList {
-		if network.Mac == macAddress {
+		if network.Interface == interfaceName {
 			return network.IPs[0]
 		}
 	}
 	return ""
+}
+
+// GetPodsMatchingLabels gets the pods matching the given labels
+func GetPodsMatchingLabels(ctx context.Context, testclient client.Client, namespace string, matchingLabels map[string]string) []corev1.Pod {
+	pods := &corev1.PodList{}
+	err := testclient.List(
+		ctx,
+		pods,
+		client.InNamespace(namespace),
+		client.MatchingLabels(matchingLabels),
+	)
+	Expect(err).NotTo(HaveOccurred())
+	return pods.Items
 }
 
 // GetDPUClusterServiceInterfaces gets the DPU cluster service interfaces
@@ -246,17 +259,21 @@ func WaitForDPUServiceVirtualNetworkReady(ctx context.Context, testClient client
 	}, DefaultTimeout).Should(Succeed())
 }
 
-// GetServiceInterfaceMacAddressMatchingLabels gets the MAC address of the VPC service interface with the given labels
-func GetServiceInterfaceMacAddressMatchingLabels(ctx context.Context, dpuClusterClient client.Client, dpfOperatorSystemNamespace string, labels map[string]string) string {
-	var macAddress string
+// GetServiceInterfaceMacAddressesMatchingLabels gets the MAC address of the VPC service interface with the given labels
+func GetServiceInterfaceMacAddressesMatchingLabels(ctx context.Context, dpuClusterClient client.Client, dpfOperatorSystemNamespace string, labels map[string]string) map[string]string {
+	nodeToMACAddresseMap := make(map[string]string)
 	Eventually(func(g Gomega) {
 		serviceInterface := GetDPUClusterServiceInterfaces(ctx, dpuClusterClient, dpfOperatorSystemNamespace, labels)
-		g.Expect(serviceInterface).To(HaveLen(1))
-		g.Expect(serviceInterface[0].ObjectMeta.Annotations).ToNot(BeNil())
-		g.Expect(serviceInterface[0].ObjectMeta.Annotations[LSPMACAddressAnnotationKey]).ToNot(BeEmpty())
-		macAddress = serviceInterface[0].ObjectMeta.Annotations[LSPMACAddressAnnotationKey]
+		g.Expect(serviceInterface).ToNot(BeEmpty())
+		for _, serviceInterface := range serviceInterface {
+			g.Expect(serviceInterface.ObjectMeta.Annotations).ToNot(BeNil())
+			g.Expect(serviceInterface.ObjectMeta.Annotations[LSPMACAddressAnnotationKey]).ToNot(BeEmpty())
+			g.Expect(serviceInterface.Spec.Node).ToNot(BeNil())
+			g.Expect(*serviceInterface.Spec.Node).ToNot(BeEmpty())
+			nodeToMACAddresseMap[*serviceInterface.Spec.Node] = serviceInterface.ObjectMeta.Annotations[LSPMACAddressAnnotationKey]
+		}
 	}, DefaultTimeout).Should(Succeed())
-	return macAddress
+	return nodeToMACAddresseMap
 }
 
 // SetLinkMacAddress sets the MAC address on a link

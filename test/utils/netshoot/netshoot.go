@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	. "github.com/onsi/gomega"
@@ -53,6 +54,7 @@ type TestPodConfig struct {
 	VFIndex       int
 	CIDR          string
 	Labels        map[string]string
+	CommandArgs   []string
 }
 
 // IperfResult is used to parse the traffic test result of an iperf3 command
@@ -128,6 +130,11 @@ func RunTrafficTest(restClient *rest.RESTClient, restConfig *rest.Config, hostNa
 }
 
 func createNetshootPod(ctx context.Context, testClient client.Client, config TestPodConfig) {
+	// Add tail -F /dev/null to the command args to block the pod from terminating
+	additionalArgs := []string{"tail -F /dev/null"}
+	finalArgs := append(config.CommandArgs, additionalArgs...)
+	script := strings.Join(finalArgs, "\n")
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      config.Name,
@@ -144,7 +151,12 @@ func createNetshootPod(ctx context.Context, testClient client.Client, config Tes
 					Name:    "netshoot",
 					Image:   netshootImage,
 					Command: []string{"/bin/sh", "-c"},
-					Args:    []string{"tail -F /dev/null"},
+					Args:    []string{script},
+					SecurityContext: &corev1.SecurityContext{
+						Capabilities: &corev1.Capabilities{
+							Add: []corev1.Capability{"NET_ADMIN"},
+						},
+					},
 				},
 			},
 		},
