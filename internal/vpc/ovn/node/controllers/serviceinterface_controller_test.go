@@ -25,6 +25,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
+	networkhelper_mock "github.com/nvidia/doca-platform/pkg/utils/networkhelper/mock"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -44,16 +45,17 @@ import (
 //nolint:goconst
 var _ = Describe("service interface controller", func() {
 	var (
-		mockCtrl       *gomock.Controller
-		cleanupObjects []client.Object
-		sir            *ServiceInterfaceReconciler
-		ovsMock        *ovsutils.MockAPI
-		testCtx        context.Context
-		testCancelFunc context.CancelFunc
-		testNode       = "test-node"
-		wg             sync.WaitGroup
-		node           *corev1.Node
-		ns             *corev1.Namespace
+		mockCtrl          *gomock.Controller
+		cleanupObjects    []client.Object
+		sir               *ServiceInterfaceReconciler
+		ovsMock           *ovsutils.MockAPI
+		networkHelperMock *networkhelper_mock.MockNetworkHelper
+		testCtx           context.Context
+		testCancelFunc    context.CancelFunc
+		testNode          = "test-node"
+		wg                sync.WaitGroup
+		node              *corev1.Node
+		ns                *corev1.Namespace
 	)
 
 	BeforeEach(func() {
@@ -61,6 +63,7 @@ var _ = Describe("service interface controller", func() {
 		wg = sync.WaitGroup{}
 		mockCtrl = gomock.NewController(GinkgoT())
 		ovsMock = ovsutils.NewMockAPI(mockCtrl)
+		networkHelperMock = networkhelper_mock.NewMockNetworkHelper(mockCtrl)
 
 		testManager, err := ctrl.NewManager(cfg,
 			ctrl.Options{
@@ -78,11 +81,12 @@ var _ = Describe("service interface controller", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		sir = &ServiceInterfaceReconciler{
-			Client:    testManager.GetClient(),
-			Scheme:    testManager.GetScheme(),
-			NodeName:  testNode,
-			OVS:       ovsMock,
-			VFMapping: getTestVFMapping(),
+			Client:        testManager.GetClient(),
+			Scheme:        testManager.GetScheme(),
+			NodeName:      testNode,
+			OVS:           ovsMock,
+			VFMapping:     getTestVFMapping(),
+			NetworkHelper: networkHelperMock,
 		}
 		Expect(sir.SetupWithManager(testCtx, testManager)).To(Succeed())
 
@@ -110,7 +114,7 @@ var _ = Describe("service interface controller", func() {
 	})
 
 	AfterEach(func() {
-		Expect(testutils.CleanupAndWait(suiteCtx, testClient, cleanupObjects...)).To(Succeed())
+		Expect(testutils.CleanupWithFinalizerRemovalAndWait(suiteCtx, testClient, cleanupObjects...)).To(Succeed())
 		mockCtrl.Finish()
 		testCancelFunc()
 		wg.Wait()
@@ -131,6 +135,8 @@ var _ = Describe("service interface controller", func() {
 		ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
 		ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
 		ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+
+		networkHelperMock.EXPECT().GetVFRepresentorDPU(gomock.Any(), gomock.Any()).AnyTimes().Return("pf0vf2", nil)
 
 		By("creating ServiceInterface")
 		si := getTestServiceInterfaceTypeVF("pf0vf2", ns.Name, "test", node.Name, false)
@@ -158,6 +164,8 @@ var _ = Describe("service interface controller", func() {
 		ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
 		ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
 		ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+
+		networkHelperMock.EXPECT().GetVFRepresentorDPU(gomock.Any(), gomock.Any()).AnyTimes().Return("pf0vf2", nil)
 
 		By("creating ServiceInterface")
 		si := getTestServiceInterfaceTypeVF("pf0vf2", ns.Name, "test", node.Name, true)
@@ -218,6 +226,8 @@ var _ = Describe("service interface controller", func() {
 		ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
 		ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
 
+		networkHelperMock.EXPECT().GetPFRepresentorDPU(gomock.Any()).AnyTimes().Return("pf0", nil)
+
 		By("creating ServiceInterface")
 		si := getTestServiceInterfaceTypePF("pf0", ns.Name, "test", node.Name, false)
 		Expect(testClient.Create(testCtx, si)).To(Succeed())
@@ -245,6 +255,8 @@ var _ = Describe("service interface controller", func() {
 		ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
 		ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
 
+		networkHelperMock.EXPECT().GetPFRepresentorDPU(gomock.Any()).AnyTimes().Return("pf0", nil)
+
 		By("creating ServiceInterface")
 		si := getTestServiceInterfaceTypePF("pf0", ns.Name, "test", node.Name, true)
 		Expect(testClient.Create(testCtx, si)).To(Succeed())
@@ -263,6 +275,31 @@ var _ = Describe("service interface controller", func() {
 			g.Expect(si.GetConditions()).To(ContainElement(And(
 				HaveField("Type", string(conditions.TypeReady)),
 				HaveField("Status", metav1.ConditionTrue),
+			)))
+		}).WithPolling(500 * time.Millisecond).WithTimeout(5 * time.Second).Should(Succeed())
+	})
+
+	It("reconcile error on a VF service interface", func() {
+		ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+		ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+		ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+
+		networkHelperMock.EXPECT().GetVFRepresentorDPU(gomock.Any(), gomock.Any()).AnyTimes().Return("", fmt.Errorf("mock error"))
+
+		By("creating ServiceInterface")
+		si := getTestServiceInterfaceTypeVF("pf0vf2", ns.Name, "test", node.Name, false)
+		Expect(testClient.Create(testCtx, si)).To(Succeed())
+		cleanupObjects = append(cleanupObjects, si)
+
+		By("verifying ServiceInterface is in error state")
+		Eventually(func(g Gomega) {
+			g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(si), si)).To(Succeed())
+			g.Expect(si.ObjectMeta.Finalizers).To(ContainElement(ServiceInterfaceFinalizer))
+			g.Expect(si.GetConditions()).To(ContainElement(And(
+				HaveField("Type", string(dpuservicev1.ServiceInterfaceReconciled)),
+				HaveField("Status", metav1.ConditionFalse),
+				HaveField("Reason", string(conditions.ReasonError)),
+				HaveField("Message", ContainSubstring("Failed to add interface")),
 			)))
 		}).WithPolling(500 * time.Millisecond).WithTimeout(5 * time.Second).Should(Succeed())
 	})
