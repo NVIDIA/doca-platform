@@ -134,8 +134,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	netHelper := networkhelper.New()
+
 	// Create a new VFMAC instance with default configuration
-	vfmacInstance, err := vfmac.NewVFMAC(nil, networkhelper.New(), "", "")
+	vfmacInstance, err := vfmac.NewVFMAC(nil, netHelper, "", "")
 	if err != nil {
 		setupLog.Error(err, "failed to create VFMAC instance")
 		os.Exit(1)
@@ -147,15 +149,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	serviceInterfaceReconciler := &vpcnodecontroller.ServiceInterfaceReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		NodeName:  nodeName,
-		OVS:       ovsClient,
-		VFMapping: vfMapping,
-	}
-
-	if err = serviceInterfaceReconciler.SetupWithManager(ctx, mgr); err != nil {
+	if err = (&vpcnodecontroller.ServiceInterfaceReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		NodeName:      nodeName,
+		OVS:           ovsClient,
+		VFMapping:     vfMapping,
+		NetworkHelper: netHelper,
+	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ServiceInterface")
 		os.Exit(1)
 	}
@@ -171,7 +172,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	stalePortsRemover := vpcnodecontroller.NewStaleObjectRemover(stalePortsRemovalPeriod, mgr.GetClient(), nodeName, ovsClient)
+	stalePortsRemover := vpcnodecontroller.NewStaleObjectRemover(
+		stalePortsRemovalPeriod, mgr.GetClient(), nodeName, ovsClient, netHelper)
 	if err = mgr.Add(stalePortsRemover); err != nil {
 		setupLog.Error(err, "cannot add stalePortsRemover runnable to manager")
 		os.Exit(1)

@@ -27,6 +27,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
+	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -60,10 +61,11 @@ const (
 // ServiceInterfaceReconciler reconciles ServiceInterface objects in dpu clusters
 type ServiceInterfaceReconciler struct {
 	client.Client
-	Scheme    *runtime.Scheme
-	NodeName  string
-	OVS       ovsutils.API
-	VFMapping *vfmac.VFMapping
+	Scheme        *runtime.Scheme
+	NodeName      string
+	OVS           ovsutils.API
+	VFMapping     *vfmac.VFMapping
+	NetworkHelper networkhelper.NetworkHelper
 }
 
 //nolint:unparam
@@ -205,11 +207,12 @@ func (r *ServiceInterfaceReconciler) reconcile(ctx context.Context, si *dpuservi
 		}
 	case dpuservicev1.InterfaceTypeService:
 		// ServiceInterface of type service will be plugged into the bridge by ovs-cni
-		portName, err := nodeutils.GetPortNameForInterface(ctx, r.Client, r.OVS, si, r.NodeName)
+		portName, err := nodeutils.GetPortNameForInterface(ctx, r.Client, r.OVS, r.NetworkHelper, si, r.NodeName)
 		if err != nil {
 			log.Error(err, "Failed to get port name for service interface")
 			return requeueError()
 		}
+
 		ifaceExternalIDs := map[string]string{nodeutils.IfaceIDKey: ifaceID}
 		log.Info("Setting interface ExternalIDs", "interface", portName, "externalIDs", ifaceExternalIDs)
 		if err := r.OVS.SetIfaceExternalIDs(ctx, portName, ifaceExternalIDs); err != nil {
@@ -384,9 +387,11 @@ func (r *ServiceInterfaceReconciler) AddInterfaceToOvs(ctx context.Context, serv
 		return nil
 	}
 
-	portName, err := nodeutils.GetPortNameForInterface(ctx, r.Client, r.OVS, serviceInterface, r.NodeName)
+	portName, err := nodeutils.GetPortNameForInterface(ctx, r.Client, r.OVS, r.NetworkHelper, serviceInterface, r.NodeName)
 	if err != nil {
-		return fmt.Errorf("failed to get port name for service interface: %v", err)
+		log.Error(err, "Failed to get port name for interface",
+			"serviceInterface", client.ObjectKeyFromObject(serviceInterface))
+		return fmt.Errorf("failed to get port name for service interface: %w", err)
 	}
 
 	log.Info("Adding interface to ovs", "interface", portName, "ifaceID", ifaceID)
@@ -408,8 +413,10 @@ func (r *ServiceInterfaceReconciler) DeleteInterfaceFromOvs(ctx context.Context,
 		return nil
 	}
 
-	portName, err := nodeutils.GetPortNameForInterface(ctx, r.Client, r.OVS, serviceInterface, r.NodeName)
+	portName, err := nodeutils.GetPortNameForInterface(ctx, r.Client, r.OVS, r.NetworkHelper, serviceInterface, r.NodeName)
 	if err != nil {
+		log.Error(err, "Failed to get port name for interface, port will not be deleted from OVS.",
+			"serviceInterface", client.ObjectKeyFromObject(serviceInterface))
 		return nil
 	}
 
