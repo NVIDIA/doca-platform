@@ -53,7 +53,6 @@ contexts:
   name: test-service-account
 current-context: test-service-account
 kind: Config
-preferences: {}
 users:
 - name: test-service-account
   user:
@@ -269,7 +268,7 @@ func assertDPUServiceCredentialRequestSecret(testClient client.Client, dsr *dpus
 		config, err := clientcmd.Load(secret.Data["kubeconfig"])
 		Expect(err).NotTo(HaveOccurred())
 		token := config.AuthInfos["test-service-account"].Token
-		Expect(string(secret.Data["kubeconfig"])).To(Equal(fmt.Sprintf(testKubeconfig, base64EncodeCA, cfg.Host, clusterName, clusterName, token)))
+		Expect(string(secret.Data["kubeconfig"])).To(BeComparableTo(fmt.Sprintf(testKubeconfig, base64EncodeCA, cfg.Host, clusterName, clusterName, token)))
 	} else {
 		Expect(secret.Data).To(HaveKey("KUBERNETES_SERVICE_HOST"))
 		Expect(secret.Data).To(HaveKey("KUBERNETES_SERVICE_PORT"))
