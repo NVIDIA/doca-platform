@@ -305,6 +305,10 @@ spec:
                       volumeMode:
                         description: Actual volume mode of the volume in the DPU cluster
                         type: string
+                      volumeName:
+                        description: VolumeName contains the name of the PersistentVolume
+                          object in the DPU cluster
+                        type: string
                     type: object
                 type: object
             type: object

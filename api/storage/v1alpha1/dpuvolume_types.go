@@ -199,6 +199,9 @@ type DPUVolumeState struct {
 // VolumeInfo represents a subset of fields from the PersistentVolume object that was created in the DPU cluster.
 // This struct is used to track and expose key volume information without carrying the full PersistentVolume object.
 type VolumeInfo struct {
+	// VolumeName contains the name of the PersistentVolume object in the DPU cluster
+	// +optional
+	VolumeName *string `json:"volumeName,omitempty"`
 	// Actual capacity of the volume in the DPU cluster
 	// +optional
 	Capacity corev1.ResourceList `json:"capacity,omitempty"`
