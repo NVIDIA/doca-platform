@@ -191,6 +191,8 @@ func (r *DPUStorageVendorReconciler) reconcile(ctx context.Context, dpuClusterCl
 			}
 		}
 	}
+	// always set ConditionDPUStorageVendorValid to true to be compatible with latest storage API
+	conditions.AddTrue(dpuStorageVendor, storagev1.ConditionDPUStorageVendorValid)
 	conditions.AddTrue(dpuStorageVendor, storagev1.ConditionDPUStorageVendorReconciled)
 	return ctrl.Result{}, nil
 }

@@ -325,6 +325,11 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 					HaveField("Reason", string(conditions.ReasonPending)),
 				),
 				And(
+					HaveField("Type", string(storagev1.ConditionDPUStorageVendorValid)),
+					HaveField("Status", metav1.ConditionUnknown),
+					HaveField("Reason", string(conditions.ReasonPending)),
+				),
+				And(
 					HaveField("Type", string(storagev1.ConditionDPUStorageVendorReconciled)),
 					HaveField("Status", metav1.ConditionUnknown),
 					HaveField("Reason", string(conditions.ReasonPending)),
@@ -365,6 +370,11 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 					HaveField("Reason", string(conditions.ReasonSuccess)),
 				),
 				And(
+					HaveField("Type", string(storagev1.ConditionDPUStorageVendorValid)),
+					HaveField("Status", metav1.ConditionTrue),
+					HaveField("Reason", string(conditions.ReasonSuccess)),
+				),
+				And(
 					HaveField("Type", string(storagev1.ConditionDPUStorageVendorReconciled)),
 					HaveField("Status", metav1.ConditionTrue),
 					HaveField("Reason", string(conditions.ReasonSuccess)),
@@ -396,6 +406,11 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 					HaveField("Type", string(conditions.TypeReady)),
 					HaveField("Status", metav1.ConditionFalse),
 					HaveField("Reason", string(conditions.ReasonAwaitingDeletion)),
+				),
+				And(
+					HaveField("Type", string(storagev1.ConditionDPUStorageVendorValid)),
+					HaveField("Status", metav1.ConditionTrue),
+					HaveField("Reason", string(conditions.ReasonSuccess)),
 				),
 				And(
 					HaveField("Type", string(storagev1.ConditionDPUStorageVendorReconciled)),
