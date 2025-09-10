@@ -32,6 +32,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	dpuFlavor = "test-flavor"
+)
+
 var _ = Describe("DPUSet", func() {
 
 	var getObjKey = func(obj *provisioningv1.DPUSet) types.NamespacedName {
@@ -65,6 +69,7 @@ var _ = Describe("DPUSet", func() {
 
 		It("create and get object", func() {
 			obj := createObj("obj-1")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -76,6 +81,7 @@ var _ = Describe("DPUSet", func() {
 
 		It("delete object", func() {
 			obj := createObj("obj-2")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -89,6 +95,7 @@ var _ = Describe("DPUSet", func() {
 
 		It("update object", func() {
 			obj := createObj("obj-3")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -106,6 +113,7 @@ var _ = Describe("DPUSet", func() {
 			newValue := map[string]string{"k1": "v11", "k2": "v2"}
 
 			obj := createObj("obj-4")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			obj.Spec.DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
 				NodeLabels: refValue,
 			}
@@ -127,6 +135,7 @@ var _ = Describe("DPUSet", func() {
 			newValue := map[string]string{"k1": "v11", "k2": "v2"}
 
 			obj := createObj("node-effect-object")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			obj.Spec.DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
 				NodeLabels: refValue,
 			}
@@ -160,6 +169,7 @@ var _ = Describe("DPUSet", func() {
 			}
 
 			obj := createObj("obj-node-effect-nil")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &refValue
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
@@ -176,6 +186,7 @@ var _ = Describe("DPUSet", func() {
 
 		It("spec.dpuTemplate.spec.nodeEffect.applyOnLabelChange defaults to false", func() {
 			obj := createObj("obj-apply-on-label-change-default")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
 				NoEffect: ptr.To(true),
 				// ApplyOnLabelChange not set, should default to false
@@ -189,6 +200,7 @@ var _ = Describe("DPUSet", func() {
 
 		It("spec.dpuTemplate.spec.nodeEffect.applyOnLabelChange is mutable", func() {
 			obj := createObj("obj-apply-on-label-change-mutable")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
 				NoEffect:           ptr.To(true),
 				ApplyOnLabelChange: ptr.To(false),
@@ -207,6 +219,7 @@ var _ = Describe("DPUSet", func() {
 
 		It("spec.dpuTemplate.spec.nodeEffect.nodeMaintenanceAdditionalRequestors is mutable", func() {
 			obj := createObj("obj-additional-requestors-mutable")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
 				NoEffect:                            ptr.To(true),
 				NodeMaintenanceAdditionalRequestors: []string{"req-1"},
@@ -226,6 +239,7 @@ var _ = Describe("DPUSet", func() {
 
 		It("only one field may be set in spec.nodeEffect", func() {
 			obj := createObj("checking-node-effect")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			// Error when creating a DPUSet with a nodeEffect setting taint and customLabel.
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
 				Taint: &corev1.Taint{
@@ -314,12 +328,40 @@ kind: DPUSet
 metadata:
   name: obj-6
   namespace: default
+spec:
+  dpuTemplate:
+    spec:
+      dpuFlavor: "test-flavor"
 `)
 			obj := &provisioningv1.DPUSet{}
 			err := yaml.UnmarshalStrict(yml, obj)
 			Expect(err).To(Succeed())
 			err = k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should successfully create DPUSet with valid dpuFlavor", func() {
+			obj := createObj("obj-valid-dpuflavor")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should successfully update DPUSet with valid dpuFlavor", func() {
+			obj := createObj("obj-update-valid-dpuflavor")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = "initial-flavor"
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Update with new valid DPUFlavor
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = "updated-flavor"
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUSet{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Spec.DPUTemplate.Spec.DPUFlavor).To(Equal("updated-flavor"))
 		})
 	})
 })
