@@ -2358,6 +2358,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `dpuClusters` _[ObjectReference](#objectreference) array_ | DPUClusters is the list of clusters on which the DPUStorageVendor is deployed. |  |  |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
@@ -2659,6 +2660,7 @@ ObjectReference represents a reference to a Kubernetes object.
 
 
 _Appears in:_
+- [DPUStorageVendorStatus](#dpustoragevendorstatus)
 - [DPUVolumeState](#dpuvolumestate)
 
 | Field | Description | Default | Validation |
@@ -3038,6 +3040,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `volumeName` _string_ | VolumeName contains the name of the PersistentVolume object in the DPU cluster |  |  |
 | `capacity` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | Actual capacity of the volume in the DPU cluster |  |  |
 | `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumeaccessmode-v1-core) array_ | Actual access modes of the volume in the DPU cluster |  |  |
 | `volumeMode` _[PersistentVolumeMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumemode-v1-core)_ | Actual volume mode of the volume in the DPU cluster |  |  |
