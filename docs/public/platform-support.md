@@ -6,10 +6,10 @@ title: "Platform Support"
 
 ## Prerequisites
 
-| Component  | Version | Notes                                                                                                            |
-|------------|---------|------------------------------------------------------------------------------------------------------------------|
-| Kubernetes | 1.31    |                                                                                                                  |
-| Helm       | v3.5+   | For information and methods of Helm installation, please refer to the official [Helm Website](https://helm.sh/). |
+| Component  | Version   | Notes                                                                                                            |
+|------------|-----------|------------------------------------------------------------------------------------------------------------------|
+| Kubernetes | 1.32-1.34 | All currently supported upstream Kubernetes releases are supported                                               |
+| Helm       | v3.5+     | For information and methods of Helm installation, please refer to the official [Helm Website](https://helm.sh/). |
 
 ## DPF Component Dependencies
 

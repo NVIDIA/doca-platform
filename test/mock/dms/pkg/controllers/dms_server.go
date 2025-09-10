@@ -232,7 +232,7 @@ func (r *DMSServerReconciler) createNodeForDPU(ctx context.Context, dpuNode *pro
 			return nil
 		}
 		node.ManagedFields = nil
-		if err := dpuClient.Patch(ctx, node, client.Apply, client.ForceOwnership, client.FieldOwner("mock-dms")); err != nil {
+		if err := dpuClient.Patch(ctx, node, client.Apply, client.ForceOwnership, client.FieldOwner("mock-dms")); err != nil { //nolint:staticcheck
 			return err
 		}
 
@@ -253,7 +253,7 @@ func (r *DMSServerReconciler) createNodeForDPU(ctx context.Context, dpuNode *pro
 		}
 
 		node.ManagedFields = nil
-		if err := dpuClient.Status().Patch(ctx, node, client.Apply, client.ForceOwnership, client.FieldOwner("mock-dms")); err != nil {
+		if err := dpuClient.Status().Patch(ctx, node, client.Apply, client.ForceOwnership, client.FieldOwner("mock-dms")); err != nil { //nolint:staticcheck
 			return err
 		}
 	}
