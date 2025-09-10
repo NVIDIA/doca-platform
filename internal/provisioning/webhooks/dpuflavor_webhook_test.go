@@ -138,8 +138,7 @@ var _ = Describe("DPUFlavor", func() {
 			Expect(objFetched.Spec.BFCfgParameters).To(BeEmpty())
 			Expect(objFetched.Spec.ConfigFiles).To(BeEmpty())
 			Expect(objFetched.Spec.ContainerdConfig.RegistryEndpoint).To(BeEmpty())
-			Expect(objFetched.Spec.P0NetworkInterfaceConfig).To(BeNil())
-			Expect(objFetched.Spec.P1NetworkInterfaceConfig).To(BeNil())
+			Expect(objFetched.Spec.HostNetworkInterfaceConfigs).To(BeEmpty())
 		})
 
 		It("spec.grub is immutable", func() {
@@ -189,7 +188,7 @@ var _ = Describe("DPUFlavor", func() {
 			obj := createObj("obj-8")
 			obj.Spec.Grub.KernelParameters = DefaultGrub
 			obj.Spec.Sysctl.Parameters = DefaultSysctl
-			obj.Spec.NVConfig = []provisioningv1.DPUFlavorNVConfig{
+			obj.Spec.NVConfig = []provisioningv1.NVConfig{
 				{Parameters: refValue},
 			}
 			err := k8sClient.Create(ctx, obj)
@@ -371,18 +370,24 @@ metadata:
 			Expect(err).NotTo(HaveOccurred())
 		})
 
-		It("validates p0/p1 network interface config fields", func() {
+		It("validates host network interface config fields", func() {
 			obj := createObj("network-config-test")
 			mtu1500 := int32(1500)
 			dhcpTrue := true
+			port0 := int32(0)
+			port1 := int32(1)
 
-			obj.Spec.P0NetworkInterfaceConfig = &provisioningv1.NetworkInterfaceConfig{
-				MTU:  &mtu1500,
-				DHCP: &dhcpTrue,
-			}
-			obj.Spec.P1NetworkInterfaceConfig = &provisioningv1.NetworkInterfaceConfig{
-				MTU:  &mtu1500,
-				DHCP: &dhcpTrue,
+			obj.Spec.HostNetworkInterfaceConfigs = []provisioningv1.NetworkInterfaceConfig{
+				{
+					PortNumber: port0,
+					MTU:        &mtu1500,
+					DHCP:       &dhcpTrue,
+				},
+				{
+					PortNumber: port1,
+					MTU:        &mtu1500,
+					DHCP:       &dhcpTrue,
+				},
 			}
 
 			err := k8sClient.Create(ctx, obj)
@@ -391,14 +396,126 @@ metadata:
 			objFetched := &provisioningv1.DPUFlavor{}
 			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(objFetched.Spec.P0NetworkInterfaceConfig).ToNot(BeNil())
-			Expect(*objFetched.Spec.P0NetworkInterfaceConfig.MTU).To(Equal(int32(1500)))
-			Expect(*objFetched.Spec.P0NetworkInterfaceConfig.DHCP).To(BeTrue())
-			Expect(objFetched.Spec.P1NetworkInterfaceConfig).ToNot(BeNil())
-			Expect(*objFetched.Spec.P1NetworkInterfaceConfig.MTU).To(Equal(int32(1500)))
-			Expect(*objFetched.Spec.P1NetworkInterfaceConfig.DHCP).To(BeTrue())
+			Expect(objFetched.Spec.HostNetworkInterfaceConfigs).To(HaveLen(2))
+
+			// Find P0 config (port 0)
+			var p0Config *provisioningv1.NetworkInterfaceConfig
+			for i := range objFetched.Spec.HostNetworkInterfaceConfigs {
+				if objFetched.Spec.HostNetworkInterfaceConfigs[i].PortNumber == 0 {
+					p0Config = &objFetched.Spec.HostNetworkInterfaceConfigs[i]
+					break
+				}
+			}
+			Expect(p0Config).ToNot(BeNil())
+			Expect(*p0Config.MTU).To(Equal(int32(1500)))
+			Expect(*p0Config.DHCP).To(BeTrue())
+
+			// Find P1 config (port 1)
+			var p1Config *provisioningv1.NetworkInterfaceConfig
+			for i := range objFetched.Spec.HostNetworkInterfaceConfigs {
+				if objFetched.Spec.HostNetworkInterfaceConfigs[i].PortNumber == 1 {
+					p1Config = &objFetched.Spec.HostNetworkInterfaceConfigs[i]
+					break
+				}
+			}
+			Expect(p1Config).ToNot(BeNil())
+			Expect(*p1Config.MTU).To(Equal(int32(1500)))
+			Expect(*p1Config.DHCP).To(BeTrue())
 		})
 
+		It("rejects duplicate port numbers", func() {
+			obj := createObj("duplicate-port-test")
+			mtu1500 := int32(1500)
+			dhcpTrue := true
+			port0 := int32(0)
+
+			obj.Spec.HostNetworkInterfaceConfigs = []provisioningv1.NetworkInterfaceConfig{
+				{
+					PortNumber: port0,
+					MTU:        &mtu1500,
+					DHCP:       &dhcpTrue,
+				},
+				{
+					PortNumber: port0, // Duplicate port number
+					MTU:        &mtu1500,
+					DHCP:       &dhcpTrue,
+				},
+			}
+
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("duplicate port number 0"))
+		})
+
+		It("rejects configs with no configuration options", func() {
+			obj := createObj("empty-config-test")
+			port0 := int32(0)
+
+			obj.Spec.HostNetworkInterfaceConfigs = []provisioningv1.NetworkInterfaceConfig{
+				{
+					PortNumber: port0,
+					// No MTU, DHCP, or NVConfig specified
+				},
+			}
+
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("has no configuration options specified"))
+		})
+
+		It("supports multi-port configurations", func() {
+			obj := createObj("multi-port-test")
+			mtu1500 := int32(1500)
+			port0 := int32(0)
+			port1 := int32(1)
+
+			obj.Spec.HostNetworkInterfaceConfigs = []provisioningv1.NetworkInterfaceConfig{
+				{
+					PortNumber: port0,
+					MTU:        &mtu1500,
+				},
+				{
+					PortNumber: port1,
+					MTU:        &mtu1500,
+				},
+			}
+
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("handles mixed NVConfig scenarios", func() {
+			obj := createObj("mixed-nvconfig-test")
+			mtu1500 := int32(1500)
+			port0 := int32(0)
+			port1 := int32(1)
+
+			// Global NVConfig
+			obj.Spec.NVConfig = []provisioningv1.NVConfig{
+				{
+					Parameters: []string{"GLOBAL_PARAM=global_value", "ANOTHER_GLOBAL=value"},
+				},
+			}
+
+			// Mixed per-interface configs: some with NVConfig, some without
+			obj.Spec.HostNetworkInterfaceConfigs = []provisioningv1.NetworkInterfaceConfig{
+				{
+					PortNumber: port0,
+					MTU:        &mtu1500,
+					// No NVConfig - should be fine
+				},
+				{
+					PortNumber: port1,
+					MTU:        &mtu1500,
+					NVConfig: &provisioningv1.NVConfig{
+						Parameters: []string{"PORT1_SPECIFIC=value"},
+					},
+				},
+			}
+
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
 		DescribeTable("MTU validation works as expected",
 			func(mtu int32, expectError bool) {
 				obj := &provisioningv1.DPUFlavor{
@@ -408,8 +525,12 @@ metadata:
 					},
 					Spec: provisioningv1.DPUFlavorSpec{},
 				}
-				obj.Spec.P0NetworkInterfaceConfig = &provisioningv1.NetworkInterfaceConfig{
-					MTU: &mtu,
+				port0 := int32(0)
+				obj.Spec.HostNetworkInterfaceConfigs = []provisioningv1.NetworkInterfaceConfig{
+					{
+						PortNumber: port0,
+						MTU:        &mtu,
+					},
 				}
 				err := k8sClient.Create(ctx, obj)
 				if expectError {
@@ -426,6 +547,34 @@ metadata:
 			Entry("invalid MTU too high", int32(9217), true),
 		)
 
+		DescribeTable("port number validation works as expected", func(portNumber int32, expectError bool) {
+			obj := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: "port-number-validation-",
+					Namespace:    "default",
+				},
+				Spec: provisioningv1.DPUFlavorSpec{},
+			}
+			mtu1500 := int32(1500)
+			obj.Spec.HostNetworkInterfaceConfigs = []provisioningv1.NetworkInterfaceConfig{
+				{
+					PortNumber: portNumber,
+					MTU:        &mtu1500,
+				},
+			}
+			err := k8sClient.Create(ctx, obj)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).NotTo(HaveOccurred())
+			}
+		},
+			Entry("valid port number 0", int32(0), false),
+			Entry("valid port number 1", int32(1), false),
+			Entry("invalid port number too low", int32(-1), true),
+			Entry("invalid port number too high", int32(2), true),
+		)
+
 		It("create from yaml with network interface config", func() {
 			yml := []byte(`
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
@@ -434,10 +583,11 @@ metadata:
   name: network-config-yaml
   namespace: default
 spec:
-  p0NetworkInterfaceConfig:
+  hostNetworkInterfaceConfigs:
+  - portNumber: 0
     mtu: 9000
     dhcp: true
-  p1NetworkInterfaceConfig:
+  - portNumber: 1
     mtu: 1500
     dhcp: false
 `)
@@ -450,12 +600,31 @@ spec:
 			objFetched := &provisioningv1.DPUFlavor{}
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: "network-config-yaml", Namespace: "default"}, objFetched)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(objFetched.Spec.P0NetworkInterfaceConfig).ToNot(BeNil())
-			Expect(*objFetched.Spec.P0NetworkInterfaceConfig.MTU).To(Equal(int32(9000)))
-			Expect(*objFetched.Spec.P0NetworkInterfaceConfig.DHCP).To(BeTrue())
-			Expect(objFetched.Spec.P1NetworkInterfaceConfig).ToNot(BeNil())
-			Expect(*objFetched.Spec.P1NetworkInterfaceConfig.MTU).To(Equal(int32(1500)))
-			Expect(*objFetched.Spec.P1NetworkInterfaceConfig.DHCP).To(BeFalse())
+			Expect(objFetched.Spec.HostNetworkInterfaceConfigs).To(HaveLen(2))
+
+			// Find P0 config (port 0)
+			var p0Config *provisioningv1.NetworkInterfaceConfig
+			for i := range objFetched.Spec.HostNetworkInterfaceConfigs {
+				if objFetched.Spec.HostNetworkInterfaceConfigs[i].PortNumber == 0 {
+					p0Config = &objFetched.Spec.HostNetworkInterfaceConfigs[i]
+					break
+				}
+			}
+			Expect(p0Config).ToNot(BeNil())
+			Expect(*p0Config.MTU).To(Equal(int32(9000)))
+			Expect(*p0Config.DHCP).To(BeTrue())
+
+			// Find P1 config (port 1)
+			var p1Config *provisioningv1.NetworkInterfaceConfig
+			for i := range objFetched.Spec.HostNetworkInterfaceConfigs {
+				if objFetched.Spec.HostNetworkInterfaceConfigs[i].PortNumber == 1 {
+					p1Config = &objFetched.Spec.HostNetworkInterfaceConfigs[i]
+					break
+				}
+			}
+			Expect(p1Config).ToNot(BeNil())
+			Expect(*p1Config.MTU).To(Equal(int32(1500)))
+			Expect(*p1Config.DHCP).To(BeFalse())
 		})
 
 		DescribeTable("resource validation works as expected", func(dpuResources corev1.ResourceList, systemReservedResources corev1.ResourceList, expectError bool) {
