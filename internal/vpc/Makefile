@@ -41,7 +41,7 @@ export UPSTREAM_REGISTRY ?= $(REGISTRY)
 Q = $(if $(filter 1,$V),,@)
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.33.0
+ENVTEST_K8S_VERSION = 1.32.0
 
 # Get the current OS and Architecture
 ARCH ?= $(shell go env GOARCH)
