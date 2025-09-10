@@ -38,9 +38,10 @@ type DPUFlavorSpec struct {
 	// Sysctl contains the sysctl configuration for the DPUFlavor.
 	// +optional
 	Sysctl DPUFLavorSysctl `json:"sysctl,omitempty"`
-	// NVConfig contains the configuration for the DPUFlavor.
+	// NVConfig contains the global DPU-wide configuration (firmware settings, global device parameters).
+	// This applies to the DPU device and should not overlap with per-interface NVConfig settings.
 	// +optional
-	NVConfig []DPUFlavorNVConfig `json:"nvconfig,omitempty"`
+	NVConfig []NVConfig `json:"nvconfig,omitempty"`
 	// OVS contains the OVS configuration for the DPUFlavor.
 	// +optional
 	OVS DPUFlavorOVS `json:"ovs,omitempty"`
@@ -70,13 +71,9 @@ type DPUFlavorSpec struct {
 	// +optional
 	DpuMode DpuModeType `json:"dpuMode,omitempty"`
 
-	// P0NetworkInterfaceConfig contains the configuration for the host-side P0 network interface.
+	// HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces.
 	// +optional
-	P0NetworkInterfaceConfig *NetworkInterfaceConfig `json:"p0NetworkInterfaceConfig,omitempty"`
-
-	// P1NetworkInterfaceConfig contains the configuration for the host-side P1 network interface.
-	// +optional
-	P1NetworkInterfaceConfig *NetworkInterfaceConfig `json:"p1NetworkInterfaceConfig,omitempty"`
+	HostNetworkInterfaceConfigs []NetworkInterfaceConfig `json:"hostNetworkInterfaceConfigs,omitempty"`
 }
 
 type DPUFlavorGrub struct {
@@ -91,7 +88,7 @@ type DPUFLavorSysctl struct {
 	Parameters []string `json:"parameters,omitempty"`
 }
 
-type DPUFlavorNVConfig struct {
+type NVConfig struct {
 	// Device is the device to which the configuration applies. If not specified, the configuration applies to all.
 	// +optional
 	Device *string `json:"device,omitempty"`
@@ -159,6 +156,18 @@ type NetworkInterfaceConfig struct {
 	// DHCP is the DHCP configuration for the network interface.
 	// +optional
 	DHCP *bool `json:"dhcp,omitempty"`
+
+	// PortNumber identifies which port this configuration applies to.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
+	// +required
+	PortNumber int32 `json:"portNumber"`
+
+	// NVConfig contains port-specific configuration for this network interface.
+	// This configuration is applied in addition to the global NVConfig settings in DPUFlavorSpec.
+	// Both global and per-interface NVConfig settings can coexist without collision.
+	// +optional
+	NVConfig *NVConfig `json:"nvconfig,omitempty"`
 }
 
 // +kubebuilder:object:root=true

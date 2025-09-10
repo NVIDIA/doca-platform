@@ -1410,24 +1410,6 @@ DPUFlavorList contains a list of DPUFlavor
 | `items` _[DPUFlavor](#dpuflavor) array_ |  |  |  |
 
 
-#### DPUFlavorNVConfig
-
-
-
-
-
-
-
-_Appears in:_
-- [DPUFlavorSpec](#dpuflavorspec)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `device` _string_ | Device is the device to which the configuration applies. If not specified, the configuration applies to all. |  |  |
-| `parameters` _string array_ | Parameters are the parameters to be set for the device. |  |  |
-| `hostPowerCycleRequired` _boolean_ | HostPowerCycleRequired indicates if the host needs to be power cycled after applying the configuration. |  |  |
-
-
 #### DPUFlavorOVS
 
 
@@ -1459,7 +1441,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `grub` _[DPUFlavorGrub](#dpuflavorgrub)_ | Grub contains the grub configuration for the DPUFlavor. |  |  |
 | `sysctl` _[DPUFLavorSysctl](#dpuflavorsysctl)_ | Sysctl contains the sysctl configuration for the DPUFlavor. |  |  |
-| `nvconfig` _[DPUFlavorNVConfig](#dpuflavornvconfig) array_ | NVConfig contains the configuration for the DPUFlavor. |  |  |
+| `nvconfig` _[NVConfig](#nvconfig) array_ | NVConfig contains the global DPU-wide configuration (firmware settings, global device parameters).<br />This applies to the DPU device and should not overlap with per-interface NVConfig settings. |  |  |
 | `ovs` _[DPUFlavorOVS](#dpuflavorovs)_ | OVS contains the OVS configuration for the DPUFlavor. |  |  |
 | `bfcfgParameters` _string array_ | BFCfgParameters are the parameters to be set in the bf.cfg file. |  |  |
 | `configFiles` _[ConfigFile](#configfile) array_ | ConfigFiles are the files to be written on the DPU. |  |  |
@@ -1467,8 +1449,7 @@ _Appears in:_
 | `dpuResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | DPUResources indicates the minimum amount of resources needed for a BFB with that flavor to be installed on a<br />DPU. Using this field, the controller can understand if that flavor can be installed on a particular DPU. It<br />should be set to the total amount of resources the system needs + the resources that should be made available for<br />DPUServices to consume. |  |  |
 | `systemReservedResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are<br />not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and<br />SystemReservedResources. This field must not be specified if dpuResources are not specified. |  |  |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | Specifies the DPU Mode type: one of dpu,zero-trust | dpu | Enum: [dpu zero-trust] <br /> |
-| `p0NetworkInterfaceConfig` _[NetworkInterfaceConfig](#networkinterfaceconfig)_ | P0NetworkInterfaceConfig contains the configuration for the host-side P0 network interface. |  |  |
-| `p1NetworkInterfaceConfig` _[NetworkInterfaceConfig](#networkinterfaceconfig)_ | P1NetworkInterfaceConfig contains the configuration for the host-side P1 network interface. |  |  |
+| `hostNetworkInterfaceConfigs` _[NetworkInterfaceConfig](#networkinterfaceconfig) array_ | HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces. |  |  |
 
 
 
@@ -2005,6 +1986,25 @@ _Appears in:_
 | `nodeSelector` _object (keys:string, values:string)_ | NodeSelector is used to specify a subnet of control plane nodes to deploy keepalived instances.<br />Note: keepalived instances are always deployed on control plane nodes |  |  |
 
 
+#### NVConfig
+
+
+
+
+
+
+
+_Appears in:_
+- [DPUFlavorSpec](#dpuflavorspec)
+- [NetworkInterfaceConfig](#networkinterfaceconfig)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `device` _string_ | Device is the device to which the configuration applies. If not specified, the configuration applies to all. |  |  |
+| `parameters` _string array_ | Parameters are the parameters to be set for the device. |  |  |
+| `hostPowerCycleRequired` _boolean_ | HostPowerCycleRequired indicates if the host needs to be power cycled after applying the configuration. |  |  |
+
+
 #### NetworkInterfaceConfig
 
 
@@ -2020,6 +2020,8 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `mtu` _integer_ | MTU is the MTU value to be set on the network interface. |  | Maximum: 9216 <br />Minimum: 1000 <br /> |
 | `dhcp` _boolean_ | DHCP is the DHCP configuration for the network interface. |  |  |
+| `portNumber` _integer_ | PortNumber identifies which port this configuration applies to. |  | Maximum: 1 <br />Minimum: 0 <br /> |
+| `nvconfig` _[NVConfig](#nvconfig)_ | NVConfig contains port-specific configuration for this network interface.<br />This configuration is applied in addition to the global NVConfig settings in DPUFlavorSpec.<br />Both global and per-interface NVConfig settings can coexist without collision. |  |  |
 
 
 #### NodeEffect

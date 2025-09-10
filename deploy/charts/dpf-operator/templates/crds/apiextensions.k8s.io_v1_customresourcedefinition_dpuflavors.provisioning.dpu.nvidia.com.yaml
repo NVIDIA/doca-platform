@@ -109,8 +109,60 @@ spec:
                       type: string
                     type: array
                 type: object
+              hostNetworkInterfaceConfigs:
+                description: HostNetworkInterfaceConfigs contains the configuration
+                  for the host-side network interfaces.
+                items:
+                  description: NetworkInterfaceConfig defines the configuration for
+                    a network interface
+                  properties:
+                    dhcp:
+                      description: DHCP is the DHCP configuration for the network
+                        interface.
+                      type: boolean
+                    mtu:
+                      description: MTU is the MTU value to be set on the network interface.
+                      format: int32
+                      maximum: 9216
+                      minimum: 1000
+                      type: integer
+                    nvconfig:
+                      description: |-
+                        NVConfig contains port-specific configuration for this network interface.
+                        This configuration is applied in addition to the global NVConfig settings in DPUFlavorSpec.
+                        Both global and per-interface NVConfig settings can coexist without collision.
+                      properties:
+                        device:
+                          description: Device is the device to which the configuration
+                            applies. If not specified, the configuration applies to
+                            all.
+                          type: string
+                        hostPowerCycleRequired:
+                          description: HostPowerCycleRequired indicates if the host
+                            needs to be power cycled after applying the configuration.
+                          type: boolean
+                        parameters:
+                          description: Parameters are the parameters to be set for
+                            the device.
+                          items:
+                            type: string
+                          type: array
+                      type: object
+                    portNumber:
+                      description: PortNumber identifies which port this configuration
+                        applies to.
+                      format: int32
+                      maximum: 1
+                      minimum: 0
+                      type: integer
+                  required:
+                  - portNumber
+                  type: object
+                type: array
               nvconfig:
-                description: NVConfig contains the configuration for the DPUFlavor.
+                description: |-
+                  NVConfig contains the global DPU-wide configuration (firmware settings, global device parameters).
+                  This applies to the DPU device and should not overlap with per-interface NVConfig settings.
                 items:
                   properties:
                     device:
@@ -136,34 +188,6 @@ spec:
                     description: RawConfigScript is the raw configuration script for
                       OVS.
                     type: string
-                type: object
-              p0NetworkInterfaceConfig:
-                description: P0NetworkInterfaceConfig contains the configuration for
-                  the host-side P0 network interface.
-                properties:
-                  dhcp:
-                    description: DHCP is the DHCP configuration for the network interface.
-                    type: boolean
-                  mtu:
-                    description: MTU is the MTU value to be set on the network interface.
-                    format: int32
-                    maximum: 9216
-                    minimum: 1000
-                    type: integer
-                type: object
-              p1NetworkInterfaceConfig:
-                description: P1NetworkInterfaceConfig contains the configuration for
-                  the host-side P1 network interface.
-                properties:
-                  dhcp:
-                    description: DHCP is the DHCP configuration for the network interface.
-                    type: boolean
-                  mtu:
-                    description: MTU is the MTU value to be set on the network interface.
-                    format: int32
-                    maximum: 9216
-                    minimum: 1000
-                    type: integer
                 type: object
               sysctl:
                 description: Sysctl contains the sysctl configuration for the DPUFlavor.
