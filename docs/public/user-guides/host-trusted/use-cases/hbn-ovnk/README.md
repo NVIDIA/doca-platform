@@ -560,7 +560,7 @@ metadata:
 spec:
   dpus:
     bfb: bf-bundle
-    flavor: dpf-provisioning-hbn-ovn
+    flavor: hbn-ovn
     dpuSets:
     - nameSuffix: "dpuset1"
       nodeSelector:

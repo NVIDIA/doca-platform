@@ -62,7 +62,13 @@ var _ = Describe("DPUSet", func() {
 				GenerateName: name,
 				Namespace:    testNS.Name,
 			},
-			Spec:   provisioningv1.DPUSetSpec{},
+			Spec: provisioningv1.DPUSetSpec{
+				DPUTemplate: provisioningv1.DPUTemplate{
+					Spec: provisioningv1.DPUTemplateSpec{
+						DPUFlavor: "test-flavor",
+					},
+				},
+			},
 			Status: provisioningv1.DPUSetStatus{},
 		}
 	}
@@ -785,6 +791,27 @@ var _ = Describe("DPUSet", func() {
 					g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 					g.Expect(dpu.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 				}
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
+		It("DPUSet: should propagate DPUFlavor field to created DPUs", func() {
+			By("creating dpuset with custom dpuFlavor")
+			obj := createDPUSet("obj-dpuset")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = "custom-flavor"
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, obj))).To(Succeed())
+			})
+
+			dpuList := &provisioningv1.DPUList{}
+
+			By("checking DPU is created with correct DPUFlavor")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name))).To(Succeed())
+				g.Expect(dpuList.Items).To(HaveLen(1))
+
+				dpu := dpuList.Items[0]
+				g.Expect(dpu.Spec.DPUFlavor).To(Equal("custom-flavor"))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 		// TODO: add more test cases
