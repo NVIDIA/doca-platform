@@ -98,7 +98,7 @@ type DPUTemplateSpec struct {
 	// +optional
 	Cluster *ClusterSpec `json:"cluster,omitempty"`
 	// DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU.
-	// +optional
+	// +required
 	DPUFlavor string `json:"dpuFlavor"`
 }
 
