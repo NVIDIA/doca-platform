@@ -73,6 +73,10 @@ func (r *DPUFlavor) ValidateCreate(ctx context.Context, obj runtime.Object) (adm
 		return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("resources are misconfigured: %s", err.Error()))
 	}
 
+	if err := validateHostNetworkInterfaceConfigs(dpuFlavor); err != nil {
+		return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("host network interface configs are misconfigured: %s", err.Error()))
+	}
+
 	if r.DPUInstallInterface != nil {
 		if err := r.validateDPUInstallInterface(obj); err != nil {
 			return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("dpu install interface is misconfigured: %s", err.Error()))
@@ -128,6 +132,32 @@ func (r *DPUFlavor) ValidateDelete(ctx context.Context, obj runtime.Object) (adm
 		return nil, fmt.Errorf("DPUFlavor is being refferred to by DPU(s) %s, you must delete the DPU(s) first", ref)
 	}
 	return nil, nil
+}
+
+func validateHostNetworkInterfaceConfigs(flavor *provisioningv1.DPUFlavor) error {
+	if len(flavor.Spec.HostNetworkInterfaceConfigs) == 0 {
+		return nil
+	}
+
+	// Track duplicate port numbers
+	portNumbers := make(map[int32]bool)
+
+	for i, config := range flavor.Spec.HostNetworkInterfaceConfigs {
+		portNumber := config.PortNumber
+
+		// Check for duplicate port numbers
+		if portNumbers[portNumber] {
+			return fmt.Errorf("duplicate port number %d found at index %d", portNumber, i)
+		}
+		portNumbers[portNumber] = true
+
+		// Validate that at least one configuration option is provided
+		if config.MTU == nil && config.DHCP == nil && config.NVConfig == nil {
+			return fmt.Errorf("host network interface config at index %d (port %d) has no configuration options specified", i, portNumber)
+		}
+	}
+
+	return nil
 }
 
 func validateNVConfig(flavor *provisioningv1.DPUFlavor) error {

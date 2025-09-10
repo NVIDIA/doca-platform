@@ -28,6 +28,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// PortConfig holds the configuration for a specific network port
+type PortConfig struct {
+	// PortNumber identifies the port (0 for P0, 1 for P1, etc.)
+	PortNumber int32 `json:"portNumber"`
+	// MTU is the MTU value for the port. nil means "no configuration requested, keep current"
+	MTU *int32 `json:"mtu,omitempty"`
+	// DHCP configuration for the port. nil when no configuration requested
+	DHCP *bool `json:"dhcp,omitempty"`
+}
+
 const (
 	NetplanConfigFilePrefix = "/etc/netplan/99-dpu"
 )
@@ -109,7 +119,7 @@ type NetplanEthernet struct {
 }
 
 // ConfigurePFNetplan configures the PF network interfaces using netplan
-func ConfigurePFNetplan(pciAddress string, pf0MTU int32, pf0DHCP *bool, pf1MTU int32, pf1DHCP *bool) error {
+func ConfigurePFNetplan(pciAddress string, portConfigs []PortConfig) error {
 	pciHelper := NewPCIHelper(pciAddress)
 	config := NetplanConfig{
 		Network: NetplanNetwork{
@@ -118,39 +128,27 @@ func ConfigurePFNetplan(pciAddress string, pf0MTU int32, pf0DHCP *bool, pf1MTU i
 		},
 	}
 
-	// Configure P0 if needed
-	if pf0MTU > 0 || pf0DHCP != nil {
-		pf0 := pciHelper.PF(0)
-		interfaceName, err := pf0.InterfaceName()
+	// Configure each port based on the provided configurations
+	for _, portConfig := range portConfigs {
+		// Skip if no configuration needed
+		if portConfig.MTU == nil && portConfig.DHCP == nil {
+			continue
+		}
+
+		pf := pciHelper.PF(int(portConfig.PortNumber))
+		interfaceName, err := pf.InterfaceName()
 		if err != nil {
-			return fmt.Errorf("failed to get PF0 interface name: %w", err)
+			return fmt.Errorf("failed to get PF%d interface name: %w", portConfig.PortNumber, err)
 		}
+
 		ethernet := NetplanEthernet{}
-		if pf0MTU > 0 {
-			ethernet.MTU = &pf0MTU
+		if portConfig.MTU != nil {
+			ethernet.MTU = portConfig.MTU
 		}
-		if pf0DHCP != nil {
-			ethernet.DHCP4 = pf0DHCP
+		if portConfig.DHCP != nil {
+			ethernet.DHCP4 = portConfig.DHCP
 		}
 		config.Network.Ethernets[interfaceName] = ethernet
-	}
-
-	// Configure P1 if needed
-	if pf1MTU > 0 || pf1DHCP != nil {
-		pf1 := pciHelper.PF(1)
-		interfaceName, err := pf1.InterfaceName()
-		if err != nil {
-			return fmt.Errorf("failed to get PF1 interface name: %w", err)
-		}
-		ethernet := NetplanEthernet{}
-		if pf1MTU > 0 {
-			ethernet.MTU = &pf1MTU
-		}
-		if pf1DHCP != nil {
-			ethernet.DHCP4 = pf1DHCP
-		}
-		config.Network.Ethernets[interfaceName] = ethernet
-
 	}
 
 	// Only create netplan file if we have something to configure
