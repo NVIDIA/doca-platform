@@ -32,6 +32,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	machineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
@@ -349,15 +350,14 @@ func cleanupDPUClusterNodeLabels(ctx context.Context) {
 }
 
 // createOVNIsolationClass creates an OVN isolation class
-func createOVNIsolationClass(ctx context.Context, testClient client.Client, name string, namespace string, labels map[string]string) {
+func createOVNIsolationClass(ctx context.Context, testClient client.Client, name string, labels map[string]string) {
 	controlPlaneIP := getClusterControlPlaneIP(ctx, testClient)
 	ovnNbEndpoint := fmt.Sprintf("tcp:%s:%d", controlPlaneIP, vpcutils.OvnNbPort)
 	ovnSbEndpoint := fmt.Sprintf("tcp:%s:%d", controlPlaneIP, vpcutils.OvnSbPort)
 	ovni := &vpcv1.IsolationClass{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels:    labels,
+			Name:   name,
+			Labels: labels,
 		},
 		Spec: vpcv1.IsolationClassSpec{
 			Provisioner: name,
@@ -438,4 +438,41 @@ func labelDPUNodesWithTenantAndTenantNode(ctx context.Context, dpuClusterClient 
 		vpcutils.TenantLabelKey:     tenant2Label,
 	}
 	vpcutils.UpdateDPUNodeLabelsMerge(ctx, dpuClusterClient, dpuNode2.Name, labelsDPUNode2, nil)
+}
+
+// createDummyDPUService creates a dummy DPU service
+func createDummyDPUService(ctx context.Context, testClient client.Client, namespace, name string, labels map[string]string, tenantNode *string, serviceID, network, interfaceName string) {
+	dpuService := &dpuservicev1.DPUService{}
+	dpuService.Spec.HelmChart.Source = dpuservicev1.ApplicationSource{
+		Chart:   "dummydpuservice-chart",
+		Version: tag,
+		RepoURL: helmRegistry,
+	}
+	dpuService.Spec.ServiceID = ptr.To(serviceID)
+	dpuService.Spec.ServiceDaemonSet = &dpuservicev1.ServiceDaemonSetValues{
+		Resources: corev1.ResourceList{
+			"nvidia.com/bf_sf": resource.MustParse("1"),
+		},
+	}
+	if tenantNode != nil {
+		dpuService.Spec.ServiceDaemonSet.NodeSelector = &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{
+					MatchExpressions: []corev1.NodeSelectorRequirement{
+						{
+							Key:      vpcutils.TenantNodeLabelKey,
+							Operator: corev1.NodeSelectorOpIn,
+							Values:   []string{*tenantNode},
+						},
+					},
+				},
+			},
+		}
+	}
+	dpuService.Spec.ServiceDaemonSet.Annotations = map[string]string{
+		"k8s.v1.cni.cncf.io/networks": fmt.Sprintf(`[{"name": "%s", "interface": "%s"}]`, network, interfaceName),
+	}
+	dpuService = generateVPCDPUObj(name, namespace, dpuService, labels)
+
+	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, dpuService))).To(Succeed())
 }

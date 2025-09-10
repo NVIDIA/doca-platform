@@ -158,8 +158,26 @@ func getHBNOnlyTestPodConfigs(ctx context.Context, input *systemTestInput, names
 // setupPlainChainTest creates a test environment for a plain service function chain
 func setupPlainChainTest(ctx context.Context, input *systemTestInput, vfIndex int) {
 	interfaceConfigs := []dpuservice.TestDPUServiceInterfaceConfig{
-		{Name: "p0", Type: "physical", Namespace: input.namespace, InterfaceName: "p0"},
-		{Name: fmt.Sprintf("pf0vf%d", vfIndex), Type: "vf", Namespace: input.namespace, InterfaceName: fmt.Sprintf("pf0vf%d", vfIndex), PFIndex: 0, VFIndex: vfIndex},
+		{
+			Name:          "p0",
+			Type:          "physical",
+			Namespace:     input.namespace,
+			InterfaceName: "p0",
+			Labels: map[string]string{
+				"uplink": "p0",
+			},
+		},
+		{
+			Name:          fmt.Sprintf("pf0vf%d", vfIndex),
+			Type:          "vf",
+			Namespace:     input.namespace,
+			InterfaceName: fmt.Sprintf("pf0vf%d", vfIndex),
+			PFIndex:       0,
+			VFIndex:       vfIndex,
+			Labels: map[string]string{
+				"vf": fmt.Sprintf("pf0vf%d", vfIndex),
+			},
+		},
 	}
 
 	By("wait for prerequisite services")
@@ -187,15 +205,97 @@ func setupPlainChainTest(ctx context.Context, input *systemTestInput, vfIndex in
 
 // setupHBNOnlyTest creates a test environment for a HBN only service function chain
 func setupHBNOnlyTest(ctx context.Context, input *systemTestInput, vfIndex int) {
+	hbnServiceID := "doca-hbn"
+	hbnNetwork := "mybrhbn"
 	interfaceConfigs := []dpuservice.TestDPUServiceInterfaceConfig{
-		{Name: "p0", Namespace: input.namespace, Type: "physical", InterfaceName: "p0"},
-		{Name: "p1", Namespace: input.namespace, Type: "physical", InterfaceName: "p1"},
-		{Name: fmt.Sprintf("pf0vf%d-rep", vfIndex), Namespace: input.namespace, Type: "vf", InterfaceName: fmt.Sprintf("pf0vf%d", vfIndex), PFIndex: 0, VFIndex: vfIndex},
-		{Name: fmt.Sprintf("pf1vf%d-rep", vfIndex), Namespace: input.namespace, Type: "vf", InterfaceName: fmt.Sprintf("pf1vf%d", vfIndex), PFIndex: 1, VFIndex: vfIndex},
-		{Name: fmt.Sprintf("pf0vf%d-sf", vfIndex), Namespace: input.namespace, Type: "sf", InterfaceName: fmt.Sprintf("pf0vf%d", vfIndex), ServiceID: "doca-hbn", Network: "mybrhbn"},
-		{Name: fmt.Sprintf("pf1vf%d-sf", vfIndex), Namespace: input.namespace, Type: "sf", InterfaceName: fmt.Sprintf("pf1vf%d", vfIndex), ServiceID: "doca-hbn", Network: "mybrhbn"},
-		{Name: "p0-sf", Namespace: input.namespace, Type: "sf", InterfaceName: "p0", ServiceID: "doca-hbn", Network: "mybrhbn"},
-		{Name: "p1-sf", Namespace: input.namespace, Type: "sf", InterfaceName: "p1", ServiceID: "doca-hbn", Network: "mybrhbn"},
+		{
+			Name:          "p0",
+			Namespace:     input.namespace,
+			Type:          "physical",
+			InterfaceName: "p0",
+			Labels: map[string]string{
+				"uplink": "p0",
+			},
+		},
+		{
+			Name:          "p1",
+			Namespace:     input.namespace,
+			Type:          "physical",
+			InterfaceName: "p1",
+			Labels: map[string]string{
+				"uplink": "p1",
+			},
+		},
+		{
+			Name:          fmt.Sprintf("pf0vf%d-rep", vfIndex),
+			Namespace:     input.namespace,
+			Type:          "vf",
+			InterfaceName: fmt.Sprintf("pf0vf%d", vfIndex),
+			PFIndex:       0,
+			VFIndex:       vfIndex,
+			Labels: map[string]string{
+				"vf": fmt.Sprintf("pf0vf%d", vfIndex),
+			},
+		},
+		{
+			Name:          fmt.Sprintf("pf1vf%d-rep", vfIndex),
+			Namespace:     input.namespace,
+			Type:          "vf",
+			InterfaceName: fmt.Sprintf("pf1vf%d", vfIndex),
+			PFIndex:       1,
+			VFIndex:       vfIndex,
+			Labels: map[string]string{
+				"vf": fmt.Sprintf("pf1vf%d", vfIndex),
+			},
+		},
+		{
+			Name:          fmt.Sprintf("pf0vf%d-sf", vfIndex),
+			Namespace:     input.namespace,
+			Type:          "sf",
+			InterfaceName: fmt.Sprintf("pf0vf%d_if", vfIndex),
+			ServiceID:     hbnServiceID,
+			Network:       hbnNetwork,
+			Labels: map[string]string{
+				dpuservicev1.DPFServiceIDLabelKey: hbnServiceID,
+				"svc.dpu.nvidia.com/interface":    fmt.Sprintf("pf0vf%d_sf", vfIndex),
+			},
+		},
+		{
+			Name:          fmt.Sprintf("pf1vf%d-sf", vfIndex),
+			Namespace:     input.namespace,
+			Type:          "sf",
+			InterfaceName: fmt.Sprintf("pf1vf%d_if", vfIndex),
+			ServiceID:     hbnServiceID,
+			Network:       hbnNetwork,
+			Labels: map[string]string{
+				dpuservicev1.DPFServiceIDLabelKey: hbnServiceID,
+				"svc.dpu.nvidia.com/interface":    fmt.Sprintf("pf1vf%d_sf", vfIndex),
+			},
+		},
+		{
+			Name:          "p0-sf",
+			Namespace:     input.namespace,
+			Type:          "sf",
+			InterfaceName: "p0_if",
+			ServiceID:     hbnServiceID,
+			Network:       hbnNetwork,
+			Labels: map[string]string{
+				dpuservicev1.DPFServiceIDLabelKey: hbnServiceID,
+				"svc.dpu.nvidia.com/interface":    "p0_sf",
+			},
+		},
+		{
+			Name:          "p1-sf",
+			Namespace:     input.namespace,
+			Type:          "sf",
+			InterfaceName: "p1_if",
+			ServiceID:     hbnServiceID,
+			Network:       hbnNetwork,
+			Labels: map[string]string{
+				dpuservicev1.DPFServiceIDLabelKey: hbnServiceID,
+				"svc.dpu.nvidia.com/interface":    "p1_sf",
+			},
+		},
 	}
 
 	ipamConfigs := []dpuservice.TestIPAMConfig{
