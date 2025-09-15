@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/doca/canonical:ubuntu24.10
+FROM nvcr.io/nvidia/doca/canonical:ubuntu24.04
 
 ARG ubuntu_mirror=http://archive.ubuntu.com/ubuntu/
 RUN find /etc/apt/sources.list* -type f -exec sed -i \

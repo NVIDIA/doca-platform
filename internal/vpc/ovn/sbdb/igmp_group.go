@@ -27,7 +27,6 @@ type IGMPGroup struct {
 	ChassisName string   `ovsdb:"chassis_name"`
 	Datapath    *string  `ovsdb:"datapath"`
 	Ports       []string `ovsdb:"ports"`
-	Protocol    string   `ovsdb:"protocol"`
 }
 
 func (a *IGMPGroup) GetUUID() string {
@@ -114,10 +113,6 @@ func equalIGMPGroupPorts(a, b []string) bool {
 	return true
 }
 
-func (a *IGMPGroup) GetProtocol() string {
-	return a.Protocol
-}
-
 func (a *IGMPGroup) DeepCopyInto(b *IGMPGroup) {
 	*b = *a
 	b.Chassis = copyIGMPGroupChassis(a.Chassis)
@@ -146,8 +141,7 @@ func (a *IGMPGroup) Equals(b *IGMPGroup) bool {
 		equalIGMPGroupChassis(a.Chassis, b.Chassis) &&
 		a.ChassisName == b.ChassisName &&
 		equalIGMPGroupDatapath(a.Datapath, b.Datapath) &&
-		equalIGMPGroupPorts(a.Ports, b.Ports) &&
-		a.Protocol == b.Protocol
+		equalIGMPGroupPorts(a.Ports, b.Ports)
 }
 
 func (a *IGMPGroup) EqualsModel(b model.Model) bool {
