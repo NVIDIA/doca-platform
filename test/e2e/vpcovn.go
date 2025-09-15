@@ -448,6 +448,11 @@ func createDummyDPUService(ctx context.Context, testClient client.Client, namesp
 		Version: tag,
 		RepoURL: helmRegistry,
 	}
+	if ngcAPIKey != "" {
+		dpuService.Spec.HelmChart.Values = &machineryruntime.RawExtension{
+			Raw: []byte(fmt.Sprintf(`{"imagePullSecrets": [{"name": "%s"}]}`, ngcPullSecretName)),
+		}
+	}
 	dpuService.Spec.ServiceID = ptr.To(serviceID)
 	dpuService.Spec.ServiceDaemonSet = &dpuservicev1.ServiceDaemonSetValues{
 		Resources: corev1.ResourceList{
