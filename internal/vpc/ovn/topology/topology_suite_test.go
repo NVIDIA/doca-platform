@@ -30,7 +30,7 @@ import (
 )
 
 type Config struct {
-	ImageName string `envconfig:"OVN_CENTRAL_IMAGE_NAME" default:"ovn-central:v24.09.0"`
+	ImageName string `envconfig:"OVN_CENTRAL_IMAGE_NAME" default:"ovn-central:v24.03.0"`
 }
 
 var (
