@@ -41,9 +41,7 @@ type NAT struct {
 	GatewayPort       *string           `ovsdb:"gateway_port"`
 	LogicalIP         string            `ovsdb:"logical_ip"`
 	LogicalPort       *string           `ovsdb:"logical_port"`
-	Match             string            `ovsdb:"match"`
 	Options           map[string]string `ovsdb:"options"`
-	Priority          int               `ovsdb:"priority"`
 	Type              NATType           `ovsdb:"type"`
 }
 
@@ -203,10 +201,6 @@ func equalNATLogicalPort(a, b *string) bool {
 	return *a == *b
 }
 
-func (a *NAT) GetMatch() string {
-	return a.Match
-}
-
 func (a *NAT) GetOptions() map[string]string {
 	return a.Options
 }
@@ -235,10 +229,6 @@ func equalNATOptions(a, b map[string]string) bool {
 		}
 	}
 	return true
-}
-
-func (a *NAT) GetPriority() int {
-	return a.Priority
 }
 
 func (a *NAT) GetType() NATType {
@@ -282,9 +272,7 @@ func (a *NAT) Equals(b *NAT) bool {
 		equalNATGatewayPort(a.GatewayPort, b.GatewayPort) &&
 		a.LogicalIP == b.LogicalIP &&
 		equalNATLogicalPort(a.LogicalPort, b.LogicalPort) &&
-		a.Match == b.Match &&
 		equalNATOptions(a.Options, b.Options) &&
-		a.Priority == b.Priority &&
 		a.Type == b.Type
 }
 
