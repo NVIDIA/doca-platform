@@ -126,7 +126,7 @@ generate-mocks: mockgen ## Generate mocks
 
 	export PATH="$(TOOLSDIR):$(PATH)"; go generate $$(go list ./... | grep -Ev '/nbdb|/sbdb')
 
-OVN_SCHEMA_VERSION ?= v24.09.0
+OVN_SCHEMA_VERSION ?= v24.03.0
 .PHONY: generate-dbmodels ## Generate database models for OVN
 generate-dbmodels: generate-ovn-dbmodels
 
