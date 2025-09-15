@@ -114,6 +114,10 @@ func getEnvVariables() {
 	} else {
 		panic("TAG env variable must be set")
 	}
+
+	if cmd, found := os.LookupEnv("EXTERNAL_TEST_COMMANDS"); found {
+		externalTestCommands = utils.ParseMultipleCommands(cmd)
+	}
 }
 
 var (
