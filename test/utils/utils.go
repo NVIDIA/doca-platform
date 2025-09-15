@@ -255,3 +255,26 @@ func ResolveHBNImageURL(hbnURL string) (string, error) {
 
 	return hbnURL, nil
 }
+
+// ParseMultipleCommands parses a string containing multiple commands separated by semicolons or newlines
+func ParseMultipleCommands(commandString string) []string {
+	// Split by semicolon first, then by newline to handle both separators
+	var commands []string
+
+	// Split by semicolon
+	semicolonSplit := strings.Split(commandString, ";")
+	for _, cmd := range semicolonSplit {
+		// For each semicolon-separated part, split by newline
+		newlineSplit := strings.Split(cmd, "\n")
+		for _, subCmd := range newlineSplit {
+			// Trim whitespace and add non-empty commands
+			trimmed := strings.TrimSpace(subCmd)
+			if trimmed == "" {
+				continue
+			}
+			commands = append(commands, trimmed)
+		}
+	}
+
+	return commands
+}
