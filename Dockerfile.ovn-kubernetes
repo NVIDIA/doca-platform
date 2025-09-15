@@ -51,7 +51,7 @@ RUN mkdir src && \
     tar -czf source-code.tar.gz src
 
 # Build the final image
-FROM ubuntu:24.10
+FROM nvcr.io/nvidia/doca/canonical:ubuntu24.04
 
 ARG TARGETARCH
 
