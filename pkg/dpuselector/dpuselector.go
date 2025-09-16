@@ -27,6 +27,11 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+// DPUSelectFunc is a function that selects a DPU from a list of candidates.
+// The function is called with a list of candidates and should return the selected DPU.
+// If the function cannot select a DPU, it should return nil and an error.
+type DPUSelectFunc func(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (*provisioningv1.DPU, error)
+
 // Options holds configuration for DPU selection.
 type Options struct {
 	// labelSelector filters DPUs by labels
@@ -35,11 +40,14 @@ type Options struct {
 	indexerField *string
 	// namespace restricts search to specific namespace
 	namespace *string
+	// select a DPU from few candidates
+	dpuSelectFunc DPUSelectFunc
 }
 
 // MarshalLog emits a struct containing key/value pairs for logging.
 func (o Options) MarshalLog() any {
 	var labelSelector, indexerField, namespace string
+	var selectFunc bool
 	if o.labelSelector != nil {
 		labelSelector = o.labelSelector.String()
 	}
@@ -49,14 +57,19 @@ func (o Options) MarshalLog() any {
 	if o.namespace != nil {
 		namespace = *o.namespace
 	}
+	if o.dpuSelectFunc != nil {
+		selectFunc = true
+	}
 	return struct {
-		LabelSelector string `json:"labelSelector,omitempty"`
-		IndexerField  string `json:"indexerField,omitempty"`
-		Namespace     string `json:"namespace,omitempty"`
+		LabelSelector     string `json:"labelSelector,omitempty"`
+		IndexerField      string `json:"indexerField,omitempty"`
+		Namespace         string `json:"namespace,omitempty"`
+		WithDPUSelectFunc bool   `json:"withDPUSelectFunc,omitempty"`
 	}{
-		LabelSelector: labelSelector,
-		IndexerField:  indexerField,
-		Namespace:     namespace,
+		LabelSelector:     labelSelector,
+		IndexerField:      indexerField,
+		Namespace:         namespace,
+		WithDPUSelectFunc: selectFunc,
 	}
 }
 
@@ -94,6 +107,18 @@ type WithInNamespace struct {
 // Apply sets the namespace restriction.
 func (o WithInNamespace) Apply(options *Options) {
 	options.namespace = &o.Namespace
+}
+
+// WithDPUSelectFunc sets the dpu select function.
+// The function is called with a list of candidates and should return the selected DPU.
+// If the function cannot select a DPU, it should return nil and an error.
+type WithDPUSelectFunc struct {
+	SelectFunc DPUSelectFunc
+}
+
+// Apply sets the dpu select function.
+func (o WithDPUSelectFunc) Apply(options *Options) {
+	options.dpuSelectFunc = o.SelectFunc
 }
 
 // DPUSelector selects DPUs for nodes.
@@ -138,12 +163,24 @@ func (s *dpuSelector) GetDPUForNode(ctx context.Context, c client.Client, dpuNod
 		reqLog.Error(err, "No DPU found for DPUNode")
 		return nil, err
 	}
+	if s.options.dpuSelectFunc != nil {
+		selectedDPU, err := s.options.dpuSelectFunc(ctx, dpuNode, dpus)
+		if err != nil {
+			reqLog.Error(err, "dpu selection function returned an error")
+			return nil, err
+		}
+		if selectedDPU == nil {
+			return nil, fmt.Errorf("dpu selection function returned nil DPU")
+		}
+		reqLog.Info("Selected DPU for DPUNode", "dpu", selectedDPU.Name)
+		return selectedDPU, nil
+	}
 	if len(dpus) > 1 {
 		err := fmt.Errorf("%d DPUs found for DPUNode %s", len(dpus), dpuNode.Name)
 		reqLog.Error(err, "Multiple DPUs found for DPUNode")
 		return nil, err
 	}
-	reqLog.Info("Found DPU for DPUNode", "dpu", dpus[0].Name)
+	reqLog.Info("Selected DPU for DPUNode", "dpu", dpus[0].Name)
 	return dpus[0], nil
 }
 
