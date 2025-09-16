@@ -184,6 +184,11 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 
+	// for zero-trust mode, the PCI address is not provided in the DPU object, so we do not need to build the context with the target PCI address
+	if dpu.Spec.PCIAddress != nil {
+		ctx = cutil.BuildContextWithTargetPCIAddress(ctx, *dpu.Spec.PCIAddress)
+	}
+
 	nextState, err := h(ctx, dpu, r.ctrlCtx)
 	if err != nil {
 		logger.Error(err, "State handle error")
