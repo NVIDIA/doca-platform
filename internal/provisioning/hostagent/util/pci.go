@@ -221,11 +221,13 @@ type Device struct {
 	Address string
 	// SerialNumber is the serial number of the device
 	SerialNumber string
+	// NumOfPFs is the number of PFs of the device
+	NumOfPFs int
 }
 
 func DiscoverDPUs() ([]Device, error) {
 	ret := []Device{}
-	devices := make(map[string]struct{})
+	devices := make(map[string]*Device)
 	deviceEntries, err := os.ReadDir(SysPCIDevicesDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read PCI sys directory: %w", err)
@@ -233,11 +235,6 @@ func DiscoverDPUs() ([]Device, error) {
 
 	for _, entry := range deviceEntries {
 		pciAddr := entry.Name()
-		truncatedAddr := truncateFunctionNumber(pciAddr)
-		if _, ok := devices[truncatedAddr]; ok {
-			continue
-		}
-
 		isDPU, err := NewPCIHelper(pciAddr).IsDPU()
 		if err != nil {
 			klog.Errorf("failed to check if %s is a DPU: %v", pciAddr, err)
@@ -250,12 +247,21 @@ func DiscoverDPUs() ([]Device, error) {
 			klog.Errorf("failed to read device serial number from VPD %s: %v", pciAddr, err)
 			continue
 		}
-		dev := Device{
-			Address:      truncatedAddr,
-			SerialNumber: sn,
+		truncatedAddr := truncateFunctionNumber(pciAddr)
+		dev, ok := devices[truncatedAddr]
+		if ok {
+			dev.NumOfPFs++
+		} else {
+			dev = &Device{
+				Address:      truncatedAddr,
+				SerialNumber: sn,
+				NumOfPFs:     1,
+			}
+			devices[dev.Address] = dev
 		}
-		devices[dev.Address] = struct{}{}
-		ret = append(ret, dev)
+	}
+	for _, dev := range devices {
+		ret = append(ret, *dev)
 	}
 	return ret, nil
 }
