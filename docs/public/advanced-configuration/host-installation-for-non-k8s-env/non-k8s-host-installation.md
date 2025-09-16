@@ -904,34 +904,34 @@ EOF
 	fi
 }
 
-# Function to get the first PCI address from file and format it to "0000:00:00.0"
-get_the_first_pci_address() {
+# Function to get the PCI address from file and format it to "0000:00:00.0,0000:00:00.1,..."
+get_the_pci_address_array_with_comma() {
 	local pci_file=$1
-	local dms_pci
+	local dms_pci_array_with_comma
 
 	# Read PCI address from file
 	if [ -f "$pci_file" ]; then
-		# Read the first line from the file and assign to dms_pci
-		dms_pci=$(head -n 1 "$pci_file")
-		if [ -z "$dms_pci" ]; then
+		# Read the line from the file and assign to dms_pci_array_with_comma
+		dms_pci_array_with_comma=$(paste -sd, "$pci_file")
+		if [ -z "$dms_pci_array_with_comma" ]; then
 			error "PCI address file exists but is empty"
 		fi
 	else
 		error "PCI address file not found: $pci_file"
 	fi
 	# Replace hyphens with colons in the PCI address
-	dms_pci=${dms_pci//-/:}
-	echo "$dms_pci"
+	dms_pci_array_with_comma=${dms_pci_array_with_comma//-/:}
+	echo "$dms_pci_array_with_comma"
 }
 
 create_dms_config() {
 	mkdir -p $dms_conf_dir
-	if ! dms_pci=$(get_the_first_pci_address "$pci_addr_file"); then
-		error "get_the_first_pci_address failed for $pci_addr_file"
+	if ! dms_pci_array_with_comma=$(get_the_pci_address_array_with_comma "$pci_addr_file"); then
+		error "get_the_pci_address_array_with_comma failed for $pci_addr_file"
 	fi
 
 	cat << EOF > $dms_conf_dir/$DEFAULT_DMS_CONF_FILE
--bind_address $dms_ip:$dms_port -v 99 -auth cert -ca $dms_conf_dir/certs/ca.crt -tls_key_file $dms_conf_dir/certs/tls.key -tls_cert_file $dms_conf_dir/certs/tls.crt -password admin -username admin -image_folder $dms_image_dir -target_pci $dms_pci -exec_timeout 900 -disable_unbind_at_activate -reboot_status_check none -debug_command=true
+-bind_address $dms_ip:$dms_port -v 99 -auth cert -ca $dms_conf_dir/certs/ca.crt -tls_key_file $dms_conf_dir/certs/tls.key -tls_cert_file $dms_conf_dir/certs/tls.crt -password admin -username admin -image_folder $dms_image_dir -target_pci $dms_pci_array_with_comma -exec_timeout 900 -disable_unbind_at_activate -reboot_status_check none -debug_command=true
 EOF
 	log "DMS configuration created at $dms_conf_dir/$DEFAULT_DMS_CONF_FILE"
 	log "DMS configuration: $(cat $dms_conf_dir/$DEFAULT_DMS_CONF_FILE)"
@@ -1211,16 +1211,19 @@ check_rshim_not_occupied() {
 		output=/dev/termination-log
 	fi
 
-	if ! pci_addr=$(get_the_first_pci_address "$pci_addr_file"); then
-		error "get_the_first_pci_address failed for $pci_addr_file"
+	if ! pci_addr_array_with_comma=$(get_the_pci_address_array_with_comma "$pci_addr_file"); then
+		error "get_the_pci_address_array_with_comma failed for $pci_addr_file"
 	fi
-	log "Get PCI address: $pci_addr"
-	while read dev; do
-		if echo 'DISPLAY_LEVEL 1' > "/dev/$dev/misc" && grep -q "$pci_addr" "/dev/$dev/misc"; then
-			echo -n "$pci_addr" > "$output"
-			exit 1
-		fi
-	done < <(ls /dev | egrep 'rshim.*[0-9]+')
+	log "Get PCI address: $pci_addr_array_with_comma"
+	IFS=',' read -ra pci_array <<< "$pci_addr_array_with_comma"
+	for pci_addr in "${pci_array[@]}"; do
+		while read dev; do
+			if echo 'DISPLAY_LEVEL 1' > "/dev/$dev/misc" && grep -q "$pci_addr" "/dev/$dev/misc"; then
+				echo -n "find $pci_addr in $dev" > "$output"
+				exit 1
+			fi
+		done < <(ls /dev | egrep 'rshim.*[0-9]+')
+	done
 }
 
 check_bridge() {
@@ -1300,13 +1303,16 @@ main() {
 		#   This is consistent with the behavior of the hostnetwork Pod, which also limits its handling to these PFs.
 		# - All VFs associated with these PFs will also be handled and recovered, but only after their corresponding PFs
 		#   have been successfully processed to ensure a stable recovery sequence.
-		if ! pci_addr=$(get_the_first_pci_address "$pci_addr_file"); then
-			error "get_the_first_pci_address failed for $pci_addr_file"
+		if ! pci_addr_array_with_comma=$(get_the_pci_address_array_with_comma "$pci_addr_file"); then
+			error "get_the_pci_address_array_with_comma failed for $pci_addr_file"
 		fi
-		log "Get PCI address: $pci_addr"
-		readlink /sys/bus/pci/devices/"$pci_addr".[01] /sys/bus/pci/devices/"$pci_addr".[01]/virtfn* | xargs -n1 basename | sort -u | while read pci_device; do
-			devlink health set pci/$pci_device reporter fw_fatal grace_period 0
-			devlink health recover pci/$pci_device reporter fw_fatal
+		log "Get PCI address: $pci_addr_array_with_comma"
+		IFS=',' read -ra pci_array <<< "$pci_addr_array_with_comma"
+		for pci_addr in "${pci_array[@]}"; do
+			readlink /sys/bus/pci/devices/"$pci_addr".[01] /sys/bus/pci/devices/"$pci_addr".[01]/virtfn* | xargs -n1 basename | sort -u | while read pci_device; do
+				devlink health set pci/$pci_device reporter fw_fatal grace_period 0
+				devlink health recover pci/$pci_device reporter fw_fatal
+			done
 		done
 	elif [ "$cmd" = "$CMD_CHECK_RSHIM_NOT_OCCUPIED" ]; then
 		check_rshim_not_occupied
