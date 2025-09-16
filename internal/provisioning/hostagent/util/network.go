@@ -58,14 +58,6 @@ func generateNetplanFilePath(pciHelper *PCIHelper) (string, error) {
 	return fmt.Sprintf("%s-%s.yaml", NetplanConfigFilePrefix, sanitized), nil
 }
 
-func CreateVF(pciAddress string, numOfVFs int) error {
-	err := NewPCIHelper(pciAddress).SetNumOfVFs(numOfVFs)
-	if err != nil {
-		return fmt.Errorf("failed to set number of VFs: %w", err)
-	}
-	return nil
-}
-
 func AddVFToBridge(vfName, bridgeName string) error {
 	bridge, err := netlink.LinkByName(bridgeName)
 	if err != nil {
