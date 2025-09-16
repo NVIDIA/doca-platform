@@ -110,7 +110,7 @@ type DPFOperatorConfigReconcilerSettings struct {
 // +kubebuilder:rbac:groups=core,resources=namespaces,verbs=create
 // +kubebuilder:rbac:groups=core,resources=nodes;pods;pods/exec;jobs;serviceaccounts;serviceaccounts/token;persistentvolumeclaims;events,verbs=get;list;watch;create;patch;update;delete
 // +kubebuilder:rbac:groups=core,resources=configmaps;secrets,verbs=get;list;create;patch;update;delete
-// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;patch;update;delete;deletecollection
+// +kubebuilder:rbac:groups=core,resources=services;endpoints,verbs=get;list;watch;create;patch;update;delete;deletecollection
 // +kubebuilder:rbac:groups=core,resources=nodes;pods;pods/exec;services;serviceaccounts;serviceaccounts/token;configmaps;persistentvolumeclaims;events;,verbs=get;list;watch;create;patch;update;delete
 
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings;roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
