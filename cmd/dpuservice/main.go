@@ -36,6 +36,7 @@ import (
 
 	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/component-base/logs"
@@ -182,16 +183,49 @@ func main() {
 
 	ctx := ctrl.SetupSignalHandler()
 
+	podsOwnedByDPUServiceLabelSelector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      dpuservicev1.DPFServiceIDLabelKey,
+				Operator: metav1.LabelSelectorOpExists,
+			},
+		},
+	})
+	if err != nil {
+		setupLog.Error(err, "could not create label selector")
+		os.Exit(1)
+	}
+
+	dpuReadyReconciler := &dpuservicecontroller.DPUReadyReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+
+	if err = dpuReadyReconciler.SetupWithManager(ctx, mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DPUReady")
+		os.Exit(1)
+	}
+
 	// new remote cache
 	rc, err := dpucluster.SetupRemoteCacheWithManager(ctx, mgr,
 		dpucluster.OptionHostClient{Client: mgr.GetClient()},
 		dpucluster.OptionScheme{Scheme: mgr.GetScheme()},
 		dpucluster.OptionUserAgent{UserAgent: "dpuservice-controller"},
 		dpucluster.OptionSyncPeriod{SyncPeriod: syncPeriod},
+		dpucluster.OptionGetWatcherCallbacks{GetWatcherCallbacks: []dpucluster.GetWatcherCallback{
+			dpuReadyReconciler.WatchServicePods,
+		}},
 		dpucluster.OptionDisableFor{DisableFor: []client.Object{
 			&corev1.ConfigMap{},
 			&corev1.Secret{},
-		}})
+		}},
+		dpucluster.OptionByObject{ByObject: map[client.Object]cache.ByObject{
+			&corev1.Pod{}: {
+				// watch only pods with the service id label
+				Label: podsOwnedByDPUServiceLabelSelector,
+			},
+		}},
+	)
 
 	if err != nil {
 		setupLog.Error(err, "unable to create remote cache")
@@ -271,14 +305,6 @@ func main() {
 		RemoteCache: rc,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUServiceNAD")
-		os.Exit(1)
-	}
-
-	if err = (&dpuservicecontroller.DPUReadyController{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(ctx, mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DPUReady")
 		os.Exit(1)
 	}
 
