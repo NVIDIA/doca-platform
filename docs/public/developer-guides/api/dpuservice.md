@@ -342,7 +342,7 @@ I0619 09:46:01.170252 dpuready_controller.go:216] Removing taint from node Node=
 
 ### Limitations
 * Tainting is based on a 10-minute periodic reconciliation.
-* Only DPUService pods labeled as svc.dpu.nvidia.com/critical are considered.
+* Only pods for critical DPUServices labeled as svc.dpu.nvidia.com/critical are considered.
 * Taint is only removed once the pod is Ready.
 * Feature currently does not trigger instant reconciliation (planned for future releases).
 
