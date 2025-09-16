@@ -14,19 +14,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package options
+package util
 
-const (
-	HostAgentDir = "/var/lib/dpf/hostagent"
-	CertDir      = HostAgentDir + "/pki"
+import (
+	"os"
+	"path/filepath"
 )
 
-type HostAgentFlags struct {
-	BootstrapPath      string
-	KubeconfigPath     string
-	CertDir            string
-	ContentType        string
-	KubeAPIQPS         int
-	KubeAPIBurst       int
-	BFBRegistryAddress string
+func AtomicWrite(path string, data []byte, perm os.FileMode) error {
+	tempFile, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+"-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tempFile.Name()) //nolint: errcheck
+	if _, err := tempFile.Write(data); err != nil {
+		return err
+	}
+	if err := tempFile.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempFile.Name(), path); err != nil {
+		return err
+	}
+	return os.Chmod(path, perm)
 }

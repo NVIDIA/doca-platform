@@ -1623,6 +1623,7 @@ _Appears in:_
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represent the latest available observations of an object's state. |  | Type: array <br /> |
 | `dpuInstallInterface` _string_ | The name of the interface which will be used to install the bfb image, can be one of gNOI,redfish |  | Enum: [gNOI redfish] <br /> |
 | `kubeNodeRef` _string_ | The name of the Kubernetes Node object that this DPUNode represents.<br />This field is optional and only relevant if the x86 host is part of the DPF Kubernetes cluster. |  |  |
+| `rebootInProgress` _boolean_ | RebootInProgress indicates if the node is in the process of rebooting. |  |  |
 
 
 #### DPUPhase
