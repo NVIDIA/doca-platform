@@ -115,8 +115,9 @@ const (
 	TrustedSFCount                = DPUProvisioningLabelPrefix + "num-of-trusted-sfs"
 	ProvisioningComponentLabelKey = DPUProvisioningLabelPrefix + "component"
 
-	// DPU cluster version is one to one with DPF operator version, need to update this in each dpf release
-	KubernetesVersion = "v1.33.0"
+	// KubernetesVersion is the version used by the DPUCluster.
+	// It has a one-to-one relationship with the DPF Operator version and needs to be updated with each minor release.
+	KubernetesVersion = "v1.34.0"
 	// MaxNameLength is the maximum length of the name of the K8s resource.
 	MaxNameLength = validation.DNS1123SubdomainMaxLength // 253
 

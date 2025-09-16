@@ -35,7 +35,7 @@ spec:
           tenant.clastix.io: dpu-cluster-1
       serviceType: LoadBalancer
   kubernetes:
-    version: v1.33.0
+    version: v1.34.0
     kubelet:
       cgroupfs: systemd
       preferredAddressTypes: [InternalIP,Hostname,ExternalIP]
