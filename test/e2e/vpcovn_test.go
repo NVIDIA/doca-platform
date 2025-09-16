@@ -180,9 +180,20 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 			pod2IP                  string
 			pod3IP                  string
 			testPodConfigs          []*netshoot.TestPodConfig
+			contextHasFailed        bool
 		)
 
+		AfterEach(func() {
+			if CurrentSpecReport().Failed() {
+				contextHasFailed = true
+			}
+		})
+
 		AfterAll(func() {
+			if contextHasFailed {
+				By("VPC OVN: Skip cleanup for this context because a spec failed")
+				return
+			}
 			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
 			cleanupDPUClusterNodeLabels(ctx)
 		})
@@ -383,9 +394,20 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 			pod2IP                  string
 			pod3IP                  string
 			testPodConfigs          []*netshoot.TestPodConfig
+			contextHasFailed        bool
 		)
 
+		AfterEach(func() {
+			if CurrentSpecReport().Failed() {
+				contextHasFailed = true
+			}
+		})
+
 		AfterAll(func() {
+			if contextHasFailed {
+				By("VPC OVN: Skip cleanup for this context because a spec failed")
+				return
+			}
 			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
 			cleanupDPUClusterNodeLabels(ctx)
 		})
@@ -592,11 +614,22 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 			pod2IP                  string
 			pod3IP                  string
 			testPodConfigs          []*netshoot.TestPodConfig
+			contextHasFailed        bool
 		)
 
 		vpcName2 := "myvpc-2"
 
+		AfterEach(func() {
+			if CurrentSpecReport().Failed() {
+				contextHasFailed = true
+			}
+		})
+
 		AfterAll(func() {
+			if contextHasFailed {
+				By("VPC OVN: Skip cleanup for this context because a spec failed")
+				return
+			}
 			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
 			cleanupDPUClusterNodeLabels(ctx)
 		})
@@ -800,6 +833,7 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 			sfPods                  []corev1.Pod
 			hostWorkerNode1         string
 			hostWorkerNode2         string
+			contextHasFailed        bool
 		)
 
 		const (
@@ -815,7 +849,17 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 			hostWorkerNode1, hostWorkerNode2 = getTwoWorkerNodeNames(ctx, input.client)
 		})
 
+		AfterEach(func() {
+			if CurrentSpecReport().Failed() {
+				contextHasFailed = true
+			}
+		})
+
 		AfterAll(func() {
+			if contextHasFailed {
+				By("VPC OVN: Skip cleanup for this context because a spec failed")
+				return
+			}
 			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
 			cleanupDPUClusterNodeLabels(ctx)
 		})
