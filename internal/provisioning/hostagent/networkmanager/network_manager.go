@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package hostnetwork
+package networkmanager
 
 import (
 	"context"
@@ -29,8 +29,7 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	networkutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/hostnetwork/util"
+	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -42,24 +41,39 @@ import (
 const (
 	BridgeName          = "br-dpu"
 	NumofVFDefaultValue = 16
+	condition           = string(provisioningv1.DPUCondHostNetworkReady)
 )
+
+type Interface interface {
+	// Start starts the network manager
+	Start() error
+	// GetDevice returns the PCI device by serial number
+	GetDevice(serialNumber string) (hostutil.Device, bool)
+	// AddNetworkRequest adds a network request for a DPU
+	AddNetworkRequest(dpu *provisioningv1.DPU) error
+}
 
 type NetworkManager struct {
 	sync.RWMutex
 	client.Client
 	initialized bool
 	// devicesBySN is a map of DPU serial number to its PCI device
-	devicesBySN map[string]networkutil.Device
+	devicesBySN map[string]hostutil.Device
 	// reqs is a map of DPU CR UID to its network request
 	reqs map[string]NetworkRequest
 	// osType caches the detected operating system type
 	osType string
 }
 
+type networkOperation struct {
+	name string
+	f    func(nr NetworkRequest) error
+}
+
 func NewNetworkManager(client client.Client) *NetworkManager {
 	return &NetworkManager{
 		Client:      client,
-		devicesBySN: make(map[string]networkutil.Device),
+		devicesBySN: make(map[string]hostutil.Device),
 		reqs:        make(map[string]NetworkRequest),
 	}
 }
@@ -69,13 +83,13 @@ func (nm *NetworkManager) Start() error {
 	defer nm.Unlock()
 
 	// Detect and cache OS type
-	osType, err := networkutil.GetOSType()
+	osType, err := hostutil.GetOSType()
 	if err != nil {
 		return fmt.Errorf("failed to detect OS type: %w", err)
 	}
 	nm.osType = osType
 
-	devices, err := networkutil.DiscoverDPUs()
+	devices, err := hostutil.DiscoverDPUs()
 	if err != nil {
 		return fmt.Errorf("failed to discovery DPUs: %w", err)
 	}
@@ -98,6 +112,13 @@ func (nm *NetworkManager) Start() error {
 	}()
 	klog.Info("NetworkManager started")
 	return nil
+}
+
+func (nm *NetworkManager) GetDevice(serialNumber string) (hostutil.Device, bool) {
+	nm.RLock()
+	defer nm.RUnlock()
+	dev, ok := nm.devicesBySN[serialNumber]
+	return dev, ok
 }
 
 func (nm *NetworkManager) loadNetworkRequest() error {
@@ -147,7 +168,7 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 	if err := nm.Get(context.TODO(), nn, dpu); err != nil {
 		if apierrors.IsNotFound(err) {
 			klog.Infof("DPU %s/%s(UID: %s) not found, removing VF and network request for DPU ", nr.DPUNamespace, nr.DpuName, nr.UID)
-			if err = networkutil.RemoveVFFromBridge(nr.VFName); err != nil {
+			if err = hostutil.RemoveVFFromBridge(nr.VFName); err != nil {
 				return fmt.Errorf("failed to remove VF: %w", err)
 			}
 			err = os.Remove(filepath.Join(NetworkRequestDir, nr.UID))
@@ -160,49 +181,73 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 		}
 		return fmt.Errorf("failed to get DPU: %w", err)
 	}
-	operations := map[string]func(networkReq NetworkRequest) error{
-		"CreateP0VF": func(nr NetworkRequest) error {
-			return networkutil.CreateVF(networkutil.NewPCIHelper(nr.PCIAddress).PF(0).Path(), nr.NumOfVFs)
+	operations := []networkOperation{
+		{
+			name: "CreateP0VF",
+			f: func(nr NetworkRequest) error {
+				return hostutil.NewPCIHelper(nr.PCIAddress).PF(0).SetNumOfVFs(nr.NumOfVFs)
+			},
 		},
-		"CreateP1VF": func(nr NetworkRequest) error {
-			isDPU, err := networkutil.NewPCIHelper(nr.PCIAddress).PF(1).IsDPU()
-			if err != nil {
-				if os.IsNotExist(err) {
+		{
+			name: "CreateP1VF",
+			f: func(nr NetworkRequest) error {
+				isDPU, err := hostutil.NewPCIHelper(nr.PCIAddress).PF(1).IsDPU()
+				if err != nil {
+					if os.IsNotExist(err) {
+						return nil
+					}
+					return fmt.Errorf("failed to check if device is DPU: %w", err)
+				} else if !isDPU {
 					return nil
 				}
-				return fmt.Errorf("failed to check if device is DPU: %w", err)
-			} else if !isDPU {
-				return nil
-			}
-			return networkutil.CreateVF(networkutil.NewPCIHelper(nr.PCIAddress).PF(1).Path(), nr.NumOfVFs)
+				return hostutil.NewPCIHelper(nr.PCIAddress).PF(1).SetNumOfVFs(nr.NumOfVFs)
+			},
 		},
-		"AddVFToBridge": func(nr NetworkRequest) error {
-			return networkutil.AddVFToBridge(nr.VFName, BridgeName)
+		{
+			name: "AddVFToBridge",
+			f: func(nr NetworkRequest) error {
+				vfName, err := hostutil.NewPCIHelper(nr.PCIAddress).PF(0).VF(0).InterfaceName()
+				if err != nil {
+					return fmt.Errorf("failed to get VF name: %w", err)
+				}
+				nr.VFName = vfName
+				if err := writeNetworkRequestFile(&nr); err != nil {
+					return fmt.Errorf("failed to update vf name in network request file: %w", err)
+				}
+				return hostutil.AddVFToBridge(nr.VFName, BridgeName)
+			},
 		},
-		"SetControlPlaneMTU": func(nr NetworkRequest) error {
-			return networkutil.SetLinkMTU(BridgeName, nr.ControlPlaneMTU)
+		{
+			name: "SetControlPlaneMTU",
+			f: func(nr NetworkRequest) error {
+				return hostutil.SetLinkMTU(BridgeName, nr.ControlPlaneMTU)
+			},
 		},
-		"ConfigurePFNetplan": func(nr NetworkRequest) error {
-			// Only configure netplan on Ubuntu systems
-			if nr.OSType != "ubuntu" {
-				klog.Infof("Skipping netplan configuration for OS type: %s (only supported on Ubuntu)", nr.OSType)
-				return nil
-			}
-			return networkutil.ConfigurePFNetplan(nr.PCIAddress, nr.PortConfigs)
+		{
+			name: "ConfigurePFNetplan",
+			f: func(nr NetworkRequest) error {
+				// Only configure netplan on Ubuntu systems
+				if nr.OSType != "ubuntu" {
+					klog.Infof("Skipping netplan configuration for OS type: %s (only supported on Ubuntu)", nr.OSType)
+					return nil
+				}
+				return hostutil.ConfigurePFNetplan(nr.PCIAddress, nr.PortConfigs)
+			},
 		},
 	}
 	cpy := dpu.DeepCopy()
-	for opName, op := range operations {
-		if err := op(nr); err != nil {
-			reason := fmt.Sprintf("FailedTo%s", opName)
-			cutil.SetDPUCondition(&cpy.Status, cutil.NewCondition(provisioningv1.DPUCondHostNetworkReady.String(), err, reason, err.Error()))
+	for _, op := range operations {
+		klog.V(3).Infof("Setting up host network. operation: %s", op.name)
+		if err := op.f(nr); err != nil {
+			reason := fmt.Sprintf("FailedTo%s", op.name)
+			hostutil.NewCondition(condition).Failure(err, reason).Set(&cpy.Status.Conditions)
 			if updateErr := nm.Status().Update(context.TODO(), cpy); updateErr != nil {
 				return fmt.Errorf("failed to update DPU status: %w, operation err: %w", updateErr, err)
 			}
-			return fmt.Errorf("failed to execute operation %s: %w", opName, err)
+			return fmt.Errorf("failed to execute operation %s: %w", op.name, err)
 		}
 	}
-	cutil.SetDPUCondition(&cpy.Status, cutil.NewCondition(provisioningv1.DPUCondHostNetworkReady.String(), nil, "", ""))
+	hostutil.NewCondition(condition).Success("").Set(&cpy.Status.Conditions)
 	if updateErr := nm.Status().Update(context.TODO(), cpy); updateErr != nil {
 		return fmt.Errorf("failed to update DPU status: %w", updateErr)
 	}
@@ -232,12 +277,6 @@ func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU) error {
 		return fmt.Errorf("PCI address of device %s not found", nr.SerialNumber)
 	}
 	nr.PCIAddress = dev.Address
-
-	vfName, err := networkutil.NewPCIHelper(dev.Address).PF(0).VF(0).InterfaceName()
-	if err != nil {
-		return fmt.Errorf("failed to get VF name: %w", err)
-	}
-	nr.VFName = vfName
 
 	numOfVFs, err := nm.getNumOfVFs(dpu)
 	if err != nil {
@@ -303,7 +342,7 @@ func (nm *NetworkManager) getControlPlaneMTU() (int, error) {
 	return 1500, nil
 }
 
-func (nm *NetworkManager) getPFNetworkConfig(dpu *provisioningv1.DPU, pciAddress string) ([]networkutil.PortConfig, error) {
+func (nm *NetworkManager) getPFNetworkConfig(dpu *provisioningv1.DPU, pciAddress string) ([]hostutil.PortConfig, error) {
 	// Get desired configuration from DPUFlavor for all ports
 	desiredConfigs, err := nm.getDesiredPFConfig(dpu)
 	if err != nil {
@@ -315,8 +354,8 @@ func (nm *NetworkManager) getPFNetworkConfig(dpu *provisioningv1.DPU, pciAddress
 	}
 
 	// Only read current config if we need to configure something
-	pciHelper := networkutil.NewPCIHelper(pciAddress)
-	portConfigs := make([]networkutil.PortConfig, 0, len(desiredConfigs))
+	pciHelper := hostutil.NewPCIHelper(pciAddress)
+	portConfigs := make([]hostutil.PortConfig, 0, len(desiredConfigs))
 
 	for _, desiredConfig := range desiredConfigs {
 		portNumber := desiredConfig.PortNumber
@@ -326,7 +365,7 @@ func (nm *NetworkManager) getPFNetworkConfig(dpu *provisioningv1.DPU, pciAddress
 			return nil, fmt.Errorf("PF%d interface not available but configuration requested: %v", portNumber, err)
 		}
 
-		portConfig := networkutil.PortConfig{
+		portConfig := hostutil.PortConfig{
 			PortNumber: portNumber,
 		}
 
@@ -343,19 +382,19 @@ func (nm *NetworkManager) getPFNetworkConfig(dpu *provisioningv1.DPU, pciAddress
 	return portConfigs, nil
 }
 
-func (nm *NetworkManager) getDesiredPFConfig(dpu *provisioningv1.DPU) ([]networkutil.PortConfig, error) {
+func (nm *NetworkManager) getDesiredPFConfig(dpu *provisioningv1.DPU) ([]hostutil.PortConfig, error) {
 	flavor := &provisioningv1.DPUFlavor{}
 	if err := nm.Get(context.TODO(), types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUFlavor}, flavor); err != nil {
 		return nil, fmt.Errorf("failed to get DPU flavor: %w", err)
 	}
 
-	portConfigs := make([]networkutil.PortConfig, 0, len(flavor.Spec.HostNetworkInterfaceConfigs))
+	portConfigs := make([]hostutil.PortConfig, 0, len(flavor.Spec.HostNetworkInterfaceConfigs))
 
 	// Validate and collect port configurations
 	for _, config := range flavor.Spec.HostNetworkInterfaceConfigs {
 		portNumber := config.PortNumber
 
-		portConfig := networkutil.PortConfig{
+		portConfig := hostutil.PortConfig{
 			PortNumber: portNumber,
 			MTU:        config.MTU,
 			DHCP:       config.DHCP,
