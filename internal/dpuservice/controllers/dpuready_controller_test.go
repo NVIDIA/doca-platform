@@ -20,6 +20,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	dpucluster "github.com/nvidia/doca-platform/pkg/dpucluster"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
@@ -28,8 +29,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 func markServiceCritical(dpuService *dpuservicev1.DPUService) {
@@ -46,7 +52,7 @@ const (
 	dpuName       string = "test-dpu"
 )
 
-var _ = Describe("DPUReadyController", func() {
+var _ = Describe("DPUReadyReconciler", func() {
 	var (
 		workerNode       *corev1.Node
 		testNS           *corev1.Namespace
@@ -117,6 +123,9 @@ var _ = Describe("DPUReadyController", func() {
 		nodeInDPUCluster := &corev1.Node{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: dpu.Name,
+				Labels: map[string]string{
+					cutil.HostNameDPULabelKey: workerNode.Name,
+				},
 			},
 			Status: corev1.NodeStatus{
 				Conditions: []corev1.NodeCondition{
@@ -645,5 +654,630 @@ var _ = Describe("DPUReadyController", func() {
 			}).WithTimeout(5 * time.Second).Should(Succeed())
 		})
 	})
+})
 
+var _ = Describe("podPredicate", func() {
+	Describe("Label filter predicate", func() {
+		var labelPredicate predicate.Predicate
+
+		BeforeEach(func() {
+			labelPredicate = newLabelPredicate()
+		})
+
+		It("should accept pods with DPFServiceIDLabelKey", func() {
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "default",
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: "service-123",
+					},
+				},
+			}
+			Expect(labelPredicate.Create(event.CreateEvent{Object: pod})).To(BeTrue())
+			Expect(labelPredicate.Update(event.UpdateEvent{ObjectOld: pod, ObjectNew: pod})).To(BeTrue())
+			Expect(labelPredicate.Delete(event.DeleteEvent{Object: pod})).To(BeTrue())
+			Expect(labelPredicate.Generic(event.GenericEvent{Object: pod})).To(BeTrue())
+		})
+
+		It("should reject pods without DPFServiceIDLabelKey", func() {
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "default",
+					Labels: map[string]string{
+						"some-other-label": "value",
+					},
+				},
+			}
+
+			Expect(labelPredicate.Create(event.CreateEvent{Object: pod})).To(BeFalse())
+			Expect(labelPredicate.Update(event.UpdateEvent{ObjectOld: pod, ObjectNew: pod})).To(BeFalse())
+			Expect(labelPredicate.Delete(event.DeleteEvent{Object: pod})).To(BeFalse())
+			Expect(labelPredicate.Generic(event.GenericEvent{Object: pod})).To(BeFalse())
+		})
+
+		It("should reject pods with no labels", func() {
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "default",
+				},
+			}
+
+			Expect(labelPredicate.Create(event.CreateEvent{Object: pod})).To(BeFalse())
+			Expect(labelPredicate.Update(event.UpdateEvent{ObjectOld: pod, ObjectNew: pod})).To(BeFalse())
+			Expect(labelPredicate.Delete(event.DeleteEvent{Object: pod})).To(BeFalse())
+			Expect(labelPredicate.Generic(event.GenericEvent{Object: pod})).To(BeFalse())
+		})
+	})
+
+	Describe("Phase transition predicate", func() {
+		var phasePredicate predicate.Predicate
+
+		BeforeEach(func() {
+			phasePredicate = newPhasePredicate()
+		})
+
+		Describe("CreateFunc", func() {
+			It("should reject all create events", func() {
+				pod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodRunning,
+					},
+				}
+
+				Expect(phasePredicate.Create(event.CreateEvent{Object: pod})).To(BeFalse())
+			})
+		})
+
+		Describe("UpdateFunc", func() {
+			It("should accept transition from non-Running to Running", func() {
+				oldPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodPending,
+					},
+				}
+
+				newPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodRunning,
+					},
+				}
+
+				Expect(phasePredicate.Update(event.UpdateEvent{
+					ObjectOld: oldPod,
+					ObjectNew: newPod,
+				})).To(BeTrue())
+			})
+
+			It("should accept transition from Running to non-Running", func() {
+				oldPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodRunning,
+					},
+				}
+
+				newPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodFailed,
+					},
+				}
+
+				Expect(phasePredicate.Update(event.UpdateEvent{
+					ObjectOld: oldPod,
+					ObjectNew: newPod,
+				})).To(BeTrue())
+			})
+
+			It("should accept when deletion timestamp is set", func() {
+				now := metav1.Now()
+				oldPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodRunning,
+					},
+				}
+
+				newPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "test-pod",
+						Namespace:         "default",
+						DeletionTimestamp: &now,
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodRunning,
+					},
+				}
+
+				Expect(phasePredicate.Update(event.UpdateEvent{
+					ObjectOld: oldPod,
+					ObjectNew: newPod,
+				})).To(BeTrue())
+			})
+
+			It("should reject when phase doesn't change from/to Running", func() {
+				oldPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodPending,
+					},
+				}
+
+				newPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodSucceeded,
+					},
+				}
+
+				Expect(phasePredicate.Update(event.UpdateEvent{
+					ObjectOld: oldPod,
+					ObjectNew: newPod,
+				})).To(BeFalse())
+			})
+
+			It("should reject when phase stays Running", func() {
+				oldPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodRunning,
+					},
+				}
+
+				newPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+						Labels: map[string]string{
+							"new-label": "value",
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodRunning,
+					},
+				}
+
+				Expect(phasePredicate.Update(event.UpdateEvent{
+					ObjectOld: oldPod,
+					ObjectNew: newPod,
+				})).To(BeFalse())
+			})
+
+			It("should reject when deletion timestamp was already set", func() {
+				now := metav1.Now()
+				oldPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "test-pod",
+						Namespace:         "default",
+						DeletionTimestamp: &now,
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodRunning,
+					},
+				}
+
+				newPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "test-pod",
+						Namespace:         "default",
+						DeletionTimestamp: &now,
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodRunning,
+					},
+				}
+
+				Expect(phasePredicate.Update(event.UpdateEvent{
+					ObjectOld: oldPod,
+					ObjectNew: newPod,
+				})).To(BeFalse())
+			})
+		})
+
+		Describe("DeleteFunc", func() {
+			It("should accept all delete events", func() {
+				pod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+				}
+
+				Expect(phasePredicate.Delete(event.DeleteEvent{Object: pod})).To(BeTrue())
+			})
+		})
+
+		Describe("GenericFunc", func() {
+			It("should reject all generic events", func() {
+				pod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+				}
+
+				Expect(phasePredicate.Generic(event.GenericEvent{Object: pod})).To(BeFalse())
+			})
+		})
+	})
+})
+
+var _ = Describe("podEventHandler", func() {
+	var (
+		handler      *podEventHandler
+		queue        workqueue.TypedRateLimitingInterface[ctrl.Request]
+		hostNodeName string
+	)
+
+	BeforeEach(func() {
+		hostNodeName = "host-node"
+		handler = &podEventHandler{
+			client: testClient,
+		}
+
+		// Create a new workqueue for each test
+		queue = workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[ctrl.Request]())
+
+		DeferCleanup(func() {
+			queue.ShutDown()
+		})
+	})
+
+	Describe("handlePodEventHelper", func() {
+		It("should enqueue the host node when pod's node has the host label", func() {
+			// Create a node with the host label
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "dpu-node",
+					Labels: map[string]string{
+						cutil.HostNameDPULabelKey: hostNodeName,
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			// Create a pod on that node
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "default",
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "dpu-node",
+				},
+			}
+
+			// Call the helper
+			handler.handlePodEventHelper(ctx, pod, queue)
+
+			// Verify the host node was enqueued
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+
+				return item.Name == hostNodeName && item.Namespace == ""
+			}).Should(BeTrue())
+		})
+
+		It("should not enqueue when node doesn't exist", func() {
+			// Create a pod on a non-existent node
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "default",
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "non-existent-node",
+				},
+			}
+
+			// Call the helper
+			handler.handlePodEventHelper(ctx, pod, queue)
+
+			// Verify nothing was enqueued
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+
+		It("should not enqueue when node doesn't have host label", func() {
+			// Create a node without the host label
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "dpu-node",
+					Labels: map[string]string{
+						"some-other-label": "value",
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			// Create a pod on that node
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "default",
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "dpu-node",
+				},
+			}
+
+			// Call the helper
+			handler.handlePodEventHelper(ctx, pod, queue)
+
+			// Verify nothing was enqueued
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+	})
+
+	Describe("Update", func() {
+		It("should process pod update events correctly", func() {
+			// Create a node with the host label
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "dpu-node",
+					Labels: map[string]string{
+						cutil.HostNameDPULabelKey: hostNodeName,
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			// Create a pod
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "default",
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "dpu-node",
+				},
+			}
+
+			// Create an update event
+			updateEvent := event.UpdateEvent{
+				ObjectOld: pod,
+				ObjectNew: pod,
+			}
+
+			// Call Update
+			handler.Update(ctx, updateEvent, queue)
+
+			// Verify the host node was enqueued
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+
+				return item.Name == hostNodeName && item.Namespace == ""
+			}).Should(BeTrue())
+		})
+
+		It("should handle non-pod objects gracefully", func() {
+			// Create a non-pod object
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "some-node",
+				},
+			}
+
+			// Create an update event with a non-pod object
+			updateEvent := event.UpdateEvent{
+				ObjectOld: node,
+				ObjectNew: node,
+			}
+
+			// Call Update - should not panic
+			handler.Update(ctx, updateEvent, queue)
+
+			// Verify nothing was enqueued
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+	})
+
+	Describe("Delete", func() {
+		It("should process pod delete events correctly", func() {
+			// Create a node with the host label
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "dpu-node",
+					Labels: map[string]string{
+						cutil.HostNameDPULabelKey: hostNodeName,
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			// Create a pod
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "default",
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "dpu-node",
+				},
+			}
+
+			// Create a delete event
+			deleteEvent := event.DeleteEvent{
+				Object: pod,
+			}
+
+			// Call Delete
+			handler.Delete(ctx, deleteEvent, queue)
+
+			// Verify the host node was enqueued
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+
+				return item.Name == hostNodeName && item.Namespace == ""
+			}).Should(BeTrue())
+		})
+
+		It("should handle non-pod objects gracefully", func() {
+			// Create a non-pod object
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "some-node",
+				},
+			}
+
+			// Create a delete event with a non-pod object
+			deleteEvent := event.DeleteEvent{
+				Object: node,
+			}
+
+			// Call Delete - should not panic
+			handler.Delete(ctx, deleteEvent, queue)
+
+			// Verify nothing was enqueued
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+	})
+
+	Describe("enqueue", func() {
+		It("should deduplicate requests before enqueueing", func() {
+			requests := []reconcile.Request{
+				{NamespacedName: client.ObjectKey{Name: "node1"}},
+				{NamespacedName: client.ObjectKey{Name: "node2"}},
+				{NamespacedName: client.ObjectKey{Name: "node1"}}, // duplicate
+				{NamespacedName: client.ObjectKey{Name: "node3"}},
+				{NamespacedName: client.ObjectKey{Name: "node2"}}, // duplicate
+			}
+
+			handler.enqueue(requests, queue)
+
+			// Should only have 3 unique items
+			Expect(queue.Len()).To(Equal(3))
+
+			// Verify the unique items
+			uniqueItems := make(map[string]bool)
+			for queue.Len() > 0 {
+				item, _ := queue.Get()
+				uniqueItems[item.Name] = true
+				queue.Done(item)
+			}
+
+			Expect(uniqueItems).To(HaveLen(3))
+			Expect(uniqueItems).To(HaveKey("node1"))
+			Expect(uniqueItems).To(HaveKey("node2"))
+			Expect(uniqueItems).To(HaveKey("node3"))
+		})
+
+		It("should handle empty request list", func() {
+			handler.enqueue([]reconcile.Request{}, queue)
+			Expect(queue.Len()).To(Equal(0))
+		})
+
+		It("should handle single request", func() {
+			requests := []reconcile.Request{
+				{NamespacedName: client.ObjectKey{Name: "single-node"}},
+			}
+
+			handler.enqueue(requests, queue)
+			Expect(queue.Len()).To(Equal(1))
+
+			item, _ := queue.Get()
+			Expect(item.Name).To(Equal("single-node"))
+			queue.Done(item)
+		})
+	})
+
+	Describe("Create", func() {
+		It("should be a no-op", func() {
+			// Create event should not do anything as per the implementation
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "default",
+				},
+			}
+
+			createEvent := event.CreateEvent{
+				Object: pod,
+			}
+
+			// Call Create - should be a no-op
+			handler.Create(ctx, createEvent, queue)
+
+			// Verify nothing was enqueued
+			Expect(queue.Len()).To(Equal(0))
+		})
+	})
+
+	Describe("Generic", func() {
+		It("should be a no-op", func() {
+			// Generic event should not do anything as per the implementation
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "default",
+				},
+			}
+
+			genericEvent := event.GenericEvent{
+				Object: pod,
+			}
+
+			// Call Generic - should be a no-op
+			handler.Generic(ctx, genericEvent, queue)
+
+			// Verify nothing was enqueued
+			Expect(queue.Len()).To(Equal(0))
+		})
+	})
 })

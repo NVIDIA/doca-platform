@@ -41,11 +41,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
-var cfg *rest.Config
-var testClient client.Client
-var testEnv *envtest.Environment
-var ctx, testManagerCancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
-var chartHelper *utils.FakeChartHelper
+var (
+	cfg                        *rest.Config
+	testClient                 client.Client
+	testEnv                    *envtest.Environment
+	ctx, testManagerCancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
+	chartHelper                *utils.FakeChartHelper
+)
 
 func TestDPUService(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -130,7 +132,7 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(testManager)
 	Expect(err).ToNot(HaveOccurred())
 
-	err = (&DPUReadyController{
+	err = (&DPUReadyReconciler{
 		Client: testManager.GetClient(),
 		Scheme: testManager.GetScheme(),
 	}).SetupWithManager(ctx, testManager)
