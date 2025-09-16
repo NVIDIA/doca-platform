@@ -1314,7 +1314,7 @@ func (in *DPUs) DeepCopyInto(out *DPUs) {
 	}
 	if in.NodeEffect != nil {
 		in, out := &in.NodeEffect, &out.NodeEffect
-		*out = new(provisioningv1alpha1.NodeEffect)
+		*out = new(provisioningv1alpha1.Action)
 		(*in).DeepCopyInto(*out)
 	}
 }
