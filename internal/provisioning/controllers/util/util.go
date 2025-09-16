@@ -31,6 +31,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	"github.com/fluxcd/pkg/runtime/patch"
+	"google.golang.org/grpc/metadata"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -102,6 +103,8 @@ const (
 	// ProvisioningGroupName is the provisioning group, used to identify provisioning as
 	// additional Requestors in NodeMaintenance CR.
 	ProvisioningGroupName = "provisioning.dpu.nvidia.com"
+	// PCIAddressTargetKey is the key for the PCI address in the metadata context.
+	PCIAddressTargetKey = "target"
 
 	OverrideDMSPodNameAnnotationKey = "provisioning.dpu.nvidia.com/override-dms-pod-name"
 
@@ -669,4 +672,11 @@ func ContainsDPUPhases(phases map[string]struct{}, subPhases map[string]struct{}
 		}
 	}
 	return false
+}
+
+func BuildContextWithTargetPCIAddress(ctx context.Context, pciAddressFromDPUObject string) context.Context {
+	md := metadata.Pairs(
+		PCIAddressTargetKey, strings.ReplaceAll(pciAddressFromDPUObject, "-", ":"),
+	)
+	return metadata.NewOutgoingContext(ctx, md)
 }
