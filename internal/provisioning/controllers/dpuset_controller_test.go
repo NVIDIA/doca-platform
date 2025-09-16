@@ -231,8 +231,8 @@ var _ = Describe("DPUSet", func() {
 
 		It("DPUSet: should create DPU when DPUDevice and DPUNode have maximum name langth", func() {
 			By("deleting the default DPUNode and DPUDevice since they are not needed for this test")
-			Expect(testutils.CleanupAndWait(ctx, k8sClient, testDPUDevice)).To(Succeed())
-			Expect(testutils.CleanupAndWait(ctx, k8sClient, testDPUNode)).To(Succeed())
+			Expect(testutils.CleanupWithFinalizerRemovalAndWait(ctx, k8sClient, testDPUDevice)).To(Succeed())
+			Expect(testutils.CleanupWithFinalizerRemovalAndWait(ctx, k8sClient, testDPUNode)).To(Succeed())
 			By("creating the DPUDevice and DPUNode with maximum name length")
 			dpuNodeName := utilrand.String(48)
 			dpuDeviceMaxLength := createDPUDevice(ctx, testNS.Name, utilrand.String(63), "0000-55-00", dpuNodeName)

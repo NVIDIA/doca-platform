@@ -29,7 +29,6 @@ import (
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	"github.com/nvidia/doca-platform/internal/operator/utils"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	dpfutils "github.com/nvidia/doca-platform/internal/utils"
 	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
 
 	"github.com/Masterminds/sprig/v3"
@@ -224,15 +223,8 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 	}
 
 	// Check if DPFOperatorConfig upgrade is in progress
-	dpfOperatorConfig, err := dpfutils.GetDPFOperatorConfig(ctx, cm.Client)
-	if err != nil {
-		return "", 0, nil, fmt.Errorf("failed to get DPFOperatorConfig, err: %v", err)
-	}
-	if dpfOperatorConfig.UpgradeInProgress() {
-		// If the TCP is not at the latest version, we need to upgrade it
-		if tcp.Spec.Kubernetes.Version != cutil.KubernetesVersion {
-			upgradeNeeded = true
-		}
+	if tcp.Spec.Kubernetes.Version != cutil.KubernetesVersion {
+		upgradeNeeded = true
 	}
 
 	if !svcCreated && !tcpCreated {

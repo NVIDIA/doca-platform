@@ -38,6 +38,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpuset"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	provisioningwebhooks "github.com/nvidia/doca-platform/internal/provisioning/webhooks"
+	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/health"
 
 	maintenancev1alpha1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
@@ -81,6 +82,46 @@ func init() {
 // Add RBAC for the metrics endpoint.
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
+
+// deleteDMSPods deletes all DMS pods at controller startup for upgrade from 25.7 to 25.10
+func deleteDMSPods(ctx context.Context, k8sClient client.Client) error {
+	setupLog.Info("Deleting all DMS pods at startup")
+
+	// Get the DPF operator config to determine the namespace
+	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, k8sClient)
+	if err != nil {
+		setupLog.Error(err, "Failed to get DPFOperatorConfig for DMS pod deletion")
+		return err
+	}
+
+	namespace := dpfOperatorConfig.Namespace
+
+	// List DMS pods using label selector
+	podList := &corev1.PodList{}
+	if err := k8sClient.List(ctx, podList,
+		client.InNamespace(namespace),
+		client.MatchingLabels{
+			"nvidia.com/dpf-provisioning-component": "dms",
+		},
+	); err != nil {
+		setupLog.Error(err, "Failed to list DMS pods", "namespace", namespace)
+		return err
+	}
+
+	// Delete all DMS pods found
+	deletedCount := 0
+	for _, pod := range podList.Items {
+		setupLog.Info("Deleting DMS pod", "pod", pod.Name, "namespace", pod.Namespace)
+		if err := k8sClient.Delete(ctx, &pod); err != nil {
+			setupLog.Error(err, "Failed to delete DMS pod", "pod", pod.Name, "namespace", pod.Namespace)
+			continue
+		}
+		deletedCount++
+	}
+
+	setupLog.Info("DMS pod deletion completed", "deletedCount", deletedCount, "namespace", namespace)
+	return nil
+}
 
 func main() {
 	var metricsAddr string
@@ -355,6 +396,12 @@ func main() {
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		if err := dpuMap.Initialize(ctx, mgr.GetClient()); err != nil {
 			return fmt.Errorf("initializing DPUInProvisioningMap: %w", err)
+		}
+
+		// Delete all DMS pods at startup for upgrade from 25.7 to 25.10
+		if err := deleteDMSPods(ctx, mgr.GetClient()); err != nil {
+			setupLog.Error(err, "failed to delete DMS pods at startup")
+			// Continue with initialization even if DMS pod deletion fails
 		}
 		<-ctx.Done() // ensure graceful shutdown
 		return nil
