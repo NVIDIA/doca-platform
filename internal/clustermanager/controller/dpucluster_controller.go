@@ -22,7 +22,6 @@ import (
 	"strconv"
 	"sync"
 
-	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
@@ -38,7 +37,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 var (
@@ -76,7 +74,6 @@ type DPUClusterReconciler struct {
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuclusters/finalizers,verbs=update
-// +kubebuilder:rbac:groups=operator.dpu.nvidia.com,resources=dpfoperatorconfigs,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -188,7 +185,6 @@ func (r *DPUClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		r.rvCache = make(map[types.NamespacedName]int64)
 	}
 	b := ctrl.NewControllerManagedBy(mgr).For(&provisioningv1.DPUCluster{})
-	RegisterWatch(&operatorv1.DPFOperatorConfig{}, handler.EnqueueRequestsFromMapFunc(r.dpfOperatorConfigToDPUCluster))
 	for _, w := range watches {
 		b.Watches(w.object, w.handler, w.opts...)
 	}
@@ -222,26 +218,4 @@ func (r *DPUClusterReconciler) deleteCachedRV(ctx context.Context, nn types.Name
 		delete(r.rvCache, nn)
 		log.FromContext(ctx).V(3).Info(fmt.Sprintf("delete cached RV %d", cached))
 	}
-}
-
-func (r *DPUClusterReconciler) dpfOperatorConfigToDPUCluster(ctx context.Context, resource client.Object) []reconcile.Request {
-	requests := make([]reconcile.Request, 0)
-	dpuClusterList := &provisioningv1.DPUClusterList{}
-	dpfOperatorConfig, ok := resource.(*operatorv1.DPFOperatorConfig)
-	if !ok {
-		return nil
-	}
-	if !dpfOperatorConfig.UpgradeInProgress() {
-		return nil
-	}
-	if err := r.List(ctx, dpuClusterList); err == nil {
-		for _, item := range dpuClusterList.Items {
-			requests = append(requests, reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      item.GetName(),
-					Namespace: item.GetNamespace(),
-				}})
-		}
-	}
-	return requests
 }
