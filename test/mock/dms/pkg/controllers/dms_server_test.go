@@ -80,7 +80,9 @@ func TestDMSServerReconciler(t *testing.T) {
 					},
 					DPUFlavor: dpuFlavorName,
 					NodeEffect: &provisioningv1.NodeEffect{
-						NoEffect: ptr.To(true),
+						Action: provisioningv1.Action{
+							NoEffect: ptr.To(true),
+						},
 					},
 				},
 			},
