@@ -29,12 +29,17 @@ RUN mkdir -p /nginx
 
 # Move source code to a directory
 WORKDIR /workspace
-RUN mkdir src && \
-    cd src && \
-    cp /workspace/${tengine_version}.zip . && \
-    apt-get source --download-only ${PACKAGES} && \
-    cd /workspace && \
-    tar -cf source-code.tar src
+ARG PACKAGE_SOURCES
+# First, create a dummy source-code.tar file to avoid copy failures.
+RUN touch /workspace/source-code.tar
+RUN test "${PACKAGE_SOURCES}" = "false" || ( \
+      mkdir src && \
+      cd src && \
+      cp /workspace/${tengine_version}.zip . && \
+      apt-get source --download-only ${PACKAGES} && \
+      cd /workspace && \
+      tar -cf source-code.tar src \
+    )
 
 # Stage 2: Create final image based on distroless
 FROM nvcr.io/nvidia/doca/dpf_containers:1.0.2-ubuntu22.04-distroless AS distroless

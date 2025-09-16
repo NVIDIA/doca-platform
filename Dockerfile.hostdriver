@@ -40,10 +40,13 @@ COPY ./internal/hostnetwork/hostnetwork.sh /opt/dpf/
 COPY ./internal/dmsinit/dmsinit.sh /opt/dpf/
 
 # Move source code to a directory
-RUN mkdir src && \
-    cd src && \
-    apt-get source --download-only ${PACKAGES} && \
-    curl -LO https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz && \
-    cd / && \
-    tar -cf source-code.tar src && \
-    rm -rf src
+ARG PACKAGE_SOURCES
+RUN test "${PACKAGE_SOURCES}" = "false" || ( \
+      mkdir src && \
+      cd src && \
+      apt-get source --download-only ${PACKAGES} && \
+      curl -LO https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz && \
+      cd / && \
+      tar -cf source-code.tar src && \
+      rm -rf src \
+    )

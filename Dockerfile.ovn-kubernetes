@@ -95,17 +95,20 @@ COPY --from=ovnkubernetes-builder /workspace/source-code.tar.gz ovn-kubernetes-s
 # Download source code for apt packages.
 # Starting from Ubuntu 24.04 shifted to the new deb822 format for source management.
 # Enable `deb-src` to be able to fetch sources using `apt-get source`
-RUN sed -i 's/^# deb-src/deb-src/g' /etc/apt/sources.list /etc/apt/sources.list.d/* && \
-    sed -i 's/^Types: deb$/Types: deb deb-src/g' /etc/apt/sources.list.d/*.sources && \
-    apt-get update && \
-    apt-get source --download-only ${BASE_PACKAGES} ${OVN_PACKAGES} && \
-    comm -23 /after-ovn-dpkg-list.txt /initial-dpkg-list.txt | xargs -r apt-get source --download-only && \
-    apt-get clean && \
-    rm -f /initial-dpkg-list.txt /after-ovn-dpkg-list.txt && \
-    rm -rf /var/lib/apt/lists/* && \
-    cd / && \
-    tar -cf source-code.tar /src && \
-    rm -rf /src
+ARG PACKAGE_SOURCES
+RUN test "${PACKAGE_SOURCES}" = "false" || ( \
+      sed -i 's/^# deb-src/deb-src/g' /etc/apt/sources.list /etc/apt/sources.list.d/* && \
+      sed -i 's/^Types: deb$/Types: deb deb-src/g' /etc/apt/sources.list.d/*.sources && \
+      apt-get update && \
+      apt-get source --download-only ${BASE_PACKAGES} ${OVN_PACKAGES} && \
+      comm -23 /after-ovn-dpkg-list.txt /initial-dpkg-list.txt | xargs -r apt-get source --download-only && \
+      apt-get clean && \
+      rm -f /initial-dpkg-list.txt /after-ovn-dpkg-list.txt && \
+      rm -rf /var/lib/apt/lists/* && \
+      cd / && \
+      tar -cf source-code.tar /src && \
+      rm -rf /src \
+    )
 
 LABEL io.k8s.display-name="ovn-kubernetes dpf utilities" \
       io.k8s.description="ovn-kubernetes dpf utilities ubuntu image"

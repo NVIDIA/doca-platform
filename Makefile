@@ -893,6 +893,11 @@ DPF_SYSTEM_ARCH ?= $(HOST_ARCH) $(DPU_ARCH)
 ## Ubuntu mirror for building the images.
 UBUNTU_MIRROR ?= http://archive.ubuntu.com/ubuntu/
 
+## Download and package aptitude source code for all related images.
+## This is used to speedup our CI builds by disabling the source code download&package step.
+## Note: not all images have additional packages, so this env does not apply to all images.
+PACKAGE_SOURCES ?= true
+
 .PHONY: docker-build-dpf-system # Build a multi-arch image for DPF System. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-dpf-system: $(addprefix docker-build-dpf-system-for-,$(DPF_SYSTEM_ARCH))
 
@@ -989,6 +994,7 @@ docker-build-ovn-kubernetes-for-%: $(OVNKUBERNETES_DIR)
 		--build-arg gcflags=$(GO_GCFLAGS) \
 		--build-arg ovn_kubernetes_dir=$(subst $(CURDIR)/,,$(OVNKUBERNETES_DIR)) \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
+		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		-f Dockerfile.ovn-kubernetes \
 		. \
 		-t $(OVNKUBERNETES_IMAGE):$(TAG)-$*
@@ -1023,6 +1029,7 @@ docker-build-hostdriver: ## Build docker image for DMS and hostnetwork.
 		--build-arg ldflags=$(GO_LDFLAGS) \
 		--build-arg gcflags=$(GO_GCFLAGS) \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
+		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		-t $(HOSTDRIVER_IMAGE):$(TAG) \
 		-f Dockerfile.hostdriver \
 		.
@@ -1144,6 +1151,7 @@ docker-build-storage-host-for-%:
 		--build-arg storage_snap_csi_driver_go_ldflags=$(STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS) \
 		--build-arg gcflags=$(GO_GCFLAGS) \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
+		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		-f Dockerfile.storage-host \
 		. \
 		-t $(STORAGE_HOST_IMAGE):$(TAG)-$*
@@ -1176,6 +1184,7 @@ docker-build-bfb-registry-for-%:
 		--label=org.opencontainers.image.version=$(TAG) \
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
+		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		--provenance=false \
 		--platform=linux/$* \
 		-f Dockerfile.bfb-registry \
