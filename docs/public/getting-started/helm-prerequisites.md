@@ -25,7 +25,7 @@ The following table lists all required and optional Helm chart dependencies with
 | [argo-cd]                | 7.8.2   | GitOps continuous delivery tool for Kubernetes, necessary for DPUService integration           | ✅        | Pre-installation      |
 | [node-feature-discovery] | 0.17.1  | Discovers and advertises hardware features and capabilities of DPUs in the cluster             | ✅        | Pre-installation      |
 | [maintenance-operator]   | 0.2.0   | Manages node maintenance operations and ensures graceful handling of node updates              | ✅        | Pre-installation      |
-| [kamaji]                 | 1.1.0   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | ❌        | Pre-installation      |
+| [kamaji]                 | 1.2.0   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | ❌        | Pre-installation      |
 | [local-path-provisioner] | 0.0.31  | Provides a local storage provisioner for Kubernetes, used for Kamaji etcd storage              | ❌        | Pre-installation      |
 | [kube-state-metrics]     | 5.25.1  | Exposes DPF Operator related objects as metrics                                                | ❌        | Post-installation     |
 | [grafana]                | 8.4.6   | Open-source analytics and monitoring platform for visualizing metrics and logs                 | ❌        | Post-installation     |
@@ -317,7 +317,7 @@ kamaji-etcd:
     name: default
 image:
   repository: ghcr.io/nvidia/kamaji
-  tag: v1.33.0-25.4.1
+  tag: v1.34.0-25.9.3
   pullPolicy: Always
 cfssl:
   image:

@@ -28,7 +28,7 @@ The following component versions are deployed as part of DPF:
 | SR-IOV Device Plugin        | v3.9.0  |          |
 | Etcd Defrag                 | v0.22.0 | Optional |
 | Grafana                     | 8.4.6   | Optional |
-| Kamaji                      | v1.33.0 | Optional |
+| Kamaji                      | v1.34.0 | Optional |
 | Keepalived                  | 2.0.20  | Optional |
 | Kube State Metrics          | 5.25.1  | Optional |
 | Local Path Provisioner      | 0.0.31  | Optional |

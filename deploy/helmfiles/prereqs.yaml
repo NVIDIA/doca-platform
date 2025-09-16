@@ -48,7 +48,7 @@ releases:
     namespace: dpf-operator-system
     createNamespace: true
     chart: oci://ghcr.io/nvidia/charts/kamaji
-    version: 1.1.0
+    version: 1.2.0
     labels:
       app: kamaji
     values:
