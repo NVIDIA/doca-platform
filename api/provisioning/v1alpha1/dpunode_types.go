@@ -54,6 +54,10 @@ const (
 	DPUNodeConditionDPUUpdateInProgress DPUNodeConditionType = "DPUUpdateInProgress"
 	// DPUNodeConditionNeedDMSUpgrade means the DMS needs to be upgraded.
 	DPUNodeConditionNeedHostAgentUpgrade DPUNodeConditionType = "NeedHostAgentUpgrade"
+	// DPUNodeConditionBridgeConfigured means the bridge br-dpu is configured.
+	DPUNodeConditionBridgeConfigured DPUNodeConditionType = "OOBBridgeConfigured"
+	// DPUNodeConditionRshimAvailable means the rshim is available.
+	DPUNodeConditionRshimAvailable DPUNodeConditionType = "RshimAvailable"
 )
 
 const (
@@ -168,6 +172,9 @@ type DPUNodeStatus struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="KubeNodeRef is immutable"
 	// +optional
 	KubeNodeRef *string `json:"kubeNodeRef,omitempty"`
+	// RebootInProgress indicates if the node is in the process of rebooting.
+	// +optional
+	RebootInProgress *bool `json:"rebootInProgress,omitempty"`
 }
 
 // +kubebuilder:object:root=true

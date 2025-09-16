@@ -14,19 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package options
+package util
 
-const (
-	HostAgentDir = "/var/lib/dpf/hostagent"
-	CertDir      = HostAgentDir + "/pki"
+import (
+	"bytes"
+	"fmt"
+	"os/exec"
 )
 
-type HostAgentFlags struct {
-	BootstrapPath      string
-	KubeconfigPath     string
-	CertDir            string
-	ContentType        string
-	KubeAPIQPS         int
-	KubeAPIBurst       int
-	BFBRegistryAddress string
+func RunBash(cmdStr string) (stdout, stderr bytes.Buffer, err error) {
+	cmd := exec.Command("bash", "-c", cmdStr)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	if err != nil {
+		return stdout, stderr, fmt.Errorf("failed to run command: %w", err)
+	}
+	return stdout, stderr, nil
 }
