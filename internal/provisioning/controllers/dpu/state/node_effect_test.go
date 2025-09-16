@@ -41,7 +41,7 @@ var _ = Describe("DPU: Node Effect", func() {
 		It("NoEffect", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				NoEffect: ptr.To(true),
+				Action: provisioningv1.Action{NoEffect: ptr.To(true)},
 			}
 			dpu.Status.Phase = provisioningv1.DPUNodeEffect
 
@@ -77,8 +77,10 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
 			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Drain:                               ptr.To(true),
-				NodeMaintenanceAdditionalRequestors: []string{"test-requestor-1", "test-requestor-2"},
+				Action: provisioningv1.Action{Drain: ptr.To(true)},
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					NodeMaintenanceAdditionalRequestors: []string{"test-requestor-1", "test-requestor-2"},
+				},
 			}
 			createObject(dpu)
 			patch = client.MergeFrom(dpu.DeepCopy())
@@ -182,8 +184,12 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
 			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Drain:                               ptr.To(true),
-				NodeMaintenanceAdditionalRequestors: []string{}, // Empty list,
+				Action: provisioningv1.Action{
+					Drain: ptr.To(true),
+				},
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					NodeMaintenanceAdditionalRequestors: []string{}, // Empty list,
+				},
 			}
 			createObject(dpu)
 			patch = client.MergeFrom(dpu.DeepCopy())
@@ -238,8 +244,10 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
 			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				CustomLabel: map[string]string{
-					labelKey: labelValue,
+				Action: provisioningv1.Action{
+					CustomLabel: map[string]string{
+						labelKey: labelValue,
+					},
 				},
 			}
 			dpu.Status.Phase = provisioningv1.DPUNodeEffect
@@ -286,10 +294,12 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
 			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Taint: &corev1.Taint{
-					Key:    taintKey,
-					Value:  taintValue,
-					Effect: corev1.TaintEffectNoSchedule,
+				Action: provisioningv1.Action{
+					Taint: &corev1.Taint{
+						Key:    taintKey,
+						Value:  taintValue,
+						Effect: corev1.TaintEffectNoSchedule,
+					},
 				},
 			}
 			dpu.Status.Phase = provisioningv1.DPUNodeEffect
@@ -334,7 +344,9 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
 			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				CustomAction: ptr.To("configmap"),
+				Action: provisioningv1.Action{
+					CustomAction: ptr.To("configmap"),
+				},
 			}
 			dpu.Status.Phase = provisioningv1.DPUNodeEffect
 
@@ -378,7 +390,9 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu.Spec.DPUDeviceName = "not-used"
 			dpu.Spec.DPUNodeName = dpuNode.Name
 			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Hold: ptr.To(true),
+				Action: provisioningv1.Action{
+					Hold: ptr.To(true),
+				},
 			}
 			dpu.Status.Phase = provisioningv1.DPUNodeEffect
 
@@ -413,7 +427,9 @@ var _ = Describe("DPU: Node Effect", func() {
 		It("should transition to DPUClusterConfig when PostProvisioningNodeEffect is true and NoEffect completes", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				NoEffect: ptr.To(true),
+				Action: provisioningv1.Action{
+					NoEffect: ptr.To(true),
+				},
 			}
 			dpu.Status.Phase = provisioningv1.DPUNodeEffect
 			dpu.Status.PostProvisioningNodeEffect = ptr.To(true)
@@ -451,10 +467,12 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu.Spec.DPUDeviceName = "not-used"
 			dpu.Spec.DPUNodeName = dpuNode.Name
 			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Taint: &corev1.Taint{
-					Key:    "dpf.nvidia.com/test-taint",
-					Value:  "test-value",
-					Effect: corev1.TaintEffectNoSchedule,
+				Action: provisioningv1.Action{
+					Taint: &corev1.Taint{
+						Key:    "dpf.nvidia.com/test-taint",
+						Value:  "test-value",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
 				},
 			}
 			dpu.Status.Phase = provisioningv1.DPUNodeEffect
@@ -534,10 +552,14 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu.Spec.DPUDeviceName = "not-used"
 			dpu.Spec.DPUNodeName = dpuNode.Name
 			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Drain: ptr.To(true),
-				NodeMaintenanceAdditionalRequestors: []string{
-					"post-provisioning-service",
-					"coordination-service",
+				Action: provisioningv1.Action{
+					Drain: ptr.To(true),
+				},
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					NodeMaintenanceAdditionalRequestors: []string{
+						"post-provisioning-service",
+						"coordination-service",
+					},
 				},
 			}
 			dpu.Status.Phase = provisioningv1.DPUNodeEffect
