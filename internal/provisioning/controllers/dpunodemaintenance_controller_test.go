@@ -178,7 +178,9 @@ var _ = Describe("DPUNodeMaintenance", func() {
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: DefaultNode,
 					NodeEffect: &provisioningv1.NodeEffect{
-						Drain: ptr.To(true),
+						Action: provisioningv1.Action{
+							Drain: ptr.To(true),
+						},
 					},
 					Requestor: []string{"test-requestor"},
 				},
@@ -202,7 +204,9 @@ var _ = Describe("DPUNodeMaintenance", func() {
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: DefaultNode,
 					NodeEffect: &provisioningv1.NodeEffect{
-						CustomLabel: map[string]string{"test-label": "test-value"},
+						Action: provisioningv1.Action{
+							CustomLabel: map[string]string{"test-label": "test-value"},
+						},
 					},
 					Requestor: []string{"test-requestor"},
 				},
@@ -227,10 +231,12 @@ var _ = Describe("DPUNodeMaintenance", func() {
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: DefaultNode,
 					NodeEffect: &provisioningv1.NodeEffect{
-						Taint: &corev1.Taint{
-							Key:    "test-taint",
-							Value:  "test-value",
-							Effect: corev1.TaintEffectNoSchedule,
+						Action: provisioningv1.Action{
+							Taint: &corev1.Taint{
+								Key:    "test-taint",
+								Value:  "test-value",
+								Effect: corev1.TaintEffectNoSchedule,
+							},
 						},
 					},
 					Requestor: []string{"test-requestor"},
@@ -288,7 +294,9 @@ data:
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: DefaultNode,
 					NodeEffect: &provisioningv1.NodeEffect{
-						CustomAction: ptr.To("dpu-custom-action"),
+						Action: provisioningv1.Action{
+							CustomAction: ptr.To("dpu-custom-action"),
+						},
 					},
 					Requestor: []string{"test-requestor"},
 				},
@@ -316,7 +324,9 @@ data:
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: DefaultNode,
 					NodeEffect: &provisioningv1.NodeEffect{
-						Hold: ptr.To(true),
+						Action: provisioningv1.Action{
+							Hold: ptr.To(true),
+						},
 					},
 					Requestor: []string{"test-requestor"},
 				},

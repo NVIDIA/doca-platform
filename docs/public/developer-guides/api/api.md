@@ -834,6 +834,29 @@ Package v1alpha1 contains API Schema definitions for the provisioning.dpu v1alph
 
 
 
+#### Action
+
+
+
+
+
+
+
+_Appears in:_
+- [DPUs](#dpus)
+- [NodeEffect](#nodeeffect)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `taint` _[Taint](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#taint-v1-core)_ | Add specify taint on the DPU node |  |  |
+| `noEffect` _boolean_ | Do not do any action on the DPU node |  |  |
+| `customLabel` _object (keys:string, values:string)_ | Add specify labels on the DPU node |  |  |
+| `drain` _boolean_ | Drain the K8s host node by NodeMaintenance operator |  |  |
+| `customAction` _string_ | Name of a config map which contains a pod yaml definition to run which will apply the nodeEffect.<br />The pod is expected to exit when node effect is done, if pod terminates with error then DPU would move to an error phase.<br />The DPUNode's name will be exported as an environment variable, named as DPUNODE_NAME, to each container and init container in the pod.<br />The labels and annotations of DPUNode will be exported in `/etc/dpu/dpf-pod-info/labels` and `/etc/dpu/dpf-pod-info/annotations` accordingly; the volume name `dpf-pod-info` is used to mount the labels and annotations.<br />If any name confliction for env or volume, the controller will not export the name or labels/annotations of DPUNode accordingly. |  |  |
+| `hold` _boolean_ | Places annotation `wait-for-external-nodeeffect` and waits for it to be removed<br />this is the default behavior in a non K8S environment |  |  |
+| `force` _boolean_ | Force is the flag to indicate if the node effect should be applied immediately.<br />If true, dpfOperatorConfig.multiDPUOperationsSyncWaitTime and dpfOperatorConfig.maxUnavailableDPUNodes will be ignored when applying node effect for DPUNodeMaintenance CR | false |  |
+
+
 #### BFB
 
 
@@ -2038,7 +2061,6 @@ _Appears in:_
 - [DPUNodeMaintenanceSpec](#dpunodemaintenancespec)
 - [DPUSpec](#dpuspec)
 - [DPUTemplateSpec](#dputemplatespec)
-- [DPUs](#dpus)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -2048,9 +2070,9 @@ _Appears in:_
 | `drain` _boolean_ | Drain the K8s host node by NodeMaintenance operator |  |  |
 | `customAction` _string_ | Name of a config map which contains a pod yaml definition to run which will apply the nodeEffect.<br />The pod is expected to exit when node effect is done, if pod terminates with error then DPU would move to an error phase.<br />The DPUNode's name will be exported as an environment variable, named as DPUNODE_NAME, to each container and init container in the pod.<br />The labels and annotations of DPUNode will be exported in `/etc/dpu/dpf-pod-info/labels` and `/etc/dpu/dpf-pod-info/annotations` accordingly; the volume name `dpf-pod-info` is used to mount the labels and annotations.<br />If any name confliction for env or volume, the controller will not export the name or labels/annotations of DPUNode accordingly. |  |  |
 | `hold` _boolean_ | Places annotation `wait-for-external-nodeeffect` and waits for it to be removed<br />this is the default behavior in a non K8S environment |  |  |
+| `force` _boolean_ | Force is the flag to indicate if the node effect should be applied immediately.<br />If true, dpfOperatorConfig.multiDPUOperationsSyncWaitTime and dpfOperatorConfig.maxUnavailableDPUNodes will be ignored when applying node effect for DPUNodeMaintenance CR | false |  |
 | `applyOnLabelChange` _boolean_ | Apply node effect when labels change on the DPU object<br />When set to true, label changes in Ready state will trigger node effect logic | false |  |
 | `nodeMaintenanceAdditionalRequestors` _string array_ | Additional requestors to be added to the NvidiaNodeMaintenance CR when Drain is selected |  |  |
-| `force` _boolean_ | Force is the flag to indicate if the node effect should be applied immediately.<br />If true, dpfOperatorConfig.multiDPUOperationsSyncWaitTime and dpfOperatorConfig.maxUnavailableDPUNodes will be ignored when applying node effect for DPUNodeMaintenance CR | false |  |
 
 
 #### NodeRebootMethod
@@ -2120,6 +2142,23 @@ _Appears in:_
 | --- | --- |
 | `OnDelete` | New DPU CR will only be created when you manually delete old DPU CR.<br /> |
 | `RollingUpdate` | Gradually scale down the old DPUs and scale up the new one.<br /> |
+
+
+#### UpgradePolicy
+
+
+
+UpgradePolicy is the policy for the upgrade of the DPUSet.
+
+
+
+_Appears in:_
+- [NodeEffect](#nodeeffect)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `applyOnLabelChange` _boolean_ | Apply node effect when labels change on the DPU object<br />When set to true, label changes in Ready state will trigger node effect logic | false |  |
+| `nodeMaintenanceAdditionalRequestors` _string array_ | Additional requestors to be added to the NvidiaNodeMaintenance CR when Drain is selected |  |  |
 
 
 
@@ -4105,7 +4144,7 @@ _Appears in:_
 | `bfb` _string_ | BFB is the name of the BFB object to be used in this DPUDeployment. It must be in the same namespace as the<br />DPUDeployment. |  |  |
 | `flavor` _string_ | Flavor is the name of the DPUFlavor object to be used in this DPUDeployment. It must be in the same namespace as<br />the DPUDeployment. |  |  |
 | `dpuSets` _[DPUSet](#dpuset) array_ | DPUSets contains configuration for each DPUSet that is going to be created by the DPUDeployment |  | MaxItems: 50 <br />MinItems: 1 <br /> |
-| `nodeEffect` _[NodeEffect](#nodeeffect)_ | NodeEffect is the effect the DPU has on Nodes during provisioning. |  |  |
+| `nodeEffect` _[Action](#action)_ | NodeEffect is the effect the DPU has on Nodes during provisioning. |  |  |
 
 
 #### HelmChart

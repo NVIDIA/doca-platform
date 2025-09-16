@@ -531,7 +531,7 @@ func (r *DPUSetReconciler) updateNodeEffectApplyOnLabelChange(ctx context.Contex
 	// Get the expected ApplyOnLabelChange value from the DPUSet template
 	var expectedApplyOnLabelChange *bool
 	if dpuSet.Spec.DPUTemplate.Spec.NodeEffect != nil {
-		expectedApplyOnLabelChange = dpuSet.Spec.DPUTemplate.Spec.NodeEffect.ApplyOnLabelChange
+		expectedApplyOnLabelChange = dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange
 	}
 
 	// Update ApplyOnLabelChange for existing DPUs if it has changed
@@ -541,7 +541,7 @@ func (r *DPUSetReconciler) updateNodeEffectApplyOnLabelChange(ctx context.Contex
 		// Get current ApplyOnLabelChange value from DPU
 		var currentApplyOnLabelChange *bool
 		if dpu.Spec.NodeEffect != nil {
-			currentApplyOnLabelChange = dpu.Spec.NodeEffect.ApplyOnLabelChange
+			currentApplyOnLabelChange = dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange
 		}
 
 		// Check if ApplyOnLabelChange has changed
@@ -556,7 +556,7 @@ func (r *DPUSetReconciler) updateNodeEffectApplyOnLabelChange(ctx context.Contex
 			}
 
 			// Update ApplyOnLabelChange field
-			dpu.Spec.NodeEffect.ApplyOnLabelChange = expectedApplyOnLabelChange
+			dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = expectedApplyOnLabelChange
 
 			if err := patcher.Patch(ctx, &dpu, patch.WithFieldOwner(DPUSetControllerName)); err != nil {
 				return fmt.Errorf("failed to patch DPU %s/%s: %w", dpu.Namespace, dpu.Name, err)

@@ -178,7 +178,8 @@ type DPUs struct {
 	DPUSets []DPUSet `json:"dpuSets,omitempty"`
 
 	// NodeEffect is the effect the DPU has on Nodes during provisioning.
-	NodeEffect *provisioningv1.NodeEffect `json:"nodeEffect,omitempty"`
+	// +optional
+	NodeEffect *provisioningv1.Action `json:"nodeEffect,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!(has(self.dpuAnnotations) && (self.dpuAnnotations.exists(key, key.contains('dpu.nvidia.com/') || key.endsWith('dpu.nvidia.com')))) ", message="should not contain dpu.nvidia.com/ and should not end with dpu.nvidia.com"

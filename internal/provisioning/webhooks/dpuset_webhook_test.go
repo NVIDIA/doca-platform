@@ -140,9 +140,11 @@ var _ = Describe("DPUSet", func() {
 				NodeLabels: refValue,
 			}
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Taint: &corev1.Taint{
-					Key:    "foo",
-					Effect: corev1.TaintEffectNoSchedule,
+				Action: provisioningv1.Action{
+					Taint: &corev1.Taint{
+						Key:    "foo",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
 				},
 			}
 
@@ -161,11 +163,15 @@ var _ = Describe("DPUSet", func() {
 
 		It("spec.nodeEffect assign nil", func() {
 			refValue := provisioningv1.NodeEffect{
-				CustomLabel: map[string]string{
-					"foo": "bar",
+				Action: provisioningv1.Action{
+					CustomLabel: map[string]string{
+						"foo": "bar",
+					},
+					Force: ptr.To(false),
 				},
-				ApplyOnLabelChange: ptr.To(false),
-				Force:              ptr.To(false),
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					ApplyOnLabelChange: ptr.To(false),
+				},
 			}
 
 			obj := createObj("obj-node-effect-nil")
@@ -181,60 +187,70 @@ var _ = Describe("DPUSet", func() {
 			obj.Spec.DPUTemplate.Spec.NodeEffect = nil
 			Expect(k8sClient.Update(ctx, obj)).To(Succeed())
 			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-			Expect(*objFetched.Spec.DPUTemplate.Spec.NodeEffect).To(Equal(provisioningv1.NodeEffect{Drain: ptr.To(true), ApplyOnLabelChange: ptr.To(false), Force: ptr.To(false)}))
+			Expect(*objFetched.Spec.DPUTemplate.Spec.NodeEffect).To(Equal(provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: ptr.To(false)}}))
 		})
 
 		It("spec.dpuTemplate.spec.nodeEffect.applyOnLabelChange defaults to false", func() {
 			obj := createObj("obj-apply-on-label-change-default")
 			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				NoEffect: ptr.To(true),
+				Action: provisioningv1.Action{
+					NoEffect: ptr.To(true),
+				},
 				// ApplyOnLabelChange not set, should default to false
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
 			objFetched := &provisioningv1.DPUSet{}
 			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-			Expect(objFetched.Spec.DPUTemplate.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(false)))
+			Expect(objFetched.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(false)))
 		})
 
 		It("spec.dpuTemplate.spec.nodeEffect.applyOnLabelChange is mutable", func() {
 			obj := createObj("obj-apply-on-label-change-mutable")
 			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				NoEffect:           ptr.To(true),
-				ApplyOnLabelChange: ptr.To(false),
+				Action: provisioningv1.Action{
+					NoEffect: ptr.To(true),
+				},
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					ApplyOnLabelChange: ptr.To(false),
+				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
 			// Update the field using Patch
 			patch := client.MergeFrom(obj.DeepCopy())
-			obj.Spec.DPUTemplate.Spec.NodeEffect.ApplyOnLabelChange = ptr.To(true)
+			obj.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(true)
 			Expect(k8sClient.Patch(ctx, obj, patch)).To(Succeed())
 
 			objFetched := &provisioningv1.DPUSet{}
 			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-			Expect(objFetched.Spec.DPUTemplate.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(true)))
+			Expect(objFetched.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 		})
 
 		It("spec.dpuTemplate.spec.nodeEffect.nodeMaintenanceAdditionalRequestors is mutable", func() {
 			obj := createObj("obj-additional-requestors-mutable")
 			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				NoEffect:                            ptr.To(true),
-				NodeMaintenanceAdditionalRequestors: []string{"req-1"},
+				Action: provisioningv1.Action{
+					NoEffect: ptr.To(true),
+				},
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					NodeMaintenanceAdditionalRequestors: []string{"req-1"},
+				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
 			// Update the field using Patch
 			patch := client.MergeFrom(obj.DeepCopy())
-			obj.Spec.DPUTemplate.Spec.NodeEffect.NodeMaintenanceAdditionalRequestors = []string{"req-1", "req-2"}
+			obj.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{"req-1", "req-2"}
 			Expect(k8sClient.Patch(ctx, obj, patch)).To(Succeed())
 
 			objFetched := &provisioningv1.DPUSet{}
 			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-			Expect(objFetched.Spec.DPUTemplate.Spec.NodeEffect.NodeMaintenanceAdditionalRequestors).To(HaveLen(2))
-			Expect(objFetched.Spec.DPUTemplate.Spec.NodeEffect.NodeMaintenanceAdditionalRequestors).To(ContainElements("req-1", "req-2"))
+			Expect(objFetched.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors).To(HaveLen(2))
+			Expect(objFetched.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors).To(ContainElements("req-1", "req-2"))
 		})
 
 		It("only one field may be set in spec.nodeEffect", func() {
@@ -242,40 +258,48 @@ var _ = Describe("DPUSet", func() {
 			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			// Error when creating a DPUSet with a nodeEffect setting taint and customLabel.
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Taint: &corev1.Taint{
-					Key:    "foo",
-					Effect: corev1.TaintEffectNoSchedule,
-				},
-				CustomLabel: map[string]string{
-					"foo": "bar",
+				Action: provisioningv1.Action{
+					Taint: &corev1.Taint{
+						Key:    "foo",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					CustomLabel: map[string]string{
+						"foo": "bar",
+					},
 				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).NotTo(Succeed())
 
 			// Error when creating a DPUSet with a nodeEffect setting taint and drain.
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Taint: &corev1.Taint{
-					Key:    "foo",
-					Effect: corev1.TaintEffectNoSchedule,
-				},
-				Drain: ptr.To(true),
-			}
-			Expect(k8sClient.Create(ctx, obj)).NotTo(Succeed())
-
-			// Error when creating a DPUSet with a nodeeffect setting Drain and NoEffect
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Drain: ptr.To(true),
-				CustomLabel: map[string]string{
-					"foo": "bar",
+				Action: provisioningv1.Action{
+					Taint: &corev1.Taint{
+						Key:    "foo",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					Drain: ptr.To(true),
 				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).NotTo(Succeed())
 
 			// Error when creating a DPUSet with a nodeeffect setting Drain and NoEffect
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				NoEffect: ptr.To(true),
-				CustomLabel: map[string]string{
-					"foo": "bar",
+				Action: provisioningv1.Action{
+					Drain: ptr.To(true),
+					CustomLabel: map[string]string{
+						"foo": "bar",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj)).NotTo(Succeed())
+
+			// Error when creating a DPUSet with a nodeeffect setting Drain and NoEffect
+			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{
+					NoEffect: ptr.To(true),
+					CustomLabel: map[string]string{
+						"foo": "bar",
+					},
 				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).NotTo(Succeed())
