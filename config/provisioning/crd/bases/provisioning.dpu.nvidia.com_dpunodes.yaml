@@ -183,6 +183,10 @@ spec:
                 x-kubernetes-validations:
                 - message: KubeNodeRef is immutable
                   rule: self == oldSelf
+              rebootInProgress:
+                description: RebootInProgress indicates if the node is in the process
+                  of rebooting.
+                type: boolean
             type: object
         type: object
         x-kubernetes-validations:

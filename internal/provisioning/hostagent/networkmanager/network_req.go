@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package hostnetwork
+package networkmanager
 
 import (
 	"bufio"
@@ -29,13 +29,10 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/hostagent/options"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	networkutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/hostnetwork/util"
+	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -54,13 +51,13 @@ type NetworkRequest struct {
 	ControlPlaneMTU int    `json:"controlPlaneMTU"`
 
 	// PortConfigs holds the network interface configuration for each port
-	PortConfigs []networkutil.PortConfig `json:"portConfigs,omitempty"`
+	PortConfigs []hostutil.PortConfig `json:"portConfigs,omitempty"`
 
 	// OSType is the operating system type of the host (e.g., "ubuntu", "rhel", "centos")
 	OSType string `json:"osType,omitempty"`
 }
 
-func ConvertVFConfigToNetworkRequest(client dynamic.Interface) error {
+func ConvertVFConfigToNetworkRequest(c client.Client) error {
 	vfFile, err := os.Open(VFConfigFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -101,7 +98,7 @@ func ConvertVFConfigToNetworkRequest(client dynamic.Interface) error {
 			nr.ControlPlaneMTU = controlPlaneMTU
 		}
 	}
-	nr.VFName, err = networkutil.NewPCIHelper(nr.PCIAddress).PF(0).VF(0).InterfaceName()
+	nr.VFName, err = hostutil.NewPCIHelper(nr.PCIAddress).PF(0).VF(0).InterfaceName()
 	if err != nil {
 		if os.IsNotExist(err) {
 			klog.Infof("VF device not found, remove vf config file %s", VFConfigFile)
@@ -110,21 +107,15 @@ func ConvertVFConfigToNetworkRequest(client dynamic.Interface) error {
 		return fmt.Errorf("failed to find VF device: %w", err)
 	}
 
-	gvr := provisioningv1.GroupVersion.WithResource("dpus")
-	dpuList, err := client.Resource(gvr).List(context.TODO(), metav1.ListOptions{
-		LabelSelector: labels.SelectorFromSet(map[string]string{
-			cutil.DPUDeviceNameLabel: strings.ToLower(nr.SerialNumber),
-		}).String(),
+	dpuList := &provisioningv1.DPUList{}
+	err = c.List(context.TODO(), dpuList, client.MatchingLabels{
+		cutil.DPUDeviceNameLabel: strings.ToLower(nr.SerialNumber),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to find DPU with PCI address %s, error: %w", nr.PCIAddress, err)
 	}
 	if len(dpuList.Items) > 0 {
-		dpu := &provisioningv1.DPU{}
-		err := runtime.DefaultUnstructuredConverter.FromUnstructured(dpuList.Items[0].Object, &dpu)
-		if err != nil {
-			return fmt.Errorf("failed to convert unstructured object to DPU: %w", err)
-		}
+		dpu := dpuList.Items[0]
 		nr.DPUNamespace = dpu.Namespace
 		nr.DpuName = dpu.Name
 		err = writeNetworkRequestFile(nr)
@@ -132,7 +123,7 @@ func ConvertVFConfigToNetworkRequest(client dynamic.Interface) error {
 			return err
 		}
 	} else {
-		klog.Infof("DPU with serial number %s not found, remove vf config file %s", nr.SerialNumber, VFConfigFile)
+		klog.Infof("DPU with serial number %s not found, remove vf config file %+v", nr.SerialNumber, nr)
 	}
 	return os.Remove(VFConfigFile)
 }
@@ -147,7 +138,7 @@ func writeNetworkRequestFile(nr *NetworkRequest) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal network request: %w", err)
 	}
-	err = os.WriteFile(filePath, jsonData, 0644)
+	err = hostutil.AtomicWrite(filePath, jsonData, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to write network request file %s: %w", filePath, err)
 	}

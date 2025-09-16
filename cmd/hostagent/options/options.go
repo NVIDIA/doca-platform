@@ -22,10 +22,11 @@ const (
 )
 
 type HostAgentFlags struct {
-	BootstrapPath  string
-	KubeconfigPath string
-	CertDir        string
-	ContentType    string
-	KubeAPIQPS     int
-	KubeAPIBurst   int
+	BootstrapPath      string
+	KubeconfigPath     string
+	CertDir            string
+	ContentType        string
+	KubeAPIQPS         int
+	KubeAPIBurst       int
+	BFBRegistryAddress string
 }

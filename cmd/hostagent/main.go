@@ -20,16 +20,17 @@ import (
 	"flag"
 	"os"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/hostagent/app"
 	"github.com/nvidia/doca-platform/cmd/hostagent/options"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent"
-	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/hostnetwork"
+	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/networkmanager"
+	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/nodemanager"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -45,6 +46,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(provisioningv1.AddToScheme(scheme))
+	utilruntime.Must(operatorv1.AddToScheme(scheme))
 }
 
 func main() {
@@ -60,13 +62,24 @@ func main() {
 	fs.StringVar(&opts.BootstrapPath, "bootstrap-kubeconfig", "", "Path to kubeconfig file with authorization and master location information.")
 	fs.StringVar(&opts.KubeconfigPath, "kubeconfig", "", "Path to kubeconfig file.")
 	fs.StringVar(&opts.CertDir, "cert-dir", options.CertDir, "The directory where the TLS certs are located.")
+	fs.IntVar(&opts.KubeAPIQPS, "kube-api-qps", 5, "The QPS to use while talking with kubernetes API servers.")
+	fs.IntVar(&opts.KubeAPIBurst, "kube-api-burst", 10, "The burst to use while talking with kubernetes API servers.")
+	fs.StringVar(&opts.BFBRegistryAddress, "bfb-registry-address", "", "The address of the BFB registry from which BFBs are downloaded.")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		klog.Fatalf("Failed to parse flags: %v", err)
 	}
 
 	clientCfg := app.GetConfigOrDie(opts)
-	dynamicClient := dynamic.NewForConfigOrDie(clientCfg)
-	if err := hostnetwork.ConvertVFConfigToNetworkRequest(dynamicClient); err != nil {
+	unCachedClient, err := client.New(clientCfg, client.Options{Scheme: scheme})
+	if err != nil {
+		klog.Fatalf("failed to create un-cached client: %v", err)
+	}
+	dpuNodeManager := nodemanager.NewNodeManager(unCachedClient)
+	if err := dpuNodeManager.Start(); err != nil {
+		klog.Fatalf("failed to start node manager: %v", err)
+	}
+
+	if err := networkmanager.ConvertVFConfigToNetworkRequest(unCachedClient); err != nil {
 		klog.Fatalf("failed to convert VF config to network request: %v", err)
 	}
 
@@ -75,13 +88,13 @@ func main() {
 		Scheme: scheme,
 		Client: client.Options{
 			Cache: &client.CacheOptions{
-				// Don't cache Secrets and ConfigMaps. In general, the
+				// Don't cache Secrets, ConfigMaps and DPUNodes. In general, the
 				// controller-runtime client does a LIST and WATCH to cache
 				// kinds you request (see https://github.com/kubernetes-sigs/controller-runtime/pull/1249),
 				// and this can mean caching all secrets and configmaps; when
 				// all that's required is the few that are referenced for
 				// objects of interest to the controllers.
-				DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}},
+				DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}, &provisioningv1.DPUNode{}},
 			},
 		},
 		Controller: config.Controller{
@@ -107,16 +120,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&hostagent.HostAgentReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DPU")
+	nm := networkmanager.NewNetworkManager(mgr.GetClient())
+	if err := nm.Start(); err != nil {
+		setupLog.Error(err, "unable to start network manager")
 		os.Exit(1)
 	}
 
-	nm := hostnetwork.NewNetworkManager(mgr.GetClient())
-	if err := nm.Start(); err != nil {
-		setupLog.Error(err, "unable to start network manager")
+	reconciler := hostagent.NewHostAgentReconciler(mgr.GetClient(), opts.BFBRegistryAddress, dpuNodeManager, nm)
+	if err = reconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DPU")
 		os.Exit(1)
 	}
 
