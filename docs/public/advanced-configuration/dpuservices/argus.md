@@ -5,7 +5,7 @@ title: "DOCA Argus Service"
 This documentation explains configuration and deployment of DOCA Argus service as DPUService in DPF.
 
 Main Argus concepts are explained in the
-[official DOCA Argus documentation](https://docs.nvidia.com/doca/sdk/doca-argus-service-guide/index.html).
+[official DOCA Argus documentation](https://docs.nvidia.com/doca/sdk/doca-argus-service-guide/index.html).  
 The official documentation provides a more comprehensive overview, DPUService users should consult it for detailed
 explanation of service configuration.
 
