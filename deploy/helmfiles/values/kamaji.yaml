@@ -62,7 +62,7 @@ kamaji-etcd:
     name: default
 image:
   repository: ghcr.io/nvidia/kamaji
-  tag: v1.33.0-25.4.1
+  tag: v1.34.0-25.9.3
   pullPolicy: Always
 cfssl:
   image:
