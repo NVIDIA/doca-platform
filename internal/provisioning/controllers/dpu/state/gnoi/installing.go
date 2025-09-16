@@ -237,7 +237,7 @@ func dmsHandler(ctx context.Context, k8sClient client.Client, inDPU *provisionin
 
 		logger.V(3).Info("Starting execute activate operation")
 		// set 30 minutes timeout for OS installation
-		activateCtx, cancel := context.WithTimeout(context.Background(), 30*60*time.Second)
+		activateCtx, cancel := context.WithTimeout(ctx, 30*60*time.Second)
 		defer cancel()
 		if response, err := gnoigo.Execute(activateCtx, gnoiClient, activateOp); err != nil {
 			err = fmt.Errorf("failed to Execute activateOp: %w", err)
