@@ -42,14 +42,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - operator.dpu.nvidia.com
-  resources:
-  - dpfoperatorconfigs
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
   - provisioning.dpu.nvidia.com
   resources:
   - dpuclusters
