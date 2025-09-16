@@ -29,7 +29,6 @@ import (
 	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
 	dnutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	"github.com/nvidia/doca-platform/internal/release"
 	dpfutils "github.com/nvidia/doca-platform/internal/utils"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -178,7 +177,7 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 	}
 
 	// Handle host agent upgrade
-	if result, err := r.handleHostAgentUpgrade(ctx, dpuNode, nodeRef != nil, pod); err != nil || !result.IsZero() {
+	if result, err := r.handleHostAgentUpgrade(ctx, dpuNode, nodeRef != nil); err != nil || !result.IsZero() {
 		return result, err
 	}
 
@@ -250,7 +249,6 @@ func (r *DPUNodeReconciler) handleRebootSync(ctx context.Context, dpuNode *provi
 	log := log.FromContext(ctx)
 
 	if dpuNode.Spec.NodeRebootMethod.External != nil || dpuNode.Spec.NodeRebootMethod.Script != nil {
-		//if dpuNode.Status.DPUInstallInterface != nil && *dpuNode.Status.DPUInstallInterface == string(provisioningv1.DPUNodeInstallIntrefaceRedfish) {
 		dpuPhases := map[string]struct{}{}
 		err := cutil.GetDPUPhases(ctx, r.Client, dpuNode, dpuPhases)
 		log.Info(fmt.Sprintf("dpuNode: %s , dpuPhases: %v", dpuNode.Name, dpuPhases))
@@ -387,7 +385,7 @@ func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisionin
 			return ctrl.Result{}, err
 		}
 		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "", "")
-		logger.Info("Update DPUNode condition UpgradeInProgress to true.")
+		logger.Info("Update DPUNode condition RebootInProgress to true.")
 		return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
 	} else {
 		panic("should not reach here")
@@ -622,45 +620,36 @@ func (r *DPUNodeReconciler) ensureMount(mnts []corev1.VolumeMount, name, path st
 	return append(mnts, corev1.VolumeMount{Name: name, MountPath: path})
 }
 
-func (r *DPUNodeReconciler) handleHostAgentUpgrade(ctx context.Context, dpuNode *provisioningv1.DPUNode, isKubernetes bool, pod *corev1.Pod) (ctrl.Result, error) {
+func (r *DPUNodeReconciler) handleHostAgentUpgrade(ctx context.Context, dpuNode *provisioningv1.DPUNode, isKubernetes bool) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-	// Check whether the DMS Pod is out of date, upgrade it if necessary
+
+	if isKubernetes {
+		return ctrl.Result{}, nil
+	}
 	dpfOperatorConfig, err := dpfutils.GetDPFOperatorConfig(ctx, r.Client)
 	if err != nil {
 		log.Error(fmt.Errorf("getting DPFOperatorConfig, err: %v", err), "")
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, err
 	}
 	if !dpfOperatorConfig.UpgradeInProgress() {
 		return ctrl.Result{}, nil
 	}
-	if isKubernetes {
-		dpfVersion, exist := pod.Labels[release.DPFVersionLabelKey]
-		if !exist || dpfVersion != release.DPFVersion() {
-			// Upgrade the Host Agent
-			if err := r.Delete(ctx, pod); err != nil {
-				log.Info("failed to delete the old host agent pod for upgrade, err: %v", err)
-				return ctrl.Result{}, err
-			}
-			log.Info("upgrading host agent to version " + release.DPFVersion())
-			return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
-		}
+
+	dpuNodeUpgradeConditionExists, needHostAgentUpgradeValue := r.getDPUNodeUpgradeCondition(dpuNode)
+	if !dpuNodeUpgradeConditionExists {
+		// Update the DPUNode condition to true and wait for the user to upgrade DMS
+		msg := "Need user to upgrade host agent during the dpf upgrade."
+		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionNeedHostAgentUpgrade, metav1.ConditionTrue, "", msg)
+		return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
+	} else if !needHostAgentUpgradeValue {
+		// User has completed the DMS upgrade
+		log.Info("Host agent upgrade is completed.")
 		return ctrl.Result{}, nil
 	} else {
-		dpuNodeUpgradeConditionExists, needHostAgentUpgradeValue := r.getDPUNodeUpgradeCondition(dpuNode)
-		if !dpuNodeUpgradeConditionExists {
-			// Update the DPUNode condition to true and wait for the user to upgrade DMS
-			msg := "Need user to upgrade host agent during the dpf upgrade."
-			r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionNeedHostAgentUpgrade, metav1.ConditionTrue, "", msg)
-			return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
-		} else if !needHostAgentUpgradeValue {
-			// User has completed the DMS upgrade
-			log.Info("Host agent upgrade is completed.")
-			return ctrl.Result{}, nil
-		} else {
-			log.Info("Waiting for the user to upgrade host agent.")
-			return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
-		}
+		log.Info("Waiting for the user to upgrade host agent.")
+		return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
 	}
+
 }
 
 func (r *DPUNodeReconciler) updateDPUNodeStatusConditions(dpuNode *provisioningv1.DPUNode, condType provisioningv1.DPUNodeConditionType, status metav1.ConditionStatus, reason string, message string) {
