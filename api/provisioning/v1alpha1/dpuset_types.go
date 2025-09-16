@@ -114,18 +114,27 @@ type DPUTemplate struct {
 // Only one of Taint, NoEffect, CustomLabel, Drain, CustomAction, Hold can be set.
 // +kubebuilder:validation:XValidation:rule="(has(self.taint) ? 1 : 0) + (has(self.noEffect) ? 1 : 0) + (has(self.customLabel) ? 1 : 0) + (has(self.drain) ? 1 : 0) + (has(self.customAction) ? 1 : 0) + (has(self.hold) ? 1 : 0) == 1", message="only one of taint, noEffect, drain, customLabel, customAction, hold can be set"
 type NodeEffect struct {
+	Action        `json:",inline"`
+	UpgradePolicy `json:",inline"`
+}
+
+type Action struct {
 	// Add specify taint on the DPU node
 	// +optional
 	Taint *corev1.Taint `json:"taint,omitempty"`
+
 	// Do not do any action on the DPU node
 	// +optional
 	NoEffect *bool `json:"noEffect,omitempty"`
+
 	// Add specify labels on the DPU node
 	// +optional
 	CustomLabel map[string]string `json:"customLabel,omitempty"`
+
 	// Drain the K8s host node by NodeMaintenance operator
 	// +optional
 	Drain *bool `json:"drain,omitempty"`
+
 	// Name of a config map which contains a pod yaml definition to run which will apply the nodeEffect.
 	// The pod is expected to exit when node effect is done, if pod terminates with error then DPU would move to an error phase.
 	// The DPUNode's name will be exported as an environment variable, named as DPUNODE_NAME, to each container and init container in the pod.
@@ -133,10 +142,21 @@ type NodeEffect struct {
 	// If any name confliction for env or volume, the controller will not export the name or labels/annotations of DPUNode accordingly.
 	// +optional
 	CustomAction *string `json:"customAction,omitempty"`
+
 	// Places annotation `wait-for-external-nodeeffect` and waits for it to be removed
 	// this is the default behavior in a non K8S environment
 	// +optional
 	Hold *bool `json:"hold,omitempty"`
+
+	// Force is the flag to indicate if the node effect should be applied immediately.
+	// If true, dpfOperatorConfig.multiDPUOperationsSyncWaitTime and dpfOperatorConfig.maxUnavailableDPUNodes will be ignored when applying node effect for DPUNodeMaintenance CR
+	// +kubebuilder:default=false
+	// +optional
+	Force *bool `json:"force,omitempty"`
+}
+
+// UpgradePolicy is the policy for the upgrade of the DPUSet.
+type UpgradePolicy struct {
 	// Apply node effect when labels change on the DPU object
 	// When set to true, label changes in Ready state will trigger node effect logic
 	// +optional
@@ -145,11 +165,6 @@ type NodeEffect struct {
 	// Additional requestors to be added to the NvidiaNodeMaintenance CR when Drain is selected
 	// +optional
 	NodeMaintenanceAdditionalRequestors []string `json:"nodeMaintenanceAdditionalRequestors,omitempty"`
-	// Force is the flag to indicate if the node effect should be applied immediately.
-	// If true, dpfOperatorConfig.multiDPUOperationsSyncWaitTime and dpfOperatorConfig.maxUnavailableDPUNodes will be ignored when applying node effect for DPUNodeMaintenance CR
-	// +kubebuilder:default=false
-	// +optional
-	Force *bool `json:"force,omitempty"`
 }
 
 func (n *NodeEffect) String() string {

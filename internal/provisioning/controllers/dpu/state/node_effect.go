@@ -161,11 +161,11 @@ func createDPUNodeMaintenance(ctx context.Context, k8sClient client.Client, name
 		Spec: provisioningv1.DPUNodeMaintenanceSpec{
 			DPUNodeName: dpu.Spec.DPUNodeName,
 			NodeEffect:  dpu.Spec.NodeEffect.DeepCopy(),
-			Requestor:   dpu.Spec.NodeEffect.NodeMaintenanceAdditionalRequestors,
+			Requestor:   dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors,
 		},
 	}
 	// .Spec.NodeEffect.NodeMaintenanceAdditionalRequestors is useless in DPUNodeMaintenance CR, so we need to clear it
-	dpunodemaintenance.Spec.NodeEffect.NodeMaintenanceAdditionalRequestors = []string{}
+	dpunodemaintenance.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{}
 	// append DPU name to Requestor
 	dpunodemaintenance.Spec.Requestor = append(dpunodemaintenance.Spec.Requestor, dpu.Name)
 	if err := k8sClient.Create(ctx, dpunodemaintenance); err != nil {

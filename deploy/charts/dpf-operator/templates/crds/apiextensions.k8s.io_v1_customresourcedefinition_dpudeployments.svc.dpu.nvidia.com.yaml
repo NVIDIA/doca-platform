@@ -158,12 +158,6 @@ spec:
                     description: NodeEffect is the effect the DPU has on Nodes during
                       provisioning.
                     properties:
-                      applyOnLabelChange:
-                        default: false
-                        description: |-
-                          Apply node effect when labels change on the DPU object
-                          When set to true, label changes in Ready state will trigger node effect logic
-                        type: boolean
                       customAction:
                         description: |-
                           Name of a config map which contains a pod yaml definition to run which will apply the nodeEffect.
@@ -194,12 +188,6 @@ spec:
                       noEffect:
                         description: Do not do any action on the DPU node
                         type: boolean
-                      nodeMaintenanceAdditionalRequestors:
-                        description: Additional requestors to be added to the NvidiaNodeMaintenance
-                          CR when Drain is selected
-                        items:
-                          type: string
-                        type: array
                       taint:
                         description: Add specify taint on the DPU node
                         properties:
@@ -227,13 +215,6 @@ spec:
                         - key
                         type: object
                     type: object
-                    x-kubernetes-validations:
-                    - message: only one of taint, noEffect, drain, customLabel, customAction,
-                        hold can be set
-                      rule: '(has(self.taint) ? 1 : 0) + (has(self.noEffect) ? 1 :
-                        0) + (has(self.customLabel) ? 1 : 0) + (has(self.drain) ?
-                        1 : 0) + (has(self.customAction) ? 1 : 0) + (has(self.hold)
-                        ? 1 : 0) == 1'
                 required:
                 - bfb
                 - flavor

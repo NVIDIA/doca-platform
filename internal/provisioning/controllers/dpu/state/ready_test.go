@@ -118,7 +118,7 @@ var _ = Describe("DPU: Ready", func() {
 		It("DPU: Ready: should stay in Ready state when no label changes", func() {
 			dpu := createBasicDPU(
 				map[string]string{"existing": "label"},
-				&provisioningv1.NodeEffect{NoEffect: ptr.To(true)},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			)
 
 			By("creating a Node in the DPUCluster")
@@ -153,7 +153,7 @@ var _ = Describe("DPU: Ready", func() {
 		It("DPU: Ready: should transition to DPUClusterConfig when labels change and ApplyOnLabelChange is false", func() {
 			dpu := createBasicDPU(
 				map[string]string{"key1": "value1", "key2": "value2"},
-				&provisioningv1.NodeEffect{NoEffect: ptr.To(true)},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			)
 
 			By("creating a Node in the DPUCluster")
@@ -176,7 +176,7 @@ var _ = Describe("DPU: Ready", func() {
 		It("DPU: Ready: should transition to DPUNodeEffect when labels change and ApplyOnLabelChange is true", func() {
 			dpu := createBasicDPU(
 				map[string]string{"new": "label"},
-				&provisioningv1.NodeEffect{NoEffect: ptr.To(true), ApplyOnLabelChange: ptr.To(true)},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: ptr.To(true)}},
 			)
 
 			By("creating a Node in the DPUCluster")
@@ -205,7 +205,7 @@ var _ = Describe("DPU: Ready", func() {
 		It("DPU: Ready: should handle nil ApplyOnLabelChange gracefully", func() {
 			dpu := createBasicDPU(
 				map[string]string{"new": "label"},
-				&provisioningv1.NodeEffect{NoEffect: ptr.To(true), ApplyOnLabelChange: nil},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
 			)
 
 			By("creating a Node in the DPUCluster")
@@ -231,7 +231,7 @@ var _ = Describe("DPU: Ready", func() {
 		It("DPU: Ready: should handle empty label changes", func() {
 			dpu := createBasicDPU(
 				map[string]string{},
-				&provisioningv1.NodeEffect{NoEffect: ptr.To(true), ApplyOnLabelChange: ptr.To(true)},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: ptr.To(true)}},
 			)
 
 			By("creating a Node in the DPUCluster")
@@ -257,7 +257,7 @@ var _ = Describe("DPU: Ready", func() {
 		It("DPU: Ready: should handle malformed last applied labels annotation", func() {
 			dpu := createBasicDPU(
 				map[string]string{"new": "label"},
-				&provisioningv1.NodeEffect{NoEffect: ptr.To(true), ApplyOnLabelChange: ptr.To(true)},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: ptr.To(true)}},
 			)
 
 			By("creating a Node in the DPUCluster")
@@ -283,7 +283,7 @@ var _ = Describe("DPU: Ready", func() {
 		It("DPU: Ready: should handle JSON unmarshaling error in last applied labels", func() {
 			dpu := createBasicDPU(
 				map[string]string{"new": "label"},
-				&provisioningv1.NodeEffect{NoEffect: ptr.To(true), ApplyOnLabelChange: ptr.To(true)},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: ptr.To(true)}},
 			)
 
 			By("creating a Node in the DPUCluster with malformed JSON")
@@ -309,7 +309,7 @@ var _ = Describe("DPU: Ready", func() {
 		It("DPU: Ready: should handle empty NodeLabels vs non-empty last applied", func() {
 			dpu := createBasicDPU(
 				map[string]string{}, // empty NodeLabels
-				&provisioningv1.NodeEffect{NoEffect: ptr.To(true)},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			)
 
 			By("creating a Node in the DPUCluster with existing labels")
@@ -335,7 +335,7 @@ var _ = Describe("DPU: Ready", func() {
 		It("DPU: Ready: should handle non-empty NodeLabels vs empty last applied", func() {
 			dpu := createBasicDPU(
 				map[string]string{"new": "label"}, // non-empty NodeLabels
-				&provisioningv1.NodeEffect{NoEffect: ptr.To(true)},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			)
 
 			By("creating a Node in the DPUCluster with empty last applied labels")
@@ -367,7 +367,7 @@ var _ = Describe("DPU: Ready", func() {
 				Name:      "non-existent-cluster",
 				Namespace: testNS.Name,
 			}
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{NoEffect: ptr.To(true)}
+			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}}
 			dpu.Status.Phase = provisioningv1.DPUReady
 
 			runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
@@ -394,7 +394,7 @@ var _ = Describe("DPU: Ready", func() {
 		It("DPU: Ready: should handle node not found", func() {
 			dpu := createBasicDPU(
 				map[string]string{},
-				&provisioningv1.NodeEffect{NoEffect: ptr.To(true)},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			)
 
 			// Note: No node is created in the DPUCluster to simulate "node not found"
@@ -423,7 +423,7 @@ var _ = Describe("DPU: Ready", func() {
 		It("DPU: Ready: should handle node not ready", func() {
 			dpu := createBasicDPU(
 				map[string]string{},
-				&provisioningv1.NodeEffect{NoEffect: ptr.To(true)},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			)
 
 			By("creating a Node in the DPUCluster that is not ready")
@@ -469,7 +469,7 @@ var _ = Describe("DPU: Ready", func() {
 		It("DPU: Ready: should update addresses when they change", func() {
 			dpu := createBasicDPU(
 				map[string]string{},
-				&provisioningv1.NodeEffect{NoEffect: ptr.To(true)},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			)
 
 			By("creating a Node in the DPUCluster with addresses")
@@ -506,7 +506,7 @@ var _ = Describe("DPU: Ready", func() {
 		It("DPU: Ready: should not update addresses when they are the same", func() {
 			dpu := createBasicDPU(
 				map[string]string{},
-				&provisioningv1.NodeEffect{NoEffect: ptr.To(true)},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			)
 			// Set initial addresses in status
 			dpu.Status.Addresses = []corev1.NodeAddress{
@@ -550,7 +550,7 @@ var _ = Describe("DPU: Ready", func() {
 		It("DPU: Ready: should handle missing last applied labels annotation", func() {
 			dpu := createBasicDPU(
 				map[string]string{"new": "label"},
-				&provisioningv1.NodeEffect{NoEffect: ptr.To(true), ApplyOnLabelChange: ptr.To(true)},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: ptr.To(true)}},
 			)
 
 			By("creating a Node in the DPUCluster without last applied labels annotation")

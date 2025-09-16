@@ -488,13 +488,17 @@ var _ = Describe("DPUSet", func() {
 			obj := createDPUSet("obj-dpuset")
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
 				// Only use NoEffect as the NodeEffect type
-				NoEffect: ptr.To(true),
+				Action: provisioningv1.Action{
+					NoEffect: ptr.To(true),
+				},
 				// Test additional fields that can be set with any NodeEffect type
-				ApplyOnLabelChange: ptr.To(true),
-				NodeMaintenanceAdditionalRequestors: []string{
-					"test-requestor-1",
-					"test-requestor-2",
-					"test-requestor-3",
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					ApplyOnLabelChange: ptr.To(true),
+					NodeMaintenanceAdditionalRequestors: []string{
+						"test-requestor-1",
+						"test-requestor-2",
+						"test-requestor-3",
+					},
 				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
@@ -523,9 +527,9 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpu.Spec.NodeEffect.Hold).To(BeNil())
 
 				// Verify additional fields are propagated
-				g.Expect(dpu.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(true)))
-				g.Expect(dpu.Spec.NodeEffect.NodeMaintenanceAdditionalRequestors).To(HaveLen(3))
-				g.Expect(dpu.Spec.NodeEffect.NodeMaintenanceAdditionalRequestors).To(ContainElements(
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors).To(HaveLen(3))
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors).To(ContainElements(
 					"test-requestor-1",
 					"test-requestor-2",
 					"test-requestor-3",
@@ -537,8 +541,12 @@ var _ = Describe("DPUSet", func() {
 			By("creating dpuset with ApplyOnLabelChange set to false")
 			obj := createDPUSet("obj-dpuset")
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				NoEffect:           ptr.To(true),
-				ApplyOnLabelChange: ptr.To(false),
+				Action: provisioningv1.Action{
+					NoEffect: ptr.To(true),
+				},
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					ApplyOnLabelChange: ptr.To(false),
+				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(func() {
@@ -554,12 +562,12 @@ var _ = Describe("DPUSet", func() {
 
 				dpu := dpuList.Items[0]
 				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
-				g.Expect(dpu.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(false)))
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(false)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
 			By("updating DPUSet to set ApplyOnLabelChange to true")
 			patcher := patch.NewSerialPatcher(obj, k8sClient)
-			obj.Spec.DPUTemplate.Spec.NodeEffect.ApplyOnLabelChange = ptr.To(true)
+			obj.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(true)
 			Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
 			By("checking DPU is updated with ApplyOnLabelChange=true")
@@ -569,7 +577,7 @@ var _ = Describe("DPUSet", func() {
 
 				dpu := dpuList.Items[0]
 				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
-				g.Expect(dpu.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(true)))
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 
@@ -577,8 +585,12 @@ var _ = Describe("DPUSet", func() {
 			By("creating dpuset with ApplyOnLabelChange set to true")
 			obj := createDPUSet("obj-dpuset")
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				NoEffect:           ptr.To(true),
-				ApplyOnLabelChange: ptr.To(true),
+				Action: provisioningv1.Action{
+					NoEffect: ptr.To(true),
+				},
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					ApplyOnLabelChange: ptr.To(true),
+				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(func() {
@@ -594,12 +606,12 @@ var _ = Describe("DPUSet", func() {
 
 				dpu := dpuList.Items[0]
 				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
-				g.Expect(dpu.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(true)))
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
 			By("updating DPUSet to set ApplyOnLabelChange to false")
 			patcher := patch.NewSerialPatcher(obj, k8sClient)
-			obj.Spec.DPUTemplate.Spec.NodeEffect.ApplyOnLabelChange = ptr.To(false)
+			obj.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(false)
 			Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
 			By("checking DPU is updated with ApplyOnLabelChange=false")
@@ -609,7 +621,7 @@ var _ = Describe("DPUSet", func() {
 
 				dpu := dpuList.Items[0]
 				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
-				g.Expect(dpu.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(false)))
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(false)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 
@@ -632,14 +644,18 @@ var _ = Describe("DPUSet", func() {
 				dpu := dpuList.Items[0]
 				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.Drain).To(Equal(ptr.To(true))) // Default value
-				g.Expect(dpu.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(false)))
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(false)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
 			By("updating DPUSet to add NodeEffect with ApplyOnLabelChange=true")
 			patcher := patch.NewSerialPatcher(obj, k8sClient)
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				NoEffect:           ptr.To(true),
-				ApplyOnLabelChange: ptr.To(true),
+				Action: provisioningv1.Action{
+					NoEffect: ptr.To(true),
+				},
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					ApplyOnLabelChange: ptr.To(true),
+				},
 			}
 			Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
@@ -650,7 +666,7 @@ var _ = Describe("DPUSet", func() {
 
 				dpu := dpuList.Items[0]
 				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
-				g.Expect(dpu.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(true)))
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 
@@ -658,7 +674,9 @@ var _ = Describe("DPUSet", func() {
 			By("creating dpuset with NodeEffect but no ApplyOnLabelChange")
 			obj := createDPUSet("obj-dpuset")
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				NoEffect: ptr.To(true),
+				Action: provisioningv1.Action{
+					NoEffect: ptr.To(true),
+				},
 				// ApplyOnLabelChange is nil
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
@@ -675,12 +693,12 @@ var _ = Describe("DPUSet", func() {
 
 				dpu := dpuList.Items[0]
 				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
-				g.Expect(dpu.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(false)))
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(false)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
 			By("updating DPUSet to set ApplyOnLabelChange to true")
 			patcher := patch.NewSerialPatcher(obj, k8sClient)
-			obj.Spec.DPUTemplate.Spec.NodeEffect.ApplyOnLabelChange = ptr.To(true)
+			obj.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(true)
 			Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
 			By("checking DPU is updated with ApplyOnLabelChange=true")
@@ -690,7 +708,7 @@ var _ = Describe("DPUSet", func() {
 
 				dpu := dpuList.Items[0]
 				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
-				g.Expect(dpu.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(true)))
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 
@@ -698,8 +716,12 @@ var _ = Describe("DPUSet", func() {
 			By("creating dpuset with ApplyOnLabelChange set to true")
 			obj := createDPUSet("obj-dpuset")
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				NoEffect:           ptr.To(true),
-				ApplyOnLabelChange: ptr.To(true),
+				Action: provisioningv1.Action{
+					NoEffect: ptr.To(true),
+				},
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					ApplyOnLabelChange: ptr.To(true),
+				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(func() {
@@ -715,12 +737,12 @@ var _ = Describe("DPUSet", func() {
 
 				dpu := dpuList.Items[0]
 				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
-				g.Expect(dpu.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(true)))
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
 			By("updating DPUSet to set ApplyOnLabelChange to true again (no-op)")
 			patcher := patch.NewSerialPatcher(obj, k8sClient)
-			obj.Spec.DPUTemplate.Spec.NodeEffect.ApplyOnLabelChange = ptr.To(true) // Same value
+			obj.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(true) // Same value
 			Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
 			By("checking DPU still has ApplyOnLabelChange=true (no change)")
@@ -730,7 +752,7 @@ var _ = Describe("DPUSet", func() {
 
 				dpu := dpuList.Items[0]
 				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
-				g.Expect(dpu.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(true)))
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 
@@ -756,8 +778,12 @@ var _ = Describe("DPUSet", func() {
 			By("creating dpuset with ApplyOnLabelChange set to false")
 			obj := createDPUSet("obj-dpuset")
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				NoEffect:           ptr.To(true),
-				ApplyOnLabelChange: ptr.To(false),
+				Action: provisioningv1.Action{
+					NoEffect: ptr.To(true),
+				},
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					ApplyOnLabelChange: ptr.To(false),
+				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(func() {
@@ -773,13 +799,13 @@ var _ = Describe("DPUSet", func() {
 
 				for _, dpu := range dpuList.Items {
 					g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
-					g.Expect(dpu.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(false)))
+					g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(false)))
 				}
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
 			By("updating DPUSet to set ApplyOnLabelChange to true")
 			patcher = patch.NewSerialPatcher(obj, k8sClient)
-			obj.Spec.DPUTemplate.Spec.NodeEffect.ApplyOnLabelChange = ptr.To(true)
+			obj.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(true)
 			Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
 			By("checking all DPUs are updated with ApplyOnLabelChange=true")
@@ -789,7 +815,7 @@ var _ = Describe("DPUSet", func() {
 
 				for _, dpu := range dpuList.Items {
 					g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
-					g.Expect(dpu.Spec.NodeEffect.ApplyOnLabelChange).To(Equal(ptr.To(true)))
+					g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 				}
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -747,20 +748,34 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 	}
 
 	if dpuDeployment.Spec.DPUs.NodeEffect != nil {
-		dpuSet.Spec.DPUTemplate.Spec.NodeEffect = dpuDeployment.Spec.DPUs.NodeEffect
+		dpuSet.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{Action: *dpuDeployment.Spec.DPUs.NodeEffect}
 	} else {
 		// We need to patch with the default which is drain in order to avoid issues with updating the nodeEffect on
 		// subsequent edits.
-		dpuSet.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{Drain: ptr.To(true)}
+		dpuSet.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}}
 	}
+
+	// Create  a slice of NodeMaintenanceAdditionalRequestors
+	// Each DPUService and DPUServiceChain has a NodeMaintenanceAdditionalRequestor.
+	// This is needed because the DPUReadyController will need to remove those requestors when those
+	// DPUServices and DPUServiceChains are ready.
+	dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = make([]string, 0)
+	for _, value := range dpuNodeLabels {
+		// value is the name of the DPUService or DPUServiceChain new revision
+		requestor := fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(dpuDeploymentNamespacedName), value)
+		if !slices.Contains(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors, requestor) {
+			dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = append(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors, requestor)
+		}
+	}
+	slices.Sort(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors)
+
+	dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(true)
 
 	nodeLabels := map[string]string{
 		dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(dpuDeploymentNamespacedName),
 	}
 
-	for k, v := range dpuNodeLabels {
-		nodeLabels[k] = v
-	}
+	maps.Copy(nodeLabels, dpuNodeLabels)
 
 	dpuSet.Spec.DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
 		NodeLabels: nodeLabels,

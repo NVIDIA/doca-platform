@@ -1200,9 +1200,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 								},
 								DPUFlavor: "someflavor",
 								NodeEffect: &provisioningv1.NodeEffect{
-									Drain:              ptr.To(true),
-									ApplyOnLabelChange: ptr.To(false),
-									Force:              ptr.To(false),
+									Action: provisioningv1.Action{
+										Drain: ptr.To(true),
+										Force: ptr.To(false),
+									},
+									UpgradePolicy: provisioningv1.UpgradePolicy{
+										ApplyOnLabelChange: ptr.To(true),
+									},
 								},
 							},
 						},
@@ -1229,9 +1233,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 								},
 								DPUFlavor: "someflavor",
 								NodeEffect: &provisioningv1.NodeEffect{
-									Drain:              ptr.To(true),
-									ApplyOnLabelChange: ptr.To(false),
-									Force:              ptr.To(false),
+									Action: provisioningv1.Action{
+										Drain: ptr.To(true),
+										Force: ptr.To(false),
+									},
+									UpgradePolicy: provisioningv1.UpgradePolicy{
+										ApplyOnLabelChange: ptr.To(true),
+									},
 								},
 							},
 						},
@@ -1283,6 +1291,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 							"svc.dpu.nvidia.com/dpuservice-someservice-version": dpuService.Name,
 							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
 						},
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuService.Name),
 					}
 				}
 
@@ -1338,6 +1350,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 							"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
 							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
 						},
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
 					}
 				}
 
@@ -1412,6 +1428,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
 						},
 					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
+					}
 				}
 
 				By("waiting for the initial DPUSets to be applied")
@@ -1422,14 +1442,9 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
 				By("modifying the DPUDeployment object to use a different nodeEffect and checking the outcome")
-				dpuDeployment.Spec.DPUs.NodeEffect = &provisioningv1.NodeEffect{
-					NoEffect:           ptr.To(true),
-					ApplyOnLabelChange: ptr.To(true),
-					Force:              ptr.To(false),
-					NodeMaintenanceAdditionalRequestors: []string{
-						"dpu-provisioning",
-						"dpu-provisioning-2",
-					},
+				dpuDeployment.Spec.DPUs.NodeEffect = &provisioningv1.Action{
+					NoEffect: ptr.To(true),
+					Force:    ptr.To(false),
 				}
 				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
 
@@ -1445,20 +1460,28 @@ var _ = Describe("DPUDeployment Controller", func() {
 						specs = append(specs, dpuSet.Spec)
 					}
 					expectedDPUSetSpecs[0].DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-						NoEffect:           ptr.To(true),
-						ApplyOnLabelChange: ptr.To(true),
-						Force:              ptr.To(false),
-						NodeMaintenanceAdditionalRequestors: []string{
-							"dpu-provisioning",
-							"dpu-provisioning-2",
+						Action: provisioningv1.Action{
+							NoEffect: ptr.To(true),
+							Force:    ptr.To(false),
+						},
+						UpgradePolicy: provisioningv1.UpgradePolicy{
+							ApplyOnLabelChange: ptr.To(true),
+							NodeMaintenanceAdditionalRequestors: []string{
+								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
+								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
+							},
 						}}
 					expectedDPUSetSpecs[1].DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-						NoEffect:           ptr.To(true),
-						ApplyOnLabelChange: ptr.To(true),
-						Force:              ptr.To(false),
-						NodeMaintenanceAdditionalRequestors: []string{
-							"dpu-provisioning",
-							"dpu-provisioning-2",
+						Action: provisioningv1.Action{
+							NoEffect: ptr.To(true),
+							Force:    ptr.To(false),
+						},
+						UpgradePolicy: provisioningv1.UpgradePolicy{
+							ApplyOnLabelChange: ptr.To(true),
+							NodeMaintenanceAdditionalRequestors: []string{
+								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
+								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
+							},
 						}}
 					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
@@ -1479,14 +1502,30 @@ var _ = Describe("DPUDeployment Controller", func() {
 						specs = append(specs, dpuSet.Spec)
 					}
 					expectedDPUSetSpecs[0].DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-						Drain:              ptr.To(true),
-						ApplyOnLabelChange: ptr.To(false),
-						Force:              ptr.To(false),
+						Action: provisioningv1.Action{
+							Drain: ptr.To(true),
+							Force: ptr.To(false),
+						},
+						UpgradePolicy: provisioningv1.UpgradePolicy{
+							ApplyOnLabelChange: ptr.To(true),
+							NodeMaintenanceAdditionalRequestors: []string{
+								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
+								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
+							},
+						},
 					}
 					expectedDPUSetSpecs[1].DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
-						Drain:              ptr.To(true),
-						ApplyOnLabelChange: ptr.To(false),
-						Force:              ptr.To(false),
+						Action: provisioningv1.Action{
+							Drain: ptr.To(true),
+							Force: ptr.To(false),
+						},
+						UpgradePolicy: provisioningv1.UpgradePolicy{
+							ApplyOnLabelChange: ptr.To(true),
+							NodeMaintenanceAdditionalRequestors: []string{
+								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
+								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
+							},
+						},
 					}
 					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
@@ -1521,6 +1560,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
 							"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
 						},
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUServiceChain.Name),
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
 					}
 				}
 
@@ -1617,6 +1660,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 							"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
 						},
 					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotInitialDPUService.Name),
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUServiceChain.Name),
+					}
 				}
 
 				By("waiting for the initial DPUSets to be applied")
@@ -1671,6 +1718,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
 							"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
 						},
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUServiceChain.Name),
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
 					}
 				}
 
@@ -1790,6 +1841,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 							"svc.dpu.nvidia.com/dpuservicechain-version":        gotInitialDPUServiceChain.Name,
 						},
 					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotInitialDPUServiceChain.Name),
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
+					}
 				}
 
 				By("waiting for the initial DPUSets to be applied")
@@ -1894,6 +1949,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 							"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
 						},
 					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUServiceChain.Name),
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
+					}
 				}
 
 				By("checking that the DPUSets are correctly updated")
@@ -1952,6 +2011,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
 							"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
 						},
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUServiceChain.Name),
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
 					}
 				}
 
@@ -2088,6 +2151,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 							"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
 						},
 					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUServiceChain.Name),
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
+					}
 				}
 
 				By("waiting for the initial DPUSets to be applied")
@@ -2168,6 +2235,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 							"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
 						},
 					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUServiceChain.Name),
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
+					}
 				}
 
 				By("waiting for the initial DPUSets to be applied")
@@ -2245,9 +2316,17 @@ var _ = Describe("DPUDeployment Controller", func() {
 								},
 								DPUFlavor: "someflavor",
 								NodeEffect: &provisioningv1.NodeEffect{
-									Drain:              ptr.To(true),
-									ApplyOnLabelChange: ptr.To(false),
-									Force:              ptr.To(false),
+									Action: provisioningv1.Action{
+										Drain: ptr.To(true),
+										Force: ptr.To(false),
+									},
+									UpgradePolicy: provisioningv1.UpgradePolicy{
+										ApplyOnLabelChange: ptr.To(true),
+										NodeMaintenanceAdditionalRequestors: []string{
+											fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUServiceChain.Name),
+											fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
+										},
+									},
 								},
 								Cluster: &provisioningv1.ClusterSpec{
 									NodeLabels: map[string]string{
