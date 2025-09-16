@@ -253,6 +253,67 @@ var _ = Describe("DPUSelector", func() {
 				Expect(result).To(BeNil())
 			})
 		})
+		Context("with select function option", func() {
+			It("should handle selection from multiple candidates", func() {
+				// Select function that picks DPU with specific name
+				selectFunc := func(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (*provisioningv1.DPU, error) {
+					for _, dpu := range dpus {
+						if dpu.Name == "preferred-dpu" {
+							return dpu, nil
+						}
+					}
+					return dpus[0], nil // fallback to first
+				}
+				dpuSelector := New(
+					WithIndexerField{FieldName: "spec.dpuNodeName"},
+					WithDPUSelectFunc{SelectFunc: selectFunc},
+				)
+
+				dpu1 := getDPU("test-dpu-1")
+				dpu2 := getDPU("preferred-dpu")
+				dpu3 := getDPU("test-dpu-3")
+
+				fakeClient := getFakeClientBuilder().WithObjects(dpu1, dpu2, dpu3).Build()
+
+				result, err := dpuSelector.GetDPUForNode(ctx, fakeClient, dpuNode)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.Name).To(Equal("preferred-dpu"))
+			})
+			It("should return error when select function returns error", func() {
+				selectError := errors.New("selection failed")
+				selectFunc := func(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (*provisioningv1.DPU, error) {
+					return nil, selectError
+				}
+				dpuSelector := New(
+					WithIndexerField{FieldName: "spec.dpuNodeName"},
+					WithDPUSelectFunc{SelectFunc: selectFunc},
+				)
+
+				dpu := getDPU("test-dpu")
+				fakeClient := getFakeClientBuilder().WithObjects(dpu).Build()
+
+				result, err := dpuSelector.GetDPUForNode(ctx, fakeClient, dpuNode)
+				Expect(err).To(MatchError("selection failed"))
+				Expect(errors.Is(err, selectError)).To(BeTrue())
+				Expect(result).To(BeNil())
+			})
+			It("should return error when select function returns nil DPU", func() {
+				selectFunc := func(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (*provisioningv1.DPU, error) {
+					return nil, nil
+				}
+				dpuSelector := New(
+					WithIndexerField{FieldName: "spec.dpuNodeName"},
+					WithDPUSelectFunc{SelectFunc: selectFunc},
+				)
+
+				dpu := getDPU("test-dpu")
+				fakeClient := getFakeClientBuilder().WithObjects(dpu).Build()
+
+				result, err := dpuSelector.GetDPUForNode(ctx, fakeClient, dpuNode)
+				Expect(err).To(MatchError(ContainSubstring("dpu selection function returned nil DPU")))
+				Expect(result).To(BeNil())
+			})
+		})
 		Context("when client list call fails", func() {
 			It("should return the client error", func() {
 				dpuSelector := New(WithIndexerField{FieldName: "spec.dpuNodeName"})
