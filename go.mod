@@ -6,6 +6,7 @@ require (
 	antrea.io/libOpenflow v0.14.0
 	antrea.io/ofnet v0.12.0
 	dario.cat/mergo v1.0.1
+	github.com/BurntSushi/toml v1.5.0
 	github.com/Masterminds/semver/v3 v3.3.1
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/Mellanox/maintenance-operator/api v0.1.1

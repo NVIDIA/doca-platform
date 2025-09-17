@@ -771,6 +771,10 @@ binary-ipallocator: ## Build the IP allocator binary.
 binary-dpudetector: ## Build the DPU detector binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpu-detector github.com/nvidia/doca-platform/cmd/dpudetector
 
+.PHONY: binary-dpuagent
+binary-dpuagent: ## Build the DPU agent binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(DPU_ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpuagent github.com/nvidia/doca-platform/cmd/dpuagent
+
 .PHONY: binary-ovn-kubernetes-resource-injector
 binary-ovn-kubernetes-resource-injector: ## Build the OVN Kubernetes Resource Injector.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/ovnkubernetesresourceinjector github.com/nvidia/doca-platform/cmd/ovnkubernetesresourceinjector

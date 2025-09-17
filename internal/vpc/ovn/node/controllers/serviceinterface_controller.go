@@ -21,13 +21,13 @@ import (
 
 	vpcovncommon "gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/ovn/common"
 	"gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/ovn/node/nodeutils"
-	"gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/vfmac"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
 	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
+	"github.com/nvidia/doca-platform/pkg/vfmac"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"

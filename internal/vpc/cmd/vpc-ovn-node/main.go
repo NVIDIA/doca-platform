@@ -19,11 +19,11 @@ import (
 
 	vpcnodecontroller "gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/ovn/node/controllers"
 	"gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/ovn/node/nodeutils"
-	"gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/vfmac"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/health"
 	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
+	"github.com/nvidia/doca-platform/pkg/vfmac"
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"

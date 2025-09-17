@@ -53,5 +53,4 @@ COPY --chown=${uid} --from=builder /workspace/bin/vpc-ovn-controller .
 COPY --chown=${uid} --from=builder /workspace/bin/vpc-ovn-node .
 COPY --chown=${uid} --from=builder /workspace/bin/vpc-ovn-dpu-provisioner .
 COPY --chown=${uid} --from=builder /workspace/bin/ipallocator .
-COPY --chown=${uid} --from=builder /workspace/bin/vfmac .
 COPY --chown=${uid} --from=deps /workspace/source-code.tar.gz .
