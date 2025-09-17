@@ -127,32 +127,6 @@ spec:
               fieldPath: spec.nodeName
         command: ["/vpc-ovn-dpu-provisioner"]
 
-      - name: vfmac
-        image: {{ .Values.dpu.vpcOVNNode.initContainers.vpcOVNDpuProvisioner.image.repository }}:{{ .Values.dpu.vpcOVNNode.initContainers.vpcOVNDpuProvisioner.image.tag }}
-        imagePullPolicy: {{ .Values.dpu.vpcOVNNode.initContainers.vpcOVNDpuProvisioner.image.pullPolicy }}
-        volumeMounts:
-        - name: mellanox-etc
-          mountPath: /etc/mellanox
-        - name: host-usr-bin
-          mountPath: /usr/bin  # Mount host's /usr/bin to access mlxconfig
-          readOnly: true
-        - name: host-dev-mst
-          mountPath: /dev/mst  # Mount host's Mellanox device directory
-        - name: host-usr-lib
-          mountPath: /usr/lib       # For libstdc++.so.6 (32-bit)
-          readOnly: true
-        - name: host-usr-lib64
-          mountPath: /usr/lib64     # For libstdc++.so.6 (64-bit)
-          readOnly: true
-        - name: host-lib-modules
-          mountPath: /lib/modules  # Kernel modules
-        securityContext:
-          # Needs to run as root to ensure that it can access vf device
-          runAsUser: 0
-          # Needs to be privileged to set vf mac addresses
-          privileged: true
-        command: ["/vfmac"]
-
       containers:
         - name: vpc-ovn-node
           image: {{ .Values.dpu.vpcOVNNode.containers.vpcOVNNodeController.image.repository }}:{{ .Values.dpu.vpcOVNNode.containers.vpcOVNNodeController.image.tag }}
@@ -226,23 +200,12 @@ spec:
         hostPath:
           path: /etc/mellanox
           type: Directory
-      - name: host-usr-bin
-        hostPath:
-          path: /usr/bin
-          type: Directory
-      - name: host-dev-mst
-        hostPath:
-          path: /dev/mst
-          type: Directory
       - name: host-usr-lib
         hostPath:
           path: /usr/lib
       - name: host-usr-lib64
         hostPath:
           path: /usr/lib64
-      - name: host-lib-modules
-        hostPath:
-          path: /lib/modules
       - name: dhcp-cni-bin-dir
         hostPath:
           path: {{ .Values.dpu.vpcOVNNode.volumes.dhcpCNIBinDir.path }}
