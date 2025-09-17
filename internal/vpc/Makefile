@@ -89,10 +89,9 @@ help: ## Display this help.
 
 LOCALBIN ?= $(PROJECT_DIR)/bin
 export CHARTSDIR ?= $(PROJECT_DIR)/hack/charts
-DPUSERVICESDIR ?= $(PROJECT_DIR)/dpuservices
 HELMDIR ?= $(PROJECT_DIR)/charts
 TOOLSDIR = $(PROJECT_DIR)/hack/tools/bin
-CONFDIR = $(PROJECT_DIR)/config
+CONFDIR = $(CURDIR)/config
 
 $(LOCALBIN) $(CHARTSDIR):
 	@mkdir -p $@
@@ -164,8 +163,8 @@ generate-manifests-vpc-ovn-controller: envsubst controller-gen kustomize ## Gene
 	$(CONTROLLER_GEN) \
 	paths="./cmd/vpc-ovn-controller/..." \
 	paths="./ovn/controllers/..." \
-	rbac:roleName=manager-role \
-	output:rbac:dir=$(CONFDIR)/vpc/ovn/rbac
+	rbac:roleName=vpc-ovn-controller-role \
+	output:rbac:dir=$(CONFDIR)/vpc-ovn-controller/rbac
 	$(ENVSUBST) < $(VPC_HELM_CHART)/values.yaml.tmpl > $(VPC_HELM_CHART)/values.yaml
 
 .PHONY: generate-manifests-vpc-ovn-node
@@ -174,7 +173,7 @@ generate-manifests-vpc-ovn-node: controller-gen kustomize ## Generate manifests 
 	paths="./cmd/vpc-ovn-node/..." \
 	paths="./ovn/node/controllers/..." \
 	rbac:roleName=vpc-ovn-node-role \
-	output:rbac:dir=$(CONFDIR)/vpc/dpu/rbac
+	output:rbac:dir=$(CONFDIR)/vpc-ovn-node/rbac
 
 .PHONY: generate-manifests-ovn
 generate-manifests-ovn: envsubst ## Generate values for ovn helm chart.
@@ -451,23 +450,23 @@ HELM_TARGETS ?= ovn vpc-ovn
 
 # metadata for ovn chart.
 export OVN_HELM_CHART_NAME = ovn-chart
-OVN_HELM_CHART ?= $(DPUSERVICESDIR)/ovnvpc/ovn/chart
+OVN_HELM_CHART ?= $(CURDIR)/deploy/charts/ovn-chart
 
 # metadata for VPC chart.
 VPC_HELM_CHART_NAME = dpf-vpc-ovn
-VPC_HELM_CHART ?= $(DPUSERVICESDIR)/ovnvpc/vpc/chart
+VPC_HELM_CHART ?= $(CURDIR)/deploy/charts/dpf-vpc-ovn
 
 .PHONY: helm-package-all
 helm-package-all: $(addprefix helm-package-,$(HELM_TARGETS))  ## Package the helm charts for all components.
 
 .PHONY: helm-package-ovn
-helm-package-ovn: $(DPUSERVICESDIR) $(CHARTSDIR) helm yq generate-manifests-ovn ## Package helm chart for ovn
+helm-package-ovn: $(CHARTSDIR) helm yq generate-manifests-ovn ## Package helm chart for ovn
 	HELM_CHART_DIR="$(OVN_HELM_CHART)" \
 	HELM_CHART_TAGS="$(TAG)" \
-	../..//hack/scripts/release-helm-package.sh
+	../../hack/scripts/release-helm-package.sh
 
 .PHONY: helm-package-vpc-ovn
-helm-package-vpc-ovn: $(DPUSERVICESDIR) $(CHARTSDIR) helm yq generate-manifests-vpc-ovn-controller ## Package helm chart for vpc-ovn
+helm-package-vpc-ovn: $(CHARTSDIR) helm yq generate-manifests-vpc-ovn-controller ## Package helm chart for vpc-ovn
 	HELM_CHART_DIR="$(VPC_HELM_CHART)" \
 	HELM_CHART_TAGS="$(TAG)" \
 	../../hack/scripts/release-helm-package.sh
