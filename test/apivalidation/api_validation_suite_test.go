@@ -1,16 +1,20 @@
 /*
-SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+Copyright 2025 NVIDIA
 
-NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-property and proprietary rights in and to this material, related
-documentation and any modifications thereto. Any use, reproduction,
-disclosure or distribution of this material and related documentation
- without an express license agreement from NVIDIA CORPORATION or
-its affiliates is strictly prohibited.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
 
-package vpc_test
+package apivalidation_test
 
 import (
 	"context"
@@ -19,7 +23,9 @@ import (
 	"runtime"
 	"testing"
 
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -48,6 +54,7 @@ var _ = BeforeSuite(func() {
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "config", "dpuservice", "crd", "bases"),
 			filepath.Join("..", "..", "config", "vpc", "crd", "bases"),
 		},
 		ErrorIfCRDPathMissing: true,
@@ -66,6 +73,9 @@ var _ = BeforeSuite(func() {
 	cfg, err = testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
+
+	err = dpuservicev1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
 
 	err = vpcv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
