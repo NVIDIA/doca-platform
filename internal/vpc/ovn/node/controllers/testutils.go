@@ -14,9 +14,9 @@ package controllers
 
 import (
 	"gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/ovn/common"
-	"gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/vfmac"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/pkg/vfmac"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"

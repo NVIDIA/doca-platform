@@ -338,8 +338,6 @@ binary-vpc-ovn-node: ## Build vpc-ovn-node binary.
 	-ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/vpc-ovn-node gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/cmd/vpc-ovn-node
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build \
 	-ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/vpc-ovn-dpu-provisioner gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/cmd/vpc-ovn-dpu-provisioner
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build \
-	-ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/vfmac gitlab-master.nvidia.com/doca-platform-foundation/ovn-vpc/cmd/vfmac
 
 MULTI_ARCH_DOCKER_BUILD_TARGETS = vpc-system ovn
 DOCKER_BUILD_TARGETS = $(MULTI_ARCH_DOCKER_BUILD_TARGETS)
