@@ -120,7 +120,7 @@ var _ = Describe("DPU: Node Effect", func() {
 				dpu.Name,
 			))
 
-			By("second run, should return NodeEffectProcessing")
+			By("second run, should return NodeEffectInProgress")
 			status, err = state.NodeEffect(ctx, dpu,
 				&dutil.ControllerContext{
 					Client: k8sClient,
@@ -135,7 +135,7 @@ var _ = Describe("DPU: Node Effect", func() {
 				And(
 					HaveField("Type", provisioningv1.DPUCondNodeEffectReady.String()),
 					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", "NodeEffectProcessing"),
+					HaveField("Reason", "NodeEffectInProgress"),
 				),
 			))
 
