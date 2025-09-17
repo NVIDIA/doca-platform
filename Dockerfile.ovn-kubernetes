@@ -61,7 +61,7 @@ ARG ubuntu_mirror=http://archive.ubuntu.com/ubuntu/
 ARG BASE_PACKAGES="iproute2 curl software-properties-common util-linux dnsmasq nftables"
 
 # Dependencies for installing OVN (Netplan, systemd and udev required by dpucniprovisioner).
-ARG OVN_PACKAGES="openvswitch-switch openvswitch-common netplan.io udev systemd"
+ARG OVN_PACKAGES="netplan.io udev systemd"
 
 RUN dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /initial-dpkg-list.txt
 
