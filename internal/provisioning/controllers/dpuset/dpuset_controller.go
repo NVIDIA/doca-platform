@@ -90,12 +90,49 @@ func (r *DPUSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ c
 	}()
 
 	if !dpuSet.DeletionTimestamp.IsZero() {
-		logger.Info("Reconcile Delete DPUSet")
-		controllerutil.RemoveFinalizer(dpuSet, provisioningv1.DPUSetFinalizer)
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.reconcileDelete(ctx, dpuSet)
 	}
 
 	return r.Handle(ctx, dpuSet)
+}
+
+func (r *DPUSetReconciler) reconcileDelete(ctx context.Context, dpuSet *provisioningv1.DPUSet) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconcile Delete DPUSet")
+
+	dpuList := &provisioningv1.DPUList{}
+	if err := r.List(ctx, dpuList, client.MatchingLabels{
+		cutil.DPUSetNameLabel:      dpuSet.Name,
+		cutil.DPUSetNamespaceLabel: dpuSet.Namespace,
+	}); err != nil {
+		return fmt.Errorf("failed to list DPUs %w", err)
+	}
+
+	// Processing logic:
+	// - Iterate over all DPUs.
+	// - If a DPU is already in deletion, log the event and skip it.
+	// - Otherwise, initiate deletion.
+	// - After the loop, check if any DPUs exist. If none remain, return an error to trigger exponential backoff.
+	for _, dpu := range dpuList.Items {
+		if !dpu.DeletionTimestamp.IsZero() {
+			logger.Info("Waiting for DPU deletion", "DPU", dpu.Name)
+			continue
+		}
+
+		if err := r.Delete(ctx, &dpu); err != nil {
+			logger.Error(err, "Failed to delete DPU", "DPU", dpu.Name)
+			return fmt.Errorf("failed to delete DPU %w", err)
+		}
+
+		logger.Info("Delete DPU", "DPU", dpu.Name)
+	}
+	if len(dpuList.Items) > 0 {
+		return fmt.Errorf("not all DPUs are deleted")
+	}
+
+	controllerutil.RemoveFinalizer(dpuSet, provisioningv1.DPUSetFinalizer)
+
+	return nil
 }
 
 func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DPUSet) (ctrl.Result, error) {
