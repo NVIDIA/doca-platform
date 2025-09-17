@@ -372,7 +372,6 @@ func (r *DPUServiceReconciler) fetchResourceNameFromNAD(ctx context.Context, int
 
 	predefinedNADs := map[string]struct{}{
 		"mybrhbn":   {},
-		"mybrsfc":   {},
 		"iprequest": {},
 	}
 
