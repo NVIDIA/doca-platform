@@ -234,7 +234,7 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 // handleDeletionAndFinalizer handles deletion timestamp and finalizer setup
 func (r *DPUNodeReconciler) handleDeletionAndFinalizer(ctx context.Context, dpuNode *provisioningv1.DPUNode) error {
 	if !dpuNode.DeletionTimestamp.IsZero() {
-		return removeFinalizer(ctx, r.Client, dpuNode)
+		return r.removeFinalizer(ctx, dpuNode)
 	}
 	if !controllerutil.ContainsFinalizer(dpuNode, provisioningv1.DPUNodeFinalizer) {
 		controllerutil.AddFinalizer(dpuNode, provisioningv1.DPUNodeFinalizer)
@@ -847,16 +847,16 @@ func (r *DPUNodeReconciler) getDPUNodeUpgradeCondition(dpuNode *provisioningv1.D
 }
 
 // removeFinalizer removes the finalizer from the DPUNode object to ensure that it can be deleted
-func removeFinalizer(ctx context.Context, k8sclient client.Client, dpuNode *provisioningv1.DPUNode) error {
+func (r *DPUNodeReconciler) removeFinalizer(ctx context.Context, dpuNode *provisioningv1.DPUNode) error {
 	dpuList := &provisioningv1.DPUList{}
-	if err := k8sclient.List(ctx, dpuList); err != nil {
+	if err := r.Client.List(ctx, dpuList); err != nil {
 		return err
 	}
 
 	dpuCountOfNode := 0
 	for _, dpu := range dpuList.Items {
 		if dpu.Spec.DPUNodeName == dpuNode.Name {
-			dpuCountOfNode = dpuCountOfNode + 1
+			dpuCountOfNode += 1
 		}
 	}
 	if dpuCountOfNode == 0 {

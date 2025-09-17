@@ -29,13 +29,16 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // DPUClusterControllerName is the controllers name that will be used when reporting events
@@ -67,16 +70,7 @@ func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if !dc.DeletionTimestamp.IsZero() {
-		if !controllerutil.ContainsFinalizer(dc, provisioningv1.FinalizerInternalCleanUp) {
-			return ctrl.Result{}, nil
-		}
-		r.Allocator.RemoveCluster(dc)
-		r.adminClients.Delete(dc.UID)
-		controllerutil.RemoveFinalizer(dc, provisioningv1.FinalizerInternalCleanUp)
-		if err := r.Client.Update(ctx, dc); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to remove finalizer %w", err)
-		}
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.reconcileDelete(ctx, dc)
 	}
 
 	if !controllerutil.ContainsFinalizer(dc, provisioningv1.FinalizerInternalCleanUp) {
@@ -146,7 +140,49 @@ func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 func (r *DPUClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&provisioningv1.DPUCluster{}).
+		Watches(&provisioningv1.DPU{},
+			handler.EnqueueRequestsFromMapFunc(r.dpuToDPUClusterReq)).
 		Complete(r)
+}
+
+func (r *DPUClusterReconciler) dpuToDPUClusterReq(ctx context.Context, obj client.Object) []reconcile.Request {
+	dpu := obj.(*provisioningv1.DPU)
+	return []reconcile.Request{{
+		NamespacedName: types.NamespacedName{
+			Name:      dpu.Spec.Cluster.Name,
+			Namespace: dpu.Spec.Cluster.Namespace,
+		},
+	}}
+}
+
+func (r *DPUClusterReconciler) reconcileDelete(ctx context.Context, dc *provisioningv1.DPUCluster) error {
+
+	dpuList := &provisioningv1.DPUList{}
+	if err := r.Client.List(ctx, dpuList); err != nil {
+		return fmt.Errorf("failed to list DPUs %w", err)
+	}
+
+	dpuCountOfCluster := 0
+	for _, dpu := range dpuList.Items {
+		if dpu.Spec.Cluster.Name == dc.Name && dpu.Spec.Cluster.Namespace == dc.Namespace {
+			dpuCountOfCluster += 1
+		}
+	}
+
+	if dpuCountOfCluster != 0 {
+		return fmt.Errorf("there are still DPUs in the cluster")
+	}
+
+	r.Allocator.RemoveCluster(dc)
+	r.adminClients.Delete(dc.UID)
+	controllerutil.RemoveFinalizer(dc, provisioningv1.FinalizerInternalCleanUp)
+
+	if err := r.Client.Update(ctx, dc); err != nil {
+		return fmt.Errorf("failed to update DPUCluster %w", err)
+	}
+
+	// Waiting for existing DPUs to trigger finalizer removal again.
+	return nil
 }
 
 func (r *DPUClusterReconciler) getOrCreateClient(ctx context.Context, dc *provisioningv1.DPUCluster) (*kubernetes.Clientset, error) {
