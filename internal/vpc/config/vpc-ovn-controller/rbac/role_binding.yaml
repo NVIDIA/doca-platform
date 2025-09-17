@@ -3,12 +3,12 @@ kind: ClusterRoleBinding
 metadata:
   labels:
     app.kubernetes.io/component: rbac
-  name: manager-rolebinding
+  name: vpc-ovn-controller-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: manager-role
+  name: vpc-ovn-controller-role
 subjects:
 - kind: ServiceAccount
-  name: controller-manager
+  name: vpc-ovn-controller-sa
   namespace: system
