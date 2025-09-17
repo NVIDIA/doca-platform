@@ -18,6 +18,7 @@ package state
 
 import (
 	"context"
+	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -60,6 +61,8 @@ func NodeEffectRemoval(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *du
 				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "FailedRemoveRequestor", err.Error()))
 				return *state, err
 			}
+			err := fmt.Errorf("node effect removal is in progress")
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "NodeEffectRemovalInProgress", err.Error()))
 		}
 	} else {
 		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondNodeEffectRemoved, "", ""))

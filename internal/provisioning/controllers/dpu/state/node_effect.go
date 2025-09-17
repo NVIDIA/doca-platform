@@ -117,13 +117,13 @@ func NodeEffect(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectReady.String(), err, "FailedAddRequestor", err.Error()))
 				return *state, err
 			}
-		} else {
-			if !cutil.IsNodeEffectApplied(dpunodemaintenance) {
-				err = fmt.Errorf("node effect is processing")
-				logger.V(3).Info(err.Error())
-				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectReady.String(), err, "NodeEffectProcessing", err.Error()))
-				return *state, nil
-			}
+		}
+		// checking if node effect is applied, if not, reconsile again
+		if !cutil.IsNodeEffectApplied(dpunodemaintenance) {
+			err = fmt.Errorf("node effect is in progress")
+			logger.V(3).Info(err.Error())
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectReady.String(), err, "NodeEffectInProgress", err.Error()))
+			return *state, nil
 		}
 	}
 
