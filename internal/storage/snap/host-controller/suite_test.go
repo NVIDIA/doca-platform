@@ -61,11 +61,11 @@ var (
 	testClient client.Client
 	// testClientDPU is the client for the DPU cluster. While it points to the same cluster as testClient,
 	// keeping them separate improves test readability by clearly distinguishing between host and DPU cluster operations
-	testClientDPU              client.Client
-	testEnv                    *envtest.Environment
-	ctx, testManagerCancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
-	remoteCache                *dpucluster.RemoteCache
-	setupObjects               []client.Object
+	testClientDPU                  client.Client
+	testEnv                        *envtest.Environment
+	testCtx, testManagerCancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
+	remoteCache                    *dpucluster.RemoteCache
+	setupObjects                   []client.Object
 )
 
 func TestHostController(t *testing.T) {
@@ -111,10 +111,10 @@ var _ = BeforeSuite(func() {
 	testClientDPU = testClient
 
 	testNsHost := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNsNameHost}}
-	Expect(testClient.Create(ctx, testNsHost)).To(Succeed())
+	Expect(testClient.Create(testCtx, testNsHost)).To(Succeed())
 
 	testNsDPU := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNsNameDPU}}
-	Expect(testClient.Create(ctx, testNsDPU)).To(Succeed())
+	Expect(testClient.Create(testCtx, testNsDPU)).To(Succeed())
 
 	By("setting up and running the test reconciler")
 	testManager, err := ctrl.NewManager(cfg,
@@ -136,10 +136,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	// Setup field indexers
-	Expect(SetupIndexers(ctx, testManager)).To(Succeed())
+	Expect(SetupIndexers(testCtx, testManager)).To(Succeed())
 
 	// new remote cache
-	remoteCache, err = dpucluster.SetupRemoteCacheWithManager(ctx, testManager,
+	remoteCache, err = dpucluster.SetupRemoteCacheWithManager(testCtx, testManager,
 		dpucluster.OptionTimeout{Timeout: time.Second * 30},
 		dpucluster.OptionHostClient{Client: testManager.GetClient()},
 		dpucluster.OptionScheme{Scheme: testManager.GetScheme()},
@@ -189,7 +189,7 @@ var _ = BeforeSuite(func() {
 
 	go func() {
 		defer GinkgoRecover()
-		err = testManager.Start(ctx)
+		err = testManager.Start(testCtx)
 		Expect(err).ToNot(HaveOccurred(), "failed to run manager")
 	}()
 
@@ -197,21 +197,21 @@ var _ = BeforeSuite(func() {
 	dpuCluster := testutils.GetTestDPUCluster(testDPUClusterNamespace, testDPUClusterName)
 	kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(dpuCluster, cfg)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(testClient.Create(ctx, kamajiSecret)).To(Succeed())
+	Expect(testClient.Create(testCtx, kamajiSecret)).To(Succeed())
 	setupObjects = append(setupObjects, kamajiSecret)
 
-	Expect(testClient.Create(ctx, &dpuCluster)).To(Succeed())
+	Expect(testClient.Create(testCtx, &dpuCluster)).To(Succeed())
 	Eventually(func(g Gomega) {
-		g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(&dpuCluster), &dpuCluster)).NotTo(HaveOccurred())
+		g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(&dpuCluster), &dpuCluster)).NotTo(HaveOccurred())
 		dpuCluster.Status.Phase = provisioningv1.PhaseReady
-		g.Expect(testClient.Status().Update(ctx, &dpuCluster)).To(Succeed())
+		g.Expect(testClient.Status().Update(testCtx, &dpuCluster)).To(Succeed())
 	}).Should(Succeed())
 	setupObjects = append(setupObjects, &dpuCluster)
 })
 
 var _ = AfterSuite(func() {
 	By("remove Fake DPU cluster objects")
-	Expect(testutils.CleanupAndWait(ctx, testClient, setupObjects...)).To(Succeed())
+	Expect(testutils.CleanupAndWait(testCtx, testClient, setupObjects...)).To(Succeed())
 
 	By("tearing down the test environment")
 	if testManagerCancelFunc != nil {
@@ -223,13 +223,13 @@ var _ = AfterSuite(func() {
 
 func createObjects(objs ...client.Object) {
 	for _, o := range objs {
-		ExpectWithOffset(1, testClient.Create(ctx, o)).NotTo(HaveOccurred())
+		ExpectWithOffset(1, testClient.Create(testCtx, o)).NotTo(HaveOccurred())
 	}
 }
 
 func createObjectsDPU(objs ...client.Object) {
 	for _, o := range objs {
-		ExpectWithOffset(1, testClientDPU.Create(ctx, o)).NotTo(HaveOccurred())
+		ExpectWithOffset(1, testClientDPU.Create(testCtx, o)).NotTo(HaveOccurred())
 	}
 }
 
@@ -343,7 +343,7 @@ func updateVolumeStatusToAvailable(name string) {
 	EventuallyWithOffset(1, func(g Gomega) {
 		vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNsNameDPU}}
 		volKey := client.ObjectKeyFromObject(vol)
-		g.Expect(testClientDPU.Get(ctx, volKey, vol)).NotTo(HaveOccurred())
+		g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
 
 		// Set VolumeSpecDPU fields to simulate controller behavior and make DPUVolume ready
 		vol.Spec.VolumeSpecDPU = storagev1.VolumeSpecDPU{
@@ -366,8 +366,8 @@ func updateVolumeStatusToAvailable(name string) {
 				},
 			},
 		}
-		g.Expect(testClientDPU.Update(ctx, vol)).NotTo(HaveOccurred())
+		g.Expect(testClientDPU.Update(testCtx, vol)).NotTo(HaveOccurred())
 		vol.Status.State = storagev1.VolumeStateAvailable
-		g.Expect(testClientDPU.Status().Update(ctx, vol)).NotTo(HaveOccurred())
+		g.Expect(testClientDPU.Status().Update(testCtx, vol)).NotTo(HaveOccurred())
 	}, timeout, interval).Should(Succeed())
 }
