@@ -1,0 +1,58 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secondary-cni-pod-deployment
+  namespace: default
+  labels:
+    app: secondary-cni-pod
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: secondary-cni-pod
+  template:
+    metadata:
+      labels:
+        app: secondary-cni-pod
+      annotations:
+        k8s.v1.cni.cncf.io/networks: sriov-bf3-p0-vfs
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: secondary-cni-pod
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: secondary-cni-pod
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: nginx
+          image: nicolaka/netshoot
+          command:
+            - sleep
+            - infinity
+          ports:
+            - containerPort: 5001
+              name: tcp-server
+          resources:
+            limits:
+              nvidia.com/bf3-p0-vfs: "1"
+            requests:
+              nvidia.com/bf3-p0-vfs: "1"
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+            privileged: true
+      nodeSelector:
+        feature.node.kubernetes.io/dpu-enabled: "true"
+
