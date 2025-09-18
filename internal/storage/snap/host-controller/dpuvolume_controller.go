@@ -60,6 +60,8 @@ type DPUVolumeReconciler struct {
 const (
 	dpuVolumeControllerName    = "dpuvolumecontroller"
 	storageParametersPolicyKey = "policy"
+	// annotation to save reference to the DPUVolume in objects in DPUClusters that are created by this controller
+	dpuVolumeOwnedByAnnotation = "storage.dpu.nvidia.com/owned-by-dpuvolume"
 )
 
 // +kubebuilder:rbac:groups=storage.dpu.nvidia.com,resources=dpuvolumes,verbs=get;list;watch;update;patch

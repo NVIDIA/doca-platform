@@ -38,7 +38,7 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 	)
 	AfterEach(func() {
 		By("Cleaning up the objects")
-		Expect(testutils.CleanupWithFinalizerRemovalAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
+		Expect(testutils.CleanupWithFinalizerRemovalAndWait(testCtx, testClient, cleanupObjects...)).To(Succeed())
 		cleanupObjects = nil
 	})
 	Context("When reconciling a resource", func() {
@@ -58,7 +58,7 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			volAttach := &storagev1.VolumeAttachment{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1-attach1", Namespace: testNsNameDPU}}
 			volAttachKey := client.ObjectKeyFromObject(volAttach)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volAttachKey, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volAttachKey, volAttach)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 			cleanupObjects = append(cleanupObjects, volAttach)
 
@@ -69,20 +69,20 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 
 			By("Check status is reported back to DPUVolumeAttachment")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volAttachKey, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volAttachKey, volAttach)).NotTo(HaveOccurred())
 				volAttach.Spec.Parameters = map[string]string{"param1": "value1", "param2": "value2"}
-				g.Expect(testClientDPU.Update(ctx, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, volAttach)).NotTo(HaveOccurred())
 				volAttach.Status.StorageAttached = true
 				volAttach.Status.DPU.Attached = true
 				volAttach.Status.DPU.PCIDeviceAddress = "0000:00:00.0"
 				volAttach.Status.DPU.BdevAttrs.NVMeNsID = 1
 				volAttach.Status.DPU.BdevAttrs.NVMeUUID = "550e8400-e29b-41d4-a716-446655440000"
 
-				g.Expect(testClientDPU.Status().Update(ctx, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Status().Update(testCtx, volAttach)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolumeAttachment), dpuVolumeAttachment)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(dpuVolumeAttachment), dpuVolumeAttachment)).NotTo(HaveOccurred())
 				g.Expect(dpuVolumeAttachment.Status.AttachmentMetadata).To(Equal(map[string]string{"param1": "value1", "param2": "value2"}))
 				g.Expect(dpuVolumeAttachment.Status.ControllerAttached).NotTo(BeNil())
 				g.Expect(*dpuVolumeAttachment.Status.ControllerAttached).To(BeTrue())
@@ -114,20 +114,20 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			volAttach := &storagev1.VolumeAttachment{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1-attach1", Namespace: testNsNameDPU}}
 			volAttachKey := client.ObjectKeyFromObject(volAttach)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volAttachKey, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volAttachKey, volAttach)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 			cleanupObjects = append(cleanupObjects, volAttach)
 			origVolAttachID := volAttach.GetUID()
 
 			By("Delete VolumeAttachment")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volAttachKey, volAttach)).NotTo(HaveOccurred())
-				Expect(testClientDPU.Delete(ctx, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volAttachKey, volAttach)).NotTo(HaveOccurred())
+				Expect(testClientDPU.Delete(testCtx, volAttach)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Wait for a new VolumeAttachment")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volAttachKey, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volAttachKey, volAttach)).NotTo(HaveOccurred())
 				g.Expect(volAttach.GetUID()).NotTo(Equal(origVolAttachID))
 			}, timeout, interval).Should(Succeed())
 		})
@@ -147,17 +147,17 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			volAttach := &storagev1.VolumeAttachment{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1-attach1", Namespace: testNsNameDPU}}
 			volAttachKey := client.ObjectKeyFromObject(volAttach)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volAttachKey, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volAttachKey, volAttach)).NotTo(HaveOccurred())
 				// Update NodeName to create mismatch
 				volAttach.Spec.NodeName = "not-expected"
-				g.Expect(testClientDPU.Update(ctx, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, volAttach)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 			cleanupObjects = append(cleanupObjects, volAttach)
 			origVolAttachID := volAttach.GetUID()
 
 			By("Wait for a new VolumeAttachment")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volAttachKey, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volAttachKey, volAttach)).NotTo(HaveOccurred())
 				g.Expect(volAttach.GetUID()).NotTo(Equal(origVolAttachID))
 			}, timeout, interval).Should(Succeed())
 		})
@@ -174,7 +174,7 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			volAttach := &storagev1.VolumeAttachment{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1-attach1", Namespace: testNsNameDPU}}
 			volAttachKey := client.ObjectKeyFromObject(volAttach)
 			Consistently(func(g Gomega) {
-				g.Expect(apierrors.IsNotFound(testClientDPU.Get(ctx, volAttachKey, volAttach))).To(BeTrue())
+				g.Expect(apierrors.IsNotFound(testClientDPU.Get(testCtx, volAttachKey, volAttach))).To(BeTrue())
 			}, time.Second*5, interval).Should(Succeed())
 
 			By("Create DPUVolume")
@@ -182,7 +182,7 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 
 			By("Verify DPUVolumeAttachment is pending because DPUVolume is not ready")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolumeAttachment), dpuVolumeAttachment)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(dpuVolumeAttachment), dpuVolumeAttachment)).NotTo(HaveOccurred())
 				reconciledCondition := conditions.Get(dpuVolumeAttachment, storagev1.ConditionDPUVolumeAttachmentReconciled)
 				g.Expect(reconciledCondition).NotTo(BeNil())
 				g.Expect(reconciledCondition.Status).To(Equal(metav1.ConditionFalse))
@@ -195,7 +195,7 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 
 			By("Verify VolumeAttachment is created")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volAttachKey, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volAttachKey, volAttach)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 			cleanupObjects = append(cleanupObjects, volAttach)
 		})
@@ -215,7 +215,7 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			volAttach := &storagev1.VolumeAttachment{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1-attach1", Namespace: testNsNameDPU}}
 			volAttachKey := client.ObjectKeyFromObject(volAttach)
 			Consistently(func(g Gomega) {
-				g.Expect(apierrors.IsNotFound(testClientDPU.Get(ctx, volAttachKey, volAttach))).To(BeTrue())
+				g.Expect(apierrors.IsNotFound(testClientDPU.Get(testCtx, volAttachKey, volAttach))).To(BeTrue())
 			}, time.Second*5, interval).Should(Succeed())
 
 			By("Create DPUNode")
@@ -223,7 +223,7 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 
 			By("Verify VolumeAttachment is created")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volAttachKey, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volAttachKey, volAttach)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 			cleanupObjects = append(cleanupObjects, volAttach)
 		})
@@ -243,7 +243,7 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			volAttach := &storagev1.VolumeAttachment{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1-attach1", Namespace: testNsNameDPU}}
 			volAttachKey := client.ObjectKeyFromObject(volAttach)
 			Consistently(func(g Gomega) {
-				g.Expect(apierrors.IsNotFound(testClientDPU.Get(ctx, volAttachKey, volAttach))).To(BeTrue())
+				g.Expect(apierrors.IsNotFound(testClientDPU.Get(testCtx, volAttachKey, volAttach))).To(BeTrue())
 			}, time.Second*5, interval).Should(Succeed())
 
 			By("Create DPU")
@@ -251,7 +251,7 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 
 			By("Verify VolumeAttachment is created")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volAttachKey, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volAttachKey, volAttach)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 			cleanupObjects = append(cleanupObjects, volAttach)
 		})
@@ -267,20 +267,20 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			volumeAttachmentKey := client.ObjectKeyFromObject(orphanedVolumeAttachment)
 			By("Wait for orphaned VolumeAttachment to have deletion timestamp")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volumeAttachmentKey, orphanedVolumeAttachment)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volumeAttachmentKey, orphanedVolumeAttachment)).NotTo(HaveOccurred())
 				g.Expect(orphanedVolumeAttachment.DeletionTimestamp).NotTo(BeNil())
 			}, timeout, interval).Should(Succeed())
 
 			By("Remove finalizer")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volumeAttachmentKey, orphanedVolumeAttachment)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volumeAttachmentKey, orphanedVolumeAttachment)).NotTo(HaveOccurred())
 				orphanedVolumeAttachment.Finalizers = []string{}
-				g.Expect(testClientDPU.Update(ctx, orphanedVolumeAttachment)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, orphanedVolumeAttachment)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify orphaned VolumeAttachment is deleted from DPU cluster")
 			Eventually(func(g Gomega) {
-				err := testClientDPU.Get(ctx, volumeAttachmentKey, orphanedVolumeAttachment)
+				err := testClientDPU.Get(testCtx, volumeAttachmentKey, orphanedVolumeAttachment)
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 		})
@@ -303,7 +303,7 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 
 			By("Wait for first attachment to be reconciled")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(firstAttachment), firstAttachment)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(firstAttachment), firstAttachment)).NotTo(HaveOccurred())
 				g.Expect(conditions.IsTrue(firstAttachment, storagev1.ConditionDPUVolumeAttachmentReconciled)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 
@@ -315,13 +315,13 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 
 			By("Check that the first attachment remains reconciled")
 			Consistently(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(firstAttachment), firstAttachment)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(firstAttachment), firstAttachment)).NotTo(HaveOccurred())
 				g.Expect(conditions.IsTrue(firstAttachment, storagev1.ConditionDPUVolumeAttachmentReconciled)).To(BeTrue())
 			}, time.Second*5, interval).Should(Succeed())
 
 			By("Check that the second attachment is pending due to conflicts")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(secondAttachment), secondAttachment)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(secondAttachment), secondAttachment)).NotTo(HaveOccurred())
 				reconciledCondition := conditions.Get(secondAttachment, storagev1.ConditionDPUVolumeAttachmentReconciled)
 				g.Expect(reconciledCondition).NotTo(BeNil())
 				g.Expect(reconciledCondition.Status).To(Equal(metav1.ConditionFalse))
@@ -330,11 +330,11 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			}, timeout, interval).Should(Succeed())
 
 			By("Delete the first attachment")
-			Expect(testClient.Delete(ctx, firstAttachment)).NotTo(HaveOccurred())
+			Expect(testClient.Delete(testCtx, firstAttachment)).NotTo(HaveOccurred())
 
 			By("Check that the second attachment is reconciled")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(secondAttachment), secondAttachment)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(secondAttachment), secondAttachment)).NotTo(HaveOccurred())
 				g.Expect(conditions.IsTrue(secondAttachment, storagev1.ConditionDPUVolumeAttachmentReconciled)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 		})
@@ -447,10 +447,10 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			Eventually(func(g Gomega) {
 				volAttach := &storagev1.VolumeAttachment{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1-attach1", Namespace: testNsNameDPU}}
 				volAttachKey := client.ObjectKeyFromObject(volAttach)
-				g.Expect(testClientDPU.Get(ctx, volAttachKey, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volAttachKey, volAttach)).NotTo(HaveOccurred())
 				volAttach.Status.StorageAttached = true
 				volAttach.Status.DPU.Attached = true
-				g.Expect(testClientDPU.Status().Update(ctx, volAttach)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Status().Update(testCtx, volAttach)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 			Eventually(func(g Gomega) []metav1.Condition {
 				ev := &informer.Event{}
@@ -493,10 +493,10 @@ var _ = Describe("DPUVolumeAttachmentAttachment Controller", func() {
 			updateVolumeStatusToAvailable(dpuVolume.Name)
 
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolumeAttachment), dpuVolumeAttachment)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(dpuVolumeAttachment), dpuVolumeAttachment)).NotTo(HaveOccurred())
 				g.Expect(conditions.IsTrue(dpuVolumeAttachment, storagev1.ConditionDPUVolumeAttachmentReconciled)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
-			Expect(testClient.Delete(ctx, dpuVolumeAttachment)).NotTo(HaveOccurred())
+			Expect(testClient.Delete(testCtx, dpuVolumeAttachment)).NotTo(HaveOccurred())
 
 			Eventually(func(g Gomega) []metav1.Condition {
 				ev := &informer.Event{}
