@@ -177,11 +177,11 @@ func reconcileNewDPUServiceRevision(newRevision *dpuservicev1.DPUService, dpuSer
 ) {
 	dpuServiceNodeSelector := newObjectNodeSelectorWithOwner(getDPUServiceVersionLabelKey(dpuServiceName), newRevision.Name, client.ObjectKeyFromObject(dpuDeployment))
 	if !serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster() {
-		newRevision.SetServiceDeamonSetNodeSelector(dpuServiceNodeSelector)
+		newRevision.SetServiceDaemonSetNodeSelector(dpuServiceNodeSelector)
 	} else {
 		// TODO: we have to update this logic if we want to introduce the support for disruptive upgrades.
 		nodeSelector := newInClusterNodeSelectorFromDPUSetSelector(dpuDeployment.Spec.DPUs.DPUSets)
-		newRevision.SetServiceDeamonSetNodeSelector(nodeSelector)
+		newRevision.SetServiceDaemonSetNodeSelector(nodeSelector)
 	}
 
 	// This is needed in all cases, because we don't know if a dpuSet will be updated or created
@@ -222,7 +222,7 @@ func reconcileDPUServiceWithOldRevisions(ctx context.Context, c client.Client, n
 
 		// TODO: implement disruptive upgrades for in-cluster DPUServices with v25.7.
 		if !serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster() {
-			newRevision.SetServiceDeamonSetNodeSelector(dpuServiceNodeSelector)
+			newRevision.SetServiceDaemonSetNodeSelector(dpuServiceNodeSelector)
 		}
 	} else {
 		// just patch the youngest existing service
@@ -232,14 +232,14 @@ func reconcileDPUServiceWithOldRevisions(ctx context.Context, c client.Client, n
 		if !serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster() {
 			// we are not creating a new service, we are updating the existing one
 			// so we need to keep the same `version` and `owned-by-dpudeployment` selector to avoid downtime
-			newRevision.SetServiceDeamonSetNodeSelector(&corev1.NodeSelector{
+			newRevision.SetServiceDaemonSetNodeSelector(&corev1.NodeSelector{
 				NodeSelectorTerms: []corev1.NodeSelectorTerm{getNodeSelectorTermForDPUServiceVersion(oldSvc.Spec.ServiceDaemonSet.NodeSelector, dpuServiceName)},
 			})
 			nodeLabelValue = getNodeSelectorDPUServiceVersionValue(oldSvc.Spec.ServiceDaemonSet.NodeSelector, dpuServiceName)
 		} else {
 			// TODO: we have to update this logic if we want to introduce the support for disruptive upgrades.
 			nodeSelector := newInClusterNodeSelectorFromDPUSetSelector(dpuDeployment.Spec.DPUs.DPUSets)
-			newRevision.SetServiceDeamonSetNodeSelector(nodeSelector)
+			newRevision.SetServiceDaemonSetNodeSelector(nodeSelector)
 		}
 	}
 
@@ -278,13 +278,13 @@ func reconcileCurrentDPUServiceRevision(ctx context.Context, c client.Client,
 
 	// We update the newRevision nodeSelector to match the currentRevision nodeSelector since it relies on the revision name
 	if !serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster() {
-		newRevision.SetServiceDeamonSetNodeSelector(&corev1.NodeSelector{
+		newRevision.SetServiceDaemonSetNodeSelector(&corev1.NodeSelector{
 			NodeSelectorTerms: []corev1.NodeSelectorTerm{getNodeSelectorTermForDPUServiceVersion(currentRev.Spec.ServiceDaemonSet.NodeSelector, dpuServiceName)},
 		})
 	} else {
 		// TODO: we have to update this logic if we want to introduce the support for disruptive upgrades.
 		nodeSelector := newInClusterNodeSelectorFromDPUSetSelector(dpuDeployment.Spec.DPUs.DPUSets)
-		newRevision.SetServiceDeamonSetNodeSelector(nodeSelector)
+		newRevision.SetServiceDaemonSetNodeSelector(nodeSelector)
 	}
 
 	// We delete the current revision so that it doesn't get cleaned up
