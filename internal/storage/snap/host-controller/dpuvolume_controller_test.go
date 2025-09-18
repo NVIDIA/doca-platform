@@ -41,7 +41,7 @@ var _ = Describe("DPUVolume Controller", func() {
 	)
 	AfterEach(func() {
 		By("Cleaning up the objects")
-		Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
+		Expect(testutils.CleanupAndWait(testCtx, testClient, cleanupObjects...)).To(Succeed())
 		cleanupObjects = nil
 	})
 	Context("When reconciling a resource", func() {
@@ -56,7 +56,7 @@ var _ = Describe("DPUVolume Controller", func() {
 			vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1", Namespace: testNsNameDPU}}
 			volKey := client.ObjectKeyFromObject(vol)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volKey, vol)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, vol)
 			}, timeout, interval).Should(Succeed())
 
@@ -76,7 +76,7 @@ var _ = Describe("DPUVolume Controller", func() {
 			updateVolumeStatusToAvailable(vol.Name)
 
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
 				// Verify that DPUVolume status is updated with volume information
 				g.Expect(dpuVolume.Status.State).NotTo(BeNil())
 				g.Expect(dpuVolume.Status.State.VolumeInfo).NotTo(BeNil())
@@ -110,20 +110,20 @@ var _ = Describe("DPUVolume Controller", func() {
 			vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1", Namespace: testNsNameDPU}}
 			volKey := client.ObjectKeyFromObject(vol)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volKey, vol)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, vol)
 			}, timeout, interval).Should(Succeed())
 			origVolID := vol.GetUID()
 
 			By("Delete Volume")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volKey, vol)).NotTo(HaveOccurred())
-				Expect(testClientDPU.Delete(ctx, vol)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
+				Expect(testClientDPU.Delete(testCtx, vol)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Wait for a new Volume")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volKey, vol)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
 				g.Expect(vol.GetUID()).NotTo(Equal(origVolID))
 			}, timeout, interval).Should(Succeed())
 		})
@@ -137,16 +137,16 @@ var _ = Describe("DPUVolume Controller", func() {
 			vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1", Namespace: testNsNameDPU}}
 			volKey := client.ObjectKeyFromObject(vol)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volKey, vol)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
 				// Update parameters to create mismatch
 				vol.Spec.StorageParameters["param1"] = "new-value"
-				g.Expect(testClientDPU.Update(ctx, vol)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, vol)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 			origVolID := vol.GetUID()
 
 			By("Wait for a new Volume")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volKey, vol)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
 				g.Expect(vol.GetUID()).NotTo(Equal(origVolID))
 			}, timeout, interval).Should(Succeed())
 		})
@@ -163,31 +163,31 @@ var _ = Describe("DPUVolume Controller", func() {
 			vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1", Namespace: testNsNameDPU}}
 			volKey := client.ObjectKeyFromObject(vol)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volKey, vol)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, vol)
 			}, timeout, interval).Should(Succeed())
 
 			By("Delete DPUVolume")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, dpuVolumeKey, dpuVolume)).NotTo(HaveOccurred())
-				Expect(testClient.Delete(ctx, dpuVolume)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, dpuVolumeKey, dpuVolume)).NotTo(HaveOccurred())
+				Expect(testClient.Delete(testCtx, dpuVolume)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify DPUVolume is not deleted")
 			Consistently(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, dpuVolumeKey, dpuVolume)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, dpuVolumeKey, dpuVolume)).NotTo(HaveOccurred())
 			}, time.Second*5, interval).Should(Succeed())
 
 			By("Delete DPUVolumeAttachment")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, dpuVolumeAttachmentKey, dpuVolumeAttachment)).NotTo(HaveOccurred())
-				Expect(testClient.Delete(ctx, dpuVolumeAttachment)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, dpuVolumeAttachmentKey, dpuVolumeAttachment)).NotTo(HaveOccurred())
+				Expect(testClient.Delete(testCtx, dpuVolumeAttachment)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify DPUVolume and Volume removed")
 			Eventually(func(g Gomega) {
-				g.Expect(apierrors.IsNotFound(testClient.Get(ctx, dpuVolumeKey, dpuVolume))).To(BeTrue())
-				g.Expect(apierrors.IsNotFound(testClientDPU.Get(ctx, volKey, vol))).To(BeTrue())
+				g.Expect(apierrors.IsNotFound(testClient.Get(testCtx, dpuVolumeKey, dpuVolume))).To(BeTrue())
+				g.Expect(apierrors.IsNotFound(testClientDPU.Get(testCtx, volKey, vol))).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 		})
 
@@ -202,20 +202,20 @@ var _ = Describe("DPUVolume Controller", func() {
 			volumeKey := client.ObjectKeyFromObject(orphanedVolume)
 			By("Wait for orphaned Volume to have deletion timestamp")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volumeKey, orphanedVolume)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volumeKey, orphanedVolume)).NotTo(HaveOccurred())
 				g.Expect(orphanedVolume.DeletionTimestamp).NotTo(BeNil())
 			}, timeout, interval).Should(Succeed())
 
 			By("Remove finalizer")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, volumeKey, orphanedVolume)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, volumeKey, orphanedVolume)).NotTo(HaveOccurred())
 				orphanedVolume.Finalizers = []string{}
-				g.Expect(testClientDPU.Update(ctx, orphanedVolume)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, orphanedVolume)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify orphaned Volume is deleted from DPU cluster")
 			Eventually(func(g Gomega) {
-				err := testClientDPU.Get(ctx, volumeKey, orphanedVolume)
+				err := testClientDPU.Get(testCtx, volumeKey, orphanedVolume)
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 		})
@@ -308,10 +308,10 @@ var _ = Describe("DPUVolume Controller", func() {
 			createObjects(dpuVolume)
 			Eventually(func(g Gomega) {
 				vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: dpuVolume.Name, Namespace: testNsNameDPU}}
-				g.Expect(testClientDPU.Get(ctx, client.ObjectKeyFromObject(vol), vol)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, client.ObjectKeyFromObject(vol), vol)).NotTo(HaveOccurred())
 				vol.Spec.VolumeSpecDPU.StorageVendorPluginName = "test-plugin"
 				vol.Spec.VolumeSpecDPU.StorageVendorName = "test-vendor"
-				g.Expect(testClientDPU.Update(ctx, vol)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, vol)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 			Eventually(func(g Gomega) []metav1.Condition {
 				ev := &informer.Event{}
@@ -348,12 +348,12 @@ var _ = Describe("DPUVolume Controller", func() {
 			createObjects(dpuVolume)
 			Eventually(func(g Gomega) {
 				vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: dpuVolume.Name, Namespace: testNsNameDPU}}
-				g.Expect(testClientDPU.Get(ctx, client.ObjectKeyFromObject(vol), vol)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, client.ObjectKeyFromObject(vol), vol)).NotTo(HaveOccurred())
 				vol.Spec.VolumeSpecDPU.StorageVendorPluginName = "test-plugin"
 				vol.Spec.VolumeSpecDPU.StorageVendorName = "test-vendor"
-				g.Expect(testClientDPU.Update(ctx, vol)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, vol)).NotTo(HaveOccurred())
 				vol.Status.State = storagev1.VolumeStateAvailable
-				g.Expect(testClientDPU.Status().Update(ctx, vol)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Status().Update(testCtx, vol)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 			Eventually(func(g Gomega) []metav1.Condition {
 				ev := &informer.Event{}
@@ -389,10 +389,10 @@ var _ = Describe("DPUVolume Controller", func() {
 			cleanupObjects = append(cleanupObjects, dpuVolume)
 			createObjects(dpuVolume)
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
 				g.Expect(conditions.IsTrue(dpuVolume, storagev1.ConditionDPUVolumeReconciled)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
-			Expect(testClient.Delete(ctx, dpuVolume)).NotTo(HaveOccurred())
+			Expect(testClient.Delete(testCtx, dpuVolume)).NotTo(HaveOccurred())
 			Eventually(func(g Gomega) []metav1.Condition {
 				ev := &informer.Event{}
 				g.Eventually(i.UpdateEvents).Should(Receive(ev))
