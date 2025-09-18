@@ -19,6 +19,7 @@ package util
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -110,9 +111,73 @@ type NetplanEthernet struct {
 	MTU   *int32 `yaml:"mtu,omitempty"`
 }
 
+// getCurrentMTU returns the current MTU of the specified interface
+func getCurrentMTU(interfaceName string) (int, error) {
+	link, err := netlink.LinkByName(interfaceName)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get link %s: %w", interfaceName, err)
+	}
+	return link.Attrs().MTU, nil
+}
+
+// isDHCPEnabled checks if DHCP4 is currently enabled on the specified interface
+// Returns: (dhcpEnabled, error)
+// - (true, nil): DHCP4 is enabled
+// - (false, nil): DHCP4 is disabled
+// - (false, error): Could not determine DHCP4 status
+func isDHCPEnabled(interfaceName string) (bool, error) {
+	// Check if networkctl is available
+	if _, err := exec.LookPath("networkctl"); err != nil {
+		return false, fmt.Errorf("networkctl not available: %w", err)
+	}
+
+	cmd := exec.Command("networkctl", "status", interfaceName)
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("failed to run networkctl status for interface %s: %w", interfaceName, err)
+	}
+
+	outputStr := string(output)
+	if len(strings.TrimSpace(outputStr)) == 0 {
+		return false, fmt.Errorf("networkctl returned empty output for interface %s", interfaceName)
+	}
+
+	// Look for DHCP4 indicators in networkctl output
+	foundInterfaceInfo := false
+
+	for line := range strings.SplitSeq(outputStr, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		// Check if we found interface-specific information
+		if strings.Contains(trimmed, interfaceName) || strings.Contains(trimmed, "State:") {
+			foundInterfaceInfo = true
+		}
+
+		// Check for address obtained via DHCP4: "Address: x.x.x.x (DHCP4 via y.y.y.y)"
+		if strings.Contains(trimmed, "Address:") && strings.Contains(trimmed, "(DHCP4 via") {
+			return true, nil
+		}
+		// Check for DHCP4 client configuration: "DHCP4 Client ID: xx:xx:xx:xx:xx:xx"
+		if strings.Contains(trimmed, "DHCP4 Client ID:") {
+			return true, nil
+		}
+	}
+
+	if !foundInterfaceInfo {
+		return false, fmt.Errorf("networkctl output does not contain information for interface %s", interfaceName)
+	}
+
+	// If we reach here, we found interface info but no DHCP indicators
+	return false, nil
+}
+
 // ConfigurePFNetplan configures the PF network interfaces using netplan
 func ConfigurePFNetplan(pciAddress string, portConfigs []PortConfig) error {
 	pciHelper := NewPCIHelper(pciAddress)
+	hasChanges := false
 	config := NetplanConfig{
 		Network: NetplanNetwork{
 			Version:   2,
@@ -134,17 +199,47 @@ func ConfigurePFNetplan(pciAddress string, portConfigs []PortConfig) error {
 		}
 
 		ethernet := NetplanEthernet{}
+		needsUpdate := false
+
+		// Check MTU and only configure if different from current state
 		if portConfig.MTU != nil {
-			ethernet.MTU = portConfig.MTU
+			currentMTU, err := getCurrentMTU(interfaceName)
+			if err != nil {
+				// If we can't get current MTU, log warning but proceed with configuration
+				// to ensure desired state is applied
+				log.Printf("Warning: failed to get current MTU for %s, will apply configuration: %v", interfaceName, err)
+				ethernet.MTU = portConfig.MTU
+				needsUpdate = true
+			} else if currentMTU != int(*portConfig.MTU) {
+				ethernet.MTU = portConfig.MTU
+				needsUpdate = true
+			}
 		}
+
+		// Check DHCP and only configure if different from current state
 		if portConfig.DHCP != nil {
-			ethernet.DHCP4 = portConfig.DHCP
+			currentDHCP, err := isDHCPEnabled(interfaceName)
+			if err != nil {
+				// If we can't determine current DHCP state, log warning but proceed with configuration
+				// to ensure desired state is applied
+				log.Printf("Warning: failed to determine DHCP state for %s, will apply configuration: %v", interfaceName, err)
+				ethernet.DHCP4 = portConfig.DHCP
+				needsUpdate = true
+			} else if currentDHCP != *portConfig.DHCP {
+				ethernet.DHCP4 = portConfig.DHCP
+				needsUpdate = true
+			}
 		}
-		config.Network.Ethernets[interfaceName] = ethernet
+
+		// Only add to config if changes are needed
+		if needsUpdate {
+			config.Network.Ethernets[interfaceName] = ethernet
+			hasChanges = true
+		}
 	}
 
-	// Only create netplan file if we have something to configure
-	if len(config.Network.Ethernets) == 0 {
+	// Only create netplan file and apply if we have changes to make
+	if !hasChanges {
 		return nil
 	}
 
