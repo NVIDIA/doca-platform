@@ -42,7 +42,8 @@ This guide uses the following tools which must be installed on the machine where
 * Only a single DPU uplink is used with this deployment (p0).
 * All worker nodes are connected to the same L2 broadcast domain (VLAN) on the high-speed network.
 * Host high-speed port (Host PF0) must have DHCP enabled.
-    * MTU of the port should be statically set to 1500
+* MTU of the port should be statically set to 1500
+* **Note**: These settings can be configured automatically via DPUFlavor `hostNetworkInterfaceConfigs` (see [dpuflavor-ovn.yaml](manifests/05-dpudeployment-installation/dpuflavor-ovn.yaml)).
 * An external DHCP Server should be used for the high-speed network:
     * The DHCP server must not assign a default gateway to the DHCP clients.
     * The DHCP server should assign a special route (option 121) for a "dummy" IP subnet with a next hop address of the actual default gateway router serving the high-speed network.
@@ -552,6 +553,107 @@ metadata:
   namespace: dpf-operator-system
 spec:
   url: $BFB_URL
+```
+</details>
+
+<details markdown="1"><summary>OVN DPUFlavor to correctly configure the DPUs on provisioning</summary>
+
+[embedmd]:#(manifests/05-dpudeployment-installation/dpuflavor-ovn.yaml)
+```yaml
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUFlavor
+metadata:
+  name: ovn
+  namespace: dpf-operator-system
+spec:
+  grub:
+    kernelParameters:
+      - console=hvc0
+      - console=ttyAMA0
+      - earlycon=pl011,0x13010000
+      - fixrttc
+      - net.ifnames=0
+      - biosdevname=0
+      - iommu.passthrough=1
+      - cgroup_no_v1=net_prio,net_cls
+      - hugepagesz=2048kB
+      - hugepages=3072
+  nvconfig:
+    - device: "*"
+      parameters:
+      - PF_BAR2_ENABLE=0
+      - PER_PF_NUM_SF=1
+      - PF_TOTAL_SF=20
+      - PF_SF_BAR_SIZE=10
+      - NUM_PF_MSIX_VALID=0
+      - PF_NUM_PF_MSIX_VALID=1
+      - PF_NUM_PF_MSIX=228
+      - INTERNAL_CPU_MODEL=1
+      - INTERNAL_CPU_OFFLOAD_ENGINE=0
+      - SRIOV_EN=1
+      - NUM_OF_VFS=46
+      - LAG_RESOURCE_ALLOCATION=1
+  ovs:
+    rawConfigScript: |
+      _ovs-vsctl() {
+        ovs-vsctl --no-wait --timeout 15 "$@"
+      }
+
+      _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
+      _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
+      _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
+      _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
+      _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
+      _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
+      _ovs-vsctl set Open_vSwitch . other_config:ctl-pipe-size=1024
+      _ovs-vsctl --if-exists del-br ovsbr1
+      _ovs-vsctl --if-exists del-br ovsbr2
+      _ovs-vsctl --may-exist add-br br-sfc
+      _ovs-vsctl set bridge br-sfc datapath_type=netdev
+      _ovs-vsctl set bridge br-sfc fail_mode=secure
+      _ovs-vsctl --may-exist add-port br-sfc p0
+      _ovs-vsctl set Interface p0 type=dpdk
+      _ovs-vsctl set Interface p0 mtu_request=9216
+      _ovs-vsctl set Port p0 external_ids:dpf-type=physical
+
+      _ovs-vsctl set Open_vSwitch . external-ids:ovn-bridge-datapath-type=netdev
+      _ovs-vsctl --may-exist add-br br-ovn
+      _ovs-vsctl set bridge br-ovn datapath_type=netdev
+      _ovs-vsctl br-set-external-id br-ovn bridge-id br-ovn
+      _ovs-vsctl br-set-external-id br-ovn bridge-uplink puplinkbrovntobrsfc
+      _ovs-vsctl set Interface br-ovn mtu_request=9216
+      _ovs-vsctl --may-exist add-port br-ovn pf0hpf
+      _ovs-vsctl set Interface pf0hpf type=dpdk
+      _ovs-vsctl set Interface pf0hpf mtu_request=9216
+
+  bfcfgParameters:
+    - UPDATE_ATF_UEFI=yes
+    - UPDATE_DPU_OS=yes
+    - WITH_NIC_FW_UPDATE=yes
+
+  hostNetworkInterfaceConfigs:
+    - portNumber: 0
+      dhcp: true
+      mtu: 1500
+
+  configFiles:
+  - path: /etc/mellanox/mlnx-bf.conf
+    operation: override
+    raw: |
+        ALLOW_SHARED_RQ="no"
+        IPSEC_FULL_OFFLOAD="no"
+        ENABLE_ESWITCH_MULTIPORT="yes"
+    permissions: "0644"
+  - path: /etc/mellanox/mlnx-ovs.conf
+    operation: override
+    raw: |
+        CREATE_OVS_BRIDGES="no"
+        OVS_DOCA="yes"
+    permissions: "0644"
+  - path: /etc/mellanox/mlnx-sf.conf
+    operation: override
+    raw: ""
+    permissions: "0644"
 ```
 </details>
 
