@@ -230,8 +230,8 @@ type ConfigPort struct {
 	NodePort *uint16 `json:"nodePort,omitempty"`
 }
 
-// SetServiceDeamonSetNodeSelector sets the nodeSelector for the ServiceDaemonSet.
-func (s *DPUService) SetServiceDeamonSetNodeSelector(nodeSelector *corev1.NodeSelector) {
+// SetServiceDaemonSetNodeSelector sets the nodeSelector for the ServiceDaemonSet.
+func (s *DPUService) SetServiceDaemonSetNodeSelector(nodeSelector *corev1.NodeSelector) {
 	if s.Spec.ServiceDaemonSet == nil {
 		s.Spec.ServiceDaemonSet = &ServiceDaemonSetValues{}
 	}
