@@ -40,7 +40,7 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 	)
 	AfterEach(func() {
 		By("Cleaning up the objects")
-		Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
+		Expect(testutils.CleanupAndWait(testCtx, testClient, cleanupObjects...)).To(Succeed())
 		cleanupObjects = nil
 	})
 
@@ -56,7 +56,7 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: dpuStoragePolicy.Name, Namespace: testNsNameDPU},
 			}
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, client.ObjectKeyFromObject(storagePolicy), storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, client.ObjectKeyFromObject(storagePolicy), storagePolicy)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storagePolicy)
 				g.Expect(storagePolicy.Spec.StorageVendors).To(Equal(dpuStoragePolicy.Spec.DPUStorageVendors))
 				g.Expect(storagePolicy.Spec.StorageParameters).To(Equal(dpuStoragePolicy.Spec.Parameters))
@@ -76,24 +76,24 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 			}
 			storagePolicyKey := client.ObjectKeyFromObject(storagePolicy)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storagePolicy)
 			}, timeout, interval).Should(Succeed())
 
 			By("Update StoragePolicy spec")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 
 				storagePolicy.Spec.StorageVendors = []string{"vendor1", "vendor2", "vendor3"}
 				storagePolicy.Spec.StorageParameters = map[string]string{"key1": "value1", "key2": "value2"}
 				storagePolicy.Spec.StorageSelectionAlg = storagev1.Random
 
-				g.Expect(testClientDPU.Update(ctx, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, storagePolicy)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify StoragePolicy is updated back to match DPUStoragePolicy")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				g.Expect(storagePolicy.Spec.StorageVendors).To(Equal(dpuStoragePolicy.Spec.DPUStorageVendors))
 				g.Expect(storagePolicy.Spec.StorageParameters).To(Equal(dpuStoragePolicy.Spec.Parameters))
 				g.Expect(storagePolicy.Spec.StorageSelectionAlg).To(Equal(ConvertDPUSelectionAlgorithmToStorageSelectionAlg(dpuStoragePolicy.Spec.SelectionAlgorithm)))
@@ -112,16 +112,16 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 			}
 			storagePolicyKey := client.ObjectKeyFromObject(storagePolicy)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storagePolicy)
 			}, timeout, interval).Should(Succeed())
 
 			By("Delete DPUStoragePolicy")
-			Expect(testClient.Delete(ctx, dpuStoragePolicy)).NotTo(HaveOccurred())
+			Expect(testClient.Delete(testCtx, dpuStoragePolicy)).NotTo(HaveOccurred())
 
 			By("Verify StoragePolicy is deleted")
 			Eventually(func(g Gomega) {
-				g.Expect(apierrors.IsNotFound(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy))).To(BeTrue())
+				g.Expect(apierrors.IsNotFound(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy))).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 		})
 
@@ -134,7 +134,7 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 			By("Verify finalizer is added")
 			Eventually(func(g Gomega) {
 				var obj storagev1.DPUStoragePolicy
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuStoragePolicy), &obj)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(dpuStoragePolicy), &obj)).NotTo(HaveOccurred())
 				g.Expect(controllerutil.ContainsFinalizer(&obj, storagev1.DPUStoragePolicyFinalizer)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 		})
@@ -152,21 +152,21 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 			}
 			storagePolicyKey := client.ObjectKeyFromObject(storagePolicy)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storagePolicy)
 			}, timeout, interval).Should(Succeed())
 
 			By("Update StoragePolicy status")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				setStoragePolicyValidStatus(storagePolicy)
-				g.Expect(testClientDPU.Status().Update(ctx, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Status().Update(testCtx, storagePolicy)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify DPUStoragePolicy status is updated")
 			Eventually(func(g Gomega) {
 				var obj storagev1.DPUStoragePolicy
-				g.Expect(testClient.Get(ctx, dpuStoragePolicyKey, &obj)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, dpuStoragePolicyKey, &obj)).NotTo(HaveOccurred())
 				g.Expect(conditions.IsTrue(&obj, storagev1.ConditionDPUStoragePolicyValid)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 		})
@@ -183,17 +183,17 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 			}
 			storagePolicyKey := client.ObjectKeyFromObject(storagePolicy)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storagePolicy)
 			}, timeout, interval).Should(Succeed())
 			origUID := storagePolicy.GetUID()
 
 			By("Delete StoragePolicy")
-			Expect(testClientDPU.Delete(ctx, storagePolicy)).NotTo(HaveOccurred())
+			Expect(testClientDPU.Delete(testCtx, storagePolicy)).NotTo(HaveOccurred())
 
 			By("Verify StoragePolicy is recreated")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				g.Expect(storagePolicy.GetUID()).NotTo(Equal(origUID))
 			}, timeout, interval).Should(Succeed())
 
@@ -216,28 +216,28 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 			}
 			storagePolicyKey := client.ObjectKeyFromObject(storagePolicy)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storagePolicy)
 			}, timeout, interval).Should(Succeed())
 
 			By("Delete StoragePolicy but add finalizer to prevent actual deletion")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				storagePolicy.Finalizers = []string{"test-finalizer"}
-				g.Expect(testClientDPU.Update(ctx, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, storagePolicy)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
-			Expect(testClientDPU.Delete(ctx, storagePolicy)).NotTo(HaveOccurred())
+			Expect(testClientDPU.Delete(testCtx, storagePolicy)).NotTo(HaveOccurred())
 
 			By("Verify StoragePolicy has deletion timestamp")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				g.Expect(storagePolicy.DeletionTimestamp).NotTo(BeNil())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify DPUStoragePolicy is marked as awaiting deletion")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, dpuStoragePolicyKey, dpuStoragePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, dpuStoragePolicyKey, dpuStoragePolicy)).NotTo(HaveOccurred())
 				cond := conditions.Get(dpuStoragePolicy, storagev1.ConditionDPUStoragePolicyReconciled)
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
@@ -253,15 +253,15 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 			By("Remove finalizer from StoragePolicy")
 			var originalUID types.UID
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				originalUID = storagePolicy.UID
 				storagePolicy.Finalizers = []string{}
-				g.Expect(testClientDPU.Update(ctx, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, storagePolicy)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify StoragePolicy is recreated with a different UID")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				g.Expect(storagePolicy.UID).NotTo(Equal(originalUID))
 			}, timeout, interval).Should(Succeed())
 		})
@@ -279,7 +279,7 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 			}
 			storagePolicyKey := client.ObjectKeyFromObject(storagePolicy)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storagePolicy)
 				g.Expect(storagePolicy.Spec.StorageVendors).To(Equal(dpuStoragePolicy.Spec.DPUStorageVendors))
 				g.Expect(storagePolicy.Spec.StorageParameters).To(Equal(dpuStoragePolicy.Spec.Parameters))
@@ -288,16 +288,16 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 
 			By("Update DPUStoragePolicy spec")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, dpuStoragePolicyKey, dpuStoragePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, dpuStoragePolicyKey, dpuStoragePolicy)).NotTo(HaveOccurred())
 				dpuStoragePolicy.Spec.DPUStorageVendors = []string{"updated-vendor1", "updated-vendor2"}
 				dpuStoragePolicy.Spec.Parameters = map[string]string{"updated-key1": "updated-value1"}
 				dpuStoragePolicy.Spec.SelectionAlgorithm = ptr.To(storagev1.SelectionAlgorithmRandom)
-				g.Expect(testClient.Update(ctx, dpuStoragePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClient.Update(testCtx, dpuStoragePolicy)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify StoragePolicy spec is updated to match new DPUStoragePolicy spec")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				g.Expect(storagePolicy.Spec.StorageVendors).To(Equal([]string{"updated-vendor1", "updated-vendor2"}))
 				g.Expect(storagePolicy.Spec.StorageParameters).To(Equal(map[string]string{"updated-key1": "updated-value1"}))
 				g.Expect(storagePolicy.Spec.StorageSelectionAlg).To(Equal(storagev1.Random))
@@ -305,14 +305,14 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 
 			By("Set StoragePolicy status to valid")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				setStoragePolicyValidStatus(storagePolicy)
-				g.Expect(testClientDPU.Status().Update(ctx, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Status().Update(testCtx, storagePolicy)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify DPUStoragePolicy remains reconciled and ready after update")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, dpuStoragePolicyKey, dpuStoragePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, dpuStoragePolicyKey, dpuStoragePolicy)).NotTo(HaveOccurred())
 				g.Expect(conditions.IsTrue(dpuStoragePolicy, storagev1.ConditionDPUStoragePolicyReconciled)).To(BeTrue())
 				g.Expect(conditions.IsTrue(dpuStoragePolicy, conditions.TypeReady)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
@@ -339,20 +339,20 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 			storagePolicyKey := client.ObjectKeyFromObject(orphanedStoragePolicy)
 			By("Wait for orphaned StoragePolicy to have deletion timestamp")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, orphanedStoragePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, orphanedStoragePolicy)).NotTo(HaveOccurred())
 				g.Expect(orphanedStoragePolicy.DeletionTimestamp).NotTo(BeNil())
 			}, timeout, interval).Should(Succeed())
 
 			By("Remove finalizer")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, orphanedStoragePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, orphanedStoragePolicy)).NotTo(HaveOccurred())
 				orphanedStoragePolicy.Finalizers = []string{}
-				g.Expect(testClientDPU.Update(ctx, orphanedStoragePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, orphanedStoragePolicy)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify orphaned StoragePolicy is deleted from DPU cluster")
 			Eventually(func(g Gomega) {
-				err := testClientDPU.Get(ctx, storagePolicyKey, orphanedStoragePolicy)
+				err := testClientDPU.Get(testCtx, storagePolicyKey, orphanedStoragePolicy)
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 		})
@@ -417,22 +417,22 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 			}
 			storagePolicyKey := client.ObjectKeyFromObject(storagePolicy)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storagePolicy)
 			}, timeout, interval).Should(Succeed())
 
 			By("First set StoragePolicy status to valid")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				setStoragePolicyValidStatus(storagePolicy)
-				g.Expect(testClientDPU.Status().Update(ctx, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Status().Update(testCtx, storagePolicy)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify DPUStoragePolicy conditions transition to ready")
 			dpuStoragePolicyKey := client.ObjectKeyFromObject(dpuStoragePolicy)
 			Eventually(func(g Gomega) []metav1.Condition {
 				var newObj storagev1.DPUStoragePolicy
-				g.Expect(testClient.Get(ctx, dpuStoragePolicyKey, &newObj)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, dpuStoragePolicyKey, &newObj)).NotTo(HaveOccurred())
 				return newObj.Status.Conditions
 			}, timeout, interval).Should(ConsistOf(
 				And(
@@ -465,22 +465,22 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 			}
 			storagePolicyKey := client.ObjectKeyFromObject(storagePolicy)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storagePolicy)
 			}, timeout, interval).Should(Succeed())
 
 			By("First set StoragePolicy status to valid")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 				setStoragePolicyValidStatus(storagePolicy)
-				g.Expect(testClientDPU.Status().Update(ctx, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Status().Update(testCtx, storagePolicy)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Wait for DPUStoragePolicy to become Ready")
 			dpuStoragePolicyKey := client.ObjectKeyFromObject(dpuStoragePolicy)
 			Eventually(func(g Gomega) {
 				var obj storagev1.DPUStoragePolicy
-				g.Expect(testClient.Get(ctx, dpuStoragePolicyKey, &obj)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, dpuStoragePolicyKey, &obj)).NotTo(HaveOccurred())
 				cond := conditions.Get(&obj, conditions.TypeReady)
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
@@ -488,18 +488,18 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 
 			By("Update StoragePolicy status to indicate vendors are invalid")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storagePolicyKey, storagePolicy)).NotTo(HaveOccurred())
 
 				storagePolicy.Status.State = storagev1.StorageVendorStateInvalid
 				storagePolicy.Status.Message = "Storage vendors validation failed"
 
-				g.Expect(testClientDPU.Status().Update(ctx, storagePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Status().Update(testCtx, storagePolicy)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify DPUStoragePolicy conditions transition to unready")
 			Eventually(func(g Gomega) []metav1.Condition {
 				var newObj storagev1.DPUStoragePolicy
-				g.Expect(testClient.Get(ctx, dpuStoragePolicyKey, &newObj)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, dpuStoragePolicyKey, &newObj)).NotTo(HaveOccurred())
 				return newObj.Status.Conditions
 			}, timeout, interval).Should(ConsistOf(
 				And(
@@ -526,11 +526,11 @@ var _ = Describe("DPUStoragePolicy controller", func() {
 			createObjects(dpuStoragePolicy)
 
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuStoragePolicy), dpuStoragePolicy)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(dpuStoragePolicy), dpuStoragePolicy)).NotTo(HaveOccurred())
 				g.Expect(conditions.IsTrue(dpuStoragePolicy, storagev1.ConditionDPUStoragePolicyReconciled)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 
-			Expect(testClient.Delete(ctx, dpuStoragePolicy)).NotTo(HaveOccurred())
+			Expect(testClient.Delete(testCtx, dpuStoragePolicy)).NotTo(HaveOccurred())
 
 			Eventually(func(g Gomega) []metav1.Condition {
 				ev := &informer.Event{}

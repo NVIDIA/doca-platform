@@ -38,7 +38,7 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 	)
 	AfterEach(func() {
 		By("Cleaning up the objects")
-		Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
+		Expect(testutils.CleanupAndWait(testCtx, testClient, cleanupObjects...)).To(Succeed())
 		cleanupObjects = nil
 	})
 	Context("When reconciling a resource", func() {
@@ -55,7 +55,7 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 			}
 			storageVendorKey := client.ObjectKeyFromObject(storageVendor)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storageVendor)
 			}, timeout, interval).Should(Succeed())
 
@@ -65,7 +65,7 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 
 			By("Verify DPUStorageVendor is reconciled and ready")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuStorageVendor), dpuStorageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(dpuStorageVendor), dpuStorageVendor)).NotTo(HaveOccurred())
 				g.Expect(conditions.IsTrue(dpuStorageVendor, storagev1.ConditionDPUStorageVendorReconciled)).To(BeTrue())
 				g.Expect(conditions.IsTrue(dpuStorageVendor, conditions.TypeReady)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
@@ -83,21 +83,21 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 			}
 			storageVendorKey := client.ObjectKeyFromObject(storageVendor)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storageVendor)
 			}, timeout, interval).Should(Succeed())
 
 			By("Update StorageVendor spec")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
 				storageVendor.Spec.StorageClassName = "updated-storage-class"
 				storageVendor.Spec.PluginName = "updated-plugin"
-				g.Expect(testClientDPU.Update(ctx, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, storageVendor)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify StorageVendor is updated back to match DPUStorageVendor")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
 				g.Expect(storageVendor.Spec.StorageClassName).To(Equal(dpuStorageVendor.Spec.StorageClassName))
 				g.Expect(storageVendor.Spec.PluginName).To(Equal(dpuStorageVendor.Spec.PluginName))
 			}, timeout, interval).Should(Succeed())
@@ -115,17 +115,17 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 			}
 			storageVendorKey := client.ObjectKeyFromObject(storageVendor)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storageVendor)
 			}, timeout, interval).Should(Succeed())
 			origVendorUID := storageVendor.GetUID()
 
 			By("Delete StorageVendor")
-			Expect(testClientDPU.Delete(ctx, storageVendor)).NotTo(HaveOccurred())
+			Expect(testClientDPU.Delete(testCtx, storageVendor)).NotTo(HaveOccurred())
 
 			By("Verify StorageVendor is recreated")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
 				g.Expect(storageVendor.GetUID()).NotTo(Equal(origVendorUID))
 			}, timeout, interval).Should(Succeed())
 		})
@@ -142,16 +142,16 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 			}
 			storageVendorKey := client.ObjectKeyFromObject(storageVendor)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storageVendor)
 			}, timeout, interval).Should(Succeed())
 
 			By("Delete DPUStorageVendor")
-			Expect(testClient.Delete(ctx, dpuStorageVendor)).NotTo(HaveOccurred())
+			Expect(testClient.Delete(testCtx, dpuStorageVendor)).NotTo(HaveOccurred())
 
 			By("Verify StorageVendor is deleted")
 			Eventually(func(g Gomega) {
-				g.Expect(apierrors.IsNotFound(testClientDPU.Get(ctx, storageVendorKey, storageVendor))).To(BeTrue())
+				g.Expect(apierrors.IsNotFound(testClientDPU.Get(testCtx, storageVendorKey, storageVendor))).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 		})
 
@@ -168,23 +168,23 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 			}
 			storageVendorKey := client.ObjectKeyFromObject(storageVendor)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storageVendor)
 			}, timeout, interval).Should(Succeed())
 
 			By("Add finalizer to StorageVendor")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
 				storageVendor.Finalizers = []string{"test-finalizer"}
-				g.Expect(testClientDPU.Update(ctx, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, storageVendor)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Delete StorageVendor")
-			Expect(testClientDPU.Delete(ctx, storageVendor)).NotTo(HaveOccurred())
+			Expect(testClientDPU.Delete(testCtx, storageVendor)).NotTo(HaveOccurred())
 
 			By("Verify DPUStorageVendor is marked as awaiting deletion")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, dpuStorageVendorKey, dpuStorageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, dpuStorageVendorKey, dpuStorageVendor)).NotTo(HaveOccurred())
 				cond := conditions.Get(dpuStorageVendor, storagev1.ConditionDPUStorageVendorReconciled)
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
@@ -195,16 +195,16 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 			By("Remove finalizer from StorageVendor")
 			var originalUID types.UID
 			Eventually(func(g Gomega) {
-				err := testClientDPU.Get(ctx, storageVendorKey, storageVendor)
+				err := testClientDPU.Get(testCtx, storageVendorKey, storageVendor)
 				g.Expect(err).NotTo(HaveOccurred())
 				originalUID = storageVendor.UID
 				storageVendor.Finalizers = []string{}
-				g.Expect(testClientDPU.Update(ctx, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, storageVendor)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify StorageVendor is recreated with a different UID")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
 				g.Expect(storageVendor.UID).NotTo(Equal(originalUID))
 			}, timeout, interval).Should(Succeed())
 		})
@@ -222,7 +222,7 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 			}
 			storageVendorKey := client.ObjectKeyFromObject(storageVendor)
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storageVendor)
 				g.Expect(storageVendor.Spec.StorageClassName).To(Equal(dpuStorageVendor.Spec.StorageClassName))
 				g.Expect(storageVendor.Spec.PluginName).To(Equal(dpuStorageVendor.Spec.PluginName))
@@ -230,22 +230,22 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 
 			By("Update DPUStorageVendor spec")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, dpuStorageVendorKey, dpuStorageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, dpuStorageVendorKey, dpuStorageVendor)).NotTo(HaveOccurred())
 				dpuStorageVendor.Spec.StorageClassName = "updated-storage-class"
 				dpuStorageVendor.Spec.PluginName = "updated-plugin"
-				g.Expect(testClient.Update(ctx, dpuStorageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClient.Update(testCtx, dpuStorageVendor)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify StorageVendor spec is updated to match new DPUStorageVendor spec")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storageVendorKey, storageVendor)).NotTo(HaveOccurred())
 				g.Expect(storageVendor.Spec.StorageClassName).To(Equal("updated-storage-class"))
 				g.Expect(storageVendor.Spec.PluginName).To(Equal("updated-plugin"))
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify DPUStorageVendor remains reconciled and ready after update")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, dpuStorageVendorKey, dpuStorageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, dpuStorageVendorKey, dpuStorageVendor)).NotTo(HaveOccurred())
 				g.Expect(conditions.IsTrue(dpuStorageVendor, storagev1.ConditionDPUStorageVendorReconciled)).To(BeTrue())
 				g.Expect(conditions.IsTrue(dpuStorageVendor, conditions.TypeReady)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
@@ -271,20 +271,20 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 			storageVendorKey := client.ObjectKeyFromObject(orphanedStorageVendor)
 			By("Wait for orphaned StorageVendor to have deletion timestamp")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storageVendorKey, orphanedStorageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storageVendorKey, orphanedStorageVendor)).NotTo(HaveOccurred())
 				g.Expect(orphanedStorageVendor.DeletionTimestamp).NotTo(BeNil())
 			}, timeout, interval).Should(Succeed())
 
 			By("Remove finalizer")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, storageVendorKey, orphanedStorageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, storageVendorKey, orphanedStorageVendor)).NotTo(HaveOccurred())
 				orphanedStorageVendor.Finalizers = []string{}
-				g.Expect(testClientDPU.Update(ctx, orphanedStorageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Update(testCtx, orphanedStorageVendor)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
 
 			By("Verify orphaned StorageVendor is deleted from DPU cluster")
 			Eventually(func(g Gomega) {
-				err := testClientDPU.Get(ctx, storageVendorKey, orphanedStorageVendor)
+				err := testClientDPU.Get(testCtx, storageVendorKey, orphanedStorageVendor)
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 		})
@@ -347,7 +347,7 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: dpuStorageVendor.Name, Namespace: testNsNameDPU},
 			}
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(ctx, client.ObjectKeyFromObject(storageVendor), storageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(testCtx, client.ObjectKeyFromObject(storageVendor), storageVendor)).NotTo(HaveOccurred())
 				cleanupObjects = append(cleanupObjects, storageVendor)
 			}, timeout, interval).Should(Succeed())
 
@@ -388,11 +388,11 @@ var _ = Describe("DPUStorageVendor Controller", func() {
 			createObjects(dpuStorageVendor)
 
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuStorageVendor), dpuStorageVendor)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(dpuStorageVendor), dpuStorageVendor)).NotTo(HaveOccurred())
 				g.Expect(conditions.IsTrue(dpuStorageVendor, storagev1.ConditionDPUStorageVendorReconciled)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 
-			Expect(testClient.Delete(ctx, dpuStorageVendor)).NotTo(HaveOccurred())
+			Expect(testClient.Delete(testCtx, dpuStorageVendor)).NotTo(HaveOccurred())
 
 			Eventually(func(g Gomega) []metav1.Condition {
 				ev := &informer.Event{}
