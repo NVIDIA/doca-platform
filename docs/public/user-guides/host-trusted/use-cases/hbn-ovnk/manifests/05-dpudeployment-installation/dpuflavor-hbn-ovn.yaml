@@ -71,6 +71,11 @@ spec:
     - UPDATE_DPU_OS=yes
     - WITH_NIC_FW_UPDATE=yes
 
+  hostNetworkInterfaceConfigs:
+    - portNumber: 0
+      dhcp: true
+      mtu: 1500
+
   configFiles:
   - path: /etc/mellanox/mlnx-bf.conf
     operation: override

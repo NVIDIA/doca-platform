@@ -1,7 +1,7 @@
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: hbn-ovn
+  name: ovn
   namespace: dpf-operator-system
 spec:
   grub:
@@ -19,18 +19,18 @@ spec:
   nvconfig:
     - device: "*"
       parameters:
-        - PF_BAR2_ENABLE=0
-        - PER_PF_NUM_SF=1
-        - PF_TOTAL_SF=20
-        - PF_SF_BAR_SIZE=10
-        - NUM_PF_MSIX_VALID=0
-        - PF_NUM_PF_MSIX_VALID=1
-        - PF_NUM_PF_MSIX=228
-        - INTERNAL_CPU_MODEL=1
-        - INTERNAL_CPU_OFFLOAD_ENGINE=0
-        - SRIOV_EN=1
-        - NUM_OF_VFS=46
-        - LAG_RESOURCE_ALLOCATION=1
+      - PF_BAR2_ENABLE=0
+      - PER_PF_NUM_SF=1
+      - PF_TOTAL_SF=20
+      - PF_SF_BAR_SIZE=10
+      - NUM_PF_MSIX_VALID=0
+      - PF_NUM_PF_MSIX_VALID=1
+      - PF_NUM_PF_MSIX=228
+      - INTERNAL_CPU_MODEL=1
+      - INTERNAL_CPU_OFFLOAD_ENGINE=0
+      - SRIOV_EN=1
+      - NUM_OF_VFS=46
+      - LAG_RESOURCE_ALLOCATION=1
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
@@ -49,9 +49,6 @@ spec:
       _ovs-vsctl --may-exist add-br br-sfc
       _ovs-vsctl set bridge br-sfc datapath_type=netdev
       _ovs-vsctl set bridge br-sfc fail_mode=secure
-      _ovs-vsctl --may-exist add-br br-hbn
-      _ovs-vsctl set bridge br-hbn datapath_type=netdev
-      _ovs-vsctl set bridge br-hbn fail_mode=secure
       _ovs-vsctl --may-exist add-port br-sfc p0
       _ovs-vsctl set Interface p0 type=dpdk
       _ovs-vsctl set Interface p0 mtu_request=9216
@@ -62,6 +59,7 @@ spec:
       _ovs-vsctl set bridge br-ovn datapath_type=netdev
       _ovs-vsctl br-set-external-id br-ovn bridge-id br-ovn
       _ovs-vsctl br-set-external-id br-ovn bridge-uplink puplinkbrovntobrsfc
+      _ovs-vsctl set Interface br-ovn mtu_request=9216
       _ovs-vsctl --may-exist add-port br-ovn pf0hpf
       _ovs-vsctl set Interface pf0hpf type=dpdk
       _ovs-vsctl set Interface pf0hpf mtu_request=9216
@@ -70,6 +68,11 @@ spec:
     - UPDATE_ATF_UEFI=yes
     - UPDATE_DPU_OS=yes
     - WITH_NIC_FW_UPDATE=yes
+
+  hostNetworkInterfaceConfigs:
+    - portNumber: 0
+      dhcp: true
+      mtu: 1500
 
   configFiles:
   - path: /etc/mellanox/mlnx-bf.conf
