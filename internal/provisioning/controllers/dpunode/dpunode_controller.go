@@ -21,12 +21,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
-	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
 	dnutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	dpfutils "github.com/nvidia/doca-platform/internal/utils"
@@ -92,7 +89,6 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 	log.Info("Reconcile")
 
 	dpuNode := &provisioningv1.DPUNode{}
-	pod := &corev1.Pod{}
 	if err := r.Get(ctx, req.NamespacedName, dpuNode); err != nil {
 		if apierrors.IsNotFound(err) {
 			// Return early if the object is not found.
@@ -101,6 +97,7 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 		return ctrl.Result{}, err
 	}
 
+	log.Info("Reconcile", "DPUNode", dpuNode.Status.Conditions)
 	patcher := patch.NewSerialPatcher(dpuNode, r.Client)
 	// Defer a patch call to always patch the object when Reconcile exits.
 	defer func() {
@@ -109,6 +106,7 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 			patch.WithFieldOwner(DPUNodeControllerName),
 			patch.WithStatusObservedGeneration{},
 		); err != nil {
+			log.Error(err, "Failed to patch DPUNode")
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 	}()
@@ -146,33 +144,10 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 		dpuNode.Labels = cutil.CopyLabelsOrAnnotations(dpuNode.Labels, node.Labels)
 		dpuNode.Annotations = cutil.CopyLabelsOrAnnotations(dpuNode.Annotations, node.Annotations)
 
-		dmsPodName := cutil.GenerateDMSPodName(dpuNode)
-		nn := types.NamespacedName{
-			Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
-			Name:      dmsPodName,
-		}
-
-		if err := r.Get(ctx, nn, pod); err != nil {
-			if apierrors.IsNotFound(err) {
-				return ctrl.Result{}, nil
-			}
-			return ctrl.Result{}, err
-		}
-
-		conditionMessage, err := r.isPodRunning(ctx, pod)
-		if err != nil {
-			r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionReady, metav1.ConditionFalse, "ErrorOccurred", err.Error())
-			return ctrl.Result{}, err
-		}
-
-		if conditionMessage != nil {
-			r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionReady, metav1.ConditionFalse, "NotReady", *conditionMessage)
-			return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
-		}
 	}
 
 	// Handle redfish reboot sync
-	if result, err := r.handleRebootSync(ctx, dpuNode); err != nil || !result.IsZero() {
+	if result, err := r.HandleRebootSync(ctx, dpuNode); err != nil || !result.IsZero() {
 		return result, err
 	}
 
@@ -195,29 +170,8 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 	if err := r.reconcileDPUDevices(ctx, dpuNode); err != nil {
 		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionInvalidDPUDetails, metav1.ConditionTrue, string(provisioningv1.DPUNodeConditionInvalidDPUDetails), err.Error())
 		return ctrl.Result{}, err
-	}
-
-	// Check if the DMS server is ready
-	if *dpuNode.Status.DPUInstallInterface == string(provisioningv1.DPUNodeInstallInterfaceGNOI) {
-		if dpuNode.Spec.NodeDMSAddress == nil {
-			msg := fmt.Sprintf("DPUNode %s NodeDMSAddress is not set", dpuNode.Name)
-			r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionReady, metav1.ConditionFalse, "NoNodeDMSAddress", msg)
-			return ctrl.Result{}, errors.New(msg)
-		}
-		addr := dpuNode.Spec.NodeDMSAddress.String()
-		conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
-		if err != nil {
-			msg := fmt.Sprintf("the DMS server %s is not ready yet, err: %v", addr, err)
-			r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionReady, metav1.ConditionFalse, "DMSServerNotReady", msg)
-			return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
-		}
-
-		defer func() {
-			if err := conn.Close(); err != nil {
-				log.Error(fmt.Errorf("failed to close connection of %s, err: %v", addr, err), "")
-			}
-		}()
-
+	} else {
+		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionInvalidDPUDetails, metav1.ConditionFalse, "", "")
 	}
 
 	// handle DPU modified
@@ -244,14 +198,14 @@ func (r *DPUNodeReconciler) handleDeletionAndFinalizer(ctx context.Context, dpuN
 	return nil
 }
 
-// handleRebootSync handles the host reboot sync for redfish interface
-func (r *DPUNodeReconciler) handleRebootSync(ctx context.Context, dpuNode *provisioningv1.DPUNode) (ctrl.Result, error) {
+// HandleRebootSync handles the host reboot sync for redfish interface
+func (r *DPUNodeReconciler) HandleRebootSync(ctx context.Context, dpuNode *provisioningv1.DPUNode) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
 	if dpuNode.Spec.NodeRebootMethod.External != nil || dpuNode.Spec.NodeRebootMethod.Script != nil {
 		dpuPhases := map[string]struct{}{}
 		err := cutil.GetDPUPhases(ctx, r.Client, dpuNode, dpuPhases)
-		log.Info(fmt.Sprintf("dpuNode: %s , dpuPhases: %v", dpuNode.Name, dpuPhases))
+		log.Info(fmt.Sprintf("DPUNode: %s , DPUPhases: %v", dpuNode.Name, dpuPhases))
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -263,11 +217,15 @@ func (r *DPUNodeReconciler) handleRebootSync(ctx context.Context, dpuNode *provi
 		}
 		if cutil.ContainsDPUPhase(dpuPhases, provisioningv1.DPURebooting) {
 			if len(dpuNode.Spec.DPUs) > 1 && cutil.ContainsDPUPhases(provisioningPhases, dpuPhases) {
-				log.Info("There are DPUs in provisioning phase, requeue 30s.")
+				r.Recorder.Event(dpuNode, corev1.EventTypeNormal, "HostRebootCheck", "DPU in provisioning phase is found, wait 30 seconds and check again.")
+				log.Info("There are DPUs in provisioning phase, requeue the request and reboot host later.")
 				return ctrl.Result{RequeueAfter: cutil.RebootSyncInterval}, nil
 			}
 			// perform host reboot
 			if result, err := r.rebootNode(ctx, dpuNode); err != nil || !result.IsZero() {
+				if err != nil {
+					r.Recorder.Event(dpuNode, corev1.EventTypeWarning, "HostRebootError", err.Error())
+				}
 				return result, err
 			}
 		}
@@ -295,8 +253,12 @@ func (r *DPUNodeReconciler) noneDPUInNodeEffectOrRebooting(ctx context.Context, 
 
 func (r *DPUNodeReconciler) updateDPUCondition(ctx context.Context, dpus []*provisioningv1.DPU, condition *metav1.Condition) error {
 	for _, dpu := range dpus {
-		cutil.SetDPUCondition(&dpu.Status, condition)
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			// Re-read the DPU to get the latest version
+			if err := r.Get(ctx, client.ObjectKeyFromObject(dpu), dpu); err != nil {
+				return err
+			}
+			cutil.SetDPUCondition(&dpu.Status, condition)
 			return r.Status().Update(ctx, dpu)
 		})
 		if err != nil {
@@ -308,13 +270,18 @@ func (r *DPUNodeReconciler) updateDPUCondition(ctx context.Context, dpus []*prov
 
 func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisioningv1.DPUNode) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("entry rebootNode")
+	logger.Info("DPUNode conditions", "DPUNode", dpuNode.Status.Conditions)
 	// TODO: handle the rebootCommand == reboot.Skip
 	dpus, err := cutil.GetDPUsWithPhase(ctx, r.Client, dpuNode, provisioningv1.DPURebooting)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	logger.Info(fmt.Sprintf("DPUs in rebooting phase for dpuNode: %s: %v", dpuNode.Name, dpus))
+	dpuNames := make([]string, len(dpus))
+	for i, dpu := range dpus {
+		dpuNames[i] = dpu.Name
+	}
+	logger.Info(fmt.Sprintf("DPUs in rebooting phase for DPUNode: %s: %v", dpuNode.Name, dpuNames))
+
 	if dpuNode.Spec.NodeRebootMethod.External != nil {
 		logger.Info("waiting for manual power cycle or reboot")
 		if err := r.proccessExternalReboot(ctx, dpuNode, dpus); err != nil {
@@ -536,28 +503,36 @@ func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provis
 func (r *DPUNodeReconciler) proccessExternalReboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) error {
 	logger := log.FromContext(ctx)
 	c := cutil.DPUCondition(provisioningv1.DPUCondRebooted, "WaitingForManualPowerCycleOrReboot", "")
-	// Check whether the external reboot is already triggerred.
-	condExists := false
+
+	condExists := true
 	for _, dpu := range dpus {
-		if _, existedCond := cutil.GetDPUCondition(&dpu.Status, c.Type); existedCond != nil {
-			condExists = true
-			break
+		if dpu.Status.Phase != provisioningv1.DPURebooting {
+			continue
+		}
+		if _, existedCond := cutil.GetDPUCondition(&dpu.Status, c.Type); existedCond == nil {
+			condExists = false
 		}
 	}
 	if condExists {
 		if _, ok := dpuNode.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation]; ok {
+			r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "", "")
+			logger.Info("Waiting for user reboot and remove the dpunode-external-reboot-required annotation")
 			return nil
 		}
 
 		for _, dpu := range dpus {
-			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", ""))
-			if err := r.Status().Update(ctx, dpu); err != nil {
-				if apierrors.IsConflict(err) {
-					log.FromContext(ctx).Info("DPU update conflict, will retry", "dpu", dpu.Name, "error", err)
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				// Re-read the DPU to get the latest version
+				if err := r.Get(ctx, client.ObjectKeyFromObject(dpu), dpu); err != nil {
 					return err
 				}
+				cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", ""))
+				return r.Status().Update(ctx, dpu)
+			})
+			if err != nil {
 				return err
 			}
+			logger.Info("Update DPU condition", "dpu", dpu.Name, "DPURebooted", "true")
 		}
 		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionFalse, "", "")
 		return nil
@@ -565,34 +540,28 @@ func (r *DPUNodeReconciler) proccessExternalReboot(ctx context.Context, dpuNode 
 
 	// Update the DPUNode status condition to true
 	r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "", "")
-
-	newDpuNode := &provisioningv1.DPUNode{}
 	if dpuNode.Annotations == nil {
-		newDpuNode.Annotations = make(map[string]string)
+		dpuNode.Annotations = make(map[string]string)
 	}
-
-	// Re-read the dpuNode to get the latest version before updating
-	if err := r.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: dpuNode.Name}, newDpuNode); err != nil {
-		return err
-	}
-	newDpuNode.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation] = "true"
-	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		return r.Update(ctx, newDpuNode)
-	})
-	if err != nil {
-		logger.Error(err, fmt.Sprintf("failed to add annotation %s to DPUNode %s", provisioningv1.DPUNodeExternalRebootRequiredAnnotation, dpuNode.Name))
-		return err
-	}
+	dpuNode.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation] = "true"
 
 	c.Status = metav1.ConditionFalse
 	for _, dpu := range dpus {
-		cutil.SetDPUCondition(&dpu.Status, c)
+		if dpu.Status.Phase != provisioningv1.DPURebooting {
+			continue
+		}
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			// Re-read the DPU to get the latest version
+			if err := r.Get(ctx, client.ObjectKeyFromObject(dpu), dpu); err != nil {
+				return err
+			}
+			cutil.SetDPUCondition(&dpu.Status, c)
 			return r.Status().Update(ctx, dpu)
 		})
 		if err != nil {
 			return err
 		}
+		logger.Info("Update DPU condition", "DPU", dpu.Name, "DPURebooted", "false")
 	}
 
 	return nil
@@ -737,47 +706,6 @@ func (r *DPUNodeReconciler) dpuToDPUNodeReq(ctx context.Context, resource client
 			Namespace: dpu.Namespace,
 		},
 	}}
-}
-
-func isTimeout(pod *corev1.Pod, timeoutDuration time.Duration) bool {
-	return time.Since(pod.CreationTimestamp.Time) > timeoutDuration
-}
-
-func (r *DPUNodeReconciler) isPodRunning(ctx context.Context, pod *corev1.Pod) (*string, error) {
-	// TODO: verifiy all returned conditions are OK.
-	logger := log.FromContext(ctx)
-	if !pod.DeletionTimestamp.IsZero() {
-		message := fmt.Sprintf("DMS pod %s is in terminating state", pod.Name)
-		return &message, nil
-	}
-	switch pod.Status.Phase {
-	// TODO: fix the case when pod is in Pending state, check all containers and all initContainers and return proper message
-	case corev1.PodPending:
-		// Verify NFS server connection using the DMS container startup probe.
-		if len(pod.Status.ContainerStatuses) == 0 || pod.Status.ContainerStatuses[0].State.Waiting != nil {
-			for _, condition := range pod.Status.Conditions {
-				if condition.Type != corev1.PodReadyToStartContainers || condition.Status != corev1.ConditionFalse {
-					continue
-				}
-				message := fmt.Sprintf("the DMS server %s is not ready yet, wait for the NFS server to become available", pod.Name)
-				return &message, nil
-			}
-		}
-		message := fmt.Sprintf("the DMS server %s is not ready yet", pod.Name)
-		return &message, nil
-
-	case corev1.PodRunning:
-		// a simple probe to check if the DMS server is ready
-		logger.Info("DMS pod is running")
-	case corev1.PodFailed:
-		return nil, fmt.Errorf("DMS Pod Failed")
-
-	default:
-		if isTimeout(pod, r.Options.DMSPodTimeout) {
-			return nil, fmt.Errorf("DMS Pod didn't run and timed out")
-		}
-	}
-	return nil, nil
 }
 
 func (r *DPUNodeReconciler) reconcileDPUDevices(ctx context.Context, dpuNode *provisioningv1.DPUNode) error {
