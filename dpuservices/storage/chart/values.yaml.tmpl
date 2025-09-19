@@ -207,43 +207,6 @@ host:
           key: node-role.kubernetes.io/master
           operator: Exists
 
-  ### snap-controller ###
-  snapController:
-    # enable deployment of the snap-controller component
-    # Note: Only one component can be enabled at a time.
-    enabled: false
-    config:
-      # required, name of the secret that stores credentials and connection details for DPU cluster
-      dpuClusterSecret: ""
-      # controls in which namespace to search for StorageVendor and StoragePolicy CRs
-      configNamespace: "nvidia-storage"
-    # image settings
-    image:
-      repository: ${STORAGE_SYSTEM_UPSTREAM_IMAGE}
-      tag: ${TAG}
-    imagePullSecrets: []
-    # count of replicas for controller pod
-    replicas: 1
-    # podAnnotations to add to the Pod spec
-    podAnnotations: {}
-    # podLabels to add to the Pod spec
-    podLabels: {}
-    # podSecurityContext to add to the Pod spec
-    podSecurityContext: {}
-    #  runAsNonRoot: true
-    # nodeSelector to add to the Pod spec
-    nodeSelector: {}
-    # tolerations to add to the Pod spec
-    tolerations:
-      - effect: NoSchedule
-        key: node-role.kubernetes.io/control-plane
-        operator: Exists
-      - effect: NoSchedule
-        key: node-role.kubernetes.io/master
-        operator: Exists
-    # affinity to add to the Pod spec
-    affinity: {}
-
   ### snap-host-controller ###
   snapHostController:
     # enable deployment of the snap-host-controller component
@@ -391,18 +354,3 @@ dpu:
       SNAP_SPDK_SOCK: "/var/lib/nvidia/storage/snap/providers/nvidia/snap.sock"
     snapRpcInitConf: ""
     spdkRpcInitConf: ""
-
-  ### Configuration for the dpu cluster ###
-  configuration:
-    # enable deployment of the configuration component
-    # Note: Only one component can be enabled at a time.
-    enabled: false
-    # RBAC roles for clients from host cluster
-    rbacRoles:
-      enabled: true
-      snapCsiPlugin:
-        create: true
-        serviceAccount: snap-csi-plugin-sa
-      snapController:
-        create: true
-        serviceAccount: snap-controller-sa
