@@ -190,7 +190,7 @@ func (r *DPUNodeMaintenanceReconciler) reconcile(ctx context.Context, dpunodemai
 		var nodeNotReadyCount int32 = 0
 		for _, dn := range dpuNodeList.Items {
 			if !cutil.IsDPUNodeReady(&dn) {
-				logger.V(3).Info(fmt.Sprintf("dn: %s is not ready", dn.Name))
+				logger.V(3).Info(fmt.Sprintf("dpunode %s is not ready", dn.Name))
 				nodeNotReadyCount++
 			}
 		}
@@ -205,7 +205,7 @@ func (r *DPUNodeMaintenanceReconciler) reconcile(ctx context.Context, dpunodemai
 				conditions.ReasonPending,
 				conditions.ConditionMessage(msg),
 			)
-			r.Recorder.Eventf(dpunodemaintenance, corev1.EventTypeWarning, "NodeNotReady", msg)
+			r.Recorder.Eventf(dpunodemaintenance, corev1.EventTypeWarning, "MaxUnavailableExceeded", msg)
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 		logger.V(3).Info(fmt.Sprintf("nodeNotReadyCount: %d, maxUnavailableDPUNodes: %d", nodeNotReadyCount, *dpunodemaintenance.Status.MaxUnavailableDPUNodes))
@@ -213,6 +213,8 @@ func (r *DPUNodeMaintenanceReconciler) reconcile(ctx context.Context, dpunodemai
 		if len(dpuNode.Spec.DPUs) > 1 {
 			if time.Since(dpunodemaintenance.Status.NodeEffectSyncStartTime.Time) < dpunodemaintenance.Status.MultiDPUOperationsSyncWaitTime.Duration {
 				requeueAfterTime := dpunodemaintenance.Status.MultiDPUOperationsSyncWaitTime.Duration - time.Since(dpunodemaintenance.Status.NodeEffectSyncStartTime.Time)
+				logger.V(3).Info(fmt.Sprintf("multiple DPU operations sync wait time: %s", requeueAfterTime))
+				r.Recorder.Eventf(dpunodemaintenance, corev1.EventTypeNormal, "WaitingForOperationsSync", "Multiple DPU operations sync wait time")
 				return ctrl.Result{RequeueAfter: requeueAfterTime}, nil
 			}
 		}
@@ -239,7 +241,7 @@ func (r *DPUNodeMaintenanceReconciler) reconcile(ctx context.Context, dpunodemai
 			"NodeEffectIsProcessing",
 			conditions.ConditionMessage(fmt.Sprintf("Node effect is being applied: %s", nodeEffectError.Error())),
 		)
-		r.Recorder.Eventf(dpunodemaintenance, corev1.EventTypeNormal, "NodeEffectIsProcessing", fmt.Sprintf("Node effect is being applied: %s", nodeEffectError.Error()))
+		r.Recorder.Eventf(dpunodemaintenance, corev1.EventTypeNormal, "NodeEffectIsProcessing", nodeEffectError.Error())
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	} else if nodeEffectError != nil {
 		conditions.AddFalse(
@@ -384,7 +386,7 @@ func (r *DPUNodeMaintenanceReconciler) createCustomActionJob(ctx context.Context
 	return nil
 }
 
-// reconcileHold - create wait-for-external-nodeeffect label, set it to true and wait for it to change to false.
+// reconcileHold - create wait-for-external-nodeeffect annotation on DPUNodeMaintenance, set it to true and wait for it to change to false.
 func (r *DPUNodeMaintenanceReconciler) reconcileHold(ctx context.Context, dpunodemaintenance *provisioningv1.DPUNodeMaintenance) (bool, error) {
 	logger := log.FromContext(ctx)
 	logger.V(3).Info(fmt.Sprintf("NodeEffect is set to \"Hold\" for node: %s", dpunodemaintenance.Spec.DPUNodeName))
@@ -395,15 +397,15 @@ func (r *DPUNodeMaintenanceReconciler) reconcileHold(ctx context.Context, dpunod
 	val, exists := dpunodemaintenance.Annotations[cutil.HoldNodeEffectKey]
 	if !exists {
 		dpunodemaintenance.Annotations[cutil.HoldNodeEffectKey] = "true"
-		return true, fmt.Errorf("DPU is in wait-for-external-nodeeffect node effect")
+		return true, fmt.Errorf("DPUNodeMaintenance is in waiting for external node effect")
 	}
-	exists, err := strconv.ParseBool(val)
+	waitingForExternalNodeEffect, err := strconv.ParseBool(val)
 	if err != nil {
-		logger.Error(err, "Failed to parse wait-for-external-nodeeffect annotation")
+		logger.Error(err, "Failed to parse waiting for external node effect annotation")
 		return false, err
 	}
-	if exists {
-		return true, fmt.Errorf("DPU is in wait-for-external-nodeeffect node effect")
+	if waitingForExternalNodeEffect {
+		return true, fmt.Errorf("DPUNodeMaintenance is in waiting for external node effect")
 	}
 
 	return false, nil
@@ -445,7 +447,7 @@ func (r *DPUNodeMaintenanceReconciler) reconcileDrain(ctx context.Context, dpuno
 				return false, err
 			}
 			logger.V(3).Info(fmt.Sprintf("NodeMaintenance (%s) is being created", maintenanceNN))
-			return true, fmt.Errorf("node maintenance is being created")
+			return true, fmt.Errorf("NodeMaintenance is created")
 		}
 		return false, err
 	} else {
@@ -455,7 +457,7 @@ func (r *DPUNodeMaintenanceReconciler) reconcileDrain(ctx context.Context, dpuno
 			return false, nil
 		}
 		logger.V(3).Info(fmt.Sprintf("NodeMaintenance (%s/%s) is processing", maintenance.Namespace, maintenance.Name))
-		return true, fmt.Errorf("node maintenance is processing")
+		return true, fmt.Errorf("NodeMaintenance is in progress")
 	}
 }
 
@@ -535,7 +537,6 @@ func handleNodeEffectRemoval(ctx context.Context, k8sClient client.Client, dpuno
 	default:
 		return fmt.Errorf("unknown node effect: %s", nodeEffect.String())
 	}
-
 }
 
 func removeNodeEffectTaint(ctx context.Context, k8sClient client.Client, node *corev1.Node, nodeEffect *provisioningv1.NodeEffect) error {
