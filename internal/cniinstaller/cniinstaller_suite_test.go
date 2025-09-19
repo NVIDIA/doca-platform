@@ -1,5 +1,5 @@
 /*
-Copyright 2025 NVIDIA
+Copyright 2025 NVIDIA.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,31 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package cniinstaller_test
 
 import (
-	"fmt"
-	"os"
-	"os/signal"
+	"testing"
 
-	"github.com/nvidia/doca-platform/internal/cniinstaller"
-
-	"k8s.io/klog/v2"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
-func main() {
-	klog.Info("DPF CNI Installer started")
-
-	installer := cniinstaller.New()
-
-	if err := installer.Install(); err != nil {
-		klog.Fatal(fmt.Errorf("failed to run install: %w", err))
-	}
-
-	klog.Info("CNI installation is done")
-
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, os.Interrupt)
-	<-ch
-	klog.Info("Received termination signal, terminating.")
+func TestCNIInstaller(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "CNI Installer Suite")
 }

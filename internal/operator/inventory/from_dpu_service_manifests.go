@@ -234,6 +234,8 @@ func additionalValuesForComponent(name string, vars Variables) ([]StructuredEdit
 		return nvipamEdits(vars)
 	case operatorv1.FlannelName:
 		return flannelEdits(vars)
+	case operatorv1.CNIInstallerName:
+		return cniInstallerEdits(vars)
 	// Other DPUServices do not need additional values.
 	default:
 		return nil, nil
@@ -250,6 +252,13 @@ func sfcControllerEdits(vars Variables) ([]StructuredEdit, error) {
 	// Only add lib64 path if it's configured
 	if vars.DPUOpenvSwitchSharedLib64Path != nil {
 		edits = append(edits, dpuServiceAddValueEdit(*vars.DPUOpenvSwitchSharedLib64Path, operatorv1.SFCControllerName, openvSwitchSharedLibrary64DirPathKey))
+	}
+	return edits, nil
+}
+
+func cniInstallerEdits(vars Variables) ([]StructuredEdit, error) {
+	edits := []StructuredEdit{
+		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.CNIInstallerName, cniBinDirPathKey),
 	}
 	return edits, nil
 }
