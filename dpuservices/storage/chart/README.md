@@ -18,12 +18,6 @@ A Helm chart for DPF storage subsystem
 | dpu.blockStorageVendorDpuPlugin.imagePullSecrets | list | `[]` |  |
 | dpu.blockStorageVendorDpuPlugin.securityContext.runAsUser | int | `0` |  |
 | dpu.blockStorageVendorDpuPlugin.tolerations | list | `[]` |  |
-| dpu.configuration.enabled | bool | `false` |  |
-| dpu.configuration.rbacRoles.enabled | bool | `true` |  |
-| dpu.configuration.rbacRoles.snapController.create | bool | `true` |  |
-| dpu.configuration.rbacRoles.snapController.serviceAccount | string | `"snap-controller-sa"` |  |
-| dpu.configuration.rbacRoles.snapCsiPlugin.create | bool | `true` |  |
-| dpu.configuration.rbacRoles.snapCsiPlugin.serviceAccount | string | `"snap-csi-plugin-sa"` |  |
 | dpu.deployCrds | bool | `false` |  |
 | dpu.docaSnap.enabled | bool | `false` |  |
 | dpu.docaSnap.env.APP_ARGS | string | `"-m 0xff"` |  |
@@ -75,24 +69,6 @@ A Helm chart for DPF storage subsystem
 | dpu.snapNodeDriver.imagePullSecrets | list | `[]` |  |
 | dpu.snapNodeDriver.securityContext.runAsUser | int | `0` |  |
 | dpu.snapNodeDriver.tolerations | list | `[]` |  |
-| host.snapController.affinity | object | `{}` |  |
-| host.snapController.config.configNamespace | string | `"nvidia-storage"` |  |
-| host.snapController.config.dpuClusterSecret | string | `""` |  |
-| host.snapController.enabled | bool | `false` |  |
-| host.snapController.image.repository | string | `"example.com/storage-system"` |  |
-| host.snapController.image.tag | string | `"v0.1.0"` |  |
-| host.snapController.imagePullSecrets | list | `[]` |  |
-| host.snapController.nodeSelector | object | `{}` |  |
-| host.snapController.podAnnotations | object | `{}` |  |
-| host.snapController.podLabels | object | `{}` |  |
-| host.snapController.podSecurityContext | object | `{}` |  |
-| host.snapController.replicas | int | `1` |  |
-| host.snapController.tolerations[0].effect | string | `"NoSchedule"` |  |
-| host.snapController.tolerations[0].key | string | `"node-role.kubernetes.io/control-plane"` |  |
-| host.snapController.tolerations[0].operator | string | `"Exists"` |  |
-| host.snapController.tolerations[1].effect | string | `"NoSchedule"` |  |
-| host.snapController.tolerations[1].key | string | `"node-role.kubernetes.io/master"` |  |
-| host.snapController.tolerations[1].operator | string | `"Exists"` |  |
 | host.snapCsiPlugin.controller.affinity | object | `{}` |  |
 | host.snapCsiPlugin.controller.externalAttacher.image.repository | string | `"registry.k8s.io/sig-storage/csi-attacher"` |  |
 | host.snapCsiPlugin.controller.externalAttacher.image.tag | string | `"v4.7.0"` |  |
