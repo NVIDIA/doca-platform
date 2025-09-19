@@ -177,12 +177,8 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 		}
 	}
 
-	if err := r.updateNodeEffectApplyOnLabelChange(ctx, dpuSet, dpuMap); err != nil {
+	if err := r.updateDPUs(ctx, dpuSet, dpuMap); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update node effect ApplyOnLabelChange for DPUs %w", err)
-	}
-
-	if err := r.updateNodeLabelsForDPUs(ctx, dpuSet, dpuMap); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to update node labels for DPU node %w", err)
 	}
 
 	updateDPUSetStatus(dpuSet, dpuMap)
@@ -500,14 +496,15 @@ func (r *DPUSetReconciler) deleteStaleDPUs(ctx context.Context, dpuSet *provisio
 	return nil
 }
 
-func (r *DPUSetReconciler) updateNodeLabelsForDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuMap map[string]provisioningv1.DPU) error {
+// check if the node labels for DPU need to be updated
+func (r *DPUSetReconciler) isNodeLabelUpdateNeeded(ctx context.Context, dpuSet *provisioningv1.DPUSet) (bool, map[string]string, []string) {
 	logger := log.FromContext(ctx)
 	if dpuSet.Spec.DPUTemplate.Spec.Cluster == nil {
-		return nil
+		return false, nil, nil
 	}
 
 	if dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels == nil {
-		return nil
+		return false, nil, nil
 	}
 
 	newLabels := dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels
@@ -515,13 +512,15 @@ func (r *DPUSetReconciler) updateNodeLabelsForDPUs(ctx context.Context, dpuSet *
 	if dpuSet.Annotations != nil {
 		if lastAppliedLabelsStr, ok := dpuSet.Annotations[cutil.LastAppliedLabelsOnDPUKey]; ok {
 			if err := json.Unmarshal([]byte(lastAppliedLabelsStr), &oldLabels); err != nil {
-				return fmt.Errorf("failed to unmarshal last applied labels: %w", err)
+				logger.Error(err, "Failed to unmarshal last applied labels")
+				return false, nil, nil
 			}
 		}
 	} else {
 		dpuSet.Annotations = make(map[string]string)
 		if jsonStr, err := cutil.MarshalJSON(newLabels); err != nil {
-			return fmt.Errorf("failed to marshal new labels: %w", err)
+			logger.Error(err, "Failed to marshal new labels")
+			return false, nil, nil
 		} else {
 			dpuSet.Annotations[cutil.LastAppliedLabelsOnDPUKey] = jsonStr
 		}
@@ -529,26 +528,17 @@ func (r *DPUSetReconciler) updateNodeLabelsForDPUs(ctx context.Context, dpuSet *
 
 	if !reflect.DeepEqual(newLabels, oldLabels) {
 		removedLabels := cutil.GetRemovedLabels(oldLabels, newLabels)
+		return true, newLabels, removedLabels
+	}
+	return false, nil, nil
+}
 
-		// Update the node labels for the DPUs
-		for i := range dpuMap {
-			dpu := dpuMap[i] // copy into new variable
-			patcher := patch.NewSerialPatcher(&dpu, r.Client)
-			if dpu.Spec.Cluster.NodeLabels == nil {
-				dpu.Spec.Cluster.NodeLabels = make(map[string]string)
-			}
-			for k, v := range newLabels {
-				dpu.Spec.Cluster.NodeLabels[k] = v
-			}
-			for _, k := range removedLabels {
-				delete(dpu.Spec.Cluster.NodeLabels, k)
-			}
-			if err := patcher.Patch(ctx, &dpu); err != nil {
-				return fmt.Errorf("failed to patch DPU (%s/%s): %w", dpu.Namespace, dpu.Name, err)
-			}
-			logger.V(3).Info(fmt.Sprintf("DPU (%s/%s) label update to %v", dpu.Namespace, dpu.Name, newLabels))
-		}
-
+// in this function, it will:
+// 1. update the node labels for DPUs
+// 2. update the ApplyOnLabelChange field for DPUs
+func (r *DPUSetReconciler) updateDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuMap map[string]provisioningv1.DPU) error {
+	needUpdateLabels, newLabels, removedLabels := r.isNodeLabelUpdateNeeded(ctx, dpuSet)
+	if needUpdateLabels {
 		// Update the last applied labels annotation
 		if jsonStr, err := cutil.MarshalJSON(newLabels); err != nil {
 			return fmt.Errorf("failed to marshal new labels: %w", err)
@@ -556,13 +546,46 @@ func (r *DPUSetReconciler) updateNodeLabelsForDPUs(ctx context.Context, dpuSet *
 			dpuSet.Annotations[cutil.LastAppliedLabelsOnDPUKey] = jsonStr
 		}
 	}
+	for i := range dpuMap {
+		dpu := dpuMap[i] // copy into new variable
+		update := false
+		patcher := patch.NewSerialPatcher(&dpu, r.Client)
+		// 1. update node labels for DPU
+		if needUpdateLabels {
+			updateNodeLabelsForDPU(&dpu, newLabels, removedLabels)
+			update = true
+		}
+		// 2. update the ApplyOnLabelChange field for DPU
+		if updateNodeEffectApplyOnLabelChange(ctx, dpuSet, &dpu) {
+			update = true
+		}
+
+		if update {
+			if err := patcher.Patch(ctx, &dpu); err != nil {
+				return fmt.Errorf("failed to patch DPU (%s/%s): %w", dpu.Namespace, dpu.Name, err)
+			}
+		}
+	}
 
 	return nil
 }
 
+// updates the node labels for DPU
+func updateNodeLabelsForDPU(dpu *provisioningv1.DPU, newLabels map[string]string, removedLabels []string) {
+	if dpu.Spec.Cluster.NodeLabels == nil {
+		dpu.Spec.Cluster.NodeLabels = make(map[string]string)
+	}
+	for k, v := range newLabels {
+		dpu.Spec.Cluster.NodeLabels[k] = v
+	}
+	for _, k := range removedLabels {
+		delete(dpu.Spec.Cluster.NodeLabels, k)
+	}
+}
+
 // updateNodeEffectApplyOnLabelChange updates the ApplyOnLabelChange field for existing DPUs when the DPUSet template changes.
 // This function ensures that changes to the ApplyOnLabelChange field are propagated to existing DPUs without requiring recreation.
-func (r *DPUSetReconciler) updateNodeEffectApplyOnLabelChange(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuMap map[string]provisioningv1.DPU) error {
+func updateNodeEffectApplyOnLabelChange(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpu *provisioningv1.DPU) bool {
 	logger := log.FromContext(ctx)
 
 	// Get the expected ApplyOnLabelChange value from the DPUSet template
@@ -572,34 +595,24 @@ func (r *DPUSetReconciler) updateNodeEffectApplyOnLabelChange(ctx context.Contex
 	}
 
 	// Update ApplyOnLabelChange for existing DPUs if it has changed
-	for i := range dpuMap {
-		dpu := dpuMap[i] // copy into new variable
 
-		// Get current ApplyOnLabelChange value from DPU
-		var currentApplyOnLabelChange *bool
-		if dpu.Spec.NodeEffect != nil {
-			currentApplyOnLabelChange = dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange
-		}
-
-		// Check if ApplyOnLabelChange has changed
-		if !reflect.DeepEqual(currentApplyOnLabelChange, expectedApplyOnLabelChange) {
-			logger.V(3).Info(fmt.Sprintf("Updating ApplyOnLabelChange for DPU (%s/%s)", dpu.Namespace, dpu.Name))
-
-			patcher := patch.NewSerialPatcher(&dpu, r.Client)
-
-			// Ensure NodeEffect struct exists
-			if dpu.Spec.NodeEffect == nil {
-				dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{}
-			}
-
-			// Update ApplyOnLabelChange field
-			dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = expectedApplyOnLabelChange
-
-			if err := patcher.Patch(ctx, &dpu, patch.WithFieldOwner(DPUSetControllerName)); err != nil {
-				return fmt.Errorf("failed to patch DPU %s/%s: %w", dpu.Namespace, dpu.Name, err)
-			}
-		}
+	// Get current ApplyOnLabelChange value from DPU
+	var currentApplyOnLabelChange *bool
+	if dpu.Spec.NodeEffect != nil {
+		currentApplyOnLabelChange = dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange
 	}
 
-	return nil
+	// Check if ApplyOnLabelChange has changed
+	if !reflect.DeepEqual(currentApplyOnLabelChange, expectedApplyOnLabelChange) {
+		logger.V(3).Info(fmt.Sprintf("Updating ApplyOnLabelChange for DPU (%s/%s)", dpu.Namespace, dpu.Name))
+		// Ensure NodeEffect struct exists
+		if dpu.Spec.NodeEffect == nil {
+			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{}
+		}
+		// Update ApplyOnLabelChange field
+		dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = expectedApplyOnLabelChange
+		return true
+	}
+
+	return false
 }
