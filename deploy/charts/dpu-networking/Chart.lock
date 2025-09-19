@@ -17,8 +17,11 @@ dependencies:
 - name: sfc-controller
   repository: file://charts/sfc-controller
   version: 0.1.0
+- name: cni-installer
+  repository: file://charts/cni-installer
+  version: 0.1.0
 - name: flannel
   repository: https://flannel-io.github.io/flannel
   version: v0.27.2
-digest: sha256:c7c91a25a30921346215f174ea2f2fd4fab9ed95dd0760fa2bee630ca9083c5a
-generated: "2025-08-07T18:26:26.14682+02:00"
+digest: sha256:162165b352cd68159714b238949c53dee7f68c2ada1017f1e92e038e4de5ef63
+generated: "2025-09-03T16:57:04.01374067+02:00"

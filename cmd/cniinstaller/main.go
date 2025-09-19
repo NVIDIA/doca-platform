@@ -17,14 +17,25 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
+
+	"github.com/nvidia/doca-platform/internal/cniinstaller"
 
 	"k8s.io/klog/v2"
 )
 
 func main() {
 	klog.Info("DPF CNI Installer started")
+
+	installer := cniinstaller.New()
+
+	if err := installer.Install(); err != nil {
+		klog.Fatal(fmt.Errorf("failed to run install: %w", err))
+	}
+
+	klog.Info("CNI installation is done")
 
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt)

@@ -176,6 +176,22 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 	withClusterServiceSetValuesData, err := json.Marshal(withClusterServiceSetValues)
 	g.Expect(err).NotTo(HaveOccurred())
 
+	withCNIBinDirVariables := newDefaultVariables(defaults)
+	withCNIBinDirVariables.DPUCNIBinPath = "/some/cni/bin/dir/path"
+	cniInstallerWithCNIBinDirValues := initialValuesObject.DeepCopy()
+	cniInstallerWithCNIBinDirValues.Object[operatorv1.CNIInstallerName] = map[string]interface{}{
+		"cniInstaller": map[string]interface{}{
+			"image": map[string]interface{}{
+				"repository": "example.com/dpf-cni-installer",
+				"tag":        "v0.1.0",
+			},
+		},
+		"cniBinDir": "/some/cni/bin/dir/path",
+		"enabled":   true,
+	}
+	cniInstallerWithCNIBinDirValuesData, err := json.Marshal(cniInstallerWithCNIBinDirValues)
+	g.Expect(err).NotTo(HaveOccurred())
+
 	tests := []struct {
 		name    string
 		in      *dpuservicev1.DPUService
@@ -521,6 +537,48 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "cni installer sets cniBinDir",
+			in: &dpuservicev1.DPUService{
+				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: operatorv1.CNIInstallerName,
+				},
+				Spec: dpuservicev1.DPUServiceSpec{
+					HelmChart: dpuservicev1.HelmChart{
+						Values: &runtime.RawExtension{
+							Raw: initialValuesData,
+						},
+					},
+				},
+			},
+			vars: withCNIBinDirVariables,
+			want: &dpuservicev1.DPUService{
+				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: operatorv1.CNIInstallerName,
+					Labels: map[string]string{
+						operatorv1.DPFComponentLabelKey: operatorv1.CNIInstallerName,
+						release.DPFVersionLabelKey:      release.DPFVersion(),
+					},
+				},
+				Spec: dpuservicev1.DPUServiceSpec{
+					HelmChart: dpuservicev1.HelmChart{
+						Source: dpuservicev1.ApplicationSource{
+							RepoURL: "oci://example.com",
+							Path:    "",
+							Version: "v0.1.0",
+							Chart:   "dpu-networking",
+						},
+						Values: &runtime.RawExtension{
+							Raw: cniInstallerWithCNIBinDirValuesData,
+						},
+					},
+					DeployInCluster: ptr.To(false),
+				},
+			},
+			wantErr: false,
+		},
+		{
 			name: "DPUService with resources",
 			in: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
@@ -628,7 +686,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			err = runtime.DefaultUnstructuredConverter.FromUnstructured(gotUnstructured.UnstructuredContent(), gott)
 			g.Expect(err).ToNot(HaveOccurred())
 
-			g.Expect(gott).To(Equal(tt.want))
+			g.Expect(gott).To(BeComparableTo(tt.want))
 		})
 	}
 }

@@ -31,4 +31,14 @@ spec:
         name: cni-installer
         image: {{ .Values.cniInstaller.image.repository }}:{{ .Values.cniInstaller.image.tag | default .Chart.AppVersion }}
         resources: {{- toYaml .Values.cniInstaller.resources | nindent 10 }}
+        securityContext:
+          runAsUser: 0
+        volumeMounts:
+        - name: cnibin
+          mountPath: /opt/cni/bin
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      volumes:
+      - name: cnibin
+        hostPath:
+          path: {{ .Values.cniBinDir }}
+          type: Directory
