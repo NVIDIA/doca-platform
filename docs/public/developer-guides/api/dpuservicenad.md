@@ -128,3 +128,26 @@ spec:
 configuration that dpuService is using. The system will automatically merge the injected resources with any existing
 resources in the ArgoCD application (which is created from DPUService) object's serviceDaemonSet as shown in the above
 example.
+
+### Chained CNIs
+
+DPUServiceNAD allows chaining CNIs to combine the DPF OVS CNI with additional CNI plugins to provide enhanced networking
+capabilities. This is particularly useful when you need to chain RDMA (Remote Direct Memory Access) CNI with the DPF OVS
+CNI.
+
+Here's how to setup a DPUServiceNAD that provides SFs and RDMA devices on the Pods and connects the representors to the
+`test-ovsbridge`:
+
+```yaml
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: rdma-chained-nad
+  namespace: my-namespace
+spec:
+  resourceType: "sf"
+  bridge: "test-ovsbridge"
+  mtu: 1500
+  chainCNI:
+  - type: rdma
+```
