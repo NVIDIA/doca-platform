@@ -156,8 +156,6 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 		return result, err
 	}
 
-	// TODO: handle DPU modified
-
 	// Update DPUNode status - DPUInstallInterface
 	if r.DPUInstallInterface == nil {
 		return ctrl.Result{}, errors.New("DPUInstallInterface is not set")
@@ -234,7 +232,7 @@ func (r *DPUNodeReconciler) HandleRebootSync(ctx context.Context, dpuNode *provi
 }
 
 func (r *DPUNodeReconciler) noneDPUInNodeEffectOrRebooting(ctx context.Context, dpuNode *provisioningv1.DPUNode) error {
-	// handle DPU modified
+
 	// if DPU is in NodeEffect or Rebooting phase, and the DPUNode is ready, then set the DPUNode condition to false
 	dpuList := &provisioningv1.DPUList{}
 	if err := r.List(ctx, dpuList); err != nil {

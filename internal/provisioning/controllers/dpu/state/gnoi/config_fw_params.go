@@ -102,7 +102,7 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 			return *state, err
 		}
 	} else {
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), nil, "ConfigureFWParameters", "AlreadyInDPUMode"))
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), nil, "ConfigureFWParameters", ""))
 	}
 
 	state.Phase = provisioningv1.DPUOSInstalling
