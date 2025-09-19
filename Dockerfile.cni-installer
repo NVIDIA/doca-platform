@@ -1,9 +1,11 @@
 ARG builder_image
 ARG base_image
+ARG rdma_cni_version=v1.5.0
 
 # 1) dependency stage to create a dependency layer with go vendor folder and other dependencies
 FROM --platform=${BUILDPLATFORM} ${builder_image} AS dependency
 WORKDIR /workspace
+ARG rdma_cni_version
 
 # Copy source files needed for proper vendoring
 COPY go.mod go.sum ./
@@ -16,6 +18,13 @@ COPY pkg/ pkg/
 
 # Vendor all dependencies
 RUN go mod vendor
+
+# Copy the go source code so it can be distributed in the final image.
+RUN mkdir -p src/dpf && \
+    wget https://github.com/k8snetworkplumbingwg/rdma-cni/archive/refs/tags/${rdma_cni_version}.tar.gz -O src/rdma-cni-${rdma_cni_version}.tar.gz && \
+    find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
+    -not -path "./internal/vpc/*" -exec cp --parents \{\}  src/dpf/ \; && \
+    tar -czf source-code.tar.gz src
 
 # 2) Builder stage builds go binaries (no emulation).
 FROM --platform=${BUILDPLATFORM} ${builder_image} AS builder
@@ -34,7 +43,6 @@ ENV ARCH=${TARGETARCH}
 COPY --from=dependency /workspace .
 
 # Copy additional files required for the docker build.
-
 ## Makefile and modules needed to call the make target
 COPY Makefile ./
 COPY hack/tools/tools.mk hack/tools/tools.mk
@@ -43,13 +51,10 @@ COPY hack/tools/tools.mk hack/tools/tools.mk
 RUN --mount=type=cache,target=/root/.cache/go-build \
     GOFLAGS="-mod=vendor" make binary-cni-installer
 
-# Copy the go source code so it can be distributed in the final image.
-RUN mkdir src && \
-    find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
-    -not -path "./internal/vpc/*" -exec cp --parents \{\}  src/ \; && \
-    tar -czf source-code.tar.gz src
+# 3) Declare images to copy binaries from. The reason we declare them here is so that we can parameterise the version.
+FROM --platform=${TARGETPLATFORM} ghcr.io/k8snetworkplumbingwg/rdma-cni:${rdma_cni_version} AS rdmacni
 
-# 3) Final stage copies artefacts from the builder and dependency stages.
+# 4) Final stage copies artefacts from the builder and dependency stages.
 FROM ${base_image}
 ARG TARGETARCH
 
@@ -60,7 +65,9 @@ ENV uid=65532
 USER ${uid}:${uid}
 
 # Add the source code.
-COPY --chown=${uid} --from=builder /workspace/source-code.tar.gz source-code.tar.gz
+COPY --chown=${uid} --from=dependency /workspace/source-code.tar.gz source-code.tar.gz
 
 # Add the CNI Installer binary
 COPY --chown=${uid} --from=builder /workspace/bin/ .
+
+COPY --chown=${uid} --from=rdmacni /usr/bin/rdma /opt/cnis/rdma
