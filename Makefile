@@ -706,7 +706,7 @@ DPF_SYSTEM_BUILD_TARGETS ?= operator provisioning dpuservice servicechainset kam
 	sfc-controller dpfctl dpudetector
 DPU_ARCH_BUILD_TARGETS ?=
 # contains list of storage-related binaries that have no system-level dependencies
-STORAGE_SYSTEM_BUILD_TARGETS ?= storage-snap-host-controller storage-snap-controller storage-snap-node-driver block-storage-vendor-dpu-plugin storage-snap-csi-plugin storage-nvidia-external-attacher nfs-storage-vendor-dpu-plugin
+STORAGE_SYSTEM_BUILD_TARGETS ?= storage-snap-host-controller storage-snap-node-driver block-storage-vendor-dpu-plugin storage-snap-csi-plugin storage-nvidia-external-attacher nfs-storage-vendor-dpu-plugin
 # contains list of storage-related binaries that have system-level dependencies (depend on some linux utils from the container)
 STORAGE_HOST_BUILD_TARGETS ?= storage-snap-csi-plugin fs-storage-vendor-dpu-plugin
 
@@ -783,9 +783,6 @@ binary-ovn-kubernetes-resource-injector: ## Build the OVN Kubernetes Resource In
 binary-storage-snap-host-controller: ## Build the snap host controller controller binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/snap-host-controller github.com/nvidia/doca-platform/cmd/storage/snap-host-controller
 
-.PHONY: binary-storage-snap-controller
-binary-storage-snap-controller: ## Build the snap controller controller binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/snap-controller github.com/nvidia/doca-platform/cmd/storage/snap-controller
 
 .PHONY: binary-storage-snap-node-driver
 binary-storage-snap-node-driver: ## Build the snap node driver controller binary.
