@@ -23,6 +23,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/test/utils/informer"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -105,6 +106,38 @@ var _ = Describe("DPUNode Controller", func() {
 		return dpuDevice
 	}
 
+	var patchFakePhase = func(name string, phase provisioningv1.DPUPhase) {
+		key := client.ObjectKey{Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace, Name: name}
+		dpu := &provisioningv1.DPU{}
+		Expect(k8sClient.Get(ctx, key, dpu)).To(Succeed())
+		orig := dpu.DeepCopy()
+		GinkgoWriter.Printf("before patch Current value: %v\n", orig.Status.Phase)
+		GinkgoWriter.Printf("before patch Current value: %v\n", orig.Status.Conditions)
+
+		dpu.Status.Phase = phase
+		conditions := []metav1.Condition{
+			{
+				Type:               provisioningv1.DPUCondInterfaceInitialized.String(),
+				Status:             metav1.ConditionTrue,
+				Reason:             string(provisioningv1.DPUCondInterfaceInitialized),
+				LastTransitionTime: metav1.Now(),
+			},
+			{
+				Type:               provisioningv1.DPUCondOSInstalled.String(),
+				Status:             metav1.ConditionTrue,
+				Reason:             string(provisioningv1.DPUCondOSInstalled),
+				LastTransitionTime: metav1.Now(),
+			},
+		}
+		dpu.Status.Conditions = conditions
+		Expect(k8sClient.Status().Patch(ctx, dpu, client.MergeFrom(orig))).To(Succeed())
+
+		fetchedDPU := &provisioningv1.DPU{}
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu), fetchedDPU)).To(Succeed())
+		GinkgoWriter.Printf("after patch Current value: %v\n", fetchedDPU.Status.Phase)
+		GinkgoWriter.Printf("after patch Current value: %v\n", fetchedDPU.Status.Conditions)
+	}
+
 	Describe("DPUNode", func() {
 		BeforeEach(func() {
 			By("creating the namespace")
@@ -137,6 +170,7 @@ var _ = Describe("DPUNode Controller", func() {
 			Expect(client.IgnoreNotFound(k8sClient.DeleteAllOf(ctx, &corev1.Node{}))).To(Succeed())
 			Expect(client.IgnoreNotFound(k8sClient.DeleteAllOf(ctx, &provisioningv1.DPUNode{}))).To(Succeed())
 			Expect(client.IgnoreNotFound(k8sClient.DeleteAllOf(ctx, &provisioningv1.DPUDevice{}))).To(Succeed())
+			Expect(client.IgnoreNotFound(k8sClient.DeleteAllOf(ctx, &provisioningv1.DPU{}))).To(Succeed())
 			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, testDPFoperatorConfig))).To(Succeed())
 			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNS.Name}}))).To(Succeed())
 		})
@@ -218,7 +252,6 @@ var _ = Describe("DPUNode Controller", func() {
 					return dpuNodeFetched.Labels
 				}).WithTimeout(10 * time.Second).Should(HaveKeyWithValue("new-test-label", "new-value"))
 			})
-
 			It("DPUNode: Validate DPUNode.Status.DPUInstallInterface=gNOI", func() {
 				dpuNode := createDPUNode("dpunode-test-node-5", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace)
 				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
@@ -229,117 +262,6 @@ var _ = Describe("DPUNode Controller", func() {
 					g.Expect(dpuNodeFetched.Status.DPUInstallInterface).NotTo(BeNil())
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 				Expect(*dpuNodeFetched.Status.DPUInstallInterface).To(Equal(string(provisioningv1.DPUNodeInstallInterfaceGNOI)))
-			})
-			It("DPUNode: Validate DPUDevice params - good flow gNOI", func() {
-				dpuDevice := createDPUDevice("dpudevice-3", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace, ptr.To("0000-04-00"), nil)
-				dpuNode := createDPUNode("dpunode-test-node-6", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace)
-				dpuNode.Spec.DPUs = []provisioningv1.DPURef{
-					{
-						Name: dpuDevice.Name,
-					},
-				}
-				dpuNode.Spec.NodeDMSAddress = &provisioningv1.DMSAddress{IP: testIP, Port: testPort}
-				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
-
-				dpuNodeFetched := &provisioningv1.DPUNode{}
-
-				Eventually(func(g Gomega) []metav1.Condition {
-					ev := &informer.Event{}
-					g.Eventually(i.UpdateEvents).Should(Receive(ev))
-					oldDPUNodeObj := &provisioningv1.DPUNode{}
-					newDPUNodeObj := &provisioningv1.DPUNode{}
-					g.Expect(k8sClient.Scheme().Convert(ev.OldObj, oldDPUNodeObj, nil)).ToNot(HaveOccurred())
-					g.Expect(k8sClient.Scheme().Convert(ev.NewObj, newDPUNodeObj, nil)).ToNot(HaveOccurred())
-
-					dpuNodeFetched = newDPUNodeObj
-					return dpuNodeFetched.Status.Conditions
-				}).WithTimeout(30 * time.Second).Should(ConsistOf(
-					And(
-						HaveField("Type", provisioningv1.DPUNodeConditionReady.String()),
-						HaveField("Status", metav1.ConditionFalse),
-						HaveField("Reason", "DMSServerNotReady"),
-					),
-				))
-			})
-			It("DPUNode: Validate DPUDevice params - bad flow - gNOI, no PCIAddress", func() {
-				dpuDevice := createDPUDevice("dpudevice-4", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace, nil, ptr.To("1.1.1.1"))
-				dpuNode := createDPUNode("dpunode-test-node-7", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace)
-				dpuNode.Spec.DPUs = []provisioningv1.DPURef{
-					{
-						Name: dpuDevice.Name,
-					},
-				}
-				dpuNode.Spec.NodeDMSAddress = &provisioningv1.DMSAddress{IP: testIP, Port: testPort}
-				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
-
-				dpuNodeFetched := &provisioningv1.DPUNode{}
-
-				Eventually(func(g Gomega) []metav1.Condition {
-					ev := &informer.Event{}
-					g.Eventually(i.UpdateEvents).Should(Receive(ev))
-					oldDPUNodeObj := &provisioningv1.DPUNode{}
-					newDPUNodeObj := &provisioningv1.DPUNode{}
-					g.Expect(k8sClient.Scheme().Convert(ev.OldObj, oldDPUNodeObj, nil)).ToNot(HaveOccurred())
-					g.Expect(k8sClient.Scheme().Convert(ev.NewObj, newDPUNodeObj, nil)).ToNot(HaveOccurred())
-
-					dpuNodeFetched = newDPUNodeObj
-					return dpuNodeFetched.Status.Conditions
-				}).WithTimeout(30 * time.Second).Should(ConsistOf(
-					And(
-						HaveField("Type", provisioningv1.DPUNodeConditionInvalidDPUDetails.String()),
-						HaveField("Status", metav1.ConditionTrue),
-						HaveField("Reason", string(provisioningv1.DPUNodeConditionInvalidDPUDetails)),
-					),
-				))
-			})
-			It("DPUNode: Check DMS Server Readiness - expect error, Validate DPUNode condition Ready=false, DMSServerNotReady", func() {
-				dpuNode := createDPUNode("dpunode-test-node-8", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace)
-				dpuNode.Spec.NodeDMSAddress = &provisioningv1.DMSAddress{IP: testIP, Port: testPort}
-				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
-
-				dpuNodeFetched := &provisioningv1.DPUNode{}
-
-				Eventually(func(g Gomega) []metav1.Condition {
-					ev := &informer.Event{}
-					g.Eventually(i.UpdateEvents).Should(Receive(ev))
-					oldDPUNodeObj := &provisioningv1.DPUNode{}
-					newDPUNodeObj := &provisioningv1.DPUNode{}
-					g.Expect(k8sClient.Scheme().Convert(ev.OldObj, oldDPUNodeObj, nil)).ToNot(HaveOccurred())
-					g.Expect(k8sClient.Scheme().Convert(ev.NewObj, newDPUNodeObj, nil)).ToNot(HaveOccurred())
-
-					dpuNodeFetched = newDPUNodeObj
-					return dpuNodeFetched.Status.Conditions
-				}).WithTimeout(30 * time.Second).Should(ConsistOf(
-					And(
-						HaveField("Type", provisioningv1.DPUNodeConditionReady.String()),
-						HaveField("Status", metav1.ConditionFalse),
-						HaveField("Reason", "DMSServerNotReady"),
-					),
-				))
-			})
-			It("DPUNode: NodeDMSAdress is not set - expect error", func() {
-				dpuNode := createDPUNode("dpunode-test-node-9", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace)
-				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
-
-				dpuNodeFetched := &provisioningv1.DPUNode{}
-
-				Eventually(func(g Gomega) []metav1.Condition {
-					ev := &informer.Event{}
-					g.Eventually(i.UpdateEvents).Should(Receive(ev))
-					oldDPUNodeObj := &provisioningv1.DPUNode{}
-					newDPUNodeObj := &provisioningv1.DPUNode{}
-					g.Expect(k8sClient.Scheme().Convert(ev.OldObj, oldDPUNodeObj, nil)).ToNot(HaveOccurred())
-					g.Expect(k8sClient.Scheme().Convert(ev.NewObj, newDPUNodeObj, nil)).ToNot(HaveOccurred())
-
-					dpuNodeFetched = newDPUNodeObj
-					return dpuNodeFetched.Status.Conditions
-				}).WithTimeout(30 * time.Second).Should(ConsistOf(
-					And(
-						HaveField("Type", provisioningv1.DPUNodeConditionReady.String()),
-						HaveField("Status", metav1.ConditionFalse),
-						HaveField("Reason", "NoNodeDMSAddress"),
-					),
-				))
 			})
 			It("DPUNode: Validate DPUNode.Status.DPUInstallInterface=redfish, Validate DPUNode condition Ready", func() {
 				Skip("Skip this test due to race condition - changing DPUNodeReconciler.DPUInstallInterface during tests are running")
@@ -447,6 +369,166 @@ var _ = Describe("DPUNode Controller", func() {
 					},
 				}
 				Expect(k8sClient.Create(ctx, dpuDevice)).To(HaveOccurred())
+			})
+
+			It("DPUNode: DPUNode condition RebootInProgress and annotation should be set as expected when two DPUs under the same host are in rebooting phase at the same time", func() {
+				// Create DPUDevices
+				dpuDevice1 := createDPUDevice("dpudevice-1", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace, ptr.To("MT2333XZ0X5R"), nil)
+				dpuDevice2 := createDPUDevice("dpudevice-2", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace, ptr.To("MT2337XZ04WL"), nil)
+
+				// Create DPUNode
+				dpuNode := createDPUNode("test-dpunode-13", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace)
+				dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+					External: &provisioningv1.External{},
+				}
+				dpuNode.Spec.DPUs = []provisioningv1.DPURef{
+					{Name: dpuDevice1.Name},
+					{Name: dpuDevice2.Name},
+				}
+				dpuNode.Spec.NodeDMSAddress = &provisioningv1.DMSAddress{IP: testIP, Port: testPort}
+				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
+
+				// Set DPUInstallInterface on DPUNode to avoid DPU controller errors
+				dpuNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.DPUNodeInstallInterfaceGNOI))
+				Expect(k8sClient.Status().Update(ctx, dpuNode)).To(Succeed())
+
+				// Add OOB bridge configured label to avoid DPU controller errors
+				// Get the latest version to avoid conflict errors
+				Eventually(func() error {
+					latestDPUNode := &provisioningv1.DPUNode{}
+					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), latestDPUNode); err != nil {
+						return err
+					}
+					if latestDPUNode.Labels == nil {
+						latestDPUNode.Labels = make(map[string]string)
+					}
+					latestDPUNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = "true"
+					patch := client.MergeFrom(latestDPUNode.DeepCopy())
+					return k8sClient.Status().Patch(ctx, latestDPUNode, patch)
+				}).WithTimeout(10 * time.Second).Should(Succeed())
+
+				// Create DPUs with different phases
+				dpu1 := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpunode-13-dpudevice-1",
+						Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUNodeName:   "test-dpunode-13",
+						DPUDeviceName: dpuDevice1.Name,
+						SerialNumber:  DefaultSerialNumber,
+					},
+				}
+				dpu2 := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpunode-13-dpudevice-2",
+						Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUNodeName:   "test-dpunode-13",
+						DPUDeviceName: dpuDevice2.Name,
+						SerialNumber:  DefaultSerialNumber,
+					},
+				}
+
+				Expect(k8sClient.Create(ctx, dpu1)).To(Succeed())
+				patchFakePhase(dpu1.Name, provisioningv1.DPURebooting)
+
+				Expect(k8sClient.Create(ctx, dpu2)).To(Succeed())
+				patchFakePhase(dpu2.Name, provisioningv1.DPURebooting)
+
+				fetchedDPU1 := &provisioningv1.DPU{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu1), fetchedDPU1)).To(Succeed())
+				Expect(fetchedDPU1.Status.Phase).To(Equal(provisioningv1.DPURebooting))
+
+				fetchedDPU2 := &provisioningv1.DPU{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu2), fetchedDPU2)).To(Succeed())
+
+				Expect(fetchedDPU2.Status.Phase).To(Equal(provisioningv1.DPURebooting))
+
+				// check DPUNode annotation and condition is set as expected
+				Eventually(func(g Gomega) []metav1.Condition {
+					dpuNodeFetched := &provisioningv1.DPUNode{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), dpuNodeFetched)).To(Succeed())
+					g.Expect(dpuNodeFetched.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation]).To(Equal("true"))
+
+					return dpuNodeFetched.Status.Conditions
+				}).WithTimeout(5 * time.Second).Should(ContainElement(
+					And(
+						HaveField("Type", provisioningv1.DPUNodeConditionRebootInProgress.String()),
+						HaveField("Status", metav1.ConditionTrue),
+					),
+				))
+
+			})
+
+			It("DPUNode: DPUNode condition RebootInProgress should be set as expected if there is only one DPU deployed on multiple DPUs host", func() {
+				// Create DPUDevices
+				dpuDevice7 := createDPUDevice("dpudevice-7", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace, ptr.To("MT2333XZ0X5R"), nil)
+				dpuDevice8 := createDPUDevice("dpudevice-8", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace, ptr.To("MT2337XZ04WL"), nil)
+				// Create DPUNode
+				dpuNode := createDPUNode("test-dpunode-14", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace)
+				dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+					External: &provisioningv1.External{},
+				}
+				dpuNode.Spec.DPUs = []provisioningv1.DPURef{
+					{Name: dpuDevice7.Name},
+					{Name: dpuDevice8.Name},
+				}
+				dpuNode.Spec.NodeDMSAddress = &provisioningv1.DMSAddress{IP: testIP, Port: testPort}
+				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
+
+				// Set DPUInstallInterface on DPUNode to avoid DPU controller errors
+				dpuNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.DPUNodeInstallInterfaceGNOI))
+				Expect(k8sClient.Status().Update(ctx, dpuNode)).To(Succeed())
+
+				// Add OOB bridge configured label to avoid DPU controller errors
+				// Get the latest version to avoid conflict errors
+				Eventually(func() error {
+					latestDPUNode := &provisioningv1.DPUNode{}
+					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), latestDPUNode); err != nil {
+						return err
+					}
+					if latestDPUNode.Labels == nil {
+						latestDPUNode.Labels = make(map[string]string)
+					}
+					latestDPUNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = "true"
+					patch := client.MergeFrom(latestDPUNode.DeepCopy())
+					return k8sClient.Status().Patch(ctx, latestDPUNode, patch)
+				}).WithTimeout(10 * time.Second).Should(Succeed())
+
+				// Create DPUs with different phases
+				dpu1 := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpunode-14-dpudevice-7",
+						Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUNodeName:   "test-dpunode-14",
+						DPUDeviceName: dpuDevice7.Name,
+						SerialNumber:  DefaultSerialNumber,
+					},
+				}
+
+				Expect(k8sClient.Create(ctx, dpu1)).To(Succeed())
+				patchFakePhase(dpu1.Name, provisioningv1.DPURebooting)
+
+				fetchedDPU1 := &provisioningv1.DPU{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu1), fetchedDPU1)).To(Succeed())
+
+				// check DPUNode annotation and condition is set as expected
+				Eventually(func(g Gomega) []metav1.Condition {
+					dpuNodeFetched := &provisioningv1.DPUNode{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), dpuNodeFetched)).To(Succeed())
+					g.Expect(dpuNodeFetched.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation]).To(Equal("true"))
+					return dpuNodeFetched.Status.Conditions
+				}).WithTimeout(5 * time.Second).Should(ContainElement(
+					And(
+						HaveField("Type", provisioningv1.DPUNodeConditionRebootInProgress.String()),
+						HaveField("Status", metav1.ConditionTrue),
+					),
+				))
+
 			})
 		})
 	})

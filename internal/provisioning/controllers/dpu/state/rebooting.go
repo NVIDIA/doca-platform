@@ -151,9 +151,10 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 		_, rebootCondition := cutil.GetDPUCondition(state, provisioningv1.DPUCondRebooted.String())
 		if rebootCondition != nil && rebootCondition.Status == metav1.ConditionTrue {
 			state.Phase = provisioningv1.DPUHostNetworkConfiguration
+			logger.Info(fmt.Sprintf("DPU %s moves to Host Network Configuration phase", dpu.Name))
 			if ctrlCtx.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
 				state.Phase = provisioningv1.DPUClusterConfig
-				logger.Info(fmt.Sprintf("DPU %s moves to DPU Cluster Config phase", dpu.Name))
+				logger.Info(fmt.Sprintf("DPU %s moves to DPU Cluster Configuration phase", dpu.Name))
 			}
 		}
 		return *state, nil
