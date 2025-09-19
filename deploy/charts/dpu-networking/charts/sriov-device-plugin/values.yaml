@@ -31,6 +31,7 @@ sriovdpConfig:
             "selectors": [{
                 "vendors": ["15b3"],
                 "pfNames": ["p0#1-100"],
+                "isRdma": true,
                 "auxTypes": ["sf"]
             }]
         }, 
