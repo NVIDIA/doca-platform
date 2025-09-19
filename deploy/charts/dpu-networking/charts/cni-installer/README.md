@@ -8,6 +8,7 @@ A Helm chart for Kubernetes that installs a daemonset which runs an image that i
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| cniBinDir | string | `"/opt/cni/bin"` |  |
 | cniInstaller.args | list | `[]` |  |
 | cniInstaller.image.repository | string | `"example.com/dpf-system"` |  |
 | cniInstaller.image.tag | string | `"v0.1.0"` |  |

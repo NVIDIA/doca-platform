@@ -12,3 +12,4 @@ cniInstaller:
   serviceAccount:
     annotations: {}
 imagePullSecrets: []
+cniBinDir: /opt/cni/bin
