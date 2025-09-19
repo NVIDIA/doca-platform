@@ -193,6 +193,7 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				}
 			}
 			if rebootCondition != nil && rebootCondition.Status == metav1.ConditionTrue {
+				logger.Info("DPUNode RebootInProgress condition is true, requeue the DPU request", "DPUNode", dpuNode.Name)
 				return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
 			}
 		}
