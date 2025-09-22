@@ -42,8 +42,12 @@ type dpuServiceControllerObjects struct {
 	objects []*unstructured.Unstructured
 }
 
-func (d *dpuServiceControllerObjects) Name() string {
+func (d *dpuServiceControllerObjects) Name() operatorv1.ComponentName {
 	return operatorv1.DPUServiceControllerName
+}
+
+func (d *dpuServiceControllerObjects) ImageName() string {
+	return operatorv1.DPUServiceControllerName.WithContainer(operatorv1.ControllerManagerContainer)
 }
 
 // Parse returns typed objects for the DPUService controller deployment.
@@ -86,7 +90,7 @@ func (d *dpuServiceControllerObjects) GenerateManifests(vars Variables, options 
 
 	applySetID := ApplySetID(vars.Namespace, d)
 	labelsToAdd := map[string]string{
-		operatorv1.DPFComponentLabelKey: d.Name(),
+		operatorv1.DPFComponentLabelKey: d.Name().String(),
 		release.DPFVersionLabelKey:      release.DPFVersion(),
 	}
 	// Add the ApplySet label to the manifests unless disabled.
@@ -94,7 +98,7 @@ func (d *dpuServiceControllerObjects) GenerateManifests(vars Variables, options 
 		labelsToAdd[applysetPartOfLabel] = applySetID
 	}
 
-	managerImage, ok := vars.Images[d.Name()]
+	containerImage, ok := vars.Images[d.ImageName()]
 	if !ok {
 		return nil, fmt.Errorf("could not find image for %s in variables", d.Name())
 	}
@@ -110,14 +114,13 @@ func (d *dpuServiceControllerObjects) GenerateManifests(vars Variables, options 
 		AddForKindS(DeploymentKind, TolerationsEdit(controlPlaneTolerations)).
 		AddForKindS(StatefulSetKind, TolerationsEdit(controlPlaneTolerations)).
 		AddForKindS(DaemonSetKind, TolerationsEdit(controlPlaneTolerations)).
-		AddForKindS(DeploymentKind, ImageForDeploymentContainerEdit(managerContainerName, managerImage))
+		AddForKindS(DeploymentKind, ImageForDeploymentContainerEdit(operatorv1.ControllerManagerContainer.String(), containerImage))
 
 	// Add component-specific labels, annotations, and resources
-	componentName := d.Name()
-	if resources, exists := vars.Resources[componentName]; exists {
+	if resources, exists := vars.Resources[d.ImageName()]; exists {
 		// Check if resources are set (either requests or limits)
 		if len(resources.Requests) > 0 || len(resources.Limits) > 0 {
-			edits = edits.AddForKindS(DeploymentKind, ResourcesEditForDeployment(managerContainerName, resources))
+			edits = edits.AddForKindS(DeploymentKind, ResourcesEditForDeployment(operatorv1.ControllerManagerContainer.String(), resources))
 		}
 	}
 
