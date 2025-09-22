@@ -93,10 +93,10 @@ spec:
 					APIVersion: "svc.dpu.nvidia.com/v1alpha1",
 				},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      serviceName,
+					Name:      serviceName.String(),
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						operatorv1.DPFComponentLabelKey: serviceName,
+						operatorv1.DPFComponentLabelKey: serviceName.String(),
 						release.DPFVersionLabelKey:      release.DPFVersion(),
 					},
 				},
@@ -124,7 +124,7 @@ spec:
 						Name:      "test-nad-1",
 						Namespace: "test-namespace",
 						Labels: map[string]string{
-							operatorv1.DPFComponentLabelKey: serviceName,
+							operatorv1.DPFComponentLabelKey: serviceName.String(),
 							release.DPFVersionLabelKey:      release.DPFVersion(),
 						},
 					},
@@ -144,7 +144,7 @@ spec:
 						Name:      "test-nad-2",
 						Namespace: "test-namespace",
 						Labels: map[string]string{
-							operatorv1.DPFComponentLabelKey: serviceName,
+							operatorv1.DPFComponentLabelKey: serviceName.String(),
 							release.DPFVersionLabelKey:      release.DPFVersion(),
 						},
 					},
@@ -196,10 +196,10 @@ spec:
 					APIVersion: "svc.dpu.nvidia.com/v1alpha1",
 				},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      serviceName,
+					Name:      serviceName.String(),
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						operatorv1.DPFComponentLabelKey: serviceName,
+						operatorv1.DPFComponentLabelKey: serviceName.String(),
 						release.DPFVersionLabelKey:      release.DPFVersion(),
 					},
 				},
@@ -227,7 +227,7 @@ spec:
 						Name:      "test-nad",
 						Namespace: "test-namespace",
 						Labels: map[string]string{
-							operatorv1.DPFComponentLabelKey: serviceName,
+							operatorv1.DPFComponentLabelKey: serviceName.String(),
 							release.DPFVersionLabelKey:      release.DPFVersion(),
 						},
 					},

@@ -78,7 +78,7 @@ func (g GroupKindNamespaceName) String() string {
 
 // ApplySetName returns the constant name for an ApplySet given a component.
 func ApplySetName(component Component) string {
-	return fmt.Sprintf("%s-%s", component.Name(), "applyset")
+	return fmt.Sprintf("%s-%s", component.Name().String(), "applyset")
 }
 
 // ApplySetID is a unique ID for the ApplySet.
@@ -103,7 +103,7 @@ func applySetParentForComponent(component Component, id string, vars Variables, 
 	parent.SetNamespace(vars.Namespace)
 	parent.SetLabels(map[string]string{
 		ApplySetParentIDLabel:           id,
-		operatorv1.DPFComponentLabelKey: component.Name(),
+		operatorv1.DPFComponentLabelKey: component.Name().String(),
 	})
 	parent.SetAnnotations(map[string]string{
 		ApplySetInventoryAnnotationKey: inventory,

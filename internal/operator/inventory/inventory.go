@@ -29,7 +29,7 @@ import (
 // Component describes the responsibilities of an item in the Inventory.
 type Component interface {
 	// Name returns the name of the component.
-	Name() string
+	Name() operatorv1.ComponentName
 
 	// Parse parses the component data into the relevant fields of the struct and performs some basic validations.
 	// Returns an error if the data is invalid or if the component cannot be parsed.

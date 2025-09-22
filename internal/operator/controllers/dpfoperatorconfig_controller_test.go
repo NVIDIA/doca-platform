@@ -179,7 +179,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 
 		// Add a finalizer to a DPUService to prevent deletion from succeeding.
 		g.Eventually(func(g Gomega) {
-			g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: operatorv1.MultusName}, dpuservice)).To(Succeed())
+			g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: operatorv1.MultusName.String()}, dpuservice)).To(Succeed())
 			dpuservice.ObjectMeta.SetFinalizers(append(dpuservice.ObjectMeta.GetFinalizers(), "another"))
 			g.Expect(testClient.Update(ctx, dpuservice)).To(Succeed())
 		}).WithTimeout(10 * time.Second).Should(Succeed())
@@ -200,7 +200,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 
 		g.Eventually(func(g Gomega) {
-			g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: operatorv1.MultusName}, dpuservice)).To(Succeed())
+			g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: operatorv1.MultusName.String()}, dpuservice)).To(Succeed())
 			// Remove the finalizers from the DPUService to enable deletion.
 			dpuservice.ObjectMeta.SetFinalizers([]string{})
 			g.Expect(testClient.Update(ctx, dpuservice)).To(Succeed())
@@ -274,8 +274,10 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-						ImageComponentConfig: operatorv1.ImageComponentConfig{
-							Image: ptr.To("example.com/dpu-provisioning-controller:v1.0.0"),
+						Controller: &operatorv1.DefaultOverridesConfiguration{
+							ImageComponentConfig: operatorv1.ImageComponentConfig{
+								Image: ptr.To("example.com/dpu-provisioning-controller:v1.0.0"),
+							},
 						},
 						BFBPersistentVolumeClaimName: "name",
 						MaxDPUParallelInstallations:  ptr.To(int32(10)),
@@ -329,9 +331,11 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-						ImageComponentConfig: operatorv1.ImageComponentConfig{
-							// Invalid image name.
-							Image: ptr.To("example.com/dpu-provisioning-controller:v1.0.0"),
+						Controller: &operatorv1.DefaultOverridesConfiguration{
+							ImageComponentConfig: operatorv1.ImageComponentConfig{
+								// Invalid image name.
+								Image: ptr.To("example.com/dpu-provisioning-controller:v1.0.0"),
+							},
 						},
 						BFBPersistentVolumeClaimName: "name",
 					},
@@ -353,9 +357,11 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-						ImageComponentConfig: operatorv1.ImageComponentConfig{
-							// Invalid image name.
-							Image: ptr.To("--"),
+						Controller: &operatorv1.DefaultOverridesConfiguration{
+							ImageComponentConfig: operatorv1.ImageComponentConfig{
+								// Invalid image name.
+								Image: ptr.To("--"),
+							},
 						},
 						BFBPersistentVolumeClaimName: "name",
 					},
@@ -372,9 +378,11 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-						ImageComponentConfig: operatorv1.ImageComponentConfig{
-							// Invalid image name.
-							Image: ptr.To("example.com/dpu-provisioning-controller:v1.0.0"),
+						Controller: &operatorv1.DefaultOverridesConfiguration{
+							ImageComponentConfig: operatorv1.ImageComponentConfig{
+								// Invalid image name.
+								Image: ptr.To("example.com/dpu-provisioning-controller:v1.0.0"),
+							},
 						},
 						BFBPersistentVolumeClaimName: "name",
 					},
@@ -526,26 +534,34 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 			// For objects which are deployed as raw manifests set the image field in configuration.
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 				BFBPersistentVolumeClaimName: "foo-pvc",
-				ImageComponentConfig: operatorv1.ImageComponentConfig{
-					Image: ptr.To(fmt.Sprintf(imageTemplate, operatorv1.ProvisioningControllerName)),
+				Controller: &operatorv1.DefaultOverridesConfiguration{
+					ImageComponentConfig: operatorv1.ImageComponentConfig{
+						Image: ptr.To(fmt.Sprintf(imageTemplate, operatorv1.ProvisioningControllerName)),
+					},
 				},
 			},
 			DPUServiceController: &operatorv1.DPUServiceControllerConfiguration{
-				ImageComponentConfig: operatorv1.ImageComponentConfig{
-					Image: ptr.To(fmt.Sprintf(imageTemplate, operatorv1.DPUServiceControllerName)),
+				Controller: &operatorv1.DefaultOverridesConfiguration{
+					ImageComponentConfig: operatorv1.ImageComponentConfig{
+						Image: ptr.To(fmt.Sprintf(imageTemplate, operatorv1.DPUServiceControllerName)),
+					},
 				},
 			},
 			KamajiClusterManager: &operatorv1.KamajiClusterManagerConfiguration{
-				ImageComponentConfig: operatorv1.ImageComponentConfig{
-					Image: ptr.To(fmt.Sprintf(imageTemplate, operatorv1.KamajiClusterManagerName)),
+				Controller: &operatorv1.DefaultOverridesConfiguration{
+					ImageComponentConfig: operatorv1.ImageComponentConfig{
+						Image: ptr.To(fmt.Sprintf(imageTemplate, operatorv1.KamajiClusterManagerName)),
+					},
 				},
 				BaseComponentConfig: operatorv1.BaseComponentConfig{
 					Disable: ptr.To(false),
 				},
 			},
 			StaticClusterManager: &operatorv1.StaticClusterManagerConfiguration{
-				ImageComponentConfig: operatorv1.ImageComponentConfig{
-					Image: ptr.To(fmt.Sprintf(imageTemplate, operatorv1.StaticClusterManagerName)),
+				Controller: &operatorv1.DefaultOverridesConfiguration{
+					ImageComponentConfig: operatorv1.ImageComponentConfig{
+						Image: ptr.To(fmt.Sprintf(imageTemplate, operatorv1.StaticClusterManagerName)),
+					},
 				},
 				BaseComponentConfig: operatorv1.BaseComponentConfig{
 					Disable: ptr.To(false),
@@ -770,7 +786,7 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 			g.Expect(testClient.List(ctx, dpuservices)).To(Succeed())
 			err := testClient.Get(ctx, client.ObjectKey{
 				Namespace: config.Namespace,
-				Name:      operatorv1.MultusName},
+				Name:      operatorv1.MultusName.String()},
 				&dpuservicev1.DPUService{})
 			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		}).WithTimeout(10 * time.Second).Should(Succeed())
@@ -801,18 +817,18 @@ func firstContainerHasImageWithName(deployment *appsv1.Deployment, imageName str
 	return deployment.Spec.Template.Spec.Containers[0].Image == imageName
 }
 
-func waitForDPUService(g Gomega, ns, name string, imagePullSecrets []string) *dpuservicev1.DPUService {
+func waitForDPUService(g Gomega, ns string, name operatorv1.ComponentName, imagePullSecrets []string) *dpuservicev1.DPUService {
 	dpuservice := &dpuservicev1.DPUService{}
 	g.Eventually(func(g Gomega) {
 		g.Expect(testClient.Get(ctx, client.ObjectKey{
 			Namespace: ns,
-			Name:      name},
-			dpuservice)).To(Succeed())
+			Name:      name.String(),
+		}, dpuservice)).To(Succeed())
 		var result map[string]interface{}
 		g.Expect(json.Unmarshal(dpuservice.Spec.HelmChart.Values.Raw, &result)).To(Succeed())
 
 		// Each system DPUService should have specific values under values.$SERVICE_NAME
-		serviceValues, ok := result[name].(map[string]interface{})
+		serviceValues, ok := result[name.String()].(map[string]interface{})
 		g.Expect(ok).To(BeTrue())
 		g.Expect(serviceValues).To(HaveKey("imagePullSecrets"))
 		secrets, ok := serviceValues["imagePullSecrets"].([]interface{})
@@ -942,7 +958,7 @@ func TestDPFOperatorConfigValidation(t *testing.T) {
 func TestApplySetCreationUpgradeDeletion(t *testing.T) {
 	g := NewWithT(t)
 	ns := "test-generateandpatchobjects"
-	testComponentName := "test-component"
+	testComponentName := operatorv1.ComponentName("test-component")
 	objOne := testObject(ns, "obj-one")
 	objTwo := testObject(ns, "obj-two")
 	applySet := testApplySet(ns, inventory.StubComponentWithObjs(testComponentName, []*unstructured.Unstructured{}))
@@ -1319,7 +1335,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 		g.Expect(patcher.Patch(ctx, config, patch.WithFieldOwner("test"))).To(Succeed())
 
 		dpuService := &dpuservicev1.DPUService{}
-		dpuService.SetName(operatorv1.ServiceSetControllerName)
+		dpuService.SetName(operatorv1.ServiceSetControllerName.String())
 		dpuService.SetNamespace(testNS.Name)
 		g.Eventually(func(g Gomega) {
 			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuService), dpuService)).To(Succeed())

@@ -291,74 +291,63 @@ func TestManifests_generateAllManifests(t *testing.T) {
 	}
 	tests := []struct {
 		name               string
-		componentToDisable string
-		expectedMissing    string
+		componentToDisable operatorv1.ComponentName
 		wantErr            bool
 	}{
 		{
 			name:               "Generate all manifests",
 			componentToDisable: "",
 			wantErr:            false,
-			expectedMissing:    "",
 		},
 		{
 			name:               "Disable multus manifests",
 			componentToDisable: operatorv1.MultusName,
 			wantErr:            false,
-			expectedMissing:    operatorv1.MultusName,
 		},
 		{
 			name:               "Disable sriovDevicePlugin manifests",
 			componentToDisable: operatorv1.SRIOVDevicePluginName,
 			wantErr:            false,
-			expectedMissing:    operatorv1.SRIOVDevicePluginName,
 		},
 		{
 			name:               "Disable flannel manifests",
 			componentToDisable: operatorv1.FlannelName,
 			wantErr:            false,
-			expectedMissing:    operatorv1.FlannelName,
 		},
 		{
 			name:               "Disable nvidia-k8s-ipam manifests",
 			componentToDisable: operatorv1.NVIPAMName,
 			wantErr:            false,
-			expectedMissing:    operatorv1.NVIPAMName,
 		},
 		{
 			name:               "Disable DPFProvisioningController manifests",
 			componentToDisable: operatorv1.ProvisioningControllerName,
 			wantErr:            false,
-			expectedMissing:    operatorv1.ProvisioningControllerName,
 		},
 		{
 			name:               "Disable DPUServiceControllerConfiguration manifests",
 			componentToDisable: operatorv1.SRIOVDevicePluginName,
 			wantErr:            false,
-			expectedMissing:    operatorv1.SRIOVDevicePluginName,
 		},
 		{
 			name:               "Disable ovs-cni manifests",
 			componentToDisable: operatorv1.OVSCNIName,
 			wantErr:            false,
-			expectedMissing:    operatorv1.OVSCNIName,
 		},
 		{
 			name:               "Disable sfc-controller manifests",
 			componentToDisable: operatorv1.SFCControllerName,
 			wantErr:            false,
-			expectedMissing:    operatorv1.SFCControllerName,
 		},
 		{
 			name:               "Disable cni-installer manifests",
 			componentToDisable: operatorv1.CNIInstallerName,
 			wantErr:            false,
-			expectedMissing:    operatorv1.CNIInstallerName,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vars.DisableSystemComponents = map[string]bool{
+			vars.DisableSystemComponents = map[operatorv1.ComponentName]bool{
 				tt.componentToDisable: true,
 			}
 			got, err := i.generateAllManifests(vars)
@@ -369,8 +358,8 @@ func TestManifests_generateAllManifests(t *testing.T) {
 			for _, obj := range got {
 
 				// Manifests should not be generated if disabled.
-				if tt.expectedMissing != "" {
-					g.Expect(obj.GetName()).ToNot(ContainSubstring(tt.expectedMissing))
+				if tt.componentToDisable.String() != "" {
+					g.Expect(obj.GetName()).ToNot(ContainSubstring(tt.componentToDisable.String()))
 				}
 
 				// These labels should always be present.

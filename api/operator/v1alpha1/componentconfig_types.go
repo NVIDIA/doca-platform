@@ -24,10 +24,25 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-type ProvisioningControllerConfiguration struct {
-	BaseComponentConfig     `json:",inline"`
+type DefaultOverridesConfiguration struct {
 	ImageComponentConfig    `json:",inline"`
 	ResourceComponentConfig `json:",inline"`
+}
+
+type ProvisioningControllerConfiguration struct {
+	BaseComponentConfig `json:",inline"`
+
+	// Image overrides the container image used by the Provisioning controller.
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.1.0.
+	// Use the new field `controller` instead.
+	// +optional
+	Image Image `json:"image,omitempty"`
+
+	// Controller contains the configuration for the Provisioning controller component.
+	// It contains the image for the controller and its resource requirements.
+	// +optional
+	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 
 	// BFCFGTemplateConfigMap is the name of a configMap containing a template for the BF.cfg file used by the DPU controller.
 	// By default the provisioning controller use a hardcoded BF.cfg e.g. https://github.com/NVIDIA/doca-platform/blob/release-v24.10/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template
@@ -78,7 +93,30 @@ type ProvisioningControllerConfiguration struct {
 }
 
 func (c *ProvisioningControllerConfiguration) Name() string {
-	return ProvisioningControllerName
+	return ProvisioningControllerName.String()
+}
+
+// Deprecated: This method is deprecated and will be removed with v26.1.0. Use GetImages instead.
+func (c *ProvisioningControllerConfiguration) GetImage() *string {
+	return c.Image
+}
+
+// GetImages returns a map of container names to their images
+func (c *ProvisioningControllerConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.Controller != nil {
+		images[ControllerManagerContainer] = c.Controller.GetImage()
+	}
+	return images
+}
+
+func (c *ProvisioningControllerConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.Controller == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		ControllerManagerContainer: c.Controller.GetResource(),
+	}
 }
 
 // ProvisioningInstallInterface is the interface used to install the BFB
@@ -120,7 +158,7 @@ type BFBRegistryConfiguration struct {
 }
 
 func (c *BFBRegistryConfiguration) Name() string {
-	return BFBRegistryName
+	return BFBRegistryName.String()
 }
 
 func (c *BFBRegistryConfiguration) Disabled() bool {
@@ -131,9 +169,19 @@ func (c *BFBRegistryConfiguration) Disabled() bool {
 }
 
 type DPUServiceControllerConfiguration struct {
-	BaseComponentConfig     `json:",inline"`
-	ImageComponentConfig    `json:",inline"`
-	ResourceComponentConfig `json:",inline"`
+	BaseComponentConfig `json:",inline"`
+
+	// Image overrides the container image used by the DPUService controller.
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.1.0.
+	// Use the new field `controller` instead.
+	// +optional
+	Image Image `json:"image,omitempty"`
+
+	// Controller contains the configuration for the DPU Service controller component.
+	// It contains the image for the controller and its resource requirements.
+	// +optional
+	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 
 	// DisableDPUReady disables the DPU Ready Controller functionality in the DPU Service Controller.
 	// The DPU Ready Controller adds taints to the worker nodes when the DPU is not ready.
@@ -143,50 +191,205 @@ type DPUServiceControllerConfiguration struct {
 }
 
 func (c *DPUServiceControllerConfiguration) Name() string {
-	return DPUServiceControllerName
+	return DPUServiceControllerName.String()
 }
 
-// DPUDetectorConfiguration is the configuration for the DPUDetector Component.
+// Deprecated: This method is deprecated and will be removed with v26.1.0. Use GetImages instead.
+func (c *DPUServiceControllerConfiguration) GetImage() *string {
+	return c.Image
+}
+
+// GetImages returns a map of container names to their images
+func (c *DPUServiceControllerConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.Controller != nil {
+		images[ControllerManagerContainer] = c.Controller.GetImage()
+	}
+	return images
+}
+
+func (c *DPUServiceControllerConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.Controller == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		ControllerManagerContainer: c.Controller.GetResource(),
+	}
+}
+
+// DPUDetectorConfiguration is the configuration for the DPUDetectorContainer Component.
 type DPUDetectorConfiguration struct {
-	BaseComponentConfig     `json:",inline"`
-	ImageComponentConfig    `json:",inline"`
-	ResourceComponentConfig `json:",inline"`
+	BaseComponentConfig `json:",inline"`
+
+	// Image overrides the container image used by the DPUDetector Container.
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.1.0.
+	// Use the new field `daemon` instead.
+	// +optional
+	Image Image `json:"image,omitempty"`
+
+	// Daemon contains the configuration for the DPU Detector component.
+	// It contains the image for the controller and its resource requirements.
+	// +optional
+	Daemon *DefaultOverridesConfiguration `json:"daemon,omitempty"`
 }
 
 func (c *DPUDetectorConfiguration) Name() string {
-	return DPUDetectorName
+	return DPUDetectorName.String()
+}
+
+// Deprecated: This method is deprecated and will be removed with v26.1.0. Use GetImages instead.
+func (c *DPUDetectorConfiguration) GetImage() *string {
+	return c.Image
+}
+
+// GetImages returns a map of container names to their images
+func (c *DPUDetectorConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.Daemon != nil {
+		images[DPUDetectorContainer] = c.Daemon.GetImage()
+	}
+	return images
+}
+
+func (c *DPUDetectorConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.Daemon == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		DPUDetectorContainer: c.Daemon.GetResource(),
+	}
 }
 
 type KamajiClusterManagerConfiguration struct {
-	BaseComponentConfig     `json:",inline"`
-	ImageComponentConfig    `json:",inline"`
-	ResourceComponentConfig `json:",inline"`
+	BaseComponentConfig `json:",inline"`
+
+	// Image overrides the container image used by the Kamaji Cluster Manager.
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.1.0.
+	// Use the new field `controller` instead.
+	// +optional
+	Image Image `json:"image,omitempty"`
+
+	// Controller contains the configuration for the Kamaji Cluster Manager component.
+	// It contains the image for the controller and its resource requirements.
+	// +optional
+	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 }
 
 func (c *KamajiClusterManagerConfiguration) Name() string {
-	return KamajiClusterManagerName
+	return KamajiClusterManagerName.String()
+}
+
+// Deprecated: This method is deprecated and will be removed with v26.1.0. Use GetImages instead.
+func (c *KamajiClusterManagerConfiguration) GetImage() *string {
+	return c.Image
+}
+
+// GetImages returns a map of container names to their images
+func (c *KamajiClusterManagerConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.Controller != nil {
+		images[ControllerManagerContainer] = c.Controller.GetImage()
+	}
+	return images
+}
+
+func (c *KamajiClusterManagerConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.Controller == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		ControllerManagerContainer: c.Controller.GetResource(),
+	}
 }
 
 type StaticClusterManagerConfiguration struct {
-	BaseComponentConfig     `json:",inline"`
-	ImageComponentConfig    `json:",inline"`
-	ResourceComponentConfig `json:",inline"`
+	BaseComponentConfig `json:",inline"`
+
+	// Image overrides the container image used by the Static Cluster Manager.
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.1.0.
+	// Use the new field `controller` instead.
+	// +optional
+	Image Image `json:"image,omitempty"`
+
+	// Controller contains the configuration for the Static Cluster Manager controller component.
+	// It contains the image for the controller and its resource requirements.
+	// +optional
+	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 }
 
 func (c *StaticClusterManagerConfiguration) Name() string {
-	return StaticClusterManagerName
+	return StaticClusterManagerName.String()
+}
+
+// Deprecated: This method is deprecated and will be removed with v26.1.0. Use GetImages instead.
+func (c *StaticClusterManagerConfiguration) GetImage() *string {
+	return c.Image
+}
+
+// GetImages returns a map of container names to their images
+func (c *StaticClusterManagerConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.Controller != nil {
+		images[ControllerManagerContainer] = c.Controller.GetImage()
+	}
+	return images
+}
+
+func (c *StaticClusterManagerConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.Controller == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		ControllerManagerContainer: c.Controller.GetResource(),
+	}
 }
 
 type ServiceSetControllerConfiguration struct {
 	BaseComponentConfig       `json:",inline"`
-	ImageComponentConfig      `json:",inline"`
-	ResourceComponentConfig   `json:",inline"`
 	HelmComponentConfig       `json:",inline"`
 	InClusterDeploymentConfig `json:",inline"`
+
+	// Image overrides the container image used by the ServiceChainSet Controller.
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.1.0.
+	// Use the new field `controller` instead.
+	// +optional
+	Image Image `json:"image,omitempty"`
+
+	// Controller contains the configuration for the ServiceChainSet controller component.
+	// It contains the image for the controller and its resource requirements.
+	// +optional
+	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 }
 
 func (c *ServiceSetControllerConfiguration) Name() string {
-	return ServiceSetControllerName
+	return ServiceSetControllerName.String()
+}
+
+// Deprecated: This method is deprecated and will be removed with v26.1.0. Use GetImages instead.
+func (c *ServiceSetControllerConfiguration) GetImage() *string {
+	return c.Image
+}
+
+// GetImages returns a map of container names to their images
+func (c *ServiceSetControllerConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.Controller != nil {
+		images[ControllerManagerContainer] = c.Controller.GetImage()
+	}
+	return images
+}
+
+func (c *ServiceSetControllerConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.Controller == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		ControllerManagerContainer: c.Controller.GetResource(),
+	}
 }
 
 type FlannelCNI struct {
@@ -216,9 +419,8 @@ type FlannelConfiguration struct {
 
 	// Images overrides the container images used by flannel
 	//
-	// Deprecated: This field is deprecated and will be removed with v25.10.
+	// Deprecated: This field is deprecated and will be removed with v26.1.0.
 	// Use the new fields `cni` and `daemon` instead.
-	//
 	// +optional
 	Images *FlannelImages `json:"image,omitempty"`
 
@@ -239,7 +441,7 @@ type FlannelImages struct {
 }
 
 func (c *FlannelConfiguration) Name() string {
-	return FlannelName
+	return FlannelName.String()
 }
 
 // GetImage returns a comma-delimited list of the Flannel images with a specified order.
@@ -256,46 +458,86 @@ func (c *FlannelConfiguration) GetImage() *string {
 }
 
 // GetImages returns a map of container names to their images
-func (c *FlannelConfiguration) GetImages() map[string]*string {
-	images := make(map[string]*string)
+func (c *FlannelConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
 	if c.CNI != nil {
-		images[FlannelContainerCNIName.String()] = c.CNI.GetImage()
+		images[FlannelContainerCNI] = c.CNI.GetImage()
 	}
 	if c.Daemon != nil {
-		images[FlannelContainerDaemonName.String()] = c.Daemon.GetImage()
+		images[FlannelContainerDaemon] = c.Daemon.GetImage()
 	}
 	return images
 }
 
-func (c *FlannelConfiguration) GetResources() map[string]*corev1.ResourceRequirements {
+func (c *FlannelConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
 	if c.Daemon == nil {
 		return nil
 	}
-	return map[string]*corev1.ResourceRequirements{
-		FlannelContainerDaemonName.String(): c.Daemon.GetResource(),
+	return map[ContainerName]*corev1.ResourceRequirements{
+		FlannelContainerDaemon: c.Daemon.GetResource(),
 	}
 }
 
 type MultusConfiguration struct {
 	BaseComponentConfig       `json:",inline"`
-	ImageComponentConfig      `json:",inline"`
 	HelmComponentConfig       `json:",inline"`
 	InClusterDeploymentConfig `json:",inline"`
-	ResourceComponentConfig   `json:",inline"`
+
+	// Image overrides the container image used by the Multus Container.
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.1.0.
+	// Use the new field `cni` instead.
+	// +optional
+	Image Image `json:"image,omitempty"`
+
+	// CNI contains the configuration for the Multus CNI component.
+	// It contains the image for the controller and its resource requirements.
+	// +optional
+	CNI *DefaultOverridesConfiguration `json:"cni,omitempty"`
 }
 
 func (c *MultusConfiguration) Name() string {
-	return MultusName
+	return MultusName.String()
+}
+
+// Deprecated: This method is deprecated and will be removed with v26.1.0. Use GetImages instead.
+func (c *MultusConfiguration) GetImage() *string {
+	return c.Image
+}
+
+// GetImages returns a map of container names to their images
+func (c *MultusConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.CNI != nil {
+		images[MultusContainer] = c.CNI.GetImage()
+	}
+	return images
+}
+
+func (c *MultusConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.CNI == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		MultusContainer: c.CNI.GetResource(),
+	}
 }
 
 type NVIPAMConfiguration struct {
 	BaseComponentConfig       `json:",inline"`
-	ImageComponentConfig      `json:",inline"`
 	HelmComponentConfig       `json:",inline"`
 	InClusterDeploymentConfig `json:",inline"`
 
+	// Image overrides the container image used by the NVIPAM controller.
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.1.0.
+	// Use the new field `controller` instead.
+	// +optional
+	Image Image `json:"image,omitempty"`
+
 	// Controller contains the configuration for the NVIPAM controller component.
 	// It contains the image for the controller and its resource requirements.
+	// +optional
 	Controller *NVIPAMController `json:"controller,omitempty"`
 
 	// Node contains the configuration for the NVIPAM node component.
@@ -304,6 +546,7 @@ type NVIPAMConfiguration struct {
 }
 
 type NVIPAMController struct {
+	ImageComponentConfig    `json:",inline"`
 	ResourceComponentConfig `json:",inline"`
 }
 
@@ -311,51 +554,140 @@ type NVIPAMNode struct {
 	ResourceComponentConfig `json:",inline"`
 }
 
-func (c *NVIPAMConfiguration) GetResources() map[string]*corev1.ResourceRequirements {
-	resources := make(map[string]*corev1.ResourceRequirements)
+// Deprecated: This method is deprecated and will be removed with v26.1.0. Use GetImages instead.
+func (c *NVIPAMConfiguration) GetImage() *string {
+	return c.Image
+}
+
+func (c *NVIPAMConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
 	if c.Controller != nil {
-		resources[NVIPAMContainerControllerName.String()] = c.Controller.GetResource()
+		images[NVIPAMContainerController] = c.Controller.GetImage()
+	}
+	return images
+}
+
+func (c *NVIPAMConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	resources := make(map[ContainerName]*corev1.ResourceRequirements)
+	if c.Controller != nil {
+		resources[NVIPAMContainerController] = c.Controller.GetResource()
 	}
 	if c.Node != nil {
-		resources[NVIPAMContainerNodeName.String()] = c.Node.GetResource()
+		resources[NVIPAMContainerNode] = c.Node.GetResource()
 	}
 	return resources
 }
 
 func (c *NVIPAMConfiguration) Name() string {
-	return NVIPAMName
+	return NVIPAMName.String()
 }
 
 type SRIOVDevicePluginConfiguration struct {
 	BaseComponentConfig       `json:",inline"`
-	ImageComponentConfig      `json:",inline"`
 	HelmComponentConfig       `json:",inline"`
 	InClusterDeploymentConfig `json:",inline"`
-	ResourceComponentConfig   `json:",inline"`
+
+	// Image overrides the container image used by the SRIOV Device Plugin container.
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.1.0.
+	// Use the new field `deviceplugin` instead.
+	// +optional
+	Image Image `json:"image,omitempty"`
+
+	// DevicePlugin contains the configuration for the SRIOV Device Plugin component.
+	// It contains the image for the controller and its resource requirements.
+	// +optional
+	DevicePlugin *DefaultOverridesConfiguration `json:"deviceplugin,omitempty"`
 }
 
 func (c *SRIOVDevicePluginConfiguration) Name() string {
-	return SRIOVDevicePluginName
+	return SRIOVDevicePluginName.String()
+}
+
+// Deprecated: This method is deprecated and will be removed with v26.1.0. Use GetImages instead.
+func (c *SRIOVDevicePluginConfiguration) GetImage() *string {
+	return c.Image
+}
+
+// GetImages returns a map of container names to their images
+func (c *SRIOVDevicePluginConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.DevicePlugin != nil {
+		images[SRIOVDevicePluginContainer] = c.DevicePlugin.GetImage()
+	}
+	return images
+}
+
+func (c *SRIOVDevicePluginConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.DevicePlugin == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		SRIOVDevicePluginContainer: c.DevicePlugin.GetResource(),
+	}
 }
 
 type OVSCNIConfiguration struct {
 	BaseComponentConfig       `json:",inline"`
-	ImageComponentConfig      `json:",inline"`
 	HelmComponentConfig       `json:",inline"`
 	InClusterDeploymentConfig `json:",inline"`
-	ResourceComponentConfig   `json:",inline"`
+
+	// Image overrides the container image used by the OVS CNI.
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.1.0.
+	// Use the new field `cni` instead.
+	// +optional
+	Image Image `json:"image,omitempty"`
+
+	// CNI contains the configuration for the OVS CNI component.
+	// It contains the image for the controller and its resource requirements.
+	// +optional
+	CNI *DefaultOverridesConfiguration `json:"cni,omitempty"`
 }
 
 func (c *OVSCNIConfiguration) Name() string {
-	return OVSCNIName
+	return OVSCNIName.String()
+}
+
+// Deprecated: This method is deprecated and will be removed with v26.1.0. Use GetImages instead.
+func (c *OVSCNIConfiguration) GetImage() *string {
+	return c.Image
+}
+
+// GetImages returns a map of container names to their images
+func (c *OVSCNIConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.CNI != nil {
+		images[OVSCNI] = c.CNI.GetImage()
+	}
+	return images
+}
+
+func (c *OVSCNIConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.CNI == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		OVSCNI: c.CNI.GetResource(),
+	}
 }
 
 type SFCControllerConfiguration struct {
 	BaseComponentConfig       `json:",inline"`
-	ImageComponentConfig      `json:",inline"`
 	HelmComponentConfig       `json:",inline"`
 	InClusterDeploymentConfig `json:",inline"`
-	ResourceComponentConfig   `json:",inline"`
+
+	// Image overrides the container image used by the SFC controller.
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.1.0.
+	// Use the new field `controller` instead.
+	// +optional
+	Image Image `json:"image,omitempty"`
+
+	// Controller contains the configuration for the SFC controller component.
+	// It contains the image for the controller and its resource requirements.
+	// +optional
+	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 
 	// SecureFlowDeletionTimeout controls the timeout for which the API server is unreachable after which all the flows
 	// are deleted to prevent unintended packet leaks. It has effect when is greater than zero.
@@ -364,18 +696,62 @@ type SFCControllerConfiguration struct {
 	SecureFlowDeletionTimeout *metav1.Duration `json:"secureFlowDeletionTimeout,omitempty"`
 }
 
+func (c *SFCControllerConfiguration) Name() string {
+	return SFCControllerName.String()
+}
+
+// Deprecated: This method is deprecated and will be removed with v26.1.0. Use GetImages instead.
+func (c *SFCControllerConfiguration) GetImage() *string {
+	return c.Image
+}
+
+// GetImages returns a map of container names to their images
+func (c *SFCControllerConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.Controller != nil {
+		images[ControllerManagerContainer] = c.Controller.GetImage()
+	}
+	return images
+}
+
+func (c *SFCControllerConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.Controller == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		ControllerManagerContainer: c.Controller.GetResource(),
+	}
+}
+
 type CNIInstallerConfiguration struct {
 	BaseComponentConfig       `json:",inline"`
-	ImageComponentConfig      `json:",inline"`
 	HelmComponentConfig       `json:",inline"`
 	InClusterDeploymentConfig `json:",inline"`
-	ResourceComponentConfig   `json:",inline"`
+
+	// Installer contains the configuration for the CNI-Installer component.
+	// It contains the image for the controller and its resource requirements.
+	// +optional
+	Installer *DefaultOverridesConfiguration `json:"installer,omitempty"`
 }
 
 func (c *CNIInstallerConfiguration) Name() string {
-	return CNIInstallerName
+	return CNIInstallerName.String()
 }
 
-func (c *SFCControllerConfiguration) Name() string {
-	return SFCControllerName
+// GetImages returns a map of container names to their images
+func (c *CNIInstallerConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.Installer != nil {
+		images[CNIInstallerContainer] = c.Installer.GetImage()
+	}
+	return images
+}
+
+func (c *CNIInstallerConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.Installer == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		CNIInstallerContainer: c.Installer.GetResource(),
+	}
 }

@@ -28,17 +28,17 @@ import (
 // StubComponent is a type for testing GenerateManifests and ApplySet behavior.
 type StubComponent struct {
 	objs []*unstructured.Unstructured
-	name string
+	name operatorv1.ComponentName
 }
 
-func StubComponentWithObjs(name string, objs []*unstructured.Unstructured) StubComponent {
+func StubComponentWithObjs(name operatorv1.ComponentName, objs []*unstructured.Unstructured) StubComponent {
 	return StubComponent{
 		name: name,
 		objs: objs,
 	}
 }
 
-func (s StubComponent) Name() string {
+func (s StubComponent) Name() operatorv1.ComponentName {
 	return s.name
 }
 

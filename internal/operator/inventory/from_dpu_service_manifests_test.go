@@ -42,6 +42,7 @@ import (
 func Test_fromDPUService_GenerateManifests(t *testing.T) {
 	g := NewWithT(t)
 	serviceName := "testService"
+	componentName := operatorv1.ComponentName(serviceName)
 	initialValuesObject := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"value-one": "value-again",
@@ -73,14 +74,14 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 
 	disabledTestServiceVars := newDefaultVariables(defaults)
 	imagePullSecretsVars.ImagePullSecrets = []string{"secret-one", "secret-two"}
-	disabledTestServiceVars.DisableSystemComponents = map[string]bool{
-		serviceName: true,
+	disabledTestServiceVars.DisableSystemComponents = map[operatorv1.ComponentName]bool{
+		componentName: true,
 	}
 	deployInClusterVars := newDefaultVariables(defaults)
-	deployInClusterVars.DeployInCluster[serviceName] = true
+	deployInClusterVars.DeployInCluster[componentName] = true
 
 	flannelImageVariables := newDefaultVariables(defaults)
-	flannelImageVariables.Images[operatorv1.FlannelName] = "registry.com/image:v1.1.1,registry.com/image-cni:v1.1.1"
+	flannelImageVariables.Images[operatorv1.FlannelName.String()] = "registry.com/image:v1.1.1,registry.com/image-cni:v1.1.1"
 	valuesWithFlannelVariables := initialValuesObject.DeepCopy()
 
 	valuesWithFlannelVariables.Object["flannel"] = map[string]interface{}{
@@ -122,7 +123,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 
 	noClusterServiceSetVariables := initialValuesObject.DeepCopy()
-	noClusterServiceSetVariables.Object[operatorv1.ServiceSetControllerName] = map[string]interface{}{
+	noClusterServiceSetVariables.Object[operatorv1.ServiceSetControllerName.String()] = map[string]interface{}{
 		"chart": map[string]interface{}{
 			"repoURL": "oci://example.com",
 			"chart":   "dpu-networking",
@@ -153,7 +154,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 		},
 	}
 	withClusterServiceSetValues := initialValuesObject.DeepCopy()
-	withClusterServiceSetValues.Object[operatorv1.ServiceSetControllerName] = map[string]interface{}{
+	withClusterServiceSetValues.Object[operatorv1.ServiceSetControllerName.String()] = map[string]interface{}{
 		"chart": map[string]interface{}{
 			"repoURL": "oci://example.com",
 			"chart":   "dpu-networking",
@@ -179,7 +180,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 	withCNIBinDirVariables := newDefaultVariables(defaults)
 	withCNIBinDirVariables.DPUCNIBinPath = "/some/cni/bin/dir/path"
 	cniInstallerWithCNIBinDirValues := initialValuesObject.DeepCopy()
-	cniInstallerWithCNIBinDirValues.Object[operatorv1.CNIInstallerName] = map[string]interface{}{
+	cniInstallerWithCNIBinDirValues.Object[operatorv1.CNIInstallerName.String()] = map[string]interface{}{
 		"cniInstaller": map[string]interface{}{
 			"image": map[string]interface{}{
 				"repository": "example.com/dpf-cni-installer",
@@ -373,7 +374,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			in: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name: operatorv1.FlannelName,
+					Name: operatorv1.FlannelName.String(),
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
 					HelmChart: dpuservicev1.HelmChart{
@@ -387,9 +388,9 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			want: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name: operatorv1.FlannelName,
+					Name: operatorv1.FlannelName.String(),
 					Labels: map[string]string{
-						operatorv1.DPFComponentLabelKey: operatorv1.FlannelName,
+						operatorv1.DPFComponentLabelKey: operatorv1.FlannelName.String(),
 						release.DPFVersionLabelKey:      release.DPFVersion(),
 					},
 				},
@@ -415,7 +416,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			in: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name: operatorv1.FlannelName,
+					Name: operatorv1.FlannelName.String(),
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
 					HelmChart: dpuservicev1.HelmChart{
@@ -429,9 +430,9 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			want: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name: operatorv1.FlannelName,
+					Name: operatorv1.FlannelName.String(),
 					Labels: map[string]string{
-						operatorv1.DPFComponentLabelKey: operatorv1.FlannelName,
+						operatorv1.DPFComponentLabelKey: operatorv1.FlannelName.String(),
 						release.DPFVersionLabelKey:      release.DPFVersion(),
 					},
 				},
@@ -457,7 +458,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			in: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name: operatorv1.ServiceSetControllerName,
+					Name: operatorv1.ServiceSetControllerName.String(),
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
 					HelmChart: dpuservicev1.HelmChart{
@@ -471,9 +472,9 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			want: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name: operatorv1.ServiceSetControllerName,
+					Name: operatorv1.ServiceSetControllerName.String(),
 					Labels: map[string]string{
-						operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName,
+						operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName.String(),
 						release.DPFVersionLabelKey:      release.DPFVersion(),
 					},
 				},
@@ -499,7 +500,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			in: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name: operatorv1.ServiceSetControllerName,
+					Name: operatorv1.ServiceSetControllerName.String(),
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
 					HelmChart: dpuservicev1.HelmChart{
@@ -513,9 +514,9 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			want: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name: operatorv1.ServiceSetControllerName,
+					Name: operatorv1.ServiceSetControllerName.String(),
 					Labels: map[string]string{
-						operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName,
+						operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName.String(),
 						release.DPFVersionLabelKey:      release.DPFVersion(),
 					},
 				},
@@ -541,7 +542,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			in: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name: operatorv1.CNIInstallerName,
+					Name: operatorv1.CNIInstallerName.String(),
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
 					HelmChart: dpuservicev1.HelmChart{
@@ -555,9 +556,9 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			want: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name: operatorv1.CNIInstallerName,
+					Name: operatorv1.CNIInstallerName.String(),
 					Labels: map[string]string{
-						operatorv1.DPFComponentLabelKey: operatorv1.CNIInstallerName,
+						operatorv1.DPFComponentLabelKey: operatorv1.CNIInstallerName.String(),
 						release.DPFVersionLabelKey:      release.DPFVersion(),
 					},
 				},
@@ -583,7 +584,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			in: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name: operatorv1.SRIOVDevicePluginName,
+					Name: operatorv1.SRIOVDevicePluginName.String(),
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
 					HelmChart: dpuservicev1.HelmChart{
@@ -595,7 +596,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			},
 			vars: func() Variables {
 				vars := newDefaultVariables(defaults)
-				vars.Resources[operatorv1.SRIOVDevicePluginName] = corev1.ResourceRequirements{
+				vars.Resources[operatorv1.SRIOVDevicePluginName.WithContainer(operatorv1.SRIOVDevicePluginContainer)] = corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("500m"),
 						corev1.ResourceMemory: resource.MustParse("512Mi"),
@@ -610,9 +611,9 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			want: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name: operatorv1.SRIOVDevicePluginName,
+					Name: operatorv1.SRIOVDevicePluginName.String(),
 					Labels: map[string]string{
-						operatorv1.DPFComponentLabelKey: operatorv1.SRIOVDevicePluginName,
+						operatorv1.DPFComponentLabelKey: operatorv1.SRIOVDevicePluginName.String(),
 						release.DPFVersionLabelKey:      release.DPFVersion(),
 					},
 				},
@@ -628,7 +629,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 						Values: &runtime.RawExtension{
 							Raw: func() []byte {
 								valuesWithResources := initialValuesObject.DeepCopy()
-								valuesWithResources.Object[operatorv1.SRIOVDevicePluginName] = map[string]interface{}{
+								valuesWithResources.Object[operatorv1.SRIOVDevicePluginName.String()] = map[string]interface{}{
 									"enabled": true,
 									"kubeSriovDevicePlugin": map[string]interface{}{
 										"kubeSriovdp": map[string]interface{}{
@@ -661,10 +662,10 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			g.Expect(err).ToNot(HaveOccurred())
 
 			f := &fromDPUService{
-				name:       tt.in.Name,
+				name:       operatorv1.ComponentName(tt.in.Name),
 				dpuService: &unstructured.Unstructured{Object: un},
 			}
-			tt.vars.HelmCharts[serviceName] = "helmchart.com/chart:v1"
+			tt.vars.HelmCharts[componentName] = "helmchart.com/chart:v1"
 
 			got, err := f.GenerateManifests(tt.vars, skipApplySetCreationOption{})
 			if tt.wantErr {
@@ -768,7 +769,7 @@ func Test_fromDPUService_ReadyCheck(t *testing.T) {
 			dpuService.Status.Conditions = tt.conditions
 			testClient := fake.NewClientBuilder().WithScheme(s).WithObjects(dpuService).Build()
 			f := &fromDPUService{
-				name: dpuService.Name,
+				name: operatorv1.ComponentName(dpuService.Name),
 				dpuService: &unstructured.Unstructured{
 					Object: map[string]interface{}{
 						"metadata": map[string]interface{}{

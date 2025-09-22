@@ -96,7 +96,7 @@ func TestDPUDetectorObjects_GenerateManifests(t *testing.T) {
 
 	t.Run("no objects if disable is set", func(t *testing.T) {
 		vars := newDefaultVariables(defaults)
-		vars.DisableSystemComponents = map[string]bool{
+		vars.DisableSystemComponents = map[operatorv1.ComponentName]bool{
 			dpuDetectorCtrl.Name(): true,
 		}
 		objs, err := dpuDetectorCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
@@ -172,7 +172,7 @@ func TestDPUDetectorObjects_GenerateManifests(t *testing.T) {
 		g := NewGomegaWithT(t)
 		vars := newDefaultVariables(defaults)
 		setImage := "image-name"
-		vars.Images[operatorv1.DPUDetectorName] = setImage
+		vars.Images[operatorv1.DPUDetectorName.WithContainer(operatorv1.DPUDetectorContainer)] = setImage
 
 		generatedObjs, err := dpuDetectorCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
