@@ -137,6 +137,7 @@ rules:
   resources:
   - bfbs
   - dpuflavors
+  - dpunodemaintenances
   verbs:
   - get
   - list

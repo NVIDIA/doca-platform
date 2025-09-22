@@ -114,6 +114,9 @@ var _ = BeforeSuite(func() {
 			}})
 	Expect(err).ToNot(HaveOccurred())
 
+	err = SetupIndexers(ctx, testManager)
+	Expect(err).ToNot(HaveOccurred())
+
 	err = (&DPUServiceReconciler{
 		Client: testClient,
 		Scheme: testManager.GetScheme(),

@@ -256,13 +256,13 @@ var _ = Describe("DPUSelector", func() {
 		Context("with select function option", func() {
 			It("should handle selection from multiple candidates", func() {
 				// Select function that picks DPU with specific name
-				selectFunc := func(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (*provisioningv1.DPU, error) {
+				selectFunc := func(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []provisioningv1.DPU) (*provisioningv1.DPU, error) {
 					for _, dpu := range dpus {
 						if dpu.Name == "preferred-dpu" {
-							return dpu, nil
+							return &dpu, nil
 						}
 					}
-					return dpus[0], nil // fallback to first
+					return &dpus[0], nil // fallback to first
 				}
 				dpuSelector := New(
 					WithIndexerField{FieldName: "spec.dpuNodeName"},
@@ -281,7 +281,7 @@ var _ = Describe("DPUSelector", func() {
 			})
 			It("should return error when select function returns error", func() {
 				selectError := errors.New("selection failed")
-				selectFunc := func(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (*provisioningv1.DPU, error) {
+				selectFunc := func(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []provisioningv1.DPU) (*provisioningv1.DPU, error) {
 					return nil, selectError
 				}
 				dpuSelector := New(
@@ -298,7 +298,7 @@ var _ = Describe("DPUSelector", func() {
 				Expect(result).To(BeNil())
 			})
 			It("should return error when select function returns nil DPU", func() {
-				selectFunc := func(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (*provisioningv1.DPU, error) {
+				selectFunc := func(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []provisioningv1.DPU) (*provisioningv1.DPU, error) {
 					return nil, nil
 				}
 				dpuSelector := New(

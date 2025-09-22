@@ -25,10 +25,12 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
+	"github.com/nvidia/doca-platform/pkg/dpuselector"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/util/workqueue"
 	schedulingv1 "k8s.io/component-helpers/scheduling/corev1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -45,6 +47,7 @@ import (
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuservices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus,verbs=get;list;watch
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodemaintenances,verbs=get;list;watch;update;patch
 
 type DPUReadyReconciler struct {
 	client.Client
@@ -89,27 +92,22 @@ func nodeMatchesNodeSelector(node *corev1.Node, nodeSelector *corev1.NodeSelecto
 	return res, err
 }
 
-// getDPUByNodeName retrieves the DPU object associated with a given x86 host node name
-func (r *DPUReadyReconciler) getDPUByNodeName(ctx context.Context, nodeName string) (*provisioningv1.DPU, error) {
-	dpuList := &provisioningv1.DPUList{}
-	listOpts := []client.ListOption{
-		client.MatchingFields{"spec.dpuNodeName": nodeName},
-	}
-	if err := r.Client.List(ctx, dpuList, listOpts...); err != nil {
+// getDPUsByNodeName retrieves the DPU objects associated with a given host node name
+func (r *DPUReadyReconciler) getDPUsByNodeName(ctx context.Context, nodeName string) ([]provisioningv1.DPU, error) {
+	selector := dpuselector.New(dpuselector.WithIndexerField{FieldName: dpuNodeNameField})
+	dpus, err := selector.ListDPUsForNode(ctx, r.Client, &provisioningv1.DPUNode{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: nodeName,
+		}})
+	if err != nil {
 		return nil, err
 	}
-	for _, dpu := range dpuList.Items {
-		if dpu.Spec.DPUNodeName == nodeName {
-			return &dpu, nil
-		}
-	}
 
-	if len(dpuList.Items) == 0 {
+	if len(dpus) == 0 {
 		return nil, fmt.Errorf("no DPU found for node name %s", nodeName)
 	}
 
-	// Assuming there's only one DPU per node name, change this for multi-DPU support
-	return &dpuList.Items[0], nil
+	return dpus, nil
 }
 
 // isPodRunning checks if a pod is truly ready by examining the PodReady condition on pod status
@@ -140,11 +138,30 @@ func isPodRunning(pod *corev1.Pod) bool {
 func (r *DPUReadyReconciler) areAllServicesRunning(ctx context.Context, hostNode *corev1.Node,
 	criticalDPUServices *dpuservicev1.DPUServiceList) (bool, error) {
 
-	dpu, err := r.getDPUByNodeName(ctx, hostNode.Name)
+	dpuList, err := r.getDPUsByNodeName(ctx, hostNode.Name)
 	if err != nil {
 		return false, fmt.Errorf("could not get the dpunode from node: %w", err)
 	}
+	var (
+		errs             []error
+		allServicesReady = true
+	)
+	// Check if all critical services are running on ALL DPUs (all or nothing strategy)
+	for _, dpu := range dpuList {
+		ready, err := r.isDPUReady(ctx, &dpu, criticalDPUServices)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		if !ready {
+			allServicesReady = false
+		}
+	}
+	return allServicesReady, kerrors.NewAggregate(errs)
+}
 
+// isDPUReady checks if the DPU is ready by examining the critical DPU services running on the DPU.
+// Returns true only if all critical services have ready pods running on the DPU.
+func (r *DPUReadyReconciler) isDPUReady(ctx context.Context, dpu *provisioningv1.DPU, criticalDPUServices *dpuservicev1.DPUServiceList) (bool, error) {
 	log := ctrllog.FromContext(ctx)
 	dpuClusterClient, _, err := dpucluster.K8sClusterToDPUClusterConfig(r.Client, &(dpu.Spec.Cluster)).Clientset(ctx)
 	if err != nil {
@@ -463,19 +480,6 @@ func (p *podEventHandler) enqueue(requests []ctrl.Request, q workqueue.TypedRate
 
 // SetupWithManager configures the controller with the manager and sets up required indexes and predicates
 func (r *DPUReadyReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	// Set up the index for DPU lookups by node name
-	if err := mgr.GetFieldIndexer().IndexField(
-		ctx,
-		&provisioningv1.DPU{},
-		"spec.dpuNodeName",
-		func(obj client.Object) []string {
-			dpu := obj.(*provisioningv1.DPU)
-			return []string{dpu.Spec.DPUNodeName}
-		},
-	); err != nil {
-		return err
-	}
-
 	p := predicate.NewPredicateFuncs(func(o client.Object) bool {
 		node, ok := o.(*corev1.Node)
 		if !ok {
