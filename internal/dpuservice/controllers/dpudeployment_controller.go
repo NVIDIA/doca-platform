@@ -59,10 +59,16 @@ const (
 	ServiceInterfaceInterfaceNameLabel = "svc.dpu.nvidia.com/interface"
 	// dpuServiceVersionAnnotationKey is the key for the version of the DPUService object used to discover the most current DPUService.
 	dpuServiceVersionAnnotationKey = "svc.dpu.nvidia.com/dpuservice-version"
+	// inClusterDPUServiceVersionLabelKeyPrefix is the prefix of the label key for an in-cluster DPUService version.
+	inClusterDPUServiceVersionLabelKeyPrefix = "svc.dpu.nvidia.com/dpuservice-in-cluster-version"
 
 	// resourceNameGeneratedSuffixLength is the length of the random string used to generate unique names
 	resourceNameGeneratedSuffixLength = 5
 )
+
+// pauseDPUDeploymentReconciler pauses the DPUDeployment Reconciler by doing noop reconciliation loops. This is helpful
+// to make tests faster and less complex
+var pauseDPUDeploymentReconciler bool
 
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpudeployments,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpudeployments/finalizers,verbs=update
@@ -185,6 +191,11 @@ type dpuDeploymentDependencies struct {
 // Reconcile reconciles changes in a DPUDeployment object
 func (r *DPUDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := ctrllog.FromContext(ctx)
+	if pauseDPUDeploymentReconciler {
+		log.Info("noop reconciliation")
+		return ctrl.Result{}, nil
+	}
+
 	log.Info("Reconciling")
 
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
@@ -770,6 +781,12 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 	dpuSet.SetGroupVersionKind(provisioningv1.DPUSetGroupVersionKind)
 
 	return dpuSet
+}
+
+// getRequestorForDPUObjectVersion returns the requestor that should be added in the DPUNodeMaintenance for the given
+// DPU* version.
+func getRequestorForDPUObjectVersion(parentDPUDeploymentNameLabelValue string, version string) string {
+	return fmt.Sprintf("%s_%s", parentDPUDeploymentNameLabelValue, version)
 }
 
 // reconcileDelete handles the deletion reconciliation loop.

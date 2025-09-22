@@ -149,6 +149,12 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(testManager)
 	Expect(err).ToNot(HaveOccurred())
 
+	err = (&DPUDeploymentNodeReconciler{
+		Client: testManager.GetClient(),
+		Scheme: testManager.GetScheme(),
+	}).SetupWithManager(ctx, testManager)
+	Expect(err).ToNot(HaveOccurred())
+
 	go func() {
 		defer GinkgoRecover()
 		err = testManager.Start(ctx)

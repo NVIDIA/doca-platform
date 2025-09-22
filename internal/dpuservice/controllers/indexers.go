@@ -40,7 +40,7 @@ const (
 
 // SetupIndexers initializes all field indexers required by the DPU service controllers
 func SetupIndexers(ctx context.Context, mgr ctrl.Manager) error {
-	// Set up the index for DPU lookups by DPUNode name
+	// Set up the index for DPU lookups by dpuNodeName
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &provisioningv1.DPU{}, dpuNodeNameField, func(obj client.Object) []string {
 		dpu := obj.(*provisioningv1.DPU)
 		return []string{dpu.Spec.DPUNodeName}
@@ -48,12 +48,15 @@ func SetupIndexers(ctx context.Context, mgr ctrl.Manager) error {
 		return fmt.Errorf("failed to register indexer for DPU CR: %w", err)
 	}
 
+	// Set up the index for DPUNodeMaintenance lookups by dpuNodeName
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &provisioningv1.DPUNodeMaintenance{}, dpuNodeMaintenanceDPUNodeNameField, func(obj client.Object) []string {
 		dpuNodeMaintenance := obj.(*provisioningv1.DPUNodeMaintenance)
 		return []string{dpuNodeMaintenance.Spec.DPUNodeName}
 	}); err != nil {
 		return fmt.Errorf("failed to register indexer for DPUNodeMaintenance CR: %w", err)
 	}
+
+	// Set up the index for DPUService lookups by deployInCluster
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &dpuservicev1.DPUService{}, dpuServiceDeployInClusterField, func(obj client.Object) []string {
 		dpuService := obj.(*dpuservicev1.DPUService)
 		return []string{strconv.FormatBool(ptr.Deref(dpuService.Spec.DeployInCluster, false))}
