@@ -138,6 +138,7 @@ rules:
   - bfbs
   - dpuflavors
   - dpunodemaintenances
+  - dpunodes
   verbs:
   - get
   - list

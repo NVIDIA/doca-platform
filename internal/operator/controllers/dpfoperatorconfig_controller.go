@@ -97,7 +97,7 @@ type DPFOperatorConfigReconcilerSettings struct {
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=serviceinterfaces/finalizers;servicechains/finalizers;dpuservicechains/finalizers;dpuserviceinterfaces/finalizers;dpuserviceipams/finalizers;dpuservicenads/finalizers,verbs=update
 
 // Provisioning objects
-// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets;dpuflavors;bfbs;dpus;dpuclusters;dpudevices;dpunodes;dpudiscoveries,verbs=create;delete;get;list;watch;patch;update;deletecollection
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets;dpuflavors;bfbs;dpus;dpuclusters;dpudevices;dpunodes;dpudiscoveries;dpunodemaintenances,verbs=create;delete;get;list;watch;patch;update;deletecollection
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets/status;dpus/status;bfbs/status;dpuclusters/status;dpunodes/status;dpudevices/status;dpudiscoveries/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets/finalizers;bfbs/finalizers;dpus/finalizers;dpuflavors/finalizers;dpuclusters/finalizers;dpudevices/finalizers;dpunodes/finalizers;dpudiscoveries/finalizers,verbs=update
 
