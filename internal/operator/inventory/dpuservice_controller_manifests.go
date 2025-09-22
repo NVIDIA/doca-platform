@@ -24,6 +24,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/release"
 
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -33,7 +34,6 @@ var _ Component = &dpuServiceControllerObjects{}
 const (
 	// DPUServiceControllerName is the helm value for the DPUService Controllers component name.
 	DPUServiceControllerName = "dpuservice-controller-manager"
-	managerContainerName     = "manager"
 )
 
 // dpuServiceControllerObjects contains Kubernetes objects to be created by the DPUService controller.
@@ -94,7 +94,7 @@ func (d *dpuServiceControllerObjects) GenerateManifests(vars Variables, options 
 		labelsToAdd[applysetPartOfLabel] = applySetID
 	}
 
-	image, ok := vars.Images[d.Name()]
+	managerImage, ok := vars.Images[d.Name()]
 	if !ok {
 		return nil, fmt.Errorf("could not find image for %s in variables", d.Name())
 	}
@@ -104,12 +104,13 @@ func (d *dpuServiceControllerObjects) GenerateManifests(vars Variables, options 
 		AddForAll(NamespaceEdit(vars.Namespace),
 			LabelsEdit(labelsToAdd)).
 		AddForKindS(DeploymentKind, ImagePullSecretsEditForDeploymentEdit(vars.ImagePullSecrets...)).
+		AddForKindS(DeploymentKind, d.deploymentEdit(vars)).
 		AddForKindS(DeploymentKind, NodeAffinityEdit(&controlPlaneNodeAffinity)).
 		AddForKindS(StatefulSetKind, NodeAffinityEdit(&controlPlaneNodeAffinity)).
 		AddForKindS(DeploymentKind, TolerationsEdit(controlPlaneTolerations)).
 		AddForKindS(StatefulSetKind, TolerationsEdit(controlPlaneTolerations)).
 		AddForKindS(DaemonSetKind, TolerationsEdit(controlPlaneTolerations)).
-		AddForKindS(DeploymentKind, ImageForDeploymentContainerEdit(managerContainerName, image))
+		AddForKindS(DeploymentKind, ImageForDeploymentContainerEdit(managerContainerName, managerImage))
 
 	// Add component-specific labels, annotations, and resources
 	componentName := d.Name()
@@ -134,6 +135,33 @@ func (d *dpuServiceControllerObjects) GenerateManifests(vars Variables, options 
 	}
 
 	return ret, nil
+}
+
+func (d *dpuServiceControllerObjects) deploymentEdit(vars Variables) StructuredEdit {
+	return func(obj client.Object) error {
+		deployment, ok := obj.(*appsv1.Deployment)
+		if !ok {
+			return fmt.Errorf("unexpected object %s. expected Deployment", obj.GetObjectKind().GroupVersionKind())
+		}
+
+		mods := []func(*appsv1.Deployment, Variables) error{
+			d.setDPUReadyController,
+		}
+		for _, mod := range mods {
+			if err := mod(deployment, vars); err != nil {
+				return fmt.Errorf("error while updating Deployment for DPUService Controller: %w", err)
+			}
+		}
+		return nil
+	}
+}
+
+func (d *dpuServiceControllerObjects) setDPUReadyController(deploy *appsv1.Deployment, vars Variables) error {
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf("container %q not found in DPUService Controller deployment", managerContainerName)
+	}
+	return setFlags(c, fmt.Sprintf("--disable-dpu-ready-controller=%t", vars.DisableDPUReadyCheck))
 }
 
 // IsReadyForUpgrade reports the readiness of the dpuservice controller objects. It returns an error when the number of Replicas in

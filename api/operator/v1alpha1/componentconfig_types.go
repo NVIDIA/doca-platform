@@ -134,6 +134,12 @@ type DPUServiceControllerConfiguration struct {
 	BaseComponentConfig     `json:",inline"`
 	ImageComponentConfig    `json:",inline"`
 	ResourceComponentConfig `json:",inline"`
+
+	// DisableDPUReady disables the DPU Ready Controller functionality in the DPU Service Controller.
+	// The DPU Ready Controller adds taints to the worker nodes when the DPU is not ready.
+	// This is useful when the DPU is used for networking and the node should not be scheduled until the DPU is ready.
+	// +optional
+	DisableDPUReadyCheck *bool `json:"disableDPUReadyCheck,omitempty"`
 }
 
 func (c *DPUServiceControllerConfiguration) Name() string {
