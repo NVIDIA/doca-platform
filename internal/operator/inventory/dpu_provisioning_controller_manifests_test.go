@@ -186,7 +186,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 
 	t.Run("no objects if disable is set", func(t *testing.T) {
 		vars := newDefaultVariables(defaults)
-		vars.DisableSystemComponents = map[string]bool{
+		vars.DisableSystemComponents = map[operatorv1.ComponentName]bool{
 			provCtrl.Name(): true,
 		}
 		objs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
@@ -431,7 +431,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		}
 
 		// Set resources
-		vars.Resources[provCtrl.Name()] = corev1.ResourceRequirements{
+		vars.Resources[provCtrl.Name().WithContainer(operatorv1.ControllerManagerContainer)] = corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("500m"),
 				corev1.ResourceMemory: resource.MustParse("512Mi"),
@@ -502,7 +502,7 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 				},
 			},
 		}
-		vars.Images[operatorv1.BFBRegistryName] = "registry-image:latest"
+		vars.Images[operatorv1.BFBRegistryName.String()] = "registry-image:latest"
 
 		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
@@ -524,7 +524,7 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 		// Verify the DaemonSet exists and has expected properties
 		g.Expect(daemonSet).NotTo(BeNil())
 		g.Expect(daemonSet.Namespace).To(Equal(vars.Namespace))
-		g.Expect(daemonSet.Labels).To(HaveKeyWithValue(operatorv1.DPFComponentLabelKey, operatorv1.BFBRegistryName))
+		g.Expect(daemonSet.Labels).To(HaveKeyWithValue(operatorv1.DPFComponentLabelKey, operatorv1.BFBRegistryName.String()))
 
 		// Verify container configuration
 		g.Expect(daemonSet.Spec.Template.Spec.Containers).To(HaveLen(1))
@@ -577,7 +577,7 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 				},
 			},
 		}
-		vars.Images[operatorv1.BFBRegistryName] = "registry-image:latest"
+		vars.Images[operatorv1.BFBRegistryName.String()] = "registry-image:latest"
 
 		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())

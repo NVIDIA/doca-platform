@@ -196,11 +196,11 @@ func addSystemComponentDPUServices(ctx context.Context, o objectScope, root clie
 func getEnabledSystemComponents() map[string]bool {
 	components := map[string]bool{}
 	for _, component := range inventory.New().SystemDPUServices() {
-		components[component.Name()] = true
+		components[component.Name().String()] = true
 	}
 	// Add servicechainset-rbac-and-crds as separate component.
 	// It is deployed via the servicechainset-controller helm chart.
-	components[operatorv1.ServiceChainSetCRDsName] = true
+	components[operatorv1.ServiceChainSetCRDsName.String()] = true
 	return components
 }
 
