@@ -38,12 +38,12 @@ func newClusterManagerObjects(name string, data []byte) *clusterManagerObjects {
 			AddForKindS(DeploymentKind, ImagePullSecretsEditForDeploymentEdit(vars.ImagePullSecrets...)).
 			AddForKindS(DeploymentKind, TolerationsEdit(controlPlaneTolerations)).
 			AddForKindS(DeploymentKind, NodeAffinityEdit(&controlPlaneNodeAffinity)).
-			AddForKindS(DeploymentKind, ImageForDeploymentContainerEdit("manager", vars.Images[name]))
+			AddForKindS(DeploymentKind, ImageForDeploymentContainerEdit(managerContainerName, vars.Images[name]))
 
 		if resources, exists := vars.Resources[name]; exists {
 			// Check if resources are set (either requests or limits)
 			if len(resources.Requests) > 0 || len(resources.Limits) > 0 {
-				edits = edits.AddForKindS(DeploymentKind, ResourcesEditForDeployment("manager", resources))
+				edits = edits.AddForKindS(DeploymentKind, ResourcesEditForDeployment(managerContainerName, resources))
 			}
 		}
 
