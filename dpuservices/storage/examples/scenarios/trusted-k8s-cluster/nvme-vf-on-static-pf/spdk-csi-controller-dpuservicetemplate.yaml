@@ -1,0 +1,13 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: spdk-csi-controller
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: spdk-csi-controller
+  helmChart:
+    source:
+      repoURL: $SPDK_CSI_CHART_REPO
+      version: $SPDK_CSI_CHART_VERSION
+      chart: spdk-csi-controller-chart

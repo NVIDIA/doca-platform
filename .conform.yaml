@@ -1,0 +1,28 @@
+policies:
+  - type: commit
+    spec:
+      header:
+        # Length is the maximum length of the commit subject.
+        length: 72
+        # Imperative enforces the use of imperative verbs as the first word of a
+        # commit message.
+        imperative: true
+        # HeaderCase is the case that the first word of the header must have ("upper" or "lower").
+        case: lower
+      body:
+        # Required enforces that the current commit has a body.
+        required: true
+      # DCO enables the Developer Certificate of Origin check.
+      dco: true
+      conventional:
+        types:
+          - chore
+          - ci
+          - docs
+          - feat
+          - fix
+          - refactor
+          - test
+          - release
+        scopes:
+          - .*

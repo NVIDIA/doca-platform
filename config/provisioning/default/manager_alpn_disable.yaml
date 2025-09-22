@@ -1,0 +1,15 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: system
+spec:
+  template:
+    spec:
+      containers:
+      - name: manager
+        env:
+        # DMS doesn't support ALPN. ALPN check is defaulting to true since gRPC 1.67.0
+        # https://github.com/grpc/grpc-go/pull/7535
+        - name: GRPC_ENFORCE_ALPN_ENABLED
+          value: "false"

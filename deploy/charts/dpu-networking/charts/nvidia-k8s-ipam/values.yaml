@@ -1,0 +1,29 @@
+# Default values for nvidia-k8s-ipam.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+imagePullSecrets: []
+nvIpam:
+  image:
+    repository: ghcr.io/mellanox/nvidia-k8s-ipam
+    tag: v0.3.5
+  controller:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 300Mi
+      limits:
+        memory: 300Mi
+  node:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 50Mi
+      limits:
+        cpu: 300m
+        memory: 300Mi
+  nameOverride: ""
+  fullnameOverride: ""
+  pullPolicy: IfNotPresent
+
+cniBinDir: /opt/cni/bin
+cniConfDir: /etc/cni/net.d

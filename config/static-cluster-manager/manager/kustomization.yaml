@@ -1,0 +1,51 @@
+resources:
+- manager.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+images:
+- name: controller
+  newName: example.com/dpf-system
+  newTag: v0.1.0
+sortOptions:
+  legacySortOptions:
+    orderFirst:
+    - PriorityClass
+    - Namespace
+    - NetworkPolicy
+    - ResourceQuota
+    - LimitRange
+    - PodSecurityPolicy
+    - PodDisruptionBudget
+    - ServiceAccount
+    - Secret
+    - SecretList
+    - ConfigMap
+    - StorageClass
+    - PersistentVolume
+    - PersistentVolumeClaim
+    - CustomResourceDefinition
+    - ClusterRole
+    - ClusterRoleList
+    - ClusterRoleBinding
+    - ClusterRoleBindingList
+    - Role
+    - RoleList
+    - RoleBinding
+    - RoleBindingList
+    - Service
+    - DaemonSet
+    - Pod
+    - ReplicationController
+    - ReplicaSet
+    - Deployment
+    - HorizontalPodAutoscaler
+    - StatefulSet
+    - Job
+    - CronJob
+    - IngressClass
+    - Ingress
+    - APIService
+    - Certificate
+    - Issuer
+    orderLast: null
+  order: legacy

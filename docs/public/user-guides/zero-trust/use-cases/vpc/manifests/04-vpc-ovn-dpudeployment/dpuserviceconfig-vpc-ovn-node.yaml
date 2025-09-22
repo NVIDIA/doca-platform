@@ -1,0 +1,27 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: vpc-ovn-node
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: vpc-ovn-node
+  upgradePolicy:
+    applyNodeEffect: false
+  serviceConfiguration:
+    helmChart:
+      values:
+        dpu:
+          vpcOVNNode:
+            enabled: true
+            initContainers:
+              vpcOVNDpuProvisioner:
+                env:
+                  ovnSbEndpoint: "tcp:$TARGETCLUSTER_OVN_CENTRAL_IP:30642"
+            ipRequests:
+              - name: "vtep"
+                poolName: "vpc-ippool-vtep"
+                allocateIPWithIndex: 1
+              - name: "gateway"
+                poolName: "vpc-ippool-gateway"
+                allocateIPWithIndex: 1

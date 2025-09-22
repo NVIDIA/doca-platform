@@ -1,0 +1,207 @@
+{{ include "validate" . }}
+{{- if .Values.host.snapHostController.enabled }}
+{{- $_ := required "host.snapHostController.config.targetNamespace must be set" .Values.host.snapHostController.config.targetNamespace }}
+{{- $_ := required "host.snapHostController.config.dpuClusterName must be set" .Values.host.snapHostController.config.dpuClusterName }}
+{{- $_ := required "host.snapHostController.config.dpuClusterNamespace must be set" .Values.host.snapHostController.config.dpuClusterNamespace }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "snap-host-controller.fullname" . }}-controller
+  labels:
+    {{- include "snap-host-controller.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "snap-host-controller.selectorLabels" . | nindent 6 }}
+  replicas: {{ .Values.host.snapHostController.replicas }}
+  template:
+    metadata:
+      labels:
+        {{- include "snap-host-controller.selectorLabels" . | nindent 8 }}
+        {{- with .Values.host.snapHostController.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- toYaml .Values.host.snapHostController.podAnnotations | nindent 8 }}
+    spec:
+      {{- with .Values.host.snapHostController.imagePullSecrets | default .Values.imagePullSecrets}}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "snap-host-controller.fullname" . }}
+      securityContext:
+        {{- toYaml .Values.host.snapHostController.podSecurityContext | nindent 8 }}
+      containers:
+        - name: controller
+          image: "{{ .Values.host.snapHostController.image.repository }}:{{ .Values.host.snapHostController.image.tag | default .Chart.AppVersion }}"
+          command:
+          - /snap-host-controller
+          args:
+          - --leader-elect=true
+          - --namespace={{ .Values.host.snapHostController.config.namespace | default .Release.Namespace }}
+          - --target-namespace={{ .Values.host.snapHostController.config.targetNamespace }}
+          - --dpucluster-name={{ .Values.host.snapHostController.config.dpuClusterName }}
+          - --dpucluster-namespace={{ .Values.host.snapHostController.config.dpuClusterNamespace }}
+          imagePullPolicy: {{ .Values.host.snapHostController.imagePullPolicy | default "IfNotPresent" }}
+          securityContext:
+            {{- toYaml .Values.host.snapHostController.securityContext | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.host.snapHostController.resources | nindent 12 }}
+      terminationGracePeriodSeconds: 10
+      {{- with .Values.host.snapHostController.nodeSelector | default dict }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.host.snapHostController.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.host.snapHostController.tolerations | default list }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "snap-host-controller.fullname" . }}
+  labels:
+    {{- include "snap-host-controller.labels" . | nindent 4 }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "snap-host-controller.roleName" . }}
+  labels:
+    {{- include "snap-host-controller.labels" . | nindent 4 }}
+rules:
+# Storage resources
+- apiGroups:
+  - storage.dpu.nvidia.com
+  resources:
+  - dpuvolumes
+  - dpuvolumeattachments
+  - dpustoragepolicies
+  - dpustoragevendors
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - patch
+- apiGroups:
+  - storage.dpu.nvidia.com
+  resources:
+  - dpuvolumes/status
+  - dpuvolumeattachments/status
+  - dpustoragepolicies/status
+  - dpustoragevendors/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - storage.dpu.nvidia.com
+  resources:
+  - dpuvolumes/finalizers
+  - dpuvolumeattachments/finalizers
+  - dpustoragepolicies/finalizers
+  - dpustoragevendors/finalizers
+  verbs:
+  - update
+# Provisioning resources
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - dpuclusters
+  - dpus
+  - dpunodes
+  verbs:
+  - get
+  - list
+  - watch
+# Authentication and metrics permissions
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+# Leader election permissions
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "snap-host-controller.roleBindingName" . }}
+  labels:
+    {{- include "snap-host-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "snap-host-controller.roleName" . }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "snap-host-controller.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}

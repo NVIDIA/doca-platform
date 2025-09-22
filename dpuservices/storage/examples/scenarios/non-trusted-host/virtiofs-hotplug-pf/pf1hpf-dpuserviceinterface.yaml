@@ -1,0 +1,23 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: pf1hpf
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      nodeSelector:
+        matchExpressions:
+          - key: kubernetes.io/os
+            operator: In
+            values:
+              - "linux"
+      template:
+        metadata:
+          labels:
+            uplink: "pf1hpf"
+        spec:
+          interfaceType: pf
+          pf:
+            pfID: 1

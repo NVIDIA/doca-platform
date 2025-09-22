@@ -1,0 +1,13 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: ovn-controller
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: ovn-controller
+  helmChart:
+    source:
+      repoURL: $HELM_REGISTRY_REPO_URL
+      version: $TAG
+      chart: ovn-chart

@@ -1,0 +1,13 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: argus
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: argus
+  serviceConfiguration:
+    helmChart:
+      values:
+        config:
+          isLocalPath: false
+        containerImage: nvcr.io/nvidia/doca/doca_argus:1.0.0-doca3.1.0
