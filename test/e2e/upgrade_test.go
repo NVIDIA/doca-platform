@@ -319,7 +319,7 @@ func rolloutDPU(ctx context.Context, input *systemTestInput) {
 func rolloutDPUService(ctx context.Context, input *systemTestInput) {
 	By("selecting system component DPUService flannel for deletion")
 	selectedDPUService := &dpuservicev1.DPUService{}
-	selectedDPUService.SetName(operatorv1.FlannelName)
+	selectedDPUService.SetName(operatorv1.FlannelName.String())
 	selectedDPUService.SetNamespace(dpfOperatorSystemNamespace)
 	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(selectedDPUService), selectedDPUService)).To(Succeed())
 	uuid := selectedDPUService.GetUID()

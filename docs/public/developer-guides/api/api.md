@@ -82,10 +82,13 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
 | `deployInTargetCluster` _boolean_ |  |  |  |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `installer` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Installer contains the configuration for the CNI-Installer component.<br />It contains the image for the controller and its resource requirements. |  |  |
+
+
+
+
 
 
 
@@ -181,7 +184,7 @@ _Appears in:_
 
 
 
-DPUDetectorConfiguration is the configuration for the DPUDetector Component.
+DPUDetectorConfiguration is the configuration for the DPUDetectorContainer Component.
 
 
 
@@ -191,8 +194,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `image` _[Image](#image)_ | Image overrides the container image used by the DPUDetector Container.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `daemon` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the DPU Detector component.<br />It contains the image for the controller and its resource requirements. |  |  |
 
 
 #### DPUServiceControllerConfiguration
@@ -209,11 +212,36 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `image` _[Image](#image)_ | Image overrides the container image used by the DPUService controller.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the DPU Service controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
 | `disableDPUReadyCheck` _boolean_ | DisableDPUReady disables the DPU Ready Controller functionality in the DPU Service Controller.<br />The DPU Ready Controller adds taints to the worker nodes when the DPU is not ready.<br />This is useful when the DPU is used for networking and the node should not be scheduled until the DPU is ready. |  |  |
 
 
+#### DefaultOverridesConfiguration
+
+
+
+
+
+
+
+_Appears in:_
+- [CNIInstallerConfiguration](#cniinstallerconfiguration)
+- [DPUDetectorConfiguration](#dpudetectorconfiguration)
+- [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
+- [KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)
+- [MultusConfiguration](#multusconfiguration)
+- [OVSCNIConfiguration](#ovscniconfiguration)
+- [ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)
+- [SFCControllerConfiguration](#sfccontrollerconfiguration)
+- [SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)
+- [ServiceSetControllerConfiguration](#servicesetcontrollerconfiguration)
+- [StaticClusterManagerConfiguration](#staticclustermanagerconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
 
 
 
@@ -252,7 +280,7 @@ _Appears in:_
 | `deployInTargetCluster` _boolean_ |  |  |  |
 | `cni` _[FlannelCNI](#flannelcni)_ | CNI is the configuration for the Flannel CNI component.<br />It contains the image for the CNI init container.<br />Note: The resources for the CNI container are not configurable. |  |  |
 | `daemon` _[FlannelDaemon](#flanneldaemon)_ | Daemon is the configuration for the Flannel Daemon component.<br />It contains the image for the Flannel Daemon container and its resource requirements. |  |  |
-| `image` _[FlannelImages](#flannelimages)_ | Images overrides the container images used by flannel<br /><br />Deprecated: This field is deprecated and will be removed with v25.10.<br />Use the new fields `cni` and `daemon` instead. |  |  |
+| `image` _[FlannelImages](#flannelimages)_ | Images overrides the container images used by flannel<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new fields `cni` and `daemon` instead. |  |  |
 | `podCIDR` _string_ | PodCIDR is the pod cidr for flannel. |  |  |
 
 
@@ -347,15 +375,16 @@ _Validation:_
 - Pattern: `^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$`
 
 _Appears in:_
-- [CNIInstallerConfiguration](#cniinstallerconfiguration)
 - [DPUDetectorConfiguration](#dpudetectorconfiguration)
 - [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
+- [DefaultOverridesConfiguration](#defaultoverridesconfiguration)
 - [FlannelCNI](#flannelcni)
 - [FlannelDaemon](#flanneldaemon)
 - [ImageComponentConfig](#imagecomponentconfig)
 - [KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
+- [NVIPAMController](#nvipamcontroller)
 - [OVSCNIConfiguration](#ovscniconfiguration)
 - [ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)
 - [SFCControllerConfiguration](#sfccontrollerconfiguration)
@@ -375,20 +404,10 @@ by all component configurations to reduce code duplication.
 
 
 _Appears in:_
-- [CNIInstallerConfiguration](#cniinstallerconfiguration)
-- [DPUDetectorConfiguration](#dpudetectorconfiguration)
-- [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
+- [DefaultOverridesConfiguration](#defaultoverridesconfiguration)
 - [FlannelCNI](#flannelcni)
 - [FlannelDaemon](#flanneldaemon)
-- [KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)
-- [MultusConfiguration](#multusconfiguration)
-- [NVIPAMConfiguration](#nvipamconfiguration)
-- [OVSCNIConfiguration](#ovscniconfiguration)
-- [ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)
-- [SFCControllerConfiguration](#sfccontrollerconfiguration)
-- [SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)
-- [ServiceSetControllerConfiguration](#servicesetcontrollerconfiguration)
-- [StaticClusterManagerConfiguration](#staticclustermanagerconfiguration)
+- [NVIPAMController](#nvipamcontroller)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -467,8 +486,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `image` _[Image](#image)_ | Image overrides the container image used by the Kamaji Cluster Manager.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Kamaji Cluster Manager component.<br />It contains the image for the controller and its resource requirements. |  |  |
 
 
 #### MultusConfiguration
@@ -485,10 +504,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
 | `deployInTargetCluster` _boolean_ |  |  |  |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `image` _[Image](#image)_ | Image overrides the container image used by the Multus Container.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `cni` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `cni` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | CNI contains the configuration for the Multus CNI component.<br />It contains the image for the controller and its resource requirements. |  |  |
 
 
 #### NVIPAMConfiguration
@@ -505,9 +524,9 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
 | `deployInTargetCluster` _boolean_ |  |  |  |
+| `image` _[Image](#image)_ | Image overrides the container image used by the NVIPAM controller.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `controller` _[NVIPAMController](#nvipamcontroller)_ | Controller contains the configuration for the NVIPAM controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
 | `node` _[NVIPAMNode](#nvipamnode)_ | Node contains the configuration for the NVIPAM node component.<br />It contains the image for the node and its resource requirements. |  |  |
 
@@ -525,6 +544,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
 
 
@@ -575,10 +595,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
 | `deployInTargetCluster` _boolean_ |  |  |  |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `image` _[Image](#image)_ | Image overrides the container image used by the OVS CNI.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `cni` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `cni` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | CNI contains the configuration for the OVS CNI component.<br />It contains the image for the controller and its resource requirements. |  |  |
 
 
 #### Overrides
@@ -621,8 +641,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `image` _[Image](#image)_ | Image overrides the container image used by the Provisioning controller.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Provisioning controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
 | `bfCFGTemplateConfigMap` _string_ | BFCFGTemplateConfigMap is the name of a configMap containing a template for the BF.cfg file used by the DPU controller.<br />By default the provisioning controller use a hardcoded BF.cfg e.g. https://github.com/NVIDIA/doca-platform/blob/release-v24.10/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template<br />Note: Replacing the bf.cfg is an advanced use case. The default bf.cfg is designed for most use cases. |  |  |
 | `bfbPVCName` _string_ | BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim used by dpf-provisioning-controller |  | MinLength: 1 <br /> |
 | `dmsTimeout` _integer_ | DMSTimeout is the max time in seconds within which a DMS API must respond, 0 is unlimited |  | Minimum: 1 <br /> |
@@ -659,20 +679,10 @@ ResourceComponentConfig defines the resource requirements for a container.
 
 
 _Appears in:_
-- [CNIInstallerConfiguration](#cniinstallerconfiguration)
-- [DPUDetectorConfiguration](#dpudetectorconfiguration)
-- [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
+- [DefaultOverridesConfiguration](#defaultoverridesconfiguration)
 - [FlannelDaemon](#flanneldaemon)
-- [KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)
-- [MultusConfiguration](#multusconfiguration)
 - [NVIPAMController](#nvipamcontroller)
 - [NVIPAMNode](#nvipamnode)
-- [OVSCNIConfiguration](#ovscniconfiguration)
-- [ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)
-- [SFCControllerConfiguration](#sfccontrollerconfiguration)
-- [SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)
-- [ServiceSetControllerConfiguration](#servicesetcontrollerconfiguration)
-- [StaticClusterManagerConfiguration](#staticclustermanagerconfiguration)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -688,21 +698,11 @@ _Appears in:_
 
 
 _Appears in:_
-- [CNIInstallerConfiguration](#cniinstallerconfiguration)
-- [DPUDetectorConfiguration](#dpudetectorconfiguration)
-- [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
+- [DefaultOverridesConfiguration](#defaultoverridesconfiguration)
 - [FlannelDaemon](#flanneldaemon)
-- [KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)
-- [MultusConfiguration](#multusconfiguration)
 - [NVIPAMController](#nvipamcontroller)
 - [NVIPAMNode](#nvipamnode)
-- [OVSCNIConfiguration](#ovscniconfiguration)
-- [ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)
 - [ResourceComponentConfig](#resourcecomponentconfig)
-- [SFCControllerConfiguration](#sfccontrollerconfiguration)
-- [SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)
-- [ServiceSetControllerConfiguration](#servicesetcontrollerconfiguration)
-- [StaticClusterManagerConfiguration](#staticclustermanagerconfiguration)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -743,10 +743,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
 | `deployInTargetCluster` _boolean_ |  |  |  |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `image` _[Image](#image)_ | Image overrides the container image used by the SFC controller.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the SFC controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
 | `secureFlowDeletionTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | SecureFlowDeletionTimeout controls the timeout for which the API server is unreachable after which all the flows<br />are deleted to prevent unintended packet leaks. It has effect when is greater than zero.<br />Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration. |  |  |
 
 
@@ -764,10 +764,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
 | `deployInTargetCluster` _boolean_ |  |  |  |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `image` _[Image](#image)_ | Image overrides the container image used by the SRIOV Device Plugin container.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `deviceplugin` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `deviceplugin` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | DevicePlugin contains the configuration for the SRIOV Device Plugin component.<br />It contains the image for the controller and its resource requirements. |  |  |
 
 
 #### ServiceSetControllerConfiguration
@@ -784,10 +784,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
 | `deployInTargetCluster` _boolean_ |  |  |  |
+| `image` _[Image](#image)_ | Image overrides the container image used by the ServiceChainSet Controller.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the ServiceChainSet controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
 
 
 #### StaticClusterManagerConfiguration
@@ -804,8 +804,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `image` _[Image](#image)_ | Image overrides the container image used by the Static Cluster Manager.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Static Cluster Manager controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
 
 
 

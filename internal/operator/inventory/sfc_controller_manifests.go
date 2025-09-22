@@ -51,7 +51,7 @@ func newSFCControllerObjects(data []byte) *sfcControllerObjects {
 	}
 }
 
-func (p *sfcControllerObjects) Name() string {
+func (p *sfcControllerObjects) Name() operatorv1.ComponentName {
 	return operatorv1.SFCControllerName
 }
 
@@ -73,9 +73,9 @@ func (p *sfcControllerObjects) Parse() (err error) {
 		// Exclude Namespace and CustomResourceDefinition as the operator should not deploy these resources.
 		case string(NamespaceKind), string(CustomResourceDefinitionKind):
 			continue
-		case string(dpuservicev1.DPUServiceNADKind):
+		case dpuservicev1.DPUServiceNADKind:
 			p.dpuServiceNADs = append(p.dpuServiceNADs, obj)
-		case string(dpuservicev1.DPUServiceKind):
+		case dpuservicev1.DPUServiceKind:
 			if p.fromDPUService.dpuService != nil {
 				return fmt.Errorf("manifests should contain exactly one DPUService, found more than 1")
 			}
@@ -100,7 +100,7 @@ func (p *sfcControllerObjects) GenerateManifests(vars Variables, options ...Gene
 	}
 
 	labelsToAdd := map[string]string{
-		operatorv1.DPFComponentLabelKey: p.Name(),
+		operatorv1.DPFComponentLabelKey: p.Name().String(),
 		release.DPFVersionLabelKey:      release.DPFVersion(),
 	}
 	applySetID := ApplySetID(vars.Namespace, p)
