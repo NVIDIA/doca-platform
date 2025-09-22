@@ -43,7 +43,7 @@ This guide uses the following tools which must be installed on the machine where
 * All worker nodes are connected to the same L2 broadcast domain (VLAN) on the high-speed network.
 * Host high-speed port (Host PF0) must have DHCP enabled.
 * MTU of the port should be statically set to 1500
-* **Note**: These settings can be configured automatically via DPUFlavor `hostNetworkInterfaceConfigs` (see [dpuflavor-ovn.yaml](manifests/05-dpudeployment-installation/dpuflavor-ovn.yaml)).
+* **Note**: These settings can be configured automatically via DPUFlavor `hostNetworkInterfaceConfigs`
 * An external DHCP Server should be used for the high-speed network:
     * The DHCP server must not assign a default gateway to the DHCP clients.
     * The DHCP server should assign a special route (option 121) for a "dummy" IP subnet with a next hop address of the actual default gateway router serving the high-speed network.
