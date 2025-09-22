@@ -103,6 +103,7 @@ type Variables struct {
 	DPUOpenvSwitchSharedLibPath      string
 	DPUOpenvSwitchSharedLib64Path    *string
 	FlannelSkipCNIConfigInstallation bool
+	DisableDPUReadyCheck             bool
 	FlannelPodCIDR                   string
 	DPUClusters                      []*dpucluster.Config
 	DPFProvisioningController        DPFProvisioningVariables
@@ -307,6 +308,10 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 		if config.Spec.SFCController.SecureFlowDeletionTimeout != nil {
 			variables.SFCController.SecureFlowDeletionTimeout = config.Spec.SFCController.SecureFlowDeletionTimeout.Duration
 		}
+	}
+
+	if config.Spec.DPUServiceController != nil && config.Spec.DPUServiceController.DisableDPUReadyCheck != nil {
+		variables.DisableDPUReadyCheck = *config.Spec.DPUServiceController.DisableDPUReadyCheck
 	}
 	return variables
 }

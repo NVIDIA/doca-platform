@@ -60,6 +60,9 @@ const (
 	kubernetesNodeRoleMaster       = "node-role.kubernetes.io/master"
 	kubernetesNodeRoleControlPlane = "node-role.kubernetes.io/control-plane"
 	nodeNotReadyTaint              = "node.kubernetes.io/not-ready"
+
+	// managerContainerName is the name of the CR controller manager container.
+	managerContainerName = "manager"
 )
 
 var (
@@ -300,4 +303,63 @@ func daemonSetReadyCheck(ctx context.Context, c client.Client, namespace string,
 			deamonset.GetNamespace(), deamonset.GetName(), deamonset.Status.NumberReady, deamonset.Status.DesiredNumberScheduled)
 	}
 	return nil
+}
+
+func getManagerContainer(deploy *appsv1.Deployment) *corev1.Container {
+	for i, c := range deploy.Spec.Template.Spec.Containers {
+		if c.Name == managerContainerName {
+			return &deploy.Spec.Template.Spec.Containers[i]
+		}
+	}
+	return nil
+}
+
+// setFlags sets or updates command line flags in a container's Args slice.
+func setFlags(c *corev1.Container, newFlags ...string) error {
+	pending := make(map[string]string)
+	for _, f := range newFlags {
+		name := parseFlagName(f)
+		if name == "" {
+			return fmt.Errorf("invalid flag %s", f)
+		}
+		pending[name] = f
+	}
+	for i, f := range c.Args {
+		name := parseFlagName(f)
+		if name == "" {
+			continue
+		}
+		newFlag, ok := pending[name]
+		if !ok {
+			continue
+		}
+		delete(pending, name)
+		c.Args[i] = newFlag
+	}
+	for _, flag := range pending {
+		c.Args = append(c.Args, flag)
+	}
+	return nil
+}
+
+// parseFlagName extracts the name of a command line flag from its string representation.
+// It returns an empty string if the argument is not a valid flag.
+func parseFlagName(arg string) string {
+	if len(arg) < 2 || arg[0] != '-' {
+		return ""
+	}
+	numMinuses := 1
+	if arg[1] == '-' {
+		numMinuses++
+	}
+	name := arg[numMinuses:]
+	if len(name) == 0 || name[0] == '-' || name[0] == '=' {
+		return ""
+	}
+	for i := 1; i < len(name); i++ {
+		if name[i] == '=' {
+			return name[:i]
+		}
+	}
+	return name
 }
