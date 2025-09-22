@@ -239,6 +239,8 @@ spec:
                     - RollingUpdate
                     type: string
                 type: object
+            required:
+            - dpuTemplate
             type: object
           status:
             description: DPUSetStatus defines the observed state of DPUSet

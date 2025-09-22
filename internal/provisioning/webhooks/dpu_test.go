@@ -321,6 +321,24 @@ var _ = Describe("DPU", func() {
 			Expect(objFetched.Spec.DPUDeviceName).To(Equal("dpudevice-1"))
 		})
 
+		It("spec.DPUFlavor is immutable", func() {
+			refValue := "initial-flavor"
+
+			obj := createObj("obj-dpuflavor-immutable")
+			obj.Spec.DPUFlavor = refValue
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.DPUFlavor = "updated-flavor"
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).To(HaveOccurred())
+
+			objFetched := &provisioningv1.DPU{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Spec.DPUFlavor).To(Equal(refValue))
+		})
+
 		It("spec.Cluster is immutable once assigned", func() {
 			refValue := `dummy_cluster`
 			newValue := `dummy_new_cluster`
