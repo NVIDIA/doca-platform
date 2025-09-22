@@ -186,6 +186,12 @@ func main() {
 
 	ctx := ctrl.SetupSignalHandler()
 
+	// Setup field indexers
+	if err := dpuservicecontroller.SetupIndexers(ctx, mgr); err != nil {
+		setupLog.Error(err, "failed to setup field indexers")
+		os.Exit(1)
+	}
+
 	podsOwnedByDPUServiceLabelSelector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
