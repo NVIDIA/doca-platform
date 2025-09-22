@@ -338,15 +338,15 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		}
 
 		// Expect each of the following to have been created by the operator.
-		g.Expect(found).To(HaveKey(operatorv1.MultusName))
-		g.Expect(found).To(HaveKey(operatorv1.SRIOVDevicePluginName))
-		g.Expect(found).To(HaveKey(operatorv1.ServiceSetControllerName))
-		g.Expect(found).To(HaveKey(operatorv1.FlannelName))
-		g.Expect(found).To(HaveKey(operatorv1.NVIPAMName))
-		g.Expect(found).To(HaveKey(operatorv1.OVSCNIName))
-		g.Expect(found).To(HaveKey(operatorv1.SFCControllerName))
+		g.Expect(found).To(HaveKey(operatorv1.MultusName.String()))
+		g.Expect(found).To(HaveKey(operatorv1.SRIOVDevicePluginName.String()))
+		g.Expect(found).To(HaveKey(operatorv1.ServiceSetControllerName.String()))
+		g.Expect(found).To(HaveKey(operatorv1.FlannelName.String()))
+		g.Expect(found).To(HaveKey(operatorv1.NVIPAMName.String()))
+		g.Expect(found).To(HaveKey(operatorv1.OVSCNIName.String()))
+		g.Expect(found).To(HaveKey(operatorv1.SFCControllerName.String()))
 		if !isUpgradeFrom25Dot7 {
-			g.Expect(found).To(HaveKey(operatorv1.CNIInstallerName))
+			g.Expect(found).To(HaveKey(operatorv1.CNIInstallerName.String()))
 		}
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 }
@@ -456,13 +456,13 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 
 		// Expect each of the following to have been created by the operator.
 		// These are labels on the appv1 type - e.g. DaemonSet or Deployment on the DPU cluster.
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.MultusName)))
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.FlannelName)))
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SRIOVDevicePluginName)))
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.MultusName.String())))
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.FlannelName.String())))
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SRIOVDevicePluginName.String())))
 		// Note: The NVIPAM DPUService contains both a Daemonset and a Deployment - but this is overwritten in the map.
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.NVIPAMName)))
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.OVSCNIName)))
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SFCControllerName)))
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.NVIPAMName.String())))
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.OVSCNIName.String())))
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SFCControllerName.String())))
 	}).WithTimeout(600 * time.Second).Should(Succeed())
 }
 

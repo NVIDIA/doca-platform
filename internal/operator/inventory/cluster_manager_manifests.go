@@ -16,7 +16,11 @@ limitations under the License.
 
 package inventory
 
-import "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+import (
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+)
 
 var _ Component = &clusterManagerObjects{}
 
@@ -24,23 +28,24 @@ type clusterManagerObjects struct {
 	simpleDeploymentObjects
 }
 
-func newClusterManagerObjects(name string, data []byte) *clusterManagerObjects {
+func newClusterManagerObjects(component operatorv1.ComponentName, data []byte) *clusterManagerObjects {
 	m := &clusterManagerObjects{}
-	m.name = name
+	m.name = component
 	m.data = data
 	// disabled if the provisioning-controller is disabled
-	m.isDisabled = func(disableComponents map[string]bool) bool {
-		return disableComponents[name]
+	m.isDisabled = func(disableComponents map[operatorv1.ComponentName]bool) bool {
+		return disableComponents[component]
 	}
+	imageName := component.WithContainer(operatorv1.ControllerManagerContainer)
 	m.edit = func(objs []*unstructured.Unstructured, vars Variables, labelsToAdd map[string]string) error {
 		edits := NewEdits().
 			AddForAll(NamespaceEdit(vars.Namespace), LabelsEdit(labelsToAdd)).
 			AddForKindS(DeploymentKind, ImagePullSecretsEditForDeploymentEdit(vars.ImagePullSecrets...)).
 			AddForKindS(DeploymentKind, TolerationsEdit(controlPlaneTolerations)).
 			AddForKindS(DeploymentKind, NodeAffinityEdit(&controlPlaneNodeAffinity)).
-			AddForKindS(DeploymentKind, ImageForDeploymentContainerEdit(managerContainerName, vars.Images[name]))
+			AddForKindS(DeploymentKind, ImageForDeploymentContainerEdit("manager", vars.Images[imageName]))
 
-		if resources, exists := vars.Resources[name]; exists {
+		if resources, exists := vars.Resources[imageName]; exists {
 			// Check if resources are set (either requests or limits)
 			if len(resources.Requests) > 0 || len(resources.Limits) > 0 {
 				edits = edits.AddForKindS(DeploymentKind, ResourcesEditForDeployment(managerContainerName, resources))

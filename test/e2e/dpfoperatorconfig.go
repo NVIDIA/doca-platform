@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+//nolint:staticcheck
 package e2e
 
 import (
@@ -82,40 +83,50 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 	// For objects which are deployed as DPUServices set the helm chart field in configuration.
 	// Excluding flannel which DPF Operator does not allow setting an image for.
 	modifiedConfig.Spec.ServiceSetController = &operatorv1.ServiceSetControllerConfiguration{
-		ImageComponentConfig: operatorv1.ImageComponentConfig{
-			Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.ServiceSetControllerName)),
+		Controller: &operatorv1.DefaultOverridesConfiguration{
+			ImageComponentConfig: operatorv1.ImageComponentConfig{
+				Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.ServiceSetControllerName)),
+			},
+			ResourceComponentConfig: dummyResourceRequirements,
 		},
-		ResourceComponentConfig: dummyResourceRequirements,
 	}
 	modifiedConfig.Spec.Multus = &operatorv1.MultusConfiguration{
-		ImageComponentConfig: operatorv1.ImageComponentConfig{
-			Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.MultusName)),
+		CNI: &operatorv1.DefaultOverridesConfiguration{
+			ImageComponentConfig: operatorv1.ImageComponentConfig{
+				Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.MultusName)),
+			},
+			ResourceComponentConfig: dummyResourceRequirements,
 		},
-		ResourceComponentConfig: dummyResourceRequirements,
 	}
 	modifiedConfig.Spec.SRIOVDevicePlugin = &operatorv1.SRIOVDevicePluginConfiguration{
-		ImageComponentConfig: operatorv1.ImageComponentConfig{
-			Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.SRIOVDevicePluginName)),
+		DevicePlugin: &operatorv1.DefaultOverridesConfiguration{
+			ImageComponentConfig: operatorv1.ImageComponentConfig{
+				Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.SRIOVDevicePluginName)),
+			},
+			ResourceComponentConfig: dummyResourceRequirements,
 		},
-		ResourceComponentConfig: dummyResourceRequirements,
 	}
 	modifiedConfig.Spec.OVSCNI = &operatorv1.OVSCNIConfiguration{
-		ImageComponentConfig: operatorv1.ImageComponentConfig{
-			Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.OVSCNIName)),
+		CNI: &operatorv1.DefaultOverridesConfiguration{
+			ImageComponentConfig: operatorv1.ImageComponentConfig{
+				Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.OVSCNIName)),
+			},
+			ResourceComponentConfig: dummyResourceRequirements,
 		},
-		ResourceComponentConfig: dummyResourceRequirements,
 	}
 	modifiedConfig.Spec.SFCController = &operatorv1.SFCControllerConfiguration{
-		ImageComponentConfig: operatorv1.ImageComponentConfig{
-			Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.SFCControllerName)),
+		Controller: &operatorv1.DefaultOverridesConfiguration{
+			ImageComponentConfig: operatorv1.ImageComponentConfig{
+				Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.SFCControllerName)),
+			},
+			ResourceComponentConfig: dummyResourceRequirements,
 		},
-		ResourceComponentConfig: dummyResourceRequirements,
 	}
 	modifiedConfig.Spec.NVIPAM = &operatorv1.NVIPAMConfiguration{
-		ImageComponentConfig: operatorv1.ImageComponentConfig{
-			Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.NVIPAMName)),
-		},
 		Controller: &operatorv1.NVIPAMController{
+			ImageComponentConfig: operatorv1.ImageComponentConfig{
+				Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.NVIPAMName)),
+			},
 			ResourceComponentConfig: dummyResourceRequirements,
 		},
 		Node: &operatorv1.NVIPAMNode{
@@ -137,30 +148,78 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 	}
 	// Controller overrides.
 	modifiedConfig.Spec.ProvisioningController = originalConfig.Spec.ProvisioningController.DeepCopy()
-	modifiedConfig.Spec.ProvisioningController.ImageComponentConfig = operatorv1.ImageComponentConfig{
-		Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.ProvisioningControllerName)),
-	}
-	modifiedConfig.Spec.ProvisioningController.ResourceComponentConfig = dummyResourceRequirements
-	modifiedConfig.Spec.DPUServiceController = &operatorv1.DPUServiceControllerConfiguration{
+	modifiedConfig.Spec.ProvisioningController.Controller = &operatorv1.DefaultOverridesConfiguration{
 		ImageComponentConfig: operatorv1.ImageComponentConfig{
-			Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.DPUServiceControllerName)),
+			Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.ProvisioningControllerName)),
 		},
 		ResourceComponentConfig: dummyResourceRequirements,
 	}
+	modifiedConfig.Spec.DPUServiceController = &operatorv1.DPUServiceControllerConfiguration{
+		Controller: &operatorv1.DefaultOverridesConfiguration{
+			ImageComponentConfig: operatorv1.ImageComponentConfig{
+				Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.DPUServiceControllerName)),
+			},
+			ResourceComponentConfig: dummyResourceRequirements,
+		},
+	}
 
-	By("updating the DPFOperatorConfig with modified images")
+	By("updating the DPFOperatorConfig with modified images and resources")
 	Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(originalConfig))).To(Succeed())
 
+	By("verifying all components are updated")
+	verifyComponentOverrides(ctx, input, dummyRegistryName, expectedDummyResources)
+
+	dummyRegistryName = "overridden-registry.com"
+	configCopy := modifiedConfig.DeepCopy()
+	modifiedConfig.Spec.ServiceSetController.Controller.Image = nil
+	modifiedConfig.Spec.ServiceSetController.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.ServiceSetControllerName))
+	modifiedConfig.Spec.Multus.CNI.Image = nil
+	modifiedConfig.Spec.Multus.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.MultusName))
+	modifiedConfig.Spec.SRIOVDevicePlugin.DevicePlugin.Image = nil
+	modifiedConfig.Spec.SRIOVDevicePlugin.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.SRIOVDevicePluginName))
+	modifiedConfig.Spec.OVSCNI.CNI.Image = nil
+	modifiedConfig.Spec.OVSCNI.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.OVSCNIName))
+	modifiedConfig.Spec.SFCController.Controller.Image = nil
+	modifiedConfig.Spec.SFCController.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.SFCControllerName))
+	modifiedConfig.Spec.NVIPAM.Controller.Image = nil
+	modifiedConfig.Spec.NVIPAM.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.NVIPAMName))
+	modifiedConfig.Spec.ProvisioningController.Controller.Image = nil
+	modifiedConfig.Spec.ProvisioningController.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.ProvisioningControllerName))
+	modifiedConfig.Spec.DPUServiceController.Controller.Image = nil
+	modifiedConfig.Spec.DPUServiceController.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.DPUServiceControllerName))
+	modifiedConfig.Spec.Flannel.CNI.Image = nil
+	modifiedConfig.Spec.Flannel.Daemon.Image = nil
+	modifiedConfig.Spec.Flannel.Images = &operatorv1.FlannelImages{
+		KubeFlannel: dummyRegistryName + "/kube-flannel:legacy-test",
+		FlannelCNI:  dummyRegistryName + "/flannel-cni:legacy-test",
+	}
+	Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(configCopy))).To(Succeed())
+
+	By("verifying legacy component overrides")
+	verifyComponentOverrides(ctx, input, dummyRegistryName, expectedDummyResources)
+
+	By("reverting the DPFOperatorConfig to its original setting.")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(modifiedConfig), modifiedConfig)).To(Succeed())
+		resetConfig := modifiedConfig.DeepCopy()
+		resetConfig.Spec = originalConfig.Spec
+		// Revert the image versions to their previous values.
+		g.Expect(input.client.Patch(ctx, resetConfig, client.MergeFrom(modifiedConfig))).To(Succeed())
+		// Ensure the changes are reverted before continuing.
+	}).Should(Succeed())
+}
+
+func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummyRegistryName string, expectedDummyResources corev1.ResourceRequirements) {
 	// Assert the images are set for the system components.
 	tracker := NewByTracker()
 	Eventually(func(g Gomega) {
-		inClusterDeploymentDPUServices := map[string]bool{
+		inClusterDeploymentDPUServices := map[operatorv1.ComponentName]bool{
 			operatorv1.ServiceSetControllerName: true,
 		}
-		deploymentDPUservices := map[string]bool{
+		deploymentDPUservices := map[operatorv1.ComponentName]bool{
 			operatorv1.NVIPAMName: true,
 		}
-		daemonSetDPUServices := map[string]bool{
+		daemonSetDPUServices := map[operatorv1.ComponentName]bool{
 			operatorv1.SRIOVDevicePluginName: true,
 			operatorv1.SFCControllerName:     true,
 			operatorv1.OVSCNIName:            true,
@@ -188,11 +247,11 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 
 		// Verify overrides for inCluster DPUServices
 		for name := range inClusterDeploymentDPUServices {
-			deployValidation(input.client, "in-cluster", name)
+			deployValidation(input.client, "in-cluster", name.String())
 		}
 		// Verify overrides in the DPUClusters
 		for name := range deploymentDPUservices {
-			deployValidation(dpuClusterClient, input.dpuCluster.Name, name)
+			deployValidation(dpuClusterClient, input.dpuCluster.Name, name.String())
 		}
 		for name := range daemonSetDPUServices {
 			nameForCluster := fmt.Sprintf("%s-%s", input.dpuCluster.Name, name)
@@ -221,33 +280,6 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 			}
 		}
 	}, 120*time.Second).Should(Succeed())
-
-	By("updating the DPFOperatorConfig to test legacy image overrides for Flannel")
-	configCopy := modifiedConfig.DeepCopy()
-	// nolint:staticcheck
-	modifiedConfig.Spec.Flannel.Images = &operatorv1.FlannelImages{
-		KubeFlannel: "dummy-registry.com/kube-flannel:legacy-test",
-		FlannelCNI:  "dummy-registry.com/flannel-cni:legacy-test",
-	}
-	Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(configCopy))).To(Succeed())
-
-	Eventually(func(g Gomega) {
-		tracker.By("flannel-daemonset", "verifying flannel images for %s", input.dpuCluster.Name)
-		flannelDaemonSet := &appsv1.DaemonSet{}
-		g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-ds"}, flannelDaemonSet)).To(Succeed())
-		g.Expect(flannelDaemonSet.Spec.Template.Spec.Containers[0].Image).To(ContainSubstring("dummy-registry.com/kube-flannel:legacy-test"))
-		g.Expect(flannelDaemonSet.Spec.Template.Spec.InitContainers[0].Image).To(ContainSubstring("dummy-registry.com/flannel-cni:legacy-test"))
-	}, 120*time.Second).Should(Succeed())
-
-	By("reverting the DPFOperatorConfig to its original setting.")
-	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(modifiedConfig), modifiedConfig)).To(Succeed())
-		resetConfig := modifiedConfig.DeepCopy()
-		resetConfig.Spec = originalConfig.Spec
-		// Revert the image versions to their previous values.
-		g.Expect(input.client.Patch(ctx, resetConfig, client.MergeFrom(modifiedConfig))).To(Succeed())
-		// Ensure the changes are reverted before continuing.
-	}).Should(Succeed())
 }
 
 func ValidateDPFOperatorMTUCurrentConfiguration(ctx context.Context, input *systemTestInput) {
@@ -411,7 +443,7 @@ func ValidateDPFOperatorPathConfiguration(ctx context.Context, input *systemTest
 	}
 	Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(originalConfig))).To(Succeed())
 
-	dpuServiceDaemonSetsWithPathChanges := map[string]bool{
+	dpuServiceDaemonSetsWithPathChanges := map[operatorv1.ComponentName]bool{
 		operatorv1.SFCControllerName: true,
 		operatorv1.OVSCNIName:        true,
 		operatorv1.NVIPAMName:        true,
