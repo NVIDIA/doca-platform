@@ -41,7 +41,7 @@ This guide uses the following tools which must be installed on the machine where
 * Open vSwitch (OVS) packages not installed
 * Host high-speed port (Host PF0) must have DHCP enabled
 * MTU of the port should be statically set to 1500
-* **Note**: These settings can be configured automatically via DPUFlavor `hostNetworkInterfaceConfigs` (see [dpuflavor-hbn-ovn.yaml](manifests/05-dpudeployment-installation/dpuflavor-hbn-ovn.yaml)).
+* **Note**: These settings can be configured automatically via DPUFlavor `hostNetworkInterfaceConfigs`
 
 ### Kubernetes prerequisites
 
