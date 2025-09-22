@@ -237,8 +237,8 @@ type DPUSetSpec struct {
 	DPUSelector map[string]string `json:"dpuSelector,omitempty"`
 
 	// Object that describes the DPU that will be created if insufficient replicas are detected
-	// +optional
-	DPUTemplate DPUTemplate `json:"dpuTemplate,omitempty"`
+	// +required
+	DPUTemplate DPUTemplate `json:"dpuTemplate"`
 }
 
 // DPUSetStatus defines the observed state of DPUSet
