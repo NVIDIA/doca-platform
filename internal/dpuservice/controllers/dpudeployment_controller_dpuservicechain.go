@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
@@ -39,6 +40,18 @@ func reconcileDPUServiceChain(ctx context.Context,
 	dpuNodeLabels map[string]string) (ctrl.Result, error) {
 	owner := metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)
 	requeue := ctrl.Result{}
+
+	// Get all existing DPUSets
+	existingDPUSets := &provisioningv1.DPUSetList{}
+	if err := c.List(ctx,
+		existingDPUSets,
+		client.MatchingLabels{
+			dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(client.ObjectKeyFromObject(dpuDeployment)),
+		},
+		client.InNamespace(dpuDeployment.Namespace)); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to list existing DPUSets: %w", err)
+	}
+
 	// Grab existing DPUServiceChains
 	existingDPUServiceChains := &dpuservicev1.DPUServiceChainList{}
 	if err := c.List(ctx,
@@ -66,7 +79,7 @@ func reconcileDPUServiceChain(ctx context.Context,
 	switch {
 	case currentRevision != nil:
 		// we found the current revision based on the digest, there might be old revisions to handle
-		req := reconcileCurrentDPUServiceChainRevision(ctx, c, newRevision, currentRevision, oldRevisions, dpuNodeLabels, existingDPUServiceChainsMap)
+		req := reconcileCurrentDPUServiceChainRevision(ctx, c, newRevision, currentRevision, oldRevisions, dpuNodeLabels, existingDPUServiceChainsMap, existingDPUSets.Items)
 
 		if !req.IsZero() {
 			requeue = req
@@ -158,7 +171,9 @@ func reconcileCurrentDPUServiceChainRevision(ctx context.Context, c client.Clien
 	currentRevision client.Object,
 	oldRevisions []client.Object,
 	dpuNodeLabels map[string]string,
-	existingDPUServiceChainsMap map[string]dpuservicev1.DPUServiceChain) ctrl.Result {
+	existingDPUServiceChainsMap map[string]dpuservicev1.DPUServiceChain,
+	existingDPUSets []provisioningv1.DPUSet,
+) ctrl.Result {
 	log := ctrllog.FromContext(ctx)
 	requeue := ctrl.Result{RequeueAfter: reconcileRequeueDuration}
 	currentRev, oldRevs := currentRevision.(*dpuservicev1.DPUServiceChain), clientObjectToDPUServiceChainList(oldRevisions)
@@ -184,7 +199,7 @@ func reconcileCurrentDPUServiceChainRevision(ctx context.Context, c client.Clien
 
 	// if the current revision is still not ready, keep the eventual old revisions and requeue
 	// otherwise, clean old revisions
-	if conditions.IsTrue(currentRev, conditions.TypeReady) {
+	if conditions.IsTrue(currentRev, conditions.TypeReady) && len(getNotReadyDPUSets(existingDPUSets)) == 0 {
 		err := cleanStaleDPUServiceChains(ctx, c, oldRevs)
 		if err != nil {
 			log.Error(err, "failed to resume stale DPUService")

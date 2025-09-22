@@ -1733,6 +1733,18 @@ var _ = Describe("DPUDeployment Controller", func() {
 						Expect(testClient.Status().Patch(ctx, &dpuService, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
 					}
 				}
+				By("marking the DPUSet ready")
+				gotDPUSetList := &provisioningv1.DPUSetList{}
+				Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+				Expect(gotDPUSetList.Items).ToNot(BeEmpty())
+				for _, dpuSet := range gotDPUSetList.Items {
+					dpuSet.Status.DPUStatistics = map[provisioningv1.DPUPhase]int{
+						provisioningv1.DPUReady: 1,
+					}
+					dpuSet.SetGroupVersionKind(provisioningv1.DPUSetGroupVersionKind)
+					dpuSet.SetManagedFields(nil)
+					Expect(testClient.Status().Patch(ctx, &dpuSet, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+				}
 
 				By("checking that the DPUServices are correctly updated")
 				Eventually(func(g Gomega) {
@@ -5326,6 +5338,16 @@ var _ = Describe("DPUDeployment Controller", func() {
 					ServiceTemplate:      "service-2",
 					ServiceConfiguration: "service-2",
 				}
+				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
+					{
+						NameSuffix: "dpuset1",
+						NodeSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"nodekey1": "nodevalue1",
+							},
+						},
+					},
+				}
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -5361,7 +5383,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
 				By("modifying the DPUServiceConfiguration object")
-				expected := []dpuservicev1.DPUServiceSpec{
+				expectedDPUServiceSpecs := []dpuservicev1.DPUServiceSpec{
 					{
 						HelmChart: dpuservicev1.HelmChart{
 							Source: dpuservicev1.ApplicationSource{
@@ -5511,15 +5533,15 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 					// remove the oldest version from the expected list
 					// if the list has reached the revisionHistoryLimit
-					if len(expected) == revisionHistoryLimit+1 {
-						expected = append(expected[:1], expected[2:]...)
+					if len(expectedDPUServiceSpecs) == revisionHistoryLimit+1 {
+						expectedDPUServiceSpecs = append(expectedDPUServiceSpecs[:1], expectedDPUServiceSpecs[2:]...)
 					}
 
-					expected = append(expected, svc)
+					expectedDPUServiceSpecs = append(expectedDPUServiceSpecs, svc)
 
-					for i := 1; i < len(expected)-1; i++ {
+					for i := 1; i < len(expectedDPUServiceSpecs)-1; i++ {
 						// paused while waiting for the new version to be ready
-						expected[i].Paused = ptr.To(true)
+						expectedDPUServiceSpecs[i].Paused = ptr.To(true)
 					}
 
 					By("checking that the DPUService is updated as expected and that we have as many DPUServiceInterfaces")
@@ -5528,28 +5550,28 @@ var _ = Describe("DPUDeployment Controller", func() {
 						g.Expect(testClient.List(ctx, gotDPUServiceList, &client.ListOptions{
 							Namespace: testNS.Name,
 						})).To(Succeed())
-						g.Expect(gotDPUServiceList.Items).To(HaveLen(len(expected)))
+						g.Expect(gotDPUServiceList.Items).To(HaveLen(len(expectedDPUServiceSpecs)))
 
 						By("Checking that the DPUServiceInterfaces that have exceeded the revision history have been deleted")
 						gotDPUServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
 						g.Expect(testClient.List(ctx, gotDPUServiceInterfaceList)).To(Succeed())
-						g.Expect(gotDPUServiceInterfaceList.Items).To(HaveLen(len(expected)))
+						g.Expect(gotDPUServiceInterfaceList.Items).To(HaveLen(len(expectedDPUServiceSpecs)))
 
 						By("checking the specs")
 						specs := make([]dpuservicev1.DPUServiceSpec, 0, len(gotDPUServiceList.Items))
 						for _, dpuService := range gotDPUServiceList.Items {
 							specs = append(specs, dpuService.Spec)
 						}
-						g.Expect(specs).To(ConsistOf(expected))
+						g.Expect(specs).To(ConsistOf(expectedDPUServiceSpecs))
 					}).WithTimeout(30 * time.Second).Should(Succeed())
 				}
 
-				By("making the new version ready")
+				By("making the new DPUService ready")
 				gotDPUServiceList := &dpuservicev1.DPUServiceList{}
 				Expect(testClient.List(ctx, gotDPUServiceList, &client.ListOptions{
 					Namespace: testNS.Name,
 				})).To(Succeed())
-				Expect(gotDPUServiceList.Items).To(HaveLen(len(expected)))
+				Expect(gotDPUServiceList.Items).To(HaveLen(len(expectedDPUServiceSpecs)))
 
 				var currentSvc *dpuservicev1.DPUService
 				for _, dpuService := range gotDPUServiceList.Items {
@@ -5568,6 +5590,26 @@ var _ = Describe("DPUDeployment Controller", func() {
 					},
 				}
 				Expect(patcher.Patch(ctx, currentSvc, patch.WithFieldOwner("test"))).To(Succeed())
+
+				By("checking that old DPUServices are not deleted until DPUSet is ready")
+				Consistently(func(g Gomega) {
+					gotDPUServiceList := &dpuservicev1.DPUServiceList{}
+					g.Expect(testClient.List(ctx, gotDPUServiceList)).To(Succeed())
+					g.Expect(gotDPUServiceList.Items).To(HaveLen(len(expectedDPUServiceSpecs)))
+				}).WithTimeout(5 * time.Second).Should(Succeed())
+
+				By("marking the DPUSet ready")
+				gotDPUSetList := &provisioningv1.DPUSetList{}
+				Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+				Expect(gotDPUSetList.Items).ToNot(BeEmpty())
+				for _, dpuSet := range gotDPUSetList.Items {
+					dpuSet.Status.DPUStatistics = map[provisioningv1.DPUPhase]int{
+						provisioningv1.DPUReady: 1,
+					}
+					dpuSet.SetGroupVersionKind(provisioningv1.DPUSetGroupVersionKind)
+					dpuSet.SetManagedFields(nil)
+					Expect(testClient.Status().Patch(ctx, &dpuSet, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+				}
 
 				By("checking that the DPUService is updated as expected")
 				Eventually(func(g Gomega) {
@@ -6683,6 +6725,16 @@ var _ = Describe("DPUDeployment Controller", func() {
 				dpuDeployment.Spec.ServiceChains.UpgradePolicy = dpuservicev1.UpgradePolicy{
 					ApplyNodeEffect: ptr.To(true),
 				}
+				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
+					{
+						NameSuffix: "dpuset1",
+						NodeSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"nodekey1": "nodevalue1",
+							},
+						},
+					},
+				}
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
@@ -6802,6 +6854,26 @@ var _ = Describe("DPUDeployment Controller", func() {
 					},
 				}
 				Expect(patcher.Patch(ctx, currentSvcChain, patch.WithFieldOwner("test"))).To(Succeed())
+
+				By("checking that old DPUServiceChains are not deleted until DPUSet is ready")
+				Consistently(func(g Gomega) {
+					gotDPUServiceChainList := &dpuservicev1.DPUServiceChainList{}
+					Expect(testClient.List(ctx, gotDPUServiceChainList)).To(Succeed())
+					Expect(gotDPUServiceChainList.Items).To(HaveLen(2))
+				}).WithTimeout(5 * time.Second).Should(Succeed())
+
+				By("marking the DPUSet ready")
+				gotDPUSetList := &provisioningv1.DPUSetList{}
+				Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+				Expect(gotDPUSetList.Items).ToNot(BeEmpty())
+				for _, dpuSet := range gotDPUSetList.Items {
+					dpuSet.Status.DPUStatistics = map[provisioningv1.DPUPhase]int{
+						provisioningv1.DPUReady: 1,
+					}
+					dpuSet.SetGroupVersionKind(provisioningv1.DPUSetGroupVersionKind)
+					dpuSet.SetManagedFields(nil)
+					Expect(testClient.Status().Patch(ctx, &dpuSet, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+				}
 
 				By("checking that the DPUServiceChain is updated as expected")
 				Eventually(func(g Gomega) {
