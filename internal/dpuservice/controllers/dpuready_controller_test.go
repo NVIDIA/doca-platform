@@ -653,6 +653,419 @@ var _ = Describe("DPUReadyReconciler", func() {
 				}))
 			}).WithTimeout(5 * time.Second).Should(Succeed())
 		})
+		It("should taint worker node when it has multiple DPUs and one of the DPUs is not ready", func() {
+			By("Creating another DPU")
+			dpu2 := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      dpuName + "2",
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName:   nodeName,
+					DPUDeviceName: dpuDeviceName + "2",
+					SerialNumber:  "MT25066004C8",
+					Cluster: provisioningv1.K8sCluster{
+						Name:      dpuCluster.Name,
+						Namespace: dpuCluster.Namespace,
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, dpu2)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpu2)
+
+			By("Creating a new node in the DPUCluster")
+			nodeInDPUCluster := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: dpu2.Name,
+					Labels: map[string]string{
+						cutil.HostNameDPULabelKey: workerNode.Name,
+					},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{
+							Type:   corev1.NodeReady,
+							Status: corev1.ConditionTrue,
+						},
+					},
+				},
+			}
+			Expect(dpuClusterClient.Create(ctx, nodeInDPUCluster)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, dpuClusterClient, nodeInDPUCluster)
+
+			By("Creating a DPUService")
+			dpuServices := getMinimalDPUServices(testNS.Name)
+			// mark service as critical
+			markServiceCritical(dpuServices[1])
+			dpuServices[1].Spec.ServiceID = ptr.To("service-one")
+			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
+
+			By("Triggering node reconcile")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Verifying taint is added on the node")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(updatedNode.Spec.Taints).To(ContainElement(corev1.Taint{
+					Key:    taintKey,
+					Effect: taintEffect,
+				}))
+			}).WithTimeout(1 * time.Minute).Should(Succeed())
+
+			By("Creating a pod corresponding to the critical service")
+			pod1 := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      dpuServices[1].Name + "-test-pod",
+					Namespace: "default",
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: dpuName,
+					Containers: []corev1.Container{
+						{
+							Name:  "test-container",
+							Image: "nginx:latest", // Any valid image name
+						},
+					},
+					// Required to avoid validation errors
+					RestartPolicy: corev1.RestartPolicyAlways,
+				},
+			}
+			Expect(dpuClusterClient.Create(ctx, pod1)).To(Succeed())
+			originalPod1 := pod1.DeepCopy()
+			pod1.Status = corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				Conditions: []corev1.PodCondition{
+					{
+						Type:               corev1.PodReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.PodInitialized,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.PodScheduled,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+				ContainerStatuses: []corev1.ContainerStatus{
+					{
+						Name: "test-container",
+						State: corev1.ContainerState{
+							Running: &corev1.ContainerStateRunning{
+								StartedAt: metav1.Now(),
+							},
+						},
+						Ready:        true,
+						RestartCount: 0,
+					},
+				},
+				PodIP:     "10.0.0.1",
+				HostIP:    "192.168.1.1",
+				StartTime: &metav1.Time{Time: time.Now()},
+			}
+			Expect(dpuClusterClient.Status().Patch(ctx, pod1, client.MergeFrom(originalPod1))).To(Succeed())
+			// Wait for pod to be running
+			Eventually(func(g Gomega) {
+				updatedPod := &corev1.Pod{}
+				g.Expect(dpuClusterClient.Get(ctx, types.NamespacedName{
+					Name:      pod1.Name,
+					Namespace: pod1.Namespace,
+				}, updatedPod)).To(Succeed())
+				g.Expect(updatedPod.Status.Phase).To(Equal(corev1.PodRunning))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Triggering node reconcile")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Verifying taint is not removed from the node")
+			Consistently(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(updatedNode.Spec.Taints).To(ContainElement(corev1.Taint{
+					Key:    taintKey,
+					Effect: taintEffect,
+				}))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Force immediate deletion of the pods")
+			gracePeriod := int64(0)
+			deleteOpts := &client.DeleteOptions{
+				GracePeriodSeconds: &gracePeriod,
+			}
+			Expect(dpuClusterClient.Delete(ctx, pod1, deleteOpts)).To(Succeed())
+			// Check pod state after deletion
+			Eventually(func(g Gomega) {
+				podList := &corev1.PodList{}
+				g.Expect(dpuClusterClient.List(ctx, podList)).To(Succeed())
+				g.Expect(podList.Items).To(BeEmpty())
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+		})
+		It("should remove taint from worker node when it has multiple DPUs and all the DPUs are ready", func() {
+			By("Creating another DPU")
+			dpu2 := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      dpuName + "2",
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName:   nodeName,
+					DPUDeviceName: dpuDeviceName + "2",
+					SerialNumber:  "MT25066004C8",
+					Cluster: provisioningv1.K8sCluster{
+						Name:      dpuCluster.Name,
+						Namespace: dpuCluster.Namespace,
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, dpu2)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpu2)
+
+			By("Creating a new node in the DPUCluster")
+			nodeInDPUCluster := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: dpu2.Name,
+					Labels: map[string]string{
+						cutil.HostNameDPULabelKey: workerNode.Name,
+					},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{
+							Type:   corev1.NodeReady,
+							Status: corev1.ConditionTrue,
+						},
+					},
+				},
+			}
+			Expect(dpuClusterClient.Create(ctx, nodeInDPUCluster)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, dpuClusterClient, nodeInDPUCluster)
+
+			By("Creating a DPUService")
+			dpuServices := getMinimalDPUServices(testNS.Name)
+			// mark service as critical
+			markServiceCritical(dpuServices[1])
+			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
+
+			By("Triggering node reconcile")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Verifying taint is added on the node")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(updatedNode.Spec.Taints).To(ContainElement(corev1.Taint{
+					Key:    taintKey,
+					Effect: taintEffect,
+				}))
+			}).WithTimeout(1 * time.Minute).Should(Succeed())
+
+			By("Creating a pod corresponding to the critical service")
+			dpuServices[1].Spec.ServiceID = ptr.To("service-one")
+			pod1 := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      dpuServices[1].Name + "-test-pod",
+					Namespace: "default",
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: dpuName,
+					Containers: []corev1.Container{
+						{
+							Name:  "test-container",
+							Image: "nginx:latest", // Any valid image name
+						},
+					},
+					// Required to avoid validation errors
+					RestartPolicy: corev1.RestartPolicyAlways,
+				},
+			}
+			Expect(dpuClusterClient.Create(ctx, pod1)).To(Succeed())
+			originalPod1 := pod1.DeepCopy()
+			pod1.Status = corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				Conditions: []corev1.PodCondition{
+					{
+						Type:               corev1.PodReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.PodInitialized,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.PodScheduled,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+				ContainerStatuses: []corev1.ContainerStatus{
+					{
+						Name: "test-container",
+						State: corev1.ContainerState{
+							Running: &corev1.ContainerStateRunning{
+								StartedAt: metav1.Now(),
+							},
+						},
+						Ready:        true,
+						RestartCount: 0,
+					},
+				},
+				PodIP:     "10.0.0.1",
+				HostIP:    "192.168.1.1",
+				StartTime: &metav1.Time{Time: time.Now()},
+			}
+			Expect(dpuClusterClient.Status().Patch(ctx, pod1, client.MergeFrom(originalPod1))).To(Succeed())
+			// Wait for pod to be running
+			Eventually(func(g Gomega) {
+				updatedPod := &corev1.Pod{}
+				g.Expect(dpuClusterClient.Get(ctx, types.NamespacedName{
+					Name:      pod1.Name,
+					Namespace: pod1.Namespace,
+				}, updatedPod)).To(Succeed())
+				g.Expect(updatedPod.Status.Phase).To(Equal(corev1.PodRunning))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Creating a pod corresponding to the second DPU")
+			pod2 := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      dpuServices[1].Name + "-test-pod-2",
+					Namespace: "default",
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: dpu2.Name,
+					Containers: []corev1.Container{
+						{
+							Name:  "test-container",
+							Image: "nginx:latest", // Any valid image name
+						},
+					},
+					// Required to avoid validation errors
+					RestartPolicy: corev1.RestartPolicyAlways,
+				},
+			}
+			Expect(dpuClusterClient.Create(ctx, pod2)).To(Succeed())
+			originalPod2 := pod2.DeepCopy()
+			pod2.Status = corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				Conditions: []corev1.PodCondition{
+					{
+						Type:               corev1.PodReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.PodInitialized,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.PodScheduled,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+				ContainerStatuses: []corev1.ContainerStatus{
+					{
+						Name: "test-container",
+						State: corev1.ContainerState{
+							Running: &corev1.ContainerStateRunning{
+								StartedAt: metav1.Now(),
+							},
+						},
+						Ready:        true,
+						RestartCount: 0,
+					},
+				},
+				PodIP:     "10.0.0.2",
+				HostIP:    "192.168.1.2",
+				StartTime: &metav1.Time{Time: time.Now()},
+			}
+			Expect(dpuClusterClient.Status().Patch(ctx, pod2, client.MergeFrom(originalPod2))).To(Succeed())
+			// Wait for pod to be running
+			Eventually(func(g Gomega) {
+				updatedPod := &corev1.Pod{}
+				g.Expect(dpuClusterClient.Get(ctx, types.NamespacedName{
+					Name:      pod2.Name,
+					Namespace: pod2.Namespace,
+				}, updatedPod)).To(Succeed())
+				g.Expect(updatedPod.Status.Phase).To(Equal(corev1.PodRunning))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Triggering node reconcile")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Verifying taint is removed from the node")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(updatedNode.Spec.Taints).NotTo(ContainElement(corev1.Taint{
+					Key:    taintKey,
+					Effect: taintEffect,
+				}))
+			}).WithTimeout(1 * time.Minute).Should(Succeed())
+
+			By("Force immediate deletion of the pods")
+			gracePeriod := int64(0)
+			deleteOpts := &client.DeleteOptions{
+				GracePeriodSeconds: &gracePeriod,
+			}
+			Expect(dpuClusterClient.Delete(ctx, pod1, deleteOpts)).To(Succeed())
+			Expect(dpuClusterClient.Delete(ctx, pod2, deleteOpts)).To(Succeed())
+			// Check pod state after deletion
+			Eventually(func(g Gomega) {
+				podList := &corev1.PodList{}
+				g.Expect(dpuClusterClient.List(ctx, podList)).To(Succeed())
+				g.Expect(podList.Items).To(BeEmpty())
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+		})
 	})
 })
 
