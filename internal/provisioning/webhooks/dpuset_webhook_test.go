@@ -51,7 +51,13 @@ var _ = Describe("DPUSet", func() {
 				Name:      name,
 				Namespace: "default",
 			},
-			Spec:   provisioningv1.DPUSetSpec{},
+			Spec: provisioningv1.DPUSetSpec{
+				DPUTemplate: provisioningv1.DPUTemplate{
+					Spec: provisioningv1.DPUTemplateSpec{
+						DPUFlavor: dpuFlavor,
+					},
+				},
+			},
 			Status: provisioningv1.DPUSetStatus{},
 		}
 	}
@@ -387,5 +393,6 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 			Expect(objFetched.Spec.DPUTemplate.Spec.DPUFlavor).To(Equal("updated-flavor"))
 		})
+
 	})
 })

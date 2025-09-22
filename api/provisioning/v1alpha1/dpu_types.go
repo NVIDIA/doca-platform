@@ -178,6 +178,8 @@ type DPUSpec struct {
 	Cluster K8sCluster `json:"cluster,omitempty"`
 
 	// DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU.
+	// +kubebuilder:validation:XValidation:rule="self==oldSelf", message="Value is immutable"
+	// +kubebuilder:validation:MinLength=1
 	// +optional
 	DPUFlavor string `json:"dpuFlavor,omitempty"`
 
