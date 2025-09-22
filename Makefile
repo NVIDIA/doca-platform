@@ -1346,13 +1346,13 @@ helm-package-dummydpuservice: $(DPUSERVICESDIR) helm ## Package helm chart for d
 	./hack/scripts/release-helm-package.sh
 
 .PHONY: helm-package-spdk-csi-controller
-helm-package-spdk-csi-controller: $(CHARTSDIR) helm
+helm-package-spdk-csi-controller: $(CHARTSDIR) helm yq
 	HELM_CHART_DIR="$(SPDK_CSI_CONTROLLER_CHART)" \
 	HELM_CHART_TAGS="$(TAG)" \
 	./hack/scripts/release-helm-package.sh
 
 .PHONY: helm-package-nfs-csi-controller
-helm-package-nfs-csi-controller: $(CHARTSDIR) helm
+helm-package-nfs-csi-controller: $(CHARTSDIR) helm yq
 	HELM_CHART_DIR="$(NFS_CSI_CONTROLLER_CHART)" \
 	HELM_CHART_TAGS="$(TAG)" \
 	./hack/scripts/release-helm-package.sh
