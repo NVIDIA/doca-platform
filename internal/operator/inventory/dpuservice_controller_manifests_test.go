@@ -19,6 +19,8 @@ package inventory
 import (
 	"testing"
 
+	"github.com/nvidia/doca-platform/internal/release"
+
 	. "github.com/onsi/gomega"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -26,6 +28,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestDPUServiceControllerManifestsParse(t *testing.T) {
@@ -66,4 +69,53 @@ func TestDPUServiceControllerManifestsParse(t *testing.T) {
 	g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(foundByKind[ClusterRoleBindingKind].UnstructuredContent(), &rbacv1.ClusterRoleBinding{})).ToNot(HaveOccurred())
 	g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(foundByKind[ValidatingWebhookConfigurationKind].UnstructuredContent(), &admissionregistrationv1.ValidatingWebhookConfiguration{})).ToNot(HaveOccurred())
 	g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(foundByKind[ServiceKind].UnstructuredContent(), &corev1.Service{})).ToNot(HaveOccurred())
+}
+
+func TestDPUServiceControllerManifestSetFlag(t *testing.T) {
+	g := NewGomegaWithT(t)
+
+	defaults := release.NewDefaults()
+	g.Expect(defaults.Parse()).To(Succeed())
+
+	dpuserviceCtrl := &dpuServiceControllerObjects{
+		data: dpuServiceData,
+	}
+	g.Expect(dpuserviceCtrl.Parse()).To(Succeed())
+
+	t.Run("test toggling DPUReady controller", func(t *testing.T) {
+		vars := newDefaultVariables(defaults)
+
+		generatedObjs, err := dpuserviceCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		g.Expect(err).NotTo(HaveOccurred())
+
+		deployment := getDeploymentFromGeneratedObjs(g, generatedObjs)
+
+		g.Expect(deployment).NotTo(BeNil())
+		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--disable-dpu-ready-controller=false"))
+
+		// Disable DPUReady controller and check the flag is set in the deployment.
+		vars.DisableDPUReadyCheck = true
+		generatedObjs, err = dpuserviceCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		g.Expect(err).NotTo(HaveOccurred())
+
+		deployment = getDeploymentFromGeneratedObjs(g, generatedObjs)
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--disable-dpu-ready-controller=true"))
+	})
+}
+
+func getDeploymentFromGeneratedObjs(g Gomega, generatedObjs []client.Object) *appsv1.Deployment {
+	var deployment *appsv1.Deployment
+	for _, obj := range generatedObjs {
+		if obj.GetObjectKind().GroupVersionKind().Kind == string(DeploymentKind) {
+			deploy := &appsv1.Deployment{}
+			unstructuredObj, ok := obj.(*unstructured.Unstructured)
+			g.Expect(ok).To(BeTrue())
+			err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), deploy)
+			g.Expect(err).NotTo(HaveOccurred())
+			deployment = deploy
+			break
+		}
+	}
+	return deployment
 }

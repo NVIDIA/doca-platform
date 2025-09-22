@@ -352,7 +352,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		// * check args of the manager container
 		var container *corev1.Container
 		for _, c := range gotDeployment.Spec.Template.Spec.Containers {
-			if c.Name == dpfProvisioningControllerContainerName {
+			if c.Name == managerContainerName {
 				container = c.DeepCopy()
 				break
 			}

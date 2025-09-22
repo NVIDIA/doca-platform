@@ -211,6 +211,7 @@ _Appears in:_
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
 | `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `disableDPUReadyCheck` _boolean_ | DisableDPUReady disables the DPU Ready Controller functionality in the DPU Service Controller.<br />The DPU Ready Controller adds taints to the worker nodes when the DPU is not ready.<br />This is useful when the DPU is used for networking and the node should not be scheduled until the DPU is ready. |  |  |
 
 
 

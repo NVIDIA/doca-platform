@@ -38,12 +38,11 @@ import (
 
 const (
 	// DPFProvisioningControllerName is the helm value for the Provisioning Controllers component name.
-	DPFProvisioningControllerName          = "dpf-provisioning-controller-manager"
-	dpfProvisioningControllerContainerName = "manager"
-	bfbVolumeName                          = "bfb-volume"
-	webhookServiceName                     = "dpf-provisioning-webhook-service"
-	customBFConfigFileName                 = "bf.cfg.template"
-	customBFConfigVolumeName               = "bf-cfg-template"
+	DPFProvisioningControllerName = "dpf-provisioning-controller-manager"
+	bfbVolumeName                 = "bfb-volume"
+	webhookServiceName            = "dpf-provisioning-webhook-service"
+	customBFConfigFileName        = "bf.cfg.template"
+	customBFConfigVolumeName      = "bf-cfg-template"
 )
 
 var _ Component = &provisioningControllerObjects{}
@@ -281,11 +280,11 @@ func (p *provisioningControllerObjects) addBFCFGConfigMapMountEdit(deployment *a
 }
 
 // Set Resources for the deployment.
-func (p *provisioningControllerObjects) setResources(deployment *appsv1.Deployment, vars Variables) error {
+func (p *provisioningControllerObjects) setResources(deploy *appsv1.Deployment, vars Variables) error {
 	if resources, exists := vars.Resources[operatorv1.ProvisioningControllerName]; exists {
 		// Check if resources are set (either requests or limits)
 		if len(resources.Requests) > 0 || len(resources.Limits) > 0 {
-			container := p.getContainer(deployment)
+			container := getManagerContainer(deploy)
 			if container != nil {
 				container.Resources = resources
 			}
@@ -320,27 +319,18 @@ func fixupWebhookServiceEdit(obj *unstructured.Unstructured) error {
 }
 
 func (p *provisioningControllerObjects) validateDeployment(obj *unstructured.Unstructured) error {
-	deployment := &appsv1.Deployment{}
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), deployment); err != nil {
+	deploy := &appsv1.Deployment{}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), deploy); err != nil {
 		return fmt.Errorf("error while parsing Deployment for Provisioning Controller: %w", err)
 	}
 
-	vol := p.getVolume(deployment, "bfb-volume")
+	vol := p.getVolume(deploy, "bfb-volume")
 	if vol == nil {
 		return fmt.Errorf("invalid Provisioning Controller deployment, no bfb volume found")
 	}
-	c := p.getContainer(deployment)
+	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", dpfProvisioningControllerContainerName)
-	}
-	return nil
-}
-
-func (p *provisioningControllerObjects) getContainer(deploy *appsv1.Deployment) *corev1.Container {
-	for i, c := range deploy.Spec.Template.Spec.Containers {
-		if c.Name == dpfProvisioningControllerContainerName {
-			return &deploy.Spec.Template.Spec.Containers[i]
-		}
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
 	}
 	return nil
 }
@@ -360,11 +350,11 @@ func (p *provisioningControllerObjects) setBFBPersistentVolumeClaim(deploy *apps
 		return fmt.Errorf("error while generating Deployment for Provisioning Controller: no bfb volume found")
 	}
 	vol.PersistentVolumeClaim.ClaimName = vars.DPFProvisioningController.BFBPersistentVolumeClaimName
-	c := p.getContainer(deploy)
+	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", dpfProvisioningControllerContainerName)
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
 	}
-	return p.setFlags(c, fmt.Sprintf("--bfb-pvc=%s", vol.PersistentVolumeClaim.ClaimName))
+	return setFlags(c, fmt.Sprintf("--bfb-pvc=%s", vol.PersistentVolumeClaim.ClaimName))
 }
 
 func (p *provisioningControllerObjects) setKubernetesAPIServerEnvVars(deploy *appsv1.Deployment, vars Variables) error {
@@ -380,60 +370,60 @@ func (p *provisioningControllerObjects) setKubernetesAPIServerEnvVars(deploy *ap
 	if len(envVars) == 0 {
 		return nil
 	}
-	c := p.getContainer(deploy)
+	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", dpfProvisioningControllerContainerName)
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
 	}
-	return p.setFlags(c, fmt.Sprintf("--dms-pod-envs=%s", strings.Join(envVars, ",")))
+	return setFlags(c, fmt.Sprintf("--dms-pod-envs=%s", strings.Join(envVars, ",")))
 }
 
 func (p *provisioningControllerObjects) setMaxDPUParallelInstallations(deploy *appsv1.Deployment, vars Variables) error {
-	c := p.getContainer(deploy)
+	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", dpfProvisioningControllerContainerName)
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
 	}
 	if vars.DPFProvisioningController.MaxDPUParallelInstallations == nil {
 		return nil
 	}
-	return p.setFlags(c, fmt.Sprintf("--max-dpu-parallel-installations=%d", *vars.DPFProvisioningController.MaxDPUParallelInstallations))
+	return setFlags(c, fmt.Sprintf("--max-dpu-parallel-installations=%d", *vars.DPFProvisioningController.MaxDPUParallelInstallations))
 }
 
 func (p *provisioningControllerObjects) setImagePullSecrets(deploy *appsv1.Deployment, vars Variables) error {
-	c := p.getContainer(deploy)
+	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", dpfProvisioningControllerContainerName)
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
 	}
 	if len(vars.ImagePullSecrets) == 0 {
 		return nil
 	}
-	return p.setFlags(c, fmt.Sprintf("--image-pull-secrets=%s", strings.Join(vars.ImagePullSecrets, ",")))
+	return setFlags(c, fmt.Sprintf("--image-pull-secrets=%s", strings.Join(vars.ImagePullSecrets, ",")))
 }
 
 func (p *provisioningControllerObjects) setCustomCASecretName(deploy *appsv1.Deployment, vars Variables) error {
-	c := p.getContainer(deploy)
+	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", dpfProvisioningControllerContainerName)
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
 	}
 	if vars.DPFProvisioningController.CustomCASecretName == nil {
 		return nil
 	}
-	return p.setFlags(c, fmt.Sprintf("--custom-CA-secret=%s", *vars.DPFProvisioningController.CustomCASecretName))
+	return setFlags(c, fmt.Sprintf("--custom-CA-secret=%s", *vars.DPFProvisioningController.CustomCASecretName))
 }
 
 func (p *provisioningControllerObjects) setInstallInterface(deploy *appsv1.Deployment, vars Variables) error {
-	c := p.getContainer(deploy)
+	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", dpfProvisioningControllerContainerName)
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
 	}
 	if vars.DPFProvisioningController.InstallInterface == nil ||
 		vars.DPFProvisioningController.InstallInterface.InstallViaGNOI != nil {
-		return p.setFlags(c, fmt.Sprintf("--dpu-install-interface=%s", provisioningv1.InstallViaGNOI))
+		return setFlags(c, fmt.Sprintf("--dpu-install-interface=%s", provisioningv1.InstallViaGNOI))
 	} else if vars.DPFProvisioningController.InstallInterface.InstallViaRedfish != nil {
-		err := p.setFlags(c, fmt.Sprintf("--dpu-install-interface=%s", provisioningv1.InstallViaRedFish))
+		err := setFlags(c, fmt.Sprintf("--dpu-install-interface=%s", provisioningv1.InstallViaRedFish))
 		if err != nil {
 			return err
 		}
-		return p.setFlags(c, fmt.Sprintf("--bfb-registry=%s", vars.DPFProvisioningController.InstallInterface.InstallViaRedfish.BFBRegistryAddress))
+		return setFlags(c, fmt.Sprintf("--bfb-registry=%s", vars.DPFProvisioningController.InstallInterface.InstallViaRedfish.BFBRegistryAddress))
 	}
 	return fmt.Errorf("provisioning controller install interface not set")
 }
@@ -443,64 +433,17 @@ func (p *provisioningControllerObjects) setDMSTimeout(deploy *appsv1.Deployment,
 	if t == nil {
 		return nil
 	}
-	c := p.getContainer(deploy)
+	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", dpfProvisioningControllerContainerName)
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
 	}
-	return p.setFlags(c, fmt.Sprintf("--dms-timeout=%d", *vars.DPFProvisioningController.DMSTimeout))
+	return setFlags(c, fmt.Sprintf("--dms-timeout=%d", *vars.DPFProvisioningController.DMSTimeout))
 }
 
-func (p *provisioningControllerObjects) setFlags(c *corev1.Container, newFlags ...string) error {
-	pending := make(map[string]string)
-	for _, f := range newFlags {
-		name := p.parseFlagName(f)
-		if name == "" {
-			return fmt.Errorf("invalid flag %s", f)
-		}
-		pending[name] = f
-	}
-	for i, f := range c.Args {
-		name := p.parseFlagName(f)
-		if name == "" {
-			continue
-		}
-		newFlag, ok := pending[name]
-		if !ok {
-			continue
-		}
-		delete(pending, name)
-		c.Args[i] = newFlag
-	}
-	for _, flag := range pending {
-		c.Args = append(c.Args, flag)
-	}
-	return nil
-}
-
-func (p *provisioningControllerObjects) parseFlagName(arg string) string {
-	if len(arg) < 2 || arg[0] != '-' {
-		return ""
-	}
-	numMinuses := 1
-	if arg[1] == '-' {
-		numMinuses++
-	}
-	name := arg[numMinuses:]
-	if len(name) == 0 || name[0] == '-' || name[0] == '=' {
-		return ""
-	}
-	for i := 1; i < len(name); i++ {
-		if name[i] == '=' {
-			return name[:i]
-		}
-	}
-	return name
-}
-
-func (p *provisioningControllerObjects) setDefaultImageNames(deployment *appsv1.Deployment, vars Variables) error {
-	c := p.getContainer(deployment)
+func (p *provisioningControllerObjects) setDefaultImageNames(deploy *appsv1.Deployment, vars Variables) error {
+	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", dpfProvisioningControllerContainerName)
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
 	}
 	defaults := release.NewDefaults()
 	err := defaults.Parse()
@@ -512,7 +455,7 @@ func (p *provisioningControllerObjects) setDefaultImageNames(deployment *appsv1.
 		return fmt.Errorf("image for %q not found in variables", p.Name())
 	}
 	c.Image = imageName
-	err = p.setFlags(c, fmt.Sprintf("--dms-image=%s", defaults.DMSImage))
+	err = setFlags(c, fmt.Sprintf("--dms-image=%s", defaults.DMSImage))
 	if err != nil {
 		return err
 	}
@@ -520,22 +463,22 @@ func (p *provisioningControllerObjects) setDefaultImageNames(deployment *appsv1.
 }
 
 func (p *provisioningControllerObjects) setMultiDPUOperationsSyncWaitTime(deploy *appsv1.Deployment, vars Variables) error {
-	c := p.getContainer(deploy)
+	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", dpfProvisioningControllerContainerName)
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
 	}
-	return p.setFlags(c, fmt.Sprintf("--multi-dpu-operations-sync-wait-time=%s", vars.DPFProvisioningController.MultiDPUOperationsSyncWaitTime.String()))
+	return setFlags(c, fmt.Sprintf("--multi-dpu-operations-sync-wait-time=%s", vars.DPFProvisioningController.MultiDPUOperationsSyncWaitTime.String()))
 }
 
 func (p *provisioningControllerObjects) setMaxUnavailableDPUNodes(deploy *appsv1.Deployment, vars Variables) error {
-	c := p.getContainer(deploy)
+	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", dpfProvisioningControllerContainerName)
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
 	}
 	if vars.DPFProvisioningController.MaxUnavailableDPUNodes == nil {
 		return nil
 	}
-	return p.setFlags(c, fmt.Sprintf("--max-unavailable-dpu-nodes=%d", *vars.DPFProvisioningController.MaxUnavailableDPUNodes))
+	return setFlags(c, fmt.Sprintf("--max-unavailable-dpu-nodes=%d", *vars.DPFProvisioningController.MaxUnavailableDPUNodes))
 }
 
 // IsReadyForUpgrade reports the readiness of the provisioning controller objects. It returns an error when the number of Replicas in
