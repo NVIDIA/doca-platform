@@ -103,7 +103,11 @@ spec:
               dpuFlavor:
                 description: DPUFlavor is the name of the DPUFlavor that will be used
                   to deploy the DPU.
+                minLength: 1
                 type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self==oldSelf
               dpuNodeName:
                 description: Specifies the DPUNode this DPU belongs to
                 type: string
