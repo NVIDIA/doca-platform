@@ -81,6 +81,7 @@ func main() {
 	var probeAddr string
 	var insecureMetrics bool
 	var enableHTTP2 bool
+	var disableDPUReadyController bool
 	var syncPeriod time.Duration
 	var concurrency int
 
@@ -94,6 +95,8 @@ func main() {
 		"If set the metrics endpoint is served insecure without AuthN/AuthZ.")
 	fs.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	fs.BoolVar(&disableDPUReadyController, "disable-dpu-ready-controller", false,
+		"If set, the DPUReady controller will be disabled. This controller is enabled by default.")
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
 		"The minimum interval at which watched resources are reconciled.")
 	fs.IntVar(&concurrency, "concurrency", 1,
@@ -196,14 +199,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	dpuReadyReconciler := &dpuservicecontroller.DPUReadyReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
+	watcherCallBacks := []dpucluster.GetWatcherCallback{}
+	if disableDPUReadyController {
+		setupLog.Info("DPUReady controller is disabled")
+	} else {
+		dpuReadyReconciler := &dpuservicecontroller.DPUReadyReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}
 
-	if err = dpuReadyReconciler.SetupWithManager(ctx, mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DPUReady")
-		os.Exit(1)
+		if err = dpuReadyReconciler.SetupWithManager(ctx, mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "DPUReady")
+			os.Exit(1)
+		}
+		watcherCallBacks = append(watcherCallBacks, dpuReadyReconciler.WatchServicePods)
 	}
 
 	// new remote cache
@@ -212,9 +221,7 @@ func main() {
 		dpucluster.OptionScheme{Scheme: mgr.GetScheme()},
 		dpucluster.OptionUserAgent{UserAgent: "dpuservice-controller"},
 		dpucluster.OptionSyncPeriod{SyncPeriod: syncPeriod},
-		dpucluster.OptionGetWatcherCallbacks{GetWatcherCallbacks: []dpucluster.GetWatcherCallback{
-			dpuReadyReconciler.WatchServicePods,
-		}},
+		dpucluster.OptionGetWatcherCallbacks{GetWatcherCallbacks: watcherCallBacks},
 		dpucluster.OptionDisableFor{DisableFor: []client.Object{
 			&corev1.ConfigMap{},
 			&corev1.Secret{},
