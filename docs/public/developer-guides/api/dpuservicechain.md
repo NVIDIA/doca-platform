@@ -126,7 +126,7 @@ spec:
           service:
             serviceID: example-service
             network: mybrsfc
-            interfaceName: eht2
+            interfaceName: eth2
 ```
 
 `DPUService`
