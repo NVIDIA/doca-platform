@@ -1810,7 +1810,7 @@ _Appears in:_
 | `pciAddress` _string_ | The PCI device related DPU<br />Example: "0000-03-00", "03-00" |  | Pattern: `^([0-9a-fA-F]\{4\}[-])?[0-9a-fA-F]\{2\}[-][0-9a-fA-F]\{2\}$` <br /> |
 | `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} |  |
 | `cluster` _[K8sCluster](#k8scluster)_ | Specifies details on the K8S cluster to join |  |  |
-| `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  |  |
+| `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br /> |
 | `bmcIP` _string_ | BMCIP is the ip address of the DPU BMC |  |  |
 
 
