@@ -171,14 +171,14 @@ func isClusterScoped(kind string) bool {
 var _ Component = &simpleDeploymentObjects{}
 
 type simpleDeploymentObjects struct {
-	name       string
+	name       operatorv1.ComponentName
 	data       []byte
 	objects    []*unstructured.Unstructured
-	isDisabled func(map[string]bool) bool
+	isDisabled func(map[operatorv1.ComponentName]bool) bool
 	edit       func([]*unstructured.Unstructured, Variables, map[string]string) error
 }
 
-func (p *simpleDeploymentObjects) Name() string {
+func (p *simpleDeploymentObjects) Name() operatorv1.ComponentName {
 	return p.name
 }
 
@@ -228,7 +228,7 @@ func (p *simpleDeploymentObjects) GenerateManifests(vars Variables, options ...G
 	}
 
 	labelsToAdd := map[string]string{
-		operatorv1.DPFComponentLabelKey: p.Name(),
+		operatorv1.DPFComponentLabelKey: p.Name().String(),
 		release.DPFVersionLabelKey:      release.DPFVersion(),
 	}
 	applySetID := ApplySetID(vars.Namespace, p)

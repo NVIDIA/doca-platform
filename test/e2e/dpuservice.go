@@ -199,7 +199,7 @@ func ValidateImagePullSecretsSync(ctx context.Context, input *systemTestInput) {
 	// Patch a DPUService to trigger a reconciliation. The DPUService should clean  this secret up from
 	// clusters to which it was previously mirrored.
 	Eventually(utils.ForceObjectReconcileWithAnnotation).WithArguments(ctx, input.client,
-		&dpuservicev1.DPUService{ObjectMeta: metav1.ObjectMeta{Name: operatorv1.MultusName, Namespace: dpfOperatorSystemNamespace}}).Should(Succeed())
+		&dpuservicev1.DPUService{ObjectMeta: metav1.ObjectMeta{Name: operatorv1.MultusName.String(), Namespace: dpfOperatorSystemNamespace}}).Should(Succeed())
 	// Verify that we have only the precreated secrets in the DPU Cluster.
 	secretCount = 1
 	if ngcAPIKey != "" {

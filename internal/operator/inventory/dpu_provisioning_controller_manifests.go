@@ -56,8 +56,12 @@ type provisioningControllerObjects struct {
 	bfbRegistryObjects []*unstructured.Unstructured
 }
 
-func (p *provisioningControllerObjects) Name() string {
+func (p *provisioningControllerObjects) Name() operatorv1.ComponentName {
 	return operatorv1.ProvisioningControllerName
+}
+
+func (p *provisioningControllerObjects) ImageName() string {
+	return operatorv1.ProvisioningControllerName.WithContainer(operatorv1.ControllerManagerContainer)
 }
 
 // Parse returns typed objects for the Provisioning controller deployment.
@@ -131,7 +135,7 @@ func (p *provisioningControllerObjects) GenerateManifests(vars Variables, option
 	}
 
 	labelsToAdd := map[string]string{
-		operatorv1.DPFComponentLabelKey: p.Name(),
+		operatorv1.DPFComponentLabelKey: p.Name().String(),
 		release.DPFVersionLabelKey:      release.DPFVersion(),
 	}
 	applySetID := ApplySetID(vars.Namespace, p)
@@ -147,12 +151,12 @@ func (p *provisioningControllerObjects) GenerateManifests(vars Variables, option
 		for i := range p.bfbRegistryObjects {
 			objsCopyRegistry = append(objsCopyRegistry, p.bfbRegistryObjects[i].DeepCopy())
 		}
-		image, ok := vars.Images[operatorv1.BFBRegistryName]
+		imageName, ok := vars.Images[operatorv1.BFBRegistryName.String()]
 		if !ok {
 			return nil, fmt.Errorf("image for %q not found in variables", operatorv1.BFBRegistryName)
 		}
 		edit := NewEdits().AddForAll(NamespaceEdit(vars.Namespace), LabelsEdit(labelsToAdd)).
-			AddForKindS(DaemonSetKind, ImageForDaemonSetContainerEdit("nginx", image)).
+			AddForKindS(DaemonSetKind, ImageForDaemonSetContainerEdit("nginx", imageName)).
 			AddForKindS(DaemonSetKind, ImagePullSecretsEditForDaemonSetEdit(vars.ImagePullSecrets...)).
 			AddForKindS(DaemonSetKind, NodeAffinityEdit(&controlPlaneNodeAffinity)).
 			AddForKindS(DaemonSetKind, TolerationsEdit(controlPlaneTolerations))
@@ -281,7 +285,7 @@ func (p *provisioningControllerObjects) addBFCFGConfigMapMountEdit(deployment *a
 
 // Set Resources for the deployment.
 func (p *provisioningControllerObjects) setResources(deploy *appsv1.Deployment, vars Variables) error {
-	if resources, exists := vars.Resources[operatorv1.ProvisioningControllerName]; exists {
+	if resources, exists := vars.Resources[p.ImageName()]; exists {
 		// Check if resources are set (either requests or limits)
 		if len(resources.Requests) > 0 || len(resources.Limits) > 0 {
 			container := getManagerContainer(deploy)
@@ -450,7 +454,7 @@ func (p *provisioningControllerObjects) setDefaultImageNames(deploy *appsv1.Depl
 	if err != nil {
 		return err
 	}
-	imageName, ok := vars.Images[p.Name()]
+	imageName, ok := vars.Images[p.ImageName()]
 	if !ok {
 		return fmt.Errorf("image for %q not found in variables", p.Name())
 	}

@@ -35,18 +35,18 @@ const (
 
 // helmPathsProvider defines an interface for accessing Helm chart paths configuration
 type helmPathsProvider interface {
-	getPath(componentName string) (map[string]containerPaths, bool)
+	getPath(componentName operatorv1.ComponentName) (map[operatorv1.ContainerName]containerPaths, bool)
 }
 
 // getPath returns the container paths for a given component name
-func (p *defaultHelmPathsProvider) getPath(componentName string) (map[string]containerPaths, bool) {
+func (p *defaultHelmPathsProvider) getPath(componentName operatorv1.ComponentName) (map[operatorv1.ContainerName]containerPaths, bool) {
 	paths, exists := p.paths[componentName]
 	return paths, exists
 }
 
 // defaultHelmPathsProvider implements helmPathsProvider with the default configuration
 type defaultHelmPathsProvider struct {
-	paths map[string]map[string]containerPaths
+	paths map[operatorv1.ComponentName]map[operatorv1.ContainerName]containerPaths
 }
 
 // containerPaths defines the paths for a specific container within a component
@@ -59,67 +59,65 @@ type containerPaths struct {
 // helmPaths creates a new default Helm paths provider
 func helmPaths() helmPathsProvider {
 	return &defaultHelmPathsProvider{
-		paths: map[string]map[string]containerPaths{
+		paths: map[operatorv1.ComponentName]map[operatorv1.ContainerName]containerPaths{
 			operatorv1.FlannelName: {
-				operatorv1.FlannelContainerDaemonName.String(): {
+				operatorv1.FlannelContainerDaemon: {
 					Repository: []string{"flannel", "image", "repository"},
 					Tag:        []string{"flannel", "image", "tag"},
 					Resources:  []string{"flannel", "resources"},
 				},
-				operatorv1.FlannelContainerCNIName.String(): {
+				operatorv1.FlannelContainerCNI: {
 					Repository: []string{"flannel", "image_cni", "repository"},
 					Tag:        []string{"flannel", "image_cni", "tag"},
 				},
 			},
 			operatorv1.NVIPAMName: {
-				"": {
+				operatorv1.NVIPAMContainerController: {
 					Repository: []string{"nvIpam", "image", "repository"},
 					Tag:        []string{"nvIpam", "image", "tag"},
+					Resources:  []string{"nvIpam", "controller", "resources"},
 				},
-				operatorv1.NVIPAMContainerControllerName.String(): {
-					Resources: []string{"nvIpam", "controller", "resources"},
-				},
-				operatorv1.NVIPAMContainerNodeName.String(): {
+				operatorv1.NVIPAMContainerNode: {
 					Resources: []string{"nvIpam", "node", "resources"},
 				},
 			},
 			operatorv1.ServiceSetControllerName: {
-				"": {
+				operatorv1.ControllerManagerContainer: {
 					Repository: []string{"controllerManager", "manager", "image", "repository"},
 					Tag:        []string{"controllerManager", "manager", "image", "tag"},
 					Resources:  []string{"controllerManager", "manager", "resources"},
 				},
 			},
 			operatorv1.SFCControllerName: {
-				"": {
+				operatorv1.ControllerManagerContainer: {
 					Repository: []string{"controllerManager", "manager", "image", "repository"},
 					Tag:        []string{"controllerManager", "manager", "image", "tag"},
 					Resources:  []string{"controllerManager", "manager", "resources"},
 				},
 			},
 			operatorv1.MultusName: {
-				"": {
+				operatorv1.MultusContainer: {
 					Repository: []string{"kubeMultusDs", "image", "repository"},
 					Tag:        []string{"kubeMultusDs", "image", "tag"},
 					Resources:  []string{"kubeMultusDs", "kubeMultus", "resources"},
 				},
 			},
 			operatorv1.SRIOVDevicePluginName: {
-				"": {
+				operatorv1.SRIOVDevicePluginContainer: {
 					Repository: []string{"kubeSriovDevicePlugin", "kubeSriovdp", "image", "repository"},
 					Tag:        []string{"kubeSriovDevicePlugin", "kubeSriovdp", "image", "tag"},
 					Resources:  []string{"kubeSriovDevicePlugin", "kubeSriovdp", "resources"},
 				},
 			},
 			operatorv1.OVSCNIName: {
-				"": {
+				operatorv1.OVSCNI: {
 					Repository: []string{"arm64", "image", "repository"},
 					Tag:        []string{"arm64", "image", "tag"},
 					Resources:  []string{"arm64", "ovsCniMarker", "resources"},
 				},
 			},
 			operatorv1.CNIInstallerName: {
-				"": {
+				operatorv1.CNIInstallerContainer: {
 					Repository: []string{"cniInstaller", "image", "repository"},
 					Tag:        []string{"cniInstaller", "image", "tag"},
 					Resources:  []string{"cniInstaller", "resources"},

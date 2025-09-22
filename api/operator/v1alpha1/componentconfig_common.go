@@ -17,43 +17,67 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
-const (
-	ProvisioningControllerName = "provisioning-controller"
-	DPUServiceControllerName   = "dpuservice-controller"
-	ServiceSetControllerName   = "servicechainset-controller"
-	ServiceChainSetCRDsName    = "servicechainset-rbac-and-crds"
-	DPUDetectorName            = "dpudetector"
-	FlannelName                = "flannel"
-	MultusName                 = "multus"
-	SRIOVDevicePluginName      = "sriov-device-plugin"
-	OVSCNIName                 = "ovs-cni"
-	NVIPAMName                 = "nvidia-k8s-ipam"
-	SFCControllerName          = "sfc-controller"
-	KamajiClusterManagerName   = "kamaji-cluster-manager"
-	StaticClusterManagerName   = "static-cluster-manager"
-	BFBRegistryName            = "bfb-registry"
-	CNIInstallerName           = "cni-installer"
+var (
+	ProvisioningControllerName ComponentName = "provisioning-controller"
+	DPUServiceControllerName   ComponentName = "dpuservice-controller"
+	ServiceSetControllerName   ComponentName = "servicechainset-controller"
+	ServiceChainSetCRDsName    ComponentName = "servicechainset-rbac-and-crds"
+	DPUDetectorName            ComponentName = "dpudetector"
+	FlannelName                ComponentName = "flannel"
+	MultusName                 ComponentName = "multus"
+	SRIOVDevicePluginName      ComponentName = "sriov-device-plugin"
+	OVSCNIName                 ComponentName = "ovs-cni"
+	NVIPAMName                 ComponentName = "nvidia-k8s-ipam"
+	SFCControllerName          ComponentName = "sfc-controller"
+	KamajiClusterManagerName   ComponentName = "kamaji-cluster-manager"
+	StaticClusterManagerName   ComponentName = "static-cluster-manager"
+	BFBRegistryName            ComponentName = "bfb-registry"
+	CNIInstallerName           ComponentName = "cni-installer"
 )
+
+type ComponentName string
+
+func (c ComponentName) String() string {
+	return string(c)
+}
+
+func (c ComponentName) WithContainer(cName ContainerName) string {
+	return fmt.Sprintf("%s,%s", c.String(), cName.String())
+}
 
 // Container names for the helm path provider in internal/operator/inventory/helm_paths_provider.go.
 var (
-	// FlannelContainerDaemonName is the name of the flannel daemon container.
-	FlannelContainerDaemonName containerName = "daemon"
-	// FlannelContainerCNIName is the name of the flannel CNI container.
-	FlannelContainerCNIName containerName = "cni"
-	// NVIPAMContainerControllerName is the name of the NVIPAM controller container.
-	NVIPAMContainerControllerName containerName = "controller"
-	// NVIPAMContainerNodeName is the name of the NVIPAM node container.
-	NVIPAMContainerNodeName containerName = "node"
+	// ControllerManagerContainer is the default name of the scaffolded controller-runtime manager container.
+	ControllerManagerContainer ContainerName = "manager"
+	// DPUDetectorContainer is the default name of the DPU Detector container.
+	DPUDetectorContainer ContainerName = "dpu-detector"
+	// FlannelContainerDaemon is the name of the flannel daemon container.
+	FlannelContainerDaemon ContainerName = "daemon"
+	// FlannelContainerCNI is the name of the flannel CNI container.
+	FlannelContainerCNI ContainerName = "cni"
+	// NVIPAMContainerController is the name of the NVIPAM controller container.
+	NVIPAMContainerController ContainerName = "controller"
+	// NVIPAMContainerNode is the name of the NVIPAM node container.
+	NVIPAMContainerNode ContainerName = "node"
+	// MultusContainer is the default name of the scaffolded MultusContainer CNI container.
+	MultusContainer ContainerName = "kube-multus"
+	// SRIOVDevicePluginContainer is the default name of the scaffolded SR-IOV Device Plugin container.
+	SRIOVDevicePluginContainer ContainerName = "kube-sriovdp"
+	// OVSCNI is the default name of the scaffolded OVS CNI
+	OVSCNI ContainerName = "ovs-cni-marker"
+	// CNIInstallerContainer is the default name of the scaffolded CNI Installer container.
+	CNIInstallerContainer ContainerName = "cni-installer"
 )
 
-type containerName string
+type ContainerName string
 
-func (c containerName) String() string {
+func (c ContainerName) String() string {
 	return string(c)
 }
 
@@ -181,7 +205,7 @@ type DeprecatedImageComponentConfigurable interface {
 // +kubebuilder:object:generate=false
 type ImageComponentConfigurable interface {
 	// GetImages returns a map of container names to their images.
-	GetImages() map[string]*string
+	GetImages() map[ContainerName]*string
 }
 
 // ImageComponentConfig provides common configuration fields that can be embedded
@@ -196,21 +220,12 @@ func (b *ImageComponentConfig) GetImage() *string {
 	return b.Image
 }
 
-// DeprecatedResourceComponentConfig is the shared config for helm components.
-//
-// Deprecated: new components should use the ResourcesComponentConfigurable instead.
-//
-// +kubebuilder:object:generate=false
-type DeprecatedResourceComponentConfig interface {
-	GetResource() *corev1.ResourceRequirements
-}
-
 // ResourcesComponentConfigurable defines configuration for overriding the resources of a component’s containers.
 // Specified at the pod container level.
 // +kubebuilder:object:generate=false
 type ResourcesComponentConfigurable interface {
 	// GetResources returns a map of container names to their resource requirements.
-	GetResources() map[string]*corev1.ResourceRequirements
+	GetResources() map[ContainerName]*corev1.ResourceRequirements
 }
 
 // ResourceComponentConfig defines the resource requirements for a container.

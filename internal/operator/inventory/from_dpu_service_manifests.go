@@ -42,12 +42,12 @@ var _ Component = &fromDPUService{}
 
 type fromDPUService struct {
 	data       []byte
-	name       string
+	name       operatorv1.ComponentName
 	dpuService *unstructured.Unstructured
 }
 
 // dpuNetworkingSubCharts are the DPUServices that use the dpu-networking helm chart by default.
-var dpuNetworkingSubCharts = map[string]bool{
+var dpuNetworkingSubCharts = map[operatorv1.ComponentName]bool{
 	operatorv1.FlannelName:              true,
 	operatorv1.ServiceSetControllerName: true,
 	operatorv1.MultusName:               true,
@@ -58,7 +58,7 @@ var dpuNetworkingSubCharts = map[string]bool{
 	operatorv1.CNIInstallerName:         true,
 }
 
-func (f *fromDPUService) Name() string {
+func (f *fromDPUService) Name() operatorv1.ComponentName {
 	return f.name
 }
 
@@ -98,7 +98,7 @@ func (f *fromDPUService) GenerateManifests(vars Variables, options ...GenerateMa
 	}
 
 	labelsToAdd := map[string]string{
-		operatorv1.DPFComponentLabelKey: f.Name(),
+		operatorv1.DPFComponentLabelKey: f.Name().String(),
 		release.DPFVersionLabelKey:      release.DPFVersion(),
 	}
 	applySetID := ApplySetID(vars.Namespace, f)
@@ -125,7 +125,7 @@ func (f *fromDPUService) applyDPUServiceEdits(vars Variables, labelsToAdd map[st
 	// copy object
 	dpuServiceCopy := f.dpuService.DeepCopy()
 
-	dpuServiceCopy.SetName(f.Name())
+	dpuServiceCopy.SetName(f.Name().String())
 
 	// apply edits
 	edits := NewEdits().AddForAll(
@@ -136,10 +136,10 @@ func (f *fromDPUService) applyDPUServiceEdits(vars Variables, labelsToAdd map[st
 	// Handle all resources for this component (both single and multi-container)
 	for resourceKey, resourceReqs := range vars.Resources {
 		// Check if this resource belongs to this component
-		if resourceKey != f.Name() && !strings.HasPrefix(resourceKey, f.Name()+multiSplitChar) {
+		if resourceKey != f.Name().String() && !strings.HasPrefix(resourceKey, f.Name().String()+multiSplitChar) {
 			continue
 		}
-		resourceEdits, err := resourceEditsForComponent(resourceKey, f.Name(), resourceReqs)
+		resourceEdits, err := resourceEditsForComponent(resourceKey, resourceReqs)
 		if err != nil {
 			return nil, err
 		}
@@ -152,7 +152,7 @@ func (f *fromDPUService) applyDPUServiceEdits(vars Variables, labelsToAdd map[st
 	edits.AddForKindS(DPUServiceKind, dpuServiceInClusterEdit(vars.DeployInCluster[f.Name()]))
 	// The DPUNetworking helm chart has all components disabled by default. Enable this DPUService in the helm chart values.
 	if _, ok := dpuNetworkingSubCharts[f.Name()]; ok {
-		edits.AddForKindS(DPUServiceKind, dpuServiceAddValueEdit(true, f.Name(), "enabled"))
+		edits.AddForKindS(DPUServiceKind, dpuServiceAddValueEdit(true, f.Name().String(), "enabled"))
 	}
 
 	// Add the helm chart.
@@ -169,7 +169,7 @@ func (f *fromDPUService) applyDPUServiceEdits(vars Variables, labelsToAdd map[st
 			continue
 		}
 		// Check if this image belongs to this component
-		if imageKey != f.Name() && !strings.HasPrefix(imageKey, f.Name()+multiSplitChar) {
+		if imageKey != f.Name().String() && !strings.HasPrefix(imageKey, f.Name().String()+multiSplitChar) {
 			continue
 		}
 		imageEdits, err := imageEditsForComponent(imageKey, imageString)
@@ -183,7 +183,7 @@ func (f *fromDPUService) applyDPUServiceEdits(vars Variables, labelsToAdd map[st
 
 	if vars.ImagePullSecrets != nil {
 		secrets := pullSecretValueFromStrings(vars.ImagePullSecrets...)
-		edits.AddForKindS(DPUServiceKind, dpuServiceAddValueEdit(secrets, f.Name(), "imagePullSecrets"))
+		edits.AddForKindS(DPUServiceKind, dpuServiceAddValueEdit(secrets, f.Name().String(), "imagePullSecrets"))
 	}
 
 	// Update the networking values from variables if possible.
@@ -218,7 +218,7 @@ func pullSecretValueFromStrings(names ...string) []interface{} {
 	return pullSecrets
 }
 
-func additionalValuesForComponent(name string, vars Variables) ([]StructuredEdit, error) {
+func additionalValuesForComponent(name operatorv1.ComponentName, vars Variables) ([]StructuredEdit, error) {
 	switch name {
 	// The ServiceSet controller is deployed in the target cluster but operates against the DPUCluster.
 	// It deploys an additional DPUService which requires the helm chart details to be set.
@@ -244,43 +244,43 @@ func additionalValuesForComponent(name string, vars Variables) ([]StructuredEdit
 
 func sfcControllerEdits(vars Variables) ([]StructuredEdit, error) {
 	edits := []StructuredEdit{
-		dpuServiceAddValueEdit(vars.DPUOpenvSwitchRunPath, operatorv1.SFCControllerName, openvSwitchRunDirPathKey),
-		dpuServiceAddValueEdit(vars.DPUOpenvSwitchBinPath, operatorv1.SFCControllerName, openvSwitchBinDirPathKey),
-		dpuServiceAddValueEdit(vars.DPUOpenvSwitchSharedLibPath, operatorv1.SFCControllerName, openvSwitchSharedLibraryDirPathKey),
-		dpuServiceAddValueEdit(vars.SFCController.SecureFlowDeletionTimeout.String(), operatorv1.SFCControllerName, "controllerManager", "manager", "secureFlowDeletionTimeout"),
+		dpuServiceAddValueEdit(vars.DPUOpenvSwitchRunPath, operatorv1.SFCControllerName.String(), openvSwitchRunDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUOpenvSwitchBinPath, operatorv1.SFCControllerName.String(), openvSwitchBinDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUOpenvSwitchSharedLibPath, operatorv1.SFCControllerName.String(), openvSwitchSharedLibraryDirPathKey),
+		dpuServiceAddValueEdit(vars.SFCController.SecureFlowDeletionTimeout.String(), operatorv1.SFCControllerName.String(), "controllerManager", "manager", "secureFlowDeletionTimeout"),
 	}
 	// Only add lib64 path if it's configured
 	if vars.DPUOpenvSwitchSharedLib64Path != nil {
-		edits = append(edits, dpuServiceAddValueEdit(*vars.DPUOpenvSwitchSharedLib64Path, operatorv1.SFCControllerName, openvSwitchSharedLibrary64DirPathKey))
+		edits = append(edits, dpuServiceAddValueEdit(*vars.DPUOpenvSwitchSharedLib64Path, operatorv1.SFCControllerName.String(), openvSwitchSharedLibrary64DirPathKey))
 	}
 	return edits, nil
 }
 
 func cniInstallerEdits(vars Variables) ([]StructuredEdit, error) {
 	edits := []StructuredEdit{
-		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.CNIInstallerName, cniBinDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.CNIInstallerName.String(), cniBinDirPathKey),
 	}
 	return edits, nil
 }
 
 func ovsCNIEdits(vars Variables) ([]StructuredEdit, error) {
 	return []StructuredEdit{
-		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.OVSCNIName, cniBinDirPathKey),
-		dpuServiceAddValueEdit(vars.DPUOpenvSwitchRunPath, operatorv1.OVSCNIName, openvSwitchRunDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.OVSCNIName.String(), cniBinDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUOpenvSwitchRunPath, operatorv1.OVSCNIName.String(), openvSwitchRunDirPathKey),
 	}, nil
 }
 
 func nvipamEdits(vars Variables) ([]StructuredEdit, error) {
 	return []StructuredEdit{
-		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.NVIPAMName, cniBinDirPathKey),
-		dpuServiceAddValueEdit(vars.DPUCNIConfPath, operatorv1.NVIPAMName, cniConfDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.NVIPAMName.String(), cniBinDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUCNIConfPath, operatorv1.NVIPAMName.String(), cniConfDirPathKey),
 	}, nil
 }
 
 func multusEdits(vars Variables) ([]StructuredEdit, error) {
 	return []StructuredEdit{
-		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.MultusName, cniBinDirPathKey),
-		dpuServiceAddValueEdit(vars.DPUCNIConfPath, operatorv1.MultusName, cniConfDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.MultusName.String(), cniBinDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUCNIConfPath, operatorv1.MultusName.String(), cniConfDirPathKey),
 	}, nil
 }
 
@@ -292,8 +292,8 @@ func serviceSetControllerEdits(vars Variables) ([]StructuredEdit, error) {
 	// Set the Name and Namespace of the DPUCluster for the DPUServiceCredentialRequest.
 	for _, cluster := range vars.DPUClusters {
 		edits = append(edits,
-			dpuServiceAddValueEdit(cluster.Cluster.Name, operatorv1.ServiceSetControllerName, "dpucluster", "name"),
-			dpuServiceAddValueEdit(cluster.Cluster.Namespace, operatorv1.ServiceSetControllerName, "dpucluster", "namespace"),
+			dpuServiceAddValueEdit(cluster.Cluster.Name, operatorv1.ServiceSetControllerName.String(), "dpucluster", "name"),
+			dpuServiceAddValueEdit(cluster.Cluster.Namespace, operatorv1.ServiceSetControllerName.String(), "dpucluster", "namespace"),
 		)
 	}
 	chart, err := ParseHelmChartString(vars.HelmCharts[operatorv1.ServiceSetControllerName])
@@ -301,9 +301,9 @@ func serviceSetControllerEdits(vars Variables) ([]StructuredEdit, error) {
 		return nil, err
 	}
 	edits = append(edits,
-		dpuServiceAddValueEdit(chart.Repo, operatorv1.ServiceSetControllerName, "chart", "repoURL"),
-		dpuServiceAddValueEdit(chart.Chart, operatorv1.ServiceSetControllerName, "chart", "chart"),
-		dpuServiceAddValueEdit(chart.Version, operatorv1.ServiceSetControllerName, "chart", "version"),
+		dpuServiceAddValueEdit(chart.Repo, operatorv1.ServiceSetControllerName.String(), "chart", "repoURL"),
+		dpuServiceAddValueEdit(chart.Chart, operatorv1.ServiceSetControllerName.String(), "chart", "chart"),
+		dpuServiceAddValueEdit(chart.Version, operatorv1.ServiceSetControllerName.String(), "chart", "version"),
 	)
 	return edits, nil
 }
@@ -314,10 +314,10 @@ func flannelEdits(vars Variables) ([]StructuredEdit, error) {
 	}
 	return []StructuredEdit{
 		// flannel has an additional "flannel" structure inside its helm chart values.
-		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.FlannelName, "flannel", cniBinDirPathKey),
-		dpuServiceAddValueEdit(vars.DPUCNIConfPath, operatorv1.FlannelName, "flannel", cniConfDirPathKey),
-		dpuServiceAddValueEdit(vars.FlannelSkipCNIConfigInstallation, operatorv1.FlannelName, "flannel", skipCNIConfigInstallationKey),
-		dpuServiceAddValueEdit(vars.FlannelPodCIDR, operatorv1.FlannelName, "podCidr"),
+		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.FlannelName.String(), "flannel", cniBinDirPathKey),
+		dpuServiceAddValueEdit(vars.DPUCNIConfPath, operatorv1.FlannelName.String(), "flannel", cniConfDirPathKey),
+		dpuServiceAddValueEdit(vars.FlannelSkipCNIConfigInstallation, operatorv1.FlannelName.String(), "flannel", skipCNIConfigInstallationKey),
+		dpuServiceAddValueEdit(vars.FlannelPodCIDR, operatorv1.FlannelName.String(), "podCidr"),
 	}, nil
 }
 
@@ -410,7 +410,7 @@ func (f *fromDPUService) IsReady(ctx context.Context, c client.Client, namespace
 
 func (f *fromDPUService) isReady(ctx context.Context, c client.Client, namespace string, versionValidation bool) error {
 	obj := &dpuservicev1.DPUService{}
-	err := c.Get(ctx, client.ObjectKey{Name: f.Name(), Namespace: namespace}, obj)
+	err := c.Get(ctx, client.ObjectKey{Name: f.Name().String(), Namespace: namespace}, obj)
 	if err != nil {
 		return err
 	}
@@ -460,8 +460,8 @@ func ParseHelmChartString(repoChartVersion string) (*HelmChartSource, error) {
 	}, nil
 }
 
-func networkEditsForComponent(name string, networking Networking) []StructuredEdit {
-	edits := map[string][]StructuredEdit{
+func networkEditsForComponent(name operatorv1.ComponentName, networking Networking) []StructuredEdit {
+	edits := map[operatorv1.ComponentName][]StructuredEdit{
 		operatorv1.FlannelName: setFlannelMTUEdit(networking),
 		operatorv1.MultusName:  setMultusMTUEdit(networking),
 	}
@@ -471,14 +471,14 @@ func networkEditsForComponent(name string, networking Networking) []StructuredEd
 func setFlannelMTUEdit(networking Networking) []StructuredEdit {
 	mtu := strconv.Itoa(networking.ControlPlaneMTU)
 	return []StructuredEdit{
-		dpuServiceAddValueEdit(mtu, operatorv1.FlannelName, "flannel", "mtu"),
+		dpuServiceAddValueEdit(mtu, operatorv1.FlannelName.String(), "flannel", "mtu"),
 	}
 }
 
 func setMultusMTUEdit(networking Networking) []StructuredEdit {
 	mtu := strconv.Itoa(networking.HighSpeedMTU)
 	return []StructuredEdit{
-		dpuServiceAddValueEdit(mtu, operatorv1.MultusName, "mtu"),
+		dpuServiceAddValueEdit(mtu, operatorv1.MultusName.String(), "mtu"),
 	}
 }
 
@@ -505,7 +505,7 @@ func imageEditsForComponent(name string, imageOverride string) ([]StructuredEdit
 	// Handle legacy comma-delimited format for multi-container components
 	// This handles cases like "flannel" with "image1,image2" where the first image is for daemon, second for cni
 	// TODO: remove this special case when we remove the legacy format support.
-	if name == operatorv1.FlannelName {
+	if name == operatorv1.FlannelName.String() {
 		images := []*image{}
 		for _, override := range strings.Split(imageOverride, ",") {
 			i, err := parseImageString(override)
@@ -515,7 +515,7 @@ func imageEditsForComponent(name string, imageOverride string) ([]StructuredEdit
 			images = append(images, i)
 		}
 		edits := map[string]func(...*image) []StructuredEdit{
-			operatorv1.FlannelName: setFlannelImage,
+			operatorv1.FlannelName.String(): setFlannelImage,
 		}
 		editForComponent, ok := edits[name]
 		if !ok {
@@ -524,7 +524,7 @@ func imageEditsForComponent(name string, imageOverride string) ([]StructuredEdit
 		return editForComponent(images...), nil
 	}
 
-	image, err := parseImageString(imageOverride)
+	imageName, err := parseImageString(imageOverride)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse image string %q: %v", imageOverride, err)
 	}
@@ -536,24 +536,26 @@ func imageEditsForComponent(name string, imageOverride string) ([]StructuredEdit
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("invalid multi-container image name format: %q", name)
 		}
-		baseComponent := parts[0]
-		containerName := parts[1]
+		componmentName := operatorv1.ComponentName(parts[0])
+		containerName := operatorv1.ContainerName(parts[1])
 
 		// Use the configurable path system for multi-container components
-		return generateImageEditsFromPaths(baseComponent, containerName, image)
+		return generateImageEditsFromPaths(componmentName, containerName, imageName)
 	}
 
 	// Handle single container components
-	return generateImageEditsFromPaths(name, "", image)
+	// TODO: delete with v26.1.0 after the deprecation period.
+	containerName := getContainerNameFromComponent(operatorv1.ComponentName(name))
+	return generateImageEditsFromPaths(operatorv1.ComponentName(name), containerName, imageName)
 }
 
 func setFlannelImage(imageOverride ...*image) []StructuredEdit {
 	kubeFlannelImage := imageOverride[0]
 	cniImage := imageOverride[1]
-	repoPath := []string{operatorv1.FlannelName, "flannel", "image", "repository"}
-	tagPath := []string{operatorv1.FlannelName, "flannel", "image", "tag"}
-	repoPathCNI := []string{operatorv1.FlannelName, "flannel", "image_cni", "repository"}
-	tagPathCNI := []string{operatorv1.FlannelName, "flannel", "image_cni", "tag"}
+	repoPath := []string{operatorv1.FlannelName.String(), "flannel", "image", "repository"}
+	tagPath := []string{operatorv1.FlannelName.String(), "flannel", "image", "tag"}
+	repoPathCNI := []string{operatorv1.FlannelName.String(), "flannel", "image_cni", "repository"}
+	tagPathCNI := []string{operatorv1.FlannelName.String(), "flannel", "image_cni", "tag"}
 
 	return []StructuredEdit{
 		dpuServiceAddValueEdit(kubeFlannelImage.repoImage, repoPath...),
@@ -564,7 +566,7 @@ func setFlannelImage(imageOverride ...*image) []StructuredEdit {
 }
 
 // generateImageEditsFromPaths generates image edits using the configurable path system
-func generateImageEditsFromPaths(componentName, containerName string, image *image) ([]StructuredEdit, error) {
+func generateImageEditsFromPaths(componentName operatorv1.ComponentName, containerName operatorv1.ContainerName, image *image) ([]StructuredEdit, error) {
 	if image == nil {
 		return nil, fmt.Errorf("no images provided for component %q", componentName)
 	}
@@ -577,7 +579,7 @@ func generateImageEditsFromPaths(componentName, containerName string, image *ima
 	}
 
 	// Get the specific container configuration
-	containerPaths, exists := componentConfig[containerName]
+	containerConfig, exists := componentConfig[containerName]
 	if !exists {
 		// If no container paths are configured, return empty edits (container doesn't support image overrides)
 		return []StructuredEdit{}, nil
@@ -586,8 +588,8 @@ func generateImageEditsFromPaths(componentName, containerName string, image *ima
 	// Use the first image (for single container) or specific image for multi-container
 
 	// Build the full paths by prepending the component name
-	repoPath := append([]string{componentName}, containerPaths.Repository...)
-	tagPath := append([]string{componentName}, containerPaths.Tag...)
+	repoPath := append([]string{componentName.String()}, containerConfig.Repository...)
+	tagPath := append([]string{componentName.String()}, containerConfig.Tag...)
 
 	return []StructuredEdit{
 		dpuServiceAddValueEdit(image.repoImage, repoPath...),
@@ -596,15 +598,10 @@ func generateImageEditsFromPaths(componentName, containerName string, image *ima
 }
 
 // resourceEditsForComponent generates resource edits using the configurable path system
-func resourceEditsForComponent(name, resourceName string, resourceReqs corev1.ResourceRequirements) ([]StructuredEdit, error) {
+func resourceEditsForComponent(name string, resourceReqs corev1.ResourceRequirements) ([]StructuredEdit, error) {
 	// Check if resources are set (either requests or limits)
 	if len(resourceReqs.Requests) == 0 && len(resourceReqs.Limits) == 0 {
 		return nil, nil
-	}
-
-	// Handle single container components
-	if name == resourceName {
-		return generateResourceEditsFromPaths(name, "", resourceReqs)
 	}
 
 	// Handle multi-container component resources
@@ -612,15 +609,19 @@ func resourceEditsForComponent(name, resourceName string, resourceReqs corev1.Re
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid multi-container resource name format: %q", name)
 	}
-	baseComponent := parts[0]
-	containerName := parts[1]
+	componentName := operatorv1.ComponentName(parts[0])
+	containerName := operatorv1.ContainerName(parts[1])
 
 	// Use the configurable path system for multi-container components
-	return generateResourceEditsFromPaths(baseComponent, containerName, resourceReqs)
+	return generateResourceEditsFromPaths(componentName, containerName, resourceReqs)
 }
 
 // generateResourceEditsFromPaths generates resource edits using the configurable path system
-func generateResourceEditsFromPaths(componentName, containerName string, resourceReqs corev1.ResourceRequirements) ([]StructuredEdit, error) {
+func generateResourceEditsFromPaths(
+	componentName operatorv1.ComponentName,
+	containerName operatorv1.ContainerName,
+	resourceReqs corev1.ResourceRequirements,
+) ([]StructuredEdit, error) {
 	// Get the component configuration
 	componentConfig, exists := helmPaths().getPath(componentName)
 	if !exists {
@@ -634,7 +635,7 @@ func generateResourceEditsFromPaths(componentName, containerName string, resourc
 		return []StructuredEdit{}, nil
 	}
 
-	resourcePath := append([]string{componentName}, helmPath.Resources...)
+	resourcePath := append([]string{componentName.String()}, helmPath.Resources...)
 	return []StructuredEdit{
 		dpuServiceAddValueEdit(resourceReqs, resourcePath...),
 	}, nil

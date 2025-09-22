@@ -38,8 +38,12 @@ type dpuDetectorObjects struct {
 	objects []*unstructured.Unstructured
 }
 
-func (p *dpuDetectorObjects) Name() string {
+func (p *dpuDetectorObjects) Name() operatorv1.ComponentName {
 	return operatorv1.DPUDetectorName
+}
+
+func (p *dpuDetectorObjects) ImageName() string {
+	return operatorv1.DPUDetectorName.WithContainer(operatorv1.DPUDetectorContainer)
 }
 
 // Parse returns typed objects for the DPU Detector daemonset.
@@ -86,7 +90,7 @@ func (p *dpuDetectorObjects) GenerateManifests(vars Variables, options ...Genera
 	}
 
 	labelsToAdd := map[string]string{
-		operatorv1.DPFComponentLabelKey: p.Name(),
+		operatorv1.DPFComponentLabelKey: p.Name().String(),
 		release.DPFVersionLabelKey:      release.DPFVersion(),
 	}
 	applySetID := ApplySetID(vars.Namespace, p)
@@ -101,21 +105,21 @@ func (p *dpuDetectorObjects) GenerateManifests(vars Variables, options ...Genera
 		objsCopy = append(objsCopy, p.objects[i].DeepCopy())
 	}
 
-	image, ok := vars.Images[p.Name()]
+	containerImage, ok := vars.Images[p.ImageName()]
 	if !ok {
-		return nil, fmt.Errorf("could not find image for %s in variables", p.Name())
+		return nil, fmt.Errorf("could not find image for %s in variables", p.ImageName())
 	}
 
 	// apply edits
 	edits := NewEdits().
 		AddForAll(NamespaceEdit(vars.Namespace)).
 		AddForKindS(DaemonsetKind, ImagePullSecretsEditForDaemonSetEdit(vars.ImagePullSecrets...)).
-		AddForKindS(DaemonsetKind, ImageForDaemonSetContainerEdit("dpu-detector", image)).
+		AddForKindS(DaemonsetKind, ImageForDaemonSetContainerEdit("dpu-detector", containerImage)).
 		AddForKindS(DaemonSetKind, TolerationsEdit(nodeNotReadyTolerations)).
 		AddForAll(LabelsEdit(labelsToAdd))
 
 	// Add component-specific labels, annotations, and resources
-	if resources, exists := vars.Resources[p.Name()]; exists {
+	if resources, exists := vars.Resources[p.Name().WithContainer(operatorv1.DPUDetectorContainer)]; exists {
 		// Check if resources are set (either requests or limits)
 		if len(resources.Requests) > 0 || len(resources.Limits) > 0 {
 			edits = edits.AddForKindS(DaemonSetKind, ResourcesEditForDaemonSet("dpu-detector", resources))

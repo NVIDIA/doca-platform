@@ -37,7 +37,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 		DPUOpenvSwitchSharedLib64Path:    nil, // Default to nil - only mount when explicitly configured
 		FlannelSkipCNIConfigInstallation: true,
 		FlannelPodCIDR:                   "10.244.0.0/14",
-		DisableSystemComponents: map[string]bool{
+		DisableSystemComponents: map[operatorv1.ComponentName]bool{
 			operatorv1.ProvisioningControllerName: false,
 			operatorv1.DPUServiceControllerName:   false,
 			operatorv1.ServiceSetControllerName:   false,
@@ -56,18 +56,19 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 		},
 		Images: map[string]string{
 			// Images built as part of the DPF Operator release.
-			operatorv1.ProvisioningControllerName: defaults.DPFSystemImage,
-			operatorv1.DPUServiceControllerName:   defaults.DPFSystemImage,
-			operatorv1.StaticClusterManagerName:   defaults.DPFSystemImage,
-			operatorv1.KamajiClusterManagerName:   defaults.DPFSystemImage,
-			operatorv1.ServiceSetControllerName:   defaults.DPFSystemImage,
-			operatorv1.OVSCNIName:                 defaults.OVSCNIImage,
-			operatorv1.SFCControllerName:          defaults.DPFSystemImage,
-			operatorv1.DPUDetectorName:            defaults.DPFSystemImage,
-			operatorv1.BFBRegistryName:            defaults.BFBRegistryImage,
-			operatorv1.CNIInstallerName:           defaults.CNIInstallerImage,
+			operatorv1.ProvisioningControllerName.WithContainer(operatorv1.ControllerManagerContainer): defaults.DPFSystemImage,
+			operatorv1.DPUServiceControllerName.WithContainer(operatorv1.ControllerManagerContainer):   defaults.DPFSystemImage,
+			operatorv1.StaticClusterManagerName.WithContainer(operatorv1.ControllerManagerContainer):   defaults.DPFSystemImage,
+			operatorv1.KamajiClusterManagerName.WithContainer(operatorv1.ControllerManagerContainer):   defaults.DPFSystemImage,
+			operatorv1.ServiceSetControllerName.WithContainer(operatorv1.ControllerManagerContainer):   defaults.DPFSystemImage,
+			operatorv1.SFCControllerName.WithContainer(operatorv1.ControllerManagerContainer):          defaults.DPFSystemImage,
+			operatorv1.OVSCNIName.WithContainer(operatorv1.OVSCNI):                                     defaults.OVSCNIImage,
+			operatorv1.DPUDetectorName.WithContainer(operatorv1.DPUDetectorContainer):                  defaults.DPFSystemImage,
+			operatorv1.CNIInstallerName.WithContainer(operatorv1.CNIInstallerContainer):                defaults.CNIInstallerImage,
+			// BFBRegistry is not configurable via the DPFOperatorConfig, thus it does not need to have the container name included.
+			operatorv1.BFBRegistryName.String(): defaults.BFBRegistryImage,
 		},
-		HelmCharts: map[string]string{
+		HelmCharts: map[operatorv1.ComponentName]string{
 			operatorv1.FlannelName:              defaults.DPUNetworkingHelmChart,
 			operatorv1.MultusName:               defaults.DPUNetworkingHelmChart,
 			operatorv1.SRIOVDevicePluginName:    defaults.DPUNetworkingHelmChart,
@@ -77,7 +78,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.ServiceSetControllerName: defaults.DPUNetworkingHelmChart,
 			operatorv1.CNIInstallerName:         defaults.DPUNetworkingHelmChart,
 		},
-		DeployInCluster: map[string]bool{
+		DeployInCluster: map[operatorv1.ComponentName]bool{
 			operatorv1.FlannelName:              false,
 			operatorv1.MultusName:               false,
 			operatorv1.SRIOVDevicePluginName:    false,
@@ -109,11 +110,11 @@ type Variables struct {
 	DPFProvisioningController        DPFProvisioningVariables
 	SFCController                    SFCControllerVariables
 	Networking                       Networking
-	DisableSystemComponents          map[string]bool
+	DisableSystemComponents          map[operatorv1.ComponentName]bool
 	ImagePullSecrets                 []string
 	Images                           map[string]string
-	HelmCharts                       map[string]string
-	DeployInCluster                  map[string]bool
+	HelmCharts                       map[operatorv1.ComponentName]string
+	DeployInCluster                  map[operatorv1.ComponentName]bool
 	KubernetesAPIServerVIP           *string
 	KubernetesAPIServerPort          *int
 	Resources                        map[string]corev1.ResourceRequirements
@@ -163,7 +164,7 @@ func extractComponentConfigs(variables Variables, config *operatorv1.DPFOperator
 			continue
 		}
 
-		componentName := componentConfig.Name()
+		componentName := operatorv1.ComponentName(componentConfig.Name())
 		disableComponents[componentName] = componentConfig.Disabled()
 
 		// Extract helm chart configuration
@@ -188,42 +189,39 @@ func extractComponentConfigs(variables Variables, config *operatorv1.DPFOperator
 	return variables
 }
 
-func extraImageConfigs(componentConfig operatorv1.ComponentConfigurable, images map[string]string, componentName string) {
+func extraImageConfigs(componentConfig operatorv1.ComponentConfigurable, images map[string]string, componentName operatorv1.ComponentName) {
 	// nolint:staticcheck
 	if imageConfig, ok := componentConfig.(operatorv1.DeprecatedImageComponentConfigurable); ok && imageConfig.GetImage() != nil {
-		images[componentName] = *imageConfig.GetImage()
+		containerName := getContainerNameFromComponent(componentName)
+		if containerName != "" {
+			images[componentName.WithContainer(containerName)] = *imageConfig.GetImage()
+			return
+		}
+		// TODO: Remove this special case after the deprecated single image config is removed.
+		// Flannel is the only component using the deprecated single image config with multiple containers.
+		if componentName == operatorv1.FlannelName {
+			images[componentName.String()] = *imageConfig.GetImage()
+		}
 	}
 
 	if multiImageConfig, ok := componentConfig.(operatorv1.ImageComponentConfigurable); ok {
 		containerImages := multiImageConfig.GetImages()
 		for containerName, img := range containerImages {
-			// TODO: this is a temporary workaround for flannel if the deprecated image override is already in-use.
-			if _, ok := images[componentName]; ok && componentName == operatorv1.FlannelName {
-				break
-			}
 			if img != nil {
-				images[componentName+multiSplitChar+containerName] = *img
+				images[componentName.WithContainer(containerName)] = *img
 			}
 		}
 	}
 }
 
-func extraResourceConfigs(componentConfig operatorv1.ComponentConfigurable, resources map[string]corev1.ResourceRequirements, componentName string) {
-	// nolint:staticcheck
-	if resourceConfig, ok := componentConfig.(operatorv1.DeprecatedResourceComponentConfig); ok {
-		resourceRequests := resourceConfig.GetResource()
-		if resourceRequests != nil {
-			resources[componentName] = *resourceRequests
-		}
-	}
-
+func extraResourceConfigs(componentConfig operatorv1.ComponentConfigurable, resources map[string]corev1.ResourceRequirements, componentName operatorv1.ComponentName) {
 	if multiResourceConfig, ok := componentConfig.(operatorv1.ResourcesComponentConfigurable); ok {
 		containerResources := multiResourceConfig.GetResources()
 		for containerName, resourceMap := range containerResources {
 			if resourceMap == nil {
 				continue
 			}
-			resources[componentName+multiSplitChar+containerName] = *resourceMap
+			resources[componentName.WithContainer(containerName)] = *resourceMap
 		}
 	}
 }
@@ -314,4 +312,31 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 		variables.DisableDPUReadyCheck = *config.Spec.DPUServiceController.DisableDPUReadyCheck
 	}
 	return variables
+}
+
+// getContainerNameFromComponent returns the container name associated with the given component configuration.
+// This is used for components that have a single container and use the deprecated single image configuration.
+// TODO: Remove this function after the deprecated single image config is removed.
+// Deprecated: Use multi-container image configuration instead.
+func getContainerNameFromComponent(componentName operatorv1.ComponentName) operatorv1.ContainerName {
+	switch componentName {
+	case operatorv1.ProvisioningControllerName,
+		operatorv1.DPUServiceControllerName,
+		operatorv1.SFCControllerName,
+		operatorv1.ServiceSetControllerName,
+		operatorv1.KamajiClusterManagerName,
+		operatorv1.StaticClusterManagerName:
+		return operatorv1.ControllerManagerContainer
+	case operatorv1.DPUDetectorName:
+		return operatorv1.DPUDetectorContainer
+	case operatorv1.OVSCNIName:
+		return operatorv1.OVSCNI
+	case operatorv1.MultusName:
+		return operatorv1.MultusContainer
+	case operatorv1.SRIOVDevicePluginName:
+		return operatorv1.SRIOVDevicePluginContainer
+	case operatorv1.NVIPAMName:
+		return operatorv1.NVIPAMContainerController
+	}
+	return ""
 }
