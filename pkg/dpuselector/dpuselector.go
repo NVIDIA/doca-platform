@@ -30,7 +30,7 @@ import (
 // DPUSelectFunc is a function that selects a DPU from a list of candidates.
 // The function is called with a list of candidates and should return the selected DPU.
 // If the function cannot select a DPU, it should return nil and an error.
-type DPUSelectFunc func(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (*provisioningv1.DPU, error)
+type DPUSelectFunc func(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []provisioningv1.DPU) (*provisioningv1.DPU, error)
 
 // Options holds configuration for DPU selection.
 type Options struct {
@@ -125,6 +125,8 @@ func (o WithDPUSelectFunc) Apply(options *Options) {
 type DPUSelector interface {
 	// GetDPUForNode finds single DPU for a DPUNode. If multiple DPUs are found, an error is returned.
 	GetDPUForNode(ctx context.Context, c client.Client, dpuNode *provisioningv1.DPUNode) (*provisioningv1.DPU, error)
+	// ListDPUsForNode returns a list of DPUs for a Node.
+	ListDPUsForNode(ctx context.Context, c client.Client, dpuNode *provisioningv1.DPUNode) ([]provisioningv1.DPU, error)
 }
 
 // New creates a DPUSelector with the given options.
@@ -181,11 +183,15 @@ func (s *dpuSelector) GetDPUForNode(ctx context.Context, c client.Client, dpuNod
 		return nil, err
 	}
 	reqLog.Info("Selected DPU for DPUNode", "dpu", dpus[0].Name)
-	return dpus[0], nil
+	return &dpus[0], nil
+}
+
+func (s *dpuSelector) ListDPUsForNode(ctx context.Context, c client.Client, dpuNode *provisioningv1.DPUNode) ([]provisioningv1.DPU, error) {
+	return s.listDPUsForNode(ctx, c, dpuNode)
 }
 
 // listDPUsForNode retrieves DPUs using configured options.
-func (s *dpuSelector) listDPUsForNode(ctx context.Context, c client.Client, dpuNode *provisioningv1.DPUNode) ([]*provisioningv1.DPU, error) {
+func (s *dpuSelector) listDPUsForNode(ctx context.Context, c client.Client, dpuNode *provisioningv1.DPUNode) ([]provisioningv1.DPU, error) {
 	listOpts := []client.ListOption{}
 	if s.options.namespace != nil {
 		listOpts = append(listOpts, client.InNamespace(*s.options.namespace))
@@ -202,15 +208,13 @@ func (s *dpuSelector) listDPUsForNode(ctx context.Context, c client.Client, dpuN
 		return nil, fmt.Errorf("failed to list DPUs: %w", err)
 	}
 	if s.options.indexerField != nil {
-		dpus := make([]*provisioningv1.DPU, len(dpuList.Items))
-		for i := range dpuList.Items {
-			dpus[i] = &dpuList.Items[i]
-		}
+		dpus := make([]provisioningv1.DPU, len(dpuList.Items))
+		copy(dpus, dpuList.Items)
 		return dpus, nil
 	}
-	var dpus []*provisioningv1.DPU
+	var dpus []provisioningv1.DPU
 	for i := range dpuList.Items {
-		dpu := &dpuList.Items[i]
+		dpu := dpuList.Items[i]
 		if dpu.Spec.DPUNodeName == dpuNode.Name {
 			dpus = append(dpus, dpu)
 		}
