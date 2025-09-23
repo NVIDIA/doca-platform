@@ -66,7 +66,7 @@ type DPUNodeReconciler struct {
 	client.Client
 	DPUInstallInterface *string
 	// Options are the Options used to configure the DMS Pods created by the controller.
-	Options dnutil.DMSPodOptions
+	Options dnutil.HostAgentPodOptions
 	// Recorder is an event recorder that is used to record events that occur during the execution of the controller.
 	Recorder record.EventRecorder
 }
@@ -720,7 +720,7 @@ func (r *DPUNodeReconciler) reconcileDPUDevices(ctx context.Context, dpuNode *pr
 			return err
 		}
 		switch dpuInstallInterface {
-		case string(provisioningv1.DPUNodeInstallInterfaceGNOI):
+		case string(provisioningv1.DPUNodeInstallInterfaceGNOI), string(provisioningv1.DPUNodeInstallInterfaceHostAgent):
 			if dpuDevice.Status.PCIAddress == nil {
 				return fmt.Errorf("DPUDevice %s does not have a PCI address", dpuDevice.Name)
 			}

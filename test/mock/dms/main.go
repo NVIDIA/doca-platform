@@ -24,10 +24,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/health"
-	"github.com/nvidia/doca-platform/test/mock/dms/pkg/certs"
-	"github.com/nvidia/doca-platform/test/mock/dms/pkg/config"
 	dpu "github.com/nvidia/doca-platform/test/mock/dms/pkg/controllers"
-	dmsserver "github.com/nvidia/doca-platform/test/mock/dms/pkg/server"
 
 	"github.com/spf13/pflag"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -41,7 +38,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-	"sigs.k8s.io/yaml"
 )
 
 const downwardAPIPodName = "POD_NAME"
@@ -171,27 +167,16 @@ func main() {
 	}
 
 	ctx := ctrl.SetupSignalHandler()
-
-	cert, key, err := certs.ServerCertFromDirectory(certificatePath)
-	if err != nil {
-		setupLog.Error(err, "unable to get server certificate")
-		os.Exit(1)
-	}
-	conf, err := getConfig(configPath)
-	if err != nil {
-		setupLog.Error(err, "unable to get config")
-		os.Exit(1)
-	}
-	srv := dmsserver.NewDMSServerMux(hostIP, cert, key,
-		&dmsserver.DPUNodeToPortListener{MinPort: 30000, MaxPort: 32000},
-		&dmsserver.ConfigurableAPIHandler{Config: *conf},
-	)
 	if err = (&dpu.DMSServerReconciler{
 		Client:  mgr.GetClient(),
 		PodName: podName,
-		// TODO: Fix certificate handling here.
-		ListenerManager: srv,
-		Server:          srv,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller")
+		os.Exit(1)
+	}
+
+	if err = (&dpu.HostAgentServerReconciler{
+		Client: mgr.GetClient(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller")
 		os.Exit(1)
@@ -211,16 +196,4 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
-}
-
-func getConfig(configPath string) (*config.Config, error) {
-	conf := &config.Config{}
-	file, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil, err
-	}
-	if err := yaml.Unmarshal(file, conf); err != nil {
-		return nil, err
-	}
-	return conf, nil
 }

@@ -963,16 +963,24 @@ spec:
                       BFB is installed
                     properties:
                       installViaGNOI:
-                        description: InstallViaGNOI is the interface used to install
-                          the BFB via GNOI
+                        description: |-
+                          InstallViaGNOI is the interface used to install the BFB via GNOI
+
+                          Deprecated: Use InstallViaHostAgent instead.
+                        type: object
+                      installViaHostAgent:
+                        description: InstallViaHostAgent is the interface used to
+                          install the BFB via HostAgent
                         type: object
                       installViaRedfish:
                         description: InstallViaRedfish is the interface used to install
                           the BFB via Redfish
                         properties:
                           bfbRegistry:
-                            description: BFBRegistry is the configuration for the
-                              BFB Registry
+                            description: |-
+                              BFBRegistry is the configuration for the BFB Registry
+
+                              Deprecated: Use RegistryConfiguration instead.
                             properties:
                               disable:
                                 description: Disable ensures the BFB Registry is not
@@ -984,8 +992,10 @@ spec:
                                 type: integer
                             type: object
                           bfbRegistryAddress:
-                            description: BFBRegistryAddress is the address of the
-                              BFB Registry
+                            description: |-
+                              BFBRegistryAddress is the address of the BFB Registry
+
+                              Deprecated: Use RegistryConfiguration instead.
                             minLength: 1
                             type: string
                           skipDpuNodeDiscovery:
@@ -996,10 +1006,11 @@ spec:
                         type: object
                     type: object
                     x-kubernetes-validations:
-                    - message: exactly one of installViaGNOI or installViaRedfish
-                        must be set
-                      rule: (has(self.installViaGNOI) && !has(self.installViaRedfish))
-                        || (!has(self.installViaGNOI) && has(self.installViaRedfish))
+                    - message: exactly one of installViaHostAgent, installViaGNOI
+                        or installViaRedfish must be set
+                      rule: ((has(self.installViaHostAgent) || has(self.installViaGNOI))
+                        && !has(self.installViaRedfish)) || (!has(self.installViaHostAgent)
+                        && !has(self.installViaGNOI) && has(self.installViaRedfish))
                   maxDPUParallelInstallations:
                     default: 50
                     description: |-
@@ -1024,6 +1035,24 @@ spec:
                     format: duration
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
+                  registry:
+                    description: Registry is the configuration for the BFB Registry
+                    properties:
+                      address:
+                        description: |-
+                          Address is the address used to access the BFB Registry. The address must start with "http://".
+                          By default, the BFB Registry can be accessed via its Service.
+                          For non-kubernetes environments, this must be set due to the lack of kubelet on worker nodes.
+                          For zero-trust environments, this must be set so that the BFB Registry can be accessed from DPU BMC.
+                        pattern: ^http://
+                        type: string
+                      port:
+                        description: Port is the port on which the registry instances
+                          will listen
+                        maximum: 65535
+                        minimum: 1
+                        type: integer
+                    type: object
                 required:
                 - bfbPVCName
                 type: object

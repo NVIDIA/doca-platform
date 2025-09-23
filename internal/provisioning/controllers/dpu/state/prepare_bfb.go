@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package redfish
+package state
 
 import (
 	"context"
@@ -69,10 +69,9 @@ func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToGetDPUNode", err.Error()))
 		return *state, err
 	}
-	bfCFGPath := filepath.Join(BFCFGDir, fmt.Sprintf("%s_%s_%s", dpu.Namespace, dpu.Name, dpu.UID))
-	pathInFS := filepath.Join("/", cutil.BFBBaseDir, bfCFGPath)
-	if err := os.MkdirAll(filepath.Dir(pathInFS), os.ModePerm); err != nil {
-		err = fmt.Errorf("failed to create directory %s: %w", filepath.Dir(pathInFS), err)
+	bfCFGPath := filepath.Join("/", cutil.BFBBaseDir, BFCFGDir, fmt.Sprintf("%s_%s_%s", dpu.Namespace, dpu.Name, dpu.UID))
+	if err := os.MkdirAll(filepath.Dir(bfCFGPath), os.ModePerm); err != nil {
+		err = fmt.Errorf("failed to create directory %s: %w", filepath.Dir(bfCFGPath), err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToCreateDirectory", err.Error()))
 		return *state, err
 	}
@@ -100,9 +99,9 @@ func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToGenerateBFConfig", err.Error()))
 		return *state, err
 	}
-	logger.Info(fmt.Sprintf("write bf.cfg to %s", pathInFS))
-	if err := os.WriteFile(pathInFS, cfg, os.ModePerm); err != nil {
-		err = fmt.Errorf("failed to write bf.cfg to %s: %w", pathInFS, err)
+	logger.Info(fmt.Sprintf("write bf.cfg to %s", bfCFGPath))
+	if err := os.WriteFile(bfCFGPath, cfg, os.ModePerm); err != nil {
+		err = fmt.Errorf("failed to write bf.cfg to %s: %w", bfCFGPath, err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToPushBFCFG", err.Error()))
 		return *state, err
 	}

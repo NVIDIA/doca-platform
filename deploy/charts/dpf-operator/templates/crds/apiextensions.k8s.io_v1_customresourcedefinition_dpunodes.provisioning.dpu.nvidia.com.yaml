@@ -56,8 +56,10 @@ spec:
                   type: object
                 type: array
               nodeDMSAddress:
-                description: The IP address and port where the DMS is exposed. Only
-                  applicable if dpuInstallInterface is set to gNOI.
+                description: |-
+                  The IP address and port where the DMS is exposed. Only applicable if dpuInstallInterface is set to gNOI.
+
+                  Deprecated: this field is no longer used.
                 properties:
                   ip:
                     description: IP address in IPv4 format.
@@ -73,22 +75,28 @@ spec:
                 type: object
               nodeRebootMethod:
                 default:
-                  gNOI: {}
+                  hostAgent: {}
                 description: |-
                   Defines the method for rebooting the host.
                   One of the following options can be chosen for this field:
                      - "external": Reboot the host via an external means, not controlled by the
                        DPU controller.
                      - "script": Reboot the host by executing a custom script.
-                     - "gNOI": Use the DPU's DMS interface to reboot the host.
-                  "gNOI" is the default value.
+                     - "hostAgent": Use the host agent to reboot the host.
+                  "hostAgent" is the default value.
                 properties:
                   external:
                     description: Reboot the host via an external means, not controlled
                       by the DPU controller.
                     type: object
                   gNOI:
-                    description: Use the DPU's DMS interface to reboot the host.
+                    description: |-
+                      Use the DPU's DMS interface to reboot the host.
+
+                      Deprecated: Use HostAgent instead.
+                    type: object
+                  hostAgent:
+                    description: Use the HostAgent to reboot the host.
                     type: object
                   script:
                     description: |-
@@ -104,10 +112,11 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-validations:
-                - message: only one of gNOI, external, script can be set
-                  rule: (has(self.gNOI) && !has(self.external) && !has(self.script)
-                    || has(self.external) && !has(self.gNOI) && !has(self.script)
-                    || has(self.script) && !has(self.external) && !has(self.gNOI))
+                - message: only one of hostAgent, external, script can be set
+                  rule: (((has(self.hostAgent) || has(self.gNOI)) && !has(self.external)
+                    && !has(self.script)) || (has(self.external) && !has(self.hostAgent)
+                    && !has(self.gNOI) && !has(self.script)) || (has(self.script)
+                    && !has(self.external) && !has(self.hostAgent) && !has(self.gNOI)))
             type: object
           status:
             description: DPUNodeStatus defines the observed state of DPUNode
@@ -172,9 +181,10 @@ spec:
                 type: array
               dpuInstallInterface:
                 description: The name of the interface which will be used to install
-                  the bfb image, can be one of gNOI,redfish
+                  the bfb image, can be one of hostAgent,redfish
                 enum:
                 - gNOI
+                - hostAgent
                 - redfish
                 type: string
               kubeNodeRef:

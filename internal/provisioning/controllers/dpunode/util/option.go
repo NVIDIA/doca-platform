@@ -22,14 +22,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// DMSPodOptions represents the options used to configure a DMS Pod.
-type DMSPodOptions struct {
-	// DMSImageWithTag is the image reference with tag for the DMS container.
-	DMSImageWithTag string
+// HostAgentPodOptions represents the options used to configure a DMS Pod.
+type HostAgentPodOptions struct {
+	// HostAgentImageWithTag is the image reference with tag for the DMS container.
+	HostAgentImageWithTag string
 	// ImagePullSecrets is a list of secrets that will be used to authenticate the image pull request.
 	ImagePullSecrets []corev1.LocalObjectReference
-	// BFBPVC is the name of the Persistent Volume Claim (PVC) that will be used to store the BFB data.
-	BFBPVC string
 	// DMSTimeout is the max time in seconds within which a DMS API must respond, 0 is unlimited
 	DMSTimeout int
 	// DMSPodTimeout is the timeout duration for the DMS Pod to become Ready.
@@ -40,4 +38,6 @@ type DMSPodOptions struct {
 	MultiDPUOperationsSyncWaitTime time.Duration
 	// MaxUnavailableDPUNodes is the maximum number of DPUNodes that are unavailable during the node effect period.
 	MaxUnavailableDPUNodes int32
+	// BFBRegistryAddress is the address of the BFB registry.
+	BFBRegistryAddress string
 }

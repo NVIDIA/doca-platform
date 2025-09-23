@@ -1,4 +1,66 @@
-FROM nvcr.io/nvidia/doca/doca:3.0.0-full-rt-host
+ARG builder_image
+
+# 1) dependency stage to create a dependency layer with go vendor folder and other dependencies
+FROM ${builder_image} AS dependency
+WORKDIR /workspace
+
+# Copy source files needed for proper vendoring
+COPY go.mod go.sum ./
+COPY third_party/ third_party/
+COPY api/ api/
+COPY cmd/ cmd/
+COPY test/ test/
+COPY internal/ internal/
+COPY pkg/ pkg/
+
+# Vendor all dependencies
+RUN go mod vendor
+
+# 2) Builder stage builds go binaries (no emulation).
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS builder
+WORKDIR /workspace
+
+ARG gcflags
+ARG ldflags
+ARG TARGETARCH
+ARG TAG
+
+ENV GO_LDFLAGS=\"${ldflags}\"
+ENV GO_GCFLAGS=\"${gcflags}\"
+ENV ARCH=${TARGETARCH}
+# The TAG variable is necessary for the dpfctl versioning.
+ENV TAG=${TAG}
+
+# Copy the source code from the dependency image
+COPY --from=dependency /workspace .
+
+# Copy additional files requires for the docker build.
+
+## Makefile and modules needed to call the make target
+COPY Makefile ./
+COPY hack/tools/tools.mk hack/tools/tools.mk
+
+# Build binaries with explicit vendor flag
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    GOFLAGS="-mod=vendor" make binary-hostagent
+
+# Copy the go source code so it can be distributed in the final image.
+RUN mkdir src && \
+    find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
+    -not -path "./internal/vpc/*" -exec cp --parents \{\}  src/ \; && \
+    tar -czf source-code.tar.gz src
+
+
+# 3) Final stage copies artefacts from the builder and dependency stages.
+FROM nvcr.io/nvidia/doca/doca:3.1.0-full-rt-host
+
+ENV DEBIAN_FRONTEND=noninteractive
+# Forces systemctl to connect via D-Bus instead of PID 1's private listener
+ENV SYSTEMCTL_FORCE_BUS=1
+# Tells systemd tools to try communicating with PID 1 even in container environments
+ENV SYSTEMD_OFFLINE=0
+# Legacy variable to ignore chroot detection (deprecated but still works)
+ENV SYSTEMD_IGNORE_CHROOT=1
 
 ARG TARGETARCH
 ARG MFT_VERSION=4.29.0-131
@@ -35,8 +97,7 @@ RUN echo "echo 'running rshim'; rshim" > rshim.sh && chmod +x rshim.sh
 
 RUN curl -LO https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin
 
-COPY ./internal/bf-slr/bf-slr.sh /usr/sbin
-COPY ./internal/hostnetwork/hostnetwork.sh /opt/dpf/
+COPY --from=builder /workspace/bin/ .
 COPY ./internal/dmsinit/dmsinit.sh /opt/dpf/
 
 # Move source code to a directory

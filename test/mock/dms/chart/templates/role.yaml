@@ -67,6 +67,7 @@ rules:
   resources:
   - dpuclusters/status
   - dpudevices/status
+  - dpunodes/status
   - dpus/status
   verbs:
   - get

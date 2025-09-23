@@ -60,7 +60,18 @@ var _ = Describe("Phase Initializing", func() {
 			}
 			createObject(dpuNode)
 			patch := client.MergeFrom(dpuNode.DeepCopy())
-			dpuNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaGNOI))
+			dpuNode.Status = provisioningv1.DPUNodeStatus{
+				DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaHostAgent)),
+				Conditions: []metav1.Condition{
+					{
+						Type:               string(provisioningv1.DPUNodeConditionBridgeConfigured),
+						Status:             metav1.ConditionTrue,
+						Reason:             "BridgeConfigured",
+						Message:            "Bridge configured",
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+			}
 			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
 
 			By("prepare DPUCluster CR")
@@ -169,7 +180,18 @@ var _ = Describe("Phase Initializing", func() {
 			}
 			createObject(dpuNode)
 			patch := client.MergeFrom(dpuNode.DeepCopy())
-			dpuNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaGNOI))
+			dpuNode.Status = provisioningv1.DPUNodeStatus{
+				DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaHostAgent)),
+				Conditions: []metav1.Condition{
+					{
+						Type:               string(provisioningv1.DPUNodeConditionBridgeConfigured),
+						Status:             metav1.ConditionTrue,
+						Reason:             "BridgeConfigured",
+						Message:            "Bridge configured",
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+			}
 			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
 
 			By("prepare DPU CR")
@@ -258,7 +280,18 @@ var _ = Describe("Phase Initializing", func() {
 			}
 			createObject(dpuNode)
 			patch := client.MergeFrom(dpuNode.DeepCopy())
-			dpuNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaGNOI))
+			dpuNode.Status = provisioningv1.DPUNodeStatus{
+				DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaHostAgent)),
+				Conditions: []metav1.Condition{
+					{
+						Type:               string(provisioningv1.DPUNodeConditionBridgeConfigured),
+						Status:             metav1.ConditionTrue,
+						Reason:             "BridgeConfigured",
+						Message:            "Bridge configured",
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+			}
 			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
 
 			By("prepare DPU CR")
@@ -308,7 +341,18 @@ var _ = Describe("Phase Initializing", func() {
 			}
 			createObject(dpuNode)
 			patch := client.MergeFrom(dpuNode.DeepCopy())
-			dpuNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaGNOI))
+			dpuNode.Status = provisioningv1.DPUNodeStatus{
+				DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaHostAgent)),
+				Conditions: []metav1.Condition{
+					{
+						Type:               string(provisioningv1.DPUNodeConditionBridgeConfigured),
+						Status:             metav1.ConditionTrue,
+						Reason:             "BridgeConfigured",
+						Message:            "Bridge configured",
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+			}
 			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
 
 			By("prepare DPU CR")

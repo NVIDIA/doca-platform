@@ -208,9 +208,8 @@ var _ = BeforeSuite(func() {
 
 	dpunodeReconciler = &dpunode.DPUNodeReconciler{
 		Client: k8sManager.GetClient(),
-		Options: dnutil.DMSPodOptions{
-			DMSImageWithTag: "example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0",
-			BFBPVC:          "bfb-pvc",
+		Options: dnutil.HostAgentPodOptions{
+			HostAgentImageWithTag: "example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0",
 		},
 		Recorder:            k8sManager.GetEventRecorderFor(dpunode.DPUNodeControllerName),
 		DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaGNOI)),
@@ -220,9 +219,8 @@ var _ = BeforeSuite(func() {
 
 	nodeReconciler := &dpunode.NodeReconciler{
 		Client: k8sManager.GetClient(),
-		Options: dnutil.DMSPodOptions{
-			DMSImageWithTag: "example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0",
-			BFBPVC:          "bfb-pvc",
+		Options: dnutil.HostAgentPodOptions{
+			HostAgentImageWithTag: "example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0",
 		},
 	}
 	err = nodeReconciler.SetupWithManager(k8sManager)

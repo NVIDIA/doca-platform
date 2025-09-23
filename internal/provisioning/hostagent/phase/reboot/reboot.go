@@ -27,6 +27,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -35,7 +36,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
@@ -69,6 +70,7 @@ func NewHandler(client client.Client, nodeFunc func() string, snFunc func(string
 }
 
 func (r *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisioningv1.DPUStatus, ctrl.Result, error) {
+	logger := log.FromContext(ctx)
 	if r.getNode == nil {
 		err := fmt.Errorf("node manager is not set")
 		hostutil.NewCondition(condition).Failure(err, "NodeManagerNotSet").Set(&dpu.Status.Conditions)
@@ -86,7 +88,7 @@ func (r *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 		hostutil.NewCondition(condition).Failure(err, "FailedToGetDPUNode").Set(&dpu.Status.Conditions)
 		return dpu.Status, ctrl.Result{}, err
 	}
-	if dpuNode.Spec.NodeRebootMethod == nil || dpuNode.Spec.NodeRebootMethod.GNOI == nil {
+	if dpuNode.Spec.NodeRebootMethod != nil && dpuNode.Spec.NodeRebootMethod.GNOI == nil && dpuNode.Spec.NodeRebootMethod.HostAgent == nil { //nolint:staticcheck
 		return dpu.Status, ctrl.Result{}, nil
 	}
 	finished, err := r.rebootFinished(dpu)
@@ -116,12 +118,42 @@ func (r *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 		return dpu.Status, ctrl.Result{}, err
 	}
 
-	if err := r.slr(ctx, dpu); err != nil {
-		hostutil.NewCondition(condition).Failure(err, "FailedToSLR").Set(&dpu.Status.Conditions)
+	rebootCommand, rebootType, err := reboot.GenerateCmd(dpuNode.Annotations, dpu.Annotations)
+	if err != nil {
+		err = fmt.Errorf("invalid reboot annotation on DPUNode or DPU. err: %w", err)
+		hostutil.NewCondition(condition).Failure(err, "FailedToGenerateRebootCommand").Set(&dpu.Status.Conditions)
 		return dpu.Status, ctrl.Result{}, err
 	}
-	// todo: power cycle
-	hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
+	// Return early and set node to ready if we should skip the powercycle/reboot command.
+	// Note: This is mainly for testing. Skipping the powercycle/reboot may cause issues with
+	// the firmware installation and configuration.
+	if rebootCommand == reboot.Skip {
+		logger.Info("Warning not rebooting: this may cause issues with DPU firmware installation and configuration")
+		hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
+		return dpu.Status, ctrl.Result{}, nil
+	}
+	switch rebootType {
+	case reboot.PowerCycle:
+		logger.Info(fmt.Sprintf("DPU %s powercycle command %q", dpu.Name, rebootCommand))
+		_, stderr, err := hostutil.RunBash(rebootCommand)
+		if err != nil {
+			hostutil.NewCondition(condition).
+				Failure(fmt.Errorf("failed to powercycle. cmd: %s, stderr: %s, err: %w", rebootCommand, stderr.String(), err), "FailedToPowerCycle").
+				Set(&dpu.Status.Conditions)
+			return dpu.Status, ctrl.Result{}, err
+		}
+	case reboot.WarmReboot:
+		logger.Info(fmt.Sprintf("DPU %s Bluefield System-Level-Reset", dpu.Name))
+		if err := r.slr(ctx, dpu); err != nil {
+			hostutil.NewCondition(condition).Failure(err, "FailedToSLR").Set(&dpu.Status.Conditions)
+			return dpu.Status, ctrl.Result{}, err
+		}
+	default:
+		err := fmt.Errorf("invalid reboot type: %s", rebootType)
+		hostutil.NewCondition(condition).Failure(err, "InvalidRebootType").Set(&dpu.Status.Conditions)
+		return dpu.Status, ctrl.Result{}, err
+	}
+	// we won't reach here
 	return dpu.Status, ctrl.Result{}, nil
 }
 
@@ -180,7 +212,7 @@ func (r *Handler) canReboot(ctx context.Context, dpu *provisioningv1.DPU) (bool,
 }
 
 func (r *Handler) slr(ctx context.Context, dpu *provisioningv1.DPU) error {
-	log := ctrllog.FromContext(ctx)
+	log := log.FromContext(ctx)
 	dev, ok := r.getDeviceBySerialNumber(dpu.Spec.SerialNumber)
 	if !ok {
 		return fmt.Errorf("failed to get device by serial number: %s", dpu.Spec.SerialNumber)

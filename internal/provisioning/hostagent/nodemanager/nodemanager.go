@@ -26,9 +26,11 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	"github.com/vishvananda/netlink"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -50,12 +52,16 @@ type Interface interface {
 }
 type NodeManager struct {
 	client.Client
-	nodeName string
+	nodeName         string
+	rebootMethod     string
+	customScriptName string
 }
 
-func NewNodeManager(client client.Client) *NodeManager {
+func NewNodeManager(client client.Client, rebootMethod string, customScriptName string) *NodeManager {
 	return &NodeManager{
-		Client: client,
+		Client:           client,
+		rebootMethod:     rebootMethod,
+		customScriptName: customScriptName,
 	}
 }
 
@@ -110,12 +116,19 @@ func (n *NodeManager) initDPUDevices() ([]*provisioningv1.DPUDevice, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover DPUs: %w", err)
 	}
+	nodeName, _, err := hostutil.GetNodeName()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node name: %w", err)
+	}
 	for _, device := range devices {
 		pn0Name, _ := hostutil.NewPCIHelper(device.Address).PF(0).InterfaceName()
 		dpuDevice := &provisioningv1.DPUDevice{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      strings.ToLower(device.SerialNumber),
 				Namespace: DPFNamespace,
+				Labels: map[string]string{
+					cutil.DPUNodeNameLabel: nodeName,
+				},
 			},
 			Spec: provisioningv1.DPUDeviceSpec{
 				SerialNumber: device.SerialNumber,
@@ -142,20 +155,68 @@ func (n *NodeManager) initDPUDevices() ([]*provisioningv1.DPUDevice, error) {
 }
 
 func (n *NodeManager) initDPUNode(dpuDevices []*provisioningv1.DPUDevice) error {
-	nodeName, truncated, err := hostutil.GetNodeName()
-	if err != nil {
-		return fmt.Errorf("failed to init DPUNode CR: %w", err)
-	}
-	if truncated {
-		klog.Warningf("hostname length is greater than %d, truncating to %s", hostutil.MaximumHostNameLength, nodeName)
-	}
-	n.nodeName = nodeName
 	dpuNode := &provisioningv1.DPUNode{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      nodeName,
 			Namespace: DPFNamespace,
 		},
 	}
+
+	kubeNodeRef := ""
+	k8sNodeName := os.Getenv(hostutil.K8sNodeNameEnv)
+	if k8sNodeName != "" {
+		node := &corev1.Node{}
+		if err := n.Get(context.TODO(), client.ObjectKey{Name: k8sNodeName}, node); err != nil {
+			return fmt.Errorf("in a K8s env, but failed to get K8s node %s: %w", k8sNodeName, err)
+		}
+		n.nodeName = node.Name
+		kubeNodeRef = node.Name
+		ref := metav1.OwnerReference{
+			APIVersion: "v1",
+			Kind:       "Node",
+			Name:       node.Name,
+			UID:        node.UID,
+			Controller: ptr.To(true),
+		}
+		dpuNode.ObjectMeta.OwnerReferences = []metav1.OwnerReference{ref}
+	} else {
+		nodeName, truncated, err := hostutil.GetNodeName()
+		if err != nil {
+			return fmt.Errorf("failed to init DPUNode CR: %w", err)
+		}
+		if truncated {
+			klog.Warningf("hostname length is greater than %d, truncating to %s", hostutil.MaximumHostNameLength, nodeName)
+		}
+		n.nodeName = nodeName
+	}
+	dpuNode.Name = n.nodeName
+
+	devices, err := hostutil.DiscoverDPUs()
+	if err != nil {
+		return fmt.Errorf("failed to discover DPUs: %w", err)
+	}
+	if len(devices) > 0 {
+		dpuNode.Labels = map[string]string{
+			cutil.NodeSelectorLabel: "true",
+		}
+	}
+
+	switch n.rebootMethod {
+	case "gNOI", "hostAgent":
+		dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+			HostAgent: &provisioningv1.HostAgent{},
+		}
+	case "external":
+		dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+			External: &provisioningv1.External{},
+		}
+	case "script":
+		dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+			Script: &provisioningv1.Script{
+				Name: n.customScriptName,
+			},
+		}
+	}
+
 	for _, dpuDevice := range dpuDevices {
 		dpuNode.Spec.DPUs = append(dpuNode.Spec.DPUs, provisioningv1.DPURef{
 			Name: dpuDevice.Name,
@@ -166,7 +227,7 @@ func (n *NodeManager) initDPUNode(dpuDevices []*provisioningv1.DPUDevice) error 
 			return fmt.Errorf("failed to create DPUNode: %w", err)
 		}
 		existingDPUNode := &provisioningv1.DPUNode{}
-		if err := n.Get(context.TODO(), client.ObjectKey{Namespace: DPFNamespace, Name: nodeName}, existingDPUNode); err != nil {
+		if err := n.Get(context.TODO(), client.ObjectKey{Namespace: DPFNamespace, Name: dpuNode.Name}, existingDPUNode); err != nil {
 			return fmt.Errorf("failed to get DPUNode: %w", err)
 		}
 		equal := equality.Semantic.DeepEqual(dpuNode.Spec.DPUs, existingDPUNode.Spec.DPUs)
@@ -185,6 +246,10 @@ func (n *NodeManager) initDPUNode(dpuDevices []*provisioningv1.DPUDevice) error 
 	switch rebootOccurred {
 	case rebootOccurred, firstRun:
 		dpuNode.Status.RebootInProgress = ptr.To(false)
+	}
+	dpuNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaHostAgent))
+	if kubeNodeRef != "" {
+		dpuNode.Status.KubeNodeRef = ptr.To(kubeNodeRef)
 	}
 	if err := n.Status().Update(context.TODO(), dpuNode); err != nil {
 		return fmt.Errorf("failed to update DPUNode: %w", err)
