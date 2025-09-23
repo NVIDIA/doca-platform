@@ -9,6 +9,7 @@ helmDefaults:
   cleanupOnFail: true
   skipDeps: false
   wait: false
+  timeout: 600
 
 releases:
   - name: kube-state-metrics
