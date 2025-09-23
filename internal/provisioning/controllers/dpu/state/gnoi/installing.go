@@ -108,10 +108,15 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 
 func updateState(state *provisioningv1.DPUStatus, phase provisioningv1.DPUPhase, message string) provisioningv1.DPUStatus {
 	state.Phase = phase
-	cond := cutil.DPUCondition(provisioningv1.DPUCondOSInstalled, "", message)
+	var cond *metav1.Condition
+
 	if phase == provisioningv1.DPUError {
-		cond.Status = metav1.ConditionFalse
-		cond.Reason = "InstallationFailed"
+		// For error phase, create condition with error to set status to False
+		err := fmt.Errorf("installation failed")
+		cond = cutil.NewCondition(provisioningv1.DPUCondOSInstalled.String(), err, "InstallationFailed", message)
+	} else {
+		// For success phases, create condition without error to set status to True
+		cond = cutil.NewCondition(provisioningv1.DPUCondOSInstalled.String(), nil, provisioningv1.DPUCondOSInstalled.String(), message)
 	}
 	cutil.SetDPUCondition(state, cond)
 	return *state
