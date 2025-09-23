@@ -485,7 +485,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 		requestorsPrefix := []string{}
 		// get dpudeployments
 		dpudeployments := &dpuservicev1.DPUDeploymentList{}
-		g.Expect(input.client.List(ctx, dpudeployments, client.InNamespace(input.dpuCluster.GetNamespace()))).To(Succeed())
+		g.Expect(input.client.List(ctx, dpudeployments)).To(Succeed())
 		for _, dpuDeployment := range dpudeployments.Items {
 			requestorsPrefix = append(requestorsPrefix, fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName()))
 		}
@@ -496,11 +496,9 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 			// remove the requestors if the condition ConditionNodeEffectApplied is true
 			if conditions.IsTrue(&dpunodemaintenance, provisioningv1.ConditionNodeEffectApplied) {
 				for _, requestorPrefix := range requestorsPrefix {
-					if slices.Contains(dpunodemaintenance.Spec.Requestor, requestorPrefix) {
-						dpunodemaintenance.Spec.Requestor = slices.DeleteFunc(dpunodemaintenance.Spec.Requestor, func(r string) bool {
-							return r == requestorPrefix
-						})
-					}
+					dpunodemaintenance.Spec.Requestor = slices.DeleteFunc(dpunodemaintenance.Spec.Requestor, func(requestor string) bool {
+						return strings.HasPrefix(requestor, requestorPrefix)
+					})
 				}
 			}
 			g.Expect(input.client.Update(ctx, &dpunodemaintenance)).To(Succeed())
