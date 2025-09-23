@@ -4,14 +4,14 @@ title: "DOCA Telemetry Service"
 
 This documentation explains configuration and deployment of DOCA Telemetry service (DTS) as DPU service in DPF.
 
-Main DTS concepts are explained in the [official DTS documentation](https://docs.nvidia.com/doca/sdk/doca-telemetry-service-guide/index.html).
+Main DTS concepts are explained in the [official DTS documentation](https://docs.nvidia.com/doca/sdk/doca+telemetry+service+guide/index.html).
 
 While the official documentation provides a more comprehensive overview, DPUService users should consult it for its
 detailed list of telemetry counters and explanation of user options.
 
 # Service configuration
 
-[Official DTS documentation](https://docs.nvidia.com/doca/sdk/doca-telemetry-service-guide/index.html) explains
+[Official DTS documentation](https://docs.nvidia.com/doca/sdk/doca+telemetry+service+guide/index.html) explains
 configuration options.
 
 General note: In the official documentation, all options should be specified in the `dts_config.ini` file using the
@@ -116,7 +116,7 @@ The following subsections explain each user option groups
 
 ### Providers:
 
-Available data providers are listed here: [DTS providers](https://docs.nvidia.com/doca/sdk/doca-telemetry-service-guide/index.html#src-3879575060_id-.DOCATelemetryServiceGuidev3.1.0-Providers).
+Available data providers are listed here: [DTS providers](https://docs.nvidia.com/doca/sdk/doca+telemetry+service+guide/index.html#src-3879575060_id-.DOCATelemetryServiceGuidev3.1.0-Providers).
 
 Note: some of the providers are supported only on host and not on DPU.
 
@@ -143,7 +143,7 @@ To set the these options in DPUService.yaml specify them in `key: value` pairs u
 
 For instance, DPU service exposes essential general options:
 
-* [Sampling interval options](https://docs.nvidia.com/doca/sdk/doca-telemetry-service-guide/index.html#src-3879575060_id-.DOCATelemetryServiceGuidev3.1.0-SamplingInterval):
+* [Sampling interval options](https://docs.nvidia.com/doca/sdk/doca+telemetry+service+guide/index.html#src-3879575060_id-.DOCATelemetryServiceGuidev3.1.0-SamplingInterval):
   * `update: 1000` to set the sample interval in milliseconds.
   * `sync-time-limit: 10000` buffer rotation time limit in seconds.
 
