@@ -14,16 +14,25 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package subcmds
 
 import (
+	"flag"
 	"os"
 
-	"github.com/nvidia/doca-platform/cmd/hostagent/subcmds"
+	"github.com/spf13/cobra"
+	"k8s.io/klog/v2"
 )
 
-func main() {
-	if err := subcmds.RootCmd.Execute(); err != nil {
-		os.Exit(1)
-	}
+var RootCmd = &cobra.Command{
+	Use: "hostagent",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return nil
+	},
+}
+
+func init() {
+	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	klog.InitFlags(fs)
+	RootCmd.PersistentFlags().AddGoFlagSet(fs)
 }

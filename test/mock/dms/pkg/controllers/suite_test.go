@@ -38,8 +38,6 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunodemaintenance"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpuset"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	"github.com/nvidia/doca-platform/test/mock/dms/pkg/config"
-	dmsserver "github.com/nvidia/doca-platform/test/mock/dms/pkg/server"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -165,12 +163,11 @@ func TestMain(m *testing.M) {
 	dpuNodeReconciler := dpunode.DPUNodeReconciler{
 		Client:              testManager.GetClient(),
 		DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaGNOI)),
-		Options: dnutil.DMSPodOptions{
-			DMSImageWithTag:  "example.com/oof:v1.1.1",
-			ImagePullSecrets: []corev1.LocalObjectReference{{Name: "one"}},
-			BFBPVC:           "bfb-pvc",
-			DMSTimeout:       100,
-			DMSPodTimeout:    100,
+		Options: dnutil.HostAgentPodOptions{
+			HostAgentImageWithTag: "example.com/oof:v1.1.1",
+			ImagePullSecrets:      []corev1.LocalObjectReference{{Name: "one"}},
+			DMSTimeout:            100,
+			DMSPodTimeout:         100,
 		},
 	}
 	if err := dpuNodeReconciler.SetupWithManager(testManager); err != nil {
@@ -188,30 +185,30 @@ func TestMain(m *testing.M) {
 
 	nodeReconciler := dpunode.NodeReconciler{
 		Client: testManager.GetClient(),
-		Options: dnutil.DMSPodOptions{
-			DMSImageWithTag:  "example.com/oof:v1.1.1",
-			ImagePullSecrets: []corev1.LocalObjectReference{{Name: "one"}},
-			BFBPVC:           "bfb-pvc",
-			DMSTimeout:       100,
-			DMSPodTimeout:    100,
+		Options: dnutil.HostAgentPodOptions{
+			HostAgentImageWithTag: "example.com/oof:v1.1.1",
+			ImagePullSecrets:      []corev1.LocalObjectReference{{Name: "one"}},
+			DMSTimeout:            100,
+			DMSPodTimeout:         100,
 		},
 	}
 	if err := nodeReconciler.SetupWithManager(testManager); err != nil {
 		panic(fmt.Sprintf("Failed to setup Node reconciler: %v", err))
 	}
 
-	srv := dmsserver.NewDMSServerMux("127.0.0.1", cert, key,
-		&dmsserver.DPUNodeToPortListener{MinPort: 21111, MaxPort: 22222},
-		&dmsserver.ConfigurableAPIHandler{Config: config.Config{}},
-	)
 	dmsServerReconciler := DMSServerReconciler{
-		Client:          testClient,
-		PodName:         dmsServerPodName,
-		Server:          srv,
-		ListenerManager: srv,
+		Client:  testClient,
+		PodName: dmsServerPodName,
 	}
 	if err := dmsServerReconciler.SetupWithManager(testManager); err != nil {
 		panic(fmt.Sprintf("Failed to setup DMSServer reconciler: %v", err))
+	}
+
+	hostAgentServerReconciler := HostAgentServerReconciler{
+		Client: testClient,
+	}
+	if err := hostAgentServerReconciler.SetupWithManager(testManager); err != nil {
+		panic(fmt.Sprintf("Failed to setup HostAgentServer reconciler: %v", err))
 	}
 
 	go func() {

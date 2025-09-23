@@ -15,7 +15,7 @@ metadata:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/part-of: dpf-provisioning-controller-manager
     dpu.nvidia.com/component: dpf-provisioning-controller-manager
-  name: dpf-provisioning-dms-service-account
+  name: dpf-provisioning-hostagent-service-account
   namespace: dpf-provisioning
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -24,38 +24,54 @@ metadata:
   labels:
     app.kubernetes.io/part-of: dpf-provisioning-controller-manager
     dpu.nvidia.com/component: dpf-provisioning-controller-manager
-  name: dpf-provisioning-dms-role
+  name: dpf-provisioning-hostagent-role
   namespace: system
 rules:
 - apiGroups:
   - provisioning.dpu.nvidia.com
   resources:
   - dpunodes
-  verbs:
-  - create
-  - get
-- apiGroups:
-  - provisioning.dpu.nvidia.com
-  resources:
   - dpudevices
   verbs:
   - create
+  - delete
   - get
+  - list
+  - watch
+  - patch
+  - update
 - apiGroups:
   - provisioning.dpu.nvidia.com
   resources:
+  - bfbs
+  - dpuclusters
+  - dpudiscoveries
+  - dpus
+  - dpusets
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - dpus/status
+  - dpunodes/status
   - dpudevices/status
   verbs:
-  - update
+  - get
   - patch
-  - get
+  - update
 - apiGroups:
-  - cert-manager.io
+  - provisioning.dpu.nvidia.com
   resources:
-  - certificates
+  - dpuflavors
   verbs:
-  - create
   - get
+  - list
+  - watch
 - apiGroups:
   - ""
   resources:
@@ -63,6 +79,25 @@ rules:
   verbs:
   - get
   - list
+  - patch
+  - watch
+- apiGroups:
+  - certificates.k8s.io
+  resources:
+  - certificatesigningrequests
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - operator.dpu.nvidia.com
+  resources:
+  - dpfoperatorconfigs
+  verbs:
+  - get
+  - list
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -139,6 +174,29 @@ rules:
   - '*'
   verbs:
   - '*'
+- apiGroups:
+  - certificates.k8s.io
+  resources:
+  - certificatesigningrequests
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - certificates.k8s.io
+  resources:
+  - certificatesigningrequests/approval
+  - certificatesigningrequests/status
+  verbs:
+  - update
+- apiGroups:
+  - certificates.k8s.io
+  resourceNames:
+  - kubernetes.io/kube-apiserver-client
+  resources:
+  - signers
+  verbs:
+  - approve
 - apiGroups:
   - maintenance.nvidia.com
   resources:
@@ -229,16 +287,35 @@ metadata:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/part-of: dpf-provisioning-controller-manager
     dpu.nvidia.com/component: dpf-provisioning-controller-manager
-  name: dpf-provisioning-dms-rolebinding
+  name: dpf-provisioning-hostagent-rolebinding
   namespace: system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: dpf-provisioning-dms-role
+  name: dpf-provisioning-hostagent-role
 subjects:
 - kind: ServiceAccount
-  name: dpf-provisioning-dms-service-account
+  name: dpf-provisioning-hostagent-service-account
   namespace: dpf-provisioning
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: dpf:host-agent
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/part-of: dpf-provisioning-controller-manager
+    dpu.nvidia.com/component: dpf-provisioning-controller-manager
+  name: dpf-provisioning-hostagent-tls-bootstrapping
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:node-bootstrapper
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:bootstrappers:dpf:host-agent
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

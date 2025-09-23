@@ -68,6 +68,10 @@ type ProvisioningControllerConfiguration struct {
 	// +optional
 	InstallInterface *ProvisioningInstallInterface `json:"installInterface,omitempty"`
 
+	// Registry is the configuration for the BFB Registry
+	// +optional
+	Registry *RegistryConfiguration `json:"registry,omitempty"`
+
 	// MaxDPUParallelInstallations specifies the maximum number of DPUs that can be provisioned concurrently.
 	// A DPU is removed from the concurrent provisioning count as soon as it finishes the "OS Installing" phase and
 	// enters the "Rebooting" phase of its provisioning lifecycle.
@@ -120,11 +124,16 @@ func (c *ProvisioningControllerConfiguration) GetResources() map[ContainerName]*
 }
 
 // ProvisioningInstallInterface is the interface used to install the BFB
-// +kubebuilder:validation:XValidation:rule="(has(self.installViaGNOI) && !has(self.installViaRedfish)) || (!has(self.installViaGNOI) && has(self.installViaRedfish))",message="exactly one of installViaGNOI or installViaRedfish must be set"
+// +kubebuilder:validation:XValidation:rule="((has(self.installViaHostAgent) || has(self.installViaGNOI)) && !has(self.installViaRedfish)) || (!has(self.installViaHostAgent) && !has(self.installViaGNOI) && has(self.installViaRedfish))",message="exactly one of installViaHostAgent, installViaGNOI or installViaRedfish must be set"
 type ProvisioningInstallInterface struct {
 	// InstallViaGNOI is the interface used to install the BFB via GNOI
+	//
+	// Deprecated: Use InstallViaHostAgent instead.
 	// +optional
 	InstallViaGNOI *InstallViaGNOI `json:"installViaGNOI,omitempty"`
+	// InstallViaHostAgent is the interface used to install the BFB via HostAgent
+	// +optional
+	InstallViaHostAgent *InstallViaHostAgent `json:"installViaHostAgent,omitempty"`
 	// InstallViaRedfish is the interface used to install the BFB via Redfish
 	// +optional
 	InstallViaRedfish *InstallViaRedfish `json:"installViaRedfish,omitempty"`
@@ -133,12 +142,19 @@ type ProvisioningInstallInterface struct {
 // InstallViaGNOI is the interface used to install the BFB via GNOI
 type InstallViaGNOI struct{}
 
+// InstallViaHostAgent is the interface used to install the BFB
+type InstallViaHostAgent struct{}
+
 // InstallViaRedfish is the interface used to install the BFB via Redfish
 type InstallViaRedfish struct {
 	// BFBRegistryAddress is the address of the BFB Registry
+	//
+	// Deprecated: Use RegistryConfiguration instead.
 	// +kubebuilder:validation:MinLength=1
 	BFBRegistryAddress string `json:"bfbRegistryAddress,omitempty"`
 	// BFBRegistry is the configuration for the BFB Registry
+	//
+	// Deprecated: Use RegistryConfiguration instead.
 	// +optional
 	BFBRegistry *BFBRegistryConfiguration `json:"bfbRegistry,omitempty"`
 	// SkipDpuNodeDiscovery is a flag to skip the DPU node discovery.
@@ -166,6 +182,22 @@ func (c *BFBRegistryConfiguration) Disabled() bool {
 		return false
 	}
 	return *c.Disable
+}
+
+type RegistryConfiguration struct {
+	// Address is the address used to access the BFB Registry. The address must start with "http://".
+	// By default, the BFB Registry can be accessed via its Service.
+	// For non-kubernetes environments, this must be set due to the lack of kubelet on worker nodes.
+	// For zero-trust environments, this must be set so that the BFB Registry can be accessed from DPU BMC.
+	// +kubebuilder:validation:Pattern="^http://"
+	// +optional
+	Address *string `json:"address,omitempty"`
+
+	// Port is the port on which the registry instances will listen
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	Port *int `json:"port,omitempty"`
 }
 
 type DPUServiceControllerConfiguration struct {

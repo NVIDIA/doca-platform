@@ -406,7 +406,7 @@ spec:
 
 			objFetched := &provisioningv1.DPUNode{}
 			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-			Expect(*objFetched.Spec.NodeRebootMethod).To(Equal(provisioningv1.NodeRebootMethod{GNOI: &provisioningv1.GNOI{}}))
+			Expect(*objFetched.Spec.NodeRebootMethod).To(Equal(provisioningv1.NodeRebootMethod{HostAgent: &provisioningv1.HostAgent{}}))
 		})
 		It("spec.nodeRebootMethod can not be updated by nil", func() {
 			obj := createObj("obj-22")
@@ -423,7 +423,7 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-			Expect(*objFetched.Spec.NodeRebootMethod).To(Equal(provisioningv1.NodeRebootMethod{GNOI: &provisioningv1.GNOI{}}))
+			Expect(*objFetched.Spec.NodeRebootMethod).To(Equal(provisioningv1.NodeRebootMethod{HostAgent: &provisioningv1.HostAgent{}}))
 		})
 	})
 })

@@ -71,6 +71,9 @@ func AddVFToBridge(vfName, bridgeName string) error {
 	if err := netlink.LinkSetMaster(vf, bridge); err != nil {
 		return fmt.Errorf("failed to set VF link master: %w", err)
 	}
+	if err := netlink.LinkSetUp(vf); err != nil {
+		return fmt.Errorf("failed to set VF link up: %w", err)
+	}
 	return nil
 }
 

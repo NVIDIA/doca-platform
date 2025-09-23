@@ -25,6 +25,7 @@ import (
 const (
 	MaximumHostNameLength = 48
 	NodeNameEnv           = "NODE_NAME"
+	K8sNodeNameEnv        = "KUBERNETES_NODE_NAME"
 )
 
 // GetNodeName returns the name of the DPUNode.
