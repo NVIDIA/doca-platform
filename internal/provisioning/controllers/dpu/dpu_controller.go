@@ -24,7 +24,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/gnoi"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/hostagent"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/mock"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -94,6 +94,7 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 		provisioningv1.DPUInitializing:      state.Initializing,
 		provisioningv1.DPUPending:           state.Pending,
 		provisioningv1.DPUNodeEffect:        state.NodeEffect,
+		provisioningv1.DPUPrepareBFB:        state.PrepareBFB,
 		provisioningv1.DPURebooting:         state.Rebooting,
 		provisioningv1.DPUClusterConfig:     state.ClusterConfig,
 		provisioningv1.DPUNodeEffectRemoval: state.NodeEffectRemoval,
@@ -102,16 +103,15 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 		provisioningv1.DPUError:             state.Error,
 	}
 	switch options.DPUInstallInterface {
-	case string(provisioningv1.InstallViaGNOI):
-		handlers[provisioningv1.DPUInitializeInterface] = gnoi.InitializeInterface
-		handlers[provisioningv1.DPUConfigFWParameters] = gnoi.ConfigFWParameters
-		handlers[provisioningv1.DPUHostNetworkConfiguration] = gnoi.SetupNetwork
-		handlers[provisioningv1.DPUOSInstalling] = gnoi.Installing
-		handlers[provisioningv1.DPUCheckingHostRebootNeed] = gnoi.RebootRequiredCheck
+	case string(provisioningv1.InstallViaGNOI), string(provisioningv1.InstallViaHostAgent):
+		handlers[provisioningv1.DPUInitializeInterface] = hostagent.InitializeInterface
+		handlers[provisioningv1.DPUConfigFWParameters] = hostagent.ConfigFWParameters
+		handlers[provisioningv1.DPUHostNetworkConfiguration] = hostagent.SetupNetwork
+		handlers[provisioningv1.DPUOSInstalling] = hostagent.Installing
+		handlers[provisioningv1.DPUCheckingHostRebootNeed] = hostagent.RebootRequiredCheck
 	case string(provisioningv1.InstallViaRedFish):
 		handlers[provisioningv1.DPUInitializeInterface] = redfish.InitializeInterface
 		handlers[provisioningv1.DPUConfigFWParameters] = redfish.ConfigFWParameters
-		handlers[provisioningv1.DPUPrepareBFB] = redfish.PrepareBFB
 		handlers[provisioningv1.DPUOSInstalling] = redfish.Installing
 	case string(provisioningv1.InstallViaMock):
 		handlers[provisioningv1.DPUInitializeInterface] = mock.InitializeInterface
