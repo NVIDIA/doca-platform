@@ -17,127 +17,59 @@ limitations under the License.
 package hostcontroller
 
 import (
-	"context"
-	"fmt"
+	"errors"
 	"time"
 
-	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	storagev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/storage/snap/host-controller/dpuclusterhelper"
+	"github.com/nvidia/doca-platform/internal/storage/snap/host-controller/utils"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
+	// requeueIntervalOnDpuClusterNotConnected is the interval for requeuing when DPU cluster is not connected
 	requeueIntervalOnDpuClusterNotConnected time.Duration = time.Second * 5
-	// dpuNodeNameIndexKey is the field index key for DPU.Spec.DPUNodeName
-	dpuNodeNameIndexKey = "spec.dpuNodeName"
-	// dpuVolumeNameIndexKey is the field index key for DPUVolumeAttachment.Spec.DPUVolumeName
-	dpuVolumeNameIndexKey = "spec.dpuVolumeName"
+	// cacheUpdateTimeout is the timeout for waiting for the cache to be updated with the expected state
+	cacheUpdateTimeout = 15 * time.Second
+	// cacheUpdateCheckInterval is the interval for checking if the cache is updated with the expected state
+	cacheUpdateCheckInterval = 250 * time.Millisecond
 )
 
 // Options holds common options for controllers
 type Options struct {
-	// indicated namespace in the host cluster in which controller runs
+	// Namespace in the host cluster where the controller runs
 	Namespace string
-	// namespace in the DPU cluster to create Volume and VolumeAttachment objects
+	// Namespace in the DPU cluster to create Volume and VolumeAttachment objects
 	TargetNamespace string
-	// DPU cluster to create Volume and VolumeAttachment objects
-	DPUCluster types.NamespacedName
 }
 
-// cleanupOrphanedObject deletes orphaned objects from the DPU cluster.
-// Called when a DPU* object is not found in the host cluster to cleanup the corresponding object in the DPU cluster.
-
-//nolint:unparam
-func cleanupOrphanedObject(ctx context.Context, dpuClusterClient client.Client, objectNamespacedName types.NamespacedName, obj client.Object, objectTypeName string) (ctrl.Result, error) {
-	reqLog := ctrllog.FromContext(ctx)
-	reqLog.Info("Checking for orphaned object in DPU cluster", "type", objectTypeName)
-
-	err := dpuClusterClient.Get(ctx, objectNamespacedName, obj)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			// Object not found in DPU cluster, nothing to clean up
-			reqLog.Info("No orphaned object found in DPU cluster", "type", objectTypeName, "name", objectNamespacedName.String())
-			return ctrl.Result{}, nil
-		}
-		return ctrl.Result{}, fmt.Errorf("failed to get %s from DPU cluster: %w", objectTypeName, err)
-	}
-
-	// Check if object is already being deleted
-	if !obj.GetDeletionTimestamp().IsZero() {
-		reqLog.Info("Object in the DPU cluster is already deleting", "type", objectTypeName, "name", objectNamespacedName.String())
-		return ctrl.Result{}, nil
-	}
-
-	// Object exists, delete it
-	reqLog.Info("Deleting orphaned object from DPU cluster", "type", objectTypeName, "name", objectNamespacedName.String())
-	err = dpuClusterClient.Delete(ctx, obj)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return ctrl.Result{}, fmt.Errorf("failed to delete orphaned %s from DPU cluster: %w", objectTypeName, err)
-	}
-
-	reqLog.Info("Successfully cleaned up orphaned object", "type", objectTypeName, "name", objectNamespacedName.String())
-	return ctrl.Result{}, nil
+// DPUClusterResourcesCleanupResult represents the result of the DPU cluster resources cleanup
+type DPUClusterResourcesCleanupResult struct {
+	// Completed indicates if the cleanup is completed
+	Completed bool
+	// Reason contains the reason why the cleanup is not completed
+	Reason string
 }
 
-// SetupIndexers initializes all field indexers required by the storage host controllers
-func SetupIndexers(ctx context.Context, mgr ctrl.Manager) error {
-	// Index DPU objects by spec.dpuNodeName
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &provisioningv1.DPU{}, dpuNodeNameIndexKey, func(o client.Object) []string {
-		d, ok := o.(*provisioningv1.DPU)
-		if !ok {
-			return nil
-		}
-		return []string{d.Spec.DPUNodeName}
-	}); err != nil {
-		return fmt.Errorf("failed to register indexer for DPU CR: %w", err)
+// FinalizeReconcileResult handles DPU cluster unavailability by setting requeue intervals.
+func FinalizeReconcileResult(result ctrl.Result, err error) (ctrl.Result, error) {
+	if errors.Is(err, dpuclusterhelper.ErrDPUClusterClientNotAvailable) {
+		result.RequeueAfter = requeueIntervalOnDpuClusterNotConnected
+		err = nil
 	}
-
-	// Index DPUVolumeAttachment objects by spec.dpuVolumeName
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &storagev1.DPUVolumeAttachment{}, dpuVolumeNameIndexKey, func(o client.Object) []string {
-		dpuVolumeAttachment, ok := o.(*storagev1.DPUVolumeAttachment)
-		if !ok {
-			return nil
-		}
-		return []string{dpuVolumeAttachment.Spec.DPUVolumeName}
-	}); err != nil {
-		return fmt.Errorf("failed to register indexer for DPUVolumeAttachment CR: %w", err)
-	}
-
-	return nil
+	return result, err
 }
 
-// ConvertDPUSelectionAlgorithmToStorageSelectionAlg converts from DPUStoragePolicy SelectionAlgorithm to StoragePolicy StorageSelectionAlgType
-func ConvertDPUSelectionAlgorithmToStorageSelectionAlg(dpuAlgorithm *storagev1.SelectionAlgorithm) storagev1.StorageSelectionAlgType {
-	if dpuAlgorithm == nil {
-		// Return default value when nil
-		return storagev1.LocalNVolumes
+// ReconcileRequestByOwnedBy returns reconcile requests for objects referenced by owner annotations.
+func ReconcileRequestByOwnedBy(ownedByHelper utils.OwnedByHelper, o client.Object, namespace string) []reconcile.Request {
+	dpuVolumeKey, err := ownedByHelper.GetOwnedBy(o)
+	if err != nil || dpuVolumeKey.Name == "" {
+		return nil
 	}
-	switch *dpuAlgorithm {
-	case storagev1.SelectionAlgorithmRandom:
-		return storagev1.Random
-	case storagev1.SelectionAlgorithmNumberVolumes:
-		return storagev1.LocalNVolumes
-	default:
-		// Return default value for unknown algorithms
-		return storagev1.LocalNVolumes
+	if dpuVolumeKey.Namespace != namespace {
+		return nil
 	}
-}
-
-// ConvertStorageSelectionAlgToDPUSelectionAlgorithm converts from StoragePolicy StorageSelectionAlgType to DPUStoragePolicy SelectionAlgorithm
-func ConvertStorageSelectionAlgToDPUSelectionAlgorithm(storageAlg storagev1.StorageSelectionAlgType) *storagev1.SelectionAlgorithm {
-	switch storageAlg {
-	case storagev1.Random:
-		return ptr.To(storagev1.SelectionAlgorithmRandom)
-	case storagev1.LocalNVolumes:
-		return ptr.To(storagev1.SelectionAlgorithmNumberVolumes)
-	default:
-		// Return default value for unknown algorithms
-		return ptr.To(storagev1.SelectionAlgorithmNumberVolumes)
-	}
+	return []reconcile.Request{{NamespacedName: dpuVolumeKey}}
 }
