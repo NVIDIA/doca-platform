@@ -1,5 +1,5 @@
 /*
-COPYRIGHT 2025 NVIDIA
+Copyright 2025 NVIDIA
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,413 +14,453 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package hostcontroller //nolint:dupl
+package hostcontroller
 
 import (
-	"maps"
+	"context"
 	"time"
 
 	storagev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/storage/snap/host-controller/indexers"
+	"github.com/nvidia/doca-platform/internal/storage/snap/host-controller/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	testutils "github.com/nvidia/doca-platform/test/utils"
-	"github.com/nvidia/doca-platform/test/utils/informer"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/config"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
-//nolint:dupl
-var _ = Describe("DPUVolume Controller", func() {
+var _ = Describe("DPUVolume Controller", Ordered, func() {
 	var (
-		cleanupObjects []client.Object
+		ctx           context.Context
+		cancel        context.CancelFunc
+		managerStopCh chan struct{}
 	)
+	BeforeAll(func() {
+		By("starting manager with DPUVolume controller and DPUCluster watch-registrar")
+		ctx, cancel = context.WithCancel(testCtx)
+		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+			Controller: config.Controller{
+				SkipNameValidation: ptr.To(true),
+			},
+			Cache: cache.Options{
+				ByObject: map[client.Object]cache.ByObject{
+					&storagev1.DPUVolume{}:           {Namespaces: map[string]cache.Config{testNsNameHost: {}}},
+					&storagev1.DPUVolumeAttachment{}: {Namespaces: map[string]cache.Config{testNsNameHost: {}}},
+				},
+			},
+			Metrics: server.Options{BindAddress: "0"},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(indexers.SetupIndexers(ctx, mgr)).To(Succeed())
+
+		volumeReconciler := &DPUVolumeReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+			Options: Options{
+				Namespace:       testNsNameHost,
+				TargetNamespace: testNsNameDPU,
+			},
+		}
+		var errRC error
+		rc, errRC := dpucluster.SetupRemoteCacheWithManager(ctx, mgr,
+			dpucluster.OptionTimeout{Timeout: time.Second * 30},
+			dpucluster.OptionHostClient{Client: mgr.GetClient()},
+			dpucluster.OptionScheme{Scheme: mgr.GetScheme()},
+			dpucluster.OptionUserAgent{UserAgent: "snap-host-controller"},
+			dpucluster.OptionGetWatcherCallbacks{
+				GetWatcherCallbacks: []dpucluster.GetWatcherCallback{
+					volumeReconciler.WatchDPUClusterPVC,
+					volumeReconciler.WatchDPUClusterVolume,
+				},
+			})
+		Expect(errRC).NotTo(HaveOccurred())
+
+		volumeReconciler.RemoteCache = rc
+		Expect(volumeReconciler.SetupWithManager(mgr)).To(Succeed())
+
+		managerStopCh = make(chan struct{})
+		go func() {
+			defer GinkgoRecover()
+			defer close(managerStopCh)
+			Expect(mgr.Start(ctx)).To(Succeed())
+		}()
+	})
+	AfterAll(func() {
+		cancel()
+		Eventually(managerStopCh).WithTimeout(10 * time.Second).Should(BeClosed())
+	})
 	AfterEach(func() {
-		By("Cleaning up the objects")
-		Expect(testutils.CleanupAndWait(testCtx, testClient, cleanupObjects...)).To(Succeed())
-		cleanupObjects = nil
+		cleanupTestObjects(ctx, testClient)
 	})
 	Context("When reconciling a resource", func() {
+		It("should successfully reconcile the DPUVolume when policy and vendor exist", func() {
+			By("Create DPUStorageVendor and DPUStoragePolicy")
+			dpuStorageVendor := getDPUStorageVendor()
+			dpuStoragePolicy := getDPUStoragePolicy()
+			createObjects(dpuStorageVendor, dpuStoragePolicy)
 
-		It("should successfully reconcile the DPUVolume", func() {
+			By("Create StorageClass and CSIDriver in DPU cluster")
+			storageClass := getStorageClass()
+			csiDriver := getCSIDriver()
+			createObjectsDPU(storageClass, csiDriver)
+
+			By("Set DPUStorageVendor and DPUStoragePolicy as ready")
+			setDPUStorageVendorReady(dpuStorageVendor, testClient)
+			setDPUStoragePolicyReady(dpuStoragePolicy, testClient)
+
 			By("Create DPUVolume")
 			dpuVolume := getDPUVolume()
-			cleanupObjects = append(cleanupObjects, dpuVolume)
 			createObjects(dpuVolume)
-			By("Verify Volume is created")
 
-			vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1", Namespace: testNsNameDPU}}
-			volKey := client.ObjectKeyFromObject(vol)
+			By("Verify DPUVolume is reconciled and scheduled")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
-				cleanupObjects = append(cleanupObjects, vol)
-			}, timeout, interval).Should(Succeed())
-
-			By("Verify Volume is created")
-			parameters := maps.Clone(dpuVolume.Spec.Parameters)
-			if parameters == nil {
-				parameters = map[string]string{}
-			}
-			parameters[storageParametersPolicyKey] = dpuVolume.Spec.DPUStoragePolicyName
-			Expect(vol.Spec.StorageParameters).To(BeEquivalentTo(parameters))
-			Expect(equality.Semantic.DeepEqual(vol.Spec.Request.CapacityRange.Request,
-				dpuVolume.Spec.Resources.Requests[corev1.ResourceStorage])).To(BeTrue())
-			Expect(vol.Spec.Request.VolumeMode).To(Equal(dpuVolume.Spec.VolumeMode))
-			Expect(vol.Spec.Request.AccessModes).To(Equal(dpuVolume.Spec.AccessModes))
-
-			By("Check status is reported back to DPUVolume")
-			updateVolumeStatusToAvailable(vol.Name)
-
-			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
-				// Verify that DPUVolume status is updated with volume information
-				g.Expect(dpuVolume.Status.State).NotTo(BeNil())
-				g.Expect(dpuVolume.Status.State.VolumeInfo).NotTo(BeNil())
-				g.Expect(dpuVolume.Status.State.VolumeInfo.VolumeAttributes).To(HaveKeyWithValue("test-attr1", "value1"))
-				g.Expect(dpuVolume.Status.State.VolumeInfo.VolumeAttributes).To(HaveKeyWithValue("test-attr2", "value2"))
-				g.Expect(dpuVolume.Status.State.SelectedDPUStorageVendorName).NotTo(BeNil())
-				g.Expect(*dpuVolume.Status.State.SelectedDPUStorageVendorName).To(Equal("test-vendor"))
-				g.Expect(dpuVolume.Status.State.StorageVendorPluginName).NotTo(BeNil())
-				g.Expect(*dpuVolume.Status.State.StorageVendorPluginName).To(Equal("test-plugin"))
-				g.Expect(dpuVolume.Status.State.CSIDriverName).NotTo(BeNil())
-				g.Expect(*dpuVolume.Status.State.CSIDriverName).To(Equal("test-csi-driver"))
-				g.Expect(dpuVolume.Status.State.StorageClassName).NotTo(BeNil())
-				g.Expect(*dpuVolume.Status.State.StorageClassName).To(Equal("test-storage-class"))
-				g.Expect(dpuVolume.Status.State.PersistentVolumeClaimRef).NotTo(BeNil())
-				g.Expect(dpuVolume.Status.State.PersistentVolumeClaimRef.Name).To(Equal("test-pvc"))
-				g.Expect(dpuVolume.Status.State.PersistentVolumeClaimRef.Namespace).To(Equal(testNsNameDPU))
-				g.Expect(dpuVolume.Status.Phase).NotTo(BeNil())
-				g.Expect(*dpuVolume.Status.Phase).To(Equal(storagev1.DPUVolumePhaseBound))
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
 				g.Expect(conditions.IsTrue(dpuVolume, storagev1.ConditionDPUVolumeReconciled)).To(BeTrue())
 				g.Expect(conditions.IsTrue(dpuVolume, storagev1.ConditionDPUVolumeScheduled)).To(BeTrue())
+				g.Expect(dpuVolume.Status.State).NotTo(BeNil())
+				g.Expect(dpuVolume.Status.State.DPUCluster).NotTo(BeNil())
+				g.Expect(dpuVolume.Status.State.SelectedDPUStorageVendorName).NotTo(BeNil())
+			}, timeout, interval).Should(Succeed())
+
+			By("Verify PVC is created in DPU cluster")
+			pvc := &corev1.PersistentVolumeClaim{}
+			pvcKey := client.ObjectKey{Name: dpuVolume.Name + "-pvc", Namespace: testNsNameDPU}
+			Eventually(func(g Gomega) {
+				g.Expect(testClientDPU.Get(ctx, pvcKey, pvc)).NotTo(HaveOccurred())
+				g.Expect(pvc.Spec.StorageClassName).NotTo(BeNil())
+				g.Expect(*pvc.Spec.StorageClassName).To(Equal("test-storage-class"))
+				g.Expect(pvc.Spec.AccessModes).To(Equal(dpuVolume.Spec.AccessModes))
+				g.Expect(pvc.Spec.Resources).To(Equal(dpuVolume.Spec.Resources))
+			}, timeout, interval).Should(Succeed())
+
+			By("Create and bind PV to the PVC")
+			pv := createAndBindPV(pvc)
+
+			By("Verify Volume CR is created in DPU cluster")
+			volume := &storagev1.Volume{}
+			volumeKey := client.ObjectKey{Name: dpuVolume.Name, Namespace: testNsNameDPU}
+			Eventually(func(g Gomega) {
+				g.Expect(testClientDPU.Get(ctx, volumeKey, volume)).NotTo(HaveOccurred())
+				g.Expect(volume.Spec.Request.CapacityRange.Request).To(Equal(dpuVolume.Spec.Resources.Requests[corev1.ResourceStorage]))
+				g.Expect(volume.Spec.Request.AccessModes).To(Equal(dpuVolume.Spec.AccessModes))
+				g.Expect(volume.Spec.Request.VolumeMode).To(Equal(dpuVolume.Spec.VolumeMode))
+				g.Expect(volume.Spec.StorageParameters).To(Equal(dpuVolume.Spec.Parameters))
+				g.Expect(volume.Status.State).To(Equal(storagev1.VolumeStateAvailable))
+			}, timeout, interval).Should(Succeed())
+
+			By("Verify DPUVolume is bound and ready")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
 				g.Expect(conditions.IsTrue(dpuVolume, storagev1.ConditionDPUVolumeBound)).To(BeTrue())
+				g.Expect(conditions.IsTrue(dpuVolume, conditions.TypeReady)).To(BeTrue())
+				g.Expect(dpuVolume.Status.Phase).NotTo(BeNil())
+				g.Expect(*dpuVolume.Status.Phase).To(Equal(storagev1.DPUVolumePhaseBound))
+				g.Expect(dpuVolume.Status.State.VolumeInfo).NotTo(BeNil())
+				g.Expect(dpuVolume.Status.State.VolumeInfo.VolumeName).To(HaveValue(Equal(pv.Name)))
 			}, timeout, interval).Should(Succeed())
 		})
-		It("should recreate removed Volume", func() {
-			By("Create DPUVolume")
+
+		It("should mark DPUVolume as pending when DPUStoragePolicy is missing", func() {
+			By("Create DPUVolume without DPUStoragePolicy")
 			dpuVolume := getDPUVolume()
-			cleanupObjects = append(cleanupObjects, dpuVolume)
 			createObjects(dpuVolume)
 
-			By("Verify Volume is created")
-			vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1", Namespace: testNsNameDPU}}
-			volKey := client.ObjectKeyFromObject(vol)
+			By("Verify DPUVolume is reconciled but not scheduled")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
-				cleanupObjects = append(cleanupObjects, vol)
-			}, timeout, interval).Should(Succeed())
-			origVolID := vol.GetUID()
-
-			By("Delete Volume")
-			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
-				Expect(testClientDPU.Delete(testCtx, vol)).NotTo(HaveOccurred())
-			}, timeout, interval).Should(Succeed())
-
-			By("Wait for a new Volume")
-			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
-				g.Expect(vol.GetUID()).NotTo(Equal(origVolID))
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
+				reconciledCond := conditions.Get(dpuVolume, storagev1.ConditionDPUVolumeReconciled)
+				g.Expect(reconciledCond).NotTo(BeNil())
+				g.Expect(reconciledCond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(reconciledCond.Reason).To(Equal(string(conditions.ReasonPending)))
+				g.Expect(reconciledCond.Message).To(And(ContainSubstring("DPUStoragePolicy"), ContainSubstring("not found")))
 			}, timeout, interval).Should(Succeed())
 		})
-		It("should recreate Volume when configuration mismatch", func() {
+
+		It("should mark DPUVolume as pending when DPUStoragePolicy is not ready", func() {
+			By("Create DPUStoragePolicy without making it ready")
+			dpuStoragePolicy := getDPUStoragePolicy()
+			createObjects(dpuStoragePolicy)
+
 			By("Create DPUVolume")
 			dpuVolume := getDPUVolume()
-			cleanupObjects = append(cleanupObjects, dpuVolume)
 			createObjects(dpuVolume)
 
-			By("Verify Volume is created and update parameters")
-			vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1", Namespace: testNsNameDPU}}
-			volKey := client.ObjectKeyFromObject(vol)
+			By("Verify DPUVolume is reconciled but pending due to policy not ready")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
-				// Update parameters to create mismatch
-				vol.Spec.StorageParameters["param1"] = "new-value"
-				g.Expect(testClientDPU.Update(testCtx, vol)).NotTo(HaveOccurred())
-			}, timeout, interval).Should(Succeed())
-			origVolID := vol.GetUID()
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
 
-			By("Wait for a new Volume")
-			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
-				g.Expect(vol.GetUID()).NotTo(Equal(origVolID))
+				reconciledCond := conditions.Get(dpuVolume, storagev1.ConditionDPUVolumeReconciled)
+				g.Expect(reconciledCond).NotTo(BeNil())
+				g.Expect(reconciledCond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(reconciledCond.Reason).To(Equal(string(conditions.ReasonPending)))
+				g.Expect(reconciledCond.Message).To(And(ContainSubstring("DPUStoragePolicy"), ContainSubstring("is not ready")))
 			}, timeout, interval).Should(Succeed())
 		})
-		It("should not remove attached Volume", func() {
+
+		It("should fail when DPUStorageVendor is missing", func() {
+			By("Create DPUStoragePolicy that references non-existent vendor")
+			dpuStoragePolicy := getDPUStoragePolicy()
+			// Change to reference non-existent vendor
+			dpuStoragePolicy.Spec.DPUStorageVendors = []string{"non-existent-vendor"}
+			createObjects(dpuStoragePolicy)
+
+			By("Set DPUStoragePolicy as ready")
+			setDPUStoragePolicyReady(dpuStoragePolicy, testClient)
+
 			By("Create DPUVolume")
 			dpuVolume := getDPUVolume()
-			dpuVolumeKey := client.ObjectKeyFromObject(dpuVolume)
-			dpuVolumeAttachment := getDPUVolumeAttachment()
-			dpuVolumeAttachmentKey := client.ObjectKeyFromObject(dpuVolumeAttachment)
-			cleanupObjects = append(cleanupObjects, dpuVolume, dpuVolumeAttachment)
-			createObjects(dpuVolume, dpuVolumeAttachment)
+			createObjects(dpuVolume)
 
-			By("Verify Volume is created")
-			vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: "test-vol1", Namespace: testNsNameDPU}}
-			volKey := client.ObjectKeyFromObject(vol)
+			By("Verify DPUVolume fails reconciliation due to missing vendor")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
-				cleanupObjects = append(cleanupObjects, vol)
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
+				reconciledCond := conditions.Get(dpuVolume, storagev1.ConditionDPUVolumeReconciled)
+				g.Expect(reconciledCond).NotTo(BeNil())
+				g.Expect(reconciledCond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(reconciledCond.Reason).To(Equal(string(conditions.ReasonError)))
+				g.Expect(reconciledCond.Message).To(And(ContainSubstring("DPUStorageVendor"), ContainSubstring("not found")))
+			}, timeout, interval).Should(Succeed())
+		})
+
+		It("should handle DPUVolume deletion correctly", func() {
+			By("Create DPUStorageVendor and DPUStoragePolicy")
+			dpuStorageVendor := getDPUStorageVendor()
+			dpuStoragePolicy := getDPUStoragePolicy()
+			createObjects(dpuStorageVendor, dpuStoragePolicy)
+
+			By("Create StorageClass and CSIDriver in DPU cluster")
+			storageClass := getStorageClass()
+			csiDriver := getCSIDriver()
+			createObjectsDPU(storageClass, csiDriver)
+
+			By("Set DPUStorageVendor and DPUStoragePolicy as ready")
+			setDPUStorageVendorReady(dpuStorageVendor, testClient)
+			setDPUStoragePolicyReady(dpuStoragePolicy, testClient)
+
+			By("Create and schedule DPUVolume")
+			dpuVolume := getDPUVolume()
+			createObjects(dpuVolume)
+
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
+				g.Expect(conditions.IsTrue(dpuVolume, storagev1.ConditionDPUVolumeReconciled)).To(BeTrue())
+			}, timeout, interval).Should(Succeed())
+
+			By("Verify PVC is created")
+			pvc := &corev1.PersistentVolumeClaim{}
+			pvcKey := client.ObjectKey{Name: dpuVolume.Name + "-pvc", Namespace: testNsNameDPU}
+			Eventually(func(g Gomega) {
+				g.Expect(testClientDPU.Get(ctx, pvcKey, pvc)).NotTo(HaveOccurred())
+			}, timeout, interval).Should(Succeed())
+
+			By("Create and bind PV to the PVC to simulate full lifecycle")
+			createAndBindPV(pvc)
+
+			By("Verify Volume CR is created in DPU cluster")
+			volume := &storagev1.Volume{}
+			volumeKey := client.ObjectKey{Name: dpuVolume.Name, Namespace: testNsNameDPU}
+			Eventually(func(g Gomega) {
+				g.Expect(testClientDPU.Get(ctx, volumeKey, volume)).NotTo(HaveOccurred())
+				g.Expect(volume.Status.State).To(Equal(storagev1.VolumeStateAvailable))
 			}, timeout, interval).Should(Succeed())
 
 			By("Delete DPUVolume")
+			Expect(testClient.Delete(ctx, dpuVolume)).NotTo(HaveOccurred())
+
+			By("Wait for PVC deletion timestamp to be set in DPU cluster")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(testCtx, dpuVolumeKey, dpuVolume)).NotTo(HaveOccurred())
-				Expect(testClient.Delete(testCtx, dpuVolume)).NotTo(HaveOccurred())
+				g.Expect(testClientDPU.Get(ctx, pvcKey, pvc)).NotTo(HaveOccurred())
+				g.Expect(pvc.DeletionTimestamp).NotTo(BeNil())
 			}, timeout, interval).Should(Succeed())
 
-			By("Verify DPUVolume is not deleted")
-			Consistently(func(g Gomega) {
-				g.Expect(testClient.Get(testCtx, dpuVolumeKey, dpuVolume)).NotTo(HaveOccurred())
-			}, time.Second*5, interval).Should(Succeed())
-
-			By("Delete DPUVolumeAttachment")
+			By("Verify Volume CR is deleted in DPU cluster")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(testCtx, dpuVolumeAttachmentKey, dpuVolumeAttachment)).NotTo(HaveOccurred())
-				Expect(testClient.Delete(testCtx, dpuVolumeAttachment)).NotTo(HaveOccurred())
+				err := testClientDPU.Get(ctx, volumeKey, volume)
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 
-			By("Verify DPUVolume and Volume removed")
-			Eventually(func(g Gomega) {
-				g.Expect(apierrors.IsNotFound(testClient.Get(testCtx, dpuVolumeKey, dpuVolume))).To(BeTrue())
-				g.Expect(apierrors.IsNotFound(testClientDPU.Get(testCtx, volKey, vol))).To(BeTrue())
-			}, timeout, interval).Should(Succeed())
-		})
+			By("Force remove PVC")
+			Expect(testutils.CleanupWithFinalizerRemovalAndWait(ctx, testClientDPU, pvc)).To(Succeed())
 
-		It("should cleanup orphaned Volume when DPUVolume does not exist", func() {
-			By("Create orphaned Volume directly in DPU cluster without matching DPUVolume")
-			orphanedVolume := getVolume()
-			// Add finalizer to prevent immediate deletion
-			orphanedVolume.Finalizers = []string{"test.storage.nvidia.com/cleanup-test"}
-			cleanupObjects = append(cleanupObjects, orphanedVolume)
-			createObjectsDPU(orphanedVolume)
-
-			volumeKey := client.ObjectKeyFromObject(orphanedVolume)
-			By("Wait for orphaned Volume to have deletion timestamp")
+			By("Verify DPUVolume is deleted")
 			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(testCtx, volumeKey, orphanedVolume)).NotTo(HaveOccurred())
-				g.Expect(orphanedVolume.DeletionTimestamp).NotTo(BeNil())
-			}, timeout, interval).Should(Succeed())
-
-			By("Remove finalizer")
-			Eventually(func(g Gomega) {
-				g.Expect(testClientDPU.Get(testCtx, volumeKey, orphanedVolume)).NotTo(HaveOccurred())
-				orphanedVolume.Finalizers = []string{}
-				g.Expect(testClientDPU.Update(testCtx, orphanedVolume)).NotTo(HaveOccurred())
-			}, timeout, interval).Should(Succeed())
-
-			By("Verify orphaned Volume is deleted from DPU cluster")
-			Eventually(func(g Gomega) {
-				err := testClientDPU.Get(testCtx, volumeKey, orphanedVolume)
+				err := testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
 		})
-	})
-	Context("When checking the status transitions", func() {
-		var (
-			i *informer.TestInformer
-		)
-		BeforeEach(func() {
-			By("Creating the informer infrastructure for DPUVolume")
-			i = informer.NewInformer(cfg, storagev1.DPUVolumeGroupVersionKind, testNsNameHost, "dpuvolumes")
-			DeferCleanup(i.Cleanup)
-			go i.Run()
-			Eventually(i.HasSynced).WithTimeout(5 * time.Second).WithPolling(100 * time.Millisecond).Should(BeTrue())
-		})
-		It("DPUVolume has all the conditions with Pending Reason at start of the reconciliation loop", func() {
-			dpuVolume := getDPUVolume()
-			cleanupObjects = append(cleanupObjects, dpuVolume)
-			createObjects(dpuVolume)
-			Eventually(func(g Gomega) []metav1.Condition {
-				ev := &informer.Event{}
-				g.Eventually(i.UpdateEvents).Should(Receive(ev))
-				oldObj := &storagev1.DPUVolume{}
-				newObj := &storagev1.DPUVolume{}
-				g.Expect(testClient.Scheme().Convert(ev.OldObj, oldObj, nil)).ToNot(HaveOccurred())
-				g.Expect(testClient.Scheme().Convert(ev.NewObj, newObj, nil)).ToNot(HaveOccurred())
 
-				g.Expect(oldObj.Status.Conditions).To(BeEmpty())
-				g.Expect(newObj.Status.Conditions).ToNot(BeEmpty())
-				return newObj.Status.Conditions
-			}).WithTimeout(10 * time.Second).Should(ConsistOf(
-				And(
-					HaveField("Type", string(conditions.TypeReady)),
-					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", string(conditions.ReasonPending)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeReconciled)),
-					HaveField("Status", metav1.ConditionUnknown),
-					HaveField("Reason", string(conditions.ReasonPending)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeScheduled)),
-					HaveField("Status", metav1.ConditionUnknown),
-					HaveField("Reason", string(conditions.ReasonPending)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeBound)),
-					HaveField("Status", metav1.ConditionUnknown),
-					HaveField("Reason", string(conditions.ReasonPending)),
-				),
-			))
-		})
-		It("DPUVolume has condition DPUVolumeReconciled but not ready when underlying object is not ready", func() {
+		It("should block DPUVolume deletion when volume is attached", func() {
+			By("Create DPUVolumeAttachment")
+			dpuVolumeAttachment := getDPUVolumeAttachment()
+			createObjects(dpuVolumeAttachment)
+
+			By("Create and schedule DPUVolume")
 			dpuVolume := getDPUVolume()
-			cleanupObjects = append(cleanupObjects, dpuVolume)
 			createObjects(dpuVolume)
-			Eventually(func(g Gomega) []metav1.Condition {
-				ev := &informer.Event{}
-				g.Eventually(i.UpdateEvents).Should(Receive(ev))
-				newObj := &storagev1.DPUVolume{}
-				g.Expect(testClient.Scheme().Convert(ev.NewObj, newObj, nil)).ToNot(HaveOccurred())
-				return newObj.Status.Conditions
-			}).WithTimeout(10 * time.Second).Should(ConsistOf(
-				And(
-					HaveField("Type", string(conditions.TypeReady)),
-					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", string(conditions.ReasonPending)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeReconciled)),
-					HaveField("Status", metav1.ConditionTrue),
-					HaveField("Reason", string(conditions.ReasonSuccess)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeScheduled)),
-					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", string(conditions.ReasonPending)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeBound)),
-					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", string(conditions.ReasonPending)),
-				),
-			))
-		})
-		It("DPUVolume is scheduled but not ready", func() {
-			dpuVolume := getDPUVolume()
-			cleanupObjects = append(cleanupObjects, dpuVolume)
-			createObjects(dpuVolume)
+
 			Eventually(func(g Gomega) {
-				vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: dpuVolume.Name, Namespace: testNsNameDPU}}
-				g.Expect(testClientDPU.Get(testCtx, client.ObjectKeyFromObject(vol), vol)).NotTo(HaveOccurred())
-				vol.Spec.VolumeSpecDPU.StorageVendorPluginName = "test-plugin"
-				vol.Spec.VolumeSpecDPU.StorageVendorName = "test-vendor"
-				g.Expect(testClientDPU.Update(testCtx, vol)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
+				g.Expect(controllerutil.ContainsFinalizer(dpuVolume, storagev1.DPUVolumeFinalizer)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
-			Eventually(func(g Gomega) []metav1.Condition {
-				ev := &informer.Event{}
-				g.Eventually(i.UpdateEvents).Should(Receive(ev))
-				newObj := &storagev1.DPUVolume{}
-				g.Expect(testClient.Scheme().Convert(ev.NewObj, newObj, nil)).ToNot(HaveOccurred())
-				return newObj.Status.Conditions
-			}).WithTimeout(10 * time.Second).Should(ConsistOf(
-				And(
-					HaveField("Type", string(conditions.TypeReady)),
-					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", string(conditions.ReasonPending)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeReconciled)),
-					HaveField("Status", metav1.ConditionTrue),
-					HaveField("Reason", string(conditions.ReasonSuccess)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeScheduled)),
-					HaveField("Status", metav1.ConditionTrue),
-					HaveField("Reason", string(conditions.ReasonSuccess)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeBound)),
-					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", string(conditions.ReasonPending)),
-				),
-			))
-		})
-		It("DPUVolume is ready when underlying object is ready", func() {
-			dpuVolume := getDPUVolume()
-			cleanupObjects = append(cleanupObjects, dpuVolume)
-			createObjects(dpuVolume)
+
+			By("Delete DPUVolume")
+			Expect(testClient.Delete(ctx, dpuVolume)).NotTo(HaveOccurred())
+
+			By("Verify DPUVolume is not deleted due to attachment")
 			Eventually(func(g Gomega) {
-				vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: dpuVolume.Name, Namespace: testNsNameDPU}}
-				g.Expect(testClientDPU.Get(testCtx, client.ObjectKeyFromObject(vol), vol)).NotTo(HaveOccurred())
-				vol.Spec.VolumeSpecDPU.StorageVendorPluginName = "test-plugin"
-				vol.Spec.VolumeSpecDPU.StorageVendorName = "test-vendor"
-				g.Expect(testClientDPU.Update(testCtx, vol)).NotTo(HaveOccurred())
-				vol.Status.State = storagev1.VolumeStateAvailable
-				g.Expect(testClientDPU.Status().Update(testCtx, vol)).NotTo(HaveOccurred())
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
+				g.Expect(dpuVolume.DeletionTimestamp).NotTo(BeNil())
+				reconciledCond := conditions.Get(dpuVolume, storagev1.ConditionDPUVolumeReconciled)
+				g.Expect(reconciledCond).NotTo(BeNil())
+				g.Expect(reconciledCond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(reconciledCond.Reason).To(Equal(string(conditions.ReasonAwaitingDeletion)))
+				g.Expect(reconciledCond.Message).To(ContainSubstring("volume is attached"))
 			}, timeout, interval).Should(Succeed())
-			Eventually(func(g Gomega) []metav1.Condition {
-				ev := &informer.Event{}
-				g.Eventually(i.UpdateEvents).Should(Receive(ev))
-				newObj := &storagev1.DPUVolume{}
-				g.Expect(testClient.Scheme().Convert(ev.NewObj, newObj, nil)).ToNot(HaveOccurred())
-				return newObj.Status.Conditions
-			}).WithTimeout(10 * time.Second).Should(ConsistOf(
-				And(
-					HaveField("Type", string(conditions.TypeReady)),
-					HaveField("Status", metav1.ConditionTrue),
-					HaveField("Reason", string(conditions.ReasonSuccess)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeReconciled)),
-					HaveField("Status", metav1.ConditionTrue),
-					HaveField("Reason", string(conditions.ReasonSuccess)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeScheduled)),
-					HaveField("Status", metav1.ConditionTrue),
-					HaveField("Reason", string(conditions.ReasonSuccess)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeBound)),
-					HaveField("Status", metav1.ConditionTrue),
-					HaveField("Reason", string(conditions.ReasonSuccess)),
-				),
-			))
-		})
-		It("DPUVolume should be not ready with ReasonAwaitingDeletion when deleting", func() {
-			dpuVolume := getDPUVolume()
-			cleanupObjects = append(cleanupObjects, dpuVolume)
-			createObjects(dpuVolume)
+
+			By("Delete DPUVolumeAttachment")
+			Expect(testClient.Delete(ctx, dpuVolumeAttachment)).NotTo(HaveOccurred())
+
+			By("Verify DPUVolume is now deleted")
 			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
-				g.Expect(conditions.IsTrue(dpuVolume, storagev1.ConditionDPUVolumeReconciled)).To(BeTrue())
+				err := testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			}, timeout, interval).Should(Succeed())
-			Expect(testClient.Delete(testCtx, dpuVolume)).NotTo(HaveOccurred())
-			Eventually(func(g Gomega) []metav1.Condition {
-				ev := &informer.Event{}
-				g.Eventually(i.UpdateEvents).Should(Receive(ev))
-				newObj := &storagev1.DPUVolume{}
-				g.Expect(testClient.Scheme().Convert(ev.NewObj, newObj, nil)).ToNot(HaveOccurred())
-				return newObj.Status.Conditions
-			}).WithTimeout(10 * time.Second).Should(ConsistOf(
-				And(
-					HaveField("Type", string(conditions.TypeReady)),
-					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", string(conditions.ReasonAwaitingDeletion)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeReconciled)),
-					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", string(conditions.ReasonAwaitingDeletion)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeScheduled)),
-					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", string(conditions.ReasonPending)),
-				),
-				And(
-					HaveField("Type", string(storagev1.ConditionDPUVolumeBound)),
-					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", string(conditions.ReasonPending)),
-				),
-			))
+		})
+
+		It("should recreate PVC when it has incorrect specification", func() {
+			By("Create DPUStorageVendor and DPUStoragePolicy")
+			dpuStorageVendor := getDPUStorageVendor()
+			dpuStoragePolicy := getDPUStoragePolicy()
+			createObjects(dpuStorageVendor, dpuStoragePolicy)
+
+			By("Create StorageClass and CSIDriver in DPU cluster")
+			storageClass := getStorageClass()
+			csiDriver := getCSIDriver()
+			createObjectsDPU(storageClass, csiDriver)
+
+			By("Set DPUStorageVendor and DPUStoragePolicy as ready")
+			setDPUStorageVendorReady(dpuStorageVendor, testClient)
+			setDPUStoragePolicyReady(dpuStoragePolicy, testClient)
+
+			By("Create PVC with wrong specification before DPUVolume")
+			dpuVolume := getDPUVolume()
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      dpuVolume.Name + "-pvc",
+					Namespace: testNsNameDPU,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					AccessModes:      dpuVolume.Spec.AccessModes,
+					Resources:        dpuVolume.Spec.Resources,
+					StorageClassName: ptr.To("wrong-storage-class"),
+				},
+			}
+
+			ownerRefHelper := utils.New(dpuVolumeOwnedByAnnotation)
+			ownerRefHelper.SetOwnedBy(pvc, client.ObjectKeyFromObject(dpuVolume))
+
+			// Create the incorrect PVC in the DPU cluster
+			Expect(testClientDPU.Create(ctx, pvc)).To(Succeed())
+			originalUID := pvc.UID
+
+			By("Create DPUVolume")
+			createObjects(dpuVolume)
+
+			pvcKey := client.ObjectKey{Name: dpuVolume.Name + "-pvc", Namespace: testNsNameDPU}
+
+			By("Wait for PVC to be marked for deletion due to incorrect spec")
+			Eventually(func(g Gomega) {
+				g.Expect(testClientDPU.Get(ctx, pvcKey, pvc)).NotTo(HaveOccurred())
+				g.Expect(pvc.DeletionTimestamp).NotTo(BeNil())
+			}, timeout, interval).Should(Succeed())
+
+			By("Force remove PVC")
+			Expect(testutils.CleanupWithFinalizerRemovalAndWait(ctx, testClientDPU, pvc)).To(Succeed())
+
+			By("Wait for PVC to be recreated with correct specification")
+			Eventually(func(g Gomega) {
+				g.Expect(testClientDPU.Get(ctx, pvcKey, pvc)).NotTo(HaveOccurred())
+				g.Expect(pvc.UID).NotTo(Equal(originalUID))
+				g.Expect(pvc.Spec.StorageClassName).NotTo(BeNil())
+				g.Expect(*pvc.Spec.StorageClassName).To(Equal("test-storage-class"))
+			}, timeout, interval).Should(Succeed())
+		})
+		It("should update Volume CR when it has incorrect specification", func() {
+			By("Create DPUStorageVendor and DPUStoragePolicy")
+			dpuStorageVendor := getDPUStorageVendor()
+			dpuStoragePolicy := getDPUStoragePolicy()
+			createObjects(dpuStorageVendor, dpuStoragePolicy)
+
+			By("Create StorageClass and CSIDriver in DPU cluster")
+			storageClass := getStorageClass()
+			csiDriver := getCSIDriver()
+			createObjectsDPU(storageClass, csiDriver)
+
+			By("Set DPUStorageVendor and DPUStoragePolicy as ready")
+			setDPUStorageVendorReady(dpuStorageVendor, testClient)
+			setDPUStoragePolicyReady(dpuStoragePolicy, testClient)
+
+			By("Create DPUVolume")
+			dpuVolume := getDPUVolume()
+			createObjects(dpuVolume)
+
+			By("Wait for PVC to be created")
+			pvc := &corev1.PersistentVolumeClaim{}
+			pvcKey := client.ObjectKey{Name: dpuVolume.Name + "-pvc", Namespace: testNsNameDPU}
+			Eventually(func(g Gomega) {
+				g.Expect(testClientDPU.Get(ctx, pvcKey, pvc)).NotTo(HaveOccurred())
+			}, timeout, interval).Should(Succeed())
+
+			By("Create and bind PV to the PVC")
+			createAndBindPV(pvc)
+
+			By("Wait for Volume CR to be created with correct specification")
+			volume := &storagev1.Volume{}
+			volumeKey := client.ObjectKey{Name: dpuVolume.Name, Namespace: testNsNameDPU}
+			Eventually(func(g Gomega) {
+				g.Expect(testClientDPU.Get(ctx, volumeKey, volume)).NotTo(HaveOccurred())
+				g.Expect(volume.Spec.StorageParameters).To(Equal(dpuVolume.Spec.Parameters))
+				g.Expect(volume.Spec.Request.CapacityRange.Request).To(Equal(dpuVolume.Spec.Resources.Requests[corev1.ResourceStorage]))
+				g.Expect(volume.Spec.Request.AccessModes).To(Equal(dpuVolume.Spec.AccessModes))
+				g.Expect(volume.Status.State).To(Equal(storagev1.VolumeStateAvailable))
+			}, timeout, interval).Should(Succeed())
+			originalUID := volume.UID
+
+			By("Update Volume CR with incorrect specification to simulate drift")
+			Eventually(func(g Gomega) {
+				g.Expect(testClientDPU.Get(ctx, volumeKey, volume)).NotTo(HaveOccurred())
+				volume.Spec.StorageParameters = map[string]string{
+					"wrong-param": "wrong-value",
+				}
+				volume.Spec.Request.CapacityRange.Request = *resource.NewQuantity(2*1073741824, resource.BinarySI) // Wrong size
+				volume.Spec.Request.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany}        // Wrong access mode
+				g.Expect(testClientDPU.Update(ctx, volume)).NotTo(HaveOccurred())
+			}, timeout, interval).Should(Succeed())
+
+			By("Wait for Volume CR to be corrected back to the desired specification")
+			Eventually(func(g Gomega) {
+				g.Expect(testClientDPU.Get(ctx, volumeKey, volume)).NotTo(HaveOccurred())
+				// Verify the spec has been updated back to match the DPUVolume
+				g.Expect(volume.Spec.StorageParameters).To(Equal(dpuVolume.Spec.Parameters))
+				g.Expect(volume.Spec.Request.CapacityRange.Request).To(Equal(dpuVolume.Spec.Resources.Requests[corev1.ResourceStorage]))
+				g.Expect(volume.Spec.Request.AccessModes).To(Equal(dpuVolume.Spec.AccessModes))
+				// Verify it's the same Volume object (not recreated)
+				g.Expect(volume.UID).To(Equal(originalUID))
+				g.Expect(volume.Status.State).To(Equal(storagev1.VolumeStateAvailable))
+			}, timeout, interval).Should(Succeed())
 		})
 	})
 })
