@@ -183,6 +183,7 @@ func (s *dpuSelector) GetDPUForNode(ctx context.Context, c client.Client, dpuNod
 		return nil, err
 	}
 	reqLog.Info("Selected DPU for DPUNode", "dpu", dpus[0].Name)
+
 	return &dpus[0], nil
 }
 

@@ -19,17 +19,25 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	sfcsetcontroller "github.com/nvidia/doca-platform/internal/servicechainset/controllers"
+	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/dpuselector"
 
+	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/util/workqueue"
 	schedulingv1 "k8s.io/component-helpers/scheduling/corev1"
@@ -66,30 +74,212 @@ const (
 	dpuEnabledLabelValue = "true"
 	// criticalDPUServiceLabel is the label used to identify critical DPU services.
 	criticalDPUServiceLabel = "svc.dpu.nvidia.com/critical"
+	// dpureadyControllerName is the name of the controller for the DPUReadyReconciler.
+	dpureadyControllerName = "dpureadycontroller"
 )
 
-// isCriticalDPUServicePresent checks if there are any critical DPU services defined in the cluster
-func (r *DPUReadyReconciler) isCriticalDPUServicePresent(ctx context.Context,
-	criticalDPUServices *dpuservicev1.DPUServiceList) (bool, error) {
-	// get the list of services that ideally must be running on the node and have a critical label
+// SetupWithManager configures the controller with the manager and sets up required indexes and predicates
+func (r *DPUReadyReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	p := predicate.NewPredicateFuncs(func(o client.Object) bool {
+		node, ok := o.(*corev1.Node)
+		if !ok {
+			return false
+		}
 
-	if err := r.List(ctx, criticalDPUServices, client.MatchingLabels{criticalDPUServiceLabel: ""}); err != nil {
-		return false, fmt.Errorf("failed to list critical DPUServices: %w", err)
+		// Skip control plane nodes
+		if _, exists := node.ObjectMeta.Labels["node-role.kubernetes.io/control-plane"]; exists {
+			return false
+		}
+
+		if _, exists := node.ObjectMeta.Labels["node-role.kubernetes.io/master"]; exists {
+			return false
+		}
+
+		// Skip nodes without DPU feature discovery label
+		if val, exists := node.ObjectMeta.Labels[dpuEnabledLabelKey]; !exists || val != dpuEnabledLabelValue {
+			return false
+		}
+		return true
+	})
+
+	c, err := ctrl.NewControllerManagedBy(mgr).
+		For(&corev1.Node{}, builder.WithPredicates(p)).
+		Build(r)
+	if err != nil {
+		return err
 	}
-
-	return len(criticalDPUServices.Items) > 0, nil
+	r.controller = c
+	return nil
 }
 
-// nodeMatchesNodeSelector checks if a node matches the given node selector criteria
-func nodeMatchesNodeSelector(node *corev1.Node, nodeSelector *corev1.NodeSelector) (bool, error) {
-	// If there's no node selector, all nodes are valid
-	if nodeSelector == nil {
-		return true, nil
+// Reconcile handles the reconciliation of Node objects for DPU readiness
+func (r *DPUReadyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	node := corev1.Node{}
+	log := ctrllog.FromContext(ctx)
+	log.Info("Reconciling node", "node", req.Name)
+	if err := r.Get(ctx, req.NamespacedName, &node); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Kubernetes has a helper function that does this matching for us
-	res, err := schedulingv1.MatchNodeSelectorTerms(node, nodeSelector)
-	return res, err
+	// Return early if the object is getting deleted
+	if !node.ObjectMeta.DeletionTimestamp.IsZero() {
+		return ctrl.Result{}, nil
+	}
+
+	return r.reconcile(ctx, &node)
+}
+
+func (r *DPUReadyReconciler) reconcile(ctx context.Context, node *corev1.Node) (ctrl.Result, error) {
+	dpuList, err := r.getDPUsByNodeName(ctx, node.Name)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("could not get the dpunode from node: %w", err)
+	}
+
+	dpuServices, err := r.reconcileForDPUServices(ctx, node, dpuList)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to reconcile DPUServices: %w", err)
+	}
+
+	dpuServicesChains, err := r.reconcileForDPUServiceChains(ctx, dpuList)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to reconcile DPUServiceChains: %w", err)
+	}
+
+	dpuNodeMaintenances, err := r.getDPUNodeMaintenanceObjects(ctx, node)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to get DPUNodeMaintenance objects: %w", err)
+	}
+
+	if len(dpuNodeMaintenances) == 0 {
+		return ctrl.Result{}, nil
+	}
+
+	if err := r.patchDPUNodeMaintenanceObjects(ctx, dpuNodeMaintenances, dpuServices, dpuServicesChains); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to patch DPUNodeMaintenance objects for node %s: %w", node.Name, err)
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// reconcileForDPUServiceChains gets the ready DPUServiceChains that apply to the given node
+// It returns the list of ready DPUServiceChains that match the node
+func (r *DPUReadyReconciler) reconcileForDPUServiceChains(ctx context.Context, dpuList []provisioningv1.DPU) ([]dpuservicev1.DPUServiceChain, error) {
+	dpuServiceChainList := &dpuservicev1.DPUServiceChainList{}
+	if err := r.Client.List(ctx,
+		dpuServiceChainList,
+		client.HasLabels{dpuservicev1.ParentDPUDeploymentNameLabel}); err != nil {
+		return nil, fmt.Errorf("failed to list DPUServiceChains: %w", err)
+	}
+
+	dpuServiceChainsReadyStatus, err := r.getDPUServiceChainsStatus(ctx, dpuList, dpuServiceChainList)
+	if err != nil {
+		return nil, err
+	}
+
+	return getReadyDPUServiceChainsFromList(dpuServiceChainList.Items, dpuServiceChainsReadyStatus), nil
+}
+
+// reconcileForDPUServices reconciles the DPUServices for a given node
+// It returns the list of ready DPUServices
+func (r *DPUReadyReconciler) reconcileForDPUServices(ctx context.Context, node *corev1.Node, dpuList []provisioningv1.DPU) ([]dpuservicev1.DPUService, error) {
+	dpuServiceList := &dpuservicev1.DPUServiceList{}
+	if err := r.Client.List(ctx,
+		dpuServiceList,
+		client.MatchingFields{dpuServiceDeployInClusterField: strconv.FormatBool(false)}); err != nil {
+		return nil, fmt.Errorf("failed to list DPUServices: %w", err)
+	}
+
+	dpuServicesReadyStatus, err := r.getServicesStatus(ctx, dpuList, dpuServiceList)
+	if err != nil {
+		return nil, err
+	}
+
+	criticalServicesReady := isCriticalServiceReady(dpuServicesReadyStatus, r.getCriticalDPUServiceList(dpuServiceList).Items)
+	if criticalServicesReady {
+		if err = r.removeTaintIfExists(ctx, node); err != nil {
+			return nil,
+				fmt.Errorf("error removing taint from node %s: %w",
+					node.Name, err)
+		}
+	} else {
+		if err = r.addTaintIfDoesNotExist(ctx, node); err != nil {
+			return nil,
+				fmt.Errorf("error adding taint to node %s: %w",
+					node.Name, err)
+		}
+	}
+
+	return getReadyDPUServicesFromList(dpuServiceList.Items, dpuServicesReadyStatus), nil
+}
+
+func (r *DPUReadyReconciler) patchDPUNodeMaintenanceObjects(ctx context.Context, dpuNodeMaintenanceObjects []*provisioningv1.DPUNodeMaintenance,
+	dpuServices []dpuservicev1.DPUService, dpuServicesChains []dpuservicev1.DPUServiceChain) error {
+	oldDPUNodeMaintenanceObjects := make(map[types.NamespacedName]*provisioningv1.DPUNodeMaintenance, len(dpuNodeMaintenanceObjects))
+	for _, dpuNodeMaintenance := range dpuNodeMaintenanceObjects {
+		oldDPUNodeMaintenanceObjects[client.ObjectKeyFromObject(dpuNodeMaintenance)] = dpuNodeMaintenance.DeepCopy()
+	}
+
+	for _, dpuNodeMaintenance := range dpuNodeMaintenanceObjects {
+		for _, dpuService := range dpuServices {
+			potentialRequestor := getRequestorForDPUObjectVersion(dpuService.Labels[dpuservicev1.ParentDPUDeploymentNameLabel], dpuService.Name)
+			if !slices.Contains(dpuNodeMaintenance.Spec.Requestor, potentialRequestor) {
+				continue
+			}
+			dpuNodeMaintenance.Spec.Requestor = slices.DeleteFunc(dpuNodeMaintenance.Spec.Requestor, func(requestor string) bool {
+				return requestor == potentialRequestor
+			})
+		}
+		for _, dpuServiceChain := range dpuServicesChains {
+			potentialRequestor := getRequestorForDPUObjectVersion(dpuServiceChain.Labels[dpuservicev1.ParentDPUDeploymentNameLabel], dpuServiceChain.Name)
+			if !slices.Contains(dpuNodeMaintenance.Spec.Requestor, potentialRequestor) {
+				continue
+			}
+			dpuNodeMaintenance.Spec.Requestor = slices.DeleteFunc(dpuNodeMaintenance.Spec.Requestor, func(requestor string) bool {
+				return requestor == potentialRequestor
+			})
+		}
+	}
+	for _, dpuNodeMaintenance := range dpuNodeMaintenanceObjects {
+		patcher := patch.NewSerialPatcher(oldDPUNodeMaintenanceObjects[client.ObjectKeyFromObject(dpuNodeMaintenance)], r.Client)
+		if err := patcher.Patch(ctx, dpuNodeMaintenance, patch.WithFieldOwner(dpureadyControllerName)); err != nil {
+			return fmt.Errorf("failed to patch DPUNodeMaintenance %s: %w", client.ObjectKeyFromObject(dpuNodeMaintenance), err)
+		}
+	}
+
+	return nil
+}
+
+// getCriticalDPUServiceList gets the list of critical DPU services from the list of all DPU services
+func (r *DPUReadyReconciler) getCriticalDPUServiceList(dpuServiceList *dpuservicev1.DPUServiceList) *dpuservicev1.DPUServiceList {
+	criticalDPUServices := &dpuservicev1.DPUServiceList{}
+	for _, dpuService := range dpuServiceList.Items {
+		if _, ok := dpuService.Labels[criticalDPUServiceLabel]; ok {
+			criticalDPUServices.Items = append(criticalDPUServices.Items, dpuService)
+		}
+	}
+
+	return criticalDPUServices
+}
+
+func (r *DPUReadyReconciler) getDPUNodeMaintenanceObjects(ctx context.Context, node *corev1.Node) ([]*provisioningv1.DPUNodeMaintenance, error) {
+	// Get all the DPUNodeMaintenance objects related to this node
+	dpuNodeMaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
+	if err := r.Client.List(ctx, dpuNodeMaintenanceList, client.MatchingFields{dpuNodeMaintenanceDPUNodeNameField: node.Name}); err != nil {
+		return nil, fmt.Errorf("failed to list DPUNodeMaintenance objects: %w", err)
+	}
+
+	readyObjects := make([]*provisioningv1.DPUNodeMaintenance, 0, len(dpuNodeMaintenanceList.Items))
+	for i := range dpuNodeMaintenanceList.Items {
+		if conditions.IsTrue(&dpuNodeMaintenanceList.Items[i], provisioningv1.ConditionNodeEffectApplied) {
+			readyObjects = append(readyObjects, &dpuNodeMaintenanceList.Items[i])
+		}
+	}
+	// Return early if there are no DPUNodeMaintenance objects for this node
+	if len(readyObjects) == 0 {
+		return nil, nil
+	}
+
+	return readyObjects, nil
 }
 
 // getDPUsByNodeName retrieves the DPU objects associated with a given host node name
@@ -110,62 +300,155 @@ func (r *DPUReadyReconciler) getDPUsByNodeName(ctx context.Context, nodeName str
 	return dpus, nil
 }
 
-// isPodRunning checks if a pod is truly ready by examining the PodReady condition on pod status
-func isPodRunning(pod *corev1.Pod) bool {
-	// terminating pods, return false
-	if pod.DeletionTimestamp != nil {
-		return false
-	}
+func (r *DPUReadyReconciler) getDPUServiceChainsStatus(ctx context.Context, dpuList []provisioningv1.DPU,
+	dpuServiceChainList *dpuservicev1.DPUServiceChainList) (map[string]bool, error) {
 
-	// any other phase than running, return false
-	if pod.Status.Phase != corev1.PodRunning {
-		return false
-	}
+	var errs []error
+	allDPUStatuses := make([]map[string]bool, 0, len(dpuList))
 
-	// pod.status.phase could be running but one of the container might not be running
-	// corev1.podready is set by kubelet which guarantees that all containers are properly running
-	for _, cond := range pod.Status.Conditions {
-		if cond.Type == corev1.PodReady {
-			return cond.Status == corev1.ConditionTrue
-		}
-	}
-	return false
-}
-
-// areAllServicesRunning checks if all critical DPU services are running on the DPU node.
-// It connects to the DPU cluster and verifies that all critical service pods are truly ready.
-// Returns true only if all critical services have ready pods running on the DPU.
-func (r *DPUReadyReconciler) areAllServicesRunning(ctx context.Context, hostNode *corev1.Node,
-	criticalDPUServices *dpuservicev1.DPUServiceList) (bool, error) {
-
-	dpuList, err := r.getDPUsByNodeName(ctx, hostNode.Name)
-	if err != nil {
-		return false, fmt.Errorf("could not get the dpunode from node: %w", err)
-	}
-	var (
-		errs             []error
-		allServicesReady = true
-	)
-	// Check if all critical services are running on ALL DPUs (all or nothing strategy)
 	for _, dpu := range dpuList {
-		ready, err := r.isDPUReady(ctx, &dpu, criticalDPUServices)
+		serviceChainsReadyStatus, err := r.getServiceChainsStatusPerDPU(ctx, &dpu, dpuServiceChainList)
 		if err != nil {
 			errs = append(errs, err)
+			continue
 		}
-		if !ready {
-			allServicesReady = false
-		}
+		allDPUStatuses = append(allDPUStatuses, serviceChainsReadyStatus)
 	}
-	return allServicesReady, kerrors.NewAggregate(errs)
+
+	dpuServiceChainReadyStatus := statusesAggregation(allDPUStatuses)
+
+	return dpuServiceChainReadyStatus, kerrors.NewAggregate(errs)
 }
 
-// isDPUReady checks if the DPU is ready by examining the critical DPU services running on the DPU.
-// Returns true only if all critical services have ready pods running on the DPU.
-func (r *DPUReadyReconciler) isDPUReady(ctx context.Context, dpu *provisioningv1.DPU, criticalDPUServices *dpuservicev1.DPUServiceList) (bool, error) {
+// getServicesStatus checks if all DPU services are running on the DPU node.
+// It connects to the DPU cluster and verifies that all service pods are truly ready.
+// Returns a map of service names and their readiness status for all DPUs.
+func (r *DPUReadyReconciler) getServicesStatus(ctx context.Context, dpuList []provisioningv1.DPU,
+	dpuServiceList *dpuservicev1.DPUServiceList) (map[string]bool, error) {
+	var errs []error
+	allDPUStatuses := make([]map[string]bool, 0, len(dpuList))
+
+	for _, dpu := range dpuList {
+		servicesReadyStatus, err := r.getServicesStatusPerDPU(ctx, &dpu, dpuServiceList)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		allDPUStatuses = append(allDPUStatuses, servicesReadyStatus)
+	}
+
+	finalServicesReadyStatus := statusesAggregation(allDPUStatuses)
+
+	return finalServicesReadyStatus, kerrors.NewAggregate(errs)
+}
+
+// statusesAggregation combines statuses from multiple DPUs using an all-or-nothing strategy.
+// An object is considered ready only if it's ready on ALL DPUs where it should be running.
+func statusesAggregation(allDPUStatuses []map[string]bool) map[string]bool {
+	finalStatuses := make(map[string]bool)
+
+	for _, dpuStatus := range allDPUStatuses {
+		for service, isReady := range dpuStatus {
+			if _, exists := finalStatuses[service]; !exists {
+				// First DPU reporting this service - initialize with its status
+				finalStatuses[service] = isReady
+				continue
+			}
+			// Subsequent DPUs - apply AND logic (once false, stays false)
+			finalStatuses[service] = finalStatuses[service] && isReady
+		}
+	}
+
+	return finalStatuses
+}
+
+func (r *DPUReadyReconciler) getServiceChainsStatusPerDPU(ctx context.Context, dpu *provisioningv1.DPU, dpuServiceChainList *dpuservicev1.DPUServiceChainList) (map[string]bool, error) {
+	log := ctrllog.FromContext(ctx)
+	dpuClusterClient, err := dpucluster.K8sClusterToDPUClusterConfig(r.Client, &(dpu.Spec.Cluster)).Client(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not get the kubeconfig for the dpucluster: %w", err)
+	}
+
+	dpuNode := &corev1.Node{}
+	err = dpuClusterClient.Get(ctx, types.NamespacedName{Name: dpu.Name}, dpuNode)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get the dpu node %s: %w", dpu.Name, err)
+	}
+
+	serviceChainsReadyStatus := make(map[string]bool)
+	for _, dpuServiceChain := range dpuServiceChainList.Items {
+		serviceChainsReadyStatus[dpuServiceChain.Name] = false
+	}
+
+	for _, dpuServiceChain := range dpuServiceChainList.Items {
+		matches, err := nodeMatchesLabelSelector(dpuNode, dpuServiceChain.Spec.Template.Spec.NodeSelector)
+		if err != nil {
+			log.Error(err, "failed to match node selector for service chain",
+				"serviceChain", dpuServiceChain.Name)
+			continue
+		}
+		if !matches {
+			// service chain should not be running on this node, continue to the next service chain
+			// remove it from the list of service chains
+			delete(serviceChainsReadyStatus, dpuServiceChain.Name)
+			continue
+		}
+		serviceChainList := &dpuservicev1.ServiceChainList{}
+		if err := dpuClusterClient.List(ctx, serviceChainList,
+			client.MatchingLabels(map[string]string{
+				sfcsetcontroller.ServiceChainSetNameLabel:      dpuServiceChain.GetName(),
+				sfcsetcontroller.ServiceChainSetNamespaceLabel: dpuServiceChain.GetNamespace(),
+			}),
+			client.InNamespace(dpuServiceChain.GetNamespace())); err != nil {
+			return nil, err
+		}
+
+		if len(serviceChainList.Items) == 0 {
+			log.V(1).Info("service chain not found",
+				"dpuServiceChain", dpuServiceChain.Name,
+				"serviceChain", serviceChainList.Items,
+				"dpu", dpu.Name)
+			continue
+		}
+
+		serviceChains := []dpuservicev1.ServiceChain{}
+		for _, svc := range serviceChainList.Items {
+			if svc.Spec.Node != nil && *svc.Spec.Node == dpuNode.Name {
+				serviceChains = append(serviceChains, svc)
+				break
+			}
+		}
+
+		if len(serviceChains) == 0 {
+			log.V(1).Info("service chain not found",
+				"dpuServiceChain", dpuServiceChain.Name,
+				"dpu", dpu.Name)
+			continue
+		}
+
+		if len(serviceChains) > 1 {
+			log.V(1).Error(nil, "more than one service chain found",
+				"dpuServiceChain", dpuServiceChain.Name,
+				"serviceChains", serviceChains,
+				"dpu", dpu.Name)
+			continue
+		}
+
+		// Check if the ServiceChain is ready
+		if conditions.IsTrue(&serviceChains[0], conditions.TypeReady) {
+			serviceChainsReadyStatus[dpuServiceChain.Name] = true
+		}
+	}
+	return serviceChainsReadyStatus, nil
+}
+
+// getServicesStatusPerDPU returns a list of services that are ready.
+// Services are considered ready if they have running and ready pods on the DPU.
+func (r *DPUReadyReconciler) getServicesStatusPerDPU(ctx context.Context, dpu *provisioningv1.DPU, dpuServiceList *dpuservicev1.DPUServiceList) (map[string]bool, error) {
 	log := ctrllog.FromContext(ctx)
 	dpuClusterClient, _, err := dpucluster.K8sClusterToDPUClusterConfig(r.Client, &(dpu.Spec.Cluster)).Clientset(ctx)
 	if err != nil {
-		return false, fmt.Errorf("could not get the kubeconfig for the dpucluster: %w", err)
+		return nil, fmt.Errorf("could not get the kubeconfig for the dpucluster: %w", err)
 	}
 
 	// get all running pods on the dpuNode
@@ -173,23 +456,30 @@ func (r *DPUReadyReconciler) isDPUReady(ctx context.Context, dpu *provisioningv1
 		FieldSelector: fmt.Sprintf("spec.nodeName=%s", dpu.Name),
 	})
 	if err != nil {
-		return false, fmt.Errorf("failed to list pods on the node %s: %w", dpu.Name, err)
+		return nil, fmt.Errorf("failed to list pods on the node %s: %w", dpu.Name, err)
 	}
 
 	dpuNode, err := dpuClusterClient.CoreV1().Nodes().Get(ctx, dpu.Name, metav1.GetOptions{})
 	if err != nil {
-		return false, fmt.Errorf("failed to get the dpu node %s: %w", dpu.Name, err)
+		return nil, fmt.Errorf("failed to get the dpu node %s: %w", dpu.Name, err)
 	}
 
-	for _, service := range criticalDPUServices.Items {
+	servicesReadyStatus := make(map[string]bool)
+	// initialize all services to false
+	for _, service := range dpuServiceList.Items {
+		servicesReadyStatus[service.Name] = false
+	}
+	for _, service := range dpuServiceList.Items {
 		if service.Spec.ServiceDaemonSet != nil {
 			matches, err := nodeMatchesNodeSelector(dpuNode, service.Spec.ServiceDaemonSet.NodeSelector)
 			if err != nil {
-				return false, fmt.Errorf("failed to match node selector for service %s: %w",
-					service.Name, err)
+				log.Error(err, "failed to match node selector for service",
+					"service", service.Name)
+				continue
 			}
 			if !matches {
 				// service should not be running on this node, continue to the next service
+				delete(servicesReadyStatus, service.Name)
 				continue
 			}
 		}
@@ -216,18 +506,23 @@ func (r *DPUReadyReconciler) isDPUReady(ctx context.Context, dpu *provisioningv1
 
 		}
 		if servicePod == nil {
-			log.Info("critical service pod not found",
-				"service", service.Name)
-			return false, nil
+			log.V(1).Info("service pod not found",
+				"service", service.Name,
+				"dpu", dpu.Name)
+			// Service is not ready if pod is not found
+			continue
 		}
 		if !isPodRunning(servicePod) {
-			log.Info("critical service pod not ready",
+			log.Info("service pod not ready",
 				"service", service.Name,
-				"pod", servicePod.Name)
-			return false, nil
+				"pod", servicePod.Name,
+				"dpu", dpu.Name)
+			// Service is not ready if pod is not running
+			continue
 		}
+		servicesReadyStatus[service.Name] = true
 	}
-	return true, nil
+	return servicesReadyStatus, nil
 }
 
 // patchNode applies a strategic merge patch to update the node's taints
@@ -279,56 +574,86 @@ func (r *DPUReadyReconciler) removeTaintIfExists(ctx context.Context, node *core
 	return r.patchNode(ctx, newTaints, node)
 }
 
-// Reconcile handles the reconciliation of Node objects for DPU readiness
-func (r *DPUReadyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var (
-		node                  corev1.Node
-		nodeReady             bool
-		criticalServiceExists bool
-		err                   error
-	)
-	log := ctrllog.FromContext(ctx)
-	log.Info("Reconciling node", "node", req.Name)
-	if err = r.Get(ctx, req.NamespacedName, &node); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+// isPodRunning checks if a pod is truly ready by examining the PodReady condition on pod status
+func isPodRunning(pod *corev1.Pod) bool {
+	// terminating pods, return false
+	if pod.DeletionTimestamp != nil {
+		return false
 	}
 
-	criticalDPUServicesList := &dpuservicev1.DPUServiceList{}
-	// Check if there are any critical DPU services
-	criticalServiceExists, err = r.isCriticalDPUServicePresent(ctx, criticalDPUServicesList)
+	// any other phase than running, return false
+	if pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+
+	// pod.status.phase could be running but one of the container might not be running
+	// corev1.podready is set by kubelet which guarantees that all containers are properly running
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodReady {
+			return cond.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func getReadyDPUServiceChainsFromList(dpuServiceChainList []dpuservicev1.DPUServiceChain, serviceChainsReadyStatus map[string]bool) []dpuservicev1.DPUServiceChain {
+	dpuServiceChains := []dpuservicev1.DPUServiceChain{}
+	for _, dpuServiceChain := range dpuServiceChainList {
+		if serviceChainsReadyStatus[dpuServiceChain.Name] {
+			dpuServiceChains = append(dpuServiceChains, dpuServiceChain)
+		}
+	}
+	return dpuServiceChains
+}
+
+func getReadyDPUServicesFromList(dpuServiceList []dpuservicev1.DPUService, servicesReadyStatus map[string]bool) []dpuservicev1.DPUService {
+	dpuServices := []dpuservicev1.DPUService{}
+	for _, dpuService := range dpuServiceList {
+		if servicesReadyStatus[dpuService.Name] {
+			dpuServices = append(dpuServices, dpuService)
+		}
+	}
+	return dpuServices
+}
+
+// nodeMatchesNodeSelector checks if a node matches the given node selector criteria
+func nodeMatchesNodeSelector(node *corev1.Node, nodeSelector *corev1.NodeSelector) (bool, error) {
+	// If there's no node selector, all nodes are valid
+	if nodeSelector == nil {
+		return true, nil
+	}
+
+	// Kubernetes has a helper function that does this matching for us
+	res, err := schedulingv1.MatchNodeSelectorTerms(node, nodeSelector)
+	return res, err
+}
+
+// nodeMatchesLabelSelector checks if a node matches the given label selector criteria
+func nodeMatchesLabelSelector(node *corev1.Node, labelSelector *metav1.LabelSelector) (bool, error) {
+	// If there's no label selector, all nodes are valid
+	if labelSelector == nil {
+		return true, nil
+	}
+
+	// Convert the label selector to a selector
+	selector, err := utils.LabelSelectorAsSelector(labelSelector)
 	if err != nil {
-		return ctrl.Result{}, err
+		return false, fmt.Errorf("failed to parse label selector: %w", err)
 	}
-	if !criticalServiceExists {
-		// remove previously added taints
-		if err = r.removeTaintIfExists(ctx, &node); err != nil {
-			return ctrl.Result{},
-				fmt.Errorf("error removing taint from node %s: %w",
-					node.Name, err)
+
+	// Check if the node labels match the selector
+	return selector.Matches(labels.Set(node.Labels)), nil
+}
+
+func isCriticalServiceReady(servicesStatus map[string]bool, criticalServices []dpuservicev1.DPUService) bool {
+	// Check that ALL critical services are ready
+	for _, criticalService := range criticalServices {
+		ready := servicesStatus[criticalService.Name]
+		if !ready {
+			return false // If any critical service is not ready, return false
 		}
-		return ctrl.Result{}, nil
 	}
-
-	if nodeReady, err = r.areAllServicesRunning(ctx, &node, criticalDPUServicesList); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if nodeReady {
-		if err = r.removeTaintIfExists(ctx, &node); err != nil {
-			return ctrl.Result{},
-				fmt.Errorf("error removing taint from node %s: %w",
-					node.Name, err)
-		}
-		return ctrl.Result{}, nil
-	}
-
-	if err = r.addTaintIfDoesNotExist(ctx, &node); err != nil {
-		return ctrl.Result{},
-			fmt.Errorf("error adding taint to node %s: %w",
-				node.Name, err)
-	}
-
-	return ctrl.Result{}, nil
+	return true
 }
 
 // WatchServicePods sets up watches for service pods in DPU clusters that have a service id label
@@ -476,38 +801,4 @@ func (p *podEventHandler) enqueue(requests []ctrl.Request, q workqueue.TypedRate
 	for req := range reqs {
 		q.Add(req)
 	}
-}
-
-// SetupWithManager configures the controller with the manager and sets up required indexes and predicates
-func (r *DPUReadyReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	p := predicate.NewPredicateFuncs(func(o client.Object) bool {
-		node, ok := o.(*corev1.Node)
-		if !ok {
-			return false
-		}
-
-		// Skip control plane nodes
-		if _, exists := node.ObjectMeta.Labels["node-role.kubernetes.io/control-plane"]; exists {
-			return false
-		}
-
-		if _, exists := node.ObjectMeta.Labels["node-role.kubernetes.io/master"]; exists {
-			return false
-		}
-
-		// Skip nodes without DPU feature discovery label
-		if val, exists := node.ObjectMeta.Labels[dpuEnabledLabelKey]; !exists || val != dpuEnabledLabelValue {
-			return false
-		}
-		return true
-	})
-
-	c, err := ctrl.NewControllerManagedBy(mgr).
-		For(&corev1.Node{}, builder.WithPredicates(p)).
-		Build(r)
-	if err != nil {
-		return err
-	}
-	r.controller = c
-	return nil
 }
