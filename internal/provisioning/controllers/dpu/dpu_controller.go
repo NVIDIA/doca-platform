@@ -18,8 +18,11 @@ package dpu
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
+	"sort"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
@@ -33,6 +36,8 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -203,6 +208,11 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	// PS: Users are able to create DPUs without DPUSets, which is not officially supported but also not forbidden. If the cluster field is empty, a DPUCluster will be allocated for it as usual.
 	r.ctrlCtx.ClusterAllocator.SaveAssignedDPU(dpu)
 
+	if err := r.UpdateDPUNodeMaintenanceRequestors(ctx, dpu, r.ctrlCtx.Client); err != nil {
+		// Return error to trigger requeue with backoff
+		return ctrl.Result{}, fmt.Errorf("failed to update DPUNodeMaintenanceRequestors: %w", err)
+	}
+
 	h := r.handlers[dpu.Status.Phase]
 	if h == nil {
 		// Unmatching states indicate that the DPU was provisioned using an old version of provisioning-controller.
@@ -279,4 +289,75 @@ func (r *DPUReconciler) dpuNodeToDPU(ctx context.Context, obj client.Object) []r
 		ret = append(ret, reconcile.Request{NamespacedName: cutil.GetNamespacedName(&dpu)})
 	}
 	return ret
+}
+
+func (r *DPUReconciler) UpdateDPUNodeMaintenanceRequestors(ctx context.Context, dpu *provisioningv1.DPU, client client.Client) error {
+	logger := log.FromContext(ctx)
+	// if NodeEffect is nil or NoEffect, there's no need to update the DPUNodeMaintenanceRequestors
+	if dpu.Spec.NodeEffect == nil || dpu.Spec.NodeEffect.IsNoEffect() {
+		return nil
+	}
+	dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+	if err != nil {
+		return err
+	}
+	dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
+	key := types.NamespacedName{Namespace: dpu.Namespace, Name: dpunodemaintenanceName}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := client.Get(ctx, key, dpunodemaintenance); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
+			// If DPUNodeMaintenance object doesn't exist, return nil
+			return nil
+		}
+
+		lastAppliedRequestorsStr, ok := dpunodemaintenance.Annotations[cutil.LastAppliedNodeMaintenanceAdditionalRequestorsOnDPUKey]
+		if !ok {
+			return fmt.Errorf("last applied node maintenance additional requestors on DPU not found")
+		}
+		// the lastAppliedRequestors is the service additional requestors
+		var lastAppliedRequestors []string
+		if err := json.Unmarshal([]byte(lastAppliedRequestorsStr), &lastAppliedRequestors); err != nil {
+			return fmt.Errorf("failed to unmarshal last applied node maintenance additional requestors on DPU: %w", err)
+		}
+
+		expectedRequestors := dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors
+		sort.Strings(expectedRequestors)
+		sort.Strings(lastAppliedRequestors)
+		// if lastAppliedRequestors is equal to expectedRequestors, return nil
+		if slices.Equal(lastAppliedRequestors, expectedRequestors) {
+			return nil
+		}
+
+		// update the requestors for dpunodemaintenance CR
+		dpuRequestors := findOutDPURequestors(lastAppliedRequestors, dpunodemaintenance.Spec.Requestor)
+		logger.V(4).Info(fmt.Sprintf("DPU requestors: %v", dpuRequestors))
+
+		// update the LastAppliedNodeMaintenanceAdditionalRequestorsOnDPUKey annotation
+		jsonStr, err := json.Marshal(expectedRequestors)
+		if err != nil {
+			return fmt.Errorf("failed to marshal expected requestors: %w", err)
+		}
+		dpunodemaintenance.Annotations[cutil.LastAppliedNodeMaintenanceAdditionalRequestorsOnDPUKey] = string(jsonStr)
+
+		// update the Requestor field
+		expectedRequestors = append(expectedRequestors, dpuRequestors...)
+		dpunodemaintenance.Spec.Requestor = expectedRequestors
+
+		logger.Info(fmt.Sprintf("Updating NodeMaintenanceAdditionalRequestors: %v for DPUNodeMaintenance (%s/%s)", expectedRequestors, dpunodemaintenance.Namespace, dpunodemaintenance.Name))
+		return client.Update(ctx, dpunodemaintenance)
+	})
+}
+
+// lastAppliedRequestors is only used to store the service additional requestors
+// the requestors in the currentRequestors but not in the lastAppliedRequestors are the DPU requestors
+func findOutDPURequestors(lastAppliedRequestors []string, currentRequestors []string) []string {
+	var dpuRequestors []string
+	for _, req := range currentRequestors {
+		if !slices.Contains(lastAppliedRequestors, req) {
+			dpuRequestors = append(dpuRequestors, req)
+		}
+	}
+	return dpuRequestors
 }
