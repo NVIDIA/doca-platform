@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
+	"sort"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/events"
@@ -536,6 +538,7 @@ func (r *DPUSetReconciler) isNodeLabelUpdateNeeded(ctx context.Context, dpuSet *
 // in this function, it will:
 // 1. update the node labels for DPUs
 // 2. update the ApplyOnLabelChange field for DPUs
+// 3. update the NodeMaintenanceAdditionalRequestors field for DPUs
 func (r *DPUSetReconciler) updateDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuMap map[string]provisioningv1.DPU) error {
 	needUpdateLabels, newLabels, removedLabels := r.isNodeLabelUpdateNeeded(ctx, dpuSet)
 	if needUpdateLabels {
@@ -559,6 +562,14 @@ func (r *DPUSetReconciler) updateDPUs(ctx context.Context, dpuSet *provisioningv
 		if updateNodeEffectApplyOnLabelChange(ctx, dpuSet, &dpu) {
 			update = true
 		}
+		// 3. update the NodeMaintenanceAdditionalRequestors field for DPU
+		expectedRequestors := []string{}
+		if dpuSet.Spec.DPUTemplate.Spec.NodeEffect != nil {
+			expectedRequestors = dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors
+		}
+		if updateNodeMaintenanceAdditionalRequestors(ctx, &dpu, expectedRequestors) {
+			update = true
+		}
 
 		if update {
 			if err := patcher.Patch(ctx, &dpu); err != nil {
@@ -568,6 +579,29 @@ func (r *DPUSetReconciler) updateDPUs(ctx context.Context, dpuSet *provisioningv
 	}
 
 	return nil
+}
+
+// updateNodeMaintenanceAdditionalRequestors updates the NodeMaintenanceAdditionalRequestors field for existing DPUs when the DPUSet template changes.
+// This function ensures that changes to the NodeMaintenanceAdditionalRequestors field are propagated to existing DPUs without requiring recreation.
+func updateNodeMaintenanceAdditionalRequestors(ctx context.Context, dpu *provisioningv1.DPU, expectedRequestors []string) bool {
+	logger := log.FromContext(ctx)
+	sort.Strings(expectedRequestors)
+	var currentRequestors []string
+	if dpu.Spec.NodeEffect != nil {
+		currentRequestors = dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors
+	} else {
+		dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{}
+	}
+
+	sort.Strings(currentRequestors)
+
+	if !slices.Equal(currentRequestors, expectedRequestors) {
+		dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = expectedRequestors
+		logger.V(3).Info(fmt.Sprintf("Updating NodeMaintenanceAdditionalRequestors: %v for DPU (%s/%s)", expectedRequestors, dpu.Namespace, dpu.Name))
+		return true
+	}
+
+	return false
 }
 
 // updates the node labels for DPU

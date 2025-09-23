@@ -625,6 +625,56 @@ var _ = Describe("DPUSet", func() {
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 
+		It("DPUSet: should support updating DPU NodeMaintenanceAdditionalRequestors when DPUSet changes", func() {
+			By("creating dpuset with NodeMaintenanceAdditionalRequestors")
+			obj := createDPUSet("obj-dpuset")
+			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{
+					NoEffect: ptr.To(true),
+				},
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					ApplyOnLabelChange:                  ptr.To(true),
+					NodeMaintenanceAdditionalRequestors: []string{"test-requestor-1"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, obj))).To(Succeed())
+			})
+
+			dpuList := &provisioningv1.DPUList{}
+
+			By("checking initial DPU is created with NodeMaintenanceAdditionalRequestors")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name))).To(Succeed())
+				g.Expect(dpuList.Items).To(HaveLen(1))
+
+				dpu := dpuList.Items[0]
+				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors).To(HaveLen(1))
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors[0]).To(Equal("test-requestor-1"))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("updating DPUSet to add NodeMaintenanceAdditionalRequestors")
+			patcher := patch.NewSerialPatcher(obj, k8sClient)
+			obj.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{"test-requestor-1", "test-requestor-2", "test-requestor-3"}
+			Expect(patcher.Patch(ctx, obj)).To(Succeed())
+
+			By("checking DPU is updated with NodeMaintenanceAdditionalRequestors")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name))).To(Succeed())
+				g.Expect(dpuList.Items).To(HaveLen(1))
+
+				dpu := dpuList.Items[0]
+				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
+				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors).To(ContainElements(
+					"test-requestor-1",
+					"test-requestor-2",
+					"test-requestor-3",
+				))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
 		It("DPUSet: should handle DPU with nil NodeEffect initially", func() {
 			By("creating dpuset without NodeEffect")
 			obj := createDPUSet("obj-dpuset")

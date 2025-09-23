@@ -400,6 +400,12 @@ var _ = Describe("DPU", func() {
 						Namespace: testNS.Name,
 					},
 					Spec: provisioningv1.DPUSpec{
+						DPUNodeName: DefaultNode,
+						NodeEffect: &provisioningv1.NodeEffect{
+							Action: provisioningv1.Action{
+								Hold: ptr.To(true),
+							},
+						},
 						SerialNumber: DefaultSerialNumber,
 					},
 					Status: provisioningv1.DPUStatus{},
@@ -516,6 +522,81 @@ var _ = Describe("DPU", func() {
 				dpuReconciler.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
 
 				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeTrue())
+			})
+
+			It("Adding/Removing Additional Requestors to DPU", func() {
+				By("creating a DPU")
+				dpu := createFakeDPU("dpu-phase")
+				dpu.Spec.DPUDeviceName = testDPUDevice.Name
+				dpu.Spec.BFB = testBFB.Name
+				Expect(fakeMapClient.Create(ctx, dpu)).To(Succeed())
+
+				By("setting initial state to Provisioning state")
+				patchFakePhase(dpu.Name, provisioningv1.DPUNodeEffect)
+
+				By("creating a DPUNodeMaintenance")
+				dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+				Expect(err).ToNot(HaveOccurred())
+				dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      dpunodemaintenanceName,
+						Namespace: testNS.Name,
+						Annotations: map[string]string{
+							cutil.LastAppliedNodeMaintenanceAdditionalRequestorsOnDPUKey: "[]",
+						},
+					},
+					Spec: provisioningv1.DPUNodeMaintenanceSpec{
+						NodeEffect: &provisioningv1.NodeEffect{
+							Action: provisioningv1.Action{
+								Hold: ptr.To(true),
+							},
+						},
+						Requestor: []string{"test-dpu-1"},
+					},
+				}
+				Expect(fakeMapClient.Create(ctx, dpunodemaintenance)).To(Succeed())
+
+				By("updating DPU to add NodeMaintenanceAdditionalRequestors")
+				patcher := patch.NewSerialPatcher(dpu, fakeMapClient)
+				dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{"service-1", "service-2", "service-3"}
+				Expect(patcher.Patch(ctx, dpu)).To(Succeed())
+
+				err = dpuReconciler.UpdateDPUNodeMaintenanceRequestors(ctx, dpu, fakeMapClient)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("verifying the requestor")
+				fetchedDPUNodeMaintenance := &provisioningv1.DPUNodeMaintenance{}
+				Expect(fakeMapClient.Get(ctx, types.NamespacedName{Namespace: testNS.Name, Name: dpunodemaintenanceName}, fetchedDPUNodeMaintenance)).To(Succeed())
+				Expect(fetchedDPUNodeMaintenance.Spec.Requestor).To(HaveLen(4))
+				Expect(fetchedDPUNodeMaintenance.Spec.Requestor).To(ContainElements("service-1", "service-2", "service-3", "test-dpu-1"))
+
+				By("updating DPU to remove service-1 from DPU NodeMaintenanceAdditionalRequestors")
+				patcher = patch.NewSerialPatcher(dpu, fakeMapClient)
+				dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{"service-2", "service-3"}
+				Expect(patcher.Patch(ctx, dpu)).To(Succeed())
+
+				err = dpuReconciler.UpdateDPUNodeMaintenanceRequestors(ctx, dpu, fakeMapClient)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("verifying the requestor")
+				fetchedDPUNodeMaintenance = &provisioningv1.DPUNodeMaintenance{}
+				Expect(fakeMapClient.Get(ctx, types.NamespacedName{Namespace: testNS.Name, Name: dpunodemaintenanceName}, fetchedDPUNodeMaintenance)).To(Succeed())
+				Expect(fetchedDPUNodeMaintenance.Spec.Requestor).To(HaveLen(3))
+				Expect(fetchedDPUNodeMaintenance.Spec.Requestor).To(ContainElements("service-2", "service-3", "test-dpu-1"))
+
+				By("updating DPU to remove test-dpu-1 from DPUNodeMaintenance Requestors")
+				patcher = patch.NewSerialPatcher(fetchedDPUNodeMaintenance, fakeMapClient)
+				fetchedDPUNodeMaintenance.Spec.Requestor = []string{"service-2", "service-3"}
+				Expect(patcher.Patch(ctx, fetchedDPUNodeMaintenance)).To(Succeed())
+
+				err = dpuReconciler.UpdateDPUNodeMaintenanceRequestors(ctx, dpu, fakeMapClient)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("verifying the requestor")
+				fetchedDPUNodeMaintenance = &provisioningv1.DPUNodeMaintenance{}
+				Expect(fakeMapClient.Get(ctx, types.NamespacedName{Namespace: testNS.Name, Name: dpunodemaintenanceName}, fetchedDPUNodeMaintenance)).To(Succeed())
+				Expect(fetchedDPUNodeMaintenance.Spec.Requestor).To(HaveLen(2))
+				Expect(fetchedDPUNodeMaintenance.Spec.Requestor).To(ContainElements("service-2", "service-3"))
 			})
 		})
 	})
