@@ -61,7 +61,7 @@ func NewHostAgentReconciler(client client.Client,
 		NodeManager:    nodeManager,
 		NetworkManager: networkManager,
 	}
-	bfbRegistry := bfbRegistryAddress + "/bfb"
+	bfbRegistry := bfbRegistryAddress
 	if !strings.HasPrefix(bfbRegistry, "http") && !strings.HasPrefix(bfbRegistry, "https") {
 		bfbRegistry = "http://" + bfbRegistry
 	}

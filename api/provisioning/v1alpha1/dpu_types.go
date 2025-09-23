@@ -104,9 +104,10 @@ const (
 type DPUInstallInterfaceType string
 
 const (
-	InstallViaGNOI    DPUInstallInterfaceType = "gNOI"
-	InstallViaRedFish DPUInstallInterfaceType = "redfish"
-	InstallViaMock    DPUInstallInterfaceType = "mock"
+	InstallViaGNOI      DPUInstallInterfaceType = "gNOI"
+	InstallViaHostAgent DPUInstallInterfaceType = "hostAgent"
+	InstallViaRedFish   DPUInstallInterfaceType = "redfish"
+	InstallViaMock      DPUInstallInterfaceType = "mock"
 )
 
 func (ct DPUConditionType) String() string {
@@ -184,6 +185,7 @@ type DPUSpec struct {
 	DPUFlavor string `json:"dpuFlavor,omitempty"`
 
 	// BMCIP is the ip address of the DPU BMC
+	//
 	// +optional
 	// +deprecated: Use BMCIP from DPUDevice
 	BMCIP string `json:"bmcIP,omitempty"`
@@ -233,8 +235,8 @@ type DPUStatus struct {
 	Addresses []corev1.NodeAddress `json:"addresses,omitempty"`
 
 	// the name of the interface which will be used to install the bfb image,
-	// and communicate with DPU, can be one of gNOI,redfish
-	// +kubebuilder:validation:Enum=gNOI;redfish
+	// and communicate with DPU, can be one of hostAgent,redfish
+	// +kubebuilder:validation:Enum=gNOI;hostAgent;redfish
 	// +optional
 	DPUInstallInterface *string `json:"dpuInstallInterface,omitempty"`
 

@@ -165,6 +165,10 @@ func GenerateDMSPodName(dpuNode crclient.Object) string {
 	return fmt.Sprintf("%s-%s", dpuNode.GetName(), "dms")
 }
 
+func GenerateHostAgentPodName(dpuNode crclient.Object) string {
+	return GenerateDMSPodName(dpuNode)
+}
+
 func GenerateDMSServerCertName(dpuName string) string {
 	return fmt.Sprintf("%s-%s", dpuName, "dms-server-cert")
 }

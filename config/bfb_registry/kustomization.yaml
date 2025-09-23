@@ -4,6 +4,7 @@ kind: Kustomization
 # Include all necessary resources
 resources:
 - daemonset.yaml
+- service.yaml
 
 # Image overrides
 images:
