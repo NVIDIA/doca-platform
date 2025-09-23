@@ -63,12 +63,12 @@ func WaitForDPUServices(ctx context.Context, client client.Client, namespace str
 	}, 20*time.Minute).Should(Succeed())
 }
 
-func WaitForDPUDeploymentReady(ctx context.Context, client client.Client, namespace string, deploymentNames []string) {
+func WaitForDPUDeploymentReady(ctx context.Context, client client.Client, namespace string, deploymentNames []string, timeout time.Duration) {
 	Eventually(func(g Gomega) {
 		for _, deploymentName := range deploymentNames {
 			g.Expect(IsDPUDeploymentReady(ctx, g, client, deploymentName, namespace)).To(BeTrue())
 		}
-	}, 15*time.Minute).Should(Succeed())
+	}, timeout).Should(Succeed())
 }
 
 func IsDPUServiceInterfaceReady(ctx context.Context, g Gomega, testClient client.Client, interfaceName string, namespace string) bool {

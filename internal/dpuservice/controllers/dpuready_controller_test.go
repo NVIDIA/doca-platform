@@ -16,11 +16,14 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	sfcsetcontroller "github.com/nvidia/doca-platform/internal/servicechainset/controllers"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 	dpucluster "github.com/nvidia/doca-platform/pkg/dpucluster"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
@@ -50,7 +53,146 @@ const (
 	nodeName      string = "dpuready-test-node"
 	dpuDeviceName string = nodeName + "0000-ca-00" //required field for DPU
 	dpuName       string = "test-dpu"
+	service1Name  string = "service1"
+	service2Name  string = "service2"
+	service3Name  string = "service3"
 )
+
+// setDPUServiceChainReadyStatus sets the Ready condition on a ServiceChain
+func setDPUServiceChainReadyStatus(ctx context.Context, dpuClusterClient client.Client, chain *dpuservicev1.DPUServiceChain, ready bool) error {
+	// Create a ServiceChain object in the DPU cluster
+	serviceChain := &dpuservicev1.ServiceChain{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      chain.Name + "-" + dpuName,
+			Namespace: chain.Namespace,
+			Labels: map[string]string{
+				sfcsetcontroller.ServiceChainSetNameLabel:      chain.GetName(),
+				sfcsetcontroller.ServiceChainSetNamespaceLabel: chain.GetNamespace(),
+			},
+		},
+		Spec: dpuservicev1.ServiceChainSpec{
+			Node: ptr.To(dpuName),
+			Switches: []dpuservicev1.Switch{
+				{
+					Ports: []dpuservicev1.Port{
+						{
+							ServiceInterface: dpuservicev1.ServiceIfc{
+								MatchLabels: map[string]string{
+									"test": "interface",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Create the ServiceChain in the DPU cluster
+	if err := dpuClusterClient.Create(ctx, serviceChain); err != nil {
+		return err
+	}
+
+	// Set the Ready condition on the ServiceChain
+	createdServiceChain := &dpuservicev1.ServiceChain{}
+	if err := dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(serviceChain), createdServiceChain); err != nil {
+		return err
+	}
+	originalServiceChain := createdServiceChain.DeepCopy()
+
+	status := metav1.ConditionTrue
+	reason := "Ready"
+	message := "ServiceChain is ready"
+	if !ready {
+		status = metav1.ConditionFalse
+		reason = "NotReady"
+		message = "ServiceChain is not ready"
+	}
+
+	createdServiceChain.Status.Conditions = []metav1.Condition{
+		{
+			Type:               string(conditions.TypeReady),
+			Status:             status,
+			LastTransitionTime: metav1.Now(),
+			Reason:             reason,
+			Message:            message,
+		},
+	}
+	return dpuClusterClient.Status().Patch(ctx, createdServiceChain, client.MergeFrom(originalServiceChain))
+}
+
+// createTestDPUServiceChain creates a test DPUServiceChain with the given parameters
+func createTestDPUServiceChain(name, namespace, parentDPUDeploymentLabel string, nodeSelector *metav1.LabelSelector) *dpuservicev1.DPUServiceChain {
+	return &dpuservicev1.DPUServiceChain{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels: map[string]string{
+				dpuservicev1.ParentDPUDeploymentNameLabel: parentDPUDeploymentLabel,
+			},
+		},
+		Spec: dpuservicev1.DPUServiceChainSpec{
+			Template: dpuservicev1.ServiceChainSetSpecTemplate{
+				Spec: dpuservicev1.ServiceChainSetSpec{
+					NodeSelector: nodeSelector,
+					Template: dpuservicev1.ServiceChainSpecTemplate{
+						Spec: dpuservicev1.ServiceChainSpec{
+							Switches: []dpuservicev1.Switch{
+								{
+									Ports: []dpuservicev1.Port{
+										{
+											ServiceInterface: dpuservicev1.ServiceIfc{
+												MatchLabels: map[string]string{
+													"test": "port",
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// getDPUNodeMaintenanceObjects creates test DPUNodeMaintenance objects with different configurations
+func getDPUNodeMaintenanceObjects(namespace, requestor1, requestor2, requestor3 string) []*provisioningv1.DPUNodeMaintenance {
+	return []*provisioningv1.DPUNodeMaintenance{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "maintenance-1",
+				Namespace: namespace,
+			},
+			Spec: provisioningv1.DPUNodeMaintenanceSpec{
+				DPUNodeName: nodeName,
+				Requestor:   []string{namespace + "_dpudeployment1_" + requestor1, namespace + "_dpudeployment2_" + requestor2},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "maintenance-2",
+				Namespace: namespace,
+			},
+			Spec: provisioningv1.DPUNodeMaintenanceSpec{
+				DPUNodeName: nodeName,
+				Requestor:   []string{namespace + "_dpudeployment3_" + requestor3},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "maintenance-3",
+				Namespace: namespace,
+			},
+			Spec: provisioningv1.DPUNodeMaintenanceSpec{
+				DPUNodeName: nodeName,
+				Requestor:   []string{},
+			},
+		},
+	}
+}
 
 var _ = Describe("DPUReadyReconciler", func() {
 	var (
@@ -125,6 +267,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 				Name: dpu.Name,
 				Labels: map[string]string{
 					cutil.HostNameDPULabelKey: workerNode.Name,
+					dpuEnabledLabelKey:        dpuEnabledLabelValue,
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -139,6 +282,754 @@ var _ = Describe("DPUReadyReconciler", func() {
 		Expect(dpuClusterClient.Create(ctx, nodeInDPUCluster)).To(Succeed())
 		DeferCleanup(testutils.CleanupAndWait, ctx, dpuClusterClient, nodeInDPUCluster)
 	})
+
+	Context("DPUNodeMaintenance Management", func() {
+		It("should patch DPUNodeMaintenance objects when services become ready", func() {
+			By("Creating DPUNodeMaintenance objects with requestors")
+			maintenances := getDPUNodeMaintenanceObjects(testNS.Name, service1Name, service2Name, service3Name)
+			maintenances[0].Name = "maintenance-" + testNS.Name // Use unique name based on test namespace
+			Expect(testClient.Create(ctx, maintenances[0])).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, maintenances[0])
+
+			// Get the object again after creation to have the updated resource version
+			createdMaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenances[0]), createdMaintenance)).To(Succeed())
+
+			originalMaintenance := createdMaintenance.DeepCopy()
+
+			// Set the status with NodeEffectApplied condition
+			createdMaintenance.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(provisioningv1.ConditionNodeEffectApplied),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "Applied",
+					Message:            "Node effect applied",
+				},
+			}
+			// Update status after getting the latest version
+			Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
+
+			By("Creating DPUService that matches one of the requestors")
+			dpuServices := getMinimalDPUServices(testNS.Name)
+			dpuServices[1].Name = service1Name
+			dpuServices[1].Labels = map[string]string{
+				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment1",
+			}
+			dpuServices[1].Spec.ServiceID = ptr.To("service-one-" + testNS.Name)
+			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
+
+			By("Creating a pod for the service to make it ready")
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-" + testNS.Name,
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: dpuName,
+					Containers: []corev1.Container{
+						{
+							Name:  "test-container",
+							Image: "nginx:latest",
+						},
+					},
+					RestartPolicy: corev1.RestartPolicyAlways,
+				},
+			}
+			Expect(dpuClusterClient.Create(ctx, pod)).To(Succeed())
+
+			// Update pod status to Running
+			originalPod := pod.DeepCopy()
+			pod.Status = corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				Conditions: []corev1.PodCondition{
+					{
+						Type:               corev1.PodReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.PodInitialized,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.PodScheduled,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+				ContainerStatuses: []corev1.ContainerStatus{
+					{
+						Name: "test-container",
+						State: corev1.ContainerState{
+							Running: &corev1.ContainerStateRunning{
+								StartedAt: metav1.Now(),
+							},
+						},
+						Ready:        true,
+						RestartCount: 0,
+					},
+				},
+				PodIP:     "10.0.0.1",
+				HostIP:    "192.168.1.1",
+				StartTime: &metav1.Time{Time: time.Now()},
+			}
+			Expect(dpuClusterClient.Status().Patch(ctx, pod, client.MergeFrom(originalPod))).To(Succeed())
+
+			By("Triggering node reconcile")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Verifying the requestor was removed from DPUNodeMaintenance")
+			Eventually(func(g Gomega) {
+				updatedMaintenance := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenances[0]), updatedMaintenance)).To(Succeed())
+				g.Expect(updatedMaintenance.Spec.Requestor).NotTo(ContainElement(testNS.Name + "_dpudeployment1_" + service1Name))
+				g.Expect(updatedMaintenance.Spec.Requestor).To(ContainElement(testNS.Name + "_dpudeployment2_service2"))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
+		It("should not patch DPUNodeMaintenance when services are not ready", func() {
+			By("Creating DPUNodeMaintenance with requestors")
+			maintenances := getDPUNodeMaintenanceObjects(testNS.Name, service1Name, service2Name, service3Name)
+			maintenances[0].Name = "maintenance-" + testNS.Name // Use unique name based on test namespace
+			maintenances[0].Spec.Requestor = []string{testNS.Name + "_dpudeployment1_" + service1Name}
+			Expect(testClient.Create(ctx, maintenances[0])).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, maintenances[0])
+
+			// Get the object again after creation to have the updated resource version
+			createdMaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenances[0]), createdMaintenance)).To(Succeed())
+
+			originalMaintenance := createdMaintenance.DeepCopy()
+
+			// Set the status with NodeEffectApplied condition
+			createdMaintenance.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(provisioningv1.ConditionNodeEffectApplied),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "Applied",
+					Message:            "Node effect applied",
+				},
+			}
+			Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
+
+			By("Creating DPUService without ready pods")
+			dpuServices := getMinimalDPUServices(testNS.Name)
+			dpuServices[1].Name = service1Name
+			dpuServices[1].Labels = map[string]string{
+				criticalDPUServiceLabel:                   "",
+				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment1",
+			}
+			dpuServices[1].Spec.ServiceID = ptr.To("service-one-" + testNS.Name)
+			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
+
+			By("Triggering node reconcile")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Verifying the requestor was NOT removed from DPUNodeMaintenance")
+			Consistently(func(g Gomega) {
+				updatedMaintenance := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenances[0]), updatedMaintenance)).To(Succeed())
+				g.Expect(updatedMaintenance.Spec.Requestor).To(ContainElement(testNS.Name + "_dpudeployment1_" + service1Name))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+		})
+
+		It("should patch DPUNodeMaintenance when DPUServiceChains become ready with no NodeSelector", func() {
+			By("Creating DPUNodeMaintenance with DPUServiceChain requestors")
+			maintenances := getDPUNodeMaintenanceObjects(testNS.Name, "chain1", "chain2", "chain3")
+			maintenances[0].Name = "maintenance-chain-" + testNS.Name // Use unique name based on test namespace
+			Expect(testClient.Create(ctx, maintenances[0])).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, maintenances[0])
+
+			// Get the object again and set NodeEffectApplied condition
+			createdMaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenances[0]), createdMaintenance)).To(Succeed())
+			originalMaintenance := createdMaintenance.DeepCopy()
+			createdMaintenance.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(provisioningv1.ConditionNodeEffectApplied),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "Applied",
+					Message:            "Node effect applied",
+				},
+			}
+			Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
+
+			By("Creating a ready DPUServiceChain that matches one of the requestors")
+			dpuServiceChain := createTestDPUServiceChain("chain1", testNS.Name, testNS.Name+"_dpudeployment1", nil)
+			Expect(testClient.Create(ctx, dpuServiceChain)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceChain)
+
+			// Set the DPUServiceChain to Ready by creating a ServiceChain in the DPU cluster
+			Expect(setDPUServiceChainReadyStatus(ctx, dpuClusterClient, dpuServiceChain, true)).To(Succeed())
+
+			By("Triggering node reconcile")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Verifying the DPUServiceChain requestor was removed from DPUNodeMaintenance")
+			Eventually(func(g Gomega) {
+				updatedMaintenance := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenances[0]), updatedMaintenance)).To(Succeed())
+				g.Expect(updatedMaintenance.Spec.Requestor).NotTo(ContainElement(testNS.Name + "_dpudeployment1_chain1"))
+				g.Expect(updatedMaintenance.Spec.Requestor).To(ContainElement(testNS.Name + "_dpudeployment2_chain2"))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
+		It("should not patch DPUNodeMaintenance when DPUServiceChains are not ready", func() {
+			By("Creating DPUNodeMaintenance with DPUServiceChain requestors")
+			maintenances := getDPUNodeMaintenanceObjects(testNS.Name, "chain1", "chain2", "chain3")
+			maintenances[0].Name = "maintenance-chain-notready-" + testNS.Name // Use unique name based on test namespace
+			Expect(testClient.Create(ctx, maintenances[0])).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, maintenances[0])
+
+			// Set NodeEffectApplied condition
+			createdMaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenances[0]), createdMaintenance)).To(Succeed())
+			originalMaintenance := createdMaintenance.DeepCopy()
+			createdMaintenance.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(provisioningv1.ConditionNodeEffectApplied),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "Applied",
+					Message:            "Node effect applied",
+				},
+			}
+			Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
+
+			By("Creating a DPUServiceChain that is NOT ready")
+			dpuServiceChain := createTestDPUServiceChain("chain1", testNS.Name, testNS.Name+"_dpudeployment1", nil)
+			Expect(testClient.Create(ctx, dpuServiceChain)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceChain)
+
+			// Set the DPUServiceChain to NOT Ready by creating a ServiceChain in the DPU cluster with not ready status
+			Expect(setDPUServiceChainReadyStatus(ctx, dpuClusterClient, dpuServiceChain, false)).To(Succeed())
+
+			By("Triggering node reconcile")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Verifying the requestor was NOT removed from DPUNodeMaintenance")
+			Consistently(func(g Gomega) {
+				updatedMaintenance := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenances[0]), updatedMaintenance)).To(Succeed())
+				g.Expect(updatedMaintenance.Spec.Requestor).To(ContainElement(testNS.Name + "_dpudeployment1_chain1"))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+		})
+
+		It("should respect NodeSelector when patching DPUNodeMaintenance for DPUServiceChains", func() {
+			By("Creating DPUNodeMaintenance with DPUServiceChain requestors")
+			maintenances := getDPUNodeMaintenanceObjects(testNS.Name, "chain-matching", "chain-nonmatching", "chain-nonmatching")
+			maintenances[0].Name = "maintenance-selector-" + testNS.Name // Use unique name based on test namespace
+			Expect(testClient.Create(ctx, maintenances[0])).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, maintenances[0])
+
+			// Set NodeEffectApplied condition
+			createdMaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenances[0]), createdMaintenance)).To(Succeed())
+			originalMaintenance := createdMaintenance.DeepCopy()
+			createdMaintenance.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(provisioningv1.ConditionNodeEffectApplied),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "Applied",
+					Message:            "Node effect applied",
+				},
+			}
+			Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
+
+			By("Creating a DPUServiceChain with matching NodeSelector")
+			matchingChain := createTestDPUServiceChain("chain-matching", testNS.Name, testNS.Name+"_dpudeployment1", &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					dpuEnabledLabelKey: dpuEnabledLabelValue,
+				},
+			})
+			Expect(testClient.Create(ctx, matchingChain)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, matchingChain)
+
+			By("Creating a DPUServiceChain with non-matching NodeSelector")
+			nonMatchingChain := createTestDPUServiceChain("chain-nonmatching", testNS.Name, testNS.Name+"_dpudeployment2", &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"non-existent-label": "true",
+				},
+			})
+			Expect(testClient.Create(ctx, nonMatchingChain)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, nonMatchingChain)
+
+			// Set matching chain to Ready by creating a ServiceChain in the DPU cluster
+			Expect(setDPUServiceChainReadyStatus(ctx, dpuClusterClient, matchingChain, true)).To(Succeed())
+
+			By("Triggering node reconcile")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Verifying only the matching chain's requestor was removed")
+			Eventually(func(g Gomega) {
+				// Now check the maintenance object
+				updatedMaintenance := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenances[0]), updatedMaintenance)).To(Succeed())
+				// Matching chain should be removed
+				g.Expect(updatedMaintenance.Spec.Requestor).NotTo(ContainElement(testNS.Name + "_dpudeployment1_chain-matching"))
+				// Non-matching chain should remain
+				g.Expect(updatedMaintenance.Spec.Requestor).To(ContainElement(testNS.Name + "_dpudeployment2_chain-nonmatching"))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
+		It("should handle mixed DPUServices and DPUServiceChains requestors", func() {
+			By("Creating DPUNodeMaintenance with mixed requestors")
+			maintenance := &provisioningv1.DPUNodeMaintenance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "maintenance-mixed-" + testNS.Name,
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUNodeMaintenanceSpec{
+					DPUNodeName: nodeName,
+					Requestor: []string{
+						testNS.Name + "_dpudeployment1_" + service1Name, // DPUService
+						testNS.Name + "_dpudeployment2_chain1",          // DPUServiceChain
+						testNS.Name + "_dpudeployment3_" + service2Name, // DPUService (not ready)
+						testNS.Name + "_dpudeployment4_chain2",          // DPUServiceChain (not ready)
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, maintenance)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, maintenance)
+
+			// Set NodeEffectApplied condition
+			createdMaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenance), createdMaintenance)).To(Succeed())
+			originalMaintenance := createdMaintenance.DeepCopy()
+			createdMaintenance.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(provisioningv1.ConditionNodeEffectApplied),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "Applied",
+					Message:            "Node effect applied",
+				},
+			}
+			Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
+
+			By("Creating a ready DPUService")
+			dpuService := getMinimalDPUServices(testNS.Name)[1]
+			dpuService.Name = service1Name
+			dpuService.Labels = map[string]string{
+				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment1",
+			}
+			dpuService.Spec.ServiceID = ptr.To("service-one-" + testNS.Name)
+			Expect(testClient.Create(ctx, dpuService)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuService)
+
+			// Create pod for the service to make it ready
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-service-" + testNS.Name,
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: *dpuService.Spec.ServiceID,
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: dpuName,
+					Containers: []corev1.Container{
+						{Name: "test-container", Image: "nginx:latest"},
+					},
+					RestartPolicy: corev1.RestartPolicyAlways,
+				},
+			}
+			Expect(dpuClusterClient.Create(ctx, pod)).To(Succeed())
+
+			// Update pod status to Running
+			originalPod := pod.DeepCopy()
+			pod.Status = corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				Conditions: []corev1.PodCondition{
+					{
+						Type:               corev1.PodReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.PodInitialized,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.PodScheduled,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+				ContainerStatuses: []corev1.ContainerStatus{
+					{
+						Name: "test-container",
+						State: corev1.ContainerState{
+							Running: &corev1.ContainerStateRunning{
+								StartedAt: metav1.Now(),
+							},
+						},
+						Ready:        true,
+						RestartCount: 0,
+					},
+				},
+				PodIP:     "10.0.0.1",
+				HostIP:    "192.168.1.1",
+				StartTime: &metav1.Time{Time: time.Now()},
+			}
+			Expect(dpuClusterClient.Status().Patch(ctx, pod, client.MergeFrom(originalPod))).To(Succeed())
+
+			By("Creating a ready DPUServiceChain")
+			readyChain := createTestDPUServiceChain("chain1", testNS.Name, testNS.Name+"_dpudeployment2", nil)
+			Expect(testClient.Create(ctx, readyChain)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, readyChain)
+
+			// Set chain to Ready by creating a ServiceChain in the DPU cluster
+			Expect(setDPUServiceChainReadyStatus(ctx, dpuClusterClient, readyChain, true)).To(Succeed())
+
+			By("Creating a not-ready DPUService")
+			notReadyService := getMinimalDPUServices(testNS.Name)[1]
+			notReadyService.Name = service2Name
+			notReadyService.Labels = map[string]string{
+				criticalDPUServiceLabel:                   "",
+				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment3",
+			}
+			notReadyService.Spec.ServiceID = ptr.To("service-two-" + testNS.Name)
+			Expect(testClient.Create(ctx, notReadyService)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, notReadyService)
+
+			By("Creating a not-ready DPUServiceChain")
+			notReadyChain := createTestDPUServiceChain("chain2", testNS.Name, testNS.Name+"_dpudeployment4", nil)
+			Expect(testClient.Create(ctx, notReadyChain)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, notReadyChain)
+
+			By("Triggering node reconcile")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Verifying only ready DPUService and DPUServiceChain requestors were removed")
+			Eventually(func(g Gomega) {
+				updatedMaintenance := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenance), updatedMaintenance)).To(Succeed())
+				// Ready ones should be removed
+				g.Expect(updatedMaintenance.Spec.Requestor).NotTo(ContainElement(testNS.Name + "_dpudeployment1_" + service1Name))
+				g.Expect(updatedMaintenance.Spec.Requestor).NotTo(ContainElement(testNS.Name + "_dpudeployment2_chain1"))
+				// Not ready ones should remain
+				g.Expect(updatedMaintenance.Spec.Requestor).To(ContainElement(testNS.Name + "_dpudeployment3_" + service2Name))
+				g.Expect(updatedMaintenance.Spec.Requestor).To(ContainElement(testNS.Name + "_dpudeployment4_chain2"))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
+		It("should handle multiple DPUNodeMaintenance objects for the same node", func() {
+			By("Creating multiple DPUNodeMaintenance objects")
+			maintenances := getDPUNodeMaintenanceObjects(testNS.Name, service1Name, service2Name, service3Name)
+			// Use unique names based on test namespace to avoid conflicts
+			maintenances[0].Name = "maintenance-1-" + testNS.Name
+			maintenances[1].Name = "maintenance-2-" + testNS.Name
+			for i := range maintenances[:2] {
+				Expect(testClient.Create(ctx, maintenances[i])).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, maintenances[i])
+			}
+
+			// Get the object again after creation to have the updated resource version
+			for i := range maintenances[:2] {
+				createdMaintenance := &provisioningv1.DPUNodeMaintenance{}
+				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenances[i]), createdMaintenance)).To(Succeed())
+				originalMaintenance := createdMaintenance.DeepCopy()
+
+				createdMaintenance.Status.Conditions = []metav1.Condition{
+					{
+						Type:               string(provisioningv1.ConditionNodeEffectApplied),
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             "Applied",
+						Message:            "Node effect applied",
+					},
+				}
+				Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
+			}
+
+			By("Creating DPUServices that match requestors")
+			dpuServices := getMinimalDPUServices(testNS.Name)
+			// Service 1
+			dpuServices[1].Name = service1Name
+			dpuServices[1].Labels = map[string]string{
+				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment1",
+			}
+			dpuServices[1].Spec.ServiceID = ptr.To("service-one" + testNS.Name)
+			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
+
+			// Service 3
+			dpuService3 := dpuservicev1.DPUService{}
+			dpuService3.Spec = dpuServices[1].Spec
+			dpuService3.Name = service3Name
+			dpuService3.Namespace = testNS.Name
+			dpuService3.Labels = map[string]string{
+				criticalDPUServiceLabel:                   "",
+				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment3",
+			}
+			dpuService3.Spec.ServiceID = ptr.To("service-three" + testNS.Name)
+			Expect(testClient.Create(ctx, &dpuService3)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, &dpuService3)
+
+			By("Creating pods for the services to make them ready")
+			pod1 := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-" + testNS.Name,
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: dpuName,
+					Containers: []corev1.Container{
+						{Name: "test-container", Image: "nginx:latest"},
+					},
+					RestartPolicy: corev1.RestartPolicyAlways,
+				},
+			}
+			Expect(dpuClusterClient.Create(ctx, pod1)).To(Succeed())
+
+			pod3 := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      dpuService3.Name + "-pod-" + testNS.Name,
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: *dpuService3.Spec.ServiceID,
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: dpuName,
+					Containers: []corev1.Container{
+						{Name: "test-container", Image: "nginx:latest"},
+					},
+					RestartPolicy: corev1.RestartPolicyAlways,
+				},
+			}
+			Expect(dpuClusterClient.Create(ctx, pod3)).To(Succeed())
+
+			// Update pod statuses to Running
+			for _, pod := range []*corev1.Pod{pod1, pod3} {
+				originalPod := pod.DeepCopy()
+				pod.Status = corev1.PodStatus{
+					Phase: corev1.PodRunning,
+					Conditions: []corev1.PodCondition{
+						{
+							Type:               corev1.PodReady,
+							Status:             corev1.ConditionTrue,
+							LastTransitionTime: metav1.Now(),
+						},
+						{
+							Type:               corev1.PodInitialized,
+							Status:             corev1.ConditionTrue,
+							LastTransitionTime: metav1.Now(),
+						},
+						{
+							Type:               corev1.ContainersReady,
+							Status:             corev1.ConditionTrue,
+							LastTransitionTime: metav1.Now(),
+						},
+						{
+							Type:               corev1.PodScheduled,
+							Status:             corev1.ConditionTrue,
+							LastTransitionTime: metav1.Now(),
+						},
+					},
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name: "test-container",
+							State: corev1.ContainerState{
+								Running: &corev1.ContainerStateRunning{
+									StartedAt: metav1.Now(),
+								},
+							},
+							Ready:        true,
+							RestartCount: 0,
+						},
+					},
+					PodIP:     "10.0.0.1",
+					HostIP:    "192.168.1.1",
+					StartTime: &metav1.Time{Time: time.Now()},
+				}
+				Expect(dpuClusterClient.Status().Patch(ctx, pod, client.MergeFrom(originalPod))).To(Succeed())
+			}
+
+			By("Triggering node reconcile")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Verifying requestors were removed from appropriate DPUNodeMaintenance objects")
+			Eventually(func(g Gomega) {
+				// Check first maintenance
+				updatedMaintenance1 := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenances[0]), updatedMaintenance1)).To(Succeed())
+				g.Expect(updatedMaintenance1.Spec.Requestor).NotTo(ContainElement(testNS.Name + "_dpudeployment1_" + service1Name))
+				g.Expect(updatedMaintenance1.Spec.Requestor).To(ContainElement(testNS.Name + "_dpudeployment2_service2"))
+
+				// Check second maintenance
+				updatedMaintenance2 := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenances[1]), updatedMaintenance2)).To(Succeed())
+				g.Expect(updatedMaintenance2.Spec.Requestor).NotTo(ContainElement(testNS.Name + "_dpudeployment3_" + service3Name))
+				g.Expect(updatedMaintenance2.Spec.Requestor).To(BeEmpty())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
+		It("should only process DPUNodeMaintenance with NodeEffectApplied condition", func() {
+			By("Creating DPUNodeMaintenance without NodeEffectApplied condition")
+			maintenance := getDPUNodeMaintenanceObjects(testNS.Name, service1Name, service2Name, service3Name)[0]
+			maintenance.Name = "maintenance-" + testNS.Name // Use unique name based on test namespace
+			maintenance.Spec.Requestor = []string{testNS.Name + "_dpudeployment1_" + service1Name}
+			Expect(testClient.Create(ctx, maintenance)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, maintenance)
+
+			// Get the object again after creation to have the updated resource version
+			createdMaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenance), createdMaintenance)).To(Succeed())
+			originalMaintenance := createdMaintenance.DeepCopy()
+
+			// No conditions or different condition
+			createdMaintenance.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(provisioningv1.ConditionNodeEffectRemoved),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "Removed",
+					Message:            "Node effect removed",
+				},
+			}
+			Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
+
+			By("Creating DPUService with ready pod")
+			dpuServices := getMinimalDPUServices(testNS.Name)
+			dpuServices[1].Name = service1Name
+			dpuServices[1].Labels = map[string]string{
+				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment1",
+			}
+			dpuServices[1].Spec.ServiceID = ptr.To("service-one" + testNS.Name)
+			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
+
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-" + testNS.Name,
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: dpuName,
+					Containers: []corev1.Container{
+						{Name: "test-container", Image: "nginx:latest"},
+					},
+					RestartPolicy: corev1.RestartPolicyAlways,
+				},
+			}
+			Expect(dpuClusterClient.Create(ctx, pod)).To(Succeed())
+
+			originalPod := pod.DeepCopy()
+			pod.Status = corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				Conditions: []corev1.PodCondition{
+					{
+						Type:               corev1.PodReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.PodInitialized,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               corev1.PodScheduled,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+				ContainerStatuses: []corev1.ContainerStatus{
+					{
+						Name: "test-container",
+						State: corev1.ContainerState{
+							Running: &corev1.ContainerStateRunning{
+								StartedAt: metav1.Now(),
+							},
+						},
+						Ready:        true,
+						RestartCount: 0,
+					},
+				},
+				PodIP:     "10.0.0.1",
+				HostIP:    "192.168.1.1",
+				StartTime: &metav1.Time{Time: time.Now()},
+			}
+			Expect(dpuClusterClient.Status().Patch(ctx, pod, client.MergeFrom(originalPod))).To(Succeed())
+
+			By("Triggering node reconcile")
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Verifying the requestor was NOT removed since condition is not NodeEffectApplied")
+			Consistently(func(g Gomega) {
+				updatedMaintenance := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenance), updatedMaintenance)).To(Succeed())
+				g.Expect(updatedMaintenance.Spec.Requestor).To(ContainElement(testNS.Name + "_dpudeployment1_" + service1Name))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+		})
+	})
+
 	Context("Worker Node Taint Management", func() {
 
 		It("should ignore non-critical services", func() {
@@ -258,7 +1149,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			// mark service as critical
 			markServiceCritical(dpuServices[1])
-			dpuServices[1].Spec.ServiceID = ptr.To("service-one")
+			dpuServices[1].Spec.ServiceID = ptr.To("service-one" + testNS.Name)
 			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
 
@@ -283,8 +1174,8 @@ var _ = Describe("DPUReadyReconciler", func() {
 			By("Creating pod corresponding to the critical service")
 			pod := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      dpuServices[1].Name + "-test-pod",
-					Namespace: "default",
+					Name:      "test-pod-" + testNS.Name,
+					Namespace: testNS.Name,
 					Labels: map[string]string{
 						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
 					},
@@ -381,7 +1272,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 			// Check pod state after deletion
 			Eventually(func(g Gomega) {
 				podList := &corev1.PodList{}
-				g.Expect(dpuClusterClient.List(ctx, podList)).To(Succeed())
+				g.Expect(dpuClusterClient.List(ctx, podList, client.InNamespace(testNS.Name))).To(Succeed())
 				g.Expect(podList.Items).To(BeEmpty())
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 		})
@@ -390,7 +1281,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			// mark service as critical
 			markServiceCritical(dpuServices[1])
-			dpuServices[1].Spec.ServiceID = ptr.To("service-one")
+			dpuServices[1].Spec.ServiceID = ptr.To("service-one" + testNS.Name)
 			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
 
@@ -415,8 +1306,8 @@ var _ = Describe("DPUReadyReconciler", func() {
 			By("Creating pod corresponding to the critical service")
 			pod := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      dpuServices[1].Name + "-test-pod",
-					Namespace: "default",
+					Name:      "test-pod-" + testNS.Name,
+					Namespace: testNS.Name,
 					Labels: map[string]string{
 						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
 					},
@@ -521,7 +1412,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 			// Check pod state after deletion
 			Eventually(func(g Gomega) {
 				podList := &corev1.PodList{}
-				g.Expect(dpuClusterClient.List(ctx, podList)).To(Succeed())
+				g.Expect(dpuClusterClient.List(ctx, podList, client.InNamespace(testNS.Name))).To(Succeed())
 				g.Expect(podList.Items).To(BeEmpty())
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 		})
@@ -697,7 +1588,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			// mark service as critical
 			markServiceCritical(dpuServices[1])
-			dpuServices[1].Spec.ServiceID = ptr.To("service-one")
+			dpuServices[1].Spec.ServiceID = ptr.To("service-one" + testNS.Name)
 			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
 
@@ -721,8 +1612,8 @@ var _ = Describe("DPUReadyReconciler", func() {
 			By("Creating a pod corresponding to the critical service")
 			pod1 := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      dpuServices[1].Name + "-test-pod",
-					Namespace: "default",
+					Name:      "test-pod-" + testNS.Name,
+					Namespace: testNS.Name,
 					Labels: map[string]string{
 						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
 					},
@@ -818,7 +1709,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 			// Check pod state after deletion
 			Eventually(func(g Gomega) {
 				podList := &corev1.PodList{}
-				g.Expect(dpuClusterClient.List(ctx, podList)).To(Succeed())
+				g.Expect(dpuClusterClient.List(ctx, podList, client.InNamespace(testNS.Name))).To(Succeed())
 				g.Expect(podList.Items).To(BeEmpty())
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 		})
@@ -866,6 +1757,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			// mark service as critical
 			markServiceCritical(dpuServices[1])
+			dpuServices[1].Spec.ServiceID = ptr.To("service-one" + testNS.Name)
 			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
 
@@ -887,11 +1779,10 @@ var _ = Describe("DPUReadyReconciler", func() {
 			}).WithTimeout(1 * time.Minute).Should(Succeed())
 
 			By("Creating a pod corresponding to the critical service")
-			dpuServices[1].Spec.ServiceID = ptr.To("service-one")
 			pod1 := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      dpuServices[1].Name + "-test-pod",
-					Namespace: "default",
+					Name:      "test-pod-" + testNS.Name,
+					Namespace: testNS.Name,
 					Labels: map[string]string{
 						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
 					},
@@ -964,8 +1855,8 @@ var _ = Describe("DPUReadyReconciler", func() {
 			By("Creating a pod corresponding to the second DPU")
 			pod2 := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      dpuServices[1].Name + "-test-pod-2",
-					Namespace: "default",
+					Name:      "test-pod-2-" + testNS.Name,
+					Namespace: testNS.Name,
 					Labels: map[string]string{
 						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
 					},
@@ -1062,7 +1953,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 			// Check pod state after deletion
 			Eventually(func(g Gomega) {
 				podList := &corev1.PodList{}
-				g.Expect(dpuClusterClient.List(ctx, podList)).To(Succeed())
+				g.Expect(dpuClusterClient.List(ctx, podList, client.InNamespace(testNS.Name))).To(Succeed())
 				g.Expect(podList.Items).To(BeEmpty())
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 		})

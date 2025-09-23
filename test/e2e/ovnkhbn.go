@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"context"
+	"time"
 
 	"github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/dpuservice"
@@ -67,7 +68,7 @@ func VerifyPerformancePodToPodDifferentNode(ctx context.Context, input *systemTe
 }
 
 func WaitForOVNKHBNDeploymentReady(ctx context.Context, input *systemTestInput) {
-	dpuservice.WaitForDPUDeploymentReady(ctx, input.client, dpfOperatorSystemNamespace, []string{"ovn-hbn"})
+	dpuservice.WaitForDPUDeploymentReady(ctx, input.client, dpfOperatorSystemNamespace, []string{"ovn-hbn"}, 50*time.Minute)
 }
 
 func CleanupAfterEachOVNKHBN(ctx context.Context, input *systemTestInput) {
