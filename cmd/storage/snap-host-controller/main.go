@@ -24,13 +24,15 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	storagev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
 	hostcontroller "github.com/nvidia/doca-platform/internal/storage/snap/host-controller"
+	"github.com/nvidia/doca-platform/internal/storage/snap/host-controller/indexers"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/health"
 
 	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
+	eventv1 "k8s.io/api/events/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/component-base/logs"
@@ -68,8 +70,6 @@ var (
 	concurrency          int
 	namespace            string
 	targetNamespace      string
-	dpuClusterName       string
-	dpuClusterNamespace  string
 )
 
 func initFlags(fs *pflag.FlagSet) {
@@ -87,8 +87,6 @@ func initFlags(fs *pflag.FlagSet) {
 		"The minimum interval at which watched resources are reconciled.")
 	fs.StringVar(&namespace, "namespace", "", "namespace in the management cluster in which controller will reconcile resources, required")
 	fs.StringVar(&targetNamespace, "target-namespace", "", "namespace in the DPUCluster where storage objects are managed, required")
-	fs.StringVar(&dpuClusterName, "dpucluster-name", "", "name of the DPUCluster object in the management cluster, required")
-	fs.StringVar(&dpuClusterNamespace, "dpucluster-namespace", "", "namespace of the DPUCluster objects in the management cluster, required")
 	logsv1.AddFlags(logOptions, fs)
 }
 
@@ -173,9 +171,45 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 
 	// Setup field indexers
-	if err := hostcontroller.SetupIndexers(ctx, mgr); err != nil {
+	if err := indexers.SetupIndexers(ctx, mgr); err != nil {
 		setupLog.Error(err, "failed to setup field indexers")
 		os.Exit(1)
+	}
+
+	reconcileOptions := hostcontroller.Options{
+		Namespace:       namespace,
+		TargetNamespace: targetNamespace,
+	}
+
+	dpuVolumeReconciler := &hostcontroller.DPUVolumeReconciler{
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Options: reconcileOptions,
+	}
+
+	dpuVolumeAttachmentReconciler := &hostcontroller.DPUVolumeAttachmentReconciler{
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Options: reconcileOptions,
+	}
+
+	dpuStorageVendorReconciler := &hostcontroller.DPUStorageVendorReconciler{
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Options: reconcileOptions,
+	}
+
+	dpuStoragePolicyReconciler := &hostcontroller.DPUStoragePolicyReconciler{
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Options: reconcileOptions,
+	}
+
+	eventReconciler := &hostcontroller.EventReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("eventstoragecontroller"),
+		Options:  reconcileOptions,
 	}
 
 	// new remote cache
@@ -188,58 +222,63 @@ func main() {
 		dpucluster.OptionDisableFor{DisableFor: []client.Object{
 			&corev1.ConfigMap{},
 			&corev1.Secret{},
-		}})
+		}},
+		dpucluster.OptionDefaultNamespaces{DefaultNamespaces: map[string]cache.Config{targetNamespace: {}}},
+		dpucluster.OptionByObject{
+			ByObject: map[client.Object]cache.ByObject{
+				&eventv1.Event{}: {
+					Field: fields.AndSelectors(
+						fields.OneTermEqualSelector("regarding.apiVersion", "v1"),
+						fields.OneTermEqualSelector("regarding.kind", "PersistentVolumeClaim")),
+				},
+			},
+		},
+		dpucluster.OptionGetWatcherCallbacks{
+			GetWatcherCallbacks: []dpucluster.GetWatcherCallback{
+				dpuStorageVendorReconciler.WatchDPUClusterStorageClass,
+				dpuStorageVendorReconciler.WatchDPUClusterCSIDriver,
+				dpuVolumeReconciler.WatchDPUClusterPVC,
+				dpuVolumeReconciler.WatchDPUClusterVolume,
+				dpuVolumeAttachmentReconciler.WatchDPUClusterVolumeAttachment,
+				dpuVolumeAttachmentReconciler.WatchDPUClusterSVVolumeAttachment,
+				eventReconciler.WatchDPUClusterEvent,
+			},
+		},
+	)
 
 	if err != nil {
 		setupLog.Error(err, "unable to create remote cache")
 		os.Exit(1)
 	}
 
-	reconcileOptions := hostcontroller.Options{
-		Namespace:       namespace,
-		TargetNamespace: targetNamespace,
-		DPUCluster: types.NamespacedName{
-			Name:      dpuClusterName,
-			Namespace: dpuClusterNamespace,
-		},
-	}
-
-	if err = (&hostcontroller.DPUVolumeReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		RemoteCache: rc,
-		Options:     reconcileOptions,
-	}).SetupWithManager(mgr); err != nil {
+	dpuVolumeReconciler.RemoteCache = rc
+	if err = dpuVolumeReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUVolumeReconciler")
 		os.Exit(1)
 	}
-	if err = (&hostcontroller.DPUVolumeAttachmentReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		RemoteCache: rc,
-		Options:     reconcileOptions,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DPUVolumeAttachmentAttachmentReconciler")
+	dpuVolumeAttachmentReconciler.RemoteCache = rc
+	if err = dpuVolumeAttachmentReconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DPUVolumeAttachmentReconciler")
 		os.Exit(1)
 	}
-	if err = (&hostcontroller.DPUStorageVendorReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		RemoteCache: rc,
-		Options:     reconcileOptions,
-	}).SetupWithManager(mgr); err != nil {
+	dpuStorageVendorReconciler.RemoteCache = rc
+	if err = dpuStorageVendorReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUStorageVendorReconciler")
 		os.Exit(1)
 	}
-	if err = (&hostcontroller.DPUStoragePolicyReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		RemoteCache: rc,
-		Options:     reconcileOptions,
-	}).SetupWithManager(mgr); err != nil {
+
+	if err = dpuStoragePolicyReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUStoragePolicyReconciler")
 		os.Exit(1)
 	}
+
+	eventReconciler.RemoteCache = rc
+	if err = eventReconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "EventReconciler")
+		os.Exit(1)
+	}
+
+	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", health.APIConnectionCheck(ctx, mgr)); err != nil {
 		setupLog.Error(err, "unable to set up health check")
@@ -260,12 +299,6 @@ func main() {
 func validateFlags() error {
 	if targetNamespace == "" {
 		return fmt.Errorf("target-namespace arg is required")
-	}
-	if dpuClusterName == "" {
-		return fmt.Errorf("dpucluster-name arg is required")
-	}
-	if dpuClusterNamespace == "" {
-		return fmt.Errorf("dpucluster-namespace arg is required")
 	}
 	return nil
 }
