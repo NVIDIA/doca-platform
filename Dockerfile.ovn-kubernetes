@@ -58,10 +58,9 @@ ARG TARGETARCH
 USER root
 
 ARG ubuntu_mirror=http://archive.ubuntu.com/ubuntu/
-ARG BASE_PACKAGES="iproute2 curl software-properties-common util-linux dnsmasq nftables"
 
 # Dependencies for installing OVN (Netplan, systemd and udev required by dpucniprovisioner).
-ARG OVN_PACKAGES="netplan.io udev systemd"
+ARG PACKAGES="openvswitch-switch netplan.io udev systemd dnsmasq"
 
 RUN dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /initial-dpkg-list.txt
 
@@ -70,7 +69,7 @@ RUN find /etc/apt/sources.list* -type f -exec sed -i \
       -e "s|http://security.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" '{}' \;
 
 RUN apt-get update && \
-    apt-get install -y ${BASE_PACKAGES} ${OVN_PACKAGES} && \
+    apt-get install -y --no-install-recommends ${PACKAGES} && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -100,7 +99,7 @@ RUN test "${PACKAGE_SOURCES}" = "false" || ( \
       sed -i 's/^# deb-src/deb-src/g' /etc/apt/sources.list /etc/apt/sources.list.d/* && \
       sed -i 's/^Types: deb$/Types: deb deb-src/g' /etc/apt/sources.list.d/*.sources && \
       apt-get update && \
-      apt-get source --download-only ${BASE_PACKAGES} ${OVN_PACKAGES} && \
+      apt-get source --download-only ${PACKAGES} && \
       comm -23 /after-ovn-dpkg-list.txt /initial-dpkg-list.txt | xargs -r apt-get source --download-only && \
       apt-get clean && \
       rm -f /initial-dpkg-list.txt /after-ovn-dpkg-list.txt && \
