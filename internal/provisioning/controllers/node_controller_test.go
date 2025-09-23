@@ -235,11 +235,10 @@ var _ = Describe("Node Controller", func() {
 				createIssuer(ctx, "dpf-provisioning-selfsigned-issuer", testNS.Name)
 
 				By("creating DMS Pod")
-				option := dnutil.DMSPodOptions{
-					DMSImageWithTag: "example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0",
-					BFBPVC:          "bfb-pvc",
+				option := dnutil.HostAgentPodOptions{
+					HostAgentImageWithTag: "example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0",
 				}
-				err := dms.CreateDMSPod(ctx, k8sClient, testNode, option, testNS.Name, testDPFOperatorConfigOwnerRef)
+				err := dms.CreateHostAgentPod(ctx, k8sClient, testNode, option, testNS.Name, testDPFOperatorConfigOwnerRef)
 				Expect(err).NotTo(HaveOccurred())
 			})
 
@@ -248,12 +247,11 @@ var _ = Describe("Node Controller", func() {
 				createIssuer(ctx, "dpf-provisioning-selfsigned-issuer", testNS.Name)
 
 				By("creating DMS Pod")
-				option := dnutil.DMSPodOptions{
-					DMSImageWithTag: "example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0",
-					BFBPVC:          "bfb-pvc",
-					DMSPodEnvs:      []string{"k1=v1", "k2=v2"},
+				option := dnutil.HostAgentPodOptions{
+					HostAgentImageWithTag: "example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0",
+					DMSPodEnvs:            []string{"k1=v1", "k2=v2"},
 				}
-				err := dms.CreateDMSPod(ctx, k8sClient, testNode, option, testNS.Name, testDPFOperatorConfigOwnerRef)
+				err := dms.CreateHostAgentPod(ctx, k8sClient, testNode, option, testNS.Name, testDPFOperatorConfigOwnerRef)
 				Expect(err).NotTo(HaveOccurred())
 
 				By("checking Pod env")
@@ -272,8 +270,8 @@ var _ = Describe("Node Controller", func() {
 				createIssuer(ctx, "dpf-provisioning-selfsigned-issuer", testNS.Name)
 
 				By("creating DMS Pod w/o options")
-				option := dnutil.DMSPodOptions{}
-				err := dms.CreateDMSPod(ctx, k8sClient, testNode, option, testNS.Name, testDPFOperatorConfigOwnerRef)
+				option := dnutil.HostAgentPodOptions{}
+				err := dms.CreateHostAgentPod(ctx, k8sClient, testNode, option, testNS.Name, testDPFOperatorConfigOwnerRef)
 				Expect(err).To(HaveOccurred())
 			})
 		})

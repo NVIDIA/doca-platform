@@ -23,7 +23,6 @@ require (
 	github.com/onsi/gomega v1.36.3
 	github.com/openconfig/gnmi v0.12.0
 	github.com/openconfig/gnoi v0.6.0
-	github.com/openconfig/gnoigo v0.0.0-20240820205259-23ac4e061cc2
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/ovn-org/libovsdb v0.7.0
 	github.com/spf13/cobra v1.9.1

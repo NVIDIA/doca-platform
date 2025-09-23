@@ -47,7 +47,7 @@ func LoadClientConfig(kubeconfigPath, bootstrapPath, certDir string) (certConfig
 		return clientConfig, restclient.CopyConfig(clientConfig), nil
 	}
 
-	store, err := certificate.NewFileStore("kubelet-client", certDir, certDir, "", "")
+	store, err := certificate.NewFileStore("host-agent-client", certDir, certDir, "", "")
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to build bootstrap cert store: %v", err)
 	}

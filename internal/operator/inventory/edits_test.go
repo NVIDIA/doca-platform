@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -39,6 +40,8 @@ var _ = Describe("Test Edits", func() {
 			var err error
 			deployment := &appsv1.Deployment{TypeMeta: metav1.TypeMeta{Kind: "Deployment"}}
 			service := &corev1.Service{TypeMeta: metav1.TypeMeta{Kind: "Service"}}
+			role := &rbacv1.Role{TypeMeta: metav1.TypeMeta{Kind: "Role"}}
+
 			objs = nil
 			objsByKind = make(map[ObjectKind]*unstructured.Unstructured)
 
@@ -53,6 +56,12 @@ var _ = Describe("Test Edits", func() {
 			Expect(err).ToNot(HaveOccurred())
 			objs = append(objs, obj)
 			objsByKind[ServiceKind] = obj
+
+			obj = &unstructured.Unstructured{}
+			obj.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(role)
+			Expect(err).ToNot(HaveOccurred())
+			objs = append(objs, obj)
+			objsByKind[RoleKind] = obj
 		})
 
 		It("edits all objects", func() {
@@ -107,12 +116,12 @@ var _ = Describe("Test Edits", func() {
 		})
 
 		It("fails if conversion to concrete type does not exist", func() {
-			nsEditForService := func(obj client.Object) error {
-				d := obj.(*corev1.Service)
+			nsEditForRole := func(obj client.Object) error {
+				d := obj.(*rbacv1.Role)
 				d.Namespace = "foo"
 				return nil
 			}
-			err := NewEdits().AddForKindS(ServiceKind, nsEditForService).Apply(objs)
+			err := NewEdits().AddForKindS(RoleKind, nsEditForRole).Apply(objs)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("missing conversion"))
 		})

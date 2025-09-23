@@ -129,6 +129,7 @@ type DPFProvisioningVariables struct {
 	MaxDPUParallelInstallations    *int32
 	MultiDPUOperationsSyncWaitTime time.Duration
 	MaxUnavailableDPUNodes         *int32
+	Registry                       *operatorv1.RegistryConfiguration
 }
 
 type SFCControllerVariables struct {
@@ -237,6 +238,7 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		InstallInterface:             config.Spec.ProvisioningController.InstallInterface,
 		MaxDPUParallelInstallations:  config.Spec.ProvisioningController.MaxDPUParallelInstallations,
 		MaxUnavailableDPUNodes:       config.Spec.ProvisioningController.MaxUnavailableDPUNodes,
+		Registry:                     config.Spec.ProvisioningController.Registry,
 	}
 	if config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime != nil {
 		variables.DPFProvisioningController.MultiDPUOperationsSyncWaitTime = config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime.Duration
