@@ -140,8 +140,6 @@ A Helm chart for DPF storage subsystem
 | host.snapCsiPlugin.node.tolerations[1].key | string | `"node-role.kubernetes.io/master"` |  |
 | host.snapCsiPlugin.node.tolerations[1].operator | string | `"Exists"` |  |
 | host.snapHostController.affinity | object | `{}` |  |
-| host.snapHostController.config.dpuClusterName | string | `""` |  |
-| host.snapHostController.config.dpuClusterNamespace | string | `""` |  |
 | host.snapHostController.config.namespace | string | `""` |  |
 | host.snapHostController.config.targetNamespace | string | `""` |  |
 | host.snapHostController.enabled | bool | `false` |  |

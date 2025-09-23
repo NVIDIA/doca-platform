@@ -1,8 +1,6 @@
 {{ include "validate" . }}
 {{- if .Values.host.snapHostController.enabled }}
 {{- $_ := required "host.snapHostController.config.targetNamespace must be set" .Values.host.snapHostController.config.targetNamespace }}
-{{- $_ := required "host.snapHostController.config.dpuClusterName must be set" .Values.host.snapHostController.config.dpuClusterName }}
-{{- $_ := required "host.snapHostController.config.dpuClusterNamespace must be set" .Values.host.snapHostController.config.dpuClusterNamespace }}
 
 ---
 apiVersion: apps/v1
@@ -42,8 +40,6 @@ spec:
           - --leader-elect=true
           - --namespace={{ .Values.host.snapHostController.config.namespace | default .Release.Namespace }}
           - --target-namespace={{ .Values.host.snapHostController.config.targetNamespace }}
-          - --dpucluster-name={{ .Values.host.snapHostController.config.dpuClusterName }}
-          - --dpucluster-namespace={{ .Values.host.snapHostController.config.dpuClusterNamespace }}
           imagePullPolicy: {{ .Values.host.snapHostController.imagePullPolicy | default "IfNotPresent" }}
           securityContext:
             {{- toYaml .Values.host.snapHostController.securityContext | nindent 12 }}

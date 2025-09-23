@@ -1,5 +1,5 @@
 /*
-COPYRIGHT 2025 NVIDIA
+Copyright 2025 NVIDIA
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,34 +20,34 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"testing"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	storagev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
-	"github.com/nvidia/doca-platform/pkg/dpucluster"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	corestoragev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 const (
-	timeout                 = time.Second * 15
+	timeout                 = time.Second * 30
 	interval                = time.Millisecond * 250
 	testNsNameHost          = "test-ns"
 	testNsNameDPU           = "test-ns-dpu"
@@ -61,11 +61,10 @@ var (
 	testClient client.Client
 	// testClientDPU is the client for the DPU cluster. While it points to the same cluster as testClient,
 	// keeping them separate improves test readability by clearly distinguishing between host and DPU cluster operations
-	testClientDPU                  client.Client
-	testEnv                        *envtest.Environment
-	testCtx, testManagerCancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
-	remoteCache                    *dpucluster.RemoteCache
-	setupObjects                   []client.Object
+	testClientDPU              client.Client
+	testEnv                    *envtest.Environment
+	testCtx, testCtxCancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
+	setupObjects               []client.Object
 )
 
 func TestHostController(t *testing.T) {
@@ -116,84 +115,7 @@ var _ = BeforeSuite(func() {
 	testNsDPU := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNsNameDPU}}
 	Expect(testClient.Create(testCtx, testNsDPU)).To(Succeed())
 
-	By("setting up and running the test reconciler")
-	testManager, err := ctrl.NewManager(cfg,
-		ctrl.Options{
-			Scheme: scheme.Scheme,
-			Cache: cache.Options{
-				ByObject: map[client.Object]cache.ByObject{
-					// watch DPUVolume and DPUVolumeAttachment only in namespace where the controller runs
-					&storagev1.DPUVolume{}:           {Namespaces: map[string]cache.Config{testNsNameHost: {}}},
-					&storagev1.DPUVolumeAttachment{}: {Namespaces: map[string]cache.Config{testNsNameHost: {}}},
-					&storagev1.DPUStorageVendor{}:    {Namespaces: map[string]cache.Config{testNsNameHost: {}}},
-					&storagev1.DPUStoragePolicy{}:    {Namespaces: map[string]cache.Config{testNsNameHost: {}}},
-				},
-			},
-			// Set metrics server bind address to 0 to disable it.
-			Metrics: server.Options{
-				BindAddress: "0",
-			}})
-	Expect(err).ToNot(HaveOccurred())
-
-	// Setup field indexers
-	Expect(SetupIndexers(testCtx, testManager)).To(Succeed())
-
-	// new remote cache
-	remoteCache, err = dpucluster.SetupRemoteCacheWithManager(testCtx, testManager,
-		dpucluster.OptionTimeout{Timeout: time.Second * 30},
-		dpucluster.OptionHostClient{Client: testManager.GetClient()},
-		dpucluster.OptionScheme{Scheme: testManager.GetScheme()},
-		dpucluster.OptionUserAgent{UserAgent: "snap-host-controller"})
-	Expect(err).ToNot(HaveOccurred())
-
-	reconcileOptions := Options{
-		Namespace:       testNsNameHost,
-		TargetNamespace: testNsNameDPU,
-		DPUCluster: types.NamespacedName{
-			Name:      testDPUClusterName,
-			Namespace: testDPUClusterNamespace,
-		},
-	}
-
-	err = (&DPUVolumeReconciler{
-		Client:      testManager.GetClient(),
-		Scheme:      testManager.GetScheme(),
-		RemoteCache: remoteCache,
-		Options:     reconcileOptions,
-	}).SetupWithManager(testManager)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = (&DPUVolumeAttachmentReconciler{
-		Client:      testManager.GetClient(),
-		Scheme:      testManager.GetScheme(),
-		RemoteCache: remoteCache,
-		Options:     reconcileOptions,
-	}).SetupWithManager(testManager)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = (&DPUStorageVendorReconciler{
-		Client:      testManager.GetClient(),
-		Scheme:      testManager.GetScheme(),
-		RemoteCache: remoteCache,
-		Options:     reconcileOptions,
-	}).SetupWithManager(testManager)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = (&DPUStoragePolicyReconciler{
-		Client:      testManager.GetClient(),
-		Scheme:      testManager.GetScheme(),
-		RemoteCache: remoteCache,
-		Options:     reconcileOptions,
-	}).SetupWithManager(testManager)
-	Expect(err).NotTo(HaveOccurred())
-
-	go func() {
-		defer GinkgoRecover()
-		err = testManager.Start(testCtx)
-		Expect(err).ToNot(HaveOccurred(), "failed to run manager")
-	}()
-
-	By("Faking GetdpuClusters to use the envtest cluster instead of a separate one")
+	By("Faking GetDPUClusters to use the envtest cluster instead of a separate cluster")
 	dpuCluster := testutils.GetTestDPUCluster(testDPUClusterNamespace, testDPUClusterName)
 	kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(dpuCluster, cfg)
 	Expect(err).NotTo(HaveOccurred())
@@ -214,8 +136,8 @@ var _ = AfterSuite(func() {
 	Expect(testutils.CleanupAndWait(testCtx, testClient, setupObjects...)).To(Succeed())
 
 	By("tearing down the test environment")
-	if testManagerCancelFunc != nil {
-		testManagerCancelFunc()
+	if testCtxCancelFunc != nil {
+		testCtxCancelFunc()
 	}
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
@@ -293,28 +215,6 @@ func getDPUVolumeAttachment() *storagev1.DPUVolumeAttachment {
 	}
 }
 
-func getVolumeAttachment() *storagev1.VolumeAttachment {
-	return &storagev1.VolumeAttachment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-vol1-attach1",
-			Namespace: testNsNameDPU,
-		},
-		Spec: storagev1.VolumeAttachmentSpec{
-			NodeName: "test-node-dpu",
-			Source: storagev1.VolumeSource{
-				VolumeRef: &storagev1.ObjectRef{
-					Name:      "test-vol1",
-					Namespace: testNsNameDPU,
-				},
-			},
-			FunctionTypeConfig: storagev1.FunctionTypeConfig{
-				FunctionType:    "vf",
-				HotplugFunction: false,
-			},
-		},
-	}
-}
-
 func getDPUNode() *provisioningv1.DPUNode {
 	return &provisioningv1.DPUNode{
 		ObjectMeta: metav1.ObjectMeta{
@@ -331,6 +231,10 @@ func getDPU() *provisioningv1.DPU {
 			Namespace: testNsNameHost,
 		},
 		Spec: provisioningv1.DPUSpec{
+			Cluster: provisioningv1.K8sCluster{
+				Namespace: testDPUClusterNamespace,
+				Name:      testDPUClusterName,
+			},
 			SerialNumber:  "MT25066004C7",
 			DPUNodeName:   "test-node",
 			DPUDeviceName: "test-device",
@@ -339,35 +243,192 @@ func getDPU() *provisioningv1.DPU {
 	}
 }
 
-func updateVolumeStatusToAvailable(name string) {
+func setDPUReady(dpu *provisioningv1.DPU) {
 	EventuallyWithOffset(1, func(g Gomega) {
-		vol := &storagev1.Volume{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNsNameDPU}}
-		volKey := client.ObjectKeyFromObject(vol)
-		g.Expect(testClientDPU.Get(testCtx, volKey, vol)).NotTo(HaveOccurred())
+		g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(dpu), dpu)).NotTo(HaveOccurred())
+		conditions.AddTrue(dpu, conditions.TypeReady)
+		g.Expect(testClient.Status().Update(testCtx, dpu)).NotTo(HaveOccurred())
+	}, timeout, interval).Should(Succeed())
+}
 
-		// Set VolumeSpecDPU fields to simulate controller behavior and make DPUVolume ready
-		vol.Spec.VolumeSpecDPU = storagev1.VolumeSpecDPU{
-			ID:                      "test-vol-id-123",
-			Capacity:                *resource.NewQuantity(1073741824, resource.BinarySI),
-			AccessModes:             []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-			ReclaimPolicy:           corev1.PersistentVolumeReclaimDelete,
-			StorageVendorName:       "test-vendor",
-			StorageVendorPluginName: "test-plugin",
-			VolumeAttributes: map[string]string{
-				"test-attr1": "value1",
-				"test-attr2": "value2",
+func getDPUStoragePolicy() *storagev1.DPUStoragePolicy {
+	policy := &storagev1.DPUStoragePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy",
+			Namespace: testNsNameHost,
+		},
+		Spec: storagev1.DPUStoragePolicySpec{
+			DPUStorageVendors:  []string{"test-storage-vendor"},
+			SelectionAlgorithm: ptr.To(storagev1.SelectionAlgorithmNumberVolumes),
+		},
+	}
+	return policy
+}
+
+func getDPUStorageVendor() *storagev1.DPUStorageVendor {
+	vendor := &storagev1.DPUStorageVendor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-storage-vendor",
+			Namespace: testNsNameHost,
+		},
+		Spec: storagev1.DPUStorageVendorSpec{
+			StorageClassName: "test-storage-class",
+			PluginName:       "test-csi-driver",
+		},
+	}
+	return vendor
+}
+
+func setDPUStorageVendorReady(vendor *storagev1.DPUStorageVendor, c client.Client) {
+	EventuallyWithOffset(1, func(g Gomega) {
+		g.Expect(c.Get(testCtx, client.ObjectKeyFromObject(vendor), vendor)).NotTo(HaveOccurred())
+		conditions.AddTrue(vendor, conditions.TypeReady)
+		conditions.AddTrue(vendor, storagev1.ConditionDPUStorageVendorValid)
+		conditions.AddTrue(vendor, storagev1.ConditionDPUStorageVendorReconciled)
+		vendor.Status.DPUClusters = []storagev1.ObjectReference{
+			{Name: testDPUClusterName, Namespace: testDPUClusterNamespace},
+		}
+		g.Expect(c.Status().Update(testCtx, vendor)).NotTo(HaveOccurred())
+	}, timeout, interval).Should(Succeed())
+}
+
+func setDPUStoragePolicyReady(policy *storagev1.DPUStoragePolicy, c client.Client) {
+	EventuallyWithOffset(1, func(g Gomega) {
+		g.Expect(c.Get(testCtx, client.ObjectKeyFromObject(policy), policy)).NotTo(HaveOccurred())
+		conditions.AddTrue(policy, conditions.TypeReady)
+		conditions.AddTrue(policy, storagev1.ConditionDPUStoragePolicyValid)
+		conditions.AddTrue(policy, storagev1.ConditionDPUStoragePolicyReconciled)
+		g.Expect(c.Status().Update(testCtx, policy)).NotTo(HaveOccurred())
+	}, timeout, interval).Should(Succeed())
+}
+
+func getStorageClass() *corestoragev1.StorageClass {
+	return &corestoragev1.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-storage-class",
+		},
+		Provisioner: "test-csi-driver",
+	}
+}
+
+func getCSIDriver() *corestoragev1.CSIDriver {
+	return &corestoragev1.CSIDriver{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-csi-driver",
+		},
+		Spec: corestoragev1.CSIDriverSpec{
+			AttachRequired: ptr.To(true),
+		},
+	}
+}
+
+func createAndBindPV(pvc *corev1.PersistentVolumeClaim) *corev1.PersistentVolume {
+	pv := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-pv-" + pvc.Name,
+		},
+		Spec: corev1.PersistentVolumeSpec{
+			Capacity:                      pvc.Spec.Resources.Requests,
+			AccessModes:                   pvc.Spec.AccessModes,
+			VolumeMode:                    pvc.Spec.VolumeMode,
+			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimDelete,
+			StorageClassName:              *pvc.Spec.StorageClassName,
+			ClaimRef: &corev1.ObjectReference{
+				Namespace: pvc.Namespace,
+				Name:      pvc.Name,
+				UID:       pvc.UID,
 			},
-			CSIReference: storagev1.CSIReference{
-				CSIDriverName:    "test-csi-driver",
-				StorageClassName: "test-storage-class",
-				PVCRef: &storagev1.ObjectRef{
-					Name:      "test-pvc",
-					Namespace: testNsNameDPU,
+			PersistentVolumeSource: corev1.PersistentVolumeSource{
+				CSI: &corev1.CSIPersistentVolumeSource{
+					Driver:       "test-csi-driver",
+					VolumeHandle: "test-volume-handle",
+					VolumeAttributes: map[string]string{
+						"test-attr1": "value1",
+						"test-attr2": "value2",
+					},
 				},
 			},
-		}
-		g.Expect(testClientDPU.Update(testCtx, vol)).NotTo(HaveOccurred())
-		vol.Status.State = storagev1.VolumeStateAvailable
-		g.Expect(testClientDPU.Status().Update(testCtx, vol)).NotTo(HaveOccurred())
+		},
+	}
+
+	EventuallyWithOffset(1, func(g Gomega) {
+		g.Expect(testClientDPU.Create(testCtx, pv)).NotTo(HaveOccurred())
 	}, timeout, interval).Should(Succeed())
+
+	EventuallyWithOffset(1, func(g Gomega) {
+		g.Expect(testClientDPU.Get(testCtx, client.ObjectKeyFromObject(pvc), pvc)).NotTo(HaveOccurred())
+		pvc.Spec.VolumeName = pv.Name
+		g.Expect(testClientDPU.Update(testCtx, pvc)).NotTo(HaveOccurred())
+		pvc.Status.Phase = corev1.ClaimBound
+		g.Expect(testClientDPU.Status().Update(testCtx, pvc)).NotTo(HaveOccurred())
+	}, timeout, interval).Should(Succeed())
+
+	return pv
+}
+
+func setDPUVolumeReadyWithVolumeInfo(dpuVolume *storagev1.DPUVolume) {
+	EventuallyWithOffset(1, func(g Gomega) {
+		g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
+		conditions.AddTrue(dpuVolume, storagev1.ConditionDPUVolumeReconciled)
+		conditions.AddTrue(dpuVolume, storagev1.ConditionDPUVolumeScheduled)
+		conditions.AddTrue(dpuVolume, storagev1.ConditionDPUVolumeBound)
+		conditions.AddTrue(dpuVolume, conditions.TypeReady)
+		if dpuVolume.Status.State == nil {
+			dpuVolume.Status.State = &storagev1.DPUVolumeState{}
+		}
+		dpuVolume.Status.State.DPUCluster = &storagev1.ObjectReference{
+			Name:      testDPUClusterName,
+			Namespace: testDPUClusterNamespace,
+		}
+		dpuVolume.Status.State.SelectedDPUStorageVendorName = ptr.To("test-storage-vendor")
+		dpuVolume.Status.State.CSIDriverName = ptr.To("test-csi-driver")
+		dpuVolume.Status.State.VolumeInfo = &storagev1.VolumeInfo{
+			VolumeName: ptr.To("test-pv"),
+		}
+		dpuVolume.Status.Phase = ptr.To(storagev1.DPUVolumePhaseBound)
+		g.Expect(testClient.Status().Update(testCtx, dpuVolume)).NotTo(HaveOccurred())
+	}, timeout, interval).Should(Succeed())
+}
+
+// cleanupTestObjects removes all test objects from the cluster
+func cleanupTestObjects(ctx context.Context, c client.Client) {
+	// Define all object list types to cleanup
+	objectLists := []client.ObjectList{
+		&storagev1.DPUVolumeList{},
+		&storagev1.VolumeList{},
+		&storagev1.DPUVolumeAttachmentList{},
+		&storagev1.VolumeAttachmentList{},
+		&storagev1.DPUStorageVendorList{},
+		&storagev1.DPUStoragePolicyList{},
+		&provisioningv1.DPUNodeList{},
+		&provisioningv1.DPUList{},
+		&corev1.PersistentVolumeClaimList{},
+		&corev1.PersistentVolumeList{},
+		&corestoragev1.StorageClassList{},
+		&corestoragev1.CSIDriverList{},
+	}
+	cleanupObjects := []client.Object{}
+	for _, objList := range objectLists {
+		ExpectWithOffset(1, c.List(ctx, objList)).NotTo(HaveOccurred())
+		cleanupObjects = append(cleanupObjects, extractObjectsFromList(objList)...)
+	}
+	ExpectWithOffset(1, testutils.CleanupWithFinalizerRemovalAndWait(ctx, c, cleanupObjects...)).To(Succeed())
+}
+
+// extractObjectsFromList extracts objects from a list using reflection
+func extractObjectsFromList(objList client.ObjectList) []client.Object {
+	var objects []client.Object
+	v := reflect.ValueOf(objList).Elem()
+	itemsField := v.FieldByName("Items")
+	if !itemsField.IsValid() || itemsField.Kind() != reflect.Slice {
+		return objects
+	}
+	for i := 0; i < itemsField.Len(); i++ {
+		item := itemsField.Index(i)
+		itemPtr := item.Addr().Interface()
+		if obj, ok := itemPtr.(client.Object); ok {
+			objects = append(objects, obj)
+		}
+	}
+	return objects
 }

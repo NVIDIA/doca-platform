@@ -213,10 +213,6 @@ host:
     # Note: Only one component can be enabled at a time.
     enabled: false
     config:
-      # required, name of the DPU cluster to create Volume and VolumeAttachment objects
-      dpuClusterName: ""
-      # required, namespace of the DPU to create Volume and VolumeAttachment objects
-      dpuClusterNamespace: ""
       # required, namespace in the DPU cluster to create Volume and VolumeAttachment objects
       targetNamespace: ""
       # namespace in which controller will reconcile resources, if not set, defaults to deployment namespace
