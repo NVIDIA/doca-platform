@@ -14,7 +14,7 @@ Service (DTS).
 
 ## Documentation
 
-* [Official Blueman Documentation](https://docs.nvidia.com/doca/sdk/doca-blueman-service-guide/index.html)
+* [Official Blueman Documentation](https://docs.nvidia.com/doca/sdk/doca+blueman+service+guide/index.html)
 
 ## Deployment
 
