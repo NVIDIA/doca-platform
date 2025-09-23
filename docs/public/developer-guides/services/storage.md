@@ -4,7 +4,7 @@ title: "Storage Development Guide"
 
 The DPF Storage Subsystem provides a framework for integrating 3rd-party storage plugins with the DPF system.
 This document outlines the architecture and guidelines for developing a plugin that integrates with the
-NVIDIA storage emulation service, called [DOCA SNAP](https://docs.nvidia.com/doca/sdk/doca-snap-services/index.html).
+NVIDIA storage emulation service, called [DOCA SNAP](https://docs.nvidia.com/doca/sdk/doca+snap+services/index.html).
 
 [TOC]
 
@@ -237,7 +237,7 @@ In this scenario, hosts are not trusted and the host OS configuration is not man
 
 There are no DPF storage components deployed on the host. User-provided applications or scripts are responsible for performing the required actions on the host OS to make storage available to the host.
 
-Refer to the [DOCA SNAP](https://docs.nvidia.com/doca/sdk/doca-snap-services/index.html) documentation for detailed information about required host OS configuration.
+Refer to the [DOCA SNAP](https://docs.nvidia.com/doca/sdk/doca+snap+services/index.html) documentation for detailed information about required host OS configuration.
 
 In this scenario, the following emulation methods are supported:
 * NVMe over VF on top of a static PF
@@ -599,7 +599,7 @@ flowchart-elk TB
 
 NVIDIA DOCA SNAP technology encompasses a family of services that enable hardware-accelerated virtualization of local storage running on NVIDIA BlueField products.
 The SNAP services present networked storage as local block or file system devices to the host, emulating local drives on the PCIe bus.
-Additional details about the SNAP services can be found in the [DOCA SNAP documentation](https://docs.nvidia.com/doca/sdk/doca-snap-services/index.html).
+Additional details about the SNAP services can be found in the [DOCA SNAP documentation](https://docs.nvidia.com/doca/sdk/doca+snap+services/index.html).
 
 
 ## Vendor-specific components

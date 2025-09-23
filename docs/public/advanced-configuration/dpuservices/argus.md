@@ -5,7 +5,7 @@ title: "DOCA Argus Service"
 This documentation explains configuration and deployment of DOCA Argus service as DPUService in DPF.
 
 Main Argus concepts are explained in the
-[official DOCA Argus documentation](https://docs.nvidia.com/doca/sdk/doca-argus-service-guide/index.html).  
+[official DOCA Argus documentation](https://docs.nvidia.com/doca/sdk/doca+argus+service+guide/index.html).  
 The official documentation provides a more comprehensive overview, DPUService users should consult it for detailed
 explanation of service configuration.
 
@@ -16,7 +16,7 @@ to perform live machine introspection at the hardware level.
 
 Argus component runs on the DPU and analyzes specific snippets of volatile memory directly, providing attested insights
 into the operation of various workloads, whether they are bare-metal, virtualized, or containerized. By default, Argus
-scans all systems of the host, so for scanning specific systems only refer to [official DOCA Argus documentation](https://docs.nvidia.com/doca/sdk/doca-argus-service-guide/index.html).
+scans all systems of the host, so for scanning specific systems only refer to [official DOCA Argus documentation](https://docs.nvidia.com/doca/sdk/doca+argus+service+guide/index.html).
 
 # IOMMU Kernel Parameters Requirements
 
@@ -40,7 +40,7 @@ You have **two valid options**:
    - `intel_iommu=on` **or** `amd_iommu=on`  
    - `iommu=pt`
 
-For more details, refer to the [official NVIDIA DOCA Argus documentation](https://docs.nvidia.com/doca/sdk/doca-argus-service-guide/index.html).
+For more details, refer to the [official NVIDIA DOCA Argus documentation](https://docs.nvidia.com/doca/sdk/doca+argus+service+guide/index.html).
 
 
 # Configuration
@@ -221,7 +221,7 @@ spec:
 
 # Configuration
 
-[Official Argus documentation](https://docs.nvidia.com/doca/sdk/doca-argus-service-guide/index.html) explains
+[Official Argus documentation](https://docs.nvidia.com/doca/sdk/doca+argus+service+guide/index.html) explains
 configuration options.
 
 # DPUDeployment
