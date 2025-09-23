@@ -454,6 +454,19 @@ _Appears in:_
 
 
 
+#### InstallViaHostAgent
+
+
+
+InstallViaHostAgent is the interface used to install the BFB
+
+
+
+_Appears in:_
+- [ProvisioningInstallInterface](#provisioninginstallinterface)
+
+
+
 #### InstallViaRedfish
 
 
@@ -467,8 +480,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `bfbRegistryAddress` _string_ | BFBRegistryAddress is the address of the BFB Registry |  | MinLength: 1 <br /> |
-| `bfbRegistry` _[BFBRegistryConfiguration](#bfbregistryconfiguration)_ | BFBRegistry is the configuration for the BFB Registry |  |  |
+| `bfbRegistryAddress` _string_ | BFBRegistryAddress is the address of the BFB Registry<br /><br />Deprecated: Use RegistryConfiguration instead. |  | MinLength: 1 <br /> |
+| `bfbRegistry` _[BFBRegistryConfiguration](#bfbregistryconfiguration)_ | BFBRegistry is the configuration for the BFB Registry<br /><br />Deprecated: Use RegistryConfiguration instead. |  |  |
 | `skipDpuNodeDiscovery` _boolean_ | SkipDpuNodeDiscovery is a flag to skip the DPU node discovery. | true |  |
 
 
@@ -648,6 +661,7 @@ _Appears in:_
 | `dmsTimeout` _integer_ | DMSTimeout is the max time in seconds within which a DMS API must respond, 0 is unlimited |  | Minimum: 1 <br /> |
 | `customCASecretName` _string_ | CustomCASecretName indicates the name of the Kubernetes secret object<br />which containing the custom CA certificate |  |  |
 | `installInterface` _[ProvisioningInstallInterface](#provisioninginstallinterface)_ | InstallInterface is the interface through which the BFB is installed |  |  |
+| `registry` _[RegistryConfiguration](#registryconfiguration)_ | Registry is the configuration for the BFB Registry |  |  |
 | `maxDPUParallelInstallations` _integer_ | MaxDPUParallelInstallations specifies the maximum number of DPUs that can be provisioned concurrently.<br />A DPU is removed from the concurrent provisioning count as soon as it finishes the "OS Installing" phase and<br />enters the "Rebooting" phase of its provisioning lifecycle. | 50 | Minimum: 1 <br /> |
 | `multiDPUOperationsSyncWaitTime` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | MultiDPUOperationsSyncWaitTime is the wait time between DPUs sync operations on the same node.<br />It would take effect only on DPUNode objects which contain more than one DPU. | 30s | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br /> |
 | `maxUnavailableDPUNodes` _integer_ | MaxUnavailableDPUNodes is the maximum number of DPUNodes that are unavailable during the node effect period. | 50 | Minimum: 1 <br /> |
@@ -666,8 +680,26 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `installViaGNOI` _[InstallViaGNOI](#installviagnoi)_ | InstallViaGNOI is the interface used to install the BFB via GNOI |  |  |
+| `installViaGNOI` _[InstallViaGNOI](#installviagnoi)_ | InstallViaGNOI is the interface used to install the BFB via GNOI<br /><br />Deprecated: Use InstallViaHostAgent instead. |  |  |
+| `installViaHostAgent` _[InstallViaHostAgent](#installviahostagent)_ | InstallViaHostAgent is the interface used to install the BFB via HostAgent |  |  |
 | `installViaRedfish` _[InstallViaRedfish](#installviaredfish)_ | InstallViaRedfish is the interface used to install the BFB via Redfish |  |  |
+
+
+#### RegistryConfiguration
+
+
+
+
+
+
+
+_Appears in:_
+- [ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `address` _string_ | Address is the address used to access the BFB Registry. The address must start with "http://".<br />By default, the BFB Registry can be accessed via its Service.<br />For non-kubernetes environments, this must be set due to the lack of kubelet on worker nodes.<br />For zero-trust environments, this must be set so that the BFB Registry can be accessed from DPU BMC. |  | Pattern: `^http://` <br /> |
+| `port` _integer_ | Port is the port on which the registry instances will listen |  | Maximum: 65535 <br />Minimum: 1 <br /> |
 
 
 #### ResourceComponentConfig
@@ -1626,8 +1658,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeRebootMethod` _[NodeRebootMethod](#noderebootmethod)_ | Defines the method for rebooting the host.<br />One of the following options can be chosen for this field:<br />   - "external": Reboot the host via an external means, not controlled by the<br />     DPU controller.<br />   - "script": Reboot the host by executing a custom script.<br />   - "gNOI": Use the DPU's DMS interface to reboot the host.<br />"gNOI" is the default value. | \{ gNOI:map[] \} |  |
-| `nodeDMSAddress` _[DMSAddress](#dmsaddress)_ | The IP address and port where the DMS is exposed. Only applicable if dpuInstallInterface is set to gNOI. |  |  |
+| `nodeRebootMethod` _[NodeRebootMethod](#noderebootmethod)_ | Defines the method for rebooting the host.<br />One of the following options can be chosen for this field:<br />   - "external": Reboot the host via an external means, not controlled by the<br />     DPU controller.<br />   - "script": Reboot the host by executing a custom script.<br />   - "hostAgent": Use the host agent to reboot the host.<br />"hostAgent" is the default value. | \{ hostAgent:map[] \} |  |
+| `nodeDMSAddress` _[DMSAddress](#dmsaddress)_ | The IP address and port where the DMS is exposed. Only applicable if dpuInstallInterface is set to gNOI.<br /><br />Deprecated: this field is no longer used. |  |  |
 | `dpus` _[DPURef](#dpuref) array_ | A map containing names of each DPUDevice attached to the node. |  |  |
 
 
@@ -1645,7 +1677,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represent the latest available observations of an object's state. |  | Type: array <br /> |
-| `dpuInstallInterface` _string_ | The name of the interface which will be used to install the bfb image, can be one of gNOI,redfish |  | Enum: [gNOI redfish] <br /> |
+| `dpuInstallInterface` _string_ | The name of the interface which will be used to install the bfb image, can be one of hostAgent,redfish |  | Enum: [gNOI hostAgent redfish] <br /> |
 | `kubeNodeRef` _string_ | The name of the Kubernetes Node object that this DPUNode represents.<br />This field is optional and only relevant if the x86 host is part of the DPF Kubernetes cluster. |  |  |
 | `rebootInProgress` _boolean_ | RebootInProgress indicates if the node is in the process of rebooting. |  |  |
 
@@ -1837,7 +1869,7 @@ _Appears in:_
 | `requiredReset` _boolean_ | whether require reset of DPU |  |  |
 | `firmware` _[Firmware](#firmware)_ | the firmware information of DPU |  |  |
 | `addresses` _[NodeAddress](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#nodeaddress-v1-core) array_ | The DPU node's IP addresses |  |  |
-| `dpuInstallInterface` _string_ | the name of the interface which will be used to install the bfb image,<br />and communicate with DPU, can be one of gNOI,redfish |  | Enum: [gNOI redfish] <br /> |
+| `dpuInstallInterface` _string_ | the name of the interface which will be used to install the bfb image,<br />and communicate with DPU, can be one of hostAgent,redfish |  | Enum: [gNOI hostAgent redfish] <br /> |
 | `postProvisioningNodeEffect` _boolean_ | Indicates that node effect was triggered by post-provisioning label changes |  |  |
 
 
@@ -1927,6 +1959,19 @@ _Appears in:_
 
 
 #### GNOI
+
+
+
+
+
+
+
+_Appears in:_
+- [NodeRebootMethod](#noderebootmethod)
+
+
+
+#### HostAgent
 
 
 
@@ -2089,7 +2134,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `gNOI` _[GNOI](#gnoi)_ | Use the DPU's DMS interface to reboot the host. |  |  |
+| `gNOI` _[GNOI](#gnoi)_ | Use the DPU's DMS interface to reboot the host.<br /><br />Deprecated: Use HostAgent instead. |  |  |
+| `hostAgent` _[HostAgent](#hostagent)_ | Use the HostAgent to reboot the host. |  |  |
 | `external` _[External](#external)_ | Reboot the host via an external means, not controlled by the DPU controller. |  |  |
 | `script` _[Script](#script)_ | Reboot the host by executing a custom script. This field defined which ConfigMap store the custom script.<br />The ConfigMap should include a pod template of Job object under the `pod-template` key.<br />That pod template will be put in a Job object to be executed. |  |  |
 

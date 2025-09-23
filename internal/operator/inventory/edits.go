@@ -22,6 +22,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -173,6 +174,13 @@ func (e *Edits) toConcreteType(obj *unstructured.Unstructured) (client.Object, e
 		return concrete, nil
 	case DaemonSetKind:
 		concrete := &appsv1.DaemonSet{}
+		err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), concrete)
+		if err != nil {
+			return nil, fmt.Errorf("error while converting data to objects: %w", err)
+		}
+		return concrete, nil
+	case ServiceKind:
+		concrete := &corev1.Service{}
 		err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), concrete)
 		if err != nil {
 			return nil, fmt.Errorf("error while converting data to objects: %w", err)

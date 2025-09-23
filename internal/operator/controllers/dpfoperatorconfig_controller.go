@@ -112,6 +112,9 @@ type DPFOperatorConfigReconcilerSettings struct {
 // +kubebuilder:rbac:groups=core,resources=configmaps;secrets,verbs=get;list;create;patch;update;delete
 // +kubebuilder:rbac:groups=core,resources=services;endpoints,verbs=get;list;watch;create;patch;update;delete;deletecollection
 // +kubebuilder:rbac:groups=core,resources=nodes;pods;pods/exec;services;serviceaccounts;serviceaccounts/token;configmaps;persistentvolumeclaims;events;,verbs=get;list;watch;create;patch;update;delete
+// +kubebuilder:rbac:groups=certificates.k8s.io,resources=certificatesigningrequests,verbs=get;list;create;patch;update;delete
+// +kubebuilder:rbac:groups=certificates.k8s.io,resources=certificatesigningrequests/approval;certificatesigningrequests/status,verbs=update
+// +kubebuilder:rbac:groups=certificates.k8s.io,resources=signers,resourceNames="kubernetes.io/kube-apiserver-client",verbs=approve
 
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings;roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments;daemonsets,verbs=get;list;watch;create;patch;delete

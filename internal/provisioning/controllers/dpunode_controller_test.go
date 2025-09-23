@@ -50,11 +50,6 @@ var _ = Describe("DPUNode Controller", func() {
 		testDPFoperatorConfig *operatorv1.DPFOperatorConfig
 	)
 
-	const (
-		testIP   string = "1.1.1.1"
-		testPort uint16 = 1111
-	)
-
 	var createDPFOperatorConfig = func(name string, namespace string) *operatorv1.DPFOperatorConfig {
 		return &operatorv1.DPFOperatorConfig{
 			ObjectMeta: metav1.ObjectMeta{
@@ -300,7 +295,6 @@ var _ = Describe("DPUNode Controller", func() {
 						Name: dpuDevice.Name,
 					},
 				}
-				dpuNode.Spec.NodeDMSAddress = &provisioningv1.DMSAddress{IP: testIP, Port: testPort}
 				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
 
 				dpuNodeFetched := &provisioningv1.DPUNode{}
@@ -385,7 +379,6 @@ var _ = Describe("DPUNode Controller", func() {
 					{Name: dpuDevice1.Name},
 					{Name: dpuDevice2.Name},
 				}
-				dpuNode.Spec.NodeDMSAddress = &provisioningv1.DMSAddress{IP: testIP, Port: testPort}
 				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
 
 				// Set DPUInstallInterface on DPUNode to avoid DPU controller errors
@@ -475,7 +468,6 @@ var _ = Describe("DPUNode Controller", func() {
 					{Name: dpuDevice7.Name},
 					{Name: dpuDevice8.Name},
 				}
-				dpuNode.Spec.NodeDMSAddress = &provisioningv1.DMSAddress{IP: testIP, Port: testPort}
 				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
 
 				// Set DPUInstallInterface on DPUNode to avoid DPU controller errors

@@ -9,6 +9,6 @@ resources:
 - role_binding.yaml
 - leader_election_role.yaml
 - leader_election_role_binding.yaml
-- dms_pod_service_account.yaml
-- dms_pod_role.yaml
-- dms_pod_role_binding.yaml
+- hostagent_role_binding.yaml
+- hostagent_role.yaml
+- hostagent_service_account.yaml

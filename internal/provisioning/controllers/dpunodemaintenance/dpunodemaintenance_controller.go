@@ -476,7 +476,7 @@ func createNodeMaintenance(ctx context.Context, k8sClient client.Client, owner *
 			DrainSpec: &maintenancev1alpha1.DrainSpec{
 				Force:          true,
 				DeleteEmptyDir: true,
-				PodSelector:    fmt.Sprintf("%s!=%s", cutil.ProvisioningComponentLabelKey, "dms"), //skip DMS pod
+				PodSelector:    fmt.Sprintf("%s!=%s", cutil.ProvisioningComponentLabelKey, "hostagent"), //skip DMS pod
 			},
 		},
 	}

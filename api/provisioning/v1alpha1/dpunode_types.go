@@ -36,8 +36,9 @@ type DPUNodeInstallInterfaceType string
 
 // List of valid Install Interface types
 const (
-	DPUNodeInstallInterfaceGNOI    DPUNodeInstallInterfaceType = "gNOI"
-	DPUNodeInstallIntrefaceRedfish DPUNodeInstallInterfaceType = "redfish"
+	DPUNodeInstallInterfaceGNOI      DPUNodeInstallInterfaceType = "gNOI"
+	DPUNodeInstallInterfaceHostAgent DPUNodeInstallInterfaceType = "hostAgent"
+	DPUNodeInstallIntrefaceRedfish   DPUNodeInstallInterfaceType = "redfish"
 )
 
 type DPUNodeConditionType string
@@ -86,6 +87,8 @@ type DPUNode struct {
 
 type GNOI struct{}
 
+type HostAgent struct{}
+
 type External struct{}
 
 type Script struct {
@@ -95,11 +98,16 @@ type Script struct {
 }
 
 // NodeRebootMethod defines the desired reboot method
-// +kubebuilder:validation:XValidation:rule="(has(self.gNOI) && !has(self.external) && !has(self.script) || has(self.external) && !has(self.gNOI) && !has(self.script) || has(self.script) && !has(self.external) && !has(self.gNOI))", message="only one of gNOI, external, script can be set"
+// +kubebuilder:validation:XValidation:rule="(((has(self.hostAgent) || has(self.gNOI)) && !has(self.external) && !has(self.script)) || (has(self.external) && !has(self.hostAgent) && !has(self.gNOI) && !has(self.script)) || (has(self.script) && !has(self.external) && !has(self.hostAgent) && !has(self.gNOI)))", message="only one of hostAgent, external, script can be set"
 type NodeRebootMethod struct {
 	// Use the DPU's DMS interface to reboot the host.
+	//
+	// Deprecated: Use HostAgent instead.
 	// +optional
 	GNOI *GNOI `json:"gNOI,omitempty"`
+	// Use the HostAgent to reboot the host.
+	// +optional
+	HostAgent *HostAgent `json:"hostAgent,omitempty"`
 	// Reboot the host via an external means, not controlled by the DPU controller.
 	// +optional
 	External *External `json:"external,omitempty"`
@@ -124,13 +132,15 @@ type DPUNodeSpec struct {
 	//    - "external": Reboot the host via an external means, not controlled by the
 	//      DPU controller.
 	//    - "script": Reboot the host by executing a custom script.
-	//    - "gNOI": Use the DPU's DMS interface to reboot the host.
-	// "gNOI" is the default value.
-	// +kubebuilder:default={gNOI:{}}
+	//    - "hostAgent": Use the host agent to reboot the host.
+	// "hostAgent" is the default value.
+	// +kubebuilder:default={hostAgent:{}}
 	// +optional
 	NodeRebootMethod *NodeRebootMethod `json:"nodeRebootMethod,omitempty"`
 
 	// The IP address and port where the DMS is exposed. Only applicable if dpuInstallInterface is set to gNOI.
+	//
+	// Deprecated: this field is no longer used.
 	// +optional
 	NodeDMSAddress *DMSAddress `json:"nodeDMSAddress,omitempty"`
 
@@ -163,8 +173,8 @@ type DPUNodeStatus struct {
 	// +kubebuilder:validation:Type=array
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// The name of the interface which will be used to install the bfb image, can be one of gNOI,redfish
-	// +kubebuilder:validation:Enum=gNOI;redfish
+	// The name of the interface which will be used to install the bfb image, can be one of hostAgent,redfish
+	// +kubebuilder:validation:Enum=gNOI;hostAgent;redfish
 	// +optional
 	DPUInstallInterface *string `json:"dpuInstallInterface,omitempty"`
 	// The name of the Kubernetes Node object that this DPUNode represents.

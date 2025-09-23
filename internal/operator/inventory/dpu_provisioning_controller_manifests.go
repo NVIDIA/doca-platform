@@ -33,6 +33,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -50,10 +51,12 @@ var _ Component = &provisioningControllerObjects{}
 // provisioningControllerObjects contains objects that are used to generate Provisioning Controller manifests.
 // provisioningControllerObjects objects should be immutable after Parse()
 type provisioningControllerObjects struct {
-	data               []byte
-	bfbRegistryData    []byte
-	objects            []*unstructured.Unstructured
-	bfbRegistryObjects []*unstructured.Unstructured
+	data                   []byte
+	bfbRegistryData        []byte
+	objects                []*unstructured.Unstructured
+	bfbRegistryObjects     []*unstructured.Unstructured
+	bfbRegistryServiceName string
+	bfbRegistryServicePort int
 }
 
 func (p *provisioningControllerObjects) Name() operatorv1.ComponentName {
@@ -85,6 +88,20 @@ func (p *provisioningControllerObjects) Parse() (err error) {
 		return fmt.Errorf("no objects found in BFB Registry manifests")
 	}
 	p.bfbRegistryObjects = append(p.bfbRegistryObjects, bfbRegistryObjs...)
+	for _, obj := range bfbRegistryObjs {
+		if ObjectKind(obj.GetKind()) != ServiceKind {
+			continue
+		}
+		service := &corev1.Service{}
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), service); err != nil {
+			return fmt.Errorf("error while parsing Service for BFB Registry: %w", err)
+		}
+		if len(service.Spec.Ports) == 0 {
+			return fmt.Errorf("service %s has no ports", obj.GetName())
+		}
+		p.bfbRegistryServicePort = int(service.Spec.Ports[0].Port)
+		p.bfbRegistryServiceName = obj.GetName()
+	}
 
 	deploymentFound := false
 	for _, obj := range objs {
@@ -144,37 +161,12 @@ func (p *provisioningControllerObjects) GenerateManifests(vars Variables, option
 		labelsToAdd[applysetPartOfLabel] = applySetID
 	}
 
-	if vars.DPFProvisioningController.InstallInterface != nil &&
-		vars.DPFProvisioningController.InstallInterface.InstallViaRedfish != nil {
-		rfCfg := vars.DPFProvisioningController.InstallInterface.InstallViaRedfish
-		objsCopyRegistry := make([]*unstructured.Unstructured, 0, len(p.bfbRegistryObjects))
-		for i := range p.bfbRegistryObjects {
-			objsCopyRegistry = append(objsCopyRegistry, p.bfbRegistryObjects[i].DeepCopy())
-		}
-		imageName, ok := vars.Images[operatorv1.BFBRegistryName.String()]
-		if !ok {
-			return nil, fmt.Errorf("image for %q not found in variables", operatorv1.BFBRegistryName)
-		}
-		edit := NewEdits().AddForAll(NamespaceEdit(vars.Namespace), LabelsEdit(labelsToAdd)).
-			AddForKindS(DaemonSetKind, ImageForDaemonSetContainerEdit("nginx", imageName)).
-			AddForKindS(DaemonSetKind, ImagePullSecretsEditForDaemonSetEdit(vars.ImagePullSecrets...)).
-			AddForKindS(DaemonSetKind, NodeAffinityEdit(&controlPlaneNodeAffinity)).
-			AddForKindS(DaemonSetKind, TolerationsEdit(controlPlaneTolerations))
-		if rfCfg.BFBRegistry != nil && rfCfg.BFBRegistry.Port != nil {
-			env := []corev1.EnvVar{
-				{
-					Name:  "NGINX_PORT",
-					Value: fmt.Sprintf("%d", *rfCfg.BFBRegistry.Port),
-				},
-			}
-			edit.AddForKindS(DaemonSetKind, EnvForDaemonSetContainerEdit("nginx", env))
-		}
-		if err := edit.Apply(objsCopyRegistry); err != nil {
-			return nil, err
-		}
-		for i := range objsCopyRegistry {
-			ret = append(ret, objsCopyRegistry[i])
-		}
+	bfbRegistryObjects, err := p.editRegistryObjs(vars, labelsToAdd)
+	if err != nil {
+		return nil, err
+	}
+	for i := range bfbRegistryObjects {
+		ret = append(ret, bfbRegistryObjects[i])
 	}
 
 	// apply edits
@@ -225,6 +217,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setMultiDPUOperationsSyncWaitTime,
 			p.setMaxUnavailableDPUNodes,
 			p.setResources,
+			p.setBFBRegistryAddress,
 		}
 		for _, mod := range mods {
 			if err := mod(deployment, vars); err != nil {
@@ -233,6 +226,66 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 		}
 		return nil
 	}
+}
+
+// editRegistryObjs sets the BFB Registry for the provisioning controller.
+func (p *provisioningControllerObjects) editRegistryObjs(vars Variables, labelsToAdd map[string]string) ([]*unstructured.Unstructured, error) {
+	var port int
+	if vars.DPFProvisioningController.Registry != nil {
+		if vars.DPFProvisioningController.Registry.Port != nil {
+			port = *vars.DPFProvisioningController.Registry.Port
+		}
+	} else {
+		if vars.DPFProvisioningController.InstallInterface != nil &&
+			vars.DPFProvisioningController.InstallInterface.InstallViaRedfish != nil &&
+			vars.DPFProvisioningController.InstallInterface.InstallViaRedfish.BFBRegistry != nil { //nolint:staticcheck
+			cfg := vars.DPFProvisioningController.InstallInterface.InstallViaRedfish.BFBRegistry //nolint:staticcheck
+			if cfg.Port != nil {
+				port = *cfg.Port
+			}
+		}
+	}
+	objs := make([]*unstructured.Unstructured, 0, len(p.bfbRegistryObjects))
+	for i := range p.bfbRegistryObjects {
+		objs = append(objs, p.bfbRegistryObjects[i].DeepCopy())
+	}
+	image, ok := vars.Images[operatorv1.BFBRegistryName.String()]
+	if !ok {
+		return nil, fmt.Errorf("image for %q not found in variables", operatorv1.BFBRegistryName)
+	}
+	edit := NewEdits().AddForAll(NamespaceEdit(vars.Namespace), LabelsEdit(labelsToAdd)).
+		AddForKindS(DaemonSetKind, ImageForDaemonSetContainerEdit("nginx", image)).
+		AddForKindS(DaemonSetKind, ImagePullSecretsEditForDaemonSetEdit(vars.ImagePullSecrets...)).
+		AddForKindS(DaemonSetKind, NodeAffinityEdit(&controlPlaneNodeAffinity)).
+		AddForKindS(DaemonSetKind, TolerationsEdit(controlPlaneTolerations))
+	if port != 0 {
+		env := []corev1.EnvVar{
+			{
+				Name:  "NGINX_PORT",
+				Value: fmt.Sprintf("%d", port),
+			},
+		}
+		edit.AddForKindS(DaemonSetKind, EnvForDaemonSetContainerEdit("nginx", env))
+		edit.AddForKindS(ServiceKind, func(obj client.Object) error {
+			service, ok := obj.(*corev1.Service)
+			if !ok {
+				return fmt.Errorf("unexpected object %s. expected Service", obj.GetObjectKind().GroupVersionKind())
+			}
+			if len(service.Spec.Ports) == 0 {
+				return fmt.Errorf("service %s has no ports", service.GetName())
+			}
+			service.Spec.Ports[0].Port = int32(port)
+			service.Spec.Ports[0].TargetPort = intstr.IntOrString{
+				IntVal: int32(port),
+			}
+			p.bfbRegistryServicePort = port
+			return nil
+		})
+	}
+	if err := edit.Apply(objs); err != nil {
+		return nil, err
+	}
+	return objs, nil
 }
 
 // Set the component label for the deployment.
@@ -420,16 +473,31 @@ func (p *provisioningControllerObjects) setInstallInterface(deploy *appsv1.Deplo
 		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
 	}
 	if vars.DPFProvisioningController.InstallInterface == nil ||
-		vars.DPFProvisioningController.InstallInterface.InstallViaGNOI != nil {
-		return setFlags(c, fmt.Sprintf("--dpu-install-interface=%s", provisioningv1.InstallViaGNOI))
+		vars.DPFProvisioningController.InstallInterface.InstallViaGNOI != nil || //nolint:staticcheck
+		vars.DPFProvisioningController.InstallInterface.InstallViaHostAgent != nil {
+		return setFlags(c, fmt.Sprintf("--dpu-install-interface=%s", provisioningv1.InstallViaHostAgent))
 	} else if vars.DPFProvisioningController.InstallInterface.InstallViaRedfish != nil {
 		err := setFlags(c, fmt.Sprintf("--dpu-install-interface=%s", provisioningv1.InstallViaRedFish))
 		if err != nil {
 			return err
 		}
-		return setFlags(c, fmt.Sprintf("--bfb-registry=%s", vars.DPFProvisioningController.InstallInterface.InstallViaRedfish.BFBRegistryAddress))
+		return nil
 	}
 	return fmt.Errorf("provisioning controller install interface not set")
+}
+
+func (p *provisioningControllerObjects) setBFBRegistryAddress(deploy *appsv1.Deployment, vars Variables) error {
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+	}
+	if vars.DPFProvisioningController.Registry != nil && vars.DPFProvisioningController.Registry.Address != nil {
+		return setFlags(c, fmt.Sprintf("--bfb-registry=%s", *vars.DPFProvisioningController.Registry.Address))
+	} else if vars.DPFProvisioningController.InstallInterface != nil &&
+		vars.DPFProvisioningController.InstallInterface.InstallViaRedfish != nil {
+		return setFlags(c, fmt.Sprintf("--bfb-registry=%s", vars.DPFProvisioningController.InstallInterface.InstallViaRedfish.BFBRegistryAddress)) //nolint:staticcheck
+	}
+	return setFlags(c, fmt.Sprintf("--bfb-registry=%s:%d", p.bfbRegistryServiceName, p.bfbRegistryServicePort))
 }
 
 func (p *provisioningControllerObjects) setDMSTimeout(deploy *appsv1.Deployment, vars Variables) error {

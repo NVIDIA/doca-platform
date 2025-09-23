@@ -27,6 +27,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/release"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -72,8 +73,7 @@ func Initializing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 	// Check if the DPU OOB bridge is configured for non-RedFish installation.
 	// If not configured, set the condition and return.
 	if dpuNode.Status.DPUInstallInterface != nil && *dpuNode.Status.DPUInstallInterface != string(provisioningv1.InstallViaRedFish) {
-		key := cutil.NodeFeatureDiscoveryLabelPrefix + cutil.DPUOOBBridgeConfiguredLabel
-		if _, ok := dpuNode.GetLabels()[key]; !ok {
+		if !meta.IsStatusConditionTrue(dpuNode.Status.Conditions, string(provisioningv1.DPUNodeConditionBridgeConfigured)) {
 			err := fmt.Errorf("DPU OOB bridge is not configured")
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondInitialized.String(), err, "DPUOOBBridgeNotConfigured", err.Error()))
 			return *state, err
@@ -91,21 +91,23 @@ func Initializing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, nil
 	}
 
-	if *dpu.Status.DPUInstallInterface == string(provisioningv1.InstallViaGNOI) {
+	switch *dpu.Status.DPUInstallInterface {
+	case string(provisioningv1.InstallViaGNOI), string(provisioningv1.InstallViaHostAgent):
 		if dpu.Spec.PCIAddress == nil {
 			err := fmt.Errorf("PCI Address is not provided")
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondInitialized.String(), err, "PCIAddressNotProvided", err.Error()))
 			return *state, nil
 		}
-	} else if *dpu.Status.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
+	case string(provisioningv1.InstallViaRedFish):
 		if dpuDevice.Spec.BMCIP == nil || net.ParseIP(*dpuDevice.Spec.BMCIP) == nil {
 			err := fmt.Errorf("BMC IP is not valid")
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondInitialized.String(), err, "BMCIPNotValid", err.Error()))
 			state.Phase = provisioningv1.DPUError
 			return *state, nil
 		}
-	} else {
-		err := fmt.Errorf("invalid DPUInstallInterface")
+	case string(provisioningv1.InstallViaMock):
+	default:
+		err := fmt.Errorf("invalid DPUInstallInterface: %s", *dpu.Status.DPUInstallInterface)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondInitialized.String(), err, "InvalidDPUInstallInterface", err.Error()))
 		state.Phase = provisioningv1.DPUError
 		return *state, nil

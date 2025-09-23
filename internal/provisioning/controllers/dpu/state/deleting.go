@@ -24,7 +24,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/dms"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -112,33 +111,7 @@ func Deleting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contr
 
 	if dpu.Status.DPUInstallInterface != nil {
 		switch *dpu.Status.DPUInstallInterface {
-		case string(provisioningv1.InstallViaGNOI):
-			// TODO: Use DMS debug command to run script "cleanup-dpf-host" to remove any containers and api server reference in the dpu and rollback host network configuration
-			// Call DMS Debug command to run hostnetwork.sh script with delete
-			conn, err := dutil.CreateGRPCConnection(ctx, ctrlCtx.Client, dpu, ctrlCtx)
-			if err != nil {
-				err = fmt.Errorf("Error creating gRPC connection: %w", err)
-				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDeleting.String(), err, "CreateGRPCConnectionError", err.Error()))
-				return *state, err
-			}
-			defer conn.Close() //nolint: errcheck
-
-			pciAddress, err := cutil.GetPCIAddrFromDPU(dpu, false)
-			if err != nil {
-				err = fmt.Errorf("failed to get pci address from DPU label: %w", err)
-				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDeleting.String(), err, "GetPCIAddrFromDPUError", err.Error()))
-				return *state, err
-			}
-
-			// hostnetwork.sh is always put under /opt/dpf/
-			command := fmt.Sprintf("%s --delete --device_pci_address %s", dms.HostNetworkScript, pciAddress)
-			_, err = dms.ExecuteDMSDebugCmd(ctx, conn, command)
-			if err != nil {
-				err = fmt.Errorf("failed to execute DMS debug command: %w", err)
-				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDeleting.String(), err, "ExecuteDMSDebugCmdError", err.Error()))
-				return *state, err
-			}
-		case string(provisioningv1.InstallViaRedFish):
+		case string(provisioningv1.InstallViaRedFish), string(provisioningv1.InstallViaGNOI), string(provisioningv1.InstallViaHostAgent):
 			// TODO: Deploy a K8S Job to run "cleanup-dpf" script to remove any containers and api server reference in the dpu
 		default:
 			err = fmt.Errorf("invalid DPUInstallInterface: %s", *dpu.Status.DPUInstallInterface)

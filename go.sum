@@ -186,8 +186,6 @@ github.com/openconfig/gnmi v0.12.0 h1:aPkmcX9pdcz6QqsBsXXg5UQooqhnmlHD3Jtdtvtzma
 github.com/openconfig/gnmi v0.12.0/go.mod h1:5a/cIOZevJLfJgd1qWkgYROE8xfgEbaSJXpdD8xk/LQ=
 github.com/openconfig/gnoi v0.6.0 h1:jyfNAkGC7exKOXbZPMLz2RNr5WlE63h1rGmF/THz43c=
 github.com/openconfig/gnoi v0.6.0/go.mod h1:aKDXOZdxrpLh4AMKRiYvfqAvckcf5tqpc8OsOKAtaIs=
-github.com/openconfig/gnoigo v0.0.0-20240820205259-23ac4e061cc2 h1:TnKY8BNb0j7JFlrrvsfUaJgO76ZCjmGUmkgwso+Co9Y=
-github.com/openconfig/gnoigo v0.0.0-20240820205259-23ac4e061cc2/go.mod h1:pCijvudnCsk0fuj0JV1cWprfFQsrOD9VwFuF6gWZQsI=
 github.com/openconfig/gnsi v1.7.0 h1:Enn5i3m6KsnHeUI+kalB9OH8fADf0oeymd/3Ze0BzME=
 github.com/openconfig/gnsi v1.7.0/go.mod h1:RiHTEIb2ruIeWOOamms6vqbZtgmajDx+g5YJlF2hZ0k=
 github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8Oi/yOhh5U=

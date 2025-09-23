@@ -23,7 +23,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
-	"github.com/nvidia/doca-platform/test/mock/dms/pkg/server"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
@@ -46,8 +45,6 @@ const (
 // DMSServerReconciler reconciles a DPU object
 type DMSServerReconciler struct {
 	Client client.Client
-	server.ListenerManager
-	server.Server
 
 	// PodName is used to advertise this pod as the DMS server for DPUs.
 	PodName string
@@ -56,6 +53,7 @@ type DMSServerReconciler struct {
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus;dpunodes;dpudevices,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus/finalizers,verbs=update
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;create;update;patch;delete
@@ -86,21 +84,20 @@ func (r *DMSServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	dpuNode := r.dpuNodeForNode(ctx, node)
-
-	l, err := r.AllocateListener()
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if err := r.ServeForDPUNode(dpuNode, l); err != nil {
-		return ctrl.Result{}, err
-	}
-
 	if err := r.createDPUDeviceForDPUNode(ctx, dpuNode); err != nil {
 		return ctrl.Result{}, err
 	}
 	// Create a DPUNode for the node if it doesn't exist.
-	if err := r.Client.Create(ctx, dpuNode); client.IgnoreAlreadyExists(err) != nil {
+	if err := r.Client.Create(ctx, dpuNode.DeepCopy()); client.IgnoreAlreadyExists(err) != nil {
+		return ctrl.Result{}, err
+	}
+	// Set the status as the host agent would do.
+	latestDPUNode := &provisioningv1.DPUNode{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: dpuNode.Name}, latestDPUNode); err != nil {
+		return ctrl.Result{}, err
+	}
+	latestDPUNode.Status = dpuNode.Status
+	if err := r.Client.Status().Update(ctx, latestDPUNode); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -149,13 +146,8 @@ func (r *DMSServerReconciler) dpuNodeForNode(ctx context.Context, node *corev1.N
 	}
 	dpuNode = &provisioningv1.DPUNode{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      node.Name,
-			Namespace: dpfOperatorSystemNamespace,
-			Labels: map[string]string{
-				// DPUs require a node with this label to advance past the "Initializing" phase
-				cutil.NodeFeatureDiscoveryLabelPrefix + cutil.DPUOOBBridgeConfiguredLabel: "true",
-				cutil.DPUOOBBridgeConfiguredLabel:                                         "true",
-			},
+			Name:        node.Name,
+			Namespace:   dpfOperatorSystemNamespace,
 			Annotations: map[string]string{},
 			// The OwnerReference needs to be set as this is the way the DPUNode controller sets status.KubeNodeRef.
 			OwnerReferences: []metav1.OwnerReference{
@@ -169,11 +161,22 @@ func (r *DMSServerReconciler) dpuNodeForNode(ctx context.Context, node *corev1.N
 		},
 		Spec: provisioningv1.DPUNodeSpec{
 			NodeRebootMethod: &provisioningv1.NodeRebootMethod{
-				GNOI: &provisioningv1.GNOI{},
+				HostAgent: &provisioningv1.HostAgent{},
 			},
 			DPUs: []provisioningv1.DPURef{
 				{
 					Name: fmt.Sprintf("%s-device", node.Name),
+				},
+			},
+		},
+		Status: provisioningv1.DPUNodeStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:               string(provisioningv1.DPUNodeConditionBridgeConfigured),
+					Status:             metav1.ConditionTrue,
+					Reason:             "BridgeConfigured",
+					Message:            "Bridge configured",
+					LastTransitionTime: metav1.Now(),
 				},
 			},
 		},

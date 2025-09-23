@@ -29,4 +29,6 @@ type HostAgentFlags struct {
 	KubeAPIQPS         int
 	KubeAPIBurst       int
 	BFBRegistryAddress string
+	RebootMethod       string
+	CustomScriptName   string
 }

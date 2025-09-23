@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -63,8 +64,7 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	}
 	taskID, ok := dutil.OsInstallTaskMap.Load(taskName)
 	if !ok {
-		imageURI := filepath.Join(ctrlCtx.Options.BFBRegistry, ServiceLocation, fmt.Sprintf("??%s,%s?", filepath.Base(dpu.Status.BFBFile), dpu.Status.BFCFGFile), "bfb-to-install")
-		resp, taskInfo, err := client.InstallBFB(imageURI)
+		resp, taskInfo, err := client.InstallBFB(concatBFBAndBFCFGPath(dpu.Status.BFBFile, dpu.Status.BFCFGFile))
 		if err != nil {
 			err = fmt.Errorf("failed to install BFB: %w", err)
 			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToInstall", err.Error()))
@@ -152,4 +152,13 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	state.Phase = provisioningv1.DPURebooting
 	logger.Info("installation finished")
 	return *state, nil
+}
+
+// concatBFBAndBFCFGPath returns the bfb-registry path of concatenated bfbFile and bfcfgFile
+// Given bfbFile is /bfb/file.bfb and bfcfgFile is /bfb/bfcfg/file.cfg,
+// it returns /bfb/??file.bfb,bfcfg/file.cfg?/bfb-to-install
+func concatBFBAndBFCFGPath(bfbFile string, bfcfgFile string) string {
+	relBFB := strings.TrimPrefix(bfbFile, cutil.BFBBaseDir)
+	relBFCFG := strings.TrimPrefix(bfcfgFile, cutil.BFBBaseDir)
+	return filepath.Join(cutil.BFBBaseDir, fmt.Sprintf("??%s,%s?", relBFB, relBFCFG), "bfb-to-install")
 }

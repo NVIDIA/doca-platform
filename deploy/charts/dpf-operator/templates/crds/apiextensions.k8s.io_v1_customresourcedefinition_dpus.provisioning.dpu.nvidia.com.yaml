@@ -308,9 +308,10 @@ spec:
               dpuInstallInterface:
                 description: |-
                   the name of the interface which will be used to install the bfb image,
-                  and communicate with DPU, can be one of gNOI,redfish
+                  and communicate with DPU, can be one of hostAgent,redfish
                 enum:
                 - gNOI
+                - hostAgent
                 - redfish
                 type: string
               firmware:

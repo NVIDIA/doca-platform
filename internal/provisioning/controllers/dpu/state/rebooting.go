@@ -23,8 +23,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	dmsutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util/dms"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -47,10 +45,8 @@ const (
 func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 
-	rebootTaskName := generateRebootTaskName(dpu)
 	state := dpu.Status.DeepCopy()
 	if !dpu.DeletionTimestamp.IsZero() {
-		dutil.RebootTaskMap.Delete(rebootTaskName)
 		state.Phase = provisioningv1.DPUDeleting
 		return *state, nil
 	}
@@ -72,7 +68,7 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 		return *state, err
 	}
 
-	rebootCommand, rebootType, err := reboot.GenerateCmd(dpuNode.Annotations, dpu.Annotations)
+	rebootCommand, _, err := reboot.GenerateCmd(dpuNode.Annotations, dpu.Annotations)
 	if err != nil {
 		err = fmt.Errorf("failed to generate ipmitool command: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "GenerateIPMIToolCommandError", err.Error()))
@@ -88,65 +84,12 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 		return *state, nil
 	}
 
-	if dpuNode.Spec.NodeRebootMethod.GNOI != nil {
-		// create DMS gRPC connection
-		conn, err := dutil.CreateGRPCConnection(ctx, ctrlCtx.Client, dpu, ctrlCtx)
-		if err != nil {
-			err = fmt.Errorf("failed to create gRPC connection: %w", err)
-			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "FailedToCreateGRPCConnection", err.Error()))
-			state.Phase = provisioningv1.DPUError
-			return *state, nil
-		}
-		defer conn.Close() //nolint: errcheck
-
-		// Checking the reboot is done or not for the GNOI reboot method.
-		duration := int(metav1.Now().Sub(cond.LastTransitionTime.Time).Seconds())
-		// If we can not get uptime, the host should be rebooting
-		uptime, err := ctrlCtx.HostUptimeChecker.HostUptime(ctx, conn)
-		if err != nil {
-			err = fmt.Errorf("failed to get host uptime: %w", err)
-			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "FailedToGetHostUptime", ""))
-			return *state, err
-		}
-		logger.V(3).Info(fmt.Sprintf("Rebooting duration is %d, host uptime is %d", duration, uptime))
-		// If the pod is available after rebooting, move to next phase
-		if duration > uptime {
+	if dpuNode.Spec.NodeRebootMethod.GNOI != nil || dpuNode.Spec.NodeRebootMethod.HostAgent != nil { //nolint:staticcheck
+		_, condition := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondRebooted))
+		if condition != nil && condition.Status == metav1.ConditionTrue {
 			state.Phase = provisioningv1.DPUHostNetworkConfiguration
-			cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", ""))
-			return *state, nil
 		}
-
-		switch rebootType {
-		case reboot.PowerCycle:
-			logger.Info(fmt.Sprintf("DPU %s powercycle command %q", dpu.Name, rebootCommand))
-			resp, err := dmsutil.ExecuteDMSDebugCmd(ctx, conn, rebootCommand)
-			if err != nil {
-				err = fmt.Errorf("failed to execute powercycle command: %w, output: %s", err, resp)
-				cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "FailedToExecutePowercycleCommand", resp))
-				state.Phase = provisioningv1.DPUError
-				return *state, nil
-			}
-			return *state, nil
-		case reboot.WarmReboot:
-			logger.Info(fmt.Sprintf("DPU %s Bluefield System-Level-Reset", dpu.Name))
-
-			if pciAddress, err := cutil.GetPCIAddrFromDPU(dpu, true); err != nil {
-				err = fmt.Errorf("failed to get pci address from DPU label: %w", err)
-				cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "FailedToGetPCIAddrFromDPU", err.Error()))
-				return *state, err
-			} else {
-				if task, ok := dutil.RebootTaskMap.Load(rebootTaskName); ok {
-					if err := checkRebootTask(ctx, dpuNode, dpu, pciAddress, rebootCommand, rebootTaskName, task); err != nil {
-						err = fmt.Errorf("failed to check reboot task: %w", err)
-						cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "RebootFailed", ""))
-						return *state, err
-					}
-					return *state, nil
-				} else {
-					rebootHandler(ctx, dpuNode, dpu, pciAddress, rebootCommand, 0)
-				}
-			}
-		}
+		return *state, nil
 	} else if dpuNode.Spec.NodeRebootMethod.External != nil || dpuNode.Spec.NodeRebootMethod.Script != nil {
 		_, rebootCondition := cutil.GetDPUCondition(state, provisioningv1.DPUCondRebooted.String())
 		if rebootCondition != nil && rebootCondition.Status == metav1.ConditionTrue {
@@ -161,90 +104,4 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 	} else {
 		panic("should not reach here")
 	}
-
-	return *state, nil
-}
-
-func checkRebootTask(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpu *provisioningv1.DPU, pciAddress string, rebootCommand string, rebootTaskName string, task any) error {
-	logger := log.FromContext(ctx)
-	rebootTaskWithRetry := task.(dutil.TaskWithRetry)
-	retryCount := rebootTaskWithRetry.RetryCount
-	rebootTask := rebootTaskWithRetry.Task
-	if rebootTask.GetState() == future.Ready {
-		dutil.RebootTaskMap.Delete(rebootTaskName)
-		if _, err := rebootTask.GetResult(); err == nil {
-			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", ""))
-			return nil
-		} else {
-			if retryCount >= dutil.MaxRetryCount {
-				logger.V(3).Info(fmt.Sprintf("Reboot task %v failed with err: %v", rebootTaskName, err))
-				dpu.Status.Phase = provisioningv1.DPUError
-				cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "RebootFailed", ""))
-				return err
-			} else {
-				msg := fmt.Sprintf("DMS task %v retried %d times, error: %v", rebootTaskName, retryCount, err)
-				logger.Info(msg)
-				// Retry the reboot process
-				rebootHandler(ctx, dpuNode, dpu, pciAddress, rebootCommand, retryCount+1)
-				return nil
-			}
-		}
-	}
-
-	logger.V(3).Info(fmt.Sprintf("Reboot task %v is being processed", rebootTaskName))
-	return nil
-}
-
-func rebootHandler(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpu *provisioningv1.DPU, pciAddress string, cmd string, retry int) {
-	logger := log.FromContext(ctx)
-	rebootTaskName := generateRebootTaskName(dpu)
-	logger.V(3).Info(fmt.Sprintf("BF-SLR for %s", rebootTaskName))
-	if dpuNode.Status.KubeNodeRef == nil {
-		// non-k8s environment
-		// TODO: add the reboot command for non-k8s environment
-	} else {
-		// k8s environment
-		bfSLRShutdownARM := fmt.Sprintf("bf-slr.sh %s %s %s", pciAddress, cmd, "arm")
-		bfSLRSRebootHost := fmt.Sprintf("bf-slr.sh %s %s %s", pciAddress, cmd, "host")
-
-		rebootTask := future.New(func() (any, error) {
-			skipShutdownARM := false
-			conds := append([]metav1.Condition(nil), dpu.Status.Conditions...) // shallow copy
-			for _, cond := range conds {
-				if cond.Type == string(provisioningv1.DPUCondFWConfigured) && cond.Reason == string(provisioningv1.DPUCondReasonModeUpdate) {
-					skipShutdownARM = true
-				}
-			}
-			// If the DPU is not in DPU mode at the beginning (NIC mode), we should skip the shutdown ARM.
-			// refer: https://docs.nvidia.com/networking/display/bluefielddpuosv470/nvidia+bluefield+reset+and+reboot+procedures#src-2821766774_NVIDIABlueFieldResetandRebootProcedures-System-levelResetforBlueFieldinNICMode
-			if !skipShutdownARM {
-				// Shutdown ARM
-				logger.V(3).Info(fmt.Sprintf("Bluefield System-Level-Reset ARM shutdown command: %s for dpu: %s", bfSLRShutdownARM, dpu.Name))
-				if out, errMsg, err := cutil.RemoteExec(dpu.Namespace, cutil.GenerateDMSPodName(dpuNode), dmsutil.DMSContainerName, bfSLRShutdownARM); err != nil {
-					logger.Error(err, fmt.Sprintf("DPU %s failed to shutdown ARM: %v, output: %s", dpu.Name, err, out))
-					return future.Ready, fmt.Errorf("DPU %s reboot failed: %v, output: %s", dpu.Name, err, errMsg)
-				} else {
-					logger.V(3).Info(fmt.Sprintf("DPU %s Bluefield System-Level-Reset result: %s", dpu.Name, out))
-				}
-			}
-
-			// Reboot Host
-			logger.V(3).Info(fmt.Sprintf("Bluefield System-Level-Reset reboot host command: %s for dpu: %s", bfSLRSRebootHost, dpu.Name))
-			if out, _, err := cutil.RemoteExec(dpu.Namespace, cutil.GenerateDMSPodName(dpuNode), dmsutil.DMSContainerName, bfSLRSRebootHost); err != nil {
-				logger.Error(err, fmt.Sprintf("Failed to reboot host: %v, output: %s", err, out))
-				return future.Ready, err
-			}
-
-			return nil, nil
-		})
-		rebootTaskWithRetry := dutil.TaskWithRetry{
-			Task:       rebootTask,
-			RetryCount: retry,
-		}
-		dutil.RebootTaskMap.Store(rebootTaskName, rebootTaskWithRetry)
-	}
-}
-
-func generateRebootTaskName(dpu *provisioningv1.DPU) string {
-	return fmt.Sprintf("%s/%s", dpu.Namespace, dpu.Name)
 }

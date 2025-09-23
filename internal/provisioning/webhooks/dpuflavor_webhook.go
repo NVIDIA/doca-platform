@@ -205,7 +205,7 @@ func (r *DPUFlavor) validateDPUInstallInterface(obj runtime.Object) error {
 
 	dpuflavorlog.V(4).Info("validate dpu install interface", "name", dpuFlavor.Name)
 	switch *r.DPUInstallInterface {
-	case string(provisioningv1.InstallViaGNOI):
+	case string(provisioningv1.InstallViaGNOI), string(provisioningv1.InstallViaHostAgent):
 		if dpuFlavor.Spec.DpuMode != provisioningv1.DpuMode {
 			return fmt.Errorf("dpu mode is the only supported mode for gNOI install interface")
 		}

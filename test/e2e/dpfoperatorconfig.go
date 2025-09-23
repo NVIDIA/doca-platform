@@ -560,7 +560,7 @@ func ValidateDPFOperatorKubernetesAPIServerVIPAndPort(ctx context.Context, input
 	Eventually(func(g Gomega) {
 		pods := corev1.PodList{}
 		g.Expect(input.client.List(ctx, &pods,
-			client.MatchingLabels{cutil.ProvisioningComponentLabelKey: "dms"})).To(Succeed())
+			client.MatchingLabels{cutil.ProvisioningComponentLabelKey: "hostagent"})).To(Succeed())
 		g.Expect(pods.Items).ToNot(BeEmpty())
 		for _, pod := range pods.Items {
 			containers := slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers)
@@ -606,7 +606,7 @@ func ValidateDPFOperatorKubernetesAPIServerVIPAndPort(ctx context.Context, input
 	Eventually(func(g Gomega) {
 		pods := corev1.PodList{}
 		g.Expect(input.client.List(ctx, &pods,
-			client.MatchingLabels{cutil.ProvisioningComponentLabelKey: "dms"})).To(Succeed())
+			client.MatchingLabels{cutil.ProvisioningComponentLabelKey: "hostagent"})).To(Succeed())
 		g.Expect(pods.Items).ToNot(BeEmpty())
 		for _, pod := range pods.Items {
 			containers := slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers)
@@ -632,7 +632,7 @@ func triggerDMSRecreation(ctx context.Context, c client.Client) {
 	Expect(client.IgnoreNotFound(c.DeleteAllOf(ctx,
 		&corev1.Pod{},
 		client.InNamespace(dpfOperatorSystemNamespace),
-		client.MatchingLabels{cutil.ProvisioningComponentLabelKey: "dms"}))).To(Succeed())
+		client.MatchingLabels{cutil.ProvisioningComponentLabelKey: "hostagent"}))).To(Succeed())
 
 	// Then remove the existing DPUNodes
 	Expect(client.IgnoreNotFound(c.DeleteAllOf(ctx, &provisioningv1.DPUNode{}, client.InNamespace(dpfOperatorSystemNamespace)))).To(Succeed())
@@ -660,7 +660,7 @@ func triggerDMSRecreation(ctx context.Context, c client.Client) {
 
 			pods := corev1.PodList{}
 			g.Expect(c.List(ctx, &pods,
-				client.MatchingLabels{cutil.ProvisioningComponentLabelKey: "dms"})).To(Succeed())
+				client.MatchingLabels{cutil.ProvisioningComponentLabelKey: "hostagent"})).To(Succeed())
 			g.Expect(pods.Items).ToNot(BeEmpty())
 			var found bool
 			for _, pod := range pods.Items {

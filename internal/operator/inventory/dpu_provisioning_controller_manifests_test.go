@@ -176,6 +176,8 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 	g := NewWithT(t)
 	originalObjs, err := utils.BytesToUnstructured(provisioningControllerData)
 	g.Expect(err).NotTo(HaveOccurred())
+	originalBFBRegistryObjs, err := utils.BytesToUnstructured(bfbRegistryData)
+	g.Expect(err).NotTo(HaveOccurred())
 	provCtrl := provisioningControllerObjects{
 		data:            provisioningControllerData,
 		bfbRegistryData: bfbRegistryData,
@@ -311,7 +313,8 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
-		g.Expect(generatedObjs).To(HaveLen(len(originalObjs)))
+		// BFB Registry is always deployed
+		g.Expect(generatedObjs).To(HaveLen(len(originalObjs) + len(originalBFBRegistryObjs)))
 
 		// Expect the namespaces for the namespace scoped objects to equal the namespace in variables.
 		for _, obj := range generatedObjs {
@@ -365,9 +368,10 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			fmt.Sprintf("--bfb-pvc=%s", expectedPVC),
 			fmt.Sprintf("--image-pull-secrets=%s", strings.Join([]string{expectedImagePullSecret1, expectedImagePullSecret2}, ",")),
 			fmt.Sprintf("--dms-timeout=%d", expectedDmsTimeout),
-			fmt.Sprintf("--dpu-install-interface=%s", provisioningv1.InstallViaGNOI),
+			fmt.Sprintf("--dpu-install-interface=%s", provisioningv1.InstallViaHostAgent),
 			fmt.Sprintf("--dms-pod-envs=KUBERNETES_SERVICE_HOST=%s,KUBERNETES_SERVICE_PORT=%d", expectedKubernetesAPIServerVIP, expectedKubernetesAPIServerPort),
 			fmt.Sprintf("--multi-dpu-operations-sync-wait-time=%s", expectedMultiDPUOperationsSyncWaitTime),
+			"--bfb-registry=bfb-registry:8080",
 		}
 		g.Expect(gotDeployment.Spec.Template.Spec.Containers).To(HaveLen(1))
 		g.Expect(gotDeployment.Spec.Template.Spec.Containers[0].Args).To(HaveLen(len(expectedArgs)))
@@ -626,47 +630,6 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 		g.Expect(deployment).NotTo(BeNil())
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--dpu-install-interface=redfish"))
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--bfb-registry=registry-address"))
-	})
-
-	t.Run("test no bfb-registry manifests with gnoi install interface", func(t *testing.T) {
-		g := NewGomegaWithT(t)
-
-		expectedPVC := TestPVC
-		vars := newDefaultVariables(defaults)
-		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: expectedPVC,
-			InstallInterface: &operatorv1.ProvisioningInstallInterface{
-				InstallViaGNOI: &operatorv1.InstallViaGNOI{},
-			},
-		}
-
-		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
-		g.Expect(err).NotTo(HaveOccurred())
-
-		// Verify no DaemonSet is created
-		for _, obj := range generatedObjs {
-			if obj.GetObjectKind().GroupVersionKind().Kind == string(DaemonSetKind) {
-				t.Errorf("Found unexpected DaemonSet when using GNOI install interface")
-			}
-		}
-
-		// Verify deployment has the correct flag for GNOI
-		var deployment *appsv1.Deployment
-		for _, obj := range generatedObjs {
-			if obj.GetObjectKind().GroupVersionKind().Kind == string(DeploymentKind) {
-				deploy := &appsv1.Deployment{}
-				unstructuredObj, ok := obj.(*unstructured.Unstructured)
-				g.Expect(ok).To(BeTrue())
-				err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), deploy)
-				g.Expect(err).NotTo(HaveOccurred())
-				deployment = deploy
-				break
-			}
-		}
-
-		g.Expect(deployment).NotTo(BeNil())
-		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
-		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--dpu-install-interface=gNOI"))
 	})
 }
 

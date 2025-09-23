@@ -43,7 +43,7 @@ import (
 
 type NodeReconciler struct {
 	client.Client
-	Options dnutil.DMSPodOptions
+	Options dnutil.HostAgentPodOptions
 }
 
 func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -73,9 +73,9 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	err := r.Client.Get(ctx, getDPUNodeKey(node.Name), dpuNode)
 	if err == nil {
 		// Create a new DMS pod for the upgrade scenario and or DMS pod deleted by mistake.
-		if !r.dmsPodExists(ctx, node) {
+		if !r.hostAgentPodExists(ctx, node) {
 			log.Info("Creating a new DMS Pod for Node", "node", node.Name)
-			if err := r.deployDMS(ctx, node); err != nil {
+			if err := r.deployHostAgent(ctx, node); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -84,7 +84,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// If not found, create a new DPUNode object using details from the Node.
 	if apierrors.IsNotFound(err) {
 		log.Info("Creating a new DMS Pod for Node", "node", node.Name)
-		if err := r.deployDMS(ctx, node); err != nil {
+		if err := r.deployHostAgent(ctx, node); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
@@ -160,8 +160,8 @@ func (r *NodeReconciler) isDPUEnabled(node *corev1.Node) bool {
 	return false
 }
 
-func (r *NodeReconciler) dmsPodExists(ctx context.Context, node *corev1.Node) bool {
-	dmsPodName := cutil.GenerateDMSPodName(node)
+func (r *NodeReconciler) hostAgentPodExists(ctx context.Context, node *corev1.Node) bool {
+	hostAgentPodName := cutil.GenerateHostAgentPodName(node)
 	dpfOperatorConfig, err := dpfutils.GetDPFOperatorConfig(ctx, r.Client)
 	if err != nil {
 		return false
@@ -169,16 +169,16 @@ func (r *NodeReconciler) dmsPodExists(ctx context.Context, node *corev1.Node) bo
 	namespace := dpfOperatorConfig.Namespace
 	nn := types.NamespacedName{
 		Namespace: namespace,
-		Name:      dmsPodName,
+		Name:      hostAgentPodName,
 	}
 	pod := &corev1.Pod{}
 	err = r.Client.Get(ctx, nn, pod)
 	return err == nil
 }
 
-func (r *NodeReconciler) deployDMS(ctx context.Context, node *corev1.Node) error {
+func (r *NodeReconciler) deployHostAgent(ctx context.Context, node *corev1.Node) error {
 	// TODO: change GenerateDMSPodName() - it should be based on DPUNode if exist and on Node if DPUNode doesn't exist
-	dmsPodName := cutil.GenerateDMSPodName(node)
+	hostAgentName := cutil.GenerateHostAgentPodName(node)
 	dpfOperatorConfig, err := dpfutils.GetDPFOperatorConfig(ctx, r.Client)
 	if err != nil {
 		return fmt.Errorf("getting DPFOperatorConfig: %w", err)
@@ -187,7 +187,7 @@ func (r *NodeReconciler) deployDMS(ctx context.Context, node *corev1.Node) error
 	namespace := dpfOperatorConfig.Namespace
 	nn := types.NamespacedName{
 		Namespace: namespace,
-		Name:      dmsPodName,
+		Name:      hostAgentName,
 	}
 	pod := &corev1.Pod{}
 	err = r.Client.Get(ctx, nn, pod)
@@ -198,10 +198,10 @@ func (r *NodeReconciler) deployDMS(ctx context.Context, node *corev1.Node) error
 		ownerRef := metav1.NewControllerRef(dpfOperatorConfig, operatorv1.DPFOperatorConfigGroupVersionKind)
 		ownerRef.BlockOwnerDeletion = ptr.To(false)
 
-		if err := dms.CreateDMSPod(ctx, r.Client, node, r.Options, namespace, ownerRef); err != nil {
-			return fmt.Errorf("failed to create DMS Pod %s: %w", nn, err)
+		if err := dms.CreateHostAgentPod(ctx, r.Client, node, r.Options, namespace, ownerRef); err != nil {
+			return fmt.Errorf("failed to create HostAgent Pod %s: %w", nn, err)
 		}
 		return nil
 	}
-	return fmt.Errorf("failed to get DMS Pod %s: %w", nn, err)
+	return fmt.Errorf("failed to get HostAgent Pod %s: %w", nn, err)
 }

@@ -56,6 +56,22 @@ metadata:
     dpu.nvidia.com/component: bfb-registry
   name: bfb-registry-config
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/part-of: bfb-registry
+    dpu.nvidia.com/component: bfb-registry
+  name: bfb-registry
+spec:
+  ports:
+  - port: 8080
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    app.kubernetes.io/part-of: bfb-registry
+    dpu.nvidia.com/component: bfb-registry
+---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:

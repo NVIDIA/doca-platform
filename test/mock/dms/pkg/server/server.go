@@ -190,7 +190,7 @@ func (d *DMSServerMux) ServeForDPUNode(dpuNode *provisioningv1.DPUNode, listener
 	}
 
 	// Update the DPU node's address with the actual port
-	dpuNode.Spec.NodeDMSAddress = &provisioningv1.DMSAddress{
+	dpuNode.Spec.NodeDMSAddress = &provisioningv1.DMSAddress{ //nolint:staticcheck
 		Port: uint16(port),
 		IP:   d.ip,
 	}

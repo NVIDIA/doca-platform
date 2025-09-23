@@ -28,6 +28,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/bfb"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/csr"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/discovery"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -46,6 +47,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientset "k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/component-base/logs"
 	logsv1 "k8s.io/component-base/logs/api/v1"
@@ -164,7 +166,7 @@ func main() {
 	fs.DurationVar(&dmsPodTimeout, "dms-pod-timeout", 5*time.Minute, "Timeout for DMS pods")
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute, "The minimum interval at which watched resources are reconciled.")
 	fs.IntVar(&concurrency, "concurrency", 1, "Number of objects to process simultaneously by each controller.")
-	fs.StringVar(&dpuInstallInterface, "dpu-install-interface", string(provisioningv1.InstallViaGNOI), "the interface used to provision DPUs")
+	fs.StringVar(&dpuInstallInterface, "dpu-install-interface", string(provisioningv1.InstallViaHostAgent), "the interface used to provision DPUs")
 	fs.StringVar(&bfCFGTemplateFile, "bf-cfg-template-file", "", "A custom bf.cfg template used as part of DPU provisioning.")
 	fs.StringVar(&bfbRegistry, "bfb-registry", "", "hostname of the BFB registry from which BFBs are downloaded")
 	fs.StringVar(&customCASecretName, "custom-CA-secret", "", "the secret object which containing the custom CA certificate")
@@ -213,7 +215,8 @@ func main() {
 		metricsOpts.FilterProvider = nil
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	clientConfig := ctrl.GetConfigOrDie()
+	mgr, err := ctrl.NewManager(clientConfig, ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsOpts,
 		WebhookServer:          webhookServer,
@@ -315,13 +318,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	dmsPodOptions := dnutil.DMSPodOptions{
-		DMSImageWithTag:  dmsImage,
-		ImagePullSecrets: imagePullSecretsReferences,
-		BFBPVC:           bfbPVC,
-		DMSTimeout:       dmsTimeout,
-		DMSPodTimeout:    dmsPodTimeout,
-		DMSPodEnvs:       dmsPodEnvs,
+	dmsPodOptions := dnutil.HostAgentPodOptions{
+		HostAgentImageWithTag: dmsImage,
+		ImagePullSecrets:      imagePullSecretsReferences,
+		DMSTimeout:            dmsTimeout,
+		DMSPodTimeout:         dmsPodTimeout,
+		DMSPodEnvs:            dmsPodEnvs,
+		BFBRegistryAddress:    bfbRegistry,
 	}
 	setupLog.Info("DPUNode", "options", dmsPodOptions)
 
@@ -380,6 +383,16 @@ func main() {
 		setupLog.Error(err, "unable to create webhook", "webhook", "DPUFlavor")
 		os.Exit(1)
 	}
+
+	k8sClient := clientset.NewForConfigOrDie(clientConfig)
+	if err = (&csr.CSRReconciler{
+		ClientSet:     k8sClient,
+		RuntimeClient: mgr.GetClient(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "CSR")
+		os.Exit(1)
+	}
+
 	// Get the context from the signal handler
 	ctx := ctrl.SetupSignalHandler()
 
