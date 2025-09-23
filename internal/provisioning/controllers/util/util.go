@@ -109,7 +109,10 @@ const (
 	OverrideDMSPodNameAnnotationKey = "provisioning.dpu.nvidia.com/override-dms-pod-name"
 
 	// LastAppliedLabelsOnDPUKey is the key for the last applied labels.
-	LastAppliedLabelsOnDPUKey = "provisioning.dpu.nvidia.com/last-applied-labels-on-dpu"
+	LastAppliedLabelsOnDPUKey = DPUProvisioningLabelPrefix + "last-applied-labels-on-dpu"
+
+	// LastAppliedNodeMaintenanceAdditionalRequestorsOnDPUKey is the key for the last applied node maintenance additional requestors.
+	LastAppliedNodeMaintenanceAdditionalRequestorsOnDPUKey = DPUProvisioningLabelPrefix + "last-applied-node-maintenance-additional-requestors-on-dpu"
 
 	HoldNodeEffectKey             = DPUProvisioningLabelPrefix + "wait-for-external-nodeeffect"
 	TrustedSFCount                = DPUProvisioningLabelPrefix + "num-of-trusted-sfs"

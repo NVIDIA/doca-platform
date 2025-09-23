@@ -153,18 +153,35 @@ func handleNodeEffectCompletion(ctx context.Context, state *provisioningv1.DPUSt
 
 func createDPUNodeMaintenance(ctx context.Context, k8sClient client.Client, name string, dpu *provisioningv1.DPU) error {
 	logger := log.FromContext(ctx)
+	if dpu.Spec.NodeEffect == nil {
+		return fmt.Errorf("node effect is nil")
+	}
+	requestors := make([]string, 0)
+	if dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors != nil {
+		requestors = dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors
+	}
+
+	jsonStr, err := cutil.MarshalJSON(requestors)
+	if err != nil {
+		return fmt.Errorf("failed to marshal node maintenance additional requestors: %w", err)
+	}
 	dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: dpu.Namespace,
+			Annotations: map[string]string{
+				// this annotation is only used to store the service additional requestors
+				cutil.LastAppliedNodeMaintenanceAdditionalRequestorsOnDPUKey: jsonStr,
+			},
 		},
 		Spec: provisioningv1.DPUNodeMaintenanceSpec{
 			DPUNodeName: dpu.Spec.DPUNodeName,
 			NodeEffect:  dpu.Spec.NodeEffect.DeepCopy(),
-			Requestor:   dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors,
+			Requestor:   requestors,
 		},
 	}
-	// .Spec.NodeEffect.NodeMaintenanceAdditionalRequestors is useless in DPUNodeMaintenance CR, so we need to clear it
+
+	// clear NodeMaintenanceAdditionalRequestors from the spec as it's managed separately via the Requestor field
 	dpunodemaintenance.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{}
 	// append DPU name to Requestor
 	dpunodemaintenance.Spec.Requestor = append(dpunodemaintenance.Spec.Requestor, dpu.Name)
