@@ -33,6 +33,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/discovery"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpucluster"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpudevice"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode"
 	dnutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunodemaintenance"
@@ -315,6 +316,13 @@ func main() {
 		Allocator: alloc,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUCluster")
+		os.Exit(1)
+	}
+	if err = (&dpudevice.DPUDeviceReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DPUDevice")
 		os.Exit(1)
 	}
 
