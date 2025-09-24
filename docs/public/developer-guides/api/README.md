@@ -24,3 +24,9 @@ to the API source code in the repository.
 * [DPUServiceIPAM](dpuserviceipam.md) - DPUServiceIPAM CRD for IP address management of the DPUServices
 * [DPUServiceCredentialRequest](dpuservice-credential-request.md) - DPUServiceCredentialRequest CRD for enabling
     cross Kubernetes cluster access
+
+## DPU Management Resources
+
+* [DPUDevice](dpudevice.md) - DPUDevice CRD for managing individual DPU hardware devices
+* [DPUNode](dpunode.md) - DPUNode CRD for node-level DPU management and host operations
+* [DPUDiscovery](dpudiscovery.md) - DPUDiscovery CRD for automatic discovery of DPU devices in IP ranges
