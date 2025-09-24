@@ -17,7 +17,11 @@ spec:
     singular: dpudevice
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=='ConditionDpuDeviceReady')].status
+      name: Ready
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: DPUDevice is the Schema for the dpudevices API
@@ -50,6 +54,19 @@ spec:
                   Example: "10.1.2.3"
                 format: ipv4
                 type: string
+              bmcPort:
+                default: 443
+                description: |-
+                  BMCPort is the port number of the BMC (Base Management Controller) on the device.
+                  This is used for remote management and monitoring of the device.
+                  This value is immutable and should not be changed once set.
+                  Example: 443
+                format: int32
+                minimum: 1
+                type: integer
+                x-kubernetes-validations:
+                - message: BMCPort is immutable
+                  rule: self == oldSelf
               numberOfPFs:
                 default: 1
                 description: |-
@@ -67,6 +84,7 @@ spec:
                   It's used to track the device's compatibility with different software versions.
                   This value is immutable and should not be changed once set.
                   Example: "900-9D3B4-00SV-EA0"
+                  Deprecated: This field is deprecated and will be removed in a future version. Use status.opn instead.
                 pattern: ^\d{3}-[A-Z0-9]{5}-[A-Z0-9]{4}-[A-Z0-9]{3}$
                 type: string
                 x-kubernetes-validations:
@@ -87,6 +105,7 @@ spec:
                   It's used to track the device's lifecycle and for inventory management.
                   This value is immutable and should not be changed once set.
                   Example: "MT_0001234567", "MT25066004C7"
+                  Deprecated: This field is deprecated and will be removed in a future version. Use status.psid instead.
                 pattern: ^MT_?[A-Z0-9]+$
                 type: string
                 x-kubernetes-validations:
@@ -107,10 +126,112 @@ spec:
             type: object
           status:
             properties:
+              bmcIp:
+                description: |-
+                  BMCIP is the IP address of the BMC (Base Management Controller) on the device.
+                  This is used for remote management and monitoring of the device.
+                  This value is discovered and should not be changed once set.
+                  Example: "10.1.2.3"
+                format: ipv4
+                type: string
+              bmcPort:
+                default: 443
+                description: |-
+                  BMCPort is the port number of the BMC (Base Management Controller) on the device.
+                  This is used for remote management and monitoring of the device.
+                  This value is immutable and should not be changed once set.
+                  Example: 443
+                format: int32
+                minimum: 1
+                type: integer
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              opn:
+                description: |-
+                  OPN is the Ordering Part Number of the device.
+                  It's used to track the device's compatibility with different software versions.
+                  This value is discovered and should not be changed once set.
+                  Example: "900-9D3B4-00SV-EA0"
+                type: string
               pciAddress:
                 description: |-
                   PCIAddress is the PCI address of the device in the host system.
                   Example: "0000-03-00", "03-00"
+                type: string
+              pf0Mac:
+                description: |-
+                  PF0MAC is the MAC address of the PF0 on the device.
+                  Example: "00:00:00:00:00:00"
+                pattern: ^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$
+                type: string
+              psid:
+                description: |-
+                  PSID is the Product Serial ID of the device.
+                  It's used to track the device's lifecycle and for inventory management.
+                  This value is discovered and should not be changed once set.
+                  Example: "MT_0001234567", "MT25066004C7"
+                pattern: ^MT_?[A-Z0-9]+$
+                type: string
+              serialNumber:
+                description: |-
+                  SerialNumber is the serial number of the device.
+                  It's used to track the device's lifecycle and for inventory management.
+                  This value is discovered and should not be changed once set.
+                  Example: "MT_0001234567", "MT25066004C7"
                 type: string
             type: object
         type: object

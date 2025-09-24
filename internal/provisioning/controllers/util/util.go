@@ -390,6 +390,54 @@ func DPUCondition(condType provisioningv1.DPUConditionType, reason, message stri
 	return cond
 }
 
+func GetDPUDeviceCondition(dpuDevice *provisioningv1.DPUDevice, conditionType string) (int, *metav1.Condition) {
+	conditions := dpuDevice.GetConditions()
+
+	if conditions == nil {
+		return -1, nil
+	}
+
+	for i := range conditions {
+		if conditions[i].Type == conditionType {
+			return i, &conditions[i]
+		}
+	}
+	return -1, nil
+}
+
+func SetDPUDeviceCondition(dpuDevice *provisioningv1.DPUDevice, condition *metav1.Condition) bool {
+
+	condition.LastTransitionTime = metav1.Now()
+	// Try to find this condition.
+	conditionIndex, oldCondition := GetDPUDeviceCondition(dpuDevice, condition.Type)
+
+	if oldCondition == nil {
+		// We are adding new condition.
+		dpuDevice.SetConditions(append(dpuDevice.GetConditions(), *condition))
+		return true
+	}
+
+	// We are updating an existing condition, so we need to check if it has changed.
+	if condition.Status == oldCondition.Status {
+		condition.LastTransitionTime = oldCondition.LastTransitionTime
+	}
+
+	isEqual := condition.Status == oldCondition.Status &&
+		condition.Reason == oldCondition.Reason &&
+		condition.Message == oldCondition.Message &&
+		condition.LastTransitionTime.Equal(&oldCondition.LastTransitionTime)
+
+	if isEqual {
+		return false
+	}
+
+	conditions := dpuDevice.GetConditions()
+	conditions[conditionIndex] = *condition
+	dpuDevice.SetConditions(conditions)
+	// Return true if one of the fields have changed.
+	return !isEqual
+}
+
 func SetDPUCondition(status *provisioningv1.DPUStatus, condition *metav1.Condition) bool {
 	condition.LastTransitionTime = metav1.Now()
 	// Try to find this condition.

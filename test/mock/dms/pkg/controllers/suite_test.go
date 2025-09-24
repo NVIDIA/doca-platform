@@ -33,6 +33,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpudevice"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode"
 	dnutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunodemaintenance"
@@ -202,6 +203,14 @@ func TestMain(m *testing.M) {
 	}
 	if err := dmsServerReconciler.SetupWithManager(testManager); err != nil {
 		panic(fmt.Sprintf("Failed to setup DMSServer reconciler: %v", err))
+	}
+	// Add DPUDevice controller
+	dpuDeviceReconciler := &dpudevice.DPUDeviceReconciler{
+		Client: testManager.GetClient(),
+		Scheme: testManager.GetScheme(),
+	}
+	if err := dpuDeviceReconciler.SetupWithManager(testManager); err != nil {
+		panic(fmt.Sprintf("Failed to setup DPUDevice reconciler: %v", err))
 	}
 
 	hostAgentServerReconciler := HostAgentServerReconciler{
