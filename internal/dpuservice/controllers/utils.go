@@ -87,16 +87,39 @@ func newObjectNodeSelectorWithOwner(key, value string, owner types.NamespacedNam
 	}
 }
 
-func newInClusterNodeSelectorFromDPUSetSelector(dpuSets []dpuservicev1.DPUSet) *corev1.NodeSelector {
+// newInClusterNodeSelectorFromDPUSetSelector creates a NodeSelector for an in-cluster DPUService
+func newInClusterNodeSelectorFromDPUSetSelector(versionKey string, versionValue string, dpuSets []dpuservicev1.DPUSet) *corev1.NodeSelector {
 	nodeSelectorTerms := []corev1.NodeSelectorTerm{}
 	for _, dpuSet := range dpuSets {
 		nodeSelector := dpuSet.NodeSelector
+
+		// If we can't find any nodeSelector in the DPUSets, it means that it targets all DPUNodes, therefore we return
+		// a nodeSelector that matches all nodes that have the correct DPUService version label.
+		// TODO: Check for race conditions, what happens if a user has a DPUDeployment applied and:
+		// * Reduces the nodes that the DPUDeployment should handle
+		// * Increases the nodes that the DPUDeployment should handle
 		if nodeSelector == nil {
-			continue
+			return &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{
+					MatchExpressions: []corev1.NodeSelectorRequirement{
+						{
+							Key:      versionKey,
+							Operator: corev1.NodeSelectorOpIn,
+							Values:   []string{versionValue},
+						},
+					},
+				},
+			}}
 		}
+
 		for key, value := range nodeSelector.MatchLabels {
 			nodeSelectorTerms = append(nodeSelectorTerms, corev1.NodeSelectorTerm{
 				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      versionKey,
+						Operator: corev1.NodeSelectorOpIn,
+						Values:   []string{versionValue},
+					},
 					{
 						Key:      key,
 						Operator: corev1.NodeSelectorOpIn,
@@ -106,8 +129,20 @@ func newInClusterNodeSelectorFromDPUSetSelector(dpuSets []dpuservicev1.DPUSet) *
 			})
 		}
 	}
+
+	// If we don't have any nodeSelector, then it means that we have no DPUSet, therefore, the DPUService should not target any node.
+	// In that case, the nodeSelector should contain just the DPUService version label, but we do not expect the DPUDeployment
+	// Node Controller to add that label to any of the nodes.
 	if len(nodeSelectorTerms) == 0 {
-		return nil
+		nodeSelectorTerms = append(nodeSelectorTerms, corev1.NodeSelectorTerm{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{
+					Key:      versionKey,
+					Operator: corev1.NodeSelectorOpIn,
+					Values:   []string{versionValue},
+				},
+			},
+		})
 	}
 	return &corev1.NodeSelector{NodeSelectorTerms: nodeSelectorTerms}
 }

@@ -83,30 +83,30 @@ func reconcileDPUServiceInterfaces(
 
 	var errs []error
 	// Create or update DPUServiceInterfaces to match what is defined in the DPUDeployment.
-	for dpuServiceName := range dpuDeployment.Spec.Services {
-		serviceConfig := dependencies.DPUServiceConfigurations[dpuServiceName]
-		serviceTemplate := dependencies.DPUServiceTemplates[dpuServiceName]
+	for serviceName := range dpuDeployment.Spec.Services {
+		serviceConfig := dependencies.DPUServiceConfigurations[serviceName]
+		serviceTemplate := dependencies.DPUServiceTemplates[serviceName]
 		versionDigest := calculateDPUServiceVersionDigest(serviceConfig, serviceTemplate)
 
-		currentDPUServiceClientObj, _ := getCurrentAndStaleDPUServices(dpuServiceName, versionDigest, existingDPUServices)
+		currentDPUServiceClientObj, _ := getCurrentAndStaleDPUServices(serviceName, versionDigest, existingDPUServices)
 		// One case where this can happen is if the DPUService was manually deleted
 		if currentDPUServiceClientObj == nil {
-			errs = append(errs, fmt.Errorf("failed to find current DPUService for service '%s' as defined in DPUDeployment", dpuServiceName))
+			errs = append(errs, fmt.Errorf("failed to find current DPUService for service '%s' as defined in DPUDeployment", serviceName))
 			continue
 		}
 		currentDPUService := currentDPUServiceClientObj.(*dpuservicev1.DPUService)
-		dpuServiceLabelKey := getDPUServiceVersionLabelKey(dpuServiceName)
+		dpuServiceLabelKey := getDPUServiceVersionLabelKey(serviceName)
 		currentDPUServiceNodeSelector := newObjectLabelSelectorWithOwner(dpuServiceLabelKey, dpuNodeLabels[dpuServiceLabelKey], client.ObjectKeyFromObject(dpuDeployment))
 		dpuServiceOwnerRef := metav1.NewControllerRef(currentDPUService, dpuservicev1.DPUServiceGroupVersionKind)
 		dpuServiceOwnerRef.Controller = ptr.To(false)
 		dpuServiceOwnerRef.BlockOwnerDeletion = ptr.To(false)
 
-		for _, serviceInterface := range dependencies.DPUServiceConfigurations[dpuServiceName].Spec.Interfaces {
+		for _, serviceInterface := range dependencies.DPUServiceConfigurations[serviceName].Spec.Interfaces {
 			newRevision := generateDPUServiceInterface(
-				interfaceNameByServiceName[dpuServiceName][serviceInterface.Name],
+				interfaceNameByServiceName[serviceName][serviceInterface.Name],
 				client.ObjectKeyFromObject(dpuDeployment),
 				[]metav1.OwnerReference{*dpuDeploymentOwnerRef, *dpuServiceOwnerRef},
-				dpuServiceName,
+				serviceName,
 				serviceInterface,
 				// We use the version digest of the DPUService in order to ensure that both the DPUService and
 				// DPUServiceInterface changes are synced.
@@ -114,7 +114,7 @@ func reconcileDPUServiceInterfaces(
 			)
 
 			// filter the existing DPUServiceInterfaces by name and extract the most current one, if any
-			currentRevision, oldRevisions := getCurrentAndStaleDPUServiceInterfaces(serviceInterface.Name, dpuServiceName, versionDigest, existingDPUServiceInterfaces)
+			currentRevision, oldRevisions := getCurrentAndStaleDPUServiceInterfaces(serviceInterface.Name, serviceName, versionDigest, existingDPUServiceInterfaces)
 			switch {
 			case currentRevision != nil:
 				// we found the current revision based on the digest, there might be old revisions to handle
