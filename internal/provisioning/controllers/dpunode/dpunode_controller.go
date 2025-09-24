@@ -165,13 +165,6 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 		return ctrl.Result{}, nil
 	}
 
-	if err := r.reconcileDPUDevices(ctx, dpuNode); err != nil {
-		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionInvalidDPUDetails, metav1.ConditionTrue, string(provisioningv1.DPUNodeConditionInvalidDPUDetails), err.Error())
-		return ctrl.Result{}, err
-	} else {
-		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionInvalidDPUDetails, metav1.ConditionFalse, "", "")
-	}
-
 	// handle DPU modified
 	if err := r.noneDPUInNodeEffectOrRebooting(ctx, dpuNode); err == nil {
 		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionReady, metav1.ConditionTrue, "", "")
@@ -513,7 +506,7 @@ func (r *DPUNodeReconciler) proccessExternalReboot(ctx context.Context, dpuNode 
 	}
 	if condExists {
 		if _, ok := dpuNode.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation]; ok {
-			r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "", "")
+			r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "WaitForExternalReboot", "")
 			logger.Info("Waiting for user reboot and remove the dpunode-external-reboot-required annotation")
 			return nil
 		}
@@ -704,60 +697,6 @@ func (r *DPUNodeReconciler) dpuToDPUNodeReq(ctx context.Context, resource client
 			Namespace: dpu.Namespace,
 		},
 	}}
-}
-
-func (r *DPUNodeReconciler) reconcileDPUDevices(ctx context.Context, dpuNode *provisioningv1.DPUNode) error {
-	if dpuNode.Status.DPUInstallInterface == nil {
-		return fmt.Errorf("DPUInstallInterface is not provided")
-	}
-	dpuInstallInterface := *dpuNode.Status.DPUInstallInterface
-	labels := map[string]string{
-		cutil.DPUNodeNameLabel: dpuNode.Name,
-	}
-	for _, dpu := range dpuNode.Spec.DPUs {
-		dpuDevice := &provisioningv1.DPUDevice{}
-		if err := r.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: dpu.Name}, dpuDevice); err != nil {
-			return err
-		}
-		switch dpuInstallInterface {
-		case string(provisioningv1.DPUNodeInstallInterfaceGNOI), string(provisioningv1.DPUNodeInstallInterfaceHostAgent):
-			if dpuDevice.Status.PCIAddress == nil {
-				return fmt.Errorf("DPUDevice %s does not have a PCI address", dpuDevice.Name)
-			}
-		case string(provisioningv1.DPUNodeInstallIntrefaceRedfish):
-			if dpuDevice.Spec.BMCIP == nil {
-				return fmt.Errorf("DPUDevice %s does not have a BMC IP address", dpuDevice.Name)
-			}
-		default:
-			return fmt.Errorf("DPUInstallInterface %s is not supported", dpuInstallInterface)
-		}
-		if dpuDevice.Status.PCIAddress != nil {
-			labels[cutil.DPUDevicePCIAddressLabel] = *dpuDevice.Status.PCIAddress
-		}
-		if dpuDevice.Spec.PSID != nil {
-			labels[cutil.DPUDevicePSIDLabel] = *dpuDevice.Spec.PSID
-		}
-		if dpuDevice.Spec.OPN != nil {
-			labels[cutil.DPUDeviceOPNLabel] = *dpuDevice.Spec.OPN
-		}
-		if dpuDevice.Spec.NumberOfPFs != nil {
-			labels[cutil.DPUDeviceNumOfPFsLabel] = fmt.Sprintf("%d", *dpuDevice.Spec.NumberOfPFs)
-		}
-		if dpuDevice.Spec.PF0Name != nil {
-			labels[cutil.DPUDevicePF0NameLabel] = *dpuDevice.Spec.PF0Name
-		}
-		if dpuDevice.Spec.BMCIP != nil {
-			labels[cutil.DPUDeviceBMCIPLabel] = *dpuDevice.Spec.BMCIP
-		}
-
-		// add labels to DPUDevice CR
-		patcher := patch.NewSerialPatcher(dpuDevice, r.Client)
-		dpuDevice.Labels = cutil.CopyLabelsOrAnnotations(dpuDevice.Labels, labels)
-		if err := patcher.Patch(ctx, dpuDevice); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (r *DPUNodeReconciler) getDPUNodeUpgradeCondition(dpuNode *provisioningv1.DPUNode) (bool, bool) {

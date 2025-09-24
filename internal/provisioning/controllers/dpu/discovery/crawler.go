@@ -46,7 +46,8 @@ type CrawlerService struct {
 }
 
 type CrawlResult struct {
-	IP           string
+	IPAddress    string
+	Port         uint32
 	Found        bool
 	Error        error
 	SerialNumber string
@@ -80,7 +81,13 @@ func (c *CrawlerService) Crawl(ctx context.Context, ipRange provisioningv1.IPRan
 	startIP := net.ParseIP(ipRange.StartIP)
 	endIP := net.ParseIP(ipRange.EndIP)
 
-	logger.Info("Crawling IP range", "start", ipRange.StartIP, "end", ipRange.EndIP, "port", ipRange.Port)
+	// Get port from IPRange spec, default to 443 if not specified
+	port := uint32(443) // Default port as defined in the CRD
+	if ipRange.Port != nil {
+		port = *ipRange.Port
+	}
+
+	logger.Info("Crawling IP range", "start", ipRange.StartIP, "end", ipRange.EndIP, "port", port)
 
 	// Convert to uint32 for easier comparison
 	start := ipToUint32(startIP.To4())
@@ -92,9 +99,10 @@ func (c *CrawlerService) Crawl(ctx context.Context, ipRange provisioningv1.IPRan
 
 	// Start worker pool
 	var wg sync.WaitGroup
+
 	for i := 0; i < c.workers; i++ {
 		wg.Add(1)
-		go c.worker(ctx, &wg, jobs, results, existingIPs, existingSerialNumbers, *ipRange.Port)
+		go c.worker(ctx, &wg, jobs, results, existingIPs, existingSerialNumbers, port)
 	}
 
 	// Send jobs
@@ -115,9 +123,9 @@ func (c *CrawlerService) Crawl(ctx context.Context, ipRange provisioningv1.IPRan
 	foundDpus := 0
 	for result := range results {
 		if result.Found {
-			logger.Info("Found DPU BMC", "ip", result.IP)
+			logger.Info("Found DPU BMC", "address", result.IPAddress, "port", result.Port)
 			if err := c.createDPUDeviceAndNode(ctx, result); err != nil {
-				logger.Error(err, "Failed to create DPU device", "ip", result.IP)
+				logger.Error(err, "Failed to create DPU device", "address", result.IPAddress, "port", result.Port)
 			}
 			foundDpus++
 		}
@@ -161,10 +169,10 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 	logger := log.FromContext(ctx)
 
 	for ip := range jobs {
-		ipStr := fmt.Sprintf("%s:%d", uint32ToIP(ip).String(), port)
+		address := fmt.Sprintf("%s:%d", uint32ToIP(ip).String(), port)
 		ipOnly := uint32ToIP(ip).String()
-		logger.Info("Processing IP", "ip", ipStr, "port", port)
-		result := CrawlResult{IP: ipOnly}
+		logger.Info("Processing IP", "ip", address, "port", port)
+		result := CrawlResult{IPAddress: ipOnly, Port: port}
 
 		// Skip if IP already has an associated DPU device
 		if existingIPs[ipOnly] {
@@ -175,9 +183,9 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 		}
 
 		// Try to connect to the BMC
-		client, err := rfclient.NewRawClient(ipStr)
+		client, err := rfclient.NewRawClient(address)
 		if err != nil {
-			logger.Error(err, "Failed to create Redfish client", "ip", ipStr)
+			logger.Error(err, "Failed to create Redfish client", "ip", address)
 			result.Error = err
 			results <- result
 			continue
@@ -186,18 +194,18 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 		// Check if it's a DPU BMC by making a Redfish request
 		resp, err := client.GetRootService()
 		if err != nil {
-			logger.Error(err, "Failed to get root service", "ip", ipStr, "response", resp)
+			logger.Error(err, "Failed to get root service", "address", address, "response", resp)
 			result.Error = err
 			results <- result
 			continue
 		}
-		logger.Info("Found response from the Redfish BMC at address", "ip", ipStr)
+		logger.Info("Found response from the Redfish BMC at address", "address", address)
 
 		// Now we we know that it's Redfish BMC on this address.
 		// Let's check that this is DPU BMC (could change password if it's default one)
-		client, err = rfclient.InitPassword(ctx, ipStr, c.namespace, c.client)
+		client, err = rfclient.InitPassword(ctx, address, c.namespace, c.client)
 		if err != nil {
-			logger.Error(err, "Failed to create authenticated Redfish client", "ip", ipStr)
+			logger.Error(err, "Failed to create authenticated Redfish client", "address", address)
 			result.Error = err
 			results <- result
 			continue
@@ -205,7 +213,7 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 
 		resp, chassisInfo, err := client.GetChassis()
 		if err != nil {
-			logger.Error(err, "Failed to get chassis info", "ip", ipStr, "response", resp)
+			logger.Error(err, "Failed to get chassis info", "address", address, "response", resp)
 			result.Error = err
 			results <- result
 			continue
@@ -213,7 +221,7 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 
 		if chassisInfo.SerialNumber == "" {
 			err := fmt.Errorf("failed to get serial number")
-			logger.Error(err, "ip", ipStr, "response", resp)
+			logger.Error(err, "address", address, "response", resp)
 			result.Error = err
 			results <- result
 			continue
@@ -222,7 +230,7 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 		result.SerialNumber = strings.Trim(chassisInfo.SerialNumber, " ")
 		if existingSerialNumbers[result.SerialNumber] {
 			logger.V(1).Info("Skipping – serial already discovered",
-				"ip", ipStr, "serial", result.SerialNumber)
+				"address", address, "serial", result.SerialNumber)
 			result.Error = fmt.Errorf("serial %s already has an associated DPU device", result.SerialNumber)
 
 			results <- result
@@ -231,7 +239,7 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 
 		result.OPN = strings.Trim(chassisInfo.PartNumber, " ")
 		result.Found = true
-		logger.Info("Found DPU BMC", "ip", ipStr)
+		logger.Info("Found DPU BMC", "address", address)
 
 		results <- result
 	}
@@ -246,7 +254,8 @@ func (c *CrawlerService) createDPUDeviceAndNode(ctx context.Context, result Craw
 			Namespace: c.namespace,
 		},
 		Spec: provisioningv1.DPUDeviceSpec{
-			BMCIP:        &result.IP,
+			BMCIP:        &result.IPAddress,
+			BMCPort:      &result.Port,
 			SerialNumber: result.SerialNumber,
 			OPN:          &result.OPN,
 		},

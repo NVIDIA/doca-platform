@@ -414,7 +414,7 @@ var _ = Describe("DPUSet", func() {
 			}))
 		})
 
-		It("DPUSet: should be removed in case the DPUDevice disappeared", func() {
+		It("DPUSet: prevent DPUDevice deletion while DPU is using it", func() {
 			By("creating dpuset ")
 			obj := createDPUSet("obj-dpuset")
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
@@ -432,10 +432,23 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items[0].Name).To(Equal(cutil.GenerateDPUName(testDPUNode.Name, testDPUDevice.Name)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
-			By("removing the DPUDevice")
-			Expect(testutils.CleanupAndWait(ctx, k8sClient, testDPUDevice)).To(Succeed())
+			By("trying to remove the DPUDevice")
+			Expect(k8sClient.Delete(ctx, testDPUDevice)).To(Succeed())
 
-			By("checking a DPU does not exist")
+			By("checking a DPU still exist")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name))).To(Succeed())
+				g.Expect(dpuList.Items).To(HaveLen(1))
+				g.Expect(dpuList.Items[0].Name).To(Equal(cutil.GenerateDPUName(testDPUNode.Name, testDPUDevice.Name)))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			dpu := dpuList.Items[0]
+
+			By("Removing the DPU and DpuDevice")
+			Expect(k8sClient.Delete(ctx, &dpu)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, testDPUDevice)).To(Succeed())
+
+			By("Checking the DPUDevice is removed")
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name))).To(Succeed())
 				g.Expect(dpuList.Items).To(BeEmpty())

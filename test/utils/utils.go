@@ -17,9 +17,17 @@ limitations under the License.
 package utils
 
 import (
+	"bytes"
 	"context"
+	cryptorand "crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"math/rand"
+	"net"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -254,4 +262,113 @@ func ResolveHBNImageURL(hbnURL string) (string, error) {
 	}
 
 	return hbnURL, nil
+}
+
+// CreateMTLSCerts creates mTLS certificates for testing purposes.
+// Returns CA certificate, client certificate, client key, server certificate, and server key as PEM-encoded bytes.
+func CreateMTLSCerts(dmsIP string) (caCrtBytes, clientCrtBytes, clientKeyBytes, srvCrtBytes, srvKeyBytes []byte) {
+	// CA Private Key
+	caPrivKey, err := rsa.GenerateKey(cryptorand.Reader, 2048)
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate CA private key: %v", err))
+	}
+
+	// CA Certificate Template
+	caTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2024),
+		Subject: pkix.Name{
+			Organization: []string{"Test CA Org"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().AddDate(1, 0, 0), // Valid for 1 year
+		IsCA:                  true,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+
+	// Create CA Certificate
+	caCertBytes, err := x509.CreateCertificate(cryptorand.Reader, caTemplate, caTemplate, &caPrivKey.PublicKey, caPrivKey)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create CA certificate: %v", err))
+	}
+	caCert, err := x509.ParseCertificate(caCertBytes)
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse CA certificate: %v", err))
+	}
+
+	// Server Private Key
+	serverPrivKey, err := rsa.GenerateKey(cryptorand.Reader, 2048)
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate server private key: %v", err))
+	}
+
+	// Server Certificate Template
+	serverTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2025),
+		Subject: pkix.Name{
+			CommonName: dmsIP,
+		},
+		IPAddresses: []net.IP{net.ParseIP(dmsIP)},
+		NotBefore:   time.Now(),
+		NotAfter:    time.Now().AddDate(1, 0, 0),
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+	}
+
+	// Create Server Certificate
+	serverCertBytes, err := x509.CreateCertificate(cryptorand.Reader, serverTemplate, caCert, &serverPrivKey.PublicKey, caPrivKey)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create server certificate: %v", err))
+	}
+
+	// Client Private Key
+	clientPrivKey, err := rsa.GenerateKey(cryptorand.Reader, 2048)
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate client private key: %v", err))
+	}
+
+	// Client Certificate Template
+	clientTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2026),
+		Subject: pkix.Name{
+			CommonName: "client",
+		},
+		NotBefore:   time.Now(),
+		NotAfter:    time.Now().AddDate(1, 0, 0),
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+	}
+
+	// Create Client Certificate
+	clientCertBytes, err := x509.CreateCertificate(cryptorand.Reader, clientTemplate, caCert, &clientPrivKey.PublicKey, caPrivKey)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create client certificate: %v", err))
+	}
+
+	// PEM Encode
+	caCertPEM := new(bytes.Buffer)
+	if err := pem.Encode(caCertPEM, &pem.Block{Type: "CERTIFICATE", Bytes: caCertBytes}); err != nil {
+		panic(fmt.Sprintf("failed to encode CA certificate: %v", err))
+	}
+
+	serverCertPEM := new(bytes.Buffer)
+	if err := pem.Encode(serverCertPEM, &pem.Block{Type: "CERTIFICATE", Bytes: serverCertBytes}); err != nil {
+		panic(fmt.Sprintf("failed to encode server certificate: %v", err))
+	}
+	serverPrivKeyPEM := new(bytes.Buffer)
+	if err := pem.Encode(serverPrivKeyPEM, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(serverPrivKey)}); err != nil {
+		panic(fmt.Sprintf("failed to encode server private key: %v", err))
+	}
+
+	clientCertPEM := new(bytes.Buffer)
+	if err := pem.Encode(clientCertPEM, &pem.Block{Type: "CERTIFICATE", Bytes: clientCertBytes}); err != nil {
+		panic(fmt.Sprintf("failed to encode client certificate: %v", err))
+	}
+	clientPrivKeyPEM := new(bytes.Buffer)
+	if err := pem.Encode(clientPrivKeyPEM, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(clientPrivKey)}); err != nil {
+		panic(fmt.Sprintf("failed to encode client private key: %v", err))
+	}
+
+	return caCertPEM.Bytes(), clientCertPEM.Bytes(), clientPrivKeyPEM.Bytes(), serverCertPEM.Bytes(), serverPrivKeyPEM.Bytes()
 }

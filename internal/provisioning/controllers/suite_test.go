@@ -39,6 +39,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/discovery"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpucluster"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpudevice"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode"
 	dnutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunodemaintenance"
@@ -243,6 +244,14 @@ var _ = BeforeSuite(func() {
 		},
 	}
 	err = dpunodemaintenanceReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	// Add DPUDevice controller
+	dpuDeviceReconciler := &dpudevice.DPUDeviceReconciler{
+		Client: k8sManager.GetClient(),
+		Scheme: k8sManager.GetScheme(),
+	}
+	err = dpuDeviceReconciler.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	go func() {
