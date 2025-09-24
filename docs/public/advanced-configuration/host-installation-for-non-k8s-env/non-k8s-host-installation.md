@@ -73,7 +73,7 @@ sudo ctr image pull --user \$oauthtoken:$IMAGE_PULL_KEY  $IMAGE
 ```
 
 ### 5. Initialize Host Agent Flags
-Before you run the following commands, you need to set the BFB_REGISTRY_ADDRESS with the same value as you set in [DPFOperatorConfig.spec.provisioningController.registry](/docs/public/developer-guides/api/api.md#registryconfiguration)
+Before you run the following commands, you need to set the BFB_REGISTRY_ADDRESS with the same value as you set in [DPFOperatorConfig.spec.provisioningController.registry](../../developer-guides/api/api.md#registryconfiguration)
 ```
 export BFB_REGISTRY_ADDRESS=<address of the bfb-registry>
 export HOST_AGENT_DIR=/var/lib/dpf/hostagent
