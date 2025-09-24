@@ -56,7 +56,7 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, err
 	}
 
-	client, err := rc.NewTLSClient(ctx, device, ctrlCtx.Client)
+	client, err := rc.NewTLSClient(ctx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
 		err = fmt.Errorf("failed to create TLS client: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailedToCreateClient", err.Error()))
