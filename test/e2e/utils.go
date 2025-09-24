@@ -51,8 +51,6 @@ var (
 	hbnImageURL = ""
 	// ngcAPIKey can be used to create a secret to be able to pull images from NGC, this secret can be used by DPUservices and should not be used for core components.
 	ngcAPIKey = ""
-	// externalTestCommands can be used to run external tests as part of our test suite. Tests will be skipped, if the variable is empty.
-	externalTestCommands []string
 	// Labels and resources targeted for cleanup before running our e2e tests.
 	// This cleanup is typically handled by cleanupObjs, but if an e2e test fails, the standard cleanup may not be executed.
 	resourcesToDelete = []client.ObjectList{

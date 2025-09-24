@@ -53,6 +53,7 @@ import (
 func init() {
 	flag.StringVar(&testKubeconfig, "e2e.testKubeconfig", "", "path to the testKubeconfig file")
 	flag.StringVar(&configPath, "e2e.config", "", "path to the configuration file")
+	flag.StringVar(&externalTest, "e2e.externalTestScript", "", "path to the external test file, script will be called in between BeforeSuite setup and AfterSuite cleanup")
 
 	getEnvVariables()
 }
@@ -68,6 +69,8 @@ var (
 	skipCleanup = false
 	// collectResources indicates whether to collect logs an objects after an e2e test run.
 	collectResources = true
+	// externalTest path used to run external tests scripts
+	externalTest string
 )
 
 func getEnvVariables() {
@@ -113,10 +116,6 @@ func getEnvVariables() {
 		tag = t
 	} else {
 		panic("TAG env variable must be set")
-	}
-
-	if cmd, found := os.LookupEnv("EXTERNAL_TEST_COMMANDS"); found {
-		externalTestCommands = utils.ParseMultipleCommands(cmd)
 	}
 }
 
