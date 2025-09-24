@@ -152,7 +152,7 @@ var _ = Describe("DPUNode Controller", func() {
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
 			By("Creating the dpfoperatorconfig")
-			testDPFoperatorConfig = createDPFOperatorConfig(DefaultDPFOperatorConfig, testNS.Name)
+			testDPFoperatorConfig = createDPFOperatorConfig(DefaultDPFOperatorConfig, operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace)
 			Expect(k8sClient.Create(ctx, testDPFoperatorConfig)).To(Succeed())
 
 			By("Creating the informer infrastructure for DPUNode")
@@ -471,8 +471,14 @@ var _ = Describe("DPUNode Controller", func() {
 				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
 
 				// Set DPUInstallInterface on DPUNode to avoid DPU controller errors
-				dpuNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.DPUNodeInstallInterfaceGNOI))
-				Expect(k8sClient.Status().Update(ctx, dpuNode)).To(Succeed())
+				Eventually(func() error {
+					latestDPUNode := &provisioningv1.DPUNode{}
+					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), latestDPUNode); err != nil {
+						return err
+					}
+					latestDPUNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.DPUNodeInstallInterfaceGNOI))
+					return k8sClient.Status().Update(ctx, latestDPUNode)
+				}).WithTimeout(10 * time.Second).Should(Succeed())
 
 				// Add OOB bridge configured label to avoid DPU controller errors
 				// Get the latest version to avoid conflict errors
