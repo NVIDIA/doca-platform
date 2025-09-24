@@ -309,10 +309,6 @@ spec:
             - message: interfaces are not supported when deploying in cluster
               rule: '!has(self.interfaces) || (has(self.interfaces) && (self.serviceConfiguration.deployInCluster
                 == false || !has(self.serviceConfiguration.deployInCluster)))'
-            - message: applyNodeEffect is not supported when deploying in cluster
-              rule: '!has(self.serviceConfiguration) || !has(self.serviceConfiguration.deployInCluster)
-                || self.serviceConfiguration.deployInCluster == false || (self.upgradePolicy.applyNodeEffect
-                == false && self.serviceConfiguration.deployInCluster == true)'
           status:
             description: DPUServiceConfigurationStatus defines the observed state
               of DPUServiceConfiguration
