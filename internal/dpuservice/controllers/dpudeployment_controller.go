@@ -768,11 +768,10 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 
 	// Create a slice of NodeMaintenanceAdditionalRequestors
 	// Each DPUService and DPUServiceChain has a NodeMaintenanceAdditionalRequestor.
-	// This is needed because the DPUReadyController will need to remove those requestors when those
-	// DPUServices and DPUServiceChains are ready.
+	// This is needed because the DPUReadyController and the DPUDeployment Node Controller will need to remove those
+	// requestors when those DPUServices and DPUServiceChains are ready.
 	dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = make([]string, 0)
 	for _, revision := range dpuNodeLabels {
-		// value is the name of the DPUService or DPUServiceChain new revision
 		requestor := getRequestorForDPUObjectVersion(getParentDPUDeploymentLabelValue(dpuDeploymentNamespacedName), revision)
 		if !slices.Contains(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors, requestor) {
 			dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = append(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors, requestor)
