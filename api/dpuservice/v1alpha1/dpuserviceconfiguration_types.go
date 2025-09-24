@@ -51,7 +51,6 @@ type DPUServiceConfiguration struct {
 
 // DPUServiceConfigurationSpec defines the desired state of DPUServiceConfiguration
 // +kubebuilder:validation:XValidation:rule="!has(self.interfaces) || (has(self.interfaces) && (self.serviceConfiguration.deployInCluster == false || !has(self.serviceConfiguration.deployInCluster)))", message="interfaces are not supported when deploying in cluster"
-// +kubebuilder:validation:XValidation:rule="!has(self.serviceConfiguration) || !has(self.serviceConfiguration.deployInCluster) || self.serviceConfiguration.deployInCluster == false || (self.upgradePolicy.applyNodeEffect == false && self.serviceConfiguration.deployInCluster == true)", message="applyNodeEffect is not supported when deploying in cluster"
 type DPUServiceConfigurationSpec struct {
 	// DeploymentServiceName is the name of the DPU service this configuration refers to. It must match
 	// .spec.deploymentServiceName of a DPUServiceTemplate object and one of the keys in .spec.services of a

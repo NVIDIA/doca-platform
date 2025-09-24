@@ -208,39 +208,6 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 			Entry("valid config - with deployInCluster=true and without interfaces", ptr.To(true), false, false),
 			Entry("invalid config - with deployInCluster=true and with interfaces", ptr.To(true), true, true),
 		)
-		DescribeTable("Validates the NodeEffect and deployInCluster correctly", func(deployInCluster *bool, hasNodeEffect *bool, expectError bool) {
-			dpuServiceConfiguration := getMinimalDPUServiceConfigurationWithoutUpgradePolicy(testNS.Name)
-			dpuServiceConfiguration.Spec.ServiceConfiguration.DeployInCluster = deployInCluster
-			dpuServiceConfiguration.Spec.Interfaces = nil
-			if hasNodeEffect != nil {
-				if *hasNodeEffect {
-					dpuServiceConfiguration.Spec.UpgradePolicy = dpuservicev1.UpgradePolicy{
-						ApplyNodeEffect: ptr.To(true),
-					}
-				} else {
-					dpuServiceConfiguration.Spec.UpgradePolicy = dpuservicev1.UpgradePolicy{
-						ApplyNodeEffect: ptr.To(false),
-					}
-				}
-			}
-
-			err := testClient.Create(ctx, dpuServiceConfiguration)
-			if expectError {
-				Expect(err).To(HaveOccurred())
-			} else {
-				Expect(err).ToNot(HaveOccurred())
-			}
-		},
-			Entry("valid config - without specifying deployInCluster and with applyNodeEffect=true", nil, ptr.To(true), false),
-			Entry("valid config - without specifying deployInCluster and with applyNodeEffect=false", nil, ptr.To(false), false),
-			Entry("valid config - without specifying deployInCluster and without applyNodeEffect", nil, nil, false),
-			Entry("valid config - with deployInCluster=false and with applyNodeEffect=true", ptr.To(false), ptr.To(true), false),
-			Entry("valid config - with deployInCluster=false and with applyNodeEffect=false", ptr.To(false), ptr.To(false), false),
-			Entry("valid config - with deployInCluster=false and without applyNodeEffect", ptr.To(false), nil, false),
-			Entry("valid config - with deployInCluster=true and with applyNodeEffect=false", ptr.To(true), ptr.To(false), false),
-			Entry("invalid config - with deployInCluster=true and with applyNodeEffect=true", ptr.To(true), ptr.To(true), true),
-			Entry("invalid config - with deployInCluster=true and without applyNodeEffect", ptr.To(true), nil, true),
-		)
 		DescribeTable("Validates the ConfigPorts and deployInCluster correctly", func(deployInCluster *bool, hasConfigPorts bool, expectError bool) {
 			dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
 			dpuServiceConfiguration.Spec.Interfaces = nil
