@@ -22,7 +22,6 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -38,28 +37,29 @@ import (
 )
 
 const (
-	APIChangePasswd       = "redfish/v1/AccountService/Accounts/root"
-	APICheckBMCFW         = "redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware"
-	APICheckDPUNIC        = "redfish/v1/UpdateService/FirmwareInventory/DPU_NIC"
-	APICheckDPUOS         = "redfish/v1/UpdateService/FirmwareInventory/DPU_OS"
-	APIInstallBFB         = "redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate"
-	APIUpdateFW           = "redfish/v1/UpdateService"
-	APICheckProgress      = "redfish/v1/TaskService/Tasks"
-	APIGetManagers        = "redfish/v1/Managers"
-	APIResetBMC           = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.Reset"
-	APIEnableBMCRshim     = "redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia"
-	APIGetSystem          = "redfish/v1/Systems/Bluefield"
-	APIDisableHostRshim   = "redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/HostRshim.Set"
-	APIInstallCert        = "redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates"
-	APIReplaceCert        = "redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate"
-	APIGetBios            = "redfish/v1/Systems/Bluefield/Bios"
-	APISetBiosSettings    = "redfish/v1/Systems/Bluefield/Bios/Settings"
-	APISetMode            = "/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/Mode.Set"
-	APIGenerateCSR        = "redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR"
-	APIEnableMTLS         = "redfish/v1/AccountService"
-	APIProductDescription = "redfish/v1/Systems/Bluefield/Oem/Nvidia"
-	APIGetChassis         = "redfish/v1/Chassis/{CHASSIS_ID}"
-	APIRootService        = "redfish/v1"
+	APIChangePasswd              = "redfish/v1/AccountService/Accounts/root"
+	APICheckBMCFW                = "redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware"
+	APICheckDPUNIC               = "redfish/v1/UpdateService/FirmwareInventory/DPU_NIC"
+	APICheckDPUOS                = "redfish/v1/UpdateService/FirmwareInventory/DPU_OS"
+	APIInstallBFB                = "redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate"
+	APIUpdateFW                  = "redfish/v1/UpdateService"
+	APICheckProgress             = "redfish/v1/TaskService/Tasks"
+	APIGetManagers               = "redfish/v1/Managers"
+	APIResetBMC                  = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.Reset"
+	APIEnableBMCRshim            = "redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia"
+	APIGetSystem                 = "redfish/v1/Systems/Bluefield"
+	APIDisableHostRshim          = "redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/HostRshim.Set"
+	APIInstallCert               = "redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates"
+	APIReplaceCert               = "redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate"
+	APIGetBios                   = "redfish/v1/Systems/Bluefield/Bios"
+	APISetBiosSettings           = "redfish/v1/Systems/Bluefield/Bios/Settings"
+	APISetMode                   = "/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/Mode.Set"
+	APIGenerateCSR               = "redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR"
+	APIEnableMTLS                = "redfish/v1/AccountService"
+	APIProductDescription        = "redfish/v1/Systems/Bluefield/Oem/Nvidia"
+	APIGetChassis                = "redfish/v1/Chassis/{CHASSIS_ID}"
+	APIGetNetworkDeviceFunctions = "redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/{PF_ID}"
+	APIRootService               = "redfish/v1"
 
 	// CASecret is created by the cert-manager Certificate deployed by DPF,
 	CASecret = "dpf-provisioning-ca-secret"
@@ -418,6 +418,23 @@ func (c *Client) GetBios() (*resty.Response, *Bios, error) {
 	})
 }
 
+type NetworkDeviceFunction struct {
+	ID             string   `json:"Id"`
+	Ethernet       Ethernet `json:"Ethernet"`
+	NetDevFuncType string   `json:"NetDevFuncType"` // "Ethernet" or "Infiniband"
+}
+
+type Ethernet struct {
+	MACAddress string `json:"MACAddress"`
+	MTUSize    int    `json:"MTUSize"`
+}
+
+func (c *Client) GetNetworkDeviceFunction(pfID string) (*resty.Response, *NetworkDeviceFunction, error) {
+	return do[NetworkDeviceFunction](func() (*resty.Response, error) {
+		return c.Client.R().Get(strings.Replace(APIGetNetworkDeviceFunctions, "{PF_ID}", pfID, 1))
+	})
+}
+
 // SetDpuMode returns a Bios information for current DPU
 func (c *Client) SetDpuMode(desiredMode provisioningv1.DpuModeType) (*resty.Response, error) {
 	var body []byte
@@ -477,6 +494,9 @@ func (c *Client) GetRootService() (*resty.Response, error) {
 
 // InitPassword reads a password from the user-created Secret and set it to all DPUs
 func InitPassword(ctx context.Context, bmcAddress string, namespace string, k8sClient client.Client) (*Client, error) {
+	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
+		bmcAddress = httpsPrefix + bmcAddress
+	}
 	// get BMC password from the secret created by user
 	nn := types.NamespacedName{Name: BMCPasswordSecret, Namespace: namespace}
 	passwdSecret := &corev1.Secret{}
@@ -522,35 +542,29 @@ func InitPassword(ctx context.Context, bmcAddress string, namespace string, k8sC
 }
 
 // NewBasicAuthClient returns a Client using basic auth
-func NewBasicAuthClient(bmcIP, user, passwd string) (*Client, error) {
-	if bmcIP[:8] != httpsPrefix {
-		bmcIP = httpsPrefix + bmcIP
+func NewBasicAuthClient(bmcAddress, user, passwd string) (*Client, error) {
+	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
+		bmcAddress = httpsPrefix + bmcAddress
 	}
-	_, err := url.ParseRequestURI(bmcIP)
+	_, err := url.ParseRequestURI(bmcAddress)
 	if err != nil {
 		return nil, err
 	}
 
 	c := resty.New().
 		SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true}).
-		SetBaseURL(bmcIP).
+		SetBaseURL(bmcAddress).
 		SetBasicAuth(user, passwd)
 	return &Client{Client: c}, nil
 }
 
 // NewTLSClient returns a Client using mTLS
-func NewTLSClient(ctx context.Context, dpu *provisioningv1.DPUDevice, k8sClient client.Client) (*Client, error) {
-	if dpu.Spec.BMCIP == nil {
-		return nil, fmt.Errorf("no BMC IP of DPU device")
+func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sClient client.Client) (*Client, error) {
+	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
+		bmcAddress = httpsPrefix + bmcAddress
 	}
-
-	bmcIP := net.ParseIP(*dpu.Spec.BMCIP)
-	if bmcIP == nil {
-		return nil, fmt.Errorf("invalid BMC IP: %s", *dpu.Spec.BMCIP)
-	}
-
 	caSecret := &corev1.Secret{}
-	if err := k8sClient.Get(ctx, types.NamespacedName{Name: CASecret, Namespace: dpu.Namespace}, caSecret); err != nil {
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: CASecret, Namespace: namespace}, caSecret); err != nil {
 		return nil, err
 	}
 	caCert, ok := caSecret.Data["tls.crt"]
@@ -558,7 +572,7 @@ func NewTLSClient(ctx context.Context, dpu *provisioningv1.DPUDevice, k8sClient 
 		return nil, fmt.Errorf("no CA crt in CA secret")
 	}
 	clientSecret := &corev1.Secret{}
-	if err := k8sClient.Get(ctx, types.NamespacedName{Name: ClientCertSecret, Namespace: dpu.Namespace}, clientSecret); err != nil {
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: ClientCertSecret, Namespace: namespace}, clientSecret); err != nil {
 		return nil, err
 	}
 	clientCert, ok := clientSecret.Data["tls.crt"]
@@ -582,8 +596,8 @@ func NewTLSClient(ctx context.Context, dpu *provisioningv1.DPUDevice, k8sClient 
 		RootCAs:            certPool,
 		Certificates:       []tls.Certificate{clientKeyPair},
 	}
-	c := resty.New().SetBaseURL(fmt.Sprintf("https://%s", bmcIP)).SetTLSClientConfig(tlsCfg)
-	//c := resty.New().SetBaseURL(*dpu.Spec.BMCIP).SetTLSClientConfig(tlsCfg)
+
+	c := resty.New().SetBaseURL(bmcAddress).SetTLSClientConfig(tlsCfg)
 
 	tlsClient := &Client{Client: c}
 
@@ -596,6 +610,7 @@ func NewTLSClient(ctx context.Context, dpu *provisioningv1.DPUDevice, k8sClient 
 		err = fmt.Errorf("verify mtls client failed, err: %v", err)
 		return nil, err
 	}
+
 	if resp != nil && resp.StatusCode() != http.StatusOK {
 		return nil, fmt.Errorf("redfish call getProductDescription failed, status code: %s", resp.Status())
 	}

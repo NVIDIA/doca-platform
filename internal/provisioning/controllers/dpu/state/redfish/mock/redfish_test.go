@@ -66,7 +66,7 @@ func testChassisInfo(t *testing.T, client *client.Client) {
 	if chassisInfo.Model != "BlueField-3 B3220" {
 		t.Errorf("Expected model BlueField-3 B3220, got %s", chassisInfo.Model)
 	}
-	if chassisInfo.PartNumber != "900-9D3B6-00CV-AA0" {
-		t.Errorf("Expected part number 900-9D3B6-00CV-AA0, got %s", chassisInfo.PartNumber)
+	if chassisInfo.PartNumber != "900-9D3B4-00SV-EA0" {
+		t.Errorf("Expected part number 900-9D3B4-00SV-EA0, got %s", chassisInfo.PartNumber)
 	}
 }

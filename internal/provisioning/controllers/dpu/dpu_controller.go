@@ -144,7 +144,8 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus/finalizers,verbs=update
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuflavors,verbs=get;list;watch
-// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=pods;pods/exec;nodes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;create;delete;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;create;delete
@@ -180,7 +181,20 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, nil
 	}
 
+	// Add DpuDevice finalizer to prevent DpuDevice deletion while DPU is using it
+	if dpu.DeletionTimestamp.IsZero() {
+		if err := r.addDpuDeviceFinalizer(ctx, dpu); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to add DpuDevice finalizer %w", err)
+		}
+	}
+
 	if !dpu.DeletionTimestamp.IsZero() || dpu.Spec.DPUNodeName == "" {
+		// Remove DpuDevice finalizer when DPU is being deleted
+		if !dpu.DeletionTimestamp.IsZero() {
+			if err := r.removeDpuDeviceFinalizer(ctx, dpu); err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to remove DpuDevice finalizer %w", err)
+			}
+		}
 		// Skip reboot check during deletion or if no DPUNode specified
 	} else {
 		// If the DPUNode is rebooting, requeue the DPU request
@@ -244,6 +258,46 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	// If we have an error we have to requeue the DPU and let controller-runtime handle the error.
 	return ctrl.Result{}, err
+}
+
+// addDpuDeviceFinalizer adds the DpuDevice finalizer to prevent deletion while DPU is using it
+func (r *DPUReconciler) addDpuDeviceFinalizer(ctx context.Context, dpu *provisioningv1.DPU) error {
+	dpuDevice := &provisioningv1.DPUDevice{}
+	if err := r.ctrlCtx.Client.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
+		if apierrors.IsNotFound(err) {
+			// DpuDevice not found, this is expected in some cases
+			return nil
+		}
+		return fmt.Errorf("failed to get DpuDevice %s: %w", dpu.Spec.DPUDeviceName, err)
+	}
+
+	if !controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.DPUDeviceFinalizer) {
+		controllerutil.AddFinalizer(dpuDevice, provisioningv1.DPUDeviceFinalizer)
+		if err := r.ctrlCtx.Client.Update(ctx, dpuDevice); err != nil {
+			return fmt.Errorf("failed to add DpuDevice finalizer: %w", err)
+		}
+	}
+	return nil
+}
+
+// removeDpuDeviceFinalizer removes the DpuDevice finalizer when DPU is being deleted
+func (r *DPUReconciler) removeDpuDeviceFinalizer(ctx context.Context, dpu *provisioningv1.DPU) error {
+	dpuDevice := &provisioningv1.DPUDevice{}
+	if err := r.ctrlCtx.Client.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
+		if apierrors.IsNotFound(err) {
+			// DpuDevice not found, this is expected in some cases
+			return nil
+		}
+		return fmt.Errorf("failed to get DpuDevice %s: %w", dpu.Spec.DPUDeviceName, err)
+	}
+
+	if controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.DPUDeviceFinalizer) {
+		controllerutil.RemoveFinalizer(dpuDevice, provisioningv1.DPUDeviceFinalizer)
+		if err := r.ctrlCtx.Client.Update(ctx, dpuDevice); err != nil {
+			return fmt.Errorf("failed to remove DpuDevice finalizer: %w", err)
+		}
+	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

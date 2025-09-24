@@ -30,6 +30,8 @@ import (
 // Constants for repeated strings
 const (
 	defaultBMCPassword = "0penBmc"
+	DpuSerialNumber    = "MT25066004C7"
+	DpuOPN             = "900-9D3B4-00SV-EA0"
 )
 
 // RedfishMockServer represents a mock Redfish server for testing
@@ -53,6 +55,21 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 
 	// Chassis
 	mux.HandleFunc("/redfish/v1/Chassis/Card1", mock.handleGetChassis)
+
+	// UpdateService
+	mux.HandleFunc("/redfish/v1/UpdateService", mock.handleUpdateService)
+
+	// TaskService
+	mux.HandleFunc("/redfish/v1/TaskService/Tasks/{task_id}", mock.handleGetTask)
+
+	// Managers
+	mux.HandleFunc("/redfish/v1/Managers", mock.handleGetManagers)
+
+	// ResetBMC
+	mux.HandleFunc("/redfish/v1/Managers/{manager_id}/Actions/Manager.Reset", mock.handleResetBMC)
+
+	// NetworkDeviceFunctions
+	mux.HandleFunc("/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/eth0f0", mock.handleGetNetworkDeviceFunction)
 
 	mock.server = httptest.NewUnstartedServer(mux)
 	return mock
@@ -182,8 +199,8 @@ func (r *RedfishMockServer) handleGetChassis(w http.ResponseWriter, req *http.Re
 		"Id":             "Card1",
 		"Name":           "BlueField DPU Card",
 		"Model":          "BlueField-3 B3220",
-		"PartNumber":     "900-9D3B6-00CV-AA0",
-		"SerialNumber":   "MT25066004C7",
+		"PartNumber":     DpuOPN,
+		"SerialNumber":   DpuSerialNumber,
 		"Status": map[string]interface{}{
 			"State":  "Enabled",
 			"Health": "OK",
@@ -191,6 +208,93 @@ func (r *RedfishMockServer) handleGetChassis(w http.ResponseWriter, req *http.Re
 	}
 
 	writeJSONResponse(w, response)
+}
+
+// handleUpdateService handles update service information requests
+func (r *RedfishMockServer) handleUpdateService(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	r.bmcVersion = "24.10-17"
+
+	taskInfo := map[string]interface{}{
+		"@odata.context": "/redfish/v1/$metadata#Task.Task",
+		"@odata.id":      "/redfish/v1/TaskService/Tasks/0",
+		"@odata.type":    "#Task.v1_10_0.Task",
+		"Id":             "0",
+		"Name":           "Update Service",
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+	writeJSONResponse(w, taskInfo)
+}
+
+// handleGetTask handles task information requests
+func (r *RedfishMockServer) handleGetTask(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	taskInfo := map[string]interface{}{
+		"@odata.context":  "/redfish/v1/$metadata#Task.Task",
+		"@odata.id":       "/redfish/v1/TaskService/Tasks/0",
+		"@odata.type":     "#Task.v1_10_0.Task",
+		"Id":              "0",
+		"Name":            "Update Service",
+		"TaskState":       "Completed",
+		"PercentComplete": 100,
+	}
+
+	writeJSONResponse(w, taskInfo)
+}
+
+func (r *RedfishMockServer) handleGetManagers(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	response := map[string]interface{}{
+		"@odata.context": "/redfish/v1/$metadata#Managers.Managers",
+		"@odata.id":      "/redfish/v1/Managers",
+		"@odata.type":    "#Managers.v1_10_0.Managers",
+		"Id":             "Managers",
+		"Name":           "Managers",
+		"Members": []map[string]interface{}{
+			{
+				"@odata.id": "/redfish/v1/Managers/Bluefield_BMC",
+			},
+		},
+	}
+
+	writeJSONResponse(w, response)
+}
+
+func (r *RedfishMockServer) handleResetBMC(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	response := map[string]interface{}{
+		"@odata.id": "/redfish/v1/Managers/BMC/Actions/Manager.Reset",
+	}
+	json.NewEncoder(w).Encode(response) //nolint: errcheck
+}
+
+func (r *RedfishMockServer) handleGetNetworkDeviceFunction(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	response := map[string]interface{}{
+		"@odata.id":      "/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/eth0f0",
+		"Id":             "eth0f0",
+		"NetDevFuncType": "Ethernet",
+		"Ethernet": map[string]interface{}{
+			"MACAddress": "00:1B:21:C0:8F:32",
+			"MTUSize":    1500,
+		},
+	}
+	json.NewEncoder(w).Encode(response) //nolint: errcheck
 }
 
 // CreateMockRedfishServer creates and starts a mock Redfish server for testing
