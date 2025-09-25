@@ -592,7 +592,7 @@ verify-md-links: $(LYCHEE) ## Check links in markdown docs are working
 	$(LYCHEE) --accept 200,429 . *.md --exclude-path third_party --exclude-path ./deploy --exclude-path docs/do_not_publish # Exclude the external `third_party` docs and the generated `charts` docs.
 
 .PHONY: lint-helm
-lint-helm: lint-helm-dpu-networking lint-helm-ovn-kubernetes lint-helm-dummydpuservice lint-helm-storage lint-helm-spdk-csi-controller lint-helm-nfs-csi-controller
+lint-helm: lint-helm-dpu-networking lint-helm-ovn-kubernetes lint-helm-dummydpuservice lint-helm-storage
 
 .PHONY: lint-helm-dpu-networking
 lint-helm-dpu-networking: helm ## Run helm lint for servicechainset chart
@@ -606,13 +606,7 @@ lint-helm-ovn-kubernetes: generate-manifests-ovn-kubernetes helm ## Run helm lin
 lint-helm-dummydpuservice: helm ## Run helm lint for dummydpuservice chart
 	$Q $(HELM) lint $(DUMMYDPUSERVICE_HELM_CHART)
 
-.PHONY: lint-helm-spdk-csi-controller
-lint-helm-spdk-csi-controller: helm ## Run helm lint for spdk csi controller chart
-	$Q $(HELM) lint $(SPDK_CSI_CONTROLLER_CHART)
 
-.PHONY: lint-helm-nfs-csi-controller
-lint-helm-nfs-csi-controller: helm ## Run helm lint for nfs csi controller chart
-	$Q $(HELM) lint $(NFS_CSI_CONTROLLER_CHART)
 
 .PHONY: lint-helm-storage
 lint-helm-storage: helm ## Run helm lint for snap dpu chart
@@ -1301,7 +1295,7 @@ export HELM_REGISTRY ?= $(DEFAULT_HELM_REGISTRY)
 # This variable ensures that the values injected in the operator and charts point to the upstream artifacts.
 export UPSTREAM_HELM_REGISTRY ?= $(HELM_REGISTRY)
 
-HELM_TARGETS ?= dpu-networking operator ovn-kubernetes storage nfs-csi-controller
+HELM_TARGETS ?= dpu-networking operator ovn-kubernetes storage
 
 # metadata for the operator helm chart
 OPERATOR_HELM_CHART_NAME ?= dpf-operator
@@ -1326,15 +1320,7 @@ OVNKUBERNETES_RESOURCE_INJECTOR_HELM_CHART_VER ?= $(TAG)
 DUMMYDPUSERVICE_HELM_CHART_NAME = dummydpuservice-chart
 DUMMYDPUSERVICE_HELM_CHART ?= $(DPUSERVICESDIR)/dummydpuservice/chart
 
-# metadata for spdk csi controller.
-SPDK_CSI_CONTROLLER_CHART_NAME = spdk-csi-controller-chart
-SPDK_CSI_CONTROLLER_CHART ?= $(DPUSERVICESDIR)/storage/examples/spdk-csi/helm
-SPDK_CSI_CONTROLLER_CHART_VER ?= $(TAG)
 
-# metadata for nfs csi controller.
-NFS_CSI_CONTROLLER_CHART_NAME = nfs-csi-controller-chart
-NFS_CSI_CONTROLLER_CHART ?= $(DPUSERVICESDIR)/storage/examples/nfs-csi/helm
-NFS_CSI_CONTROLLER_CHART_VER ?= $(TAG)
 
 # metadata for storage chart.
 STORAGE_CHART_NAME = dpf-storage
@@ -1396,17 +1382,7 @@ helm-package-dummydpuservice: $(DPUSERVICESDIR) helm yq ## Package helm chart fo
 	RELEASE_HELM_SET_ANNOTATIONS="false" \
 	./hack/scripts/release-helm-package.sh
 
-.PHONY: helm-package-spdk-csi-controller
-helm-package-spdk-csi-controller: $(CHARTSDIR) helm yq
-	HELM_CHART_DIR="$(SPDK_CSI_CONTROLLER_CHART)" \
-	HELM_CHART_TAGS="$(TAG)" \
-	./hack/scripts/release-helm-package.sh
 
-.PHONY: helm-package-nfs-csi-controller
-helm-package-nfs-csi-controller: $(CHARTSDIR) helm yq
-	HELM_CHART_DIR="$(NFS_CSI_CONTROLLER_CHART)" \
-	HELM_CHART_TAGS="$(TAG)" \
-	./hack/scripts/release-helm-package.sh
 
 .PHONY: helm-package-storage
 helm-package-storage: $(CHARTSDIR) helm yq generate-manifests-storage
@@ -1442,13 +1418,7 @@ helm-push-ovn-kubernetes-resource-injector: $(CHARTSDIR) helm helm-cm-push ## Pu
 helm-push-dummydpuservice: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for dummydpuservice
 	$(HELM) $(HELM_PUSH_CMD) $(CHARTSDIR)/$(DUMMYDPUSERVICE_HELM_CHART_NAME)-$(TAG).tgz $(HELM_REGISTRY)
 
-.PHONY: helm-push-spdk-csi-controller
-helm-push-spdk-csi-controller: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for spdk csi controller
-	$(HELM) $(HELM_PUSH_CMD) $(CHARTSDIR)/$(SPDK_CSI_CONTROLLER_CHART_NAME)-$(TAG).tgz $(HELM_REGISTRY)
 
-.PHONY: helm-push-nfs-csi-controller
-helm-push-nfs-csi-controller: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for nfs csi controller
-	$(HELM) $(HELM_PUSH_CMD) $(CHARTSDIR)/$(NFS_CSI_CONTROLLER_CHART_NAME)-$(TAG).tgz $(HELM_REGISTRY)
 
 .PHONY: helm-push-storage
 helm-push-storage: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for storage
