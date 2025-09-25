@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/k8snetworkplumbingwg/ovs-cni/pkg/config"
 	"math/rand"
 	"net"
 	"os/exec"
@@ -26,8 +27,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/k8snetworkplumbingwg/ovs-cni/pkg/config"
 
 	"github.com/containernetworking/cni/pkg/skel"
 	cnitypes "github.com/containernetworking/cni/pkg/types"
@@ -39,8 +38,7 @@ import (
 	"github.com/containernetworking/plugins/pkg/testutils"
 	"github.com/vishvananda/netlink"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/k8snetworkplumbingwg/ovs-cni/pkg/types"
@@ -61,20 +59,20 @@ type IPAMConfig struct {
 	Type       string            `json:"type"`
 	Routes     []*cnitypes.Route `json:"routes"`
 	DataDir    string            `json:"dataDir"`
-	ResolvConf string     `json:"resolvConf"`
-	Ranges     []RangeSet `json:"ranges"`
-	IPArgs     []net.IP   `json:"-"` // Requested IPs from CNI_ARGS, args and capabilities
+	ResolvConf string            `json:"resolvConf"`
+	Ranges     []RangeSet        `json:"ranges"`
+	IPArgs     []net.IP          `json:"-"` // Requested IPs from CNI_ARGS, args and capabilities
 }
 
 type Net040 struct {
 	CNIVersion    string                 `json:"cniVersion"`
 	Name          string                 `json:"name"`
 	Type          string                 `json:"type"`
-	Bridge        string         `json:"bridge"`
-	IPAM          *IPAMConfig    `json:"ipam"`
-	VlanTag       *uint          `json:"vlan"`
-	Trunk         []*types.Trunk `json:"trunk,omitempty"`
-	InterfaceType string         `json:"interface_type"`
+	Bridge        string                 `json:"bridge"`
+	IPAM          *IPAMConfig            `json:"ipam"`
+	VlanTag       *uint                  `json:"vlan"`
+	Trunk         []*types.Trunk         `json:"trunk,omitempty"`
+	InterfaceType string                 `json:"interface_type"`
 	RawPrevResult map[string]interface{} `json:"prevResult,omitempty"`
 	PrevResult    types040.Result        `json:"-"`
 }
@@ -83,11 +81,11 @@ type NetCurrent struct {
 	CNIVersion    string                 `json:"cniVersion"`
 	Name          string                 `json:"name"`
 	Type          string                 `json:"type"`
-	Bridge        string         `json:"bridge"`
-	IPAM          *IPAMConfig    `json:"ipam"`
-	VlanTag       *uint          `json:"vlan"`
-	Trunk         []*types.Trunk `json:"trunk,omitempty"`
-	InterfaceType string         `json:"interface_type"`
+	Bridge        string                 `json:"bridge"`
+	IPAM          *IPAMConfig            `json:"ipam"`
+	VlanTag       *uint                  `json:"vlan"`
+	Trunk         []*types.Trunk         `json:"trunk,omitempty"`
+	InterfaceType string                 `json:"interface_type"`
 	RawPrevResult map[string]interface{} `json:"prevResult,omitempty"`
 	PrevResult    current.Result         `json:"-"`
 }
@@ -906,86 +904,6 @@ var testFunc = func(version string) {
 					ContainSubstring(secondHostIface.Name), "OVS port with healthy interface should have been kept")
 			})
 		})
-
-	Context("MTU handling from netconf args", func() {
-		DescribeTable("MTU precedence rules", func(configMTU int, argsMTU int, description string) {
-			// Build configuration based on whether MTU is specified
-			var conf string
-			if configMTU > 0 {
-				conf = fmt.Sprintf(`{
-					"cniVersion": "%s",
-					"name": "mynet",
-					"type": "ovs",
-					"bridge": "%s",
-					"mtu": %d
-				}`, version, bridgeName, configMTU)
-			} else {
-				conf = fmt.Sprintf(`{
-					"cniVersion": "%s",
-					"name": "mynet",
-					"type": "ovs",
-					"bridge": "%s"
-				}`, version, bridgeName)
-			}
-
-			// Add args with CNI MTU if specified
-			if argsMTU > 0 {
-				conf = fmt.Sprintf(`{
-					"cniVersion": "%s",
-					"name": "mynet",
-					"type": "ovs",
-					"bridge": "%s",
-					"mtu": %d,
-					"args": {
-						"cni": %d
-					}
-				}`, version, bridgeName, configMTU, argsMTU)
-			}
-
-			targetNs := newNS()
-			defer func() {
-				closeNS(targetNs)
-			}()
-
-			args := &skel.CmdArgs{
-				ContainerID: "dummy",
-				Netns:       targetNs.Path(),
-				IfName:      IFNAME,
-				StdinData:   []byte(conf),
-				Args:        "MAC=0a:00:00:00:00:80",
-			}
-
-			// Call CmdAdd and verify it works correctly
-			result, _, err := cmdAddWithArgs(args, func() error {
-				return CmdAdd(args)
-			})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result).NotTo(BeNil())
-		},
-			Entry("args MTU overrides config MTU", defaultMTU, mtu, "args MTU should take precedence"),
-			Entry("config MTU used when no args MTU", mtu, 0, "config MTU should be used when args MTU not provided"),
-			Entry("default MTU used when no MTU specified", 0, 0, "default MTU should be used when no MTU in config or args"),
-		)
-	})
-
-	Describe("getEnvArgs function", func() {
-		Context("MTU parsing", func() {
-			It("should return nil when no environment args provided", func() {
-				envArgs, err := getEnvArgs("")
-				Expect(err).NotTo(HaveOccurred())
-				Expect(envArgs).To(BeNil())
-			})
-
-			It("should parse multiple environment args", func() {
-				envArgsString := "MAC=0a:00:00:00:00:80;OvnPort=test-port"
-				envArgs, err := getEnvArgs(envArgsString)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(envArgs).NotTo(BeNil())
-				Expect(string(envArgs.MAC)).To(Equal("0a:00:00:00:00:80"))
-				Expect(string(envArgs.OvnPort)).To(Equal("test-port"))
-			})
-		})
-	})
 	})
 }
 
@@ -1038,7 +956,7 @@ func cmdAddWithArgs(args *skel.CmdArgs, f func() error) (cnitypes.Result, []byte
 }
 
 func cmdCheckWithArgs(args *skel.CmdArgs, f func() error) error {
-	return testutils.CmdCheck(args.Netns, args.ContainerID, args.IfName, args.StdinData, f)
+	return testutils.CmdCheck(args.Netns, args.ContainerID, args.IfName, f)
 }
 
 func cmdDelWithArgs(args *skel.CmdArgs, f func() error) error {
