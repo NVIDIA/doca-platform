@@ -357,7 +357,7 @@ func getMinimalDPUDeployment(namespace string) *dpuservicev1.DPUDeployment {
 					ServiceConfiguration: "someconfiguration",
 				},
 			},
-			ServiceChains: dpuservicev1.ServiceChains{
+			ServiceChains: &dpuservicev1.ServiceChains{
 				UpgradePolicy: dpuservicev1.UpgradePolicy{
 					ApplyNodeEffect: ptr.To(false),
 				},
