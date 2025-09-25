@@ -145,6 +145,10 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 							Name:      "dms-image",
 							MountPath: DMSImageFolder,
 						},
+						{
+							Name:      "systemd-dbus",
+							MountPath: "/var/run/dbus/system_bus_socket",
+						},
 					},
 					SecurityContext: &corev1.SecurityContext{
 						Privileged: ptr.To(true),
@@ -188,6 +192,26 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 						{
 							Name:      "hostagent-local-dir",
 							MountPath: HostAgentLocalDir,
+						},
+						{
+							Name:      "systemd-dbus",
+							MountPath: "/var/run/dbus/system_bus_socket",
+						},
+						{
+							Name:      "run-systemd",
+							MountPath: "/run/systemd",
+						},
+						{
+							Name:      "etc-netplan",
+							MountPath: "/etc/netplan",
+						},
+						{
+							Name:      "run-udev",
+							MountPath: "/run/udev",
+						},
+						{
+							Name:      "systemd-network",
+							MountPath: "/usr/lib/systemd/network",
 						},
 					},
 				},
@@ -234,6 +258,51 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 						HostPath: &corev1.HostPathVolumeSource{
 							Path: HostAgentLocalDir,
 							Type: ptr.To(corev1.HostPathDirectoryOrCreate),
+						},
+					},
+				},
+				{
+					Name: "systemd-dbus",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/var/run/dbus/system_bus_socket",
+							Type: ptr.To(corev1.HostPathSocket),
+						},
+					},
+				},
+				{
+					Name: "run-systemd",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/run/systemd",
+							Type: ptr.To(corev1.HostPathDirectory),
+						},
+					},
+				},
+				{
+					Name: "etc-netplan",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/etc/netplan",
+							Type: ptr.To(corev1.HostPathDirectoryOrCreate),
+						},
+					},
+				},
+				{
+					Name: "run-udev",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/run/udev",
+							Type: ptr.To(corev1.HostPathDirectory),
+						},
+					},
+				},
+				{
+					Name: "systemd-network",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/usr/lib/systemd/network",
+							Type: ptr.To(corev1.HostPathDirectory),
 						},
 					},
 				},
