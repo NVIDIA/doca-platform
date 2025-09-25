@@ -1,9 +1,9 @@
 #!/bin/bash -xe
 
 destination=$1
-version=1.21.7
-arch="$(arch | sed s'/aarch64/arm64/' | sed s'/x86_64/amd64/')"
-tarball=go$version.linux-$arch.tar.gz
+version=$(curl -s https://go.dev/dl/?mode=json | jq -r ".[0].version")
+arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+tarball=$version.linux-$arch.tar.gz
 url=https://dl.google.com/go/
 
 mkdir -p $destination

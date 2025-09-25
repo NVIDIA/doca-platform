@@ -6,7 +6,7 @@ RUN dnf -y install make git sudo gcc rsync-daemon rsync openvswitch hostname && 
 ENV GOPATH="/go"
 RUN \
     DESTINATION=/opt && \
-    VERSION=1.21.7 && \
+    VERSION=1.22.9 && \
     TARBALL=go${VERSION}.linux-amd64.tar.gz && \
     URL=https://dl.google.com/go && \
     mkdir -p ${DESTINATION} && \
@@ -27,7 +27,7 @@ RUN \
     tar -xzf cni-plugins-linux-amd64-v1.0.1.tgz && \
     rm -f cni-plugins-linux-amd64-v1.0.1.tgz
 
-RUN go install -mod=mod github.com/onsi/ginkgo/v2/ginkgo
+RUN go install github.com/onsi/ginkgo/v2/ginkgo@latest
 
 ADD entrypoint.sh /entrypoint.sh
 

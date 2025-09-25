@@ -29,17 +29,17 @@ type NetConfs interface {
 // NetConf extends types.NetConf for ovs-cni
 type NetConf struct {
 	types.NetConf
-	BrName                 string   	`json:"bridge,omitempty"`
-	VlanTag                *uint    	`json:"vlan"`
-	MTU                    int      	`json:"mtu"`
-	Trunk                  []*Trunk 	`json:"trunk,omitempty"`
-	DeviceID               string   	`json:"deviceID"`       // PCI address of a VF in valid sysfs format
-	OfportRequest          uint     	`json:"ofport_request"` // OpenFlow port number in range 1 to 65,279
-	InterfaceType          string   	`json:"interface_type"` // The type of interface on ovs.
-	ConfigurationPath      string   	`json:"configuration_path"`
-	SocketFile             string   	`json:"socket_file"`
-	LinkStateCheckRetries  int      	`json:"link_state_check_retries"`
-	LinkStateCheckInterval int      	`json:"link_state_check_interval"`
+	BrName                 string       `json:"bridge,omitempty"`
+	VlanTag                *uint        `json:"vlan"`
+	MTU                    int          `json:"mtu"`
+	Trunk                  []*Trunk     `json:"trunk,omitempty"`
+	DeviceID               string       `json:"deviceID"`       // PCI address of a VF in valid sysfs format
+	OfportRequest          uint         `json:"ofport_request"` // OpenFlow port number in range 1 to 65,279
+	InterfaceType          string       `json:"interface_type"` // The type of interface on ovs.
+	ConfigurationPath      string       `json:"configuration_path"`
+	SocketFile             string       `json:"socket_file"`
+	LinkStateCheckRetries  int          `json:"link_state_check_retries"`
+	LinkStateCheckInterval int          `json:"link_state_check_interval"`
 	Args                   *NetConfArgs `json:"args,omitempty"`
 }
 
@@ -82,13 +82,15 @@ type Trunk struct {
 	ID    *uint `json:"id,omitempty"`
 }
 
-// CachedNetConf containing NetConfig and original smartnic vf interface
-// name (set only in case of ovs hareware offload scenario).
+// CachedNetConf containing NetConfig, original smartnic vf interface name
+// and kernel/userspace device driver mode of the smartnic vf interface
+// (the last two are set only in case of ovs hareware offload scenario).
 // this is intended to be used only for storing and retrieving config
 // to/from a data store (example file cache).
 type CachedNetConf struct {
-	Netconf    *NetConf
-	OrigIfName string
+	Netconf       *NetConf
+	OrigIfName    string
+	UserspaceMode bool
 }
 
 // CachedPrevResultNetConf containing PrevResult.
