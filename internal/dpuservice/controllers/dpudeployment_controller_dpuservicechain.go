@@ -68,37 +68,39 @@ func reconcileDPUServiceChain(ctx context.Context,
 		existingDPUServiceChainsMap[dpuServiceChain.Name] = dpuServiceChain
 	}
 
-	versionDigest := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
-	newRevision := generateDPUServiceChain(client.ObjectKeyFromObject(dpuDeployment),
-		owner,
-		versionDigest,
-		dpuDeployment.Spec.ServiceChains.Switches,
-	)
+	if dpuDeployment.Spec.ServiceChains != nil {
+		versionDigest := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
+		newRevision := generateDPUServiceChain(client.ObjectKeyFromObject(dpuDeployment),
+			owner,
+			versionDigest,
+			dpuDeployment.Spec.ServiceChains.Switches,
+		)
 
-	currentRevision, oldRevisions := getCurrentAndStaleDPUServiceChains(versionDigest, existingDPUServiceChains)
-	switch {
-	case currentRevision != nil:
-		// we found the current revision based on the digest, there might be old revisions to handle
-		req := reconcileCurrentDPUServiceChainRevision(ctx, c, newRevision, currentRevision, oldRevisions, dpuNodeLabels, existingDPUServiceChainsMap, existingDPUSets.Items)
+		currentRevision, oldRevisions := getCurrentAndStaleDPUServiceChains(versionDigest, existingDPUServiceChains)
+		switch {
+		case currentRevision != nil:
+			// we found the current revision based on the digest, there might be old revisions to handle
+			req := reconcileCurrentDPUServiceChainRevision(ctx, c, newRevision, currentRevision, oldRevisions, dpuNodeLabels, existingDPUServiceChainsMap, existingDPUSets.Items)
 
-		if !req.IsZero() {
-			requeue = req
+			if !req.IsZero() {
+				requeue = req
+			}
+		case len(oldRevisions) > 0:
+			// we have only previous revisions
+			req := reconcileDPUServiceChainWithOldRevisions(newRevision, oldRevisions, dpuDeployment, dpuNodeLabels, existingDPUServiceChainsMap)
+			if !req.IsZero() {
+				requeue = req
+			}
+		default:
+			// no previous revision, we are creating a new one
+			reconcileNewDPUServiceChainRevision(newRevision, dpuDeployment, dpuNodeLabels)
 		}
-	case len(oldRevisions) > 0:
-		// we have only previous revisions
-		req := reconcileDPUServiceChainWithOldRevisions(newRevision, oldRevisions, dpuDeployment, dpuNodeLabels, existingDPUServiceChainsMap)
-		if !req.IsZero() {
-			requeue = req
-		}
-	default:
-		// no previous revision, we are creating a new one
-		reconcileNewDPUServiceChainRevision(newRevision, dpuDeployment, dpuNodeLabels)
-	}
 
-	newRevision.SetManagedFields(nil)
-	newRevision.SetGroupVersionKind(dpuservicev1.DPUServiceChainGroupVersionKind)
-	if err := c.Patch(ctx, newRevision, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName)); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to patch DPUServiceChain %s: %w", client.ObjectKeyFromObject(newRevision), err)
+		newRevision.SetManagedFields(nil)
+		newRevision.SetGroupVersionKind(dpuservicev1.DPUServiceChainGroupVersionKind)
+		if err := c.Patch(ctx, newRevision, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName)); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to patch DPUServiceChain %s: %w", client.ObjectKeyFromObject(newRevision), err)
+		}
 	}
 
 	// Cleanup the remaining stale DPUServiceChains

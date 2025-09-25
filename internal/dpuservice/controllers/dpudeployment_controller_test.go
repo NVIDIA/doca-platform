@@ -162,9 +162,19 @@ var _ = Describe("DPUDeployment Controller", func() {
 			}
 			dpuDeployment.Spec.Services[deploymentServiceNameMaxLength] = dpuDeployment.Spec.Services["someservice"]
 			delete(dpuDeployment.Spec.Services, "someservice")
-			dpuDeployment.Spec.ServiceChains.Switches[0].Ports[0].Service = &dpuservicev1.DPUDeploymentService{
-				Name:          deploymentServiceNameMaxLength,
-				InterfaceName: serviceInterfaceMaxLength,
+			dpuDeployment.Spec.ServiceChains = &dpuservicev1.ServiceChains{
+				Switches: []dpuservicev1.DPUDeploymentSwitch{
+					{
+						Ports: []dpuservicev1.DPUDeploymentPort{
+							{
+								Service: &dpuservicev1.DPUDeploymentService{
+									InterfaceName: serviceInterfaceMaxLength,
+									Name:          serviceInterfaceMaxLength,
+								},
+							},
+						},
+					},
+				},
 			}
 			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
@@ -211,6 +221,23 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 			By("creating the dpudeployment")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.ServiceChains = &dpuservicev1.ServiceChains{
+				UpgradePolicy: dpuservicev1.UpgradePolicy{
+					ApplyNodeEffect: ptr.To(false),
+				},
+				Switches: []dpuservicev1.DPUDeploymentSwitch{
+					{
+						Ports: []dpuservicev1.DPUDeploymentPort{
+							{
+								Service: &dpuservicev1.DPUDeploymentService{
+									InterfaceName: "someinterface",
+									Name:          "someservice",
+								},
+							},
+						},
+					},
+				},
+			}
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "dpuset1",
@@ -324,6 +351,23 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 			By("creating the dpudeployment")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.ServiceChains = &dpuservicev1.ServiceChains{
+				UpgradePolicy: dpuservicev1.UpgradePolicy{
+					ApplyNodeEffect: ptr.To(false),
+				},
+				Switches: []dpuservicev1.DPUDeploymentSwitch{
+					{
+						Ports: []dpuservicev1.DPUDeploymentPort{
+							{
+								Service: &dpuservicev1.DPUDeploymentService{
+									InterfaceName: "someinterface",
+									Name:          "someservice",
+								},
+							},
+						},
+					},
+				},
+			}
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "dpuset1",
@@ -1146,10 +1190,11 @@ var _ = Describe("DPUDeployment Controller", func() {
 		})
 		Context("When checking reconcileDPUSets()", func() {
 			var (
-				initialDPUSetSettings []dpuservicev1.DPUSet
-				expectedDPUSetSpecs   []provisioningv1.DPUSetSpec
-				bfb                   *provisioningv1.BFB
-				dpuFlavor             *provisioningv1.DPUFlavor
+				initialDPUSetSettings        []dpuservicev1.DPUSet
+				expectedDPUSetSpecs          []provisioningv1.DPUSetSpec
+				initialServiceChainsSettings *dpuservicev1.ServiceChains
+				bfb                          *provisioningv1.BFB
+				dpuFlavor                    *provisioningv1.DPUFlavor
 			)
 			BeforeEach(func() {
 				dpuFlavor = getMinimalDPUFlavor(testNS.Name)
@@ -1252,6 +1297,23 @@ var _ = Describe("DPUDeployment Controller", func() {
 						},
 					},
 				}
+				initialServiceChainsSettings = &dpuservicev1.ServiceChains{
+					UpgradePolicy: dpuservicev1.UpgradePolicy{
+						ApplyNodeEffect: ptr.To(false),
+					},
+					Switches: []dpuservicev1.DPUDeploymentSwitch{
+						{
+							Ports: []dpuservicev1.DPUDeploymentPort{
+								{
+									Service: &dpuservicev1.DPUDeploymentService{
+										InterfaceName: "someinterface",
+										Name:          "someservice",
+									},
+								},
+							},
+						},
+					},
+				}
 
 				By("Creating the dependencies")
 				bfb = createMinimalBFBWithStatus("somebfb", testNS.Name)
@@ -1272,6 +1334,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should create the correct DPUSets", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -1330,6 +1393,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should update the existing DPUSets on update of the .spec.dpus in the DPUDeployment", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
@@ -1407,6 +1471,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should update the DPUSets on setting and unsetting the .spec.dpus.nodeEffect in the DPUDeployment", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
@@ -1541,6 +1606,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should keep the existing DPUSets labels on update of a DPUServiceConfiguration", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -1640,6 +1706,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should update the existing DPUSets labels on update of a disruptive DPUServiceConfiguration", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -1833,6 +1900,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should update the existing DPUSets labels on update of a disruptive DPUServiceChain", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
@@ -1882,7 +1950,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
 				By("modifying the dpudeployment service chain and checking the outcome")
-				dpuDeployment.Spec.ServiceChains = dpuservicev1.ServiceChains{
+				dpuDeployment.Spec.ServiceChains = &dpuservicev1.ServiceChains{
 					// make the chain disruptive
 					UpgradePolicy: dpuservicev1.UpgradePolicy{
 						ApplyNodeEffect: ptr.To(true),
@@ -2006,6 +2074,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should keep the existing DPUSets labels on update of a dpudeployment service chain", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
@@ -2147,6 +2216,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should update the existing DPUSets on update of the referenced BFB", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
@@ -2232,6 +2302,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should update existing and create new DPUSets on update of the .spec.dpus in the DPUDeployment", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
@@ -6719,7 +6790,26 @@ var _ = Describe("DPUDeployment Controller", func() {
 		})
 
 		Context("When checking reconcileDPUServiceChains()", func() {
+			var initialServiceChainsSettings *dpuservicev1.ServiceChains
 			BeforeEach(func() {
+				initialServiceChainsSettings = &dpuservicev1.ServiceChains{
+					UpgradePolicy: dpuservicev1.UpgradePolicy{
+						ApplyNodeEffect: ptr.To(false),
+					},
+					Switches: []dpuservicev1.DPUDeploymentSwitch{
+						{
+							Ports: []dpuservicev1.DPUDeploymentPort{
+								{
+									Service: &dpuservicev1.DPUDeploymentService{
+										InterfaceName: "someinterface",
+										Name:          "someservice",
+									},
+								},
+							},
+						},
+					},
+				}
+
 				By("Creating the dependencies")
 				bfb := createMinimalBFBWithStatus("somebfb", testNS.Name)
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, bfb)
@@ -6739,49 +6829,51 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should create the correct DPUServiceChain", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
-				dpuDeployment.Spec.ServiceChains.Switches = []dpuservicev1.DPUDeploymentSwitch{
-					{
-						Ports: []dpuservicev1.DPUDeploymentPort{
-							{
-								Service: &dpuservicev1.DPUDeploymentService{
-									InterfaceName: "someinterface",
-									Name:          "somedpuservice",
+				dpuDeployment.Spec.ServiceChains = &dpuservicev1.ServiceChains{
+					Switches: []dpuservicev1.DPUDeploymentSwitch{
+						{
+							Ports: []dpuservicev1.DPUDeploymentPort{
+								{
+									Service: &dpuservicev1.DPUDeploymentService{
+										InterfaceName: "someinterface",
+										Name:          "somedpuservice",
+									},
 								},
-							},
-							{
-								Service: &dpuservicev1.DPUDeploymentService{
-									InterfaceName: "someinterface2",
-									Name:          "somedpuservice2",
-									IPAM: &dpuservicev1.IPAM{
-										MatchLabels: map[string]string{
-											"ipamkey1": "ipamvalue1",
+								{
+									Service: &dpuservicev1.DPUDeploymentService{
+										InterfaceName: "someinterface2",
+										Name:          "somedpuservice2",
+										IPAM: &dpuservicev1.IPAM{
+											MatchLabels: map[string]string{
+												"ipamkey1": "ipamvalue1",
+											},
 										},
 									},
 								},
 							},
 						},
-					},
-					{
-						Ports: []dpuservicev1.DPUDeploymentPort{
-							{
-								Service: &dpuservicev1.DPUDeploymentService{
-									InterfaceName: "someotherinterface",
-									Name:          "someotherservice",
+						{
+							Ports: []dpuservicev1.DPUDeploymentPort{
+								{
+									Service: &dpuservicev1.DPUDeploymentService{
+										InterfaceName: "someotherinterface",
+										Name:          "someotherservice",
+									},
 								},
 							},
+							ServiceMTU: ptr.To(3000),
 						},
-						ServiceMTU: ptr.To(3000),
-					},
-					{
-						Ports: []dpuservicev1.DPUDeploymentPort{
-							{
-								ServiceInterface: &dpuservicev1.ServiceIfc{
-									MatchLabels: map[string]string{
-										"key": "value",
-									},
-									IPAM: &dpuservicev1.IPAM{
+						{
+							Ports: []dpuservicev1.DPUDeploymentPort{
+								{
+									ServiceInterface: &dpuservicev1.ServiceIfc{
 										MatchLabels: map[string]string{
-											"ipamkey2": "ipamvalue2",
+											"key": "value",
+										},
+										IPAM: &dpuservicev1.IPAM{
+											MatchLabels: map[string]string{
+												"ipamkey2": "ipamvalue2",
+											},
 										},
 									},
 								},
@@ -6894,9 +6986,57 @@ var _ = Describe("DPUDeployment Controller", func() {
 					))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 			})
+			It("should not create the DPUServiceChain if none specified", func() {
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+
+				By("checking that DPUServiceChainReconciled condition is successful and that no DPUServiceChain created")
+				Eventually(func(g Gomega) {
+					gotDPUDeployment := &dpuservicev1.DPUDeployment{}
+					g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), gotDPUDeployment)).To(Succeed())
+					g.Expect(gotDPUDeployment.Status.Conditions).To(ContainElement(
+						And(
+							HaveField("Type", string(dpuservicev1.ConditionDPUServiceChainsReconciled)),
+							HaveField("Status", metav1.ConditionTrue),
+							HaveField("Reason", string(conditions.ReasonSuccess)),
+						),
+					))
+
+					gotDPUServiceChainList := &dpuservicev1.DPUServiceChainList{}
+					g.Expect(testClient.List(ctx, gotDPUServiceChainList)).To(Succeed())
+					g.Expect(gotDPUServiceChainList.Items).To(BeEmpty())
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+			})
+			It("should delete the DPUServiceChain if DPUDeployment is updated with no serviceChain specified", func() {
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
+				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
+
+				By("checking that the DPUServiceChain is created")
+				Eventually(func(g Gomega) {
+					gotDPUServiceChainList := &dpuservicev1.DPUServiceChainList{}
+					g.Expect(testClient.List(ctx, gotDPUServiceChainList)).To(Succeed())
+					g.Expect(gotDPUServiceChainList.Items).To(HaveLen(1))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				By("modifying the DPUDeployment to not include a serviceChain anymore")
+				dpuDeployment.Spec.ServiceChains = nil
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+
+				By("checking that no DPUServiceChain exists")
+				Eventually(func(g Gomega) {
+					gotDPUServiceChainList := &dpuservicev1.DPUServiceChainList{}
+					g.Expect(testClient.List(ctx, gotDPUServiceChainList)).To(Succeed())
+					g.Expect(gotDPUServiceChainList.Items).To(BeEmpty())
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+			})
 			It("should patch a manually modified DPUServiceChain as long as the modification is not on the version annotation", func() {
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -7004,9 +7144,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should update the disruptive DPUServiceChain on update of dpuDeployment.Spec.ServiceChains.Switches", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				// make the DPUServiceChain disruptive
-				dpuDeployment.Spec.ServiceChains.UpgradePolicy = dpuservicev1.UpgradePolicy{
-					ApplyNodeEffect: ptr.To(true),
-				}
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
+				dpuDeployment.Spec.ServiceChains.UpgradePolicy.ApplyNodeEffect = ptr.To(true)
 				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 					{
 						NameSuffix: "dpuset1",
@@ -7260,9 +7399,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should update the disruptive DPUServiceChain to non-diruptive", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				// make the DPUServiceChain disruptive
-				dpuDeployment.Spec.ServiceChains.UpgradePolicy = dpuservicev1.UpgradePolicy{
-					ApplyNodeEffect: ptr.To(true),
-				}
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
+				dpuDeployment.Spec.ServiceChains.UpgradePolicy.ApplyNodeEffect = ptr.To(true)
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
@@ -7277,7 +7415,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
 				By("modifying dpuDeployment.Spec.ServiceChains.Switches")
-				dpuDeployment.Spec.ServiceChains = dpuservicev1.ServiceChains{
+				dpuDeployment.Spec.ServiceChains = &dpuservicev1.ServiceChains{
 					// make the DPUServiceChain non-disruptive
 					UpgradePolicy: dpuservicev1.UpgradePolicy{
 						ApplyNodeEffect: ptr.To(false),
@@ -7442,6 +7580,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should update the DPUServiceChain on update of dpuDeployment.Spec.ServiceChains.Switches", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
@@ -7622,6 +7761,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should create new DPUServiceChain on manual deletion of the DPUServiceChain", func() {
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -7772,6 +7912,20 @@ var _ = Describe("DPUDeployment Controller", func() {
 					NameSuffix: "some",
 				},
 			}
+			dpuDeployment.Spec.ServiceChains = &dpuservicev1.ServiceChains{
+				Switches: []dpuservicev1.DPUDeploymentSwitch{
+					{
+						Ports: []dpuservicev1.DPUDeploymentPort{
+							{
+								Service: &dpuservicev1.DPUDeploymentService{
+									InterfaceName: "someinterface",
+									Name:          "someservice",
+								},
+							},
+						},
+					},
+				},
+			}
 			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -7877,6 +8031,20 @@ var _ = Describe("DPUDeployment Controller", func() {
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "some",
+				},
+			}
+			dpuDeployment.Spec.ServiceChains = &dpuservicev1.ServiceChains{
+				Switches: []dpuservicev1.DPUDeploymentSwitch{
+					{
+						Ports: []dpuservicev1.DPUDeploymentPort{
+							{
+								Service: &dpuservicev1.DPUDeploymentService{
+									InterfaceName: "someinterface",
+									Name:          "someservice",
+								},
+							},
+						},
+					},
 				},
 			}
 			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
@@ -8188,6 +8356,20 @@ var _ = Describe("DPUDeployment Controller", func() {
 					},
 				},
 			}
+			dpuDeployment.Spec.ServiceChains = &dpuservicev1.ServiceChains{
+				Switches: []dpuservicev1.DPUDeploymentSwitch{
+					{
+						Ports: []dpuservicev1.DPUDeploymentPort{
+							{
+								Service: &dpuservicev1.DPUDeploymentService{
+									InterfaceName: "someinterface",
+									Name:          "someservice",
+								},
+							},
+						},
+					},
+				},
+			}
 			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -8379,23 +8561,6 @@ func getMinimalDPUDeployment(namespace string) *dpuservicev1.DPUDeployment {
 				"someservice": {
 					ServiceTemplate:      "sometemplate",
 					ServiceConfiguration: "someconfiguration",
-				},
-			},
-			ServiceChains: dpuservicev1.ServiceChains{
-				UpgradePolicy: dpuservicev1.UpgradePolicy{
-					ApplyNodeEffect: ptr.To(false),
-				},
-				Switches: []dpuservicev1.DPUDeploymentSwitch{
-					{
-						Ports: []dpuservicev1.DPUDeploymentPort{
-							{
-								Service: &dpuservicev1.DPUDeploymentService{
-									InterfaceName: "someinterface",
-									Name:          "someservice",
-								},
-							},
-						},
-					},
 				},
 			},
 		},

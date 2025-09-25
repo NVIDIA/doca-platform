@@ -410,7 +410,6 @@ spec:
                   rule: self.all(key, key.size()<=28)
             required:
             - dpus
-            - serviceChains
             - services
             type: object
           status:
