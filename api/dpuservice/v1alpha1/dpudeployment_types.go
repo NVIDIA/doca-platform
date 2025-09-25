@@ -117,8 +117,8 @@ type DPUDeploymentSpec struct {
 	Services map[string]DPUDeploymentServiceConfiguration `json:"services"`
 
 	// ServiceChains contains the configuration related to the DPUServiceChains that the DPUDeployment creates.
-	// +required
-	ServiceChains ServiceChains `json:"serviceChains"`
+	// +optional
+	ServiceChains *ServiceChains `json:"serviceChains,omitempty"`
 
 	// The maximum number of revisions that can be retained during upgrades.
 	// Defaults to 10.

@@ -4220,18 +4220,6 @@ _Appears in:_
 | `values` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#rawextension-runtime-pkg)_ | Values specifies Helm values to be passed to Helm template, defined as a map. This takes precedence over Values. |  |  |
 
 
-#### IPAM
-
-_Underlying type:_ _[struct{MatchLabels map[string]string "json:\"matchLabels\""; DefaultGateway *bool "json:\"defaultGateway,omitempty\""; SetDefaultRoute *bool "json:\"setDefaultRoute,omitempty\""}](#struct{matchlabels-map[string]string-"json:\"matchlabels\"";-defaultgateway-*bool-"json:\"defaultgateway,omitempty\"";-setdefaultroute-*bool-"json:\"setdefaultroute,omitempty\""})_
-
-IPAM defines the IPAM configuration
-
-
-
-_Appears in:_
-- [DPUDeploymentService](#dpudeploymentservice)
-- [ServiceIfc](#serviceifc)
-
 
 
 #### IPV4Network
