@@ -18,13 +18,11 @@ package middleware
 
 import (
 	"context"
-	"fmt"
-	"reflect"
-	"strings"
 
 	grpcCtx "github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/grpc/context"
 
 	"github.com/go-logr/logr"
+	"github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
 	"google.golang.org/grpc"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -45,8 +43,7 @@ func SetLoggerMiddleware(ctx context.Context, req interface{},
 func LogRequestMiddleware(ctx context.Context, req interface{},
 	info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 	reqLogger := logr.FromContextOrDiscard(ctx)
-	reqLogger = addFieldsToLogger(reqLogger, req)
-	reqLogger.Info("REQUEST")
+	reqLogger.Info("REQUEST", "data", protosanitizer.StripSecrets(req))
 	return handler(ctx, req)
 }
 
@@ -58,32 +55,7 @@ func LogResponseMiddleware(ctx context.Context, req interface{},
 	if err != nil {
 		reqLogger.Error(err, "ERROR RESPONSE")
 	} else {
-		reqLogger = addFieldsToLogger(reqLogger, resp)
-		reqLogger.Info("RESPONSE")
+		reqLogger.Info("RESPONSE", "data", protosanitizer.StripSecrets(resp))
 	}
 	return resp, err
-}
-
-// log exported fields from req or resp object
-func addFieldsToLogger(logger logr.Logger, obj interface{}) logr.Logger {
-	val := reflect.ValueOf(obj).Elem()
-	if !val.IsValid() {
-		return logger
-	}
-	valType := val.Type()
-	fieldCount := valType.NumField()
-	var logFields []interface{}
-	for i := 0; i < fieldCount; i++ {
-		name := valType.Field(i).Name
-		if valType.Field(i).PkgPath != "" {
-			// for exported filed this values should be empty
-			continue
-		}
-		// exclude secrets from log message
-		if strings.Contains(name, "Secrets") {
-			continue
-		}
-		logFields = append(logFields, name, fmt.Sprintf("%v", val.Field(i).Interface()))
-	}
-	return logger.WithValues(logFields...)
 }
