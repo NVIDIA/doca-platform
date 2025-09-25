@@ -245,7 +245,11 @@ func (in *DPUDeploymentSpec) DeepCopyInto(out *DPUDeploymentSpec) {
 			(*out)[key] = *val.DeepCopy()
 		}
 	}
-	in.ServiceChains.DeepCopyInto(&out.ServiceChains)
+	if in.ServiceChains != nil {
+		in, out := &in.ServiceChains, &out.ServiceChains
+		*out = new(ServiceChains)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.RevisionHistoryLimit != nil {
 		in, out := &in.RevisionHistoryLimit, &out.RevisionHistoryLimit
 		*out = new(int32)
