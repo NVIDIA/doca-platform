@@ -153,17 +153,6 @@ source manifests/00-env-vars/envvars.env
 
 OVN Kubernetes is used as the primary CNI for the cluster. On worker nodes the primary CNI will be accelerated by offloading work to the DPU. On control plane nodes OVN Kubernetes will run without offloading.
 
-#### Secondary CNI support
-Pods with secondary networks can be created which are also accelerated by OVN Kubernetes as the secondary CNI. This is an optional feature.
-
-To use this feature, install the Custom Resource Definition (CRD) for NetworkAttachmentDefinitions resource.
-
-Additional guidance would be provided in the relevant sections below with the heading "Secondary CNI support".
-
-```shell
-kubectl apply -f manifests/01-cni-installation/crd-networkAttachmentDefinitions.yaml
-```
-
 #### Create the Namespace
 
 ```shell
@@ -197,35 +186,7 @@ podNetwork: $POD_CIDR/24
 serviceNetwork: $SERVICE_CIDR
 k8sAPIServer: https://$TARGETCLUSTER_API_SERVER_HOST:$TARGETCLUSTER_API_SERVER_PORT
 ```
-
-##### Secondary CNI support
-If you want to create pods with secondary networks, set `ovnMultiNetworkEnable` to `true` in the values below.
-
-Note: The yaml file below is the same one as the previous one, except for the `ovnMultiNetworkEnable` value already set. Use either this or the previous one depending on whether you need secondary CNI support or not.
-
-[embedmd]:#(manifests/01-cni-installation/helm-values/ovn-kubernetes_secondary_network.yml)
-```yml
-commonManifests:
-  enabled: true
-nodeWithoutDPUManifests:
-  enabled: true
-controlPlaneManifests:
-  enabled: true
-  ovnMultiNetworkEnable: true # enables secondary CNI/network support
-nodeWithDPUManifests:
-  enabled: true
-  nodeMgmtPortNetdev: $DPU_P0_VF1
-  dpuServiceAccountNamespace: dpf-operator-system
-gatewayOpts: --gateway-interface=$DPU_P0
-## Note this CIDR is followed by a trailing /24 which informs OVN Kubernetes on how to split the CIDR per node.
-podNetwork: $POD_CIDR/24
-serviceNetwork: $SERVICE_CIDR
-k8sAPIServer: https://$TARGETCLUSTER_API_SERVER_HOST:$TARGETCLUSTER_API_SERVER_PORT
-```
-
-
 </details>
-
 
 #### Verification
 
@@ -540,13 +501,6 @@ spec:
 ```
 </details>
 
-#### Secondary CNI support
-If you want to create pods with secondary networks, apply the following NetworkAttachmentDefinition.
-
-```shell
-kubectl apply -f manifests/04-enable-accelerated-cni/nad_bf3_p0_vfs.yaml
-```
-
 #### Verification
 
 These verification commands may need to be run multiple times to ensure the condition is met.
@@ -806,38 +760,6 @@ spec:
       leaseNamespace: "ovn-kubernetes"
       gatewayOpts: "--gateway-interface=br-ovn"
 ```
-##### Secondary CNI support
-If you want to create pods with secondary networks, set `ovnMultiNetworkEnable` to `true` in the values below.
-
-Note: The yaml file below is the same one as the previous one, except for the `ovnMultiNetworkEnable` value already set. Use either this or the previous one depending on whether you need secondary CNI support or not.
-
-
-[embedmd]:#(manifests/05-dpudeployment-installation/dpuservicetemplate_ovn_secondary_network.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceTemplate
-metadata:
-  name: ovn
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: "ovn"
-  helmChart:
-    source:
-      repoURL: $OVN_KUBERNETES_REPO_URL
-      chart: ovn-kubernetes-chart
-      version: $TAG
-    values:
-      commonManifests:
-        enabled: true
-      dpuManifests:
-        enabled: true
-        ovnMultiNetworkEnable: true # enables secondary CNI/network support
-        nodeMgmtPortNetdev: $DPU_P0_VF1
-      leaseNamespace: "ovn-kubernetes"
-      gatewayOpts: "--gateway-interface=br-ovn"
-```
-
 </details>
 
 <details markdown="1"><summary>HBN DPUServiceConfig and DPUServiceTemplate to deploy HBN workloads to the DPUs</summary>
@@ -1206,21 +1128,10 @@ DPFOperatorConfig/dpfoperatorconfig         dpf-operator-system    Ready: True  
 #### Deploy test pods 
 
 ```shell
-kubectl apply -f manifests/06-test-traffic/pods.yaml
+kubectl apply -f manifests/06-test-traffic
 ```
 
 HBN and OVN functionality can be tested by pinging between the pods and services deployed in the default namespace.
-
-##### Secondary CNI support
-If you have enabled secondary CNI support, you can create pods with secondary network interfaces using the following command:
-
-```shell
-kubectl apply -f manifests/06-test-traffic/pods-secondary-network.yaml
-```
-
-Once the pods are running, you can check the network interfaces inside the pods to verify that the secondary network interfaces have been created. They should be created with the interface name `net1` and should have an IP address from the `192.168.100.0/24` as defined in the NetworkAttachmentDefinition.
-
-You can ping or run iperf traffic between the pods using the secondary network interfaces to test connectivity and performance.
 
 TODO: Add specific user commands to test traffic.
 
