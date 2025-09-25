@@ -102,6 +102,8 @@ func (r *DPUSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ c
 }
 
 func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DPUSet) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
 	// Add finalizer if not set.
 	if !controllerutil.ContainsFinalizer(dpuSet, provisioningv1.DPUSetFinalizer) {
 		controllerutil.AddFinalizer(dpuSet, provisioningv1.DPUSetFinalizer)
@@ -113,6 +115,7 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get DPUDevice map %w", err)
 	}
+	logger.Info(fmt.Sprintf("DPUSet %s/%s selected %d DPUDevices", dpuSet.Namespace, dpuSet.Name, len(dpuDeviceMap)))
 
 	// Get dpu map which are owned by dpuset
 	dpuMap, err := r.getDPUsMap(ctx, dpuSet)
@@ -158,13 +161,15 @@ func (r *DPUSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&provisioningv1.DPUSet{}).
 		Owns(&provisioningv1.DPU{}).
 		Watches(&provisioningv1.DPUDevice{},
-			handler.EnqueueRequestsFromMapFunc(r.dpuDeviceToDPUSetReq)).
+			handler.EnqueueRequestsFromMapFunc(r.resourceToDPUSetReq)).
+		Watches(&provisioningv1.DPUNode{},
+			handler.EnqueueRequestsFromMapFunc(r.resourceToDPUSetReq)).
 		Watches(&provisioningv1.DPUFlavor{},
 			handler.EnqueueRequestsFromMapFunc(r.flavorToDPUSetReq)).
 		Complete(r)
 }
 
-func (r *DPUSetReconciler) dpuDeviceToDPUSetReq(ctx context.Context, resource client.Object) []reconcile.Request {
+func (r *DPUSetReconciler) resourceToDPUSetReq(ctx context.Context, resource client.Object) []reconcile.Request {
 	requests := make([]reconcile.Request, 0)
 	dpuSetList := &provisioningv1.DPUSetList{}
 	if err := r.List(ctx, dpuSetList); err == nil {
