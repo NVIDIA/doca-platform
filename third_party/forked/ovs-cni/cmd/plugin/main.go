@@ -23,5 +23,9 @@ import (
 )
 
 func main() {
-	skel.PluginMain(plugin.CmdAdd, plugin.CmdCheck, plugin.CmdDel, version.PluginSupports("0.3.0", "0.3.1", "0.4.0"), buildversion.BuildString("OVS bridge"))
+	skel.PluginMainFuncs(skel.CNIFuncs{
+		Add:   plugin.CmdAdd,
+		Check: plugin.CmdCheck,
+		Del:   plugin.CmdDel,
+	}, version.All, buildversion.BuildString("OVS bridge"))
 }
