@@ -76,12 +76,17 @@ var _ = Describe("Log tests", func() {
 		It("log", func() {
 			handler := fakeHandler{}
 			_, err := LogRequestMiddleware(logr.NewContext(ctx, testLog),
-				&csi.CreateVolumeRequest{Name: "test", Parameters: map[string]string{"param1": "value1"}},
+				&csi.CreateVolumeRequest{Name: "test",
+					Parameters: map[string]string{"param1": "value1"},
+					Secrets:    map[string]string{"secret1": "secret-value"},
+				},
 				testUnaryServerInfo, handler.Handle)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(buf.String()).To(And(
 				ContainSubstring(`"msg"="REQUEST"`),
-				ContainSubstring(`"Parameters"="map[param1:value1]"`),
+				ContainSubstring(`\"name\":\"test\"`),
+				ContainSubstring(`\"parameters\":{\"param1\":\"value1\"}`),
+				ContainSubstring(`\"secrets\":\"***stripped***\"`),
 			))
 		})
 		It("error", func() {
@@ -103,7 +108,7 @@ var _ = Describe("Log tests", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(buf.String()).To(And(
 				ContainSubstring(`"msg"="RESPONSE"`),
-				ContainSubstring(`"Volume"="volume_id:\"12345\""`),
+				ContainSubstring(`\"volume\":{\"volume_id\":\"12345\"}`),
 			))
 		})
 		It("error", func() {
