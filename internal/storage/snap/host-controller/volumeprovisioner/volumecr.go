@@ -200,12 +200,6 @@ func (p *volumeProvisioner) buildDesiredVolumeCR(dpuVolume *storagev1.DPUVolume,
 				AccessModes:   dpuVolume.Spec.AccessModes,
 				VolumeMode:    dpuVolume.Spec.VolumeMode,
 			},
-			StoragePolicyRef: &storagev1.ObjectRef{
-				Kind:       storagev1.StoragePolicyKind,
-				APIVersion: storagev1.GroupVersion.String(),
-				Name:       dpuVolume.Spec.DPUStoragePolicyName,
-				Namespace:  p.targetNamespace,
-			},
 			StoragePolicyParameters: dpuVolume.Spec.Parameters,
 			VolumeSpecDPU: storagev1.VolumeSpecDPU{
 				ID:            dpuVolume.Name,
