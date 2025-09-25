@@ -1,0 +1,18 @@
+---
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  dpuDetector:
+    disable: true
+  provisioningController:
+    bfbPVCName: "bfb-pvc"
+    dmsTimeout: 900
+    installInterface:
+      installViaRedfish:
+        # Set this to the IP of one of your control plane nodes + 8080 port
+        bfbRegistryAddress: "$TARGETCLUSTER_API_SERVER_HOST:8080"
+  kamajiClusterManager:
+    disable: false

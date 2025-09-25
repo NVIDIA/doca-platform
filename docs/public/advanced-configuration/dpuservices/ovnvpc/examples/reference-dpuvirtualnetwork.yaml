@@ -1,0 +1,32 @@
+apiVersion: vpc.dpu.nvidia.com/v1alpha1
+kind: DPUVirtualNetwork
+metadata:
+  name: example-network
+  namespace: default
+spec:
+  # VPC this network belongs to, references a DPUVPC by name in the same namespace
+  vpcName: "example-vpc"
+  
+  # Network type (currently only Bridged is supported)
+  type: "Bridged"
+  
+  # Enable routing to external networks
+  externallyRouted: true
+  
+  # Enable NAT for external traffic (default: true)
+  masquerade: true
+  
+  # Bridged network configuration
+  bridgedNetwork:
+    ipam:
+      ipv4:
+        # Enable DHCP server
+        dhcp: true
+        # Network subnet (first IP becomes gateway)
+        subnet: "192.178.0.0/16"
+        # Optional: Exclude specific IPs from DHCP
+        excludeIPs:
+          - ip: "192.178.100.10"
+          - range:
+              start: "192.178.100.100"
+              end: "192.178.100.110"

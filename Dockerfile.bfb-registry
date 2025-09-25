@@ -1,0 +1,70 @@
+# Stage 1: Build Tengine
+ARG base_image=ubuntu:22.04
+FROM ${base_image} AS builder
+
+ARG tengine_version=3.1.0
+
+ARG PACKAGES="wget unzip build-essential libpcre3 libpcre3-dev libssl-dev zlib1g-dev gettext"
+
+# Enable deb-src to be able to fetch sources
+RUN sed -i 's/^# deb-src/deb-src/g' /etc/apt/sources.list
+
+ARG ubuntu_mirror=http://archive.ubuntu.com/ubuntu/
+RUN find /etc/apt/sources.list* -type f -exec sed -i \
+      -e "s|http://archive.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
+      -e "s|http://ports.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
+      -e "s|http://security.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" '{}' \;
+
+RUN apt-get update && apt-get install -y -qq ${PACKAGES}
+
+WORKDIR /workspace
+RUN wget https://github.com/alibaba/tengine/archive/refs/tags/${tengine_version}.zip && unzip ${tengine_version}.zip
+
+WORKDIR /workspace/tengine-${tengine_version}
+RUN ./configure --add-dynamic-module=modules/ngx_http_concat_module
+RUN make && make install
+
+# Create necessary directories in the builder stage
+RUN mkdir -p /nginx
+
+# Move source code to a directory
+WORKDIR /workspace
+ARG PACKAGE_SOURCES
+# First, create a dummy source-code.tar file to avoid copy failures.
+RUN touch /workspace/source-code.tar
+RUN test "${PACKAGE_SOURCES}" = "false" || ( \
+      mkdir src && \
+      cd src && \
+      cp /workspace/${tengine_version}.zip . && \
+      apt-get update && \
+      apt-get source --download-only ${PACKAGES} && \
+      cd /workspace && \
+      tar -cf source-code.tar src \
+    )
+
+# Stage 2: Create final image based on distroless
+FROM nvcr.io/nvidia/doca/dpf_containers:1.0.2-ubuntu22.04-distroless AS distroless
+
+# copy the tengine source code
+ARG version=3.1.0
+COPY --from=builder /workspace/source-code.tar source-code.tar
+
+# libraries for the nginx binary
+COPY --from=builder /lib/x86_64-linux-gnu/libpcre.so* /lib/x86_64-linux-gnu/
+COPY --from=builder /lib/x86_64-linux-gnu/libssl.so* /lib/x86_64-linux-gnu/
+COPY --from=builder /lib/x86_64-linux-gnu/libcrypto.so* /lib/x86_64-linux-gnu/
+COPY --from=builder /lib/x86_64-linux-gnu/libz.so* /lib/x86_64-linux-gnu/
+COPY --from=builder /lib/x86_64-linux-gnu/libcrypt.so* /lib/x86_64-linux-gnu/
+COPY --from=builder /bin/sh /bin/
+COPY --from=builder /bin/envsubst /bin/
+# ${uid}:${uid} can execute the binary but can not modify it. Refer to https://sonar-sw.nvidia.com/coding_rules?open=docker%3AS6504&rule_key=docker%3AS6504 for more details.
+COPY --chown=root:root --chmod=755 --from=builder /usr/local/nginx /usr/local/nginx
+
+ENV uid=65532
+
+# Copy nginx directory with non-root ownership. The directory is copied instead of created to avoid the need of mkdir and chown binaries.
+# nginx.conf and all the temp files are in the /nginx directory.
+# This approach complies with S6504 because we're only changing ownership of non-executable directories
+COPY --chown=${uid}:${uid} --chmod=700 --from=builder /nginx /nginx
+
+USER ${uid}:${uid}

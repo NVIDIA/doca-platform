@@ -1,0 +1,29 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: vpc-ovn-node
+  namespace: dpf-operator-system
+spec:
+  serviceID: vpc-ovn-node
+  helmChart:
+    source:
+      repoURL: oci://example.com
+      version: v1.0.0
+      chart: dpf-vpc-ovn
+    values:
+      dpu:
+        vpcOVNNode:
+          enabled: true
+          initContainers:
+            vpcOVNDpuProvisioner:
+              env:
+                ovnSbEndpoint: "tcp:127.0.0.1:30642"
+          imagePullSecrets:
+            - name: dpf-pull-secret
+          ipRequests:
+            - name: "vtep"
+              poolName: "vpc-ippool-vtep"
+              allocateIPWithIndex: 1
+            - name: "gateway"
+              poolName: "vpc-ippool-gateway"
+              allocateIPWithIndex: 1

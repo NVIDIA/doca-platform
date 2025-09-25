@@ -1,0 +1,18 @@
+{{ if .Values.forDPUCluster }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: servicechainset-controller-manager-rolebinding
+  labels:
+    app.kubernetes.io/component: rbac
+  {{- include "servicechain.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: servicechainset-controller-manager
+subjects:
+- kind: ServiceAccount
+  name: servicechainset-controller-manager
+  namespace: '{{ .Release.Namespace }}'
+{{ end }}

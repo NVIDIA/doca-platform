@@ -1,0 +1,13 @@
+For development purposes only. Do not use in production.
+
+These helmfiles are located in the DPF repository under deploy/helmfiles and are used to deploy the DPF operator components.
+
+After applying the prereqs.yaml you MUST ensure that the KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT
+environment variables are set in the node-feature-discovery-worker DaemonSet.
+NFD needs to target the VIP because it needs to be up before cluster services can work.
+
+Example commands to set the environment variables:
+
+kubectl -n dpf-operator-system set env daemonset/node-feature-discovery-worker \
+  KUBERNETES_SERVICE_HOST=<vip> \
+  KUBERNETES_SERVICE_PORT=<port>

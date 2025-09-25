@@ -1,0 +1,103 @@
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: hostdev-pf0vf10-worker1
+spec:
+  config: '{
+    "cniVersion": "0.3.1",
+    "name": "hostpf0vf10",
+    "type": "host-device",
+    "device": "ens1f0v10",
+    "ipam": {
+        "type": "static",
+        "addresses": [
+          {
+            "address": "10.0.121.1/29"
+          }
+        ],
+        "routes": [
+          {
+            "dst": "10.0.121.8/29",
+            "gw": "10.0.121.2"
+          }
+        ]
+    }
+  }'
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: hostdev-pf1vf10-worker1
+spec:
+  config: '{
+    "cniVersion": "0.3.1",
+    "name": "hostpf1vf10",
+    "type": "host-device",
+    "device": "ens1f1v10",
+    "ipam": {
+        "type": "static",
+        "addresses": [
+          {
+            "address": "10.0.122.1/29"
+          }
+        ],
+        "routes": [
+          {
+            "dst": "10.0.122.8/29",
+            "gw": "10.0.122.2"
+          }
+        ]
+    }
+  }'
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: hostdev-pf0vf10-worker2
+spec:
+  config: '{
+    "cniVersion": "0.3.1",
+    "name": "hostpf0vf10",
+    "type": "host-device",
+    "device": "ens1f0v10",
+    "ipam": {
+        "type": "static",
+        "addresses": [
+          {
+            "address": "10.0.121.9/29"
+          }
+        ],
+        "routes": [
+          {
+            "dst": "10.0.121.0/29",
+            "gw": "10.0.121.10"
+          }
+        ]
+    }
+  }'
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: hostdev-pf1vf10-worker2
+spec:
+  config: '{
+    "cniVersion": "0.3.1",
+    "name": "hostpf1vf10",
+    "type": "host-device",
+    "device": "ens1f1v10",
+    "ipam": {
+        "type": "static",
+        "addresses": [
+          {
+            "address": "10.0.122.9/29"
+          }
+        ],
+        "routes": [
+          {
+            "dst": "10.0.122.0/29",
+            "gw": "10.0.122.10"
+          }
+        ]
+    }
+  }'

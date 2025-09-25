@@ -1,0 +1,565 @@
+/*
+Copyright 2025 NVIDIA
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package e2e
+
+import (
+	"maps"
+	"strings"
+
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/test/utils"
+	"github.com/nvidia/doca-platform/test/utils/dpuservice"
+	"github.com/nvidia/doca-platform/test/utils/netshoot"
+	vpcutils "github.com/nvidia/doca-platform/test/utils/vpc/ovn"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+func VPCOVNBeforeSuite() {
+	By("Setting VPC OVN configs for the test")
+	vpcOvnInput.applyVPCOVNConfig(*conf)
+}
+
+//nolint:dupl
+var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, Ordered, func() {
+	BeforeAll(func() {
+		for _, label := range CurrentSpecReport().Labels() {
+			if label != requiresNodesLabel {
+				continue
+			}
+			// Provisioning is skipped if the test is labels with !provisioningLabel
+			if !strings.Contains(GinkgoLabelFilter(), "!"+provisioningLabel) {
+				By("Waiting for provisioning")
+				VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
+				By("Waiting for DPU cluster pods to be ready")
+				VerifyDPUClusterPods(ctx, systemPodsToVerify)
+			}
+
+			if !input.hasDpuNodes() {
+				Skip("Skip test as there are not multiple nodes")
+			}
+
+			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
+			getDPUClusterClient(ctx, getProvisionDPUClustersInput())
+		}
+	})
+
+	AfterAll(func() {
+		if skipCleanup {
+			By("VPC OVN: Skip cleanup for VPC OVN tests")
+			return
+		}
+		Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcAfterAllCleanupLabels), resourcesToDelete...)).To(Succeed())
+	})
+
+	var (
+		dpuNode1 corev1.Node
+		dpuNode2 corev1.Node
+	)
+
+	Context("pre-requisite services and objects", Labels{requiresNodesLabel}, Ordered, func() {
+		It("create dpu vpc ovn vtep DPUServiceIPAM", func() {
+			createVtepDPUServiceIPAM(ctx, input)
+		})
+
+		It("create dpu vpc ovn gateway DPUServiceIPAM", func() {
+			createGatewayDPUServiceIPAM(ctx, input)
+		})
+
+		It("create dpu vpc ovn central DPUService", func() {
+			createOVNCentralDPUService(ctx, input.client, dpfOperatorSystemNamespace, vpcOvnInput.dpuServiceOVNCentral)
+		})
+
+		It("create dpu ovn controller service", func() {
+			createOVNControllerDPUService(ctx, input.client, dpfOperatorSystemNamespace, vpcOvnInput.dpuServiceOVNController)
+		})
+
+		It("create dpu vpc ovn controller service", func() {
+			createVPCOVNControllerDPUService(ctx, input.client, dpfOperatorSystemNamespace, vpcOvnInput.dpuServiceVPCOVNController)
+		})
+
+		It("create dpu vpc ovn node service", func() {
+			createVPCOVNNodeDPUService(ctx, input.client, dpfOperatorSystemNamespace, vpcOvnInput.dpuServiceVPCOVNNode)
+		})
+
+		It("wait for pre-requisite dpu services to be ready", func() {
+			dpuservice.WaitForDPUServices(ctx, input.client, dpfOperatorSystemNamespace, []string{"ovn-central", "ovn-controller", "vpc-ovn-controller", "vpc-ovn-node"})
+		})
+
+		It("create dpu service interfaces", func() {
+			createVPCPrerequisiteDPUServiceInterfaces(ctx, input)
+		})
+
+		It("wait for dpu service interfaces to be ready", func() {
+			interfaceNames := []string{vpcutils.PhysicalInterface0, vpcutils.OvnExtPatchName}
+			dpuservice.WaitForDPUServiceInterfacesReady(ctx, input.client, dpuClusterClient, interfaceNames, dpfOperatorSystemNamespace)
+		})
+
+		It("create dpu service chain", func() {
+			createVPCDPUServiceChain(ctx, input)
+		})
+
+		It("wait for dpu service chain to be ready", func() {
+			dpuservice.WaitForDPUServiceChainsReady(ctx, input.client, dpuClusterClient, []string{vpcutils.VpcOVNServiceChain}, dpfOperatorSystemNamespace, vpcutils.DefaultTimeout)
+		})
+
+		It("create dhcp daemon", func() {
+			// This is mainly for testing VPC VFs with pods on the Management cluster
+			// where we need a dhcp client request to OVN overlay network
+			Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, vpcOvnInput.dhcpDaemonSet))).To(Succeed())
+		})
+
+		It("wait for dhcp daemon pods to be ready", func() {
+			waitForDHCPDaemonPodsReady(ctx, input.client, vpcOvnInput)
+		})
+
+		It("get dpu nodes", func() {
+			dpuNode1, dpuNode2 = getDPUNodesInOrder(ctx, input)
+			Expect(dpuNode1.Name).ToNot(BeEmpty())
+			Expect(dpuNode2.Name).ToNot(BeEmpty())
+		})
+	})
+
+	// Common test values
+	ovnVPCProvisioner := "ovn.vpc.dpu.nvidia.com"
+	defaultTenant := "foo"
+	vpcName := "myvpc"
+	testnet1 := "testnet1"
+	testnet2 := "testnet2"
+	vpcTrafficTestNS := "vpc-traffic-test"
+	vnet1DefaultSubnet := "192.178.0.0/16"
+	vnet2DefaultSubnet := "192.188.0.0/16"
+	podName1 := "netshoot-pod-1"
+	podName2 := "netshoot-pod-2"
+	podName3 := "netshoot-pod-3"
+
+	// Service interface patterns
+	pf0vf2Worker1 := "pf0vf2-worker1"
+	pf0vf2Worker2 := "pf0vf2-worker2"
+	pf0vf3Worker1 := "pf0vf3-worker1"
+
+	// Host device patterns
+	hostPf0Vf2 := "enp8s0f0v2"
+	hostPf0Vf3 := "enp8s0f0v3"
+
+	Context("single virtual network, same and cross node traffic", Labels{requiresNodesLabel}, Ordered, func() {
+
+		var (
+			pf0vf2Worker1MacAddress string
+			pf0vf2Worker2MacAddress string
+			pf0vf3Worker1MacAddress string
+			pod1IP                  string
+			pod2IP                  string
+			pod3IP                  string
+			testPodConfigs          []*netshoot.TestPodConfig
+		)
+
+		AfterAll(func() {
+			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
+			cleanupDPUClusterNodeLabels(ctx)
+		})
+
+		It("label dpu nodes with tenant and tenant-node labels", func() {
+			labelDPUNodesWithTenantAndTenantNode(ctx, dpuClusterClient, dpuNode1, dpuNode2, defaultTenant, defaultTenant)
+		})
+
+		It("create OVNIsolationClass object", func() {
+			createOVNIsolationClass(ctx, input.client, ovnVPCProvisioner, dpfOperatorSystemNamespace, vpcContextCleanupLabels)
+		})
+
+		It("create DPUVPC object", func() {
+			createDPUVPC(ctx, input.client, vpcName, defaultTenant, ovnVPCProvisioner, vpcContextCleanupLabels)
+		})
+
+		It("create DPUVirtualNetwork object", func() {
+			createDPUVirtualNetwork(ctx, input.client, testnet1, vpcName, defaultTenant, vnet1DefaultSubnet, vpcContextCleanupLabels)
+		})
+
+		It("verify DPUVirtualNetwork is ready", func() {
+			vpcutils.WaitForDPUServiceVirtualNetworkReady(ctx, input.client, testnet1, dpfOperatorSystemNamespace)
+		})
+
+		It("verify DPUVPC is ready", func() {
+			vpcutils.WaitForDPUVPCReady(ctx, input.client, vpcName, dpfOperatorSystemNamespace)
+		})
+
+		It("create DPUServiceInterfaces on the nodes, same virtual network", func() {
+			pf0vf2Worker1Labels := map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf2Worker1,
+			}
+			maps.Copy(pf0vf2Worker1Labels, vpcContextCleanupLabels)
+			pf0vf2Worker2Labels := map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf2Worker2,
+			}
+			maps.Copy(pf0vf2Worker2Labels, vpcContextCleanupLabels)
+			pf0vf3Worker1Labels := map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf3Worker1,
+			}
+			maps.Copy(pf0vf3Worker1Labels, vpcContextCleanupLabels)
+
+			createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
+				Name:           pf0vf2Worker1,
+				Namespace:      dpfOperatorSystemNamespace,
+				Labels:         pf0vf2Worker1Labels,
+				NodeName:       &dpuNode1.Name,
+				Type:           dpuservicev1.InterfaceTypeVF,
+				InterfaceName:  pf0vf2Worker1,
+				PFIndex:        0,
+				VFIndex:        2,
+				VirtualNetwork: &testnet1,
+			})
+			createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
+				Name:           pf0vf2Worker2,
+				Namespace:      dpfOperatorSystemNamespace,
+				Labels:         pf0vf2Worker2Labels,
+				NodeName:       &dpuNode2.Name,
+				Type:           dpuservicev1.InterfaceTypeVF,
+				InterfaceName:  pf0vf2Worker2,
+				PFIndex:        0,
+				VFIndex:        2,
+				VirtualNetwork: &testnet1,
+			})
+
+			createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
+				Name:           pf0vf3Worker1,
+				Namespace:      dpfOperatorSystemNamespace,
+				Labels:         pf0vf3Worker1Labels,
+				NodeName:       &dpuNode1.Name,
+				Type:           dpuservicev1.InterfaceTypeVF,
+				InterfaceName:  pf0vf3Worker1,
+				PFIndex:        0,
+				VFIndex:        3,
+				VirtualNetwork: &testnet1,
+			})
+		})
+
+		It("verify DPUServiceInterfaces are ready", func() {
+			interfaceNames := []string{pf0vf2Worker1, pf0vf2Worker2, pf0vf3Worker1}
+			dpuservice.WaitForDPUServiceInterfacesReady(ctx, input.client, dpuClusterClient, interfaceNames, dpfOperatorSystemNamespace)
+		})
+
+		It("get the MAC addresses of the ServiceInterface objects", func() {
+			pf0vf2Worker1Labels := map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf2Worker1,
+			}
+			pf0vf2Worker2Labels := map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf2Worker2,
+			}
+			pf0vf3Worker1Labels := map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf3Worker1,
+			}
+			pf0vf2Worker1MacAddress = vpcutils.GetServiceInterfaceMacAddressMatchingLabels(ctx, dpuClusterClient, dpfOperatorSystemNamespace, pf0vf2Worker1Labels)
+			pf0vf2Worker2MacAddress = vpcutils.GetServiceInterfaceMacAddressMatchingLabels(ctx, dpuClusterClient, dpfOperatorSystemNamespace, pf0vf2Worker2Labels)
+			pf0vf3Worker1MacAddress = vpcutils.GetServiceInterfaceMacAddressMatchingLabels(ctx, dpuClusterClient, dpfOperatorSystemNamespace, pf0vf3Worker1Labels)
+
+			Expect(pf0vf2Worker1MacAddress).ToNot(BeEmpty())
+			Expect(pf0vf2Worker2MacAddress).ToNot(BeEmpty())
+			Expect(pf0vf3Worker1MacAddress).ToNot(BeEmpty())
+		})
+
+		//Note: This is a workaround for testing in nic cloud to avoid rebooting the hosts.
+		//  	MAC addresses will be set as part of the BFB, then when the host boots up, the mac address will be set.
+		It("set mac address of the VF to the pod", func() {
+			workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.client)
+			Expect(vpcutils.SetLinkMacAddress(workerNode1, hostPf0Vf2, pf0vf2Worker1MacAddress)).To(Succeed())
+			Expect(vpcutils.SetLinkMacAddress(workerNode2, hostPf0Vf2, pf0vf2Worker2MacAddress)).To(Succeed())
+			Expect(vpcutils.SetLinkMacAddress(workerNode1, hostPf0Vf3, pf0vf3Worker1MacAddress)).To(Succeed())
+		})
+
+		It("create netshoot pods and NetworkAttachmentDefinitions", func() {
+			vpcutils.CreateTestNamespace(ctx, input.client, vpcTrafficTestNS, vpcContextCleanupLabels)
+			nadName1 := vpcutils.CreatePodNetworkAttachmentDefinition(ctx, input.client, vpcTrafficTestNS, podName1, 2, vpcContextCleanupLabels)
+			nadName2 := vpcutils.CreatePodNetworkAttachmentDefinition(ctx, input.client, vpcTrafficTestNS, podName2, 2, vpcContextCleanupLabels)
+			nadName3 := vpcutils.CreatePodNetworkAttachmentDefinition(ctx, input.client, vpcTrafficTestNS, podName3, 3, vpcContextCleanupLabels)
+			workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.client)
+			testPodConfigs = []*netshoot.TestPodConfig{
+				{
+					Namespace:  vpcTrafficTestNS,
+					Name:       podName1,
+					NodeName:   workerNode1,
+					NADName:    nadName1,
+					MACAddress: pf0vf2Worker1MacAddress,
+					Labels:     vpcContextCleanupLabels,
+				},
+				{
+					Namespace:  vpcTrafficTestNS,
+					Name:       podName2,
+					NodeName:   workerNode2,
+					NADName:    nadName2,
+					MACAddress: pf0vf2Worker2MacAddress,
+					Labels:     vpcContextCleanupLabels,
+				},
+				{
+					Namespace:  vpcTrafficTestNS,
+					Name:       podName3,
+					NodeName:   workerNode1,
+					NADName:    nadName3,
+					MACAddress: pf0vf3Worker1MacAddress,
+					Labels:     vpcContextCleanupLabels,
+				},
+			}
+			netshoot.CreatePods(ctx, input.client, testPodConfigs)
+		})
+
+		It("verify netshoot pods are running", func() {
+			netshoot.WaitForPodsReady(ctx, input.client, testPodConfigs, vpcutils.LongTimeout)
+		})
+
+		It("get pod IP addresses", func() {
+			pod1IP = vpcutils.GetPodIPAddressFromNetworkStatus(ctx, input.client, vpcTrafficTestNS, podName1, pf0vf2Worker1MacAddress)
+			pod2IP = vpcutils.GetPodIPAddressFromNetworkStatus(ctx, input.client, vpcTrafficTestNS, podName2, pf0vf2Worker2MacAddress)
+			pod3IP = vpcutils.GetPodIPAddressFromNetworkStatus(ctx, input.client, vpcTrafficTestNS, podName3, pf0vf3Worker1MacAddress)
+			Expect(pod1IP).ToNot(BeEmpty())
+			Expect(pod2IP).ToNot(BeEmpty())
+			Expect(pod3IP).ToNot(BeEmpty())
+		})
+
+		It("verify netshoot pods can ping each other in the same node", func() {
+			Eventually(func(g Gomega) {
+				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod3IP)
+				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod1IP)
+			}, vpcutils.DefaultTimeout).Should(Succeed())
+		})
+
+		It("verify netshoot pods can ping each other cross nodes", func() {
+			Eventually(func(g Gomega) {
+				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
+				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1IP)
+				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
+				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
+			}, vpcutils.DefaultTimeout).Should(Succeed())
+		})
+
+		It("verify performance with iperf same node traffic", func() {
+			netshoot.RunTrafficTest(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, podName3, pod3IP)
+		})
+
+		It("verify performance with iperf cross node traffic", func() {
+			netshoot.RunTrafficTest(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, podName2, pod2IP)
+		})
+	})
+
+	Context("two virtual networks, same and cross node traffic", Labels{requiresNodesLabel}, Ordered, func() {
+
+		var (
+			pf0vf2Worker1MacAddress string
+			pf0vf2Worker2MacAddress string
+			pf0vf3Worker1MacAddress string
+			pod1IP                  string
+			pod2IP                  string
+			pod3IP                  string
+			testPodConfigs          []*netshoot.TestPodConfig
+		)
+
+		AfterAll(func() {
+			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
+			cleanupDPUClusterNodeLabels(ctx)
+		})
+
+		It("label dpu nodes with tenant and tenant-node labels", func() {
+			labelDPUNodesWithTenantAndTenantNode(ctx, dpuClusterClient, dpuNode1, dpuNode2, defaultTenant, defaultTenant)
+		})
+
+		It("create OVNIsolationClass object", func() {
+			createOVNIsolationClass(ctx, input.client, ovnVPCProvisioner, dpfOperatorSystemNamespace, vpcContextCleanupLabels)
+		})
+
+		It("create DPUVPC object", func() {
+			createDPUVPC(ctx, input.client, vpcName, defaultTenant, ovnVPCProvisioner, vpcContextCleanupLabels)
+		})
+
+		It("create DPUVirtualNetwork objects", func() {
+			createDPUVirtualNetwork(ctx, input.client, testnet1, vpcName, defaultTenant, vnet1DefaultSubnet, vpcContextCleanupLabels)
+			createDPUVirtualNetwork(ctx, input.client, testnet2, vpcName, defaultTenant, vnet2DefaultSubnet, vpcContextCleanupLabels)
+		})
+
+		It("verify DPUVirtualNetwork is ready", func() {
+			vpcutils.WaitForDPUServiceVirtualNetworkReady(ctx, input.client, testnet1, dpfOperatorSystemNamespace)
+			vpcutils.WaitForDPUServiceVirtualNetworkReady(ctx, input.client, testnet2, dpfOperatorSystemNamespace)
+		})
+
+		It("verify DPUVPC is ready", func() {
+			vpcutils.WaitForDPUVPCReady(ctx, input.client, vpcName, dpfOperatorSystemNamespace)
+		})
+
+		It("create DPUServiceInterfaces on the nodes, different virtual networks", func() {
+			// Worker1: pf0vf2-worker1 virtual network testnet1, pf0vf3-worker1 virtual network testnet2
+			// Worker2: pf0vf2-worker2 virtual network testnet2
+
+			pf0vf2Worker1Labels := map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf2Worker1,
+			}
+			maps.Copy(pf0vf2Worker1Labels, vpcContextCleanupLabels)
+			pf0vf2Worker2Labels := map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf2Worker2,
+			}
+			maps.Copy(pf0vf2Worker2Labels, vpcContextCleanupLabels)
+			pf0vf3Worker1Labels := map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf3Worker1,
+			}
+			maps.Copy(pf0vf3Worker1Labels, vpcContextCleanupLabels)
+			createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
+				Name:           pf0vf2Worker1,
+				Namespace:      dpfOperatorSystemNamespace,
+				Labels:         pf0vf2Worker1Labels,
+				NodeName:       &dpuNode1.Name,
+				Type:           dpuservicev1.InterfaceTypeVF,
+				InterfaceName:  pf0vf2Worker1,
+				PFIndex:        0,
+				VFIndex:        2,
+				VirtualNetwork: &testnet1,
+			})
+
+			createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
+				Name:           pf0vf2Worker2,
+				Namespace:      dpfOperatorSystemNamespace,
+				Labels:         pf0vf2Worker2Labels,
+				NodeName:       &dpuNode2.Name,
+				Type:           dpuservicev1.InterfaceTypeVF,
+				InterfaceName:  pf0vf2Worker2,
+				PFIndex:        0,
+				VFIndex:        2,
+				VirtualNetwork: &testnet2,
+			})
+
+			createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
+				Name:           pf0vf3Worker1,
+				Namespace:      dpfOperatorSystemNamespace,
+				Labels:         pf0vf3Worker1Labels,
+				NodeName:       &dpuNode1.Name,
+				Type:           dpuservicev1.InterfaceTypeVF,
+				InterfaceName:  pf0vf3Worker1,
+				PFIndex:        0,
+				VFIndex:        3,
+				VirtualNetwork: &testnet2,
+			})
+		})
+
+		It("verify DPUServiceInterface is ready", func() {
+			interfaceNames := []string{pf0vf2Worker1, pf0vf2Worker2, pf0vf3Worker1}
+			dpuservice.WaitForDPUServiceInterfacesReady(ctx, input.client, dpuClusterClient, interfaceNames, dpfOperatorSystemNamespace)
+		})
+
+		It("get the MAC addresses of the ServiceInterface objects", func() {
+			pf0vf2Worker1Labels := map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf2Worker1,
+			}
+			pf0vf2Worker2Labels := map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf2Worker2,
+			}
+			pf0vf3Worker1Labels := map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf3Worker1,
+			}
+
+			pf0vf2Worker1MacAddress = vpcutils.GetServiceInterfaceMacAddressMatchingLabels(ctx, dpuClusterClient, dpfOperatorSystemNamespace, pf0vf2Worker1Labels)
+			pf0vf2Worker2MacAddress = vpcutils.GetServiceInterfaceMacAddressMatchingLabels(ctx, dpuClusterClient, dpfOperatorSystemNamespace, pf0vf2Worker2Labels)
+			pf0vf3Worker1MacAddress = vpcutils.GetServiceInterfaceMacAddressMatchingLabels(ctx, dpuClusterClient, dpfOperatorSystemNamespace, pf0vf3Worker1Labels)
+
+			Expect(pf0vf2Worker1MacAddress).ToNot(BeEmpty())
+			Expect(pf0vf2Worker2MacAddress).ToNot(BeEmpty())
+			Expect(pf0vf3Worker1MacAddress).ToNot(BeEmpty())
+		})
+
+		//Note: This is a workaround for testing in nic cloud to avoid rebooting the hosts.
+		//  	MAC addresses will be set as part of the BFB, then when the host boots up, the mac address will be set.
+		It("set mac address of the VF to the pod", func() {
+			workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.client)
+			err := vpcutils.SetLinkMacAddress(workerNode1, hostPf0Vf2, pf0vf2Worker1MacAddress)
+			Expect(err).ToNot(HaveOccurred())
+			err = vpcutils.SetLinkMacAddress(workerNode2, hostPf0Vf2, pf0vf2Worker2MacAddress)
+			Expect(err).ToNot(HaveOccurred())
+			err = vpcutils.SetLinkMacAddress(workerNode1, hostPf0Vf3, pf0vf3Worker1MacAddress)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("create netshoot pods and NetworkAttachmentDefinitions", func() {
+			vpcutils.CreateTestNamespace(ctx, input.client, vpcTrafficTestNS, vpcContextCleanupLabels)
+			nadName1 := vpcutils.CreatePodNetworkAttachmentDefinition(ctx, input.client, vpcTrafficTestNS, podName1, 2, vpcContextCleanupLabels)
+			nadName2 := vpcutils.CreatePodNetworkAttachmentDefinition(ctx, input.client, vpcTrafficTestNS, podName2, 2, vpcContextCleanupLabels)
+			nadName3 := vpcutils.CreatePodNetworkAttachmentDefinition(ctx, input.client, vpcTrafficTestNS, podName3, 3, vpcContextCleanupLabels)
+			workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.client)
+			testPodConfigs = []*netshoot.TestPodConfig{
+				{
+					Namespace:  vpcTrafficTestNS,
+					Name:       podName1,
+					NodeName:   workerNode1,
+					NADName:    nadName1,
+					MACAddress: pf0vf2Worker1MacAddress,
+					Labels:     vpcContextCleanupLabels,
+				},
+				{
+					Namespace:  vpcTrafficTestNS,
+					Name:       podName2,
+					NodeName:   workerNode2,
+					NADName:    nadName2,
+					MACAddress: pf0vf2Worker2MacAddress,
+					Labels:     vpcContextCleanupLabels,
+				},
+				{
+					Namespace:  vpcTrafficTestNS,
+					Name:       podName3,
+					NodeName:   workerNode1,
+					NADName:    nadName3,
+					MACAddress: pf0vf3Worker1MacAddress,
+					Labels:     vpcContextCleanupLabels,
+				},
+			}
+			netshoot.CreatePods(ctx, input.client, testPodConfigs)
+		})
+
+		It("verify netshoot pods are running", func() {
+			netshoot.WaitForPodsReady(ctx, input.client, testPodConfigs, vpcutils.LongTimeout)
+		})
+
+		It("get pod IP addresses", func() {
+			pod1IP = vpcutils.GetPodIPAddressFromNetworkStatus(ctx, input.client, vpcTrafficTestNS, podName1, pf0vf2Worker1MacAddress)
+			pod2IP = vpcutils.GetPodIPAddressFromNetworkStatus(ctx, input.client, vpcTrafficTestNS, podName2, pf0vf2Worker2MacAddress)
+			pod3IP = vpcutils.GetPodIPAddressFromNetworkStatus(ctx, input.client, vpcTrafficTestNS, podName3, pf0vf3Worker1MacAddress)
+			Expect(pod1IP).ToNot(BeEmpty())
+			Expect(pod2IP).ToNot(BeEmpty())
+			Expect(pod3IP).ToNot(BeEmpty())
+		})
+
+		It("verify netshoot pods can ping each other in the same node", func() {
+			Eventually(func(g Gomega) {
+				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod3IP)
+				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod1IP)
+			}, vpcutils.DefaultTimeout).Should(Succeed())
+		})
+
+		It("verify netshoot pods can ping each other cross nodes", func() {
+			Eventually(func(g Gomega) {
+				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
+				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1IP)
+				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
+				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
+			}, vpcutils.DefaultTimeout).Should(Succeed())
+		})
+
+		It("verify performance with iperf same node traffic", func() {
+			netshoot.RunTrafficTest(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, podName3, pod3IP)
+		})
+
+		It("verify performance with iperf cross node traffic", func() {
+			netshoot.RunTrafficTest(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, podName2, pod2IP)
+		})
+	})
+})

@@ -1,0 +1,17 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: p0
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            uplink: "p0"
+        spec:
+          interfaceType: physical
+          physical:
+            interfaceName: p0
