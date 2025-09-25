@@ -13,11 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Go version 1.10 or greater is required. Before that, switching namespaces in
-// long running processes in go did not work in a reliable way.
-//go:build go1.10
-// +build go1.10
-
 package plugin
 
 import (
@@ -53,6 +48,7 @@ type EnvArgs struct {
 	cnitypes.CommonArgs
 	MAC               cnitypes.UnmarshallableString `json:"mac,omitempty"`
 	OvnPort           cnitypes.UnmarshallableString `json:"ovnPort,omitempty"`
+	K8S_POD_UID       cnitypes.UnmarshallableString
 	K8S_POD_NAMESPACE cnitypes.UnmarshallableString
 	K8S_POD_NAME      cnitypes.UnmarshallableString
 }
@@ -119,6 +115,10 @@ func setupVeth(contNetns ns.NetNS, contIfaceName string, requestedMac string, mt
 			return err
 		}
 
+		if err := setInterfaceUp(contIfaceName); err != nil {
+			return err
+		}
+
 		contIface.Name = containerVeth.Name
 		contIface.Mac = containerVeth.HardwareAddr.String()
 		contIface.Sandbox = contNetns.Path()
@@ -137,6 +137,19 @@ func setupVeth(contNetns ns.NetNS, contIfaceName string, requestedMac string, mt
 	return hostIface, contIface, nil
 }
 
+func setInterfaceUp(name string) error {
+	link, err := netlink.LinkByName(name)
+	if err != nil {
+		return err
+	}
+
+	if err := netlink.LinkSetUp(link); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func assignMacToLink(link netlink.Link, mac net.HardwareAddr, name string) error {
 	err := netlink.LinkSetHardwareAddr(link, mac)
 	if err != nil {
@@ -145,19 +158,37 @@ func assignMacToLink(link netlink.Link, mac net.HardwareAddr, name string) error
 	return nil
 }
 
-func getBridgeName(bridgeName, ovnPort string) (string, error) {
+func getBridgeName(driver *ovsdb.OvsDriver, bridgeName, ovnPort, deviceID string) (string, error) {
 	if bridgeName != "" {
 		return bridgeName, nil
 	} else if bridgeName == "" && ovnPort != "" {
 		return "br-int", nil
+	} else if deviceID != "" {
+		possibleUplinkNames, err := sriov.GetBridgeUplinkNameByDeviceID(deviceID)
+		if err != nil {
+			return "", fmt.Errorf("failed to get bridge name - failed to resolve uplink name: %v", err)
+		}
+		var errList []error
+		for _, uplinkName := range possibleUplinkNames {
+			bridgeName, err = driver.FindBridgeByInterface(uplinkName)
+			if err != nil {
+				errList = append(errList,
+					fmt.Errorf("failed to get bridge name - failed to find bridge name by uplink name %s: %v", uplinkName, err))
+				continue
+			}
+			return bridgeName, nil
+		}
+		return "", fmt.Errorf("failed to find bridge by uplink names %v: %v", possibleUplinkNames, errList)
 	}
 
 	return "", fmt.Errorf("failed to get bridge name")
 }
 
-func attachIfaceToBridge(ovsDriver *ovsdb.OvsBridgeDriver, hostIfaceName string, contIface *current.Interface, ofportRequest uint, vlanTag uint, trunks []uint, portType string, intfType string, mtu int,
-	contNetnsPath string, ovnPortName string, dpfId string) error {
-	err := ovsDriver.CreatePort(hostIfaceName, contNetnsPath, ovnPortName, dpfId, contIface, ofportRequest, vlanTag, trunks, portType, mtu, intfType)
+func attachIfaceToBridge(ovsDriver *ovsdb.OvsBridgeDriver, hostIfaceName string,
+	contIface *current.Interface, ofportRequest uint, vlanTag uint,
+	trunks []uint, portType string, intfType string,
+	mtu int, contNetnsPath string, ovnPortName string, contPodUid string, dpfId string) error {
+	err := ovsDriver.CreatePort(hostIfaceName, contNetnsPath, contIface.Name, ovnPortName, dpfId, contIface, ofportRequest, vlanTag, trunks, portType, mtu, intfType, contPodUid)
 	if err != nil {
 		return err
 	}
@@ -243,10 +274,12 @@ func CmdAdd(args *skel.CmdArgs) error {
 
 	var mac string
 	var ovnPort string
+	var contPodUid string
 	var dpfId string
 	if envArgs != nil {
 		mac = string(envArgs.MAC)
 		ovnPort = string(envArgs.OvnPort)
+		contPodUid = string(envArgs.K8S_POD_UID)
 		dpfId = string(envArgs.K8S_POD_NAMESPACE) + "/" + string(envArgs.K8S_POD_NAME)
 	}
 
@@ -262,7 +295,6 @@ func CmdAdd(args *skel.CmdArgs) error {
 			mtu = envMTU
 		}
 	}
-
 	var vlanTagNum uint = 0
 	trunks := make([]uint, 0)
 	portType := "access"
@@ -278,21 +310,40 @@ func CmdAdd(args *skel.CmdArgs) error {
 	} else if netconf.VlanTag != nil {
 		vlanTagNum = *netconf.VlanTag
 	}
+	ovsDriver, err := ovsdb.NewOvsDriver(netconf.SocketFile)
+	if err != nil {
+		return err
+	}
+	bridgeName, err := getBridgeName(ovsDriver, netconf.BrName, ovnPort, netconf.DeviceID)
+	if err != nil {
+		return err
+	}
+	// save discovered bridge name to the netconf struct to make
+	// sure it is save in the cache.
+	// we need to cache discovered bridge name to make sure that we will
+	// use the right bridge name in CmdDel
+	netconf.BrName = bridgeName
 
-	bridgeName, err := getBridgeName(netconf.BrName, ovnPort)
+	ovsBridgeDriver, err := ovsdb.NewOvsBridgeDriver(bridgeName, netconf.SocketFile)
 	if err != nil {
 		return err
 	}
 
-	ovsDriver, err := ovsdb.NewOvsBridgeDriver(bridgeName, netconf.SocketFile)
-	if err != nil {
-		return err
+	// check if the device driver is the type of userspace driver
+	userspaceMode := false
+	if sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID) {
+		if sriov.IsPCIDeviceName(netconf.DeviceID) {
+			userspaceMode, err = sriov.HasUserspaceDriver(netconf.DeviceID)
+		}
+		if err != nil {
+			return err
+		}
 	}
 
 	// TODO: Disable because of ovs-doca, re-enable at a later date
 	// removes all ports whose interfaces have an error
-	// if err := cleanPorts(ovsDriver); err != nil {
-	// 	return err
+	//if err := cleanPorts(ovsBridgeDriver); err != nil {
+	//	return err
 	//}
 
 	contNetns, err := ns.GetNS(args.Netns)
@@ -310,8 +361,9 @@ func CmdAdd(args *skel.CmdArgs) error {
 		return fmt.Errorf("interface is SF but deviceID is not set.")
 	}
 
+	// userspace driver does not create a network interface for the VF on the host
 	var origIfName string
-	if sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID) {
+	if sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID) && !userspaceMode {
 		if sriov.IsPCIDeviceName(netconf.DeviceID) {
 			origIfName, err = sriov.GetVFLinkName(netconf.DeviceID)
 		} else { // Auxiliary network device
@@ -324,28 +376,28 @@ func CmdAdd(args *skel.CmdArgs) error {
 
 	// Cache NetConf for CmdDel
 	if err = utils.SaveCache(config.GetCRef(args.ContainerID, args.IfName),
-		&types.CachedNetConf{Netconf: netconf, OrigIfName: origIfName}); err != nil {
+		&types.CachedNetConf{Netconf: netconf, OrigIfName: origIfName, UserspaceMode: userspaceMode}); err != nil {
 		return fmt.Errorf("error saving NetConf %q", err)
 	}
 
 	var hostIface, contIface *current.Interface
 	if sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID) {
-		hostIface, contIface, err = sriov.SetupSriovInterface(contNetns, args.ContainerID, args.IfName, mtu, netconf.DeviceID)
+		hostIface, contIface, err = sriov.SetupSriovInterface(contNetns, args.ContainerID, args.IfName, mac, netconf.MTU, netconf.DeviceID, userspaceMode)
 		if err != nil {
 			return err
 		}
 	} else {
-		hostIface, contIface, err = setupVeth(contNetns, args.IfName, mac, mtu)
+		hostIface, contIface, err = setupVeth(contNetns, args.IfName, mac, netconf.MTU)
 		if err != nil {
 			return err
 		}
 	}
 
-	if err := ovsDriver.CleanupStaleHbn(contIface.Name); err != nil {
+	if err := ovsBridgeDriver.CleanupStaleHbn(contIface.Name); err != nil {
 		return err
 	}
 
-	if err := ovsDriver.CleanupStaleSfc(contIface.Name); err != nil {
+	if err := ovsBridgeDriver.CleanupStaleSfc(contIface.Name); err != nil {
 		return err
 	}
 
@@ -355,38 +407,41 @@ func CmdAdd(args *skel.CmdArgs) error {
 
 	if found {
 		log.Printf("CmdAdd port already managed by OVS trying to remove it: %v", hostIface.Name)
-		if err := removeOvsPort(ovsDriver, hostIface.Name); err != nil {
+		if err := removeOvsPort(ovsBridgeDriver, hostIface.Name); err != nil {
 			return err
 		}
 	}
 
-	if err = attachIfaceToBridge(ovsDriver, hostIface.Name, contIface, netconf.OfportRequest, vlanTagNum, trunks, portType, netconf.InterfaceType, mtu, args.Netns, ovnPort, dpfId); err != nil {
+	if err = attachIfaceToBridge(ovsBridgeDriver, hostIface.Name, contIface,
+		netconf.OfportRequest, vlanTagNum, trunks,
+		portType, netconf.InterfaceType, mtu, args.Netns,
+		ovnPort, contPodUid, dpfId); err != nil {
 		return err
 	}
 	defer func() {
 		if err != nil {
 			// Unlike veth pair, OVS port will not be automatically removed
 			// if the following IPAM configuration fails and netns gets removed.
-			portName, portFound, err := getOvsPortForContIface(ovsDriver, args.IfName, args.Netns)
+			portName, portFound, err := getOvsPortForContIface(ovsBridgeDriver, args.IfName, args.Netns)
 			if err != nil {
 				log.Printf("Failed best-effort cleanup: %v", err)
 			}
 			if portFound {
-				if err := removeOvsPort(ovsDriver, portName); err != nil {
+				if err := removeOvsPort(ovsBridgeDriver, portName); err != nil {
 					log.Printf("Failed best-effort cleanup: %v", err)
 				}
 				// TODO: HACK Check if there is a port added on br-hbn in order to delete a patches between br-sfc <-> br-hbn
-				if ovsDriver.OvsBridgeName == ovsdb.HbnBridge {
+				if ovsBridgeDriver.OvsBridgeName == ovsdb.HbnBridge {
 					portOnBrA := fmt.Sprintf("p%s%s", portName, "brhbn")
 					portOnBrB := fmt.Sprintf("p%s%s", portName, "brsfc")
-					if err := removeOvsPort(ovsDriver, portOnBrA); err != nil {
+					if err := removeOvsPort(ovsBridgeDriver, portOnBrA); err != nil {
 						log.Printf("Failed best-effort cleanup: %v\n", err)
 					}
-					ovsDriver.OvsBridgeName = ovsdb.SfcBridge
-					if err := removeOvsPort(ovsDriver, portOnBrB); err != nil {
+					ovsBridgeDriver.OvsBridgeName = ovsdb.SfcBridge
+					if err := removeOvsPort(ovsBridgeDriver, portOnBrB); err != nil {
 						log.Printf("Failed best-effort cleanup: %v\n", err)
 					}
-					ovsDriver.OvsBridgeName = ovsdb.HbnBridge
+					ovsBridgeDriver.OvsBridgeName = ovsdb.HbnBridge
 				}
 			}
 		}
@@ -397,7 +452,9 @@ func CmdAdd(args *skel.CmdArgs) error {
 	}
 
 	// run the IPAM plugin
-	if netconf.IPAM.Type != "" {
+	// userspace driver does not support IPAM plugin,
+	// because there is no network interface for the VF on the host
+	if netconf.IPAM.Type != "" && !userspaceMode {
 		var r cnitypes.Result
 		r, err = ipam.ExecAdd(netconf.IPAM.Type, args.StdinData)
 		defer func() {
@@ -432,7 +489,7 @@ func CmdAdd(args *skel.CmdArgs) error {
 
 		// wait until OF port link state becomes up. This is needed to make
 		// gratuitous arp for args.IfName to be sent over ovs bridge
-		err = waitLinkUp(ovsDriver, hostIface.Name, netconf.LinkStateCheckRetries, netconf.LinkStateCheckInterval)
+		err = waitLinkUp(ovsBridgeDriver, hostIface.Name, netconf.LinkStateCheckRetries, netconf.LinkStateCheckInterval)
 		if err != nil {
 			return err
 		}
@@ -522,7 +579,7 @@ func cleanPorts(ovsDriver *ovsdb.OvsBridgeDriver) error {
 	}
 	for _, iface := range ifaces {
 		log.Printf("Info: interface %s has error: removing corresponding port", iface)
-		if err := ovsDriver.DelPort(iface); err != nil {
+		if err := ovsDriver.DeletePort(iface); err != nil {
 			// Don't return an error here, just log its occurrence.
 			// Something else may have removed the port already.
 			log.Printf("Error: %v\n", err)
@@ -532,7 +589,8 @@ func cleanPorts(ovsDriver *ovsdb.OvsBridgeDriver) error {
 }
 
 func removeOvsPort(ovsDriver *ovsdb.OvsBridgeDriver, portName string) error {
-	return ovsDriver.DelPort(portName)
+
+	return ovsDriver.DeletePort(portName)
 }
 
 // CmdDel remove handler for deleting container from network
@@ -569,13 +627,16 @@ func CmdDel(args *skel.CmdArgs) error {
 	if envArgs != nil {
 		ovnPort = string(envArgs.OvnPort)
 	}
-
-	bridgeName, err := getBridgeName(cache.Netconf.BrName, ovnPort)
+	ovsDriver, err := ovsdb.NewOvsDriver(cache.Netconf.SocketFile)
+	if err != nil {
+		return err
+	}
+	bridgeName, err := getBridgeName(ovsDriver, cache.Netconf.BrName, ovnPort, cache.Netconf.DeviceID)
 	if err != nil {
 		return err
 	}
 
-	ovsDriver, err := ovsdb.NewOvsBridgeDriver(bridgeName, cache.Netconf.SocketFile)
+	ovsBridgeDriver, err := ovsdb.NewOvsBridgeDriver(bridgeName, cache.Netconf.SocketFile)
 	if err != nil {
 		return err
 	}
@@ -597,18 +658,21 @@ func CmdDel(args *skel.CmdArgs) error {
 			if rep, err = sriov.GetNetRepresentor(cache.Netconf.DeviceID); err != nil {
 				return err
 			}
-			if err = removeOvsPort(ovsDriver, rep); err != nil {
+			if err = removeOvsPort(ovsBridgeDriver, rep); err != nil {
 				// Don't throw err as delete can be called multiple times because of error in ResetOffloadDev and ovs
 				// port is already deleted in a previous invocation.
 				log.Printf("Error: %v\n", err)
 			}
-			if err = sriov.ResetOffloadDev(args, cache.Netconf.DeviceID, cache.OrigIfName); err != nil {
-				return err
+			// there is no network interface in case of userspace driver, so OrigIfName is empty
+			if !cache.UserspaceMode {
+				if err = sriov.ResetOffloadDev(args, cache.Netconf.DeviceID, cache.OrigIfName); err != nil {
+					return err
+				}
 			}
 		} else {
 			// In accordance with the spec we clean up as many resources as possible.
 			// TODO disable cleaning because of ovs-doca. Re-enable at a later date
-			//if err := cleanPorts(ovsDriver); err != nil {
+			//if err := cleanPorts(ovsBridgeDriver); err != nil {
 			//	return err
 			//}
 		}
@@ -618,40 +682,43 @@ func CmdDel(args *skel.CmdArgs) error {
 	// Unlike veth pair, OVS port will not be automatically removed when
 	// container namespace is gone. Find port matching DEL arguments and remove
 	// it explicitly.
-	portName, portFound, err := getOvsPortForContIface(ovsDriver, args.IfName, args.Netns)
+	portName, portFound, err := getOvsPortForContIface(ovsBridgeDriver, args.IfName, args.Netns)
 	if err != nil {
 		// aserdean: Just log the error. The port might be removed by another enitity.
 		log.Printf("Failed to obtain OVS port for given connection: %v. For args.IfName: %v and args.Netns: %v. Ignoring error!", err, args.IfName, args.Netns)
 	}
 
 	// TODO: HACK Check if there is a port added on br-hbn in order to delete a patches between br-sfc <-> br-hbn
-	if ovsDriver.OvsBridgeName == ovsdb.HbnBridge {
+	if ovsBridgeDriver.OvsBridgeName == ovsdb.HbnBridge {
 		portOnBrA := fmt.Sprintf("p%s%s", portName, "brhbn")
 		portOnBrB := fmt.Sprintf("p%s%s", portName, "brsfc")
-		if err := removeOvsPort(ovsDriver, portOnBrA); err != nil {
+		if err := removeOvsPort(ovsBridgeDriver, portOnBrA); err != nil {
 			log.Printf("Error: %v\n", err)
 		}
-		ovsDriver.OvsBridgeName = ovsdb.SfcBridge
-		if err := removeOvsPort(ovsDriver, portOnBrB); err != nil {
+		ovsBridgeDriver.OvsBridgeName = ovsdb.SfcBridge
+		if err := removeOvsPort(ovsBridgeDriver, portOnBrB); err != nil {
 			log.Printf("Error: %v\n", err)
 		}
-		ovsDriver.OvsBridgeName = ovsdb.HbnBridge
+		ovsBridgeDriver.OvsBridgeName = ovsdb.HbnBridge
 	}
 
 	// Do not return an error if the port was not found, it may have been
 	// already removed by someone.
 	if portFound {
-		if err := removeOvsPort(ovsDriver, portName); err != nil {
+		if err := removeOvsPort(ovsBridgeDriver, portName); err != nil {
 			return err
 		}
 	}
 
 	if sriov.IsOvsHardwareOffloadEnabled(cache.Netconf.DeviceID) {
-		err = sriov.ReleaseVF(args, cache.OrigIfName)
-		if err != nil {
-			// try to reset vf into original state as much as possible in case of error
-			if err := sriov.ResetOffloadDev(args, cache.Netconf.DeviceID, cache.OrigIfName); err != nil {
-				log.Printf("Failed best-effort cleanup of VF %s: %v", cache.OrigIfName, err)
+		// there is no network interface in case of userspace driver, so OrigIfName is empty
+		if !cache.UserspaceMode {
+			err = sriov.ReleaseVF(args, cache.OrigIfName)
+			if err != nil {
+				// try to reset vf into original state as much as possible in case of error
+				if err := sriov.ResetOffloadDev(args, cache.Netconf.DeviceID, cache.OrigIfName); err != nil {
+					log.Printf("Failed best-effort cleanup of VF %s: %v", cache.OrigIfName, err)
+				}
 			}
 		}
 	} else {
@@ -671,11 +738,11 @@ func CmdDel(args *skel.CmdArgs) error {
 		}
 	}
 
-	// TODO Disable this because of ovs-doca, re-enable this at a later date
 	// removes all ports whose interfaces have an error
-	// if err := cleanPorts(ovsDriver); err != nil {
-	//	return err
-	//}
+	// TODO Disable this because of ovs-doca, re-enable this at a later date
+	if err := cleanPorts(ovsBridgeDriver); err != nil {
+		return err
+	}
 
 	return err
 }
@@ -688,14 +755,27 @@ func CmdCheck(args *skel.CmdArgs) error {
 	if err != nil {
 		return err
 	}
+	ovsHWOffloadEnable := sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID)
 
-	// run the IPAM plugin
-	if netconf.NetConf.IPAM.Type != "" {
-		err = ipam.ExecCheck(netconf.NetConf.IPAM.Type, args.StdinData)
-		if err != nil {
-			return fmt.Errorf("failed to check with IPAM plugin type %q: %v", netconf.NetConf.IPAM.Type, err)
-		}
+	envArgs, err := getEnvArgs(args.Args)
+	if err != nil {
+		return err
 	}
+	var ovnPort string
+	if envArgs != nil {
+		ovnPort = string(envArgs.OvnPort)
+	}
+	ovsDriver, err := ovsdb.NewOvsDriver(netconf.SocketFile)
+	if err != nil {
+		return err
+	}
+	// cached config may contain bridge name which were automatically
+	// discovered in CmdAdd, we need to re-discover the bridge name before we validating the cache
+	bridgeName, err := getBridgeName(ovsDriver, netconf.BrName, ovnPort, netconf.DeviceID)
+	if err != nil {
+		return err
+	}
+	netconf.BrName = bridgeName
 
 	// check cache
 	cRef := config.GetCRef(args.ContainerID, args.IfName)
@@ -703,8 +783,24 @@ func CmdCheck(args *skel.CmdArgs) error {
 	if err != nil {
 		return err
 	}
+
 	if err := validateCache(cache, netconf); err != nil {
 		return err
+	}
+
+	// TODO: CmdCheck for userspace driver
+	if cache.UserspaceMode {
+		return nil
+	}
+
+	// run the IPAM plugin
+	// userspace driver does not support IPAM plugin,
+	// because there is no network interface for the VF on the host
+	if netconf.NetConf.IPAM.Type != "" && !cache.UserspaceMode {
+		err = ipam.ExecCheck(netconf.NetConf.IPAM.Type, args.StdinData)
+		if err != nil {
+			return fmt.Errorf("failed to check with IPAM plugin type %q: %v", netconf.NetConf.IPAM.Type, err)
+		}
 	}
 
 	// Parse previous result.
@@ -728,7 +824,7 @@ func CmdCheck(args *skel.CmdArgs) error {
 			}
 		} else {
 			// Check prevResults for ips against values found in the host
-			if err := validateInterface(*intf, true); err != nil {
+			if err := validateInterface(*intf, true, ovsHWOffloadEnable); err != nil {
 				return err
 			}
 			hostIntf = *intf
@@ -751,7 +847,7 @@ func CmdCheck(args *skel.CmdArgs) error {
 	if err := netns.Do(func(_ ns.NetNS) error {
 
 		// Check interface against values found in the container
-		err := validateInterface(contIntf, false)
+		err := validateInterface(contIntf, false, ovsHWOffloadEnable)
 		if err != nil {
 			return err
 		}
@@ -802,7 +898,7 @@ func validateCache(cache *types.CachedNetConf, netconf *types.NetConf) error {
 	return nil
 }
 
-func validateInterface(intf current.Interface, isHost bool) error {
+func validateInterface(intf current.Interface, isHost bool, hwOffload bool) error {
 	var link netlink.Link
 	var err error
 	var iftype string
@@ -822,10 +918,11 @@ func validateInterface(intf current.Interface, isHost bool) error {
 	if !isHost && intf.Sandbox == "" {
 		return fmt.Errorf("Error: %s interface %s should not be in host namespace", iftype, link.Attrs().Name)
 	}
-
-	_, isVeth := link.(*netlink.Veth)
-	if !isVeth {
-		return fmt.Errorf("Error: %s interface %s not of type veth/p2p", iftype, link.Attrs().Name)
+	if !hwOffload {
+		_, isVeth := link.(*netlink.Veth)
+		if !isVeth {
+			return fmt.Errorf("Error: %s interface %s not of type veth/p2p", iftype, link.Attrs().Name)
+		}
 	}
 
 	if intf.Mac != "" && intf.Mac != link.Attrs().HardwareAddr.String() {
@@ -844,18 +941,17 @@ func validateOvs(args *skel.CmdArgs, netconf *types.NetConf, hostIfname string) 
 	if envArgs != nil {
 		ovnPort = string(envArgs.OvnPort)
 	}
-
-	bridgeName, err := getBridgeName(netconf.BrName, ovnPort)
+	ovsDriver, err := ovsdb.NewOvsDriver(netconf.SocketFile)
+	bridgeName, err := getBridgeName(ovsDriver, netconf.BrName, ovnPort, netconf.DeviceID)
+	if err != nil {
+		return err
+	}
+	ovsBridgeDriver, err := ovsdb.NewOvsBridgeDriver(bridgeName, netconf.SocketFile)
 	if err != nil {
 		return err
 	}
 
-	ovsDriver, err := ovsdb.NewOvsBridgeDriver(bridgeName, netconf.SocketFile)
-	if err != nil {
-		return err
-	}
-
-	found, err := ovsDriver.IsBridgePresent(netconf.BrName)
+	found, err := ovsBridgeDriver.IsBridgePresent(bridgeName)
 	if err != nil {
 		return err
 	}
@@ -863,7 +959,7 @@ func validateOvs(args *skel.CmdArgs, netconf *types.NetConf, hostIfname string) 
 		return fmt.Errorf("Error: bridge %s is not found in OVS", netconf.BrName)
 	}
 
-	ifaces, err := ovsDriver.FindInterfacesWithError()
+	ifaces, err := ovsBridgeDriver.FindInterfacesWithError()
 	if err != nil {
 		return err
 	}
@@ -871,7 +967,7 @@ func validateOvs(args *skel.CmdArgs, netconf *types.NetConf, hostIfname string) 
 		return fmt.Errorf("Error: There are some interfaces in error state: %v", ifaces)
 	}
 
-	vlanMode, tag, trunk, err := ovsDriver.GetOFPortVlanState(hostIfname)
+	vlanMode, tag, trunk, err := ovsBridgeDriver.GetOFPortVlanState(hostIfname)
 	if err != nil {
 		return fmt.Errorf("Error: Failed to retrieve port %s state: %v", hostIfname, err)
 	}
