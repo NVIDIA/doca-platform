@@ -84,11 +84,11 @@ sudo tee $HOST_AGENT_ENV_FILE >/dev/null <<EOF
 BFB_REGISTRY_ADDRESS="$BFB_REGISTRY_ADDRESS"
 HOST_AGENT_CONTAINER_NAME="dpf-host-agent"
 DMSD_CONTAINER_NAME="dpf-dmsd"
-RUN_CONTAINER_ARGS="--rm --net-host --privileged --mount type=bind,src=/etc/netplan,dst=/etc/netplan,options=rbind:rw --mount type=bind,src=/proc,dst=/proc,options=rbind:rw --mount type=bind,src=/dev,dst=/dev,options=rbind:rw --mount type=bind,src=/sys,dst=/sys,options=rbind:rw --mount type=bind,src=/lib/modules,dst=/lib/modules,options=rbind:ro --mount type=bind,src=/var/lib/dpf/hostagent,dst=/var/lib/dpf/hostagent,options=rbind:rw $IMAGE"
+RUN_CONTAINER_ARGS="--rm --net-host --privileged --mount type=bind,src=/var/run/dbus/system_bus_socket,dst=/var/run/dbus/system_bus_socket,options=rbind:rw --mount type=bind,src=/tmp,dst=/tmp,options=rbind:rw --mount type=bind,src=/etc/netplan,dst=/etc/netplan,options=rbind:rw --mount type=bind,src=/run/systemd,dst=/run/systemd,options=rbind:rw --mount type=bind,src=/run/udev,dst=/run/udev,options=rbind:rw  --mount type=bind,src=/usr/lib/systemd/network,dst=/usr/lib/systemd/network,options=rbind:rw --mount type=bind,src=/proc,dst=/proc,options=rbind:rw --mount type=bind,src=/dev,dst=/dev,options=rbind:rw --mount type=bind,src=/sys,dst=/sys,options=rbind:rw --mount type=bind,src=/lib/modules,dst=/lib/modules,options=rbind:ro --mount type=bind,src=/var/lib/dpf/hostagent,dst=/var/lib/dpf/hostagent,options=rbind:rw $IMAGE"
 EOF
 ```
 
-### 6. Start DMS With Systemd and containerd
+### 6. Start rshim and DMS
 ```
 export DMSD_SERVICE_FILE=/etc/systemd/system/dpf-dmsd.service
 sudo tee $DMSD_SERVICE_FILE >/dev/null <<EOF
@@ -116,6 +116,8 @@ StartLimitBurst=5
 WantedBy=multi-user.target
 EOF
 
+sudo systemctl enable rshim
+sudo systemctl start rshim
 sudo systemctl enable dpf-dmsd
 sudo systemctl start dpf-dmsd
 ```
@@ -136,7 +138,7 @@ Type=exec
 EnvironmentFile=$HOST_AGENT_ENV_FILE
 ExecStartPre=-/usr/bin/ctr snapshot delete \$HOST_AGENT_CONTAINER_NAME 
 ExecStartPre=-/usr/bin/ctr container delete \$HOST_AGENT_CONTAINER_NAME 
-ExecStart=/usr/bin/ctr run \$RUN_CONTAINER_ARGS \$HOST_AGENT_CONTAINER_NAME /hostagent serve --bootstrap-kubeconfig=/var/lib/dpf/hostagent/bootstrap.kubeconfig --kubeconfig=/var/lib/dpf/hostagent/kubeconfig --bfb-registry-address=\$BFB_REGISTRY_ADDRESS -v 3
+ExecStart=/usr/bin/ctr run \$RUN_CONTAINER_ARGS \$HOST_AGENT_CONTAINER_NAME /hostagent serve --bootstrap-kubeconfig=/var/lib/dpf/hostagent/bootstrap.kubeconfig --kubeconfig=/var/lib/dpf/hostagent/kubeconfig --bfb-registry-address=\${BFB_REGISTRY_ADDRESS} -v 3
 
 TimeoutStopSec=30
 
@@ -160,6 +162,7 @@ To verify the installation is working correctly:
 
 ```bash
 # Check services status
+sudo systemctl status rshim
 sudo systemctl status dpf-dmsd 
 sudo systemctl status dpf-host-agent
 ```
