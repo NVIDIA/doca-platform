@@ -151,8 +151,9 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;create;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list
 // +kubebuilder:rbac:groups="",resources=events,verbs=patch;update;delete;create
-// +kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances;nodemaintenances/status,verbs=*
-// +kubebuilder:rbac:groups="cert-manager.io",resources=*,verbs=*
+// +kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=cert-manager.io,resources=certificaterequests;certificates;issuers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuclusters/finalizers,verbs=update

@@ -68,9 +68,17 @@ rules:
 - apiGroups:
   - cert-manager.io
   resources:
-  - '*'
+  - certificaterequests
+  - certificates
+  - issuers
   verbs:
-  - '*'
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - certificates.k8s.io
   resources:
@@ -98,9 +106,22 @@ rules:
   - maintenance.nvidia.com
   resources:
   - nodemaintenances
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - maintenance.nvidia.com
+  resources:
   - nodemaintenances/status
   verbs:
-  - '*'
+  - get
+  - patch
+  - update
 - apiGroups:
   - operator.dpu.nvidia.com
   resources:
