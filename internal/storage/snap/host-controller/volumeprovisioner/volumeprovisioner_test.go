@@ -150,12 +150,6 @@ func getTestVolumeCR(name string) *storagev1.Volume {
 				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 				VolumeMode:  ptr.To(corev1.PersistentVolumeFilesystem),
 			},
-			StoragePolicyRef: &storagev1.ObjectRef{
-				Kind:       storagev1.StoragePolicyKind,
-				APIVersion: storagev1.GroupVersion.String(),
-				Name:       "test-policy",
-				Namespace:  testTargetNamespace,
-			},
 			VolumeSpecDPU: storagev1.VolumeSpecDPU{
 				ID:                      name,
 				AccessModes:             []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
