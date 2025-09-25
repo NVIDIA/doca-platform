@@ -91,7 +91,7 @@ RUN mkdir -p /bfb-folder
 
 WORKDIR /
 
-RUN echo "ipmitool chassis power $reboot" > /usr/sbin/reboot && chmod +x /usr/sbin/reboot
+RUN echo "dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager.Reboot boolean:false" > /usr/sbin/reboot && chmod +x /usr/sbin/reboot
 
 RUN echo "echo 'running rshim'; rshim" > rshim.sh && chmod +x rshim.sh
 
