@@ -84,8 +84,55 @@ const (
 )
 
 var (
-	ErrExecFailed = errors.New("exec failed")
+	ErrCreateExecutor = errors.New("failed to create executor")
+	ErrExecFailed     = errors.New("exec failed")
 )
+
+// ErrorParserFunc defines a function type for parsing command output errors.
+type ErrorParserFunc func(stdout, stderr string) string
+
+// DefaultErrorParser is the default error parsing function that truncates output.
+func DefaultErrorParser(stdout, stderr string) string {
+	errorOutput := ""
+	if stderr != "" {
+		errorOutput += fmt.Sprintf("Stderr: %s\n", stderr)
+	}
+
+	if stdout != "" {
+		// Truncate output to 200 characters to avoid overwhelming the log
+		output := stdout
+		if len(stdout) > 200 {
+			output = stdout[:200] + "..."
+		}
+		errorOutput += fmt.Sprintf("Output: %s\n", output)
+	}
+	return errorOutput
+}
+
+// IperfErrorParser is an error parsing function that extracts errors from Iperf3 JSON output.
+func IperfErrorParser(stdout, stderr string) string {
+	errorOutput := ""
+	if stderr != "" {
+		errorOutput += fmt.Sprintf("Stderr: %s\n", stderr)
+	}
+
+	if stdout != "" {
+		// Try to extract error from iperf3 JSON output
+		var jsonData map[string]interface{}
+		err := json.Unmarshal([]byte(stdout), &jsonData)
+		if err == nil {
+			errorMsg, exists := jsonData["error"]
+			if exists {
+				errorStr, ok := errorMsg.(string)
+				if ok {
+					errorOutput += fmt.Sprintf("Error: %s\n", errorStr)
+				}
+			}
+		}
+	}
+
+	return errorOutput
+}
 
 func CreateAndWaitForPods(ctx context.Context, client client.Client, configs []*TestPodConfig) {
 	CreatePods(ctx, client, configs)
@@ -225,25 +272,19 @@ func GetPodIP(ctx context.Context, testClient client.Client, namespace, podName 
 }
 
 func startIperf3Server(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string) {
-	_, err := execCommandWithRetry(restClient, restConfig, namespace, podName, []string{"iperf3", "-s", "-D"}, 10)
-	Expect(err).NotTo(HaveOccurred(), "failed to start iperf3 server")
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-s", "-D"}, 30*time.Second, DefaultErrorParser)
 }
 
 func stopIperf3Server(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string) {
-	_, err := execCommandWithRetry(restClient, restConfig, namespace, podName, []string{"pkill", "iperf3"}, 10)
-	Expect(err).NotTo(HaveOccurred(), "failed to stop iperf3 server")
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "iperf3"}, 30*time.Second, DefaultErrorParser)
 }
 
 func runIperf3Client(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string, iperf3ServerIP string) string {
-	output, err := execCommandWithRetry(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-J"}, 100)
-	Expect(err).NotTo(HaveOccurred(), "failed to run iperf3 client")
-	return output
+	return execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-J"}, 500*time.Second, IperfErrorParser)
 }
 
 func runIperf3ClientReverse(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string, iperf3ServerIP string) string {
-	output, err := execCommandWithRetry(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-R", "-J"}, 100)
-	Expect(err).NotTo(HaveOccurred(), "failed to run iperf3 reverse client")
-	return output
+	return execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-R", "-J"}, 500*time.Second, IperfErrorParser)
 }
 
 func analyzeIperfResults(output string, reverse bool) {
@@ -267,10 +308,39 @@ func analyzeIperfResults(output string, reverse bool) {
 	Expect(bitrate).Should(BeNumerically(">", throughputThreshold), "bitrate is below %d Gbit/sec", throughputThreshold/1e9)
 }
 
-// execCommandWithRetry executes a command on a pod with retries
-func execCommandWithRetry(testRESTClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, maxRetries int) (string, error) {
-	fmt.Printf("Executing command %v on pod '%s' in namespace '%s'\n", command, podName, namespace)
-	retryCount := 0
+// execCommandEventually executes a command on a pod repeatedly until it succeeds or the timeout is reached
+func execCommandEventually(testRESTClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, timeout time.Duration, errorParser ErrorParserFunc) string {
+	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' (timeout: %v)\n", command, podName, namespace, timeout)
+
+	var output string
+	var attemptCount int
+	var err error
+
+	Eventually(func(g Gomega) {
+		attemptCount++
+		output, err = executeCommandOnce(testRESTClient, config, namespace, podName, command, errorParser)
+		if err != nil {
+			fmt.Printf("Attempt %d failed, retrying in 5 seconds...\n", attemptCount)
+		}
+		g.Expect(err).NotTo(HaveOccurred(), "command %v execution failed: %v", command, output)
+	}, timeout, 5*time.Second).Should(Succeed())
+
+	return output
+}
+
+// execCommandFailConsistently executes a command on a pod repeatedly, expecting it to fail, until it unexpectly succeeds or the timeout is reached
+func execCommandFailConsistently(testRESTClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, expectFailure error, timeout time.Duration, errorParser ErrorParserFunc) {
+	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' (timeout: %v) - expecting failure\n", command, podName, namespace, timeout)
+
+	Consistently(func(g Gomega) {
+		_, err := executeCommandOnce(testRESTClient, config, namespace, podName, command, errorParser)
+		g.Expect(err).To(HaveOccurred(), "command %v should consistently fail", command)
+		Expect(errors.Is(err, expectFailure)).To(BeTrue(), "command %v should fail with %v, but failed with %v", command, expectFailure, err)
+	}, timeout, 5*time.Second).Should(Succeed())
+}
+
+// executeCommandOnce executes a command on a pod once and returns the output and error
+func executeCommandOnce(testRESTClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, errorParser ErrorParserFunc) (string, error) {
 	req := testRESTClient.Post().
 		Resource("pods").
 		Name(podName).
@@ -284,51 +354,36 @@ func execCommandWithRetry(testRESTClient *rest.RESTClient, config *rest.Config, 
 
 	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
 	if err != nil {
-		return "", fmt.Errorf("failed to create executor: %v", err)
+		fmt.Printf("failed to create executor: %v", err)
+		return "", ErrCreateExecutor
 	}
 
 	var stdout, stderr bytes.Buffer
-	context, cancel := context.WithTimeout(context.Background(), ExecTimeout)
+
+	ctx, cancel := context.WithTimeout(context.Background(), ExecTimeout)
 	defer cancel()
 
-	for {
-		err = exec.StreamWithContext(context, remotecommand.StreamOptions{
-			Stdout: &stdout,
-			Stderr: &stderr,
-		})
+	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	stdoutStr := stdout.String()
+	stderrStr := stderr.String()
 
-		if err == nil {
-			break
-		}
-
-		retryCount++
-		if retryCount >= maxRetries {
-			return "", fmt.Errorf("failed to execute command %w after retries: %v. Stderr: %s", ErrExecFailed, err, stderr.String())
-		} else {
-			fmt.Printf("Failed to execute command. Retrying...\n")
-			time.Sleep(5 * time.Second)
-			stdout.Reset()
-			stderr.Reset()
-		}
+	if err != nil {
+		fmt.Print(errorParser(stdoutStr, stderrStr))
+		return fmt.Sprintf("%v (stderr: %s, stdout: %s)", err, stderrStr, stdoutStr), ErrExecFailed
 	}
 
-	return stdout.String(), nil
-}
-
-// pingBetweenPodsWithRetry executes ping commands between two pods with VPC-specific retry logic
-func pingBetweenPodsWithRetry(restClient *rest.RESTClient, config *rest.Config, namespace, fromPod, toPodIP string, maxRetries int) error {
-	_, err := execCommandWithRetry(restClient, config, namespace, fromPod, []string{"ping", "-c", "2", toPodIP}, maxRetries)
-	return err
+	return stdoutStr, nil
 }
 
 // AssertPingSuccess asserts that ping between pods succeeds
 func AssertPingSuccess(restClient *rest.RESTClient, config *rest.Config, namespace, fromPod, toPodIP string) {
-	Expect(pingBetweenPodsWithRetry(restClient, config, namespace, fromPod, toPodIP, 5)).To(Succeed())
+	execCommandEventually(restClient, config, namespace, fromPod, []string{"ping", "-c", "2", toPodIP}, 30*time.Second, DefaultErrorParser)
 }
 
 // AssertPingFailure asserts that ping between pods fails with ErrExecFailed error
 func AssertPingFailure(restClient *rest.RESTClient, config *rest.Config, namespace, fromPod, toPodIP string) {
-	err := pingBetweenPodsWithRetry(restClient, config, namespace, fromPod, toPodIP, 2)
-	Expect(err).To(HaveOccurred())
-	Expect(errors.Is(err, ErrExecFailed)).To(BeTrue())
+	execCommandFailConsistently(restClient, config, namespace, fromPod, []string{"ping", "-c", "2", toPodIP}, ErrExecFailed, 30*time.Second, DefaultErrorParser)
 }
