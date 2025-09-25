@@ -76,7 +76,7 @@ host:
           # image settings for external-provisioner container
           repository: "registry.k8s.io/sig-storage/csi-provisioner"
           # tag for csi-provisioner image
-          tag: v5.1.0
+          tag: v5.3.0
         # imagePullPolicy for external-provisioner image
         imagePullPolicy: IfNotPresent
         # securityContext for external-provisioner container
@@ -89,7 +89,7 @@ host:
           # image settings for external-attacher container
           repository: "registry.k8s.io/sig-storage/csi-attacher"
           # tag for csi-attacher image
-          tag: v4.7.0
+          tag: v4.10.0
         # imagePullPolicy for external-attacher image
         imagePullPolicy: IfNotPresent
         # securityContext for external-attacher container
@@ -102,7 +102,7 @@ host:
           # image settings for livenessprobe container
           repository: "registry.k8s.io/sig-storage/livenessprobe"
           # tag for liveness-probe image
-          tag: v2.14.0
+          tag: v2.17.0
         # imagePullPolicy for liveness-probe image
         imagePullPolicy: IfNotPresent
         # securityContext for liveness-probe container
@@ -172,7 +172,7 @@ host:
           # liveness-probe image name
           repository: "registry.k8s.io/sig-storage/livenessprobe"
           # tag for liveness-probe image
-          tag: v2.14.0
+          tag: v2.17.0
         # imagePullPolicy for liveness-probe image
         imagePullPolicy: IfNotPresent
         # securityContext for liveness-probe container
@@ -185,7 +185,7 @@ host:
           # node-driver-registrar image name
           repository: "registry.k8s.io/sig-storage/csi-node-driver-registrar"
           # tag for node-driver-registrar image
-          tag: v2.12.0
+          tag: v2.15.0
         # imagePullPolicy for liveness-probe image
         imagePullPolicy: IfNotPresent
         # securityContext for node-driver-registrar container
@@ -328,7 +328,7 @@ dpu:
     name: "doca-snap"
     image:
       repository: nvcr.io/nvidia/doca/doca_vfs
-      tag: 1.4.0-doca3.1.0
+      tag: 1.5.0-doca3.2.0
     tolerations: []
     imagePullSecrets: []
     restartPolicy: "Always"
