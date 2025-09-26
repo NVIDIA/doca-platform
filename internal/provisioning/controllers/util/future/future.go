@@ -63,3 +63,50 @@ func New(fn func() (any, error)) *Future {
 
 	return &f
 }
+
+type TaskManager struct {
+	sync.Mutex
+	maxRun     int
+	tasks      map[string]*Future
+	taskRunCnt map[string]int
+}
+
+func NewTaskManager(maxRun int) *TaskManager {
+	return &TaskManager{
+		maxRun:     maxRun,
+		tasks:      make(map[string]*Future),
+		taskRunCnt: make(map[string]int),
+	}
+}
+
+func (m *TaskManager) RunTask(taskID string, f func() (any, error)) (task *Future, maxReached bool) {
+	m.Lock()
+	defer m.Unlock()
+	task, ok := m.tasks[taskID]
+	if !ok {
+		task = New(f)
+		m.tasks[taskID] = task
+		m.taskRunCnt[taskID] = 1
+		return task, m.isMaxRunReached(taskID)
+	}
+
+	if task.GetState() != Ready {
+		return task, m.isMaxRunReached(taskID)
+	}
+
+	_, err := task.GetResult()
+	if err != nil {
+		if m.isMaxRunReached(taskID) {
+			return task, m.isMaxRunReached(taskID)
+		}
+		task = New(f)
+		m.taskRunCnt[taskID]++
+		m.tasks[taskID] = task
+		return task, m.isMaxRunReached(taskID)
+	}
+	return task, m.isMaxRunReached(taskID)
+}
+
+func (m *TaskManager) isMaxRunReached(taskID string) bool {
+	return m.taskRunCnt[taskID] >= m.maxRun
+}

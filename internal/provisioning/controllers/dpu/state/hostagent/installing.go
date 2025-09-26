@@ -23,20 +23,41 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/phase/install"
 	"github.com/nvidia/doca-platform/internal/release"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
+	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
+
 	if !dpu.DeletionTimestamp.IsZero() {
-		state.Phase = provisioningv1.DPUDeleting
+		cond := meta.FindStatusCondition(dpu.Status.Conditions, string(provisioningv1.DPUCondOSInstalled))
+		if cond != nil && (cond.Status == metav1.ConditionTrue || cond.Reason == install.InstallationTerminated) {
+			logger.Info("Terminate installation and delete DPU", "status", cond.Status, "reason", cond.Reason)
+			state.Phase = provisioningv1.DPUDeleting
+		} else {
+			logger.V(3).Info("DPU is deleting, but waiting for bfb-install to complete")
+		}
 		return *state, nil
 	}
+
 	_, condition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondOSInstalled))
-	if condition == nil || condition.Status != metav1.ConditionTrue {
+	if condition == nil {
+		return *state, nil
+	} else if condition.Status != metav1.ConditionTrue {
+		switch condition.Reason {
+		case install.InstallationTerminated:
+			logger.Info("Installation terminated, transition to Error", "status", condition.Status, "reason", condition.Reason)
+			state.Phase = provisioningv1.DPUError
+		default:
+			logger.Info("Installation in progress", "status", condition.Status, "reason", condition.Reason)
+		}
 		return *state, nil
 	}
 
