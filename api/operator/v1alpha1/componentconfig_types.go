@@ -29,6 +29,8 @@ type DefaultOverridesConfiguration struct {
 	ResourceComponentConfig `json:",inline"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
+
 type ProvisioningControllerConfiguration struct {
 	BaseComponentConfig `json:",inline"`
 
@@ -200,6 +202,8 @@ type RegistryConfiguration struct {
 	Port *int `json:"port,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
+
 type DPUServiceControllerConfiguration struct {
 	BaseComponentConfig `json:",inline"`
 
@@ -249,7 +253,8 @@ func (c *DPUServiceControllerConfiguration) GetResources() map[ContainerName]*co
 	}
 }
 
-// DPUDetectorConfiguration is the configuration for the DPUDetectorContainer Component.
+// +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.daemon) || !has(self.daemon.image)",message="only either 'image' (deprecated) or 'daemon.image' can be set, but not both"
+
 type DPUDetectorConfiguration struct {
 	BaseComponentConfig `json:",inline"`
 
@@ -292,6 +297,8 @@ func (c *DPUDetectorConfiguration) GetResources() map[ContainerName]*corev1.Reso
 		DPUDetectorContainer: c.Daemon.GetResource(),
 	}
 }
+
+// +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type KamajiClusterManagerConfiguration struct {
 	BaseComponentConfig `json:",inline"`
@@ -336,6 +343,8 @@ func (c *KamajiClusterManagerConfiguration) GetResources() map[ContainerName]*co
 	}
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
+
 type StaticClusterManagerConfiguration struct {
 	BaseComponentConfig `json:",inline"`
 
@@ -378,6 +387,8 @@ func (c *StaticClusterManagerConfiguration) GetResources() map[ContainerName]*co
 		ControllerManagerContainer: c.Controller.GetResource(),
 	}
 }
+
+// +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type ServiceSetControllerConfiguration struct {
 	BaseComponentConfig       `json:",inline"`
@@ -510,6 +521,8 @@ func (c *FlannelConfiguration) GetResources() map[ContainerName]*corev1.Resource
 	}
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.cni) || !has(self.cni.image)",message="only either 'image' (deprecated) or 'cni.image' can be set, but not both"
+
 type MultusConfiguration struct {
 	BaseComponentConfig       `json:",inline"`
 	HelmComponentConfig       `json:",inline"`
@@ -554,6 +567,8 @@ func (c *MultusConfiguration) GetResources() map[ContainerName]*corev1.ResourceR
 		MultusContainer: c.CNI.GetResource(),
 	}
 }
+
+// +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type NVIPAMConfiguration struct {
 	BaseComponentConfig       `json:",inline"`
@@ -614,6 +629,8 @@ func (c *NVIPAMConfiguration) Name() string {
 	return NVIPAMName.String()
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.deviceplugin) || !has(self.deviceplugin.image)",message="only either 'image' (deprecated) or 'deviceplugin.image' can be set, but not both"
+
 type SRIOVDevicePluginConfiguration struct {
 	BaseComponentConfig       `json:",inline"`
 	HelmComponentConfig       `json:",inline"`
@@ -659,6 +676,8 @@ func (c *SRIOVDevicePluginConfiguration) GetResources() map[ContainerName]*corev
 	}
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.cni) || !has(self.cni.image)",message="only either 'image' (deprecated) or 'cni.image' can be set, but not both"
+
 type OVSCNIConfiguration struct {
 	BaseComponentConfig       `json:",inline"`
 	HelmComponentConfig       `json:",inline"`
@@ -703,6 +722,8 @@ func (c *OVSCNIConfiguration) GetResources() map[ContainerName]*corev1.ResourceR
 		OVSCNI: c.CNI.GetResource(),
 	}
 }
+
+// +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type SFCControllerConfiguration struct {
 	BaseComponentConfig       `json:",inline"`
