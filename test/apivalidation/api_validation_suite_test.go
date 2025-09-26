@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -42,7 +43,7 @@ var testClient client.Client
 var testEnv *envtest.Environment
 var ctx, testCancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
 
-func TestVPCAPI(t *testing.T) {
+func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
 
 	RunSpecs(t, "VPC API validation Suite")
@@ -54,8 +55,7 @@ var _ = BeforeSuite(func() {
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
-			filepath.Join("..", "..", "config", "dpuservice", "crd", "bases"),
-			filepath.Join("..", "..", "config", "vpc", "crd", "bases"),
+			filepath.Join("..", "..", "deploy", "charts", "dpf-operator", "templates", "crds"),
 		},
 		ErrorIfCRDPathMissing: true,
 
@@ -78,6 +78,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = vpcv1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = operatorv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	s := scheme.Scheme
