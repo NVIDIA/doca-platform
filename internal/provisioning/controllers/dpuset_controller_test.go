@@ -442,11 +442,9 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items[0].Name).To(Equal(cutil.GenerateDPUName(testDPUNode.Name, testDPUDevice.Name)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
-			dpu := dpuList.Items[0]
-
-			By("Removing the DPU and DpuDevice")
-			Expect(k8sClient.Delete(ctx, &dpu)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, testDPUDevice)).To(Succeed())
+			By("Removing the DPUSet and DpuDevice")
+			Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, testDPUDevice))).To(Succeed())
 
 			By("Checking the DPUDevice is removed")
 			Eventually(func(g Gomega) {
