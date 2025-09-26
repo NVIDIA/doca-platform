@@ -104,6 +104,8 @@ func (r *HostAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 	log.Info("Update DPU status", "phase", dpu.Status.Phase)
 	dpu.Status = newStatus
+	// Do not substitute this Update with Patch,
+	// we rely on the resource version to sync the provisioning controller with host agent during BFB installing
 	if err := r.Status().Update(ctx, dpu); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update DPU status, err: %v", err)
 	}
