@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/doca/doca:3.1.0-full-rt-host
+FROM nvcr.io/nvidia/doca/doca:3.0.0-full-rt-host
 
 ARG TARGETARCH
 ARG MFT_VERSION=4.29.0-131
