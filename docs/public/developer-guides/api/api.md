@@ -2080,7 +2080,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `device` _string_ | Device is the device to which the configuration applies. If not specified, the configuration applies to all. |  |  |
 | `parameters` _string array_ | Parameters are the parameters to be set for the device. |  |  |
-| `hostPowerCycleRequired` _boolean_ | HostPowerCycleRequired indicates if the host needs to be power cycled after applying the configuration. |  |  |
+| `hostPowerCycleRequired` _boolean_ | HostPowerCycleRequired indicates if the host needs to be power cycled after applying the configuration.<br /><br />Deprecated: This field is unused and deprecated. It will be removed with the release v26.1.0. |  |  |
 
 
 #### NetworkInterfaceConfig
