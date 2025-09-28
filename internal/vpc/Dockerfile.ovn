@@ -8,7 +8,8 @@ RUN find /etc/apt/sources.list* -type f -exec sed -i \
 
 RUN dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /initial-dpkg-list.txt
 
-ARG PACKAGES="dpkg-dev ca-certificates ovn-central ovn-host ovn-common openvswitch-common"
+ARG PACKAGES="dpkg-dev ca-certificates ovn-central ovn-host ovn-common openvswitch-common curl"
+ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y -qq --no-install-recommends \
     ${PACKAGES} && \
@@ -16,6 +17,11 @@ RUN apt-get update && apt-get install -y -qq --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 RUN dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /after-dpkg-list.txt
+
+# Install kubectl
+ARG KUBECTL_VERSION=1.33.2
+RUN curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
 # Create directory for sources
 RUN mkdir -p /usr/src/packages
@@ -28,18 +34,23 @@ WORKDIR /usr/src/packages
 
 ARG PACKAGE_SOURCES
 RUN test "${PACKAGE_SOURCES}" = "false" || ( \
-      apt-get update && \
-      apt-get source --download-only ${PACKAGES} && \
-      comm -23 /after-dpkg-list.txt /initial-dpkg-list.txt | xargs -r apt-get source --download-only && \
-      rm -f /initial-dpkg-list.txt /after-dpkg-list.txt && \
-      cd / && \
-      tar -cf source-code.tar /usr/src/packages && \
-      rm -rf /usr/src/packages && \
-      apt-get clean && \
-      rm -rf /var/lib/apt/lists/* \
+        apt-get update && \
+        apt-get source --download-only ${PACKAGES} && \
+        curl -fsSL -o /usr/src/packages/kubectl-${KUBECTL_VERSION}.tar.gz \
+        "https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz" && \
+        comm -23 /after-dpkg-list.txt /initial-dpkg-list.txt | xargs -r apt-get source --download-only && \
+        rm -f /initial-dpkg-list.txt /after-dpkg-list.txt && \
+        cd / && \
+        tar -cf source-code.tar /usr/src/packages && \
+        rm -rf /usr/src/packages && \
+        apt-get clean && \
+        rm -rf /var/lib/apt/lists/* \
     )
 
 WORKDIR /
+
+
+COPY ovn-central-run.sh /ovn-central-run.sh
 
 # Expose ovn-central northbound and southbound ports
 EXPOSE 6641 6642

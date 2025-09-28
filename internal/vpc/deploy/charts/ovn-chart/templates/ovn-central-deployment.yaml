@@ -1,17 +1,14 @@
 {{- if .Values.management.ovnCentral.enabled }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "ovn-central.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
   {{- include "ovn-central.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.management.ovnCentral.replicaCount }}
-  {{- with .Values.management.ovnCentral.strategy }}
-  strategy:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+  replicas: {{ ternary 3 1 .Values.management.ovnCentral.enableHA }}
+  serviceName: {{ include "ovn-central.fullname" . }}
   selector:
     matchLabels:
       app: ovn-central
@@ -22,6 +19,7 @@ spec:
         app: ovn-central
         {{- include "ovn-central.selectorLabels" . | nindent 8 }}
     spec:
+      serviceAccountName: {{ include "ovn-central.serviceAccountName" . }}
       affinity:
         {{- toYaml .Values.management.ovnCentral.affinity | nindent 8 }}
       tolerations:
@@ -31,23 +29,54 @@ spec:
         image: {{ .Values.management.ovnCentral.image.repository }}:{{ .Values.management.ovnCentral.image.tag | default .Chart.AppVersion }}
         imagePullPolicy: {{ .Values.management.ovnCentral.image.pullPolicy }}
         ports:
-        - containerPort: {{ .Values.management.ovnCentral.service.ovnnb.port }}
-        - containerPort: {{ .Values.management.ovnCentral.service.ovnsb.port }}
-        command: {{ .Values.management.ovnCentral.command | default "['/bin/bash']" }}
-        args: {{- toYaml .Values.management.ovnCentral.args | nindent 8 }}
+        - name: ovnnb
+          containerPort: {{ .Values.management.ovnCentral.service.ovnnb.targetPort }}
+        - name: ovnsb
+          containerPort: {{ .Values.management.ovnCentral.service.ovnsb.targetPort }}
+        command: {{ .Values.management.ovnCentral.command | default "['/ovn-central-run.sh']" }}
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        {{- if .Values.management.ovnCentral.enableHA }}
+        - name: OVN_NB_DB
+          value: "tcp:{{ include "ovn-central.fullname" . }}-0.{{ include "ovn-central.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.management.ovnCentral.service.ovnnb.targetPort }},tcp:{{ include "ovn-central.fullname" . }}-1.{{ include "ovn-central.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.management.ovnCentral.service.ovnnb.targetPort }},tcp:{{ include "ovn-central.fullname" . }}-2.{{ include "ovn-central.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.management.ovnCentral.service.ovnnb.targetPort }}"
+        - name: OVN_SB_DB
+          value: "tcp:{{ include "ovn-central.fullname" . }}-0.{{ include "ovn-central.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.management.ovnCentral.service.ovnsb.targetPort }},tcp:{{ include "ovn-central.fullname" . }}-1.{{ include "ovn-central.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.management.ovnCentral.service.ovnsb.targetPort }},tcp:{{ include "ovn-central.fullname" . }}-2.{{ include "ovn-central.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.management.ovnCentral.service.ovnsb.targetPort }}"
+        {{- end }}
+        - name: SERVICE_NAME
+          value: {{ include "ovn-central.fullname" . }}
+        - name: ENABLE_HA
+          value: "{{ ternary "true" "false" .Values.management.ovnCentral.enableHA }}"
+        - name: OVN_NB_PORT
+          value: "{{ .Values.management.ovnCentral.service.ovnnb.targetPort }}"
+        - name: OVN_SB_PORT
+          value: "{{ .Values.management.ovnCentral.service.ovnsb.targetPort }}"
         volumeMounts:
         - mountPath: /var/lib/ovn
           name: host-lib-ovn
         readinessProbe:
           exec:
-            command: ["ovn-nbctl", "--timeout=5", "show"]
+            command:
+              - /bin/sh
+              - -c
+              - ovn-nbctl --timeout=5 show
           initialDelaySeconds: 15
           periodSeconds: 5
         livenessProbe:
           exec:
-            command: ["ovn-nbctl", "--timeout=5", "show"]
+            command:
+              - /bin/sh
+              - -c
+              - ovn-nbctl --timeout=5 show
           initialDelaySeconds: 30
           periodSeconds: 10
+          failureThreshold: 5
       {{- with .Values.management.ovnCentral.imagePullSecrets | default .Values.imagePullSecrets}}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -57,4 +86,47 @@ spec:
         hostPath:
           path: {{ .Values.management.ovnCentral.hostOvnLibDir }}
           type: DirectoryOrCreate
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ovn-central.roleName" . }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/exec
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+  name: {{ include "ovn-central.roleBindingName" . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ovn-central.roleName" . }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "ovn-central.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+  name: {{ include "ovn-central.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
 {{- end }}
