@@ -91,6 +91,7 @@ func (r *PodIpamReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if shouldSkipPod(pod, networks) {
+		log.Info("Skipping pod", "pod", pod.Name)
 		return ctrl.Result{}, nil
 	}
 
@@ -103,6 +104,7 @@ func (r *PodIpamReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// We need to enqueue again because it might be that the Pod is still in Pending due to IPAM missing. We do not
 		// explicitly return error if we can't find IPAM Pools because we don't know if the Pod should use IPAM (we would
 		// need to implement logic to understand that via the NAD).
+		log.Info("No change in networks, requeuing", "pod", pod.Name)
 		return reconcile.Result{RequeueAfter: reconcileRetryTime}, nil
 	}
 
@@ -114,6 +116,7 @@ func (r *PodIpamReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// We need to enqueue again because it might be that the Pod is still in Pending due to IPAM missing. We do not
 	// explicitly return error if we can't find IPAM Pools because we don't know if the Pod should use IPAM (we would
 	// need to implement logic to understand that via the NAD).
+	log.Info("Requeuing pod", "pod", pod.Name)
 	return reconcile.Result{RequeueAfter: reconcileRetryTime}, nil
 }
 
