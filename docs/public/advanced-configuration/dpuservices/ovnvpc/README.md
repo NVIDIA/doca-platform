@@ -1047,3 +1047,11 @@ spec:
 ## VPC OVN upgrade guide
 
 For zero‑downtime VPC OVN upgrade guide refer to [VPC OVN upgrade guide](vpc-upgrade-guide.md)
+
+
+## OVN High Availability (HA) guide
+
+> [!NOTE]
+> The OVN High Availability (HA) service is considered a tech preview and is not recommended for production use.
+
+For OVN High Availability (HA) support guide refer to [OVN HA guide](ovn-ha-guide.md)
