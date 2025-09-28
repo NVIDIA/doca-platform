@@ -35,7 +35,6 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -197,26 +196,6 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			}
 		}
 		// Skip reboot check during deletion or if no DPUNode specified
-	} else {
-		// If the DPUNode is rebooting, requeue the DPU request
-		dpuNode := &provisioningv1.DPUNode{}
-		if err := r.ctrlCtx.Client.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Spec.DPUNodeName}, dpuNode); err != nil {
-			// If DPUNode doesn't exist, log and continue processing
-			// This can happen during cleanup or if DPUNode was deleted
-			logger.Info("DPUNode not found, skipping reboot check", "dpuNodeName", dpu.Spec.DPUNodeName, "error", err)
-		} else {
-			var rebootCondition *metav1.Condition
-			for i := range dpuNode.Status.Conditions {
-				if dpuNode.Status.Conditions[i].Type == provisioningv1.DPUNodeConditionRebootInProgress.String() {
-					rebootCondition = &dpuNode.Status.Conditions[i]
-					break
-				}
-			}
-			if rebootCondition != nil && rebootCondition.Status == metav1.ConditionTrue {
-				logger.Info("DPUNode RebootInProgress condition is true, requeue the DPU request", "DPUNode", dpuNode.Name)
-				return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
-			}
-		}
 	}
 
 	// This is to cache the DPUs that are created with the cluster field set in their manifests, such DPUs will not go through the Allocate() procedure in Initialization phase
