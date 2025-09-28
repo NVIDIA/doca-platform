@@ -54,9 +54,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Create the name of the service account to use
 */}}
 {{- define "ovn-central.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "ovn-central.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
+{{- printf "%s-sa" (include "ovn-central.fullname" .) }}
 {{- end }}
+
+{{/*
+Create the name of the role to use
+*/}}
+{{- define "ovn-central.roleName" -}}
+{{- printf "%s-role" (include "ovn-central.fullname" .) }}
+{{- end }}
+
+{{/*
+Create the name of the role binding to use
+*/}}
+{{- define "ovn-central.roleBindingName" -}}
+{{- printf "%s-role-binding" (include "ovn-central.fullname" .) }}
 {{- end }}

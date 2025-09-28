@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "ovn-central.fullname" . }}
+  name: {{ include "ovn-central.fullname" . }}-nodeport
   labels:
     {{- include "ovn-central.labels" . | nindent 4 }}
     {{- with .Values.exposedPorts.labels }}
@@ -30,5 +30,25 @@ spec:
       {{- if .Values.management.ovnCentral.service.ovnsb.nodePort }}
       nodePort: {{ .Values.management.ovnCentral.service.ovnsb.nodePort }}
       {{- end }}
+    {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ovn-central.fullname" . }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "ovn-central.selectorLabels" . | nindent 4 }}
+  ports:
+    {{- if (.Values.exposedPorts.ports).ovnnb }}
+    - name: ovnnb
+      port: {{ .Values.management.ovnCentral.service.ovnnb.port }}
+      targetPort: {{ .Values.management.ovnCentral.service.ovnnb.targetport }}
+    {{- end }}
+    {{- if (.Values.exposedPorts.ports).ovnsb }}
+    - name: ovnsb
+      port: {{ .Values.management.ovnCentral.service.ovnsb.port }}
+      targetPort: {{ .Values.management.ovnCentral.service.ovnsb.targetport }}
     {{- end }}
 {{- end }}
