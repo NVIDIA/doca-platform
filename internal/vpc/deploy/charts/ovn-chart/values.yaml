@@ -82,12 +82,7 @@ management:
 
     # Command to run
     command:
-      - "/bin/bash"
-
-    # Arguments for the command
-    args:
-      - -c
-      - "/usr/share/ovn/scripts/ovn-ctl --db-nb-create-insecure-remote=yes --db-sb-create-insecure-remote=yes start_northd && tail -f /dev/null"
+      - "/ovn-central-run.sh"
 
     # Override name of chart
     nameOverride: ""
@@ -95,8 +90,8 @@ management:
     # Override full name of the chart
     fullnameOverride: ""
 
-    # Number of replica
-    replicaCount: 1
+    # Enable OVN HA
+    enableHA: false
 
     # Service configuration
     service:

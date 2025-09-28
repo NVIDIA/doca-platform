@@ -29,9 +29,8 @@ A Helm chart for OVN
 | management.ovnCentral.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].operator | string | `"Exists"` |  |
 | management.ovnCentral.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[1].matchExpressions[0].key | string | `"node-role.kubernetes.io/control-plane"` |  |
 | management.ovnCentral.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[1].matchExpressions[0].operator | string | `"Exists"` |  |
-| management.ovnCentral.args[0] | string | `"-c"` |  |
-| management.ovnCentral.args[1] | string | `"/usr/share/ovn/scripts/ovn-ctl --db-nb-create-insecure-remote=yes --db-sb-create-insecure-remote=yes start_northd && tail -f /dev/null"` |  |
-| management.ovnCentral.command[0] | string | `"/bin/bash"` |  |
+| management.ovnCentral.command[0] | string | `"/ovn-central-run.sh"` |  |
+| management.ovnCentral.enableHA | bool | `false` |  |
 | management.ovnCentral.enabled | bool | `false` |  |
 | management.ovnCentral.fullnameOverride | string | `""` |  |
 | management.ovnCentral.hostOvnLibDir | string | `"/var/lib/ovn"` |  |
@@ -40,7 +39,6 @@ A Helm chart for OVN
 | management.ovnCentral.image.tag | string | `"v0.1.0"` |  |
 | management.ovnCentral.imagePullSecrets | list | `[]` |  |
 | management.ovnCentral.nameOverride | string | `""` |  |
-| management.ovnCentral.replicaCount | int | `1` |  |
 | management.ovnCentral.service.ovnnb.nodePort | int | `30641` |  |
 | management.ovnCentral.service.ovnnb.port | int | `6641` |  |
 | management.ovnCentral.service.ovnnb.protocol | string | `"TCP"` |  |
