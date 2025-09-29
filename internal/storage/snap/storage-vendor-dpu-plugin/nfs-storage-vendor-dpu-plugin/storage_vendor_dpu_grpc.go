@@ -277,6 +277,11 @@ func (s *StoragePluginServer) CreateDevice(ctx context.Context, req *pb.CreateDe
 		return nil, status.Errorf(codes.InvalidArgument, "parameter %s must be set in volumeContext", paramShare)
 	}
 
+	subDir := req.GetVolumeContext()[paramSubDir]
+	if subDir != "" {
+		exportName = filepath.Join(exportName, subDir)
+	}
+
 	client, err := s.newRPCClientFunc(s.snapRPCSocketPath)
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to create rpcClient: %v", err)
