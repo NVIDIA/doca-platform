@@ -62,6 +62,9 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 			Labels: map[string]string{
 				"uplink": "p0",
 			},
+			Annotations: map[string]string{
+				"svc.dpu.nvidia.com/noop-physical-removal": "",
+			},
 		},
 		{
 			Name:          "app-sf-rdma",

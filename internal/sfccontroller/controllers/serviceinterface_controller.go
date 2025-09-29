@@ -50,6 +50,11 @@ const (
 	OvnPatchPeer               = "puplinkbrsfc"
 	SFCBridge                  = "br-sfc"
 	OVNBridge                  = "br-ovn"
+
+	// noopRemovalPhysicalAnnotationKey is the annotation key that controls whether a Physical Interface should be removed
+	// from OVS or not. This is a workaround and must not be used in production.
+	// TODO: Remove this once OVS issue is fixed
+	noopRemovalPhysicalAnnotationKey = "svc.dpu.nvidia.com/noop-physical-removal"
 )
 
 //nolint:unparam
@@ -259,6 +264,17 @@ func DeleteInterfacesFromOvs(
 	var err error
 	var ovnBridge string
 	log.Info("deleteInterfacesFromOvs")
+
+	// Skip Physical Interface removal from OVS if annotation is set
+	if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypePhysical {
+		annotations := serviceInterface.GetAnnotations()
+		if annotations != nil {
+			if _, ok := annotations[noopRemovalPhysicalAnnotationKey]; ok {
+				log.Info("skipping physical interface removal from OVS since annotation exists")
+				return nil
+			}
+		}
+	}
 
 	if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypeOVN {
 		log.Info("matched on serviceInterfaceType ovn", "name", serviceInterface.Name)

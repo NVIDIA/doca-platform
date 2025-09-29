@@ -258,11 +258,14 @@ func createVPCPrerequisiteDPUServiceInterfaces(ctx context.Context, input *syste
 
 	By("creating physical service interface")
 	createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
-		Name:           vpcutils.PhysicalInterface0,
-		InterfaceName:  vpcutils.PhysicalInterface0,
-		Type:           dpuservicev1.InterfaceTypePhysical,
-		Namespace:      input.namespace,
-		Labels:         physicalServiceInterfaceLabels,
+		Name:          vpcutils.PhysicalInterface0,
+		InterfaceName: vpcutils.PhysicalInterface0,
+		Type:          dpuservicev1.InterfaceTypePhysical,
+		Namespace:     input.namespace,
+		Labels:        physicalServiceInterfaceLabels,
+		Annotations: map[string]string{
+			"svc.dpu.nvidia.com/noop-physical-removal": "",
+		},
 		NodeName:       nil,
 		VirtualNetwork: nil,
 	})

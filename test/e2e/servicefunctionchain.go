@@ -166,6 +166,9 @@ func setupPlainChainTest(ctx context.Context, input *systemTestInput, vfIndex in
 			Labels: map[string]string{
 				"uplink": "p0",
 			},
+			Annotations: map[string]string{
+				"svc.dpu.nvidia.com/noop-physical-removal": "",
+			},
 		},
 		{
 			Name:          fmt.Sprintf("pf0vf%d", vfIndex),
@@ -216,6 +219,9 @@ func setupHBNOnlyTest(ctx context.Context, input *systemTestInput, vfIndex int) 
 			Labels: map[string]string{
 				"uplink": "p0",
 			},
+			Annotations: map[string]string{
+				"svc.dpu.nvidia.com/noop-physical-removal": "",
+			},
 		},
 		{
 			Name:          "p1",
@@ -224,6 +230,9 @@ func setupHBNOnlyTest(ctx context.Context, input *systemTestInput, vfIndex int) 
 			InterfaceName: "p1",
 			Labels: map[string]string{
 				"uplink": "p1",
+			},
+			Annotations: map[string]string{
+				"svc.dpu.nvidia.com/noop-physical-removal": "",
 			},
 		},
 		{
