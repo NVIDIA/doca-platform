@@ -74,6 +74,10 @@ spec:
       _ovs-vsctl set Interface p0 type=dpdk
       _ovs-vsctl set Interface p0 mtu_request=9216
       _ovs-vsctl set Port p0 external_ids:dpf-type=physical
+      _ovs-vsctl --may-exist add-port br-sfc p1
+      _ovs-vsctl set Interface p1 type=dpdk
+      _ovs-vsctl set Interface p1 mtu_request=9216
+      _ovs-vsctl set Port p1 external_ids:dpf-type=physical
       echo -e "ubuntu\nubuntu" | passwd ubuntu
 
       # WA for linux-cloud: override dpf-comm-ch netplan
