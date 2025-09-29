@@ -173,10 +173,15 @@ func isMountSourceMatch(src string, mnt kmount.MountInfo) bool {
 // check if provided path is mount point(something is mounted to this path)
 func (m *mountUtils) isMountPoint(mountPoint string) (bool, error) {
 	exist, err := kmount.PathExists(mountPoint)
-	if err != nil {
-		return false, fmt.Errorf("mount point check error: %w", err)
-	}
+	// If the path exists (exist == true), we always want to check if something is mounted to it.
+	// In some cases (in the VirtioFS flow), PathExists can return an error,
+	// but unmount can still be executed and may succeed.
+	// Note: PathExists return true, and non nil error if it detects corrupted mount point.
 	if !exist {
+		if err != nil {
+			return false, fmt.Errorf("mount point check error: %w", err)
+		}
+		// path does not exist, so it's not a mount point
 		return false, nil
 	}
 	mounts, err := kmount.ParseMountInfo(procMountInfoPath)
