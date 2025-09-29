@@ -43,9 +43,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	machineryruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -578,8 +581,17 @@ func verifyDPUServicesReady(ctx context.Context, input *systemTestInput, dpuServ
 // getDPUClusterClient retrieves the DPUCluster client for the given input.
 func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput) {
 	Eventually(func(g Gomega) {
-		// Use the new tunnel helper to create a client for the Kamaji cluster
+		// Use the new tunnel helper to create a client and the restConfig for the Kamaji cluster
 		dpuClusterClient = tunnel.NewTunneledClient(ctx, input.client, input.restConfig, input.dpuCluster)
+		dpuClusterRestConfig = tunnel.NewTunneledRestConfig(ctx, input.client, input.restConfig, input.dpuCluster)
+
+		// Setup the dpuClusterRestClient
+		dpuClusterRestConfig.APIPath = "/api"
+		dpuClusterRestConfig.GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
+		dpuClusterRestConfig.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
+		var err error
+		dpuClusterRestClient, err = rest.RESTClientFor(dpuClusterRestConfig)
+		Expect(err).ToNot(HaveOccurred())
 	}).WithTimeout(10 * time.Second).Should(Succeed())
 }
 

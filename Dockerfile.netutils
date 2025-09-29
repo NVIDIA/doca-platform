@@ -1,0 +1,8 @@
+FROM ubuntu:24.04
+
+RUN apt-get update && \
+    apt-get install -y -qq iputils-ping iperf3 rdma-core perftest && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+CMD ["sleep", "infinity"]
