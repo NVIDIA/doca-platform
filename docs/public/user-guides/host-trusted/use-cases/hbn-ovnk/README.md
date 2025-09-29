@@ -552,6 +552,7 @@ spec:
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuflavor-hbn-ovn.yaml)
 ```yaml
+---
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
