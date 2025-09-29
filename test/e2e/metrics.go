@@ -31,7 +31,7 @@ import (
 func VerifyKSMMetricsCollection(ctx context.Context) {
 	By("verify KMS metrics endpoint is accessible")
 	Eventually(func(g Gomega) {
-		request := testRESTClient.Get().AbsPath(metricsURI)
+		request := hostClusterRESTClient.Get().AbsPath(metricsURI)
 		response, err := request.DoRaw(ctx)
 		g.Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Request %s failed with err: %v", metricsURI, err))
 		g.Expect(response).NotTo(BeNil(), fmt.Sprintf("Metrics api is not accessible by url %s ", metricsURI))
@@ -58,7 +58,7 @@ func ValidateGeneralDPFMetrics(ctx context.Context, input *systemTestInput) {
 	}
 
 	Eventually(func(g Gomega) {
-		actualMetricsNames := metrics.GetKSMMetrics(ctx, testRESTClient, metricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(ctx, hostClusterRESTClient, metricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
