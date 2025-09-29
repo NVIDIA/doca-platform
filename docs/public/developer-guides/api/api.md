@@ -184,7 +184,7 @@ _Appears in:_
 
 
 
-DPUDetectorConfiguration is the configuration for the DPUDetectorContainer Component.
+
 
 
 

@@ -201,6 +201,10 @@ spec:
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: only either 'image' (deprecated) or 'daemon.image' can
+                    be set, but not both
+                  rule: '!has(self.image) || !has(self.daemon) || !has(self.daemon.image)'
               dpuServiceController:
                 description: DPUServiceController is the configuration for the DPUServiceController
                 properties:
@@ -281,6 +285,10 @@ spec:
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: only either 'image' (deprecated) or 'controller.image'
+                    can be set, but not both
+                  rule: '!has(self.image) || !has(self.controller) || !has(self.controller.image)'
               flannel:
                 description: Flannel is the configuration for Flannel
                 properties:
@@ -471,6 +479,10 @@ spec:
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: only either 'image' (deprecated) or 'controller.image'
+                    can be set, but not both
+                  rule: '!has(self.image) || !has(self.controller) || !has(self.controller.image)'
               multus:
                 description: Multus is the configuration for Multus
                 properties:
@@ -554,6 +566,10 @@ spec:
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: only either 'image' (deprecated) or 'cni.image' can be
+                    set, but not both
+                  rule: '!has(self.image) || !has(self.cni) || !has(self.cni.image)'
               networking:
                 default:
                   controlPlaneMTU: 1500
@@ -714,6 +730,10 @@ spec:
                         type: object
                     type: object
                 type: object
+                x-kubernetes-validations:
+                - message: only either 'image' (deprecated) or 'controller.image'
+                    can be set, but not both
+                  rule: '!has(self.image) || !has(self.controller) || !has(self.controller.image)'
               overrides:
                 description: |-
                   Overrides exposes a set of fields which impact the recommended behavior of the DPF Operator.
@@ -864,6 +884,10 @@ spec:
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: only either 'image' (deprecated) or 'cni.image' can be
+                    set, but not both
+                  rule: '!has(self.image) || !has(self.cni) || !has(self.cni.image)'
               provisioningController:
                 description: ProvisioningController is the configuration for the ProvisioningController
                 properties:
@@ -1056,6 +1080,10 @@ spec:
                 required:
                 - bfbPVCName
                 type: object
+                x-kubernetes-validations:
+                - message: only either 'image' (deprecated) or 'controller.image'
+                    can be set, but not both
+                  rule: '!has(self.image) || !has(self.controller) || !has(self.controller.image)'
               serviceSetController:
                 description: ServiceSetController is the configuration for the ServiceSetController
                 properties:
@@ -1139,6 +1167,10 @@ spec:
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: only either 'image' (deprecated) or 'controller.image'
+                    can be set, but not both
+                  rule: '!has(self.image) || !has(self.controller) || !has(self.controller.image)'
               sfcController:
                 description: SFCController is the configuration for the SFCController
                 properties:
@@ -1228,6 +1260,10 @@ spec:
                       Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration.
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: only either 'image' (deprecated) or 'controller.image'
+                    can be set, but not both
+                  rule: '!has(self.image) || !has(self.controller) || !has(self.controller.image)'
               sriovDevicePlugin:
                 description: SRIOVDevicePlugin is the configuration for the SRIOVDevicePlugin
                 properties:
@@ -1311,6 +1347,10 @@ spec:
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: only either 'image' (deprecated) or 'deviceplugin.image'
+                    can be set, but not both
+                  rule: '!has(self.image) || !has(self.deviceplugin) || !has(self.deviceplugin.image)'
               staticClusterManager:
                 description: StaticClusterManager is the configuration for the static-cluster-manager
                 properties:
@@ -1385,6 +1425,10 @@ spec:
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: only either 'image' (deprecated) or 'controller.image'
+                    can be set, but not both
+                  rule: '!has(self.image) || !has(self.controller) || !has(self.controller.image)'
             required:
             - provisioningController
             type: object
