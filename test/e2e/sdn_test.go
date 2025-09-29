@@ -49,5 +49,8 @@ var _ = Describe("DPF System tests - SDN", Labels{dpfSystemLabel, sdnLabel}, Ord
 		It("create HBN only dpu chain and verify performance after killing HBN", Labels{l2ConnectivityLabel}, func() {
 			VerifyHBNOnlyBadFlowRecovery(ctx, input)
 		})
+		It("create Pods running in the DPUCluster via DPUService and verify RDMA traffic between them", func() {
+			VerifyDPUPodToPodRDMATraffic(ctx, input)
+		})
 	})
 })

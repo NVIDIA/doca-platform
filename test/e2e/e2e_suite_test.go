@@ -117,6 +117,11 @@ func getEnvVariables() {
 	} else {
 		panic("TAG env variable must be set")
 	}
+	if img, found := os.LookupEnv("NETUTILS_IMAGE"); found {
+		netutilsImage = img
+	} else {
+		panic("NETUTILS_IMAGE env variable must be set")
+	}
 }
 
 var (
@@ -171,10 +176,10 @@ func TestE2E(t *testing.T) {
 	// for handling custom resources (deployments, etc) would need to set the API path to /apis
 	restConfig.APIPath = "/api"
 
-	// Extend configs to restConfig for testRESTClient
+	// Extend configs to restConfig for hostClusterRESTClient
 	restConfig.GroupVersion = &SchemeGroupVersion
 	restConfig.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
-	testRESTClient, err = rest.RESTClientFor(restConfig)
+	hostClusterRESTClient, err = rest.RESTClientFor(restConfig)
 	g.Expect(err).NotTo(HaveOccurred())
 	metricsURI = metrics.GetMetricsURI("kube-state-metrics", dpfOperatorSystemNamespace, 8080, "/metrics")
 	g.Expect(metricsURI).NotTo(BeEmpty())
