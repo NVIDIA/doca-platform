@@ -51,7 +51,7 @@ func VerifyPlainServiceFunctionChain(ctx context.Context, input *systemTestInput
 	netshoot.CreateAndWaitForPods(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
 	By("running traffic test between pods")
-	netshoot.RunTrafficTest(testRESTClient, input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
+	netshoot.RunTrafficTest(hostClusterRESTClient, input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
 }
 
 func VerifyHBNOnlyServiceFunctionChain(ctx context.Context, input *systemTestInput) {
@@ -72,7 +72,7 @@ func VerifyHBNOnlyServiceFunctionChain(ctx context.Context, input *systemTestInp
 	netshoot.CreateAndWaitForPods(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
 	By("running traffic test between pods")
-	netshoot.RunTrafficTest(testRESTClient, input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
+	netshoot.RunTrafficTest(hostClusterRESTClient, input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
 }
 
 func VerifyHBNOnlyBadFlowRecovery(ctx context.Context, input *systemTestInput) {
@@ -93,7 +93,7 @@ func VerifyHBNOnlyBadFlowRecovery(ctx context.Context, input *systemTestInput) {
 	netshoot.CreateAndWaitForPods(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
 	By("running initial traffic test")
-	netshoot.RunTrafficTest(testRESTClient, input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
+	netshoot.RunTrafficTest(hostClusterRESTClient, input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
 
 	By("killing hbn pod to test recovery")
 	deleteFirstFoundPodOnDpuCluser(ctx, "doca-hbn", input.namespace)
@@ -102,7 +102,7 @@ func VerifyHBNOnlyBadFlowRecovery(ctx context.Context, input *systemTestInput) {
 	dpuservice.WaitForDPUServices(ctx, input.client, input.namespace, []string{"doca-hbn"})
 
 	By("running traffic test after recovery")
-	netshoot.RunTrafficTest(testRESTClient, input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
+	netshoot.RunTrafficTest(hostClusterRESTClient, input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
 }
 
 func getPlainChainTestPodConfigs(ctx context.Context, input *systemTestInput, namespace string, vfIndex int) (netshoot.TestPodConfig, netshoot.TestPodConfig) {

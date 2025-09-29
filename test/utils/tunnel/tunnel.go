@@ -60,8 +60,8 @@ func (t *Tunnel) LocalPort() int {
 	return t.localPort
 }
 
-// newTunnel creates a tunneled REST config for accessing the Kamaji cluster
-func newTunnel(ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) *rest.Config {
+// NewTunneledRestConfig creates a tunneled REST config for accessing the Kamaji cluster
+func NewTunneledRestConfig(ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) *rest.Config {
 	// Create dpucluster.Config to handle kubeconfig retrieval
 	clusterConfig := dpucluster.NewConfig(hostClient, dpuCluster)
 
@@ -85,7 +85,7 @@ func newTunnel(ctx context.Context, hostClient client.Client, hostRESTConfig *re
 // NewTunneledClient creates a new client that tunnels through the host cluster to access the Kamaji cluster.
 // This function works in air-gapped environments where only the Kubernetes API is accessible.
 func NewTunneledClient(ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) client.Client {
-	kamajiRESTConfig := newTunnel(ctx, hostClient, hostRESTConfig, dpuCluster)
+	kamajiRESTConfig := NewTunneledRestConfig(ctx, hostClient, hostRESTConfig, dpuCluster)
 
 	// Create client for Kamaji cluster
 	kamajiClient, err := client.New(kamajiRESTConfig, client.Options{})
@@ -97,7 +97,7 @@ func NewTunneledClient(ctx context.Context, hostClient client.Client, hostRESTCo
 // NewTunneledClientset creates a new clientset that tunnels through the host cluster to access the Kamaji cluster.
 // This function works in air-gapped environments where only the Kubernetes API is accessible.
 func NewTunneledClientset(ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) *kubernetes.Clientset {
-	kamajiRESTConfig := newTunnel(ctx, hostClient, hostRESTConfig, dpuCluster)
+	kamajiRESTConfig := NewTunneledRestConfig(ctx, hostClient, hostRESTConfig, dpuCluster)
 
 	// Create clientset for Kamaji cluster
 	kamajiClientset, err := kubernetes.NewForConfig(kamajiRESTConfig)

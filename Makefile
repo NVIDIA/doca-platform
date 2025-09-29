@@ -481,10 +481,12 @@ PARALLEL_JOBS ?=4
 test-release-e2e-slow: release # Build images required for the slow DPF e2e tests.
 	$(MAKE) -j$(PARALLEL_JOBS) --output-sync=target \
 		docker-build-dummydpuservice \
+		docker-build-netutils \
 		helm-package-dummydpuservice
 	# Push operations should wait for builds to complete
 	$(MAKE) -j$(PARALLEL_JOBS) --output-sync=target \
 		docker-push-dummydpuservice \
+		docker-push-netutils \
 		helm-push-dummydpuservice
 
 
@@ -903,6 +905,9 @@ DPUCNIPROVISIONER_IMAGE ?= $(REGISTRY)/$(DPUCNIPROVISIONER_IMAGE_NAME)
 DUMMYDPUSERVICE_IMAGE_NAME ?= dummydpuservice
 export DUMMYDPUSERVICE_IMAGE ?= $(REGISTRY)/$(DUMMYDPUSERVICE_IMAGE_NAME)
 
+NETUTILS_IMAGE_NAME ?= netutils
+export NETUTILS_IMAGE ?= $(REGISTRY)/$(NETUTILS_IMAGE_NAME)
+
 CNIINSTALLER_IMAGE_NAME ?= dpf-cni-installer
 export CNIINSTALLER_IMAGE ?= $(REGISTRY)/$(CNIINSTALLER_IMAGE_NAME)
 export CNIINSTALLER_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(CNIINSTALLER_IMAGE_NAME)
@@ -1089,6 +1094,24 @@ docker-build-dummydpuservice: ## Build docker images for the dummydpuservice
 		-f Dockerfile \
 		. \
 		-t $(DUMMYDPUSERVICE_IMAGE):$(TAG)
+
+.PHONY: docker-build-netutils # Build a multi-arch image for netutils. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
+docker-build-netutils: $(addprefix docker-build-netutils-for-,$(DPF_SYSTEM_ARCH))
+
+docker-build-netutils-for-%:
+	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
+	docker buildx build \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform=linux/$* \
+		-f Dockerfile.netutils \
+		. \
+		-t $(NETUTILS_IMAGE):$(TAG)-$*
 
 .PHONY: docker-build-mock-dms
 docker-build-mock-dms: ## Build docker images for the mock-dms
@@ -1296,6 +1319,24 @@ docker-push-ipallocator: ## Push the docker image for IP Allocator.
 .PHONY: docker-push-dummydpuservice
 docker-push-dummydpuservice: ## Push the docker image for dummydpuservice
 	docker push $(DUMMYDPUSERVICE_IMAGE):$(TAG)
+
+.PHONY: docker-push-netutils # Push a multi-arch image for netutils using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
+docker-push-netutils:
+	# Push each architecture sequentially and build manifest incrementally
+	$(foreach arch,$(DPF_SYSTEM_ARCH),$(MAKE) docker-push-netutils-for-$(arch);)
+	# Push the final multi-arch manifest
+	docker manifest push --purge $(NETUTILS_IMAGE):$(TAG)
+
+docker-push-netutils-for-%:
+	# Tag and push the arch-specific image with the single arch-agnostic tag.
+	docker tag $(NETUTILS_IMAGE):$(TAG)-$* $(NETUTILS_IMAGE):$(TAG)
+	docker push $(NETUTILS_IMAGE):$(TAG)
+	# Add this architecture's RepoDigest to the multi-arch manifest
+	$(MAKE) docker-create-manifest-for-netutils
+
+docker-create-manifest-for-netutils:
+	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
+	docker manifest create --amend $(NETUTILS_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(NETUTILS_IMAGE):$(TAG))
 
 .PHONY: docker-push-mock-dms
 docker-push-mock-dms: ## Push the docker image for dummydpuservice

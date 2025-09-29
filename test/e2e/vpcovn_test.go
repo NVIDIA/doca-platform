@@ -361,26 +361,26 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 
 		It("verify netshoot pods can ping each other in the same node", func() {
 			Eventually(func(g Gomega) {
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod3IP)
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod1IP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod3IP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod1IP)
 			}, vpcutils.DefaultTimeout).Should(Succeed())
 		})
 
 		It("verify netshoot pods can ping each other cross nodes", func() {
 			Eventually(func(g Gomega) {
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1IP)
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1IP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
 			}, vpcutils.DefaultTimeout).Should(Succeed())
 		})
 
 		It("verify performance with iperf same node traffic", func() {
-			netshoot.RunTrafficTest(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, podName3, pod3IP)
+			netshoot.RunTrafficTest(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, podName3, pod3IP)
 		})
 
 		It("verify performance with iperf cross node traffic", func() {
-			netshoot.RunTrafficTest(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, podName2, pod2IP)
+			netshoot.RunTrafficTest(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, podName2, pod2IP)
 		})
 	})
 
@@ -581,26 +581,26 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 
 		It("verify netshoot pods can ping each other in the same node", func() {
 			Eventually(func(g Gomega) {
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod3IP)
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod1IP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod3IP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod1IP)
 			}, vpcutils.DefaultTimeout).Should(Succeed())
 		})
 
 		It("verify netshoot pods can ping each other cross nodes", func() {
 			Eventually(func(g Gomega) {
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1IP)
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1IP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
 			}, vpcutils.DefaultTimeout).Should(Succeed())
 		})
 
 		It("verify performance with iperf same node traffic", func() {
-			netshoot.RunTrafficTest(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, podName3, pod3IP)
+			netshoot.RunTrafficTest(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, podName3, pod3IP)
 		})
 
 		It("verify performance with iperf cross node traffic", func() {
-			netshoot.RunTrafficTest(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, podName2, pod2IP)
+			netshoot.RunTrafficTest(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, podName2, pod2IP)
 		})
 	})
 
@@ -807,17 +807,17 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 
 		It("verify netshoot pods within the same vpc can ping each other", func() {
 			Eventually(func(g Gomega) {
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
 			}, vpcutils.DefaultTimeout).Should(Succeed())
 		})
 
 		It("verify netshoot pods different vpcs cannot ping each other", func() {
 			Consistently(func(g Gomega) {
-				netshoot.AssertPingFailure(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
-				netshoot.AssertPingFailure(testRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1IP)
-				netshoot.AssertPingFailure(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod3IP)
-				netshoot.AssertPingFailure(testRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod1IP)
+				netshoot.AssertPingFailure(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
+				netshoot.AssertPingFailure(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1IP)
+				netshoot.AssertPingFailure(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod3IP)
+				netshoot.AssertPingFailure(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod1IP)
 			}, vpcutils.DefaultTimeout).Should(Succeed())
 		})
 	})
@@ -1042,16 +1042,16 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 
 			Eventually(func(g Gomega) {
 				By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName1, hostWorkerNode1, sfPods[0].Name, sfPods[0].Spec.NodeName))
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod1SFIP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod1SFIP)
 
 				By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName1, hostWorkerNode1, sfPods[1].Name, sfPods[1].Spec.NodeName))
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2SFIP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2SFIP)
 
 				By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName2, hostWorkerNode2, sfPods[0].Name, sfPods[0].Spec.NodeName))
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1SFIP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1SFIP)
 
 				By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName2, hostWorkerNode2, sfPods[1].Name, sfPods[1].Spec.NodeName))
-				netshoot.AssertPingSuccess(testRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod2SFIP)
+				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod2SFIP)
 			}, vpcutils.DefaultTimeout).Should(Succeed())
 		})
 	})

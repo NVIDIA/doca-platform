@@ -28,11 +28,11 @@ import (
 )
 
 // GetKSMMetrics Returns all unique metrics names mapped to metrics prefix
-func GetKSMMetrics(ctx context.Context, testRESTClient *rest.RESTClient, metricsURI string) map[string][]string {
+func GetKSMMetrics(ctx context.Context, restClient *rest.RESTClient, metricsURI string) map[string][]string {
 	var metricsURL string
 	var resBody []byte
 
-	request := testRESTClient.Get().AbsPath(metricsURI)
+	request := restClient.Get().AbsPath(metricsURI)
 	resBody, err := request.DoRaw(ctx)
 	Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Request %s failed with err: %v", metricsURI, err))
 	Expect(resBody).NotTo(BeEmpty(), "Response body is empty for url %s", metricsURL)

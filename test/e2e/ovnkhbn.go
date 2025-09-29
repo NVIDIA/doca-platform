@@ -45,7 +45,7 @@ func VerifyPerformancePodToPodSameNode(ctx context.Context, input *systemTestInp
 	pod2IP := netshoot.GetPodIP(ctx, input.client, hostNamespace, pod2Config.Name)
 
 	By("running traffic test between pods")
-	netshoot.RunTrafficTest(testRESTClient, input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
+	netshoot.RunTrafficTest(hostClusterRESTClient, input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
 }
 
 func VerifyPerformancePodToPodDifferentNode(ctx context.Context, input *systemTestInput) {
@@ -64,7 +64,7 @@ func VerifyPerformancePodToPodDifferentNode(ctx context.Context, input *systemTe
 	pod2IP := netshoot.GetPodIP(ctx, input.client, hostNamespace, pod2Config.Name)
 
 	By("running traffic test between pods")
-	netshoot.RunTrafficTest(testRESTClient, input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
+	netshoot.RunTrafficTest(hostClusterRESTClient, input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
 }
 
 func WaitForOVNKHBNDeploymentReady(ctx context.Context, input *systemTestInput) {

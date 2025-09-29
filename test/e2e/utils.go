@@ -37,7 +37,9 @@ import (
 
 var (
 	dpuClusterClient       client.Client
-	testRESTClient         *rest.RESTClient
+	dpuClusterRestConfig   *rest.Config
+	dpuClusterRestClient   *rest.RESTClient
+	hostClusterRESTClient  *rest.RESTClient
 	metricsURI             string
 	afterAllCleanupLabels  = map[string]string{"dpf-operator-e2e-test-cleanup": "true"}
 	afterEachCleanupLabels = map[string]string{"between-tests-cleanup": "true"}
@@ -49,6 +51,9 @@ var (
 	bfbImageURL = ""
 	// hbnImageURL can be used to override the default HBN image URL used in the tests.
 	hbnImageURL = ""
+	// netutilsImage is the image name of the netutils image produced by the release associated with the e2e tests. This
+	// image is used for testing traffic. The value does not contain the tag.
+	netutilsImage = ""
 	// ngcAPIKey can be used to create a secret to be able to pull images from NGC, this secret can be used by DPUservices and should not be used for core components.
 	ngcAPIKey = ""
 	// Labels and resources targeted for cleanup before running our e2e tests.
@@ -59,6 +64,7 @@ var (
 		&dpuservicev1.DPUServiceList{},
 		&dpuservicev1.DPUServiceConfigurationList{},
 		&dpuservicev1.DPUServiceTemplateList{},
+		&dpuservicev1.DPUServiceNADList{},
 		&provisioningv1.DPUSetList{},
 		&provisioningv1.DPUList{},
 		&provisioningv1.BFBList{},

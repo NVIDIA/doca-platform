@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
@@ -75,6 +76,49 @@ type IperfResult struct {
 			BitsPerSecond float64 `json:"bits_per_second"`
 		} `json:"sum_sent"`
 	} `json:"end"`
+}
+
+// IBWriteBWResult is used to parse the traffic test result of an ib_write_bw command
+// Example output:
+/*
+{
+  "test_info": {
+    "test": "RDMA_Write_BW_Test",
+    "Dual_port": "OFF",
+    "Device": "mlx5_11",
+    "Number_of_qps": 1,
+    "Transport_type": "IB",
+    "Connection_type": "RC",
+    "Using_SRQ": "OFF",
+    "PCIe_relax_order": "ON",
+    "ibv_wr_API": "ON",
+    "TX_depth": 128,
+    "CQ_Moderation": 1,
+    "Mtu": 1024,
+    "Link_type": "Ethernet",
+    "GID_index": 1,
+    "Max_inline_data": 0,
+    "rdma_cm_QPs": "OFF",
+    "Use_ROCm_memory": "OFF",
+    "Data_ex_method": "Ethernet"
+  },
+  "results": {
+    "MsgSize": 65536,
+    "n_iterations": 5000,
+    "BW_peak": 5293.52,
+    "BW_average": 2229.27,
+    "MsgRate": 0.035668
+  }
+}
+*/
+type IBWriteBWResult struct {
+	TestInfo *struct {
+		Device *string `json:"Device,omitempty"`
+	} `json:"test_info,omitempty"`
+	Results *struct {
+		BWPeak    *float32 `json:"BW_peak,omitempty"`
+		BWAverage *float32 `json:"BW_average,omitempty"`
+	} `json:"results,omitempty"`
 }
 
 const (
@@ -174,6 +218,14 @@ func RunTrafficTest(restClient *rest.RESTClient, restConfig *rest.Config, hostNa
 
 	reverseNetshootOutput := runIperf3ClientReverse(restClient, restConfig, hostNamespace, podName1, pod2IP)
 	analyzeIperfResults(reverseNetshootOutput, true)
+}
+
+func RunRDMATrafficTest(restClient *rest.RESTClient, restConfig *rest.Config, hostNamespace string, podName1, podName2, pod2IP string) {
+	startRDMAServer(restClient, restConfig, hostNamespace, podName2)
+	defer stopRDMAServer(restClient, restConfig, hostNamespace, podName2)
+
+	output := runRDMAClient(restClient, restConfig, hostNamespace, podName1, pod2IP)
+	analyzeIBWriteBWResult(output)
 }
 
 func createNetshootPod(ctx context.Context, testClient client.Client, config TestPodConfig) {
@@ -279,6 +331,24 @@ func stopIperf3Server(restClient *rest.RESTClient, restConfig *rest.Config, name
 	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "iperf3"}, 30*time.Second, DefaultErrorParser)
 }
 
+func startRDMAServer(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string) {
+	// This complex command is needed so that we can run ib_write_bw in background. ib_write_bw doesn't have a flag to
+	// keep the process running after the first client has finished the test.
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"bash", "-c", "nohup bash -c 'while true; do ib_write_bw; done' >/dev/null 2>&1 < /dev/null & exit"}, 30*time.Second, DefaultErrorParser)
+}
+
+func stopRDMAServer(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string) {
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "bash"}, 30*time.Second, DefaultErrorParser)
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "ib_write_bw"}, 30*time.Second, DefaultErrorParser)
+}
+
+func runRDMAClient(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string, serverIP string) string {
+	fileName := fmt.Sprintf("ib_write_bw-result-%s", utilrand.String(6))
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"ib_write_bw", serverIP, "--out_json", fmt.Sprintf("--out_json_file=%s", fileName)}, 30*time.Second, DefaultErrorParser)
+	output := execCommandEventually(restClient, restConfig, namespace, podName, []string{"cat", fileName}, 30*time.Second, DefaultErrorParser)
+	return output
+}
+
 func runIperf3Client(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string, iperf3ServerIP string) string {
 	return execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-J"}, 500*time.Second, IperfErrorParser)
 }
@@ -308,8 +378,21 @@ func analyzeIperfResults(output string, reverse bool) {
 	Expect(bitrate).Should(BeNumerically(">", throughputThreshold), "bitrate is below %d Gbit/sec", throughputThreshold/1e9)
 }
 
+func analyzeIBWriteBWResult(output string) {
+	var result IBWriteBWResult
+	err := json.Unmarshal([]byte(output), &result)
+	Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("failed to parse ib_write_bw output: %v", err))
+
+	Expect(result.Results).ToNot(BeNil(), "no results found. output: %s", output)
+	Expect(result.Results.BWPeak).ToNot(BeNil())
+	Expect(result.Results.BWAverage).ToNot(BeNil())
+	fmt.Printf("Bandwidth peak %.2f MB/sec\t Bandwidth average %.2f MB/sec\n", *result.Results.BWPeak, *result.Results.BWAverage)
+	Expect(*result.Results.BWPeak).Should(BeNumerically(">", 0))
+	Expect(*result.Results.BWAverage).Should(BeNumerically(">", 0))
+}
+
 // execCommandEventually executes a command on a pod repeatedly until it succeeds or the timeout is reached
-func execCommandEventually(testRESTClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, timeout time.Duration, errorParser ErrorParserFunc) string {
+func execCommandEventually(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, timeout time.Duration, errorParser ErrorParserFunc) string {
 	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' (timeout: %v)\n", command, podName, namespace, timeout)
 
 	var output string
@@ -318,7 +401,7 @@ func execCommandEventually(testRESTClient *rest.RESTClient, config *rest.Config,
 
 	Eventually(func(g Gomega) {
 		attemptCount++
-		output, err = executeCommandOnce(testRESTClient, config, namespace, podName, command, errorParser)
+		output, err = executeCommandOnce(restClient, config, namespace, podName, command, errorParser)
 		if err != nil {
 			fmt.Printf("Attempt %d failed, retrying in 5 seconds...\n", attemptCount)
 		}
@@ -329,19 +412,19 @@ func execCommandEventually(testRESTClient *rest.RESTClient, config *rest.Config,
 }
 
 // execCommandFailConsistently executes a command on a pod repeatedly, expecting it to fail, until it unexpectly succeeds or the timeout is reached
-func execCommandFailConsistently(testRESTClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, expectFailure error, timeout time.Duration, errorParser ErrorParserFunc) {
+func execCommandFailConsistently(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, expectFailure error, timeout time.Duration, errorParser ErrorParserFunc) {
 	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' (timeout: %v) - expecting failure\n", command, podName, namespace, timeout)
 
 	Consistently(func(g Gomega) {
-		_, err := executeCommandOnce(testRESTClient, config, namespace, podName, command, errorParser)
+		_, err := executeCommandOnce(restClient, config, namespace, podName, command, errorParser)
 		g.Expect(err).To(HaveOccurred(), "command %v should consistently fail", command)
 		Expect(errors.Is(err, expectFailure)).To(BeTrue(), "command %v should fail with %v, but failed with %v", command, expectFailure, err)
 	}, timeout, 5*time.Second).Should(Succeed())
 }
 
 // executeCommandOnce executes a command on a pod once and returns the output and error
-func executeCommandOnce(testRESTClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, errorParser ErrorParserFunc) (string, error) {
-	req := testRESTClient.Post().
+func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, errorParser ErrorParserFunc) (string, error) {
+	req := restClient.Post().
 		Resource("pods").
 		Name(podName).
 		Namespace(namespace).
