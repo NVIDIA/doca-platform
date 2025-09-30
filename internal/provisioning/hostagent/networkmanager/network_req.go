@@ -57,6 +57,12 @@ type NetworkRequest struct {
 	OSType string `json:"osType,omitempty"`
 }
 
+func (nr *NetworkRequest) SetDPUObjectMeta(dpu provisioningv1.DPU) {
+	nr.DPUNamespace = dpu.Namespace
+	nr.DpuName = dpu.Name
+	nr.UID = string(dpu.UID)
+}
+
 func ConvertVFConfigToNetworkRequest(c client.Client) error {
 	vfFile, err := os.Open(VFConfigFile)
 	if err != nil {
@@ -116,8 +122,7 @@ func ConvertVFConfigToNetworkRequest(c client.Client) error {
 	}
 	if len(dpuList.Items) > 0 {
 		dpu := dpuList.Items[0]
-		nr.DPUNamespace = dpu.Namespace
-		nr.DpuName = dpu.Name
+		nr.SetDPUObjectMeta(dpu)
 		err = writeNetworkRequestFile(nr)
 		if err != nil {
 			return err

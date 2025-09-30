@@ -114,8 +114,8 @@ type NetplanEthernet struct {
 	MTU   *int32 `yaml:"mtu,omitempty"`
 }
 
-// getCurrentMTU returns the current MTU of the specified interface
-func getCurrentMTU(interfaceName string) (int, error) {
+// GetCurrentMTU returns the current MTU of the specified interface
+func GetCurrentMTU(interfaceName string) (int, error) {
 	link, err := netlink.LinkByName(interfaceName)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get link %s: %w", interfaceName, err)
@@ -206,7 +206,7 @@ func ConfigurePFNetplan(pciAddress string, portConfigs []PortConfig) error {
 
 		// Check MTU and only configure if different from current state
 		if portConfig.MTU != nil {
-			currentMTU, err := getCurrentMTU(interfaceName)
+			currentMTU, err := GetCurrentMTU(interfaceName)
 			if err != nil {
 				// If we can't get current MTU, log warning but proceed with configuration
 				// to ensure desired state is applied
