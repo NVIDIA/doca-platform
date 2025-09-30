@@ -23,7 +23,7 @@ The following component versions are deployed as part of DPF:
 | Multus                      | v3.9.3  |          |
 | NVIDIA K8s IPAM             | v0.3.5  |          |
 | NVIDIA Maintenance Operator | 0.2.0   |          |
-| NVIDIA Network Operator     | v25.4.0 |          |
+| NVIDIA Network Operator     | v25.7.0 |          |
 | Node Feature Discovery      | 0.17.1  |          |
 | SR-IOV Device Plugin        | v3.9.0  |          |
 | Etcd Defrag                 | v0.22.0 | Optional |
