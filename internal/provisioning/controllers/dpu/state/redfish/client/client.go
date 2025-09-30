@@ -355,7 +355,7 @@ func getBMCManagerID(c *Client) (*string, error) {
 	return &managerID, nil
 }
 
-// FactoryResetBMC resets BMC to factory default. For more information, refer to
+// FactoryResetBMC resets BMC to factory defaults. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2504/factory+reset+bmc
 func (c *Client) FactoryResetBMC() (*resty.Response, *ExtendedInfo, error) {
 	managerID, err := getBMCManagerID(c)
