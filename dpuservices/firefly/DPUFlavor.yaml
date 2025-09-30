@@ -56,6 +56,8 @@ spec:
         - NUM_OF_VFS=46
         - LAG_RESOURCE_ALLOCATION=1
         - REAL_TIME_CLOCK_ENABLE=1
+        - LINK_TYPE_P1=ETH
+        - LINK_TYPE_P2=ETH
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
