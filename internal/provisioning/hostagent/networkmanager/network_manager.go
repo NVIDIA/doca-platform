@@ -165,21 +165,22 @@ func (nm *NetworkManager) run() {
 func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 	nn := types.NamespacedName{Namespace: nr.DPUNamespace, Name: nr.DpuName}
 	dpu := &provisioningv1.DPU{}
-	if err := nm.Get(context.TODO(), nn, dpu); err != nil {
-		if apierrors.IsNotFound(err) {
-			klog.Infof("DPU %s/%s(UID: %s) not found, removing VF and network request for DPU ", nr.DPUNamespace, nr.DpuName, nr.UID)
-			if err = hostutil.RemoveVFFromBridge(nr.VFName); err != nil {
-				return fmt.Errorf("failed to remove VF: %w", err)
-			}
-			err = os.Remove(filepath.Join(NetworkRequestDir, nr.UID))
-			if err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("failed to remove network request file: %w", err)
-			}
-			delete(nm.reqs, nr.UID)
-			klog.Infof("removed VF and network request for DPU %s/%s(UID: %s)", nr.DPUNamespace, nr.DpuName, nr.UID)
-			return nil
-		}
+	err := nm.Get(context.TODO(), nn, dpu)
+	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to get DPU: %w", err)
+	}
+	if apierrors.IsNotFound(err) || dpu.UID != types.UID(nr.UID) {
+		klog.Infof("DPU %s/%s(UID: %s) not found, removing VF and network request for DPU ", nr.DPUNamespace, nr.DpuName, nr.UID)
+		if err = hostutil.RemoveVFFromBridge(nr.VFName); err != nil {
+			return fmt.Errorf("failed to remove VF: %w", err)
+		}
+		err = os.Remove(filepath.Join(NetworkRequestDir, nr.UID))
+		if err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove network request file: %w", err)
+		}
+		delete(nm.reqs, nr.UID)
+		klog.Infof("removed VF and network request for DPU %s/%s(UID: %s)", nr.DPUNamespace, nr.DpuName, nr.UID)
+		return nil
 	}
 	operations := []networkOperation{
 		{
@@ -220,7 +221,27 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 		{
 			name: "SetControlPlaneMTU",
 			f: func(nr NetworkRequest) error {
-				return hostutil.SetLinkMTU(BridgeName, nr.ControlPlaneMTU)
+				nics := []string{BridgeName}
+				entries, err := os.ReadDir(filepath.Join("/sys/class/net", BridgeName, "brif"))
+				if err != nil {
+					return err
+				}
+				for _, entry := range entries {
+					nics = append(nics, entry.Name())
+				}
+				for _, nic := range nics {
+					curMTU, err := hostutil.GetCurrentMTU(nic)
+					if err != nil {
+						return fmt.Errorf("failed to get MTU of interface %s, err: %v", nic, err)
+					}
+					if curMTU == nr.ControlPlaneMTU {
+						continue
+					}
+					if err := hostutil.SetLinkMTU(nic, nr.ControlPlaneMTU); err != nil {
+						return fmt.Errorf("failed to set MTU for interface %s, err: %v", nic, err)
+					}
+				}
+				return nil
 			},
 		},
 		{
@@ -259,17 +280,18 @@ func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU) error {
 	defer nm.Unlock()
 	if !nm.initialized {
 		return fmt.Errorf("network manager is not initialized")
+	} else if dpu == nil {
+		return fmt.Errorf("DPU is nil")
 	}
+
 	if _, ok := nm.reqs[string(dpu.UID)]; ok {
 		return nil
 	}
 
-	nr := NetworkRequest{
-		DpuName:      dpu.Name,
-		DPUNamespace: dpu.Namespace,
-		UID:          string(dpu.UID),
+	nr := &NetworkRequest{
 		SerialNumber: dpu.Spec.SerialNumber,
 	}
+	nr.SetDPUObjectMeta(*dpu)
 
 	// use the PCI address collected locally, so that it's not affected by PCI address changes
 	dev, ok := nm.devicesBySN[nr.SerialNumber]
@@ -300,10 +322,10 @@ func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU) error {
 	// Use cached OS type
 	nr.OSType = nm.osType
 
-	if err := writeNetworkRequestFile(&nr); err != nil {
+	if err := writeNetworkRequestFile(nr); err != nil {
 		return fmt.Errorf("failed to write network request file: %w", err)
 	}
-	nm.reqs[nr.UID] = nr
+	nm.reqs[nr.UID] = *nr
 	return nil
 }
 
