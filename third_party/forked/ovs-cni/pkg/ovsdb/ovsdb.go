@@ -884,7 +884,7 @@ func (ovsd *OvsDriver) GetOvsPortForContIface(contIface, contNetnsPath string) (
 		return "", false, err
 	}
 
-	condition := ovsdb.NewCondition("external_ids", ovsdb.ConditionEqual, ovsmap)
+	condition := ovsdb.NewCondition("external_ids", ovsdb.ConditionIncludes, ovsmap)
 	colums := []string{"name", "external_ids"}
 	port, err := ovsd.findByCondition("Port", condition, colums)
 	if err != nil {
