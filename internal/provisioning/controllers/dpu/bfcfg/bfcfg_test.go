@@ -127,6 +127,8 @@ spec:
     - SRIOV_EN=1
     - NUM_OF_VFS=46
     - LAG_RESOURCE_ALLOCATION=1
+    - LINK_TYPE_P1=ETH
+    - LINK_TYPE_P2=ETH
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
