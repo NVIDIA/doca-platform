@@ -44,6 +44,7 @@ type TestDPUServiceInterfaceConfig struct {
 	Name           string
 	Namespace      string
 	Labels         map[string]string
+	Annotations    map[string]string
 	NodeName       *string
 	Type           string
 	InterfaceName  string
@@ -132,8 +133,13 @@ func SetDPUServiceInterfacePhysical(dpuServiceInterface *dpuservicev1.DPUService
 	if labels == nil {
 		labels = map[string]string{}
 	}
+	annotations := config.Annotations
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
 	dpuServiceInterface.Spec.Template.Spec.Template.ObjectMeta = dpuservicev1.ObjectMeta{
-		Labels: labels,
+		Labels:      labels,
+		Annotations: annotations,
 	}
 	dpuServiceInterface.Spec.Template.Spec.Template.Spec = dpuservicev1.ServiceInterfaceSpec{
 		InterfaceType: dpuservicev1.InterfaceTypePhysical,
@@ -148,8 +154,13 @@ func SetDPUServiceInterfaceVF(dpuServiceInterface *dpuservicev1.DPUServiceInterf
 	if labels == nil {
 		labels = map[string]string{}
 	}
+	annotations := config.Annotations
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
 	dpuServiceInterface.Spec.Template.Spec.Template.ObjectMeta = dpuservicev1.ObjectMeta{
-		Labels: labels,
+		Labels:      labels,
+		Annotations: annotations,
 	}
 	dpuServiceInterface.Spec.Template.Spec.Template.Spec = dpuservicev1.ServiceInterfaceSpec{
 		InterfaceType: dpuservicev1.InterfaceTypeVF,
@@ -167,8 +178,13 @@ func SetDPUServiceInterfaceSF(dpuServiceInterface *dpuservicev1.DPUServiceInterf
 	if labels == nil {
 		labels = map[string]string{}
 	}
+	annotations := config.Annotations
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
 	dpuServiceInterface.Spec.Template.Spec.Template.ObjectMeta = dpuservicev1.ObjectMeta{
-		Labels: labels,
+		Labels:      labels,
+		Annotations: annotations,
 	}
 	dpuServiceInterface.Spec.Template.Spec.Template.Spec = dpuservicev1.ServiceInterfaceSpec{
 		InterfaceType: "service",
@@ -184,7 +200,8 @@ func SetDPUServiceInterfaceSF(dpuServiceInterface *dpuservicev1.DPUServiceInterf
 func SetDPUServiceInterfaceOVN(dpuServiceInterface *dpuservicev1.DPUServiceInterface, config TestDPUServiceInterfaceConfig) {
 	dpuServiceInterface.SetLabels(config.Labels)
 	dpuServiceInterface.Spec.Template.Spec.Template.ObjectMeta = dpuservicev1.ObjectMeta{
-		Labels: config.Labels,
+		Labels:      config.Labels,
+		Annotations: config.Annotations,
 	}
 	dpuServiceInterface.Spec.Template.Spec.Template.Spec = dpuservicev1.ServiceInterfaceSpec{
 		InterfaceType: dpuservicev1.InterfaceTypeOVN,
