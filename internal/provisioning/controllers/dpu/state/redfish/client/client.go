@@ -45,6 +45,7 @@ const (
 	APIUpdateFW                  = "redfish/v1/UpdateService"
 	APICheckProgress             = "redfish/v1/TaskService/Tasks"
 	APIGetManagers               = "redfish/v1/Managers"
+	APIFactoryResetBMC           = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.ResetToDefaults"
 	APIResetBMC                  = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.Reset"
 	APIEnableBMCRshim            = "redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia"
 	APIGetSystem                 = "redfish/v1/Systems/Bluefield"
@@ -333,15 +334,13 @@ func (c *Client) GetManagers() (*resty.Response, *Managers, error) {
 	})
 }
 
-// ResetBMC resets BMC. For more information, refer to
-// https://docs.nvidia.com/networking/display/bluefieldbmcv2410/cec+and+bmc+firmware+operations#src-704886294_CECandBMCFirmwareOperations-UpdatingBMC
-func (c *Client) ResetBMC() (*resty.Response, *ExtendedInfo, error) {
+func getBMCManagerID(c *Client) (*string, error) {
 	_, managers, err := c.GetManagers()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if managers == nil || len(managers.Members) == 0 {
-		return nil, nil, fmt.Errorf("no managers found")
+		return nil, fmt.Errorf("no managers found")
 	}
 	var managerID string
 	for _, manager := range managers.Members {
@@ -351,13 +350,38 @@ func (c *Client) ResetBMC() (*resty.Response, *ExtendedInfo, error) {
 		}
 	}
 	if managerID == "" {
-		return nil, nil, fmt.Errorf("no BMC manager found")
+		return nil, fmt.Errorf("no BMC manager found")
+	}
+	return &managerID, nil
+}
+
+// FactoryResetBMC resets BMC to factory default. For more information, refer to
+// https://docs.nvidia.com/networking/display/bluefieldbmcv2504/factory+reset+bmc
+func (c *Client) FactoryResetBMC() (*resty.Response, *ExtendedInfo, error) {
+	managerID, err := getBMCManagerID(c)
+	if err != nil {
+		return nil, nil, err
+	}
+	reqBody := `{"ResetToDefaultsType": "ResetAll"}`
+	return do[ExtendedInfo](func() (*resty.Response, error) {
+		return c.Client.R().
+			SetBody(reqBody).
+			Post(strings.Replace(APIFactoryResetBMC, "{MANAGER_ID}", *managerID, 1))
+	})
+}
+
+// ResetBMC resets BMC. For more information, refer to
+// https://docs.nvidia.com/networking/display/bluefieldbmcv2410/cec+and+bmc+firmware+operations#src-704886294_CECandBMCFirmwareOperations-UpdatingBMC
+func (c *Client) ResetBMC() (*resty.Response, *ExtendedInfo, error) {
+	managerID, err := getBMCManagerID(c)
+	if err != nil {
+		return nil, nil, err
 	}
 	reqBody := `{"ResetType": "GracefulRestart"}`
 	return do[ExtendedInfo](func() (*resty.Response, error) {
 		return c.Client.R().
 			SetBody(reqBody).
-			Post(strings.Replace(APIResetBMC, "{MANAGER_ID}", managerID, 1))
+			Post(strings.Replace(APIResetBMC, "{MANAGER_ID}", *managerID, 1))
 	})
 }
 
