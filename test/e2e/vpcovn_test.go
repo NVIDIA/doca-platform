@@ -1038,7 +1038,6 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 		})
 
 		It("verify netshoot vfs can ping sf pods on same and cross nodes", func() {
-			Skip("Skip this test as it is currently failing in CI, needs to be investigated")
 
 			Eventually(func(g Gomega) {
 				By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName1, hostWorkerNode1, sfPods[0].Name, sfPods[0].Spec.NodeName))
