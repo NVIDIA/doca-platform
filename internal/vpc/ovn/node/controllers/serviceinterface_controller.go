@@ -55,6 +55,7 @@ const (
 	RequeueIntervalError           = 5 * time.Second
 	DefaultMTU                     = 9216
 	PodNodeNameKey                 = "spec.nodeName"
+	ServiceInterfaceNodeKey        = "spec.node"
 	DPDKPortType                   = "dpdk"
 )
 
@@ -78,6 +79,16 @@ func (r *ServiceInterfaceReconciler) SetupWithManager(ctx context.Context, mgr c
 	// Add index for Pod's spec.nodeName field
 	if err := mgr.GetCache().IndexField(ctx, &corev1.Pod{}, PodNodeNameKey, func(o client.Object) []string {
 		return []string{o.(*corev1.Pod).Spec.NodeName}
+	}); err != nil {
+		return err
+	}
+
+	if err := mgr.GetCache().IndexField(ctx, &dpuservicev1.ServiceInterface{}, ServiceInterfaceNodeKey, func(o client.Object) []string {
+		si := o.(*dpuservicev1.ServiceInterface)
+		if si.Spec.Node == nil {
+			return nil
+		}
+		return []string{*si.Spec.Node}
 	}); err != nil {
 		return err
 	}
@@ -358,7 +369,8 @@ func (r *ServiceInterfaceReconciler) requestsForPods(ctx context.Context, o clie
 	}
 	serviceID := pod.Labels[dpuservicev1.DPFServiceIDLabelKey]
 	serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-	if err := r.Client.List(ctx, serviceInterfaceList, client.MatchingLabels{dpuservicev1.DPFServiceIDLabelKey: serviceID}, client.InNamespace(pod.Namespace)); err != nil {
+	if err := r.Client.List(ctx, serviceInterfaceList, client.MatchingLabels{dpuservicev1.DPFServiceIDLabelKey: serviceID}, client.InNamespace(pod.Namespace),
+		client.MatchingFields{ServiceInterfaceNodeKey: r.NodeName}); err != nil {
 		log.Error(err, "Failed to list service interfaces", "pod", pod.Name, "serviceID", serviceID)
 		return nil
 	}
