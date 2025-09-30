@@ -380,6 +380,7 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 					return err
 				}
 				conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceResettingBMC)
+				return nil
 			} else {
 				log.Error(err, "failed to set up mTLS after factory reset BMC")
 				cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailedToSetUpMTLS", err.Error()))
