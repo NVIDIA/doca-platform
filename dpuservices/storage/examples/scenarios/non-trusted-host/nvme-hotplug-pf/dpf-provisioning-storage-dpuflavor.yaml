@@ -59,6 +59,8 @@ spec:
         - PCI_SWITCH_EMULATION_NUM_PORT=32
         - NVME_EMULATION_ENABLE=1
         - NVME_EMULATION_NUM_PF=0
+        - LINK_TYPE_P1=ETH
+        - LINK_TYPE_P2=ETH
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
