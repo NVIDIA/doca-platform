@@ -120,7 +120,7 @@ func getTestServiceInterfaceTypePhysical(name string, namespace string, nodeName
 	}
 }
 
-func getTestServiceInterfaceTypeService(name string, namespace string, vn string, nodeName string, unknownMAC bool) *dpuservicev1.ServiceInterface {
+func getTestServiceInterfaceTypeService(name string, namespace string, nodeName string, unknownMAC bool) *dpuservicev1.ServiceInterface {
 	objectMeta := getServiceInterfaceObjectMeta(name, namespace)
 	if unknownMAC {
 		objectMeta.Annotations[common.LSPUnknownMACAnnotationKey] = common.AnnotationValueTrue
@@ -134,7 +134,7 @@ func getTestServiceInterfaceTypeService(name string, namespace string, vn string
 				ServiceID:      "test",
 				Network:        "test",
 				InterfaceName:  "p0_sf",
-				VirtualNetwork: &vn,
+				VirtualNetwork: ptr.To("testVN"),
 			},
 		},
 	}

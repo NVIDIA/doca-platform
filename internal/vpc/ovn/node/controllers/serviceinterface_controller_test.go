@@ -329,7 +329,7 @@ var _ = Describe("service interface controller", func() {
 			ovsMock.EXPECT().GetIfaceWithExternalIDs(gomock.Any(), gomock.Any()).AnyTimes().Return(&ovsmodel.Interface{Name: "test"}, nil)
 
 			By("creating ServiceInterface")
-			si := getTestServiceInterfaceTypeService("test", ns.Name, "test", node.Name, true)
+			si := getTestServiceInterfaceTypeService("test", ns.Name, node.Name, true)
 			Expect(testClient.Create(testCtx, si)).To(Succeed())
 			cleanupObjects = append(cleanupObjects, si)
 
@@ -362,7 +362,7 @@ var _ = Describe("service interface controller", func() {
 			}, nil)
 
 			By("creating ServiceInterface")
-			si := getTestServiceInterfaceTypeService("test", ns.Name, "test", node.Name, false)
+			si := getTestServiceInterfaceTypeService("test", ns.Name, node.Name, false)
 			Expect(testClient.Create(testCtx, si)).To(Succeed())
 			cleanupObjects = append(cleanupObjects, si)
 
@@ -411,7 +411,7 @@ var _ = Describe("service interface controller", func() {
 			}, nil)
 
 			By("creating ServiceInterface")
-			si := getTestServiceInterfaceTypeService("test", ns.Name, "test", node.Name, false)
+			si := getTestServiceInterfaceTypeService("test", ns.Name, node.Name, false)
 			Expect(testClient.Create(testCtx, si)).To(Succeed())
 			cleanupObjects = append(cleanupObjects, si)
 
@@ -455,6 +455,62 @@ var _ = Describe("service interface controller", func() {
 					HaveField("Status", metav1.ConditionTrue),
 				)))
 			}).WithPolling(500 * time.Millisecond).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
+		It("reconcile only the ServiceInterface that belongs to Pod's node", func() {
+			macAddr := "00:00:00:00:00:01"
+			ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+			ovsMock.EXPECT().GetIfaceWithExternalIDs(gomock.Any(), gomock.Any()).AnyTimes().Return(&ovsmodel.Interface{
+				Name: "test",
+				ExternalIDs: map[string]string{
+					nodeutils.IfaceMacKey: macAddr,
+				},
+			}, nil)
+
+			By("creating second node")
+			node2 := getTestNode(testNode + "-2")
+			Expect(testClient.Create(testCtx, node2)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, node2)
+
+			By("creating ServiceInterface on first node")
+			si := getTestServiceInterfaceTypeService("test", ns.Name, node.Name, false)
+			Expect(testClient.Create(testCtx, si)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, si)
+
+			By("creating ServiceInterface on second node")
+			si2 := getTestServiceInterfaceTypeService("test2", ns.Name, node2.Name, false)
+			Expect(testClient.Create(testCtx, si2)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, si2)
+
+			By("creating pod on first node")
+			pod = getPodWithLabels(ns.Name, "test-pod", node.Name, map[string]string{dpuservicev1.DPFServiceIDLabelKey: "test"})
+			Expect(testClient.Create(testCtx, pod)).To(Succeed())
+
+			By("verifying ServiceInterface on first node is reconciled successfully")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(si), si)).To(Succeed())
+				g.Expect(si.Annotations).To(HaveKey(common.LSPMACAddressAnnotationKey))
+				g.Expect(si.Annotations[common.LSPMACAddressAnnotationKey]).To(Equal(macAddr))
+				g.Expect(si.ObjectMeta.Finalizers).To(ContainElement(ServiceInterfaceFinalizer))
+				siConditions := si.GetConditions()
+				g.Expect(siConditions).To(ContainElement(And(
+					HaveField("Type", string(dpuservicev1.ServiceInterfaceReconciled)),
+					HaveField("Status", metav1.ConditionTrue),
+				)))
+				g.Expect(siConditions).To(ContainElement(And(
+					HaveField("Type", string(conditions.TypeReady)),
+					HaveField("Status", metav1.ConditionTrue),
+				)))
+			}).WithPolling(500 * time.Millisecond).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("verifying ServiceInterface on second node is not reconciled by this controller")
+			Consistently(func(g Gomega) {
+				g.Expect(testClient.Get(testCtx, client.ObjectKeyFromObject(si2), si2)).To(Succeed())
+				g.Expect(si2.Annotations).NotTo(HaveKey(common.LSPMACAddressAnnotationKey))
+				g.Expect(si2.ObjectMeta.Finalizers).NotTo(ContainElement(ServiceInterfaceFinalizer))
+				// This controller hasn't touched it, so no controller-specific conditions
+				g.Expect(si2.GetConditions()).To(BeEmpty())
+			}).WithPolling(500 * time.Millisecond).WithTimeout(5 * time.Second).Should(Succeed())
 		})
 	})
 })
