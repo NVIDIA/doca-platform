@@ -41,7 +41,7 @@ const (
 	ConditionDpuDeviceDiscovered conditions.ConditionType = "Discovered"
 	// ConditionDpuDeviceNodeAttached indicates that the DPU is attached to a node
 	ConditionDpuDeviceNodeAttached conditions.ConditionType = "NodeAttached"
-	// ConditionDpuDeviceResettingBMC indicates that the BMC is being reset to factory default
+	// ConditionDpuDeviceResettingBMC indicates that the BMC is being reset to factory defaults
 	ConditionDpuDeviceResettingBMC conditions.ConditionType = "ResettingBMC"
 	// ConditionDpuDeviceInitialized indicates that the DPU interface has been initialized
 	ConditionDpuDeviceInitialized conditions.ConditionType = "Initialized"
