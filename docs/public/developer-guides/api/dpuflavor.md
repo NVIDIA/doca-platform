@@ -1,0 +1,258 @@
+---
+title: "DPUFlavor"
+---
+
+[TOC]
+
+## Overview
+
+DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configuration templates for DPU system-level settings. It serves as a blueprint that specifies how DPUs should be configured during provisioning, including kernel parameters, firmware settings, OVS configuration, network interfaces, and resource allocation.
+
+## API Version
+
+- **API Group**: `provisioning.dpu.nvidia.com`
+- **API Version**: `v1alpha1`
+- **Kind**: `DPUFlavor`
+
+## Key Features
+
+- **Immutable Configuration**: Once created, the DPUFlavor spec cannot be modified to ensure consistency across DPU deployments
+- **Comprehensive System Configuration**: Covers all aspects of DPU system configuration from boot parameters to runtime settings
+- **Resource Management**: Defines resource requirements and allocation policies
+- **Multiple DPU Modes**: Supports both standard DPU mode and zero-trust mode
+- **Template Reusability**: Can be applied to multiple DPUs for consistent configuration
+
+## API Reference
+
+### DPUFlavorSpec
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `grub` | [DPUFlavorGrub](#dpuflavorgrub) | All the parameters will be set in `GRUB_CMDLINE_LINUX` grub configuration |
+| `sysctl` | [DPUFlavorSysctl](#dpuflavorsysctl) | Kernel sysctl parameters which will be stored in `/etc/sysctl.d/99-dpf.conf` |
+| `nvconfig` | [][NVConfig](#nvconfig) | The device configuration which will be applied by `mlxconfig` |
+| `ovs` | [DPUFlavorOVS](#dpuflavorovs) | Open vSwitch configuration which will be executed via systemd service |
+| `bfcfgParameters` | []string | Parameters for bf.cfg file |
+| `configFiles` | [][ConfigFile](#configfile) | Custom configuration files. Users can use this configuration to overwrite files in the DPU file system or add content to existing files |
+| `containerdConfig` | [ContainerdConfig](#containerdconfig) | ContainerdConfig contains the configuration for containerd |
+| `dpuResources` | ResourceList | Minimum resources needed for BFB installation |
+| `systemReservedResources` | ResourceList | Resources reserved for system use |
+| `dpuMode` | [DpuModeType](#dpumodetype) | DPU operation mode (default: `dpu`) |
+| `hostNetworkInterfaceConfigs` | [][NetworkInterfaceConfig](#networkinterfaceconfig) | Host-side network interface configuration |
+
+### DPUFlavorGrub
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `kernelParameters` | []string | Kernel boot parameters to be set in grub configuration |
+
+### DPUFlavorSysctl
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `parameters` | []string | Sysctl parameters to be applied |
+
+### NVConfig
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `device` | *string | Target device (use `"*"` for all devices) |
+| `parameters` | []string | Firmware parameters to set |
+| `hostPowerCycleRequired` | *bool | Whether host power cycle is needed after applying config(Deprecated) |
+
+#### IB Mode to Ethernet Mode Configuration
+
+**Example for single port DPU:**
+```yaml
+nvconfig:
+  - device: '*'
+    parameters:
+      - LINK_TYPE_P1=ETH
+```
+
+**Example for dual port DPU:**
+```yaml
+nvconfig:
+  - device: '*'
+    parameters:
+      - LINK_TYPE_P1=ETH
+      - LINK_TYPE_P2=ETH
+```
+
+### DPUFlavorOVS
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `rawConfigScript` | string | Raw OVS configuration script |
+
+### ConfigFile
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `path` | string | File path on the DPU |
+| `operation` | [DPUFlavorFileOp](#dpuflavorfileop) | File operation type (`override` or `append`) |
+| `raw` | string | File content |
+| `permissions` | string | File permissions (e.g., `"0644"`) |
+
+### ContainerdConfig
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `registryEndpoint` | string | Container registry endpoint |
+
+### NetworkInterfaceConfig
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `mtu` | *int32 | MTU value (1000-9216) |
+| `dhcp` | *bool | Enable DHCP configuration |
+| `portNumber` | int32 | Port identifier (0 or 1) |
+| `nvconfig` | *[NVConfig](#nvconfig) | Port-specific NVConfig settings |
+
+## Enumerations
+
+### DpuModeType
+
+- `dpu`: Standard DPU mode
+- `zero-trust`: Zero-trust security mode
+
+### DPUFlavorFileOp
+
+- `override`: Replace file content entirely
+- `append`: Append to existing file content
+
+## Resource Management
+
+### DPU Resources
+
+The `dpuResources` field specifies the minimum resources required for a BFB with this flavor to be installed on a DPU. 
+Using this field, the controller can understand if that flavor can be installed on a particular DPU. It should be set to the total amount of resources the system needs + the resources that should be made available for DPUServices to consume:
+
+```yaml
+dpuResources:
+  cpu: 16
+  memory: 16Gi
+  nvidia.com/sf: 20
+```
+
+### System Reserved Resources
+
+The `systemReservedResources` field indicates resources consumed by the system (OS, OVS, DPF system etc) and are not made available for DPUServices to consume. DPUServices can consume the difference between `dpuResources` and `systemReservedResources`. This field must not be specified if `dpuResources` are not specified.:
+
+```yaml
+systemReservedResources:
+  cpu: 4
+  memory: 4Gi
+  nvidia.com/sf: 4
+```
+
+The difference between `dpuResources` and `systemReservedResources` is available for DPUServices.
+
+## Examples
+
+### HBN-OVN DPUFlavor
+
+```yaml
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUFlavor
+metadata:
+  name: hbn-ovn
+  namespace: dpf-operator-system
+spec:
+  bfcfgParameters:
+  - UPDATE_ATF_UEFI=yes
+  - UPDATE_DPU_OS=yes
+  - WITH_NIC_FW_UPDATE=yes
+  configFiles:
+  - operation: override
+    path: /etc/mellanox/mlnx-bf.conf
+    permissions: "0644"
+    raw: |
+      ALLOW_SHARED_RQ="no"
+      IPSEC_FULL_OFFLOAD="no"
+      ENABLE_ESWITCH_MULTIPORT="yes"
+  - operation: override
+    path: /etc/mellanox/mlnx-ovs.conf
+    permissions: "0644"
+    raw: |
+      CREATE_OVS_BRIDGES="no"
+      OVS_DOCA="yes"
+  - operation: override
+    path: /etc/mellanox/mlnx-sf.conf
+    permissions: "0644"
+    raw: ""
+  dpuMode: dpu
+  grub:
+    kernelParameters:
+    - console=hvc0
+    - console=ttyAMA0
+    - earlycon=pl011,0x13010000
+    - fixrttc
+    - net.ifnames=0
+    - biosdevname=0
+    - iommu.passthrough=1
+    - cgroup_no_v1=net_prio,net_cls
+    - hugepagesz=2048kB
+    - hugepages=3072
+  hostNetworkInterfaceConfigs:
+  - dhcp: true
+    mtu: 1500
+    portNumber: 0
+  nvconfig:
+  - device: '*'
+    parameters:
+    - PF_BAR2_ENABLE=0
+    - PER_PF_NUM_SF=1
+    - PF_TOTAL_SF=20
+    - PF_SF_BAR_SIZE=10
+    - NUM_PF_MSIX_VALID=0
+    - PF_NUM_PF_MSIX_VALID=1
+    - PF_NUM_PF_MSIX=228
+    - INTERNAL_CPU_MODEL=1
+    - INTERNAL_CPU_OFFLOAD_ENGINE=0
+    - SRIOV_EN=1
+    - NUM_OF_VFS=46
+    - LAG_RESOURCE_ALLOCATION=1
+  ovs:
+    rawConfigScript: |
+      _ovs-vsctl() {
+        ovs-vsctl --no-wait --timeout 15 "$@"
+      }
+
+      _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
+      _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
+      _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
+      _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
+      _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
+      _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
+      _ovs-vsctl set Open_vSwitch . other_config:ctl-pipe-size=1024
+      _ovs-vsctl --if-exists del-br ovsbr1
+      _ovs-vsctl --if-exists del-br ovsbr2
+      _ovs-vsctl --may-exist add-br br-sfc
+      _ovs-vsctl set bridge br-sfc datapath_type=netdev
+      _ovs-vsctl set bridge br-sfc fail_mode=secure
+      _ovs-vsctl --may-exist add-br br-hbn
+      _ovs-vsctl set bridge br-hbn datapath_type=netdev
+      _ovs-vsctl set bridge br-hbn fail_mode=secure
+      _ovs-vsctl --may-exist add-port br-sfc p0
+      _ovs-vsctl set Interface p0 type=dpdk
+      _ovs-vsctl set Interface p0 mtu_request=9216
+      _ovs-vsctl set Port p0 external_ids:dpf-type=physical
+
+      _ovs-vsctl set Open_vSwitch . external-ids:ovn-bridge-datapath-type=netdev
+      _ovs-vsctl --may-exist add-br br-ovn
+      _ovs-vsctl set bridge br-ovn datapath_type=netdev
+      _ovs-vsctl br-set-external-id br-ovn bridge-id br-ovn
+      _ovs-vsctl br-set-external-id br-ovn bridge-uplink puplinkbrovntobrsfc
+      _ovs-vsctl --may-exist add-port br-ovn pf0hpf
+      _ovs-vsctl set Interface pf0hpf type=dpdk
+      _ovs-vsctl set Interface pf0hpf mtu_request=9216
+```
+
+## Best Practices
+
+1. **Resource Planning**: Always specify `dpuResources` and `systemReservedResources` to ensure proper resource allocation
+2. **Immutability**: Plan your configuration carefully as DPUFlavor specs cannot be modified after creation
+3. **Testing**: Test DPUFlavor configurations in development environments before production deployment
+4. **Documentation**: Document custom configurations and their purposes for team understanding
+5. **IB Mode Conversion**: For DPUs initially in InfiniBand (IB) mode, always include `LINK_TYPE_P1=2` in nvconfig parameters to convert to Ethernet mode. For dual port DPUs, also add `LINK_TYPE_P2=2`

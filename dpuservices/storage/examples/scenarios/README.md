@@ -167,6 +167,8 @@ spec:
         - NVME_EMULATION_NUM_PF=1
         - NVME_EMULATION_NUM_VF=125
         - NVME_EMULATION_NUM_MSIX=2
+        - LINK_TYPE_P1=ETH
+        - LINK_TYPE_P2=ETH
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
@@ -1217,6 +1219,8 @@ spec:
         - PCI_SWITCH_EMULATION_NUM_PORT=32
         - NVME_EMULATION_ENABLE=1
         - NVME_EMULATION_NUM_PF=0
+        - LINK_TYPE_P1=ETH
+        - LINK_TYPE_P2=ETH
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
@@ -2161,6 +2165,8 @@ spec:
         - NVME_EMULATION_NUM_PF=1
         - NVME_EMULATION_NUM_VF=125
         - NVME_EMULATION_NUM_MSIX=2
+        - LINK_TYPE_P1=ETH
+        - LINK_TYPE_P2=ETH
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
@@ -3016,6 +3022,8 @@ spec:
         - PCI_SWITCH_EMULATION_NUM_PORT=32
         - NVME_EMULATION_ENABLE=1
         - NVME_EMULATION_NUM_PF=0
+        - LINK_TYPE_P1=ETH
+        - LINK_TYPE_P2=ETH
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
@@ -3824,6 +3832,8 @@ spec:
         - PCI_SWITCH_EMULATION_NUM_PORT=32
         - VIRTIO_FS_EMULATION_ENABLE=1
         - VIRTIO_FS_EMULATION_NUM_PF=0
+        - LINK_TYPE_P1=ETH
+        - LINK_TYPE_P2=ETH
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
