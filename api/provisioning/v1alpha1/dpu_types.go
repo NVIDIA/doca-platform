@@ -186,8 +186,8 @@ type DPUSpec struct {
 
 	// BMCIP is the ip address of the DPU BMC
 	//
+	// Deprecated: Use BMCIP from DPUDevice instead.
 	// +optional
-	// +deprecated: Use BMCIP from DPUDevice
 	BMCIP string `json:"bmcIP,omitempty"`
 }
 
