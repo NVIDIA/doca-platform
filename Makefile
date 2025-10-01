@@ -468,16 +468,10 @@ test-release-e2e-quick: # Build images required for the quick DPF e2e test.
 	$(MAKE) helm-package-all helm-push-all
 	$(MAKE) helm-package-dummydpuservice helm-push-dummydpuservice
 
-PARALLEL_JOBS ?=4
 .PHONY: test-release-e2e-slow
 test-release-e2e-slow: release # Build images required for the slow DPF e2e tests.
-	$(MAKE) -j$(PARALLEL_JOBS) --output-sync=target \
-		docker-build-dummydpuservice \
-		helm-package-dummydpuservice
-	# Push operations should wait for builds to complete
-	$(MAKE) -j$(PARALLEL_JOBS) --output-sync=target \
-		docker-push-dummydpuservice \
-		helm-push-dummydpuservice
+	$(MAKE) docker-build-dummydpuservice docker-push-dummydpuservice
+	$(MAKE) helm-package-dummydpuservice helm-push-dummydpuservice
 
 
 TEST_CLUSTER_NAME := dpf-test
@@ -617,13 +611,12 @@ lint-helm-storage: helm ## Run helm lint for snap dpu chart
 
 .PHONY: release-build
 release-build: generate ## Build helm and container images for release.
-	# Build multiarch images which can run on both DPUs and x86 hosts.
+	# Build multiarch images which will run on both DPUs and x86 hosts.
+	$(MAKE) $(addprefix docker-build-,$(MULTI_ARCH_DOCKER_BUILD_TARGETS))
 	# Build arm64 images which will run on DPUs.
+	$(MAKE) ARCH=$(DPU_ARCH) $(addprefix docker-build-,$(DPU_ARCH_DOCKER_BUILD_TARGETS))
 	# Build amd64 images which will run on x86 hosts.
-	$(MAKE) -j$(PARALLEL_JOBS) --output-sync=target \
-		$(addprefix docker-build-,$(MULTI_ARCH_DOCKER_BUILD_TARGETS)) \
-		$(addprefix ARCH=$(DPU_ARCH) docker-build-,$(DPU_ARCH_DOCKER_BUILD_TARGETS)) \
-		$(addprefix ARCH=$(HOST_ARCH) docker-build-,$(HOST_ARCH_DOCKER_BUILD_TARGETS))
+	$(MAKE) ARCH=$(HOST_ARCH) $(addprefix docker-build-,$(HOST_ARCH_DOCKER_BUILD_TARGETS))
 
 	# Package the helm charts.
 	$(MAKE) helm-package-all
@@ -849,8 +842,7 @@ DPU_ARCH_DOCKER_BUILD_TARGETS=$(DPU_ARCH_BUILD_TARGETS) ovs-cni
 MULTI_ARCH_DOCKER_BUILD_TARGETS= dpf-system ovn-kubernetes storage-system storage-host
 
 .PHONY: docker-build-all
-docker-build-all: 
-	$(MAKE) -j$(PARALLEL_JOBS) --output-sync=target $(addprefix docker-build-,$(DOCKER_BUILD_TARGETS)) ## Build docker images for all DOCKER_BUILD_TARGETS. Architecture defaults to build system architecture unless overridden or hardcoded.
+docker-build-all: $(addprefix docker-build-,$(DOCKER_BUILD_TARGETS)) ## Build docker images for all DOCKER_BUILD_TARGETS. Architecture defaults to build system architecture unless overridden or hardcoded.
 
 DPF_SYSTEM_IMAGE_NAME ?= dpf-system
 export DPF_SYSTEM_IMAGE ?= $(REGISTRY)/$(DPF_SYSTEM_IMAGE_NAME)
@@ -930,17 +922,14 @@ docker-build-dpf-system-for-%: generate-manifests-release-defaults
 		-t $(DPF_SYSTEM_IMAGE):$(TAG)-$*
 
 .PHONY: docker-push-dpf-system # Push a multi-arch image for DPF System using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
-docker-push-dpf-system: 
-	# Push each architecture sequentially and build manifest incrementally
-	$(foreach arch,$(DPF_SYSTEM_ARCH),$(MAKE) docker-push-dpf-system-for-$(arch);)
-	# Push the final multi-arch manifest
+docker-push-dpf-system: $(addprefix docker-push-dpf-system-for-,$(DPF_SYSTEM_ARCH))
 	docker manifest push --purge $(DPF_SYSTEM_IMAGE):$(TAG)
 
 docker-push-dpf-system-for-%:
 	# Tag and push the arch-specific image with the single arch-agnostic tag.
 	docker tag $(DPF_SYSTEM_IMAGE):$(TAG)-$* $(DPF_SYSTEM_IMAGE):$(TAG)
 	docker push $(DPF_SYSTEM_IMAGE):$(TAG)
-	# Add this architecture's RepoDigest to the multi-arch manifest
+	# This must be called in a separate target to ensure the shell command is called in the correct order.
 	$(MAKE) docker-create-manifest-for-dpf-system
 
 docker-create-manifest-for-dpf-system:
@@ -1011,17 +1000,14 @@ docker-build-ovn-kubernetes-for-%: $(OVNKUBERNETES_DIR)
 		-t $(OVNKUBERNETES_IMAGE):$(TAG)-$*
 
 .PHONY: docker-push-ovn-kubernetes # Push a multi-arch image for ovn-kubernetes using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
-docker-push-ovn-kubernetes: 
-	# Push each architecture sequentially and build manifest incrementally
-	$(foreach arch,$(DPF_SYSTEM_ARCH),$(MAKE) docker-push-ovn-kubernetes-for-$(arch);)
-	# Push the final multi-arch manifest
+docker-push-ovn-kubernetes: $(addprefix docker-push-ovn-kubernetes-for-,$(DPF_SYSTEM_ARCH))
 	docker manifest push --purge $(OVNKUBERNETES_IMAGE):$(TAG)
 
 docker-push-ovn-kubernetes-for-%:
 	# Tag and push the arch-specific image with the single arch-agnostic tag.
 	docker tag $(OVNKUBERNETES_IMAGE):$(TAG)-$* $(OVNKUBERNETES_IMAGE):$(TAG)
 	docker push $(OVNKUBERNETES_IMAGE):$(TAG)
-	# Add this architecture's RepoDigest to the multi-arch manifest
+	# This must be called in a separate target to ensure the shell command is called in the correct order.
 	$(MAKE) docker-create-manifest-for-ovn-kubernetes
 
 docker-create-manifest-for-ovn-kubernetes:
@@ -1132,17 +1118,14 @@ docker-build-storage-system-for-%:
 		-t $(STORAGE_SYSTEM_IMAGE):$(TAG)-$*
 
 .PHONY: docker-push-storage-system # Push a multi-arch image for snap-csi-plugin using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
-docker-push-storage-system: 
-	# Push each architecture sequentially and build manifest incrementally
-	$(foreach arch,$(DPF_SYSTEM_ARCH),$(MAKE) docker-push-storage-system-for-$(arch);)
-	# Push the final multi-arch manifest
+docker-push-storage-system: $(addprefix docker-push-storage-system-for-,$(DPF_SYSTEM_ARCH))
 	docker manifest push --purge $(STORAGE_SYSTEM_IMAGE):$(TAG)
 
 docker-push-storage-system-for-%:
 	# Tag and push the arch-specific image with the single arch-agnostic tag.
 	docker tag $(STORAGE_SYSTEM_IMAGE):$(TAG)-$* $(STORAGE_SYSTEM_IMAGE):$(TAG)
 	docker push $(STORAGE_SYSTEM_IMAGE):$(TAG)
-	# Add this architecture's RepoDigest to the multi-arch manifest
+	# This must be called in a separate target to ensure the shell command is called in the correct order.
 	$(MAKE) docker-create-manifest-for-storage-system
 
 docker-create-manifest-for-storage-system:
@@ -1174,17 +1157,14 @@ docker-build-storage-host-for-%:
 		-t $(STORAGE_HOST_IMAGE):$(TAG)-$*
 
 .PHONY: docker-push-storage-host # Push a multi-arch image for storage-host using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
-docker-push-storage-host: 
-	# Push each architecture sequentially and build manifest incrementally
-	$(foreach arch,$(DPF_SYSTEM_ARCH),$(MAKE) docker-push-storage-host-for-$(arch);)
-	# Push the final multi-arch manifest
+docker-push-storage-host: $(addprefix docker-push-storage-host-for-,$(DPF_SYSTEM_ARCH))
 	docker manifest push --purge $(STORAGE_HOST_IMAGE):$(TAG)
 
 docker-push-storage-host-for-%:
 	# Tag and push the arch-specific image with the single arch-agnostic tag.
 	docker tag $(STORAGE_HOST_IMAGE):$(TAG)-$* $(STORAGE_HOST_IMAGE):$(TAG)
 	docker push $(STORAGE_HOST_IMAGE):$(TAG)
-	# Add this architecture's RepoDigest to the multi-arch manifest
+	# This must be called in a separate target to ensure the shell command is called in the correct order.
 	$(MAKE) docker-create-manifest-for-storage-host
 
 docker-create-manifest-for-storage-host:
@@ -1211,18 +1191,15 @@ docker-build-bfb-registry-for-%:
 		. \
 		-t $(BFB_REGISTRY_IMAGE):$(TAG)-$*
 
-.PHONY: docker-push-bfb-registry # Push a multi-arch image for BFB Registry using `docker manifest`. The variable HOST_ARCH defines which architectures this target pushes for.
-docker-push-bfb-registry: 
-	# Push each architecture sequentially and build manifest incrementally
-	$(foreach arch,$(HOST_ARCH),$(MAKE) docker-push-bfb-registry-for-$(arch);)
-	# Push the final multi-arch manifest
+.PHONY: docker-push-bfb-registry # Push a multi-arch image for BFB Registry using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
+docker-push-bfb-registry: $(addprefix docker-push-bfb-registry-for-,$(HOST_ARCH))
 	docker manifest push --purge $(BFB_REGISTRY_IMAGE):$(TAG)
 
 docker-push-bfb-registry-for-%:
 	# Tag and push the arch-specific image with the single arch-agnostic tag.
 	docker tag $(BFB_REGISTRY_IMAGE):$(TAG)-$* $(BFB_REGISTRY_IMAGE):$(TAG)
 	docker push $(BFB_REGISTRY_IMAGE):$(TAG)
-	# Add this architecture's RepoDigest to the multi-arch manifest
+	# This must be called in a separate target to ensure the shell command is called in the correct order.
 	$(MAKE) docker-create-manifest-for-bfb-registry
 
 docker-create-manifest-for-bfb-registry:
@@ -1230,8 +1207,7 @@ docker-create-manifest-for-bfb-registry:
 	docker manifest create --amend $(BFB_REGISTRY_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(BFB_REGISTRY_IMAGE):$(TAG))
 
 .PHONY: docker-push-all
-docker-push-all: 
-	$(MAKE) -j$(PARALLEL_JOBS) --output-sync=target $(addprefix docker-push-,$(DOCKER_BUILD_TARGETS))  ## Push the docker images for all DOCKER_BUILD_TARGETS.
+docker-push-all: $(addprefix docker-push-,$(DOCKER_BUILD_TARGETS))  ## Push the docker images for all DOCKER_BUILD_TARGETS.
 
 .PHONY: docker-push-dpf-system
 docker-push-dpf-system: ## This is a no-op to allow using DOCKER_BUILD_TARGETS.
