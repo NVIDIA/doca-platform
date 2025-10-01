@@ -67,7 +67,10 @@ spec:
                 description: Specifies name of the bfb CR to use for this DPU
                 type: string
               bmcIP:
-                description: BMCIP is the ip address of the DPU BMC
+                description: |-
+                  BMCIP is the ip address of the DPU BMC
+
+                  Deprecated: Use BMCIP from DPUDevice instead.
                 type: string
               cluster:
                 description: Specifies details on the K8S cluster to join

@@ -1282,9 +1282,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `psid` _string_ | PSID is the Product Serial ID of the device.<br />It's used to track the device's lifecycle and for inventory management.<br />This value is immutable and should not be changed once set.<br />Example: "MT_0001234567", "MT25066004C7"<br />Deprecated: This field is deprecated and will be removed in a future version. Use status.psid instead. |  | Pattern: `^MT_?[A-Z0-9]+$` <br /> |
+| `psid` _string_ | PSID is the Product Serial ID of the device.<br />It's used to track the device's lifecycle and for inventory management.<br />This value is immutable and should not be changed once set.<br />Example: "MT_0001234567", "MT25066004C7"<br /><br />Deprecated: This field is deprecated and will be removed in a future version. Use status.psid instead. |  | Pattern: `^MT_?[A-Z0-9]+$` <br /> |
 | `serialNumber` _string_ | SerialNumber is the serial number of the device.<br />It's used to track the device's lifecycle and for inventory management.<br />This value is immutable and should not be changed once set.<br />Example: "MT_0001234567", "MT25066004C7" |  |  |
-| `opn` _string_ | OPN is the Ordering Part Number of the device.<br />It's used to track the device's compatibility with different software versions.<br />This value is immutable and should not be changed once set.<br />Example: "900-9D3B4-00SV-EA0"<br />Deprecated: This field is deprecated and will be removed in a future version. Use status.opn instead. |  | Pattern: `^\d\{3\}-[A-Z0-9]\{5\}-[A-Z0-9]\{4\}-[A-Z0-9]\{3\}$` <br /> |
+| `opn` _string_ | OPN is the Ordering Part Number of the device.<br />It's used to track the device's compatibility with different software versions.<br />This value is immutable and should not be changed once set.<br />Example: "900-9D3B4-00SV-EA0"<br /><br />Deprecated: This field is deprecated and will be removed in a future version. Use status.opn instead. |  | Pattern: `^\d\{3\}-[A-Z0-9]\{5\}-[A-Z0-9]\{4\}-[A-Z0-9]\{3\}$` <br /> |
 | `bmcIp` _string_ | BMCIP is the IP address of the BMC (Base Management Controller) on the device.<br />This is used for remote management and monitoring of the device.<br />This value is immutable and should not be changed once set.<br />Example: "10.1.2.3" |  | Format: ipv4 <br /> |
 | `bmcPort` _integer_ | BMCPort is the port number of the BMC (Base Management Controller) on the device.<br />This is used for remote management and monitoring of the device.<br />This value is immutable and should not be changed once set.<br />Example: 443 | 443 | Minimum: 1 <br /> |
 | `numberOfPFs` _integer_ | NumberOfPFs is the number of PFs on the device.<br />This value is immutable and should not be changed once set.<br />Example: 1 | 1 | Minimum: 1 <br /> |
@@ -1851,7 +1851,7 @@ _Appears in:_
 | `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} |  |
 | `cluster` _[K8sCluster](#k8scluster)_ | Specifies details on the K8S cluster to join |  |  |
 | `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br /> |
-| `bmcIP` _string_ | BMCIP is the ip address of the DPU BMC |  |  |
+| `bmcIP` _string_ | BMCIP is the ip address of the DPU BMC<br /><br />Deprecated: Use BMCIP from DPUDevice instead. |  |  |
 
 
 #### DPUStatus
