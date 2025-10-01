@@ -839,7 +839,7 @@ binary-dpfdev: ## Build the dpfdev CLI tool
 DOCKER_BUILD_TARGETS=$(HOST_ARCH_DOCKER_BUILD_TARGETS) $(DPU_ARCH_DOCKER_BUILD_TARGETS) $(MULTI_ARCH_DOCKER_BUILD_TARGETS)
 HOST_ARCH_DOCKER_BUILD_TARGETS=hostdriver bfb-registry
 DPU_ARCH_DOCKER_BUILD_TARGETS=$(DPU_ARCH_BUILD_TARGETS) ovs-cni
-MULTI_ARCH_DOCKER_BUILD_TARGETS= dpf-system ovn-kubernetes storage-system storage-host
+MULTI_ARCH_DOCKER_BUILD_TARGETS= dpf-system ovnk-utils storage-system storage-host
 
 .PHONY: docker-build-all
 docker-build-all: $(addprefix docker-build-,$(DOCKER_BUILD_TARGETS)) ## Build docker images for all DOCKER_BUILD_TARGETS. Architecture defaults to build system architecture unless overridden or hardcoded.
@@ -848,8 +848,8 @@ DPF_SYSTEM_IMAGE_NAME ?= dpf-system
 export DPF_SYSTEM_IMAGE ?= $(REGISTRY)/$(DPF_SYSTEM_IMAGE_NAME)
 export DPF_SYSTEM_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(DPF_SYSTEM_IMAGE_NAME)
 
-OVNKUBERNETES_IMAGE_NAME = ovn-kubernetes
-export OVNKUBERNETES_IMAGE = $(REGISTRY)/$(OVNKUBERNETES_IMAGE_NAME)
+OVNK_UTILS_IMAGE_NAME = ovn-kubernetes-dpf-utils
+export OVNK_UTILS_IMAGE = $(REGISTRY)/$(OVNK_UTILS_IMAGE_NAME)
 
 OVNKUBERNETES_RESOURCE_INJECTOR_IMAGE_NAME = ovn-kubernetes-resource-injector
 export OVNKUBERNETES_RESOURCE_INJECTOR_IMAGE = $(REGISTRY)/$(OVNKUBERNETES_RESOURCE_INJECTOR_IMAGE_NAME)
@@ -975,10 +975,10 @@ docker-build-ovs-cni: $(OVS_CNI_DIR) ## Builds the OVS CNI image
 		-t $(OVS_CNI_IMAGE):${TAG} \
 		.
 
-.PHONY: docker-build-ovn-kubernetes # Build a multi-arch image for DPF System. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
-docker-build-ovn-kubernetes: $(addprefix docker-build-ovn-kubernetes-for-,$(DPF_SYSTEM_ARCH))
+.PHONY: docker-build-ovnk-utils # Build a multi-arch image for OVN Kubernetes utils. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
+docker-build-ovnk-utils: $(addprefix docker-build-ovnk-utils-for-,$(DPF_SYSTEM_ARCH))
 
-docker-build-ovn-kubernetes-for-%: $(OVNKUBERNETES_DIR)
+docker-build-ovnk-utils-for-%: $(OVNKUBERNETES_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	docker buildx build \
 		--load \
@@ -995,24 +995,24 @@ docker-build-ovn-kubernetes-for-%: $(OVNKUBERNETES_DIR)
 		--build-arg ovn_kubernetes_dir=$(subst $(CURDIR)/,,$(OVNKUBERNETES_DIR)) \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
-		-f Dockerfile.ovn-kubernetes \
+		-f Dockerfile.ovnk-utils \
 		. \
-		-t $(OVNKUBERNETES_IMAGE):$(TAG)-$*
+		-t $(OVNK_UTILS_IMAGE):$(TAG)-$*
 
-.PHONY: docker-push-ovn-kubernetes # Push a multi-arch image for ovn-kubernetes using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
-docker-push-ovn-kubernetes: $(addprefix docker-push-ovn-kubernetes-for-,$(DPF_SYSTEM_ARCH))
-	docker manifest push --purge $(OVNKUBERNETES_IMAGE):$(TAG)
+.PHONY: docker-push-ovnk-utils # Push a multi-arch image for ovnk-utils using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
+docker-push-ovnk-utils: $(addprefix docker-push-ovnk-utils-for-,$(DPF_SYSTEM_ARCH))
+	docker manifest push --purge $(OVNK_UTILS_IMAGE):$(TAG)
 
-docker-push-ovn-kubernetes-for-%:
+docker-push-ovnk-utils-for-%:
 	# Tag and push the arch-specific image with the single arch-agnostic tag.
-	docker tag $(OVNKUBERNETES_IMAGE):$(TAG)-$* $(OVNKUBERNETES_IMAGE):$(TAG)
-	docker push $(OVNKUBERNETES_IMAGE):$(TAG)
-	# This must be called in a separate target to ensure the shell command is called in the correct order.
-	$(MAKE) docker-create-manifest-for-ovn-kubernetes
+	docker tag $(OVNK_UTILS_IMAGE):$(TAG)-$* $(OVNK_UTILS_IMAGE):$(TAG)
+	docker push $(OVNK_UTILS_IMAGE):$(TAG)
+	# Add this architecture's RepoDigest to the multi-arch manifest
+	$(MAKE) docker-create-manifest-for-ovnk-utils
 
-docker-create-manifest-for-ovn-kubernetes:
+docker-create-manifest-for-ovnk-utils:
 	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
-	docker manifest create --amend $(OVNKUBERNETES_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(OVNKUBERNETES_IMAGE):$(TAG))
+	docker manifest create --amend $(OVNK_UTILS_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(OVNK_UTILS_IMAGE):$(TAG))
 
 .PHONY: docker-build-hostdriver
 docker-build-hostdriver: ## Build docker image for DMS and hostnetwork.

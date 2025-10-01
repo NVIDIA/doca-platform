@@ -136,7 +136,7 @@ export OVN_KUBERNETES_IMAGE=ghcr.io/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubunt
 export OVNK_TAG=release-1.1
 
 ## The ovn-kubernetes-dpf tool image. This should point to a DPF release image
-export DPF_OVNK_CNI_UTILS_IMAGE=oci://ghcr.io/nvidia/ovn-kubernetes
+export DPF_OVNK_CNI_UTILS_IMAGE=oci://ghcr.io/nvidia/ovn-kubernetes-dpf-utils
 
 ## POD_CIDR is the CIDR used for pods in the target Kubernetes cluster.
 export POD_CIDR=10.233.64.0/18
