@@ -187,9 +187,11 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		if dpuDevice.Status.PCIAddress != nil {
 			dpuDevice.Labels[cutil.DPUDevicePCIAddressLabel] = *dpuDevice.Status.PCIAddress
 		}
+		//nolint:staticcheck
 		if dpuDevice.Spec.PSID != nil {
 			dpuDevice.Labels[cutil.DPUDevicePSIDLabel] = *dpuDevice.Spec.PSID
 		}
+		//nolint:staticcheck
 		if dpuDevice.Spec.OPN != nil {
 			dpuDevice.Labels[cutil.DPUDeviceOPNLabel] = *dpuDevice.Spec.OPN
 		}
