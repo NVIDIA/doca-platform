@@ -487,7 +487,7 @@ helm-push-vpc-ovn: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for vpc-ovn
 
 .PHONY: build-ovn-central
 build-ovn-central: ## Build OVN central Docker image
-	docker build -t ovn-central:$(OVN_SCHEMA_VERSION) -f ./Dockerfile.ovn .
+	docker build -t ovn-central:$(OVN_SCHEMA_VERSION) --build-arg PACKAGE_SOURCES=${PACKAGE_SOURCES} -f ./Dockerfile.ovn .
 
 .PHONY: run-ovn-central
 run-ovn-central: ## Run OVN central Docker container (not in use - for developing purposes)
