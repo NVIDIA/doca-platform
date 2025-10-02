@@ -1,13 +1,40 @@
 ARG builder_image
+ARG KUBECTL_VERSION=1.34.0
+ARG OVN_VERSION="24.03.6"
 
 FROM --platform=${BUILDPLATFORM} ${builder_image} AS ovnkubernetes-builder
 
 ARG TARGETARCH
 ARG gcflags
 ARG ldflags
+ARG KUBECTL_VERSION
+ARG OVN_VERSION
 
 WORKDIR /workspace
 RUN apt-get update && apt-get install -y -qq make git
+RUN curl -fsSL --retry 5 --retry-delay 3 \
+    "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" -o kubectl && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+RUN curl -fsSL --retry 5 --retry-delay 3 \
+    -o kubectl-${KUBECTL_VERSION}.tar.gz \
+    https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz
+
+RUN curl -fsSL --retry 5 --retry-delay 3 \
+    -o ovn-${OVN_VERSION}.tar.gz \
+    https://github.com/Mellanox/ovn/archive/refs/tags/v${OVN_VERSION}.tar.gz
+
+# Download OVN packages in the builder stage (native execution, better network reliability)
+RUN curl -fsSL --retry 5 --retry-delay 3 \
+    "https://github.com/Mellanox/ovn/releases/download/v${OVN_VERSION}/ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+    -o ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb && \
+    curl -fsSL --retry 5 --retry-delay 3 \
+    "https://github.com/Mellanox/ovn/releases/download/v${OVN_VERSION}/ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+    -o ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb && \
+    curl -fsSL --retry 5 --retry-delay 3 \
+    "https://github.com/Mellanox/ovn/releases/download/v${OVN_VERSION}/ovn-host_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+    -o ovn-host_${OVN_VERSION}-1_${TARGETARCH}.deb
+
 ARG ovn_kubernetes_dir
 COPY ${ovn_kubernetes_dir} ovn-kubernetes
 RUN cd ovn-kubernetes/dist/images && \
@@ -59,6 +86,8 @@ RUN mkdir src && \
 FROM nvcr.io/nvidia/doca/canonical:ubuntu24.04
 
 ARG TARGETARCH
+ARG KUBECTL_VERSION
+ARG OVN_VERSION
 
 USER root
 
@@ -86,19 +115,10 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 RUN dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /after-ovn-dpkg-list.txt
-
-ARG KUBECTL_VERSION=1.34.0
-RUN curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" && \
-    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-
-ARG OVN_VERSION="24.03.6"
-
-RUN curl -fsSL "https://github.com/Mellanox/ovn/releases/download/v${OVN_VERSION}/ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb" \
-    -o ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb && \
-    curl -fsSL "https://github.com/Mellanox/ovn/releases/download/v${OVN_VERSION}/ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb" \
-    -o ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb && \
-    curl -fsSL "https://github.com/Mellanox/ovn/releases/download/v${OVN_VERSION}/ovn-host_${OVN_VERSION}-1_${TARGETARCH}.deb" \
-    -o ovn-host_${OVN_VERSION}-1_${TARGETARCH}.deb
+# Copy OVN packages from builder stage (downloaded natively, no emulation issues)
+COPY --from=ovnkubernetes-builder /workspace/ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb .
+COPY --from=ovnkubernetes-builder /workspace/ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb .
+COPY --from=ovnkubernetes-builder /workspace/ovn-host_${OVN_VERSION}-1_${TARGETARCH}.deb .
 
 RUN dpkg -i "ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb" \
         "ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb" \
@@ -146,12 +166,8 @@ WORKDIR /src
 
 # Copy ovn-kubernetes source code from builder stage
 COPY --from=ovnkubernetes-builder /workspace/source-code.tar.gz ovn-kubernetes-source-code.tar.gz
-
-RUN curl -fsSL -o kubectl-${KUBECTL_VERSION}.tar.gz \
-    https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz
-
-RUN curl -fsSL -o ovn-${OVN_VERSION}.tar.gz \
-    https://github.com/Mellanox/ovn/archive/refs/tags/v${OVN_VERSION}.tar.gz
+COPY --from=ovnkubernetes-builder /workspace/ovn-${OVN_VERSION}.tar.gz ovn-${OVN_VERSION}.tar.gz
+COPY --from=ovnkubernetes-builder /workspace/kubectl-${KUBECTL_VERSION}.tar.gz kubectl-${KUBECTL_VERSION}.tar.gz
 
 # Download source code for apt packages.
 # Starting from Ubuntu 24.04 shifted to the new deb822 format for source management.
@@ -162,7 +178,7 @@ RUN test "${PACKAGE_SOURCES}" = "false" || ( \
       sed -i 's/^Types: deb$/Types: deb deb-src/g' /etc/apt/sources.list.d/*.sources && \
       apt-get update && \
       apt-get source --download-only ${BASE_PACKAGES} ${OVN_PACKAGES} && \
-      comm -23 /after-ovn-dpkg-list.txt /initial-dpkg-list.txt | xargs -r apt-get source --download-only && \
+      comm -23 --nocheck-order /after-ovn-dpkg-list.txt /initial-dpkg-list.txt | xargs -r apt-get source --download-only && \
       apt-get clean && \
       rm -f /initial-dpkg-list.txt /after-ovn-dpkg-list.txt && \
       rm -rf /var/lib/apt/lists/* && \
