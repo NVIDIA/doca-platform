@@ -38,7 +38,7 @@ RUN test "${PACKAGE_SOURCES}" = "false" || ( \
         apt-get source --download-only ${PACKAGES} && \
         curl -fsSL -o /usr/src/packages/kubectl-${KUBECTL_VERSION}.tar.gz \
         "https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz" && \
-        comm -23 /after-dpkg-list.txt /initial-dpkg-list.txt | xargs -r apt-get source --download-only && \
+        comm -23 --nocheck-order /after-dpkg-list.txt /initial-dpkg-list.txt | xargs -r apt-get source --download-only && \
         rm -f /initial-dpkg-list.txt /after-dpkg-list.txt && \
         cd / && \
         tar -cf source-code.tar /usr/src/packages && \
