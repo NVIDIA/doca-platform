@@ -97,6 +97,7 @@ export CHARTSDIR ?= $(PROJECT_DIR)/hack/charts
 DPUSERVICESDIR ?= $(PROJECT_DIR)/dpuservices
 REPOSDIR ?= $(PROJECT_DIR)/hack/repos
 HELMDIR ?= $(PROJECT_DIR)/deploy/charts
+CRDDIR ?= $(HELMDIR)/dpf-operator/templates/crds
 THIRDPARTYDIR ?= $(PROJECT_DIR)/third_party/forked
 EXAMPLE ?= $(PROJECT_DIR)/example
 
@@ -231,7 +232,7 @@ generate-manifests: $(addprefix generate-manifests-,$(GENERATE_TARGETS)) ## Run 
 
 .PHONY: generate-manifests-operator
 generate-manifests-operator: controller-gen kustomize ## Generate manifests e.g. CRD, RBAC. for the operator controller.
-	$(MAKE) clean-generated-yaml SRC_DIRS="./deploy/charts/dpf-operator/templates/crds/"
+	$(MAKE) clean-generated-yaml SRC_DIRS=$(CRDDIR)
 	$(CONTROLLER_GEN) \
 	paths="./cmd/operator/..." \
 	paths="./cmd/kamaji-cluster-manager/..." \
@@ -245,7 +246,7 @@ generate-manifests-operator: controller-gen kustomize ## Generate manifests e.g.
 	output:crd:dir=./config/operator-crds \
 	output:rbac:dir=./deploy/charts/dpf-operator/templates
 	## Copy CRD definitions to the operator helm directory
-	$(KUSTOMIZE) build config/operator-crds -o  deploy/charts/dpf-operator/templates/crds/;
+	$(KUSTOMIZE) build config/operator-crds -o $(CRDDIR);
 
 .PHONE: generate-manifests-mock-dms
 generate-manifests-mock-dms: controller-gen
@@ -570,7 +571,7 @@ lint: golangci-lint ## Run golangci-lint linter & yamllint
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	GOOS=linux $(GOLANGCI_LINT) run --fix
 
-VERIFY_TARGETS ?= generate copyright md-links shfmt
+VERIFY_TARGETS ?= generate copyright md-links shfmt crdify
 
 .PHONY: verify
 verify: $(addprefix verify-,$(VERIFY_TARGETS)) ## Run all verify-* targets
@@ -595,6 +596,14 @@ verify-md-links: $(LYCHEE) ## Check links in markdown docs are working
 		exit 0; \
 	fi; \
 	$(LYCHEE) --accept 200,429 . *.md --exclude-path third_party --exclude-path ./deploy --exclude-path docs/do_not_publish # Exclude the external `third_party` docs and the generated `charts` docs.
+
+export CRDIFY_BASE_REF ?= v25.7.0
+export CRDIFY_COMPARE_REF ?= HEAD
+export CRDIFY_CONFIG ?= $(PROJECT_DIR)/crdify.yaml
+export CRDIFY_CRD_DIR = $(patsubst $(PROJECT_DIR)/%,%,$(CRDDIR))
+.PHONY: verify-crdify
+verify-crdify: binary-dpfdev ## Verify that the CRDs are valid
+	hack/scripts/crd-validation.sh
 
 .PHONY: lint-helm
 lint-helm: lint-helm-dpu-networking lint-helm-ovn-kubernetes lint-helm-dummydpuservice lint-helm-storage
@@ -851,9 +860,9 @@ install-dpfctl: binary-dpfctl ## Install the dpfctl binary.
 
 .PHONY: binary-dpfdev
 binary-dpfdev: ## Build the dpfdev CLI tool
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build \
+	cd hack/tools/dpfdev && CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build \
 		-ldflags=$(GO_LDFLAGS) \
-		-gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpfdev github.com/nvidia/doca-platform/hack/tools/dpfdev
+		-gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpfdev main.go
 
 DOCKER_BUILD_TARGETS=$(HOST_ARCH_DOCKER_BUILD_TARGETS) $(DPU_ARCH_DOCKER_BUILD_TARGETS) $(MULTI_ARCH_DOCKER_BUILD_TARGETS)
 HOST_ARCH_DOCKER_BUILD_TARGETS=hostdriver bfb-registry

@@ -1,0 +1,25 @@
+unhandledEnforcement: None
+validations:
+  - name: default
+    enforcement: Warn
+  - name: description
+    enforcement: Warn # changing to warning is important for the deprecation feature
+  - name: minLength
+    enforcement: Warn
+  - name: enum
+    enforcement: Error
+    configuration:
+      additionPolicy: Allow
+  - name: required
+    enforcement: Error
+    configuration:
+      # Allow list for known required field changes that were bugs in previous versions
+      allowList:
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUSet"
+          field: ".spec"
+          error: "new required fields: [dpuTemplate]"
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUSet"
+          field: ".spec.dpuTemplate.spec"
+          error: "new required fields: [dpuFlavor]"
