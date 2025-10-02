@@ -1,0 +1,11 @@
+validations:
+  - name: description
+    enforcement: Warn # changing to warning is important for the deprecation feature
+  - name: required
+    enforcement: Error
+    configuration:
+      allowList:
+        - apiVersion: "stable.example.com/v1"
+          kind: "Shirt"
+          field: ".spec"
+          error: "new required fields: [color]"

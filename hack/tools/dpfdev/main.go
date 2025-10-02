@@ -19,7 +19,7 @@ package main
 import (
 	"os"
 
-	cmd "github.com/nvidia/doca-platform/hack/tools/dpfdev/cmd"
+	"github.com/nvidia/doca-platform/hack/tools/dpfdev/cmd"
 )
 
 func main() {
