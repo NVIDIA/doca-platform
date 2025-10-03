@@ -19,6 +19,7 @@ package dpuattacher
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	storagev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
@@ -114,6 +115,7 @@ func (a *dpuAttacher) getDesiredVolumeAttachment(dpuVolumeAttachment *storagev1.
 					Namespace: a.targetNamespace,
 				},
 			},
+			Parameters:         maps.Clone(dpuVolumeAttachment.Status.AttachmentMetadata),
 			FunctionTypeConfig: dpuVolumeAttachment.Spec.FunctionTypeConfig,
 		},
 	}
