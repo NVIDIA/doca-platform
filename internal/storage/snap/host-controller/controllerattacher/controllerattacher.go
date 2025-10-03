@@ -89,8 +89,13 @@ func (a *controllerAttacher) ControllerAttach(ctx context.Context, dpuClusterCli
 	dpuVolumeAttachment *storagev1.DPUVolumeAttachment, dpuVolume *storagev1.DPUVolume, dpu *provisioningv1.DPU) (ControllerAttachResult, error) {
 	reqLog := ctrllog.FromContext(ctx).WithValues("dpuVolumeAttachment", dpuVolumeAttachment.Name,
 		"dpuCluster", client.ObjectKeyFromObject(dpuClusterClient.DPUCluster))
-	if dpuVolume.Status.State.CSIDriverName == nil {
-		return ControllerAttachResult{}, fmt.Errorf("CSIDriverName is not set for DPUVolume %s", dpuVolume.Name)
+	if dpuVolume.Status.State == nil ||
+		dpuVolume.Status.State.VolumeInfo == nil ||
+		dpuVolume.Status.State.VolumeInfo.VolumeName == nil ||
+		*dpuVolume.Status.State.VolumeInfo.VolumeName == "" ||
+		dpuVolume.Status.State.CSIDriverName == nil ||
+		*dpuVolume.Status.State.CSIDriverName == "" {
+		return ControllerAttachResult{}, fmt.Errorf("status.state of DPUVolume %s is missing required fields", dpuVolume.Name)
 	}
 	csiDriverName := *dpuVolume.Status.State.CSIDriverName
 	csiDriver, err := a.getCSIDriver(ctx, dpuClusterClient, csiDriverName)
@@ -162,12 +167,7 @@ func (a *controllerAttacher) ensureSVVolumeAttachment(ctx context.Context, dpuCl
 	dpuVolumeAttachment *storagev1.DPUVolumeAttachment, dpuVolume *storagev1.DPUVolume, dpu *provisioningv1.DPU) (internalResult, *storagev1.SVVolumeAttachment, error) {
 	reqLog := ctrllog.FromContext(ctx).WithValues("svVolumeAttachment", dpuVolumeAttachment.Name)
 
-	if dpuVolume.Status.State.VolumeInfo == nil ||
-		dpuVolume.Status.State.VolumeInfo.VolumeName == nil ||
-		*dpuVolume.Status.State.VolumeInfo.VolumeName == "" {
-		return internalResult{}, nil, fmt.Errorf("VolumeInfo is not set for DPUVolume %s", dpuVolume.Name)
-	}
-	desiredSVVolumeAttachment := a.getDesiredSVVolumeAttachment(dpuVolumeAttachment, *dpuVolume.Status.State.VolumeInfo.VolumeName, dpu.Name)
+	desiredSVVolumeAttachment := a.getDesiredSVVolumeAttachment(dpuVolumeAttachment, *dpuVolume.Status.State.VolumeInfo.VolumeName, dpu.Name, *dpuVolume.Status.State.CSIDriverName)
 	apiSVVolumeAttachment := &storagev1.SVVolumeAttachment{}
 	svVolumeAttachmentKey := client.ObjectKey{Name: dpuVolumeAttachment.Name, Namespace: a.targetNamespace}
 	if err := dpuClusterClient.Client.Get(ctx, svVolumeAttachmentKey, apiSVVolumeAttachment); err != nil {
@@ -217,7 +217,7 @@ func (a *controllerAttacher) checkAttachErrorMessage(svVolumeAttachment *storage
 }
 
 // getDesiredSVVolumeAttachment creates the desired SVVolumeAttachment object
-func (a *controllerAttacher) getDesiredSVVolumeAttachment(dpuVolumeAttachment *storagev1.DPUVolumeAttachment, volumeName string, nodeName string) *storagev1.SVVolumeAttachment {
+func (a *controllerAttacher) getDesiredSVVolumeAttachment(dpuVolumeAttachment *storagev1.DPUVolumeAttachment, volumeName string, nodeName string, attacherName string) *storagev1.SVVolumeAttachment {
 	attachment := &storagev1.SVVolumeAttachment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      dpuVolumeAttachment.Name,
@@ -225,6 +225,7 @@ func (a *controllerAttacher) getDesiredSVVolumeAttachment(dpuVolumeAttachment *s
 		},
 		Spec: corestoragev1.VolumeAttachmentSpec{
 			NodeName: nodeName,
+			Attacher: attacherName,
 			Source: corestoragev1.VolumeAttachmentSource{
 				PersistentVolumeName: ptr.To(volumeName),
 			},

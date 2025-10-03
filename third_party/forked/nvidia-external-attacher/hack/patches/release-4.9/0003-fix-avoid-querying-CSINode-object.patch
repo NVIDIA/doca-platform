@@ -1,0 +1,62 @@
+From 75c24ae02ad97340602166c3a03ee49bca978eff Mon Sep 17 00:00:00 2001
+From: Yury Kulazhenkov <ykulazhenkov@nvidia.com>
+Date: Tue, 30 Sep 2025 09:59:32 +0000
+Subject: [PATCH] fix: avoid querying CSINode object
+
+Use nodeName directly from SVVolumeAttachment.
+In DPU cluster we don't have CSINode objects,
+so we can't rely on info from them.
+
+Signed-off-by: Yury Kulazhenkov <ykulazhenkov@nvidia.com>
+---
+ pkg/controller/csi_handler.go | 34 ++++------------------------------
+ 1 file changed, 4 insertions(+), 30 deletions(-)
+
+diff --git a/pkg/controller/csi_handler.go b/pkg/controller/csi_handler.go
+index d46530f2..5447a0b6 100644
+--- a/pkg/controller/csi_handler.go
++++ b/pkg/controller/csi_handler.go
+@@ -758,36 +758,10 @@ func (h *csiHandler) getCredentialsFromPV(ctx context.Context, csiSource *v1.CSI
+ 	return credentials, nil
+ }
+ 
+-// getNodeID finds node ID from CSINode API object. If caller wants, it can find
+-// node ID stored in VolumeAttachment annotation.
+-func (h *csiHandler) getNodeID(logger klog.Logger, driver string, nodeName string, va *dpfstorage.SVVolumeAttachment) (string, error) {
+-	// Try to find CSINode first.
+-	csiNode, err := h.csiNodeLister.Get(nodeName)
+-	if err == nil {
+-		if nodeID, found := GetNodeIDFromCSINode(driver, csiNode); found {
+-			logger.V(4).Info("Found nodeID in CSINode", "nodeID", nodeID, "CSINode", nodeName)
+-			return nodeID, nil
+-		}
+-		// CSINode exists, but does not have the requested driver; this can happen if the CSI pod is not running, for
+-		// example the node might be currently shut down. We don't want to block the controller unpublish in that scenario.
+-		// We should treat missing driver in the same way as missing CSINode; attempt to use the node ID from the volume
+-		// attachment.
+-		err = fmt.Errorf("CSINode %s does not contain driver %s", nodeName, driver)
+-	}
+-
+-	// Can't get CSINode, check Volume Attachment.
+-	logger.V(4).Info("Failed to get nodeID from CSINode", "nodeName", nodeName, "err", err.Error())
+-
+-	// Check VolumeAttachment annotation as the last resort if caller wants so (i.e. has provided one).
+-	if va == nil {
+-		return "", err
+-	}
+-	if nodeID, found := va.Annotations[vaNodeIDAnnotation]; found {
+-		return nodeID, nil
+-	}
+-
+-	// return csiNodeLister.Get error
+-	return "", err
++// getNodeID returns the node name from the VA.
++// In DPF we don't use the CSINode object in DPU clusters, so we always return the node name from the VA.
++func (h *csiHandler) getNodeID(_ klog.Logger, _ string, nodeName string, _ *dpfstorage.SVVolumeAttachment) (string, error) {
++	return nodeName, nil
+ }
+ 
+ func (h *csiHandler) patchVA(ctx context.Context, va, clone *dpfstorage.SVVolumeAttachment, subresources ...string) (*dpfstorage.SVVolumeAttachment,
+-- 
+2.43.0
+
