@@ -129,7 +129,7 @@ var _ = Describe("ControllerAttacher", func() {
 			It("should return an error", func() {
 				dpuVolume.Status.State.CSIDriverName = nil
 				result, err := helper.ControllerAttach(ctx, dpuClusterClient, dpuVolumeAttachment, dpuVolume, dpu)
-				Expect(err).To(MatchError(ContainSubstring("CSIDriverName is not set for DPUVolume")))
+				Expect(err).To(MatchError(And(ContainSubstring("status.state of DPUVolume"), ContainSubstring("is missing required fields"))))
 				Expect(result).To(Equal(ControllerAttachResult{}))
 			})
 		})
@@ -155,7 +155,7 @@ var _ = Describe("ControllerAttacher", func() {
 				It("should return an error", func() {
 					dpuVolume.Status.State.VolumeInfo = nil
 					result, err := helper.ControllerAttach(ctx, dpuClusterClient, dpuVolumeAttachment, dpuVolume, dpu)
-					Expect(err).To(MatchError(ContainSubstring("VolumeInfo is not set for DPUVolume")))
+					Expect(err).To(MatchError(And(ContainSubstring("status.state of DPUVolume"), ContainSubstring("is missing required fields"))))
 					Expect(result).To(Equal(ControllerAttachResult{}))
 				})
 			})
@@ -213,6 +213,7 @@ var _ = Describe("ControllerAttacher", func() {
 							Namespace: testNamespace,
 						},
 						Spec: corestoragev1.VolumeAttachmentSpec{
+							Attacher: testCSIDriverName,
 							NodeName: "wrong-node",
 							Source: corestoragev1.VolumeAttachmentSource{
 								PersistentVolumeName: ptr.To("wrong-pv"),
@@ -236,6 +237,7 @@ var _ = Describe("ControllerAttacher", func() {
 							Namespace: testNamespace,
 						},
 						Spec: corestoragev1.VolumeAttachmentSpec{
+							Attacher: testCSIDriverName,
 							NodeName: dpu.Name,
 							Source: corestoragev1.VolumeAttachmentSource{
 								PersistentVolumeName: ptr.To("test-pv"),
@@ -267,6 +269,7 @@ var _ = Describe("ControllerAttacher", func() {
 								Namespace: testNamespace,
 							},
 							Spec: corestoragev1.VolumeAttachmentSpec{
+								Attacher: testCSIDriverName,
 								NodeName: dpu.Name,
 								Source: corestoragev1.VolumeAttachmentSource{
 									PersistentVolumeName: ptr.To("test-pv"),
@@ -295,6 +298,7 @@ var _ = Describe("ControllerAttacher", func() {
 								Namespace: testNamespace,
 							},
 							Spec: corestoragev1.VolumeAttachmentSpec{
+								Attacher: testCSIDriverName,
 								NodeName: dpu.Name,
 								Source: corestoragev1.VolumeAttachmentSource{
 									PersistentVolumeName: ptr.To("test-pv"),
@@ -345,6 +349,7 @@ var _ = Describe("ControllerAttacher", func() {
 							Namespace: testNamespace,
 						},
 						Spec: corestoragev1.VolumeAttachmentSpec{
+							Attacher: testCSIDriverName,
 							NodeName: "wrong-node",
 							Source: corestoragev1.VolumeAttachmentSource{
 								PersistentVolumeName: ptr.To("wrong-pv"),
