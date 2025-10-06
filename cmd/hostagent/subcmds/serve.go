@@ -125,6 +125,6 @@ func init() {
 	serveCmd.Flags().StringVar(&opts.BFBRegistryAddress, "bfb-registry-address", "", "The address of the BFB registry from which BFBs are downloaded.")
 	serveCmd.Flags().StringVar(&opts.RebootMethod, "reboot-method", "hostAgent", "The method to use to reboot the host. Valid options: gNOI, external, script.")
 	serveCmd.Flags().StringVar(&opts.CustomScriptName, "custom-script-name", "", "The name of the custom script to execute.")
-	serveCmd.Flags().StringVar(&opts.MetricsBindAddress, "metrics-bind-address", ":8082", "The address the metrics endpoint binds to.")
+	serveCmd.Flags().StringVar(&opts.MetricsBindAddress, "metrics-bind-address", ":8087", "The address the metrics endpoint binds to.")
 	RootCmd.AddCommand(serveCmd)
 }
