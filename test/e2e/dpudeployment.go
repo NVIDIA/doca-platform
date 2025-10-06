@@ -30,6 +30,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	machineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -239,6 +240,7 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 }
 
 func VerifyDeploymentUnderlyingObjectsCreated(ctx context.Context, g Gomega, testClient client.Client, dpuDeployment *dpuservicev1.DPUDeployment) bool {
+	serviceCount := len(dpuDeployment.Spec.Services)
 	gotDPUSetList := &provisioningv1.DPUSetList{}
 	g.Expect(testClient.List(ctx,
 		gotDPUSetList,
@@ -255,7 +257,7 @@ func VerifyDeploymentUnderlyingObjectsCreated(ctx context.Context, g Gomega, tes
 		client.MatchingLabels{
 			"svc.dpu.nvidia.com/owned-by-dpudeployment": fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName()),
 		})).To(Succeed())
-	g.Expect(gotDPUServiceList.Items).To(HaveLen(1))
+	g.Expect(gotDPUServiceList.Items).To(HaveLen(serviceCount))
 
 	gotDPUServiceChainList := &dpuservicev1.DPUServiceChainList{}
 	g.Expect(testClient.List(ctx,
@@ -273,9 +275,184 @@ func VerifyDeploymentUnderlyingObjectsCreated(ctx context.Context, g Gomega, tes
 		client.MatchingLabels{
 			"svc.dpu.nvidia.com/owned-by-dpudeployment": fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName()),
 		})).To(Succeed())
-	return g.Expect(gotDPUServiceInterfaceList.Items).To(HaveLen(1))
+	return g.Expect(gotDPUServiceInterfaceList.Items).To(HaveLen(serviceCount))
 	// A couple of dependencies must become ready before the DPUDeployment can take action, therefore we have to wait
 	// a little longer here.
+}
+
+func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInput) {
+	By("delete DPUs and DPUSets and ensure they are deleted for a clean test condition")
+	if input.skipCleanup {
+		Skip("Skip cleanup resources")
+	}
+	Eventually(func(g Gomega) {
+		dpuSetList := &provisioningv1.DPUSetList{}
+		dpuList := &provisioningv1.DPUList{}
+		g.Expect(client.IgnoreNotFound(input.client.DeleteAllOf(ctx, &provisioningv1.DPUSet{}, client.InNamespace(dpfOperatorSystemNamespace)))).To(Succeed())
+		g.Expect(input.client.List(ctx, dpuSetList)).To(Succeed())
+		g.Expect(dpuSetList.Items).To(BeEmpty())
+
+		// Expect all DPUs to have been deleted.
+		g.Expect(input.client.List(ctx, dpuList)).To(Succeed())
+		g.Expect(dpuList.Items).To(BeEmpty())
+
+		nodes := &corev1.NodeList{}
+		g.Expect(dpuClusterClient.List(ctx, nodes)).To(Succeed())
+		By(fmt.Sprintf("Expected number of nodes %d to equal %d", len(nodes.Items), 0))
+		g.Expect(nodes.Items).To(BeEmpty())
+	}).WithTimeout(10 * time.Minute).Should(Succeed())
+
+	By("create DPUServiceIPAM to be used by dpuDeployment")
+	dpuServiceIPAM := input.ipPoolDPUServiceIPAM.DeepCopy()
+	dpuServiceIPAM.SetLabels(afterAllCleanupLabels)
+	dpuServiceIPAM.SetName("dpudeployment-ipam-pool1")
+	dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
+	// Remove selectors so it applies to all nodes/clusters
+	dpuServiceIPAM.Spec.NodeSelector = nil
+	dpuServiceIPAM.Spec.ClusterSelector = nil
+	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
+
+	By("create a DPUDeployment with its dependencies and ensure that the underlying objects are created")
+	dpuServiceTemplate := input.dpuServiceTemplate.DeepCopy()
+	dpuServiceTemplate.SetLabels(afterAllCleanupLabels)
+	useDummyDPUServiceChart(dpuServiceTemplate)
+	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceTemplate))).To(Succeed())
+
+	dpuServiceTemplate2 := input.dpuServiceTemplate.DeepCopy()
+	dpuServiceTemplate2.SetLabels(afterAllCleanupLabels)
+	dpuServiceTemplate2.SetName("dpudeployment-example2-servicetemplate")
+	dpuServiceTemplate2.Spec.DeploymentServiceName = "example2"
+	useDummyDPUServiceChart(dpuServiceTemplate2)
+	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceTemplate2))).To(Succeed())
+
+	dpuServiceConfiguration := input.dpuServiceConfiguration.DeepCopy()
+	dpuServiceConfiguration.SetLabels(afterAllCleanupLabels)
+	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceConfiguration))).To(Succeed())
+
+	dpuServiceConfiguration2 := input.dpuServiceConfiguration.DeepCopy()
+	dpuServiceConfiguration2.SetLabels(afterAllCleanupLabels)
+	dpuServiceConfiguration2.SetName("dpudeployment-example2-serviceconfiguration")
+	dpuServiceConfiguration2.Spec.DeploymentServiceName = "example2"
+	dpuServiceConfiguration2.Spec.Interfaces = []dpuservicev1.ServiceInterfaceTemplate{{Name: "net2", Network: "mybrsfc"}}
+	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceConfiguration2))).To(Succeed())
+
+	dpuDeployment := generateDPUObj("dpf-dpudeployment", input.dpuDeployment.DeepCopy().Namespace, input.dpuDeployment.DeepCopy(), afterAllCleanupLabels)
+	dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{"feature.node.kubernetes.io/dpu-enabled": "true"},
+	}
+	// Add example2 service to the DPUDeployment
+	dpuDeployment.Spec.Services["example2"] = dpuservicev1.DPUDeploymentServiceConfiguration{
+		ServiceTemplate:      "dpudeployment-example2-servicetemplate",
+		ServiceConfiguration: "dpudeployment-example2-serviceconfiguration",
+	}
+	// Update the switch to map net1 to net2
+	dpuDeployment.Spec.ServiceChains.Switches[0] = dpuservicev1.DPUDeploymentSwitch{
+		Ports: []dpuservicev1.DPUDeploymentPort{
+			{
+				Service: &dpuservicev1.DPUDeploymentService{
+					InterfaceName: "net1",
+					Name:          "example",
+					IPAM: &dpuservicev1.IPAM{
+						MatchLabels: map[string]string{
+							"svc.dpu.nvidia.com/pool": "pool1",
+						},
+					},
+				},
+			},
+			{
+				Service: &dpuservicev1.DPUDeploymentService{
+					InterfaceName: "net2",
+					Name:          "example2",
+					IPAM: &dpuservicev1.IPAM{
+						MatchLabels: map[string]string{
+							"svc.dpu.nvidia.com/pool": "pool1",
+						},
+					},
+				},
+			},
+		},
+	}
+	Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
+
+	Eventually(func(g Gomega) {
+		g.Expect(VerifyDeploymentUnderlyingObjectsCreated(ctx, g, input.client, dpuDeployment)).To(BeTrue())
+	}).WithTimeout(180 * time.Second).Should(Succeed())
+
+	tracker := NewByTracker()
+	Eventually(func(g Gomega) {
+		if !input.hasDpuNodes() {
+			return
+		}
+		nodes := &corev1.NodeList{}
+		g.Expect(dpuClusterClient.List(ctx, nodes)).To(Succeed())
+		nodeKey := fmt.Sprintf("%d/%d", len(nodes.Items), input.numberOfDPUNodes)
+		tracker.By(nodeKey, "Checking that the number of nodes %d is equal to %d", len(nodes.Items), input.numberOfDPUNodes)
+		g.Expect(nodes.Items).To(HaveLen(input.numberOfDPUNodes))
+	}).WithTimeout(45 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+
+	By("create DPUServiceInterface and check that it is mirrored to each cluster")
+	dpuServiceInterfaceName := "pf0-vf2"
+	dpuServiceInterfaceNamespace := "test-dpudeployment"
+	By("create test namespace")
+	testNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: dpuServiceInterfaceNamespace}}
+	testNS.SetLabels(afterAllCleanupLabels)
+	Expect(input.client.Create(ctx, testNS)).To(Succeed())
+	By("create DPUServiceInterface")
+	dpuServiceInterface := input.dpuServiceInterface.DeepCopy()
+	dpuServiceInterface.SetName(dpuServiceInterfaceName)
+	dpuServiceInterface.SetNamespace(dpuServiceInterfaceNamespace)
+	dpuServiceInterface.SetLabels(afterAllCleanupLabels)
+	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
+
+	serviceInterfaceLabels := map[string]string{}
+	By("verify ServiceInterfaceSet is created in DPF clusters")
+	Eventually(func(g Gomega) {
+		//get the DPUServiceInterface owned by DPUDeployment
+		dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
+		g.Expect(input.client.List(ctx, dpuServiceInterfaceList,
+			client.MatchingLabels{
+				"svc.dpu.nvidia.com/owned-by-dpudeployment": fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName())})).
+			To(Succeed())
+		g.Expect(dpuServiceInterfaceList.Items).To(HaveLen(2))
+		// getting labels for ServiceInterface check
+		serviceInterfaceLabels = dpuServiceInterfaceList.Items[0].Spec.Template.Spec.Template.Labels
+
+		// verify ServiceInterfaceSet is created in namespace
+		serviceInterfaceSetListInNamespace := &dpuservicev1.ServiceInterfaceSetList{}
+		g.Expect(dpuClusterClient.List(ctx, serviceInterfaceSetListInNamespace,
+			client.InNamespace(dpuServiceInterfaceNamespace),
+		)).To(Succeed())
+		g.Expect(serviceInterfaceSetListInNamespace.Items).To(HaveLen(1))
+	}, time.Second*300, time.Millisecond*250).Should(Succeed())
+
+	if Label(scaleLabel).MatchesLabelFilter(GinkgoLabelFilter()) {
+		// mock-DMS / scale scenario: serviceChains and ServiceInterfaces cannot
+		// reach ready state in mock-dms nodes
+		return
+	}
+
+	if !input.hasDpuNodes() {
+		return
+	}
+
+	By("Verifying DPUs are provisioned")
+	VerifyDPUClusterWithNodes(ctx, ProvisionDPUClustersInput{
+		numberOfNodesPerCluster: input.numberOfDPUNodes,
+		client:                  input.client,
+	})
+
+	By(fmt.Sprintf("verify ServiceInterface is created in %d nodes", input.numberOfDPUNodes))
+	Eventually(func(g Gomega) {
+		serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
+		g.Expect(dpuClusterClient.List(ctx, serviceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
+		g.Expect(serviceInterfaceList.Items).To(HaveLen(input.numberOfDPUNodes))
+	}).WithTimeout(15 * time.Minute).WithPolling(120 * time.Second).Should(Succeed())
+
+	By("verifying that the dpuDeployment is ready")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+		g.Expect(conditions.IsTrue(dpuDeployment, conditions.TypeReady)).To(BeTrue())
+	}).WithTimeout(15 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 }
 
 func createDeploymentDependencies(ctx context.Context, input *systemTestInput, nameDiff string) {

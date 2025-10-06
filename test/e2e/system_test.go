@@ -330,9 +330,9 @@ var _ = Describe("DPF System tests - Core", Labels{dpfSystemLabel}, func() {
 		})
 	})
 
-	Context("Validate DPF Operator Cleanup", Serial, func() {
-		It("should validate DPU Operator and underlying objects creation", func() {
-			ValidateOperatorFullCreation(ctx, input)
+	Context("Validate DPUDeployment full creation", Serial, Ordered, func() {
+		It("should validate DPUDeployment and underlying objects creation", func() {
+			ValidateDPUDeploymentFullCreation(ctx, input)
 		})
 	})
 })

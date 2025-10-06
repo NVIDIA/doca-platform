@@ -7,7 +7,7 @@ spec:
   deploymentServiceName: example
   interfaces:
     - name: app-iface
-      network: mynad
+      network: mybrsfc
   serviceConfiguration:
     serviceDaemonSet:
       annotations:
