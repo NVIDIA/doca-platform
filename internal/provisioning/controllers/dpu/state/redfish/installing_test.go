@@ -24,7 +24,7 @@ func TestConcatBFBAndBFCFGPath(t *testing.T) {
 	registry := "10.0.110.1:8080"
 	bfbFile := "/bfb/dpf-operator-system-bfb-bundle.bfb"
 	bfcfgFile := "/bfb/bfcfg/dpf-operator-system_dpu-node-mt25066004be-mt25066004be_ea091a0e-f0ae-4033-9db3-2ecf9a1dfe61"
-	expected := "10.0.110.1:8080/bfb/??dpf-operator-system-bfb-bundle.bfb,/bfb/bfcfg/dpf-operator-system_dpu-node-mt25066004be-mt25066004be_ea091a0e-f0ae-4033-9db3-2ecf9a1dfe61?/bfb-to-install"
+	expected := "10.0.110.1:8080/bfb/??dpf-operator-system-bfb-bundle.bfb,bfcfg/dpf-operator-system_dpu-node-mt25066004be-mt25066004be_ea091a0e-f0ae-4033-9db3-2ecf9a1dfe61?/bfb-to-install"
 
 	got := concatBFBAndBFCFGPath(registry, bfbFile, bfcfgFile)
 	if got != expected {
