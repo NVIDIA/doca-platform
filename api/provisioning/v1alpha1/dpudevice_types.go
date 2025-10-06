@@ -66,10 +66,11 @@ type DPUDeviceSpec struct {
 	// It's used to track the device's lifecycle and for inventory management.
 	// This value is immutable and should not be changed once set.
 	// Example: "MT_0001234567", "MT25066004C7"
+	//
+	// Deprecated: This field is deprecated and will be removed in a future version. Use status.psid instead.
 	// +kubebuilder:validation:Pattern=`^MT_?[A-Z0-9]+$`
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="PSID is immutable"
 	// +optional
-	// Deprecated: This field is deprecated and will be removed in a future version. Use status.psid instead.
 	PSID *string `json:"psid,omitempty"`
 
 	// SerialNumber is the serial number of the device.
@@ -84,10 +85,11 @@ type DPUDeviceSpec struct {
 	// It's used to track the device's compatibility with different software versions.
 	// This value is immutable and should not be changed once set.
 	// Example: "900-9D3B4-00SV-EA0"
+	//
+	// Deprecated: This field is deprecated and will be removed in a future version. Use status.opn instead.
 	// +kubebuilder:validation:Pattern=`^\d{3}-[A-Z0-9]{5}-[A-Z0-9]{4}-[A-Z0-9]{3}$`
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="OPN is immutable"
 	// +optional
-	// Deprecated: This field is deprecated and will be removed in a future version. Use status.opn instead.
 	OPN *string `json:"opn,omitempty"`
 
 	// BMCIP is the IP address of the BMC (Base Management Controller) on the device.
