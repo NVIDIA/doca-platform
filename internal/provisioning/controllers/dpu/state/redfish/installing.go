@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -153,5 +154,6 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 // Given bfbFile is /bfb/file.bfb and bfcfgFile is /bfb/bfcfg/file.cfg,
 // it returns /bfb/??file.bfb,bfcfg/file.cfg?/bfb-to-install
 func concatBFBAndBFCFGPath(bfbRegistry string, bfbFile string, bfcfgFile string) string {
-	return filepath.Join(bfbRegistry, cutil.BFBBaseDir, fmt.Sprintf("??%s,%s?", filepath.Base(bfbFile), bfcfgFile), "bfb-to-install")
+	bfCfg := strings.TrimPrefix(bfcfgFile, "/"+cutil.BFBBaseDir+"/")
+	return filepath.Join(bfbRegistry, cutil.BFBBaseDir, fmt.Sprintf("??%s,%s?", filepath.Base(bfbFile), bfCfg), "bfb-to-install")
 }
