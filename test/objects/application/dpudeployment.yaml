@@ -34,4 +34,7 @@ spec:
               uplink: p0
         - service:
             name: example
-            interface: app-iface
+            interface: net1
+            ipam:
+              matchLabels:
+                svc.dpu.nvidia.com/pool: pool1

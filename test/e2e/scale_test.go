@@ -32,7 +32,7 @@ var _ = Describe("DPF scale tests", Labels{scaleLabel}, func() {
 
 	Context("Validate DPU Operator Cleanup", Labels{requiresNodesLabel}, Serial, Ordered, func() {
 		It("should validate DPU Operator Cleanup", func() {
-			ValidateOperatorFullCreation(ctx, input)
+			ValidateDPUDeploymentFullCreation(ctx, input)
 		})
 	})
 })
