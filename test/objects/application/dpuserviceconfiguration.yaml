@@ -12,5 +12,5 @@ spec:
       annotations:
         annKey: annVal
   interfaces:
-  - name: app-iface
-    network: mynad
+  - name: net1
+    network: mybrsfc
