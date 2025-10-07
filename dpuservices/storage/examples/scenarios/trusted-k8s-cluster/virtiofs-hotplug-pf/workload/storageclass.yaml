@@ -1,0 +1,10 @@
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: snap-virtiofs-hotplug-pf
+provisioner: csi.snap.nvidia.com
+parameters:
+  policy: "policy-fs"
+  functionType: "pf"
+  hotplugFunction: "true"

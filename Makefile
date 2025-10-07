@@ -282,7 +282,7 @@ generate-manifests-servicechainset: controller-gen kustomize envsubst ## Generat
 	find config/dpuservice/crd/bases/ -type f -not -name '*_dpu*' -exec cp {} deploy/charts/dpu-networking/charts/servicechainset-controller/templates/crds/ \;
 
 .PHONY: generate-manifests-storage
-generate-manifests-storage: controller-gen kustomize embedmd ## Generate CRDs for SNAP storage in DPU cluster
+generate-manifests-storage: controller-gen kustomize embedmd yq ## Generate CRDs for SNAP storage in DPU cluster
 	$(MAKE) clean-generated-yaml SRC_DIRS="./config/storage/crd/bases"
 	$(CONTROLLER_GEN) \
 	paths="./api/storage/..." \
