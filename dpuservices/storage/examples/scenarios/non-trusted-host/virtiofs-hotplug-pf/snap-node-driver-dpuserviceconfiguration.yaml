@@ -11,6 +11,7 @@ spec:
       values:
         imagePullSecrets: $DPF_IMAGE_PULL_SECRET
         dpu:
+          deployCrds: true
           snapNodeDriver:
             enabled: true
             image:
