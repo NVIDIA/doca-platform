@@ -1,0 +1,8 @@
+---
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: BFB
+metadata:
+  name: bf-bundle
+  namespace: dpf-operator-system
+spec:
+  url: $BLUEFIELD_BITSTREAM

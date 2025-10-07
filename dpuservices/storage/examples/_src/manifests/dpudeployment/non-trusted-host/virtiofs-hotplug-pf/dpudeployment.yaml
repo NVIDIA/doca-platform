@@ -17,15 +17,9 @@ spec:
     snap-host-controller:
       serviceTemplate: snap-host-controller
       serviceConfiguration: snap-host-controller
-    snap-controller:
-      serviceTemplate: snap-controller
-      serviceConfiguration: snap-controller
     snap-node-driver:
       serviceTemplate: snap-node-driver
       serviceConfiguration: snap-node-driver
-    snap-configuration:
-      serviceTemplate: snap-configuration
-      serviceConfiguration: snap-configuration
     doca-snap:
       serviceTemplate: doca-snap
       serviceConfiguration: doca-snap
