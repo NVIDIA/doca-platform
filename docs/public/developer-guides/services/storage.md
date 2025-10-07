@@ -19,7 +19,7 @@ The DPF storage subsystem supports two deployment scenarios:
 * [Kubernetes cluster on Host Trusted mode](#kubernetes-cluster-on-host-trusted-mode)
 * [Zero Trust mode](#zero-trust-mode)
 
-The set of deployed components, available features, and APIs is different in each scenario.
+The deployed components, available features, and APIs differ in each scenario.
 
 ### Kubernetes cluster on Host Trusted mode
 
@@ -28,13 +28,14 @@ The hosts run the [SNAP CSI Plugin](#snap-csi-plugin), which performs all necess
 
 In this scenario, the following emulation methods are supported:
 * NVMe over VF on top of a static PF
+* NVMe over hot-plugged PF
+* Virtio-FS over hot-plugged PF
 
 The list below contains the components that are deployed in this scenario.
 
 The core components are:
 
 * [SNAP CSI Plugin](#snap-csi-plugin)
-* [SNAP Controller](#snap-controller)
 * [SNAP Host Controller](#snap-host-controller)
 * [SNAP Node Driver](#snap-node-driver)
 * [DOCA SNAP](#doca-snap)
@@ -61,7 +62,6 @@ flowchart-elk
         api_dpu[DPU Cluster K8S API]
         api_host[Host Cluster K8S API]
         snap_csi_plugin_controller[SNAP CSI Plugin<br>controller]
-        snap_controller[SNAP controller]
         snap_host_controller[SNAP Host controller]
         vendor_csi_plugin[Vendor CSI Plugin<br>controller]
     end
@@ -84,7 +84,6 @@ flowchart-elk
     api_host <--> snap_csi_plugin_controller
     api_host <--> worker_kubelet
     api_dpu <--> snap_host_controller
-    api_dpu <--> snap_controller
     api_dpu <--> vendor_csi_plugin
     api_dpu <--> snap_node_driver
     api_dpu <--> dpu_kubelet
@@ -99,7 +98,6 @@ flowchart-elk
 
     style snap_host_controller fill:#74b900
     style snap_csi_plugin_controller fill:#74b900
-    style snap_controller fill:#74b900
     style vendor_csi_plugin fill:#c5e0cd
     style snap_csi_plugin_node fill:#74b900
     style snap_node_driver fill:#74b900
@@ -120,7 +118,7 @@ sequenceDiagram
     participant User
     participant SNAP_Host_Controller as SNAP Host Controller
     participant SNAP_CSI_Controller as SNAP CSI Plugin Controller<br/>(Host Cluster)
-    participant SNAP_Controller as SNAP Controller<br/>(DPU Cluster)
+    participant SNAP_CSI_Plugin_Node as SNAP CSI Plugin Node<br/>(Host Node)
     participant Vendor_CSI_Controller as Vendor CSI Plugin Controller<br/>(DPU Cluster)
     participant SNAP_Node_Driver as SNAP Node Driver<br/>(DPU)
     participant Vendor_Plugin as Vendor Plugin<br/>(DPU)
@@ -131,92 +129,87 @@ sequenceDiagram
     Note over User, Kubelet: Storage Provisioning Phase
     
     User->>+SNAP_Host_Controller: 1. Create DPUStoragePolicy & DPUStorageVendor
-    SNAP_Host_Controller->>+SNAP_Controller: 2. Create StoragePolicy & StorageVendor in DPU cluster
-    SNAP_Controller-->>-SNAP_Host_Controller: Created
     SNAP_Host_Controller-->>-User: Created
     
-    User->>+SNAP_CSI_Controller: 3. Create PVC (references storage class)
-    SNAP_CSI_Controller->>+SNAP_Host_Controller: 4. Create DPUVolume object
-    SNAP_Host_Controller->>+SNAP_Controller: 5. Create Volume object in DPU cluster
-    SNAP_Controller->>+Vendor_CSI_Controller: 6. Create PVC in DPU cluster
-    Vendor_CSI_Controller->>Vendor_CSI_Controller: 7. Provision underlying storage
-    Vendor_CSI_Controller->>+SNAP_Controller: Create PV object
-    SNAP_Controller->>SNAP_Controller: 8. Update Volume status to Available
-    SNAP_Controller-->>-SNAP_Host_Controller: Volume Available
-    SNAP_Host_Controller->>SNAP_Host_Controller: 9. Update DPUVolume status
+    User->>+SNAP_CSI_Controller: 2. Create PVC (references storage class)
+    SNAP_CSI_Controller->>+SNAP_Host_Controller: 3. Create DPUVolume object
+    SNAP_Host_Controller->>+Vendor_CSI_Controller: 4. Create PVC in DPU cluster
+    Vendor_CSI_Controller->>Vendor_CSI_Controller: 5. Provision underlying storage
+    Vendor_CSI_Controller->>Vendor_CSI_Controller: 6. Create PV object
+    Vendor_CSI_Controller-->>-SNAP_Host_Controller: PV Created
+    SNAP_Host_Controller->>SNAP_Host_Controller: 7. Update DPUVolume with volume info<br/>and set phase to Bound
+    SNAP_Host_Controller->>SNAP_Host_Controller: 8. Create Volume object in DPU cluster<br/>(copy parameters from DPUVolume)
     SNAP_Host_Controller-->>-SNAP_CSI_Controller: DPUVolume Available
-    SNAP_CSI_Controller->>SNAP_CSI_Controller: 10. Create PV object in host cluster
+    SNAP_CSI_Controller->>SNAP_CSI_Controller: 9. Create PV object in host cluster
     SNAP_CSI_Controller-->>-User: PV Created
     
     Note over User, Kubelet: Volume Attachment Phase
     
-    K8s_Controller_Manager->>+SNAP_CSI_Controller: 11. Create storage.k8s.io/v1<br/>VolumeAttachment for pod
-    SNAP_CSI_Controller->>+SNAP_Host_Controller: 12. Create DPUVolumeAttachment CR
-    SNAP_Host_Controller->>+SNAP_Controller: 13. Create VolumeAttachment CR in DPU cluster
+    K8s_Controller_Manager->>+SNAP_CSI_Controller: 10. Create storage.k8s.io/v1<br/>VolumeAttachment for pod
+    SNAP_CSI_Controller->>+SNAP_Host_Controller: 11. Create DPUVolumeAttachment CR
     
     opt If vendor requires attachment
-        SNAP_Controller->>+Vendor_CSI_Controller: 14. Create SVVolumeAttachment
-        Vendor_CSI_Controller->>Vendor_CSI_Controller: 15. Expose volume on storage
-        Vendor_CSI_Controller->>Vendor_CSI_Controller: Update status to Attached
-        Vendor_CSI_Controller-->>-SNAP_Controller: Attached
+        SNAP_Host_Controller->>+Vendor_CSI_Controller: 12. Create SVVolumeAttachment
+        Vendor_CSI_Controller->>Vendor_CSI_Controller: 13. Expose volume on storage
+        Vendor_CSI_Controller->>Vendor_CSI_Controller: 14. Update status to Attached
+        Vendor_CSI_Controller-->>-SNAP_Host_Controller: Attached
+        SNAP_Host_Controller->>SNAP_Host_Controller: 15. Set controllerAttached=True
     end
     
-    SNAP_Controller->>SNAP_Controller: 16. Set storageAttached=True
-    SNAP_Controller->>+SNAP_Node_Driver: Pending VolumeAttachment detected
+    SNAP_Host_Controller->>SNAP_Node_Driver: 16. Create VolumeAttachment CR in DPU cluster
+    SNAP_Node_Driver->>SNAP_Node_Driver: Pending VolumeAttachment detected
     SNAP_Node_Driver->>+Vendor_Plugin: 17. StoragePlugin gRPC API call
     Vendor_Plugin->>+DOCA_SNAP: 18. Setup vendor-specific device (xDev)
     DOCA_SNAP-->>-Vendor_Plugin: Device setup complete
     Vendor_Plugin-->>-SNAP_Node_Driver: Storage connected
     SNAP_Node_Driver->>+DOCA_SNAP: 19. Expose volume to host
     DOCA_SNAP-->>-SNAP_Node_Driver: Volume exposed
-    SNAP_Node_Driver->>SNAP_Node_Driver: Update VolumeAttachment status
-    SNAP_Node_Driver->>SNAP_Node_Driver: Set dpu.Attached=True
-    SNAP_Node_Driver-->>-SNAP_Controller: DPU attached
-    SNAP_Controller-->>-SNAP_Host_Controller: VolumeAttachment status updated
-    SNAP_Host_Controller->>SNAP_Host_Controller: 20. Update DPUVolumeAttachment status
+    SNAP_Node_Driver->>SNAP_Host_Controller: Update VolumeAttachment status<br/>and set dpu.Attached=True
+    SNAP_Host_Controller->>SNAP_Host_Controller: 20. Detect VolumeAttachment status change
+    SNAP_Host_Controller->>SNAP_Host_Controller: 21. Update DPUVolumeAttachment status
     SNAP_Host_Controller-->>-SNAP_CSI_Controller: DPUVolumeAttachment Ready=True
-    SNAP_CSI_Controller->>SNAP_CSI_Controller: 21. Update host storage.k8s.io/v1<br/>VolumeAttachment to Attached
+    SNAP_CSI_Controller->>SNAP_CSI_Controller: 22. Update host storage.k8s.io/v1<br/>VolumeAttachment to Attached
     SNAP_CSI_Controller-->>-K8s_Controller_Manager: storage.k8s.io/v1<br/>VolumeAttachment Attached
     
     K8s_Controller_Manager->>+Kubelet: storage.k8s.io/v1<br/>VolumeAttachment detected
-    Kubelet->>+SNAP_CSI_Controller: 22. CSI gRPC call to attach volume
-    SNAP_CSI_Controller->>SNAP_CSI_Controller: Discover and prepare emulated device
-    SNAP_CSI_Controller-->>-Kubelet: Volume attached to host
+    Kubelet->>+SNAP_CSI_Plugin_Node: 23. CSI gRPC call to attach volume
+    SNAP_CSI_Plugin_Node->>SNAP_CSI_Plugin_Node: Discover and prepare emulated device
+    SNAP_CSI_Plugin_Node-->>-Kubelet: Volume attached to host
     Kubelet->>Kubelet: Mount volume into pod namespace
     Kubelet-->>-K8s_Controller_Manager: Pod volume mounted
 ```
 
 1. **DPUStoragePolicy and DPUStorageVendor Creation**: The user creates a [DPUStoragePolicy](#dpustoragepolicy-crd) and [DPUStorageVendor](#dpustoragevendor-crd) object in the host cluster.
 
-2. **StorageVendor and StoragePolicy Creation**: The [SNAP Host Controller](#snap-host-controller) detects the new [DPUStoragePolicy](#dpustoragepolicy-crd) and [DPUStorageVendor](#dpustoragevendor-crd) objects in the host cluster and creates the corresponding [StoragePolicy](#storagepolicy-crd) and [StorageVendor](#storagevendor-crd) objects in the DPU cluster.
+2. **PVC Creation**: The user creates a **PersistentVolumeClaim (PVC)** object in the host cluster. The **PVC** references a storage class that specifies the [SNAP CSI Plugin](#snap-csi-plugin) as its provisioner. The storage class contains parameters that specify the name of a specific [DPUStoragePolicy](#dpustoragepolicy-crd).
 
-3. **PVC Creation**: The user creates a **PersistentVolumeClaim (PVC)** object in the host cluster. The **PVC** references a storage class that specifies the [SNAP CSI Plugin](#snap-csi-plugin) as its provisioner. The storage class contains parameters that specify the name of a specific [DPUStoragePolicy](#dpustoragepolicy-crd).
+3. **DPUVolume Object Creation**: The [SNAP CSI Plugin](#snap-csi-plugin) Controller in the host cluster handles **PVC** creation and creates a [DPUVolume](#dpuvolume-crd) object in the host cluster. This object includes references to the [DPUStoragePolicy](#dpustoragepolicy-crd) and the requested volume parameters from the storage class.
 
-4. **DPUVolume Object Creation**: The [SNAP CSI Plugin](#snap-csi-plugin) Controller in the host cluster handles **PVC** creation and creates a [DPUVolume](#dpuvolume-crd) object in the host cluster. This object includes references to the [DPUStoragePolicy](#dpustoragepolicy-crd) and the requested volume parameters from the storage class.
+4. **Storage Vendor PVC Creation**: The [SNAP Host Controller](#snap-host-controller) merges parameters from the [DPUStoragePolicy](#dpustoragepolicy-crd) and [DPUVolume](#dpuvolume-crd), selects the appropriate [DPUStorageVendor](#dpustoragevendor-crd), and creates a **PVC** in the DPU cluster that references the storage class of the [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller).
 
-5. **Volume Object Creation in DPU Cluster**: The [SNAP Host Controller](#snap-host-controller) reconciles the [DPUVolume](#dpuvolume-crd) object in the host cluster and creates a [Volume](#volume-crd) object in the DPU cluster. The [Volume](#volume-crd) object includes references to the [StoragePolicy](#storagepolicy-crd) and the requested volume parameters that are copied from the [DPUVolume](#dpuvolume-crd) object.
+5. **Vendor Storage Provisioning**: The [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) detects the new **PVC** in the DPU cluster and provisions the underlying storage.
 
-6. **Storage Vendor Selection**: The [SNAP Controller](#snap-controller) detects the new [Volume](#volume-crd) object in the DPU cluster. It selects a [StorageVendor](#storagevendor-crd) that matches the policy specified in the [StoragePolicy](#storagepolicy-crd) resource. The controller creates a **PVC** in the DPU cluster that references the storage class of the selected [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller).
+6. **Vendor PV Creation**: The [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) creates the corresponding **PersistentVolume (PV)** object.
 
-7. **Vendor PV Provisioning**: The [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) controller detects the new **PVC** in the DPU cluster, provisions the underlying storage, and creates the corresponding **PersistentVolume (PV)** object.
+7. **DPUVolume Availability Update**: The [SNAP Host Controller](#snap-host-controller) detects that the **PV** is created and updates [DPUVolume](#dpuvolume-crd) object in the host cluster with information about the created volume and sets the phase of the object to **Bound**.
 
-8. **Volume Availability Update**: The [SNAP Controller](#snap-controller) detects the new **PV** and updates the status of the [Volume](#volume-crd) object in the DPU cluster to **Available**.
+8. **Volume Object Creation**: The [SNAP Host Controller](#snap-host-controller) creates a [Volume](#volume-crd) object in the DPU cluster. The controller copies parameters from the [DPUVolume](#dpuvolume-crd) object to the [Volume](#volume-crd) object.
 
-9. **DPUVolume Availability Update**: The [SNAP Host Controller](#snap-host-controller) detects the status change of the [Volume](#volume-crd) CR in the DPU cluster and updates the status of the [DPUVolume](#dpuvolume-crd) object in the host cluster.
+9. **PV Object Creation**: The [SNAP CSI Plugin](#snap-csi-plugin) Controller in the host cluster detects the status change of the [DPUVolume](#dpuvolume-crd) object and creates the **PV** object in the host cluster.
 
-10. **PV Object Creation**: The [SNAP CSI Plugin](#snap-csi-plugin) Controller in the host cluster detects the status change of the [DPUVolume](#dpuvolume-crd) object and creates the **PV** object in the host cluster.
+10. **Volume Attachment Initiation**: The Kubernetes Controller Manager in the host cluster detects the **PV** object and creates a native Kubernetes **VolumeAttachment [storage.k8s.io/v1]** object to attach the volume to the user's pod.
 
-11. **Volume Attachment Initiation**: The Kubernetes Controller Manager in the host cluster detects the **PV** object and creates a native Kubernetes **VolumeAttachment [storage.k8s.io/v1]** object to attach the volume to the user's pod.
+11. **DPUVolumeAttachment Object Creation**: The [SNAP CSI Plugin](#snap-csi-plugin) Controller detects the new native Kubernetes **VolumeAttachment [storage.k8s.io/v1]** object and creates a corresponding [DPUVolumeAttachment](#dpuvolumeattachment-crd) CR in the host cluster.
 
-12. **DPUVolumeAttachment Object Creation**: The [SNAP CSI Plugin](#snap-csi-plugin) Controller detects the new native Kubernetes **VolumeAttachment [storage.k8s.io/v1]** object and creates a corresponding [DPUVolumeAttachment](#dpuvolumeattachment-crd) CR in the host cluster.
+12. **SVVolumeAttachment Creation**: The [SNAP Host Controller](#snap-host-controller) detects the new [DPUVolumeAttachment](#dpuvolumeattachment-crd) object in the host cluster. If the [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) requires attachment, it creates an [SVVolumeAttachment](#svvolumeattachment-crd) object for the [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) in the DPU cluster.
 
-13. **VolumeAttachment Object Creation**: The [SNAP Host Controller](#snap-host-controller) detects the new [DPUVolumeAttachment](#dpuvolumeattachment-crd) CR in the host cluster and creates a corresponding [VolumeAttachment](#volumeattachment-crd) CR in the DPU cluster.
+13. **Vendor Volume Exposure**: The [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) controller detects the new [SVVolumeAttachment](#svvolumeattachment-crd) object and exposes the volume on the underlying storage.
 
-14. **SVVolumeAttachment Creation**: The [SNAP Controller](#snap-controller) detects the new [VolumeAttachment](#volumeattachment-crd) object in the DPU cluster. If the [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) requires attachment, it creates an [SVVolumeAttachment](#svvolumeattachment-crd) object for the [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller).
+14. **Vendor Volume Attachment**: The [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) updates the status of the [SVVolumeAttachment](#svvolumeattachment-crd) object to **Attached**.
 
-15. **Vendor Volume Attachment**: The [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) controller detects the new [SVVolumeAttachment](#svvolumeattachment-crd) object and exposes the volume on the underlying storage. Once complete, it updates the status to **Attached**.
+15. **DPUVolumeAttachment Status Update**: The [SNAP Host Controller](#snap-host-controller) detects that [SVVolumeAttachment](#svvolumeattachment-crd) is in **Attached** state and sets the `controllerAttached` of the [DPUVolumeAttachment](#dpuvolumeattachment-crd) to **True**.
 
-16. **VolumeAttachment Status Update**: The [SNAP Controller](#snap-controller) sets the `storageAttached` status of the [VolumeAttachment](#volumeattachment-crd) to **True**.
+16. **VolumeAttachment Object Creation**: The [SNAP Host Controller](#snap-host-controller) creates a [VolumeAttachment](#volumeattachment-crd) object in the DPU cluster.
 
 17. **Storage Device Connection**: The [SNAP Node Driver](#snap-node-driver) on the DPU detects the pending [VolumeAttachment](#volumeattachment-crd) object and calls the [Vendor Plugin](#vendor-plugin) via the **StoragePlugin gRPC API** to connect the volume to the underlying storage.
 
@@ -224,11 +217,13 @@ sequenceDiagram
 
 19. **SNAP Process Volume Exposure**: The [SNAP Node Driver](#snap-node-driver) calls the [DOCA SNAP](#doca-snap) service to expose the volume to the host. Upon completion, the [SNAP Node Driver](#snap-node-driver) updates the DPU parameters in the status of the [VolumeAttachment](#volumeattachment-crd) and sets the `dpu.Attached` status to **True**.
 
-20. **DPUVolumeAttachment Availability Update**: The [SNAP Host Controller](#snap-host-controller) detects the status change of the [VolumeAttachment](#volumeattachment-crd) CR in the DPU cluster and updates the status of the [DPUVolumeAttachment](#dpuvolumeattachment-crd) object in the host cluster.
+20. **VolumeAttachment Status Detection**: The [SNAP Host Controller](#snap-host-controller) detects the status change of the [VolumeAttachment](#volumeattachment-crd) CR in the DPU cluster.
 
-21. **Host VolumeAttachment Update**: The [SNAP CSI Plugin](#snap-csi-plugin) Controller detects that [DPUVolumeAttachment](#dpuvolumeattachment-crd) `Ready` Condition is `True` and updates the status of the native Kubernetes **VolumeAttachment [storage.k8s.io/v1]** object on the host cluster to **Attached**.
+21. **DPUVolumeAttachment Status Update**: The [SNAP Host Controller](#snap-host-controller) updates the status of the [DPUVolumeAttachment](#dpuvolumeattachment-crd) object in the host cluster.
 
-22. **Pod Volume Mounting**: The kubelet on the host node detects the native Kubernetes **VolumeAttachment [storage.k8s.io/v1]** object with status **Attached**. It calls the [SNAP CSI Plugin](#snap-csi-plugin) Node to attach the volume to the host and mounts the volume into the pod's namespace.
+22. **Host VolumeAttachment Update**: The [SNAP CSI Plugin](#snap-csi-plugin) Controller detects that [DPUVolumeAttachment](#dpuvolumeattachment-crd) `Ready` Condition is `True` and updates the status of the native Kubernetes **VolumeAttachment [storage.k8s.io/v1]** object on the host cluster to **Attached**.
+
+23. **Pod Volume Mounting**: The kubelet on the host node detects the native Kubernetes **VolumeAttachment [storage.k8s.io/v1]** object with status **Attached**. It calls the [SNAP CSI Plugin](#snap-csi-plugin) Node to attach the volume to the host and mounts the volume into the pod's namespace.
 
 
 ### Zero Trust mode
@@ -242,13 +237,13 @@ Refer to the [DOCA SNAP](https://docs.nvidia.com/doca/sdk/doca+snap+services/ind
 In this scenario, the following emulation methods are supported:
 * NVMe over VF on top of a static PF
 * NVMe over hot-plugged PF
+* NVMe over static PF
 * Virtio-FS over hot-plugged PF
 
 The list below contains the components that are deployed in this scenario.
 
 The core components are:
 
-* [SNAP Controller](#snap-controller)
 * [SNAP Host Controller](#snap-host-controller)
 * [SNAP Node Driver](#snap-node-driver)
 * [DOCA SNAP](#doca-snap)
@@ -274,7 +269,6 @@ flowchart-elk
     subgraph control_plane[DPF Control-plane node]
         api_dpu[DPU Cluster K8S API]
         api_host[Host Cluster K8S API]
-        snap_controller[SNAP controller]
         snap_host_controller[SNAP Host controller]
         vendor_csi_plugin[Vendor CSI Plugin<br>controller]
     end
@@ -294,7 +288,6 @@ flowchart-elk
     end
     api_host <--> snap_host_controller
     api_dpu <--> snap_host_controller
-    api_dpu <--> snap_controller
     api_dpu <--> vendor_csi_plugin
     api_dpu <--> snap_node_driver
     api_dpu <--> dpu_kubelet
@@ -307,7 +300,6 @@ flowchart-elk
     user_provided_script <-->|discover/prepare| emulated_device
 
     style snap_host_controller fill:#74b900
-    style snap_controller fill:#74b900
     style vendor_csi_plugin fill:#c5e0cd
     style snap_node_driver fill:#74b900
     style doca_snap fill:#74b900
@@ -326,7 +318,6 @@ The following steps outline the end-to-end process for provisioning and attachin
 sequenceDiagram
     participant User
     participant SNAP_Host_Controller as SNAP Host Controller
-    participant SNAP_Controller as SNAP Controller<br/>(DPU Cluster)
     participant Vendor_CSI_Controller as Vendor CSI Plugin Controller<br/>(DPU Cluster)
     participant SNAP_Node_Driver as SNAP Node Driver<br/>(DPU)
     participant Vendor_Plugin as Vendor Plugin<br/>(DPU)
@@ -336,48 +327,43 @@ sequenceDiagram
     Note over User, User_Script: Storage Provisioning Phase
     
     User->>+SNAP_Host_Controller: 1. Create DPUStoragePolicy & DPUStorageVendor
-    SNAP_Host_Controller->>+SNAP_Controller: 2. Create StoragePolicy & StorageVendor in DPU cluster
-    SNAP_Controller-->>-SNAP_Host_Controller: Created
     SNAP_Host_Controller-->>-User: Created
     
-    User->>+SNAP_Host_Controller: 3. Create DPUVolume object directly
-    SNAP_Host_Controller->>+SNAP_Controller: 4. Create Volume object in DPU cluster
-    SNAP_Controller->>+Vendor_CSI_Controller: 5. Create PVC in DPU cluster
-    Vendor_CSI_Controller->>Vendor_CSI_Controller: 6. Provision underlying storage
-    Vendor_CSI_Controller->>+SNAP_Controller: Create PV object
-    SNAP_Controller->>SNAP_Controller: 7. Update Volume status to Available
-    SNAP_Controller-->>-SNAP_Host_Controller: Volume Available
-    SNAP_Host_Controller->>SNAP_Host_Controller: 8. Update DPUVolume status
+    User->>+SNAP_Host_Controller: 2. Create DPUVolume object directly
+    SNAP_Host_Controller->>+Vendor_CSI_Controller: 3. Create PVC in DPU cluster
+    Vendor_CSI_Controller->>Vendor_CSI_Controller: 4. Provision underlying storage
+    Vendor_CSI_Controller->>Vendor_CSI_Controller: 5. Create PV object
+    Vendor_CSI_Controller-->>-SNAP_Host_Controller: PV Created
+    SNAP_Host_Controller->>SNAP_Host_Controller: 6. Update DPUVolume with volume info<br/>and set phase to Bound
+    SNAP_Host_Controller->>SNAP_Host_Controller: 7. Create Volume object in DPU cluster<br/>(copy parameters from DPUVolume)
     SNAP_Host_Controller-->>-User: DPUVolume Available
     
     Note over User, User_Script: Volume Attachment Phase
     
-    User->>+SNAP_Host_Controller: 9. Create DPUVolumeAttachment CR directly
-    SNAP_Host_Controller->>+SNAP_Controller: 10. Create VolumeAttachment CR in DPU cluster
+    User->>+SNAP_Host_Controller: 8. Create DPUVolumeAttachment CR directly
     
     opt If vendor requires attachment
-        SNAP_Controller->>+Vendor_CSI_Controller: 11. Create SVVolumeAttachment
-        Vendor_CSI_Controller->>Vendor_CSI_Controller: 12. Expose volume on storage
-        Vendor_CSI_Controller->>Vendor_CSI_Controller: Update status to Attached
-        Vendor_CSI_Controller-->>-SNAP_Controller: Attached
+        SNAP_Host_Controller->>+Vendor_CSI_Controller: 9. Create SVVolumeAttachment
+        Vendor_CSI_Controller->>Vendor_CSI_Controller: 10. Expose volume on storage
+        Vendor_CSI_Controller->>Vendor_CSI_Controller: 11. Update status to Attached
+        Vendor_CSI_Controller-->>-SNAP_Host_Controller: Attached
+        SNAP_Host_Controller->>SNAP_Host_Controller: 12. Set controllerAttached=True
     end
     
-    SNAP_Controller->>SNAP_Controller: 13. Set storageAttached=True
-    SNAP_Controller->>+SNAP_Node_Driver: Pending VolumeAttachment detected
+    SNAP_Host_Controller->>SNAP_Node_Driver: 13. Create VolumeAttachment CR in DPU cluster
+    SNAP_Node_Driver->>SNAP_Node_Driver: Pending VolumeAttachment detected
     SNAP_Node_Driver->>+Vendor_Plugin: 14. StoragePlugin gRPC API call
     Vendor_Plugin->>+DOCA_SNAP: 15. Setup vendor-specific device (xDev)
     DOCA_SNAP-->>-Vendor_Plugin: Device setup complete
     Vendor_Plugin-->>-SNAP_Node_Driver: Storage connected
     SNAP_Node_Driver->>+DOCA_SNAP: 16. Expose volume to host
     DOCA_SNAP-->>-SNAP_Node_Driver: Volume exposed
-    SNAP_Node_Driver->>SNAP_Node_Driver: Update VolumeAttachment status
-    SNAP_Node_Driver->>SNAP_Node_Driver: Set dpu.Attached=True
-    SNAP_Node_Driver-->>-SNAP_Controller: DPU attached
-    SNAP_Controller-->>-SNAP_Host_Controller: VolumeAttachment status updated
-    SNAP_Host_Controller->>SNAP_Host_Controller: 17. Update DPUVolumeAttachment status
+    SNAP_Node_Driver->>SNAP_Host_Controller: Update VolumeAttachment status<br/>and set dpu.Attached=True
+    SNAP_Host_Controller->>SNAP_Host_Controller: 17. Detect VolumeAttachment status change
+    SNAP_Host_Controller->>SNAP_Host_Controller: 18. Update DPUVolumeAttachment status
     SNAP_Host_Controller-->>-User: DPUVolumeAttachment Ready=True
     
-    User->>+User_Script: 18. Detect Ready condition
+    User->>+User_Script: 19. Detect Ready condition
     User_Script->>User_Script: Discover and prepare emulated device
     User_Script->>User_Script: Load drivers, configure device
     User_Script->>User_Script: Mount device for workload
@@ -386,39 +372,41 @@ sequenceDiagram
 
 1. **DPUStoragePolicy and DPUStorageVendor Creation**: The user creates a [DPUStoragePolicy](#dpustoragepolicy-crd) and [DPUStorageVendor](#dpustoragevendor-crd) object in the host cluster.
 
-2. **StorageVendor and StoragePolicy Creation**: The [SNAP Host Controller](#snap-host-controller) detects the new [DPUStoragePolicy](#dpustoragepolicy-crd) and [DPUStorageVendor](#dpustoragevendor-crd) objects in the host cluster and creates the corresponding [StoragePolicy](#storagepolicy-crd) and [StorageVendor](#storagevendor-crd) objects in the DPU cluster.
+2. **DPUVolume Object Creation**: The user directly creates a [DPUVolume](#dpuvolume-crd) object in the host cluster. This object includes references to the [DPUStoragePolicy](#dpustoragepolicy-crd) and the requested volume parameters.
 
-3. **DPUVolume Object Creation**: The user directly creates a [DPUVolume](#dpuvolume-crd) object in the host cluster. This object includes references to the [DPUStoragePolicy](#dpustoragepolicy-crd) and the requested volume parameters.
+3. **Storage Vendor PVC Creation**: The [SNAP Host Controller](#snap-host-controller) merges parameters from the [DPUStoragePolicy](#dpustoragepolicy-crd) and [DPUVolume](#dpuvolume-crd), selects the appropriate [DPUStorageVendor](#dpustoragevendor-crd), and creates a **PVC** in the DPU cluster that references the storage class of the [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller).
 
-4. **Volume Object Creation in DPU Cluster**: The [SNAP Host Controller](#snap-host-controller) reconciles the [DPUVolume](#dpuvolume-crd) object in the host cluster and creates a [Volume](#volume-crd) object in the DPU cluster. The [Volume](#volume-crd) object includes references to the [StoragePolicy](#storagepolicy-crd) and the requested volume parameters that are copied from the [DPUVolume](#dpuvolume-crd) object.
+4. **Vendor PV Provisioning**: The [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) detects the new **PVC** in the DPU cluster, provisions the underlying storage, and creates the corresponding **PersistentVolume (PV)** object.
 
-5. **Storage Vendor Selection**: The [SNAP Controller](#snap-controller) detects the new [Volume](#volume-crd) object in the DPU cluster. It selects a [StorageVendor](#storagevendor-crd) that matches the policy specified in the [StoragePolicy](#storagepolicy-crd) resource. The controller creates a **PVC** in the DPU cluster that references the storage class of the selected [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller).
+5. **DPUVolume Availability Update**: The [SNAP Host Controller](#snap-host-controller) detects that the **PV** is created and updates [DPUVolume](#dpuvolume-crd) object in the host cluster with information about the created volume and sets the phase of the object to **Bound**.
 
-6. **Vendor PV Provisioning**: The [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) controller detects the new **PVC** in the DPU cluster, provisions the underlying storage, and creates the corresponding **PersistentVolume (PV)** object.
+6. **Volume Object Creation**: The [SNAP Host Controller](#snap-host-controller) creates a [Volume](#volume-crd) object in the DPU cluster. The controller copies parameters from the [DPUVolume](#dpuvolume-crd) object to the [Volume](#volume-crd) object.
 
-7. **Volume Availability Update**: The [SNAP Controller](#snap-controller) detects the new **PV** and updates the status of the [Volume](#volume-crd) object in the DPU cluster to **Available**.
+7. **DPUVolumeAttachment Object Creation**: The user directly creates a [DPUVolumeAttachment](#dpuvolumeattachment-crd) CR in the host cluster to attach the volume to a specific host node.
 
-8. **DPUVolume Availability Update**: The [SNAP Host Controller](#snap-host-controller) detects the status change of the [Volume](#volume-crd) CR in the DPU cluster and updates the status of the [DPUVolume](#dpuvolume-crd) object in the host cluster.
+8. **SVVolumeAttachment Creation**: The [SNAP Host Controller](#snap-host-controller) detects the new [DPUVolumeAttachment](#dpuvolumeattachment-crd) object in the host cluster. If the [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) requires attachment, it creates an [SVVolumeAttachment](#svvolumeattachment-crd) object for the [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) in the DPU cluster.
 
-9. **DPUVolumeAttachment Object Creation**: The user directly creates a [DPUVolumeAttachment](#dpuvolumeattachment-crd) CR in the host cluster to attach the volume to a specific host node.
+9. **Vendor Volume Exposure**: The [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) detects the new [SVVolumeAttachment](#svvolumeattachment-crd) object and exposes the volume on the underlying storage.
 
-10. **VolumeAttachment Object Creation**: The [SNAP Host Controller](#snap-host-controller) detects the new [DPUVolumeAttachment](#dpuvolumeattachment-crd) CR in the host cluster and creates a corresponding [VolumeAttachment](#volumeattachment-crd) CR in the DPU cluster.
+10. **Vendor Volume Attachment**: The [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) updates the status of the [SVVolumeAttachment](#svvolumeattachment-crd) object to **Attached**.
 
-11. **SVVolumeAttachment Creation**: The [SNAP Controller](#snap-controller) detects the new [VolumeAttachment](#volumeattachment-crd) object in the DPU cluster. If the [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) requires attachment, it creates an [SVVolumeAttachment](#svvolumeattachment-crd) object for the [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller).
+11. **DPUVolumeAttachment Status Update**: The [SNAP Host Controller](#snap-host-controller) detects that [SVVolumeAttachment](#svvolumeattachment-crd) is in **Attached** state and sets the `controllerAttached` of the [DPUVolumeAttachment](#dpuvolumeattachment-crd) to **True**.
 
-12. **Vendor Volume Attachment**: The [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) controller detects the new [SVVolumeAttachment](#svvolumeattachment-crd) object and exposes the volume on the underlying storage. Once complete, it updates the status to **Attached**.
+12. **VolumeAttachment Object Creation**: The [SNAP Host Controller](#snap-host-controller) creates a [VolumeAttachment](#volumeattachment-crd) object in the DPU cluster.
 
-13. **VolumeAttachment Status Update**: The [SNAP Controller](#snap-controller) sets the `storageAttached` status of the [VolumeAttachment](#volumeattachment-crd) to **True**.
+13. **Storage Device Connection**: The [SNAP Node Driver](#snap-node-driver) on the DPU detects the pending [VolumeAttachment](#volumeattachment-crd) object and calls the [Vendor Plugin](#vendor-plugin) via the **StoragePlugin gRPC API** to connect the volume to the underlying storage.
 
-14. **Storage Device Connection**: The [SNAP Node Driver](#snap-node-driver) on the DPU detects the pending [VolumeAttachment](#volumeattachment-crd) object and calls the [Vendor Plugin](#vendor-plugin) via the **StoragePlugin gRPC API** to connect the volume to the underlying storage.
+14. **Vendor Plugin Device Setup**: The [Vendor Plugin](#vendor-plugin) connects the volume to the underlying storage (if required) and sets up the vendor-specific device (xDev) inside the [DOCA SNAP](#doca-snap) service.
 
-15. **Vendor Plugin Device Setup**: The [Vendor Plugin](#vendor-plugin) connects the volume to the underlying storage (if required) and sets up the vendor-specific device (xDev) inside the [DOCA SNAP](#doca-snap) service.
+15. **SNAP Process Volume Exposure**: The [SNAP Node Driver](#snap-node-driver) calls the [DOCA SNAP](#doca-snap) service to expose the volume to the host. Upon completion, the [SNAP Node Driver](#snap-node-driver) updates the DPU parameters in the status of the [VolumeAttachment](#volumeattachment-crd) and sets the `dpu.Attached` status to **True**.
 
-16. **SNAP Process Volume Exposure**: The [SNAP Node Driver](#snap-node-driver) calls the [DOCA SNAP](#doca-snap) service to expose the volume to the host. Upon completion, the [SNAP Node Driver](#snap-node-driver) updates the DPU parameters in the status of the [VolumeAttachment](#volumeattachment-crd) and sets the `dpu.Attached` status to **True**.
+16. **VolumeAttachment Status Detection**: The [SNAP Host Controller](#snap-host-controller) detects the status change of the [VolumeAttachment](#volumeattachment-crd) CR in the DPU cluster.
 
-17. **DPUVolumeAttachment Availability Update**: The [SNAP Host Controller](#snap-host-controller) detects the status change of the [VolumeAttachment](#volumeattachment-crd) CR in the DPU cluster and updates the status of the [DPUVolumeAttachment](#dpuvolumeattachment-crd) object in the host cluster to indicate the volume is ready.
+17. **DPUVolumeAttachment Status Update**: The [SNAP Host Controller](#snap-host-controller) updates the status of the [DPUVolumeAttachment](#dpuvolumeattachment-crd) object in the host cluster to indicate the volume is ready.
 
-18. **Host Volume Preparation**: The user-provided script on the host detects that the [DPUVolumeAttachment](#dpuvolumeattachment-crd) `Ready` condition is `True` and performs the necessary operations to discover, prepare, and make the emulated storage device available to the host workload. This includes any required driver loading, device configuration, and mounting operations.
+18. **Ready Condition Detection**: The user-provided script on the host detects that the [DPUVolumeAttachment](#dpuvolumeattachment-crd) `Ready` condition is `True`.
+
+19. **Host Volume Preparation**: The user-provided script performs the necessary operations to discover, prepare, and make the emulated storage device available to the host workload. This includes any required driver loading, device configuration, and mounting operations.
 
 ## Core components
 
@@ -434,6 +422,15 @@ The plugin uses DPF storage APIs by creating [DPUVolume](#dpuvolume-crd) and [DP
 
 The SNAP CSI Plugin consists of a controller and a node component. The controller component is deployed on control-plane nodes, while the node component is deployed on worker nodes.
 The node component is responsible for discovering and preparing emulated storage devices on the host, and mounting them into Pod namespaces when requested by the kubelet.
+
+The plugin supports two emulation modes:
+
+| Emulation Mode | Supported `volumeMode` for PVCs in host cluster | `volumeMode` in created DPUVolume CR |
+|----------------|------------------------------------------------|--------------------------------------|
+| `nvme`         | Block (volume as raw block device in Pod)      | Block (volume exposed as emulated NVMe device to the host) |
+| `virtiofs`     | Filesystem (volume as filesystem in Pod)       | Filesystem (volume exposed as VirtioFS to the host)        |
+
+> **Note:** The emulation mode is set using the `--emulation-mode` flag.
 
 ```mermaid
 %%{
@@ -470,8 +467,6 @@ flowchart-elk LR
     style api_host fill:#afdaed
 ```
 
-The SNAP CSI Plugin currently supports only emulated NVMe block devices with functionType set to `vf`. Virtio-FS devices are not supported yet.
-
 Example of the StorageClass object:
 
 ```yaml
@@ -486,14 +481,25 @@ parameters:
   hotplugFunction: "false"
 ```
 
+The following combinations of `functionType` and `hotplugFunction` StorageClass parameters are supported:
+
+| functionType | hotplugFunction | Description | emulationMode=nvme | emulationMode=virtiofs |
+|--------------|-----------------|-------------|----------------|-------------------|
+| `vf` | `false` | VF on top of static PF | ✅ Supported | ❌ Not supported |
+| `pf` | `true` | Hot-plugged PF | ✅ Supported | ✅ Supported |
+| `vf` | `true` | Hot-plugged VF | ❌ Not supported | ❌ Not supported |
+| `pf` | `false` | Static PF | ❌ Not supported | ❌ Not supported |
+
 
 ### SNAP Host Controller
 
-The **SNAP Host Controller** implements the user-facing DPF storage APIs and manages the synchronization of storage resources between the host cluster and the DPU cluster across both deployment scenarios. Operating within the DPF control-plane, it:
+The **SNAP Host Controller** implements the user-facing DPF storage APIs, manages the synchronization of storage resources between the host cluster and the DPU cluster, and implements the core business logic of the DPF storage subsystem. Operating within the DPF control-plane, it:
 
-* Reconciles [DPUStoragePolicy](#dpustoragepolicy-crd) and [DPUStorageVendor](#dpustoragevendor-crd) objects in the host cluster and creates corresponding [StoragePolicy](#storagepolicy-crd) and [StorageVendor](#storagevendor-crd) objects in the DPU cluster.
-* Reconciles [DPUVolume](#dpuvolume-crd) objects in the host cluster and creates corresponding [Volume](#volume-crd) objects in the DPU cluster with the appropriate parameters and references.
+* Reconciles [DPUStoragePolicy](#dpustoragepolicy-crd) and [DPUStorageVendor](#dpustoragevendor-crd) objects in the host cluster.
+* Reconciles [DPUVolume](#dpuvolume-crd) objects in the host cluster, selects appropriate storage vendors, and creates PVCs directly in the DPU cluster to trigger the [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller).
+* Creates [Volume](#volume-crd) objects in the DPU cluster with volume information and parameters copied from [DPUVolume](#dpuvolume-crd) objects.
 * Reconciles [DPUVolumeAttachment](#dpuvolumeattachment-crd) objects in the host cluster and creates corresponding [VolumeAttachment](#volumeattachment-crd) objects in the DPU cluster to trigger volume attachment operations.
+* Creates [SVVolumeAttachment](#svvolumeattachment-crd) custom resources when the [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) requires [ControllerPublishVolume](https://github.com/container-storage-interface/spec/blob/master/spec.md#controllerpublishvolume)/[ControllerUnpublishVolume](https://github.com/container-storage-interface/spec/blob/master/spec.md#controllerunpublishvolume) operations.
 * Monitors the status of storage resources in the DPU cluster and propagates status updates back to the corresponding resources in the host cluster
 
 ```mermaid
@@ -518,38 +524,6 @@ flowchart LR
     style api_dpu fill:#eddeaf
 ```
 
-### SNAP Controller
-
-The **SNAP Controller** implements the business logic of the DPF storage subsystem. Operating within the DPU cluster, it:
-
-* Reconciles [Volume](#volume-crd) and [VolumeAttachment](#volumeattachment-crd) resources created by the SNAP CSI plugin.
-* Creates the necessary Kubernetes resources to trigger the [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) (that watches resources in the DPU cluster).
-* Uses [StorageVendor](#storagevendor-crd) and [StoragePolicy](#storagepolicy-crd) custom resources to select the appropriate storage vendor and pass required parameters.
-
-If the [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) needs
-[ControllerPublishVolume](https://github.com/container-storage-interface/spec/blob/master/spec.md#controllerpublishvolume)/
-[ControllerUnpublishVolume](https://github.com/container-storage-interface/spec/blob/master/spec.md#controllerunpublishvolume) operations,
-the SNAP Controller will create an [SVVolumeAttachment](#svvolumeattachment-crd) custom resource. This resource is similar to the native Kubernetes `VolumeAttachment` but is not handled by the Kubernetes controllers. Instead, it is managed by the NVIDIA External Attacher sidecar, that is drop-in replacement for upstream `external-attacher` sidecar.
-
-```mermaid
-%%{
-  init: {
-    "theme": "neutral",
-    "flowchart": {"wrap": true,"nodePadding": 1}
-  }
-}%%
-
-flowchart LR
-    subgraph control_plane[DPF Control-plane node]
-        api_dpu[DPU Cluster K8S API]
-        snap_controller[SNAP controller]
-    end
-    api_dpu <--> |Volume CR <br> VolumeAttachemnt CR <br> StorageVendor CR<br> StoragePolicy CR <br> SVVolumeAttachment CR <br> Core K8S Storage Objects|snap_controller
-
-    style snap_controller fill:#74b900
-
-    style api_dpu fill:#eddeaf
-```
 
 ### SNAP Node Driver
 
@@ -672,7 +646,7 @@ spec:
 ```
 If the storage vendor requires to support the controller attach/detach API then an appropriate `CSIDriver` object that represents the storage vendor CSI driver should be created on the DPU Kubernetes cluster (see example below), with the property attacheRequired set to True.
 
-This object is used by the [SNAP Controller](#snap-controller) to determine if [ControllerPublishVolume](https://github.com/container-storage-interface/spec/blob/master/spec.md#controllerpublishvolume)/
+This object is used by the [SNAP Host Controller](#snap-host-controller) to determine if [ControllerPublishVolume](https://github.com/container-storage-interface/spec/blob/master/spec.md#controllerpublishvolume)/
 [ControllerUnpublishVolume](https://github.com/container-storage-interface/spec/blob/master/spec.md#controllerunpublishvolume) operations are supported by the storage vendor.
 
 ```yaml
@@ -684,17 +658,14 @@ spec:
   attachRequired: true // Indicates this CSI volume driver requires an attach operation
 ```
 
-NVIDIA provides the following sample Vendor CSI plugin controllers that can be used as references:
-
-* [SPDK-CSI plugin](#spdk-csi-plugin) can be used as an example for block storage
-* [NFS-CSI plugin](#nfs-csi-plugin) can be used as an example for file storage
+NVIDIA provides several sample Vendor CSI plugin controllers that can be used as references. Helm charts for these controllers are available in the [DPF Storage Vendors Charts repository](https://github.com/Mellanox/dpf-storage-vendors-charts).
 
 > **Note:** These plugins are not intended to be used in production environments.
 
 
 ### Vendor Plugin
 
-> **Note:** Vendors can use the plugins provided by NVIDIA or implement their own if needed. NVIDIA provides the following plugins: `nvidia-block` (uses NVMe-oF, compatible with [SPDK-CSI plugin](#spdk-csi-plugin)) and `nvidia-fs` (uses NFS-kernel client, compatible with [NFS-CSI plugin](#nfs-csi-plugin)).
+> **Note:** Vendors can use the plugins provided by NVIDIA or implement their own if needed. NVIDIA provides the following plugins: `nvidia-block` (uses NVMe-oF) and `nvidia-fs` (uses NFS-kernel client).
 
 The concept of this component is very similar to the Kubernetes CSI node-driver.
 It is responsible to translate the [StoragePlugin API](#storageplugin-api) into the storage vendor specific RPC calls.
@@ -846,43 +817,6 @@ spec:
   nodeName: node01
   source:
     persistentVolumeName: pv-example
-```
-
-#### StoragePolicy CRD
-
-Defines a storage policy that maps between a policy and a list of storage vendors.
-
-```yaml
-apiVersion: storage.dpu.nvidia.com/v1alpha1
-kind: StoragePolicy
-metadata:
-  name: example-storage-policy
-spec:
-  storageVendors:
-    - vendor1
-    - vendor2
-  # supported modes are Random and LocalNVolumes
-  storageSelectionAlg: LocalNVolumes
-  storageParameters:
-    parameter1: value1
-    parameter2: value2
-status:
-  state: Valid
-  message: "Storage policy is valid."
-```
-
-#### StorageVendor CRD
-
-Represents a storage vendor. Each storage vendor must have exactly one `StorageVendor` custom resource.
-
-```yaml
-apiVersion: storage.dpu.nvidia.com/v1alpha1
-kind: StorageVendor
-metadata:
-  name: vendor1
-spec:
-  pluginName: vendor-plugin
-  storageClassName: vendor-storage-class
 ```
 
 #### VolumeAttachment CRD
@@ -1323,29 +1257,6 @@ message GetDeviceResponse {
   map<string, string> storage_parameters = 5;
 }
 ```
-
-
-## SPDK-CSI plugin
-
-> **Note:** this plugin is provided only as an example Vendor CSI Plugin implementation for demonstration purposes. It is not intended or supported for production use cases.
-
-The plugin is provided as an example of how to implement a [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) for block storage.
-
-The SPDK-CSI plugin is not shipped as part of the DPF release. It is expected that users will build the plugin from source code.
-The DPF repository contains a specific Helm chart for the SPDK-CSI.
-
-The instructions for building the SPKD-CSI image and helm chart can be found at the [DPF repo](https://github.com/nvidia/doca-platform) under `dpuservices/storage/examples/spdk-csi/README.md`.
-
-
-## NFS-CSI plugin
-
-> **Note:** this plugin is provided only as an example Vendor CSI Plugin implementation for demonstration purposes. It is not intended or supported for production use cases.
-
-The plugin is provided as an example of how to implement a [Vendor CSI Plugin Controller](#vendor-csi-plugin-controller) for file storage.
-
-The DPF repository contains a specific Helm chart for the NFS-CSI plugin. The chart is compatible with the upstream NFS-CSI plugin image.
-
-The instructions for building the NFS-CSI helm chart can be found at the [DPF repo](https://github.com/nvidia/doca-platform) under `dpuservices/storage/examples/nfs-csi/README.md`.
 
 ## Deployment
 
