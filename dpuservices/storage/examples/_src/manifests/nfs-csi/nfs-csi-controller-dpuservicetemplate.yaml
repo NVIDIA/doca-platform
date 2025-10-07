@@ -10,4 +10,4 @@ spec:
     source:
       repoURL: $NFS_CSI_CHART_REPO
       version: $NFS_CSI_CHART_VERSION
-      chart: nfs-csi-controller-chart
+      chart: nfs-csi-controller

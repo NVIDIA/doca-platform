@@ -1,0 +1,34 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: storage-test-pod-virtiofs-hotplug-pf
+spec:
+  serviceName: "storage-test-pod-virtiofs-hotplug-pf"
+  podManagementPolicy: "Parallel"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: storage-test-pod-virtiofs-hotplug-pf
+  template:
+    metadata:
+      labels:
+        app: storage-test-pod-virtiofs-hotplug-pf
+    spec:
+      containers:
+      - name: test
+        image: registry.k8s.io/nginx-slim:0.21
+        volumeMounts:
+        - mountPath: /mnt/vol1
+          name: vol1
+  volumeClaimTemplates:
+  - metadata:
+      name: vol1
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+      storageClassName: snap-virtiofs-hotplug-pf
+      volumeMode: Filesystem

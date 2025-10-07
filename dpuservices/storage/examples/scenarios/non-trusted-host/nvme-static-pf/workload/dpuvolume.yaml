@@ -1,0 +1,14 @@
+---
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUVolume
+metadata:
+  name: test-volume-nvme-static-pf
+  namespace: dpf-operator-system
+spec:
+  dpuStoragePolicyName: policy-block
+  resources:
+    requests:
+      storage: 1Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Block

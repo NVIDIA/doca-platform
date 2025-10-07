@@ -10,4 +10,4 @@ spec:
     source:
       repoURL: $SPDK_CSI_CHART_REPO
       version: $SPDK_CSI_CHART_VERSION
-      chart: spdk-csi-controller-chart
+      chart: spdk-csi-controller
