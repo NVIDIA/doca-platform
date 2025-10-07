@@ -481,6 +481,11 @@ func useDummyDPUServiceChart(dpuServiceTemplate *dpuservicev1.DPUServiceTemplate
 		RepoURL: helmRegistry,
 	}
 	dpuServiceTemplate.Spec.HelmChart.Values = nil
+	if ngcAPIKey != "" {
+		dpuServiceTemplate.Spec.HelmChart.Values = &machineryruntime.RawExtension{
+			Raw: []byte(fmt.Sprintf(`{"imagePullSecrets": [{"name": "%s"}]}`, ngcPullSecretName)),
+		}
+	}
 }
 
 func generateServiceConfiguration(input *systemTestInput, nameDiff string) *dpuservicev1.DPUServiceConfiguration {
