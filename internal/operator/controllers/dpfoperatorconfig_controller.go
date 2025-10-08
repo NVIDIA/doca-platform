@@ -106,6 +106,9 @@ type DPFOperatorConfigReconcilerSettings struct {
 // +kubebuilder:rbac:groups=vpc.dpu.nvidia.com,resources=dpuvpcs/status;dpuvirtualnetworks/status;isolationclasses/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=vpc.dpu.nvidia.com,resources=dpuvpcs/finalizers;dpuvirtualnetworks/finalizers;isolationclasses/finalizers,verbs=update
 
+// DPU Storage objects
+// +kubebuilder:rbac:groups=storage.dpu.nvidia.com,resources=dpuvolumes;dpuvolumeattachments;dpustoragepolicies;dpustoragevendors,verbs=get;list;watch
+
 // Kubernetes Objects
 // +kubebuilder:rbac:groups=core,resources=namespaces,verbs=create
 // +kubebuilder:rbac:groups=core,resources=nodes;pods;pods/exec;jobs;serviceaccounts;serviceaccounts/token;persistentvolumeclaims;events,verbs=get;list;watch;create;patch;update;delete
