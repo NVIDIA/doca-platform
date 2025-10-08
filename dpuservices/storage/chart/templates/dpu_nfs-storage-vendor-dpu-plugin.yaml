@@ -76,6 +76,7 @@ spec:
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/nvidia/storage/snap/plugins/{{ .Values.dpu.nfsStorageVendorDpuPlugin.config.pluginName }}
+              mountPropagation: "HostToContainer"
             - name: providers
               mountPath: /var/lib/nvidia/storage/snap/providers
               mountPropagation: "HostToContainer"
