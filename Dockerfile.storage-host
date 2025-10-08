@@ -39,7 +39,7 @@ RUN mkdir src && \
     -not -path "./internal/vpc/*" -exec cp --parents \{\}  src/ \; && \
     tar -czf source-code.tar.gz src
 
-FROM nvcr.io/nvidia/doca/doca:3.0.0-base-rt-host
+FROM nvcr.io/nvidia/doca/doca:3.1.0-base-rt-host
 
 ARG PACKAGES="dpkg-dev keyutils libdevmapper1.02.1 libevent-core-2.1-7 libmpdec3 libnfsidmap1 libpython3-stdlib libpython3.10-minimal libpython3.10-stdlib libreadline8 libsqlite3-0 libwrap0 media-types nfs-common python3 python3-minimal python3.10 python3.10-minimal readline-common rpcbind ucf"
 
