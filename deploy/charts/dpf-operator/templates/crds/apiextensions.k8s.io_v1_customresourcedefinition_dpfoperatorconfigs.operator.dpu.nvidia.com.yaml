@@ -270,10 +270,10 @@ spec:
                     description: Disable ensures the component is not deployed when
                       set to true.
                     type: boolean
-                  disableDPUReadyCheck:
+                  disableDPUReadyTaints:
                     description: |-
-                      DisableDPUReady disables the DPU Ready Controller functionality in the DPU Service Controller.
-                      The DPU Ready Controller adds taints to the worker nodes when the DPU is not ready.
+                      DisableDPUReadyTaints disables the DPU ready taints feature in the DPU Service Controller.
+                      This feature adds taints to the worker nodes when the DPU is not ready.
                       This is useful when the DPU is used for networking and the node should not be scheduled until the DPU is ready.
                     type: boolean
                   image:

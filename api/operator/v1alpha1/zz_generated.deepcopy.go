@@ -314,8 +314,8 @@ func (in *DPUServiceControllerConfiguration) DeepCopyInto(out *DPUServiceControl
 		*out = new(DefaultOverridesConfiguration)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.DisableDPUReadyCheck != nil {
-		in, out := &in.DisableDPUReadyCheck, &out.DisableDPUReadyCheck
+	if in.DisableDPUReadyTaints != nil {
+		in, out := &in.DisableDPUReadyTaints, &out.DisableDPUReadyTaints
 		*out = new(bool)
 		**out = **in
 	}

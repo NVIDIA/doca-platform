@@ -164,7 +164,7 @@ func (d *dpuServiceControllerObjects) setDPUReadyController(deploy *appsv1.Deplo
 	if c == nil {
 		return fmt.Errorf("container %q not found in DPUService Controller deployment", managerContainerName)
 	}
-	return setFlags(c, fmt.Sprintf("--disable-dpu-ready-controller=%t", vars.DisableDPUReadyCheck))
+	return setFlags(c, fmt.Sprintf("--disable-dpu-ready-taints=%t", vars.DisableDPUReadyTaints))
 }
 
 // IsReadyForUpgrade reports the readiness of the dpuservice controller objects. It returns an error when the number of Replicas in
