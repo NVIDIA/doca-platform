@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/k8snetworkplumbingwg/ovs-cni/pkg/config"
 	"math/rand"
 	"net"
 	"os/exec"
@@ -27,6 +26,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/k8snetworkplumbingwg/ovs-cni/pkg/config"
 
 	"github.com/containernetworking/cni/pkg/skel"
 	cnitypes "github.com/containernetworking/cni/pkg/types"
@@ -902,6 +903,123 @@ var testFunc = func(version string) {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(string(output)).To(
 					ContainSubstring(secondHostIface.Name), "OVS port with healthy interface should have been kept")
+			})
+		})
+
+		Context("MTU handling from environment args", func() {
+			DescribeTable("MTU precedence rules", func(configMTU int, envArgs string, description string) {
+				// Build configuration based on whether MTU is specified
+				var conf string
+				if configMTU > 0 {
+					conf = fmt.Sprintf(`{
+						"cniVersion": "%s",
+						"name": "mynet",
+						"type": "ovs",
+						"bridge": "%s",
+						"mtu": %d
+					}`, version, bridgeName, configMTU)
+				} else {
+					conf = fmt.Sprintf(`{
+						"cniVersion": "%s",
+						"name": "mynet",
+						"type": "ovs",
+						"bridge": "%s"
+					}`, version, bridgeName)
+				}
+	
+				targetNs := newNS()
+				defer func() {
+					closeNS(targetNs)
+				}()
+	
+				args := &skel.CmdArgs{
+					ContainerID: "dummy",
+					Netns:       targetNs.Path(),
+					IfName:      IFNAME,
+					StdinData:   []byte(conf),
+					Args:        envArgs,
+				}
+	
+				// Call CmdAdd and verify it works correctly
+				result, _, err := cmdAddWithArgs(args, func() error {
+					return CmdAdd(args)
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).NotTo(BeNil())
+			},
+				Entry("environment MTU overrides config MTU", defaultMTU, fmt.Sprintf("MTU=%d", mtu), "environment MTU should take precedence"),
+				Entry("config MTU used when no environment MTU", mtu, "MAC=0a:00:00:00:00:80", "config MTU should be used when environment MTU not provided"),
+				Entry("config MTU used when environment MTU is zero", mtu, "MTU=0", "config MTU should be used when environment MTU is zero"),
+				Entry("default MTU used when no MTU specified", 0, "MAC=0a:00:00:00:00:80", "default MTU should be used when no MTU in config or environment"),
+			)
+		})
+	
+		Describe("getEnvArgs function", func() {
+			Context("MTU parsing", func() {
+				It("should parse MTU from environment args string", func() {
+					envArgsString := "MTU=1500"
+					envArgs, err := getEnvArgs(envArgsString)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(envArgs).NotTo(BeNil())
+					Expect(envArgs.MTU).To(Equal(1500))
+				})
+	
+				It("should parse MTU=0 as zero value", func() {
+					envArgsString := "MTU=0"
+					envArgs, err := getEnvArgs(envArgsString)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(envArgs).NotTo(BeNil())
+					Expect(envArgs.MTU).To(Equal(0))
+				})
+	
+				It("should return nil when no environment args provided", func() {
+					envArgs, err := getEnvArgs("")
+					Expect(err).NotTo(HaveOccurred())
+					Expect(envArgs).To(BeNil())
+				})
+	
+				It("should parse multiple environment args including MTU", func() {
+					envArgsString := "MAC=0a:00:00:00:00:80;MTU=9000;OvnPort=test-port"
+					envArgs, err := getEnvArgs(envArgsString)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(envArgs).NotTo(BeNil())
+					Expect(envArgs.MTU).To(Equal(9000))
+					Expect(string(envArgs.MAC)).To(Equal("0a:00:00:00:00:80"))
+					Expect(string(envArgs.OvnPort)).To(Equal("test-port"))
+				})
+	
+				It("should handle invalid MTU value gracefully", func() {
+					envArgsString := "MTU=invalid"
+					envArgs, err := getEnvArgs(envArgsString)
+					Expect(err).To(HaveOccurred())
+					Expect(envArgs).To(BeNil())
+				})
+	
+				It("should return error from CmdAdd when MTU env arg is invalid", func() {
+					conf := fmt.Sprintf(`{
+						"cniVersion": "%s",
+						"name": "mynet",
+						"type": "ovs",
+						"bridge": "%s"
+					}`, version, bridgeName)
+	
+					targetNs := newNS()
+					defer closeNS(targetNs)
+	
+					args := &skel.CmdArgs{
+						ContainerID: "dummy",
+						Netns:       targetNs.Path(),
+						IfName:      IFNAME,
+						StdinData:   []byte(conf),
+						Args:        "MTU=notanumber",
+					}
+	
+					_, _, err := cmdAddWithArgs(args, func() error {
+						return CmdAdd(args)
+					})
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("invalid syntax"))
+				})
 			})
 		})
 	})
