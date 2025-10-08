@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/crdify/pkg/loaders/kubernetes"
 	"sigs.k8s.io/crdify/pkg/loaders/scheme"
 	"sigs.k8s.io/crdify/pkg/runner"
+	"sigs.k8s.io/crdify/pkg/validations/property"
 )
 
 func TestCrdifyValidation(t *testing.T) {
@@ -169,5 +170,121 @@ func validateErrorMessages(t *testing.T, actualMessages []string, expectedMessag
 					unexpected, actual)
 			}
 		}
+	}
+}
+
+func TestValidateConfigDescriptionIsWarning(t *testing.T) {
+	validationDescriptionName := (&property.Description{}).Name()
+	tests := []struct {
+		name        string
+		config      *config.Config
+		expectError bool
+	}{
+		{
+			name: "valid config with description validation set to warning",
+			config: &config.Config{
+				Validations: []config.ValidationConfig{
+					{
+						Name:        validationDescriptionName,
+						Enforcement: config.EnforcementPolicyWarn,
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid config with description validation set to error",
+			config: &config.Config{
+				Validations: []config.ValidationConfig{
+					{
+						Name:        validationDescriptionName,
+						Enforcement: config.EnforcementPolicyError,
+					},
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "invalid config with missing description validation",
+			config: &config.Config{
+				Validations: []config.ValidationConfig{
+					{
+						Name:        "some-other-validation",
+						Enforcement: config.EnforcementPolicyWarn,
+					},
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "invalid config with empty validations",
+			config: &config.Config{
+				Validations: []config.ValidationConfig{},
+			},
+			expectError: true,
+		},
+		{
+			name: "valid config with multiple validations including description as warning",
+			config: &config.Config{
+				Validations: []config.ValidationConfig{
+					{
+						Name:        "some-other-validation",
+						Enforcement: config.EnforcementPolicyError,
+					},
+					{
+						Name:        validationDescriptionName,
+						Enforcement: config.EnforcementPolicyWarn,
+					},
+					{
+						Name:        "another-validation",
+						Enforcement: config.EnforcementPolicyError,
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid config with multiple validations but description as error",
+			config: &config.Config{
+				Validations: []config.ValidationConfig{
+					{
+						Name:        "some-other-validation",
+						Enforcement: config.EnforcementPolicyWarn,
+					},
+					{
+						Name:        validationDescriptionName,
+						Enforcement: config.EnforcementPolicyError,
+					},
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "nil config",
+			config: &config.Config{
+				Validations: nil,
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := verifyConfigDescription(tt.config)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected an error, but got nil")
+				} else {
+					if err.Error() != allowRemovalDeprecationWarning {
+						t.Errorf("Expected error message: %q, got: %q", allowRemovalDeprecationWarning, err.Error())
+					}
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, but got: %v", err)
+				}
+			}
+		})
 	}
 }
