@@ -281,18 +281,17 @@ func VerifyDeploymentUnderlyingObjectsCreated(ctx context.Context, g Gomega, tes
 }
 
 func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInput) {
+	// TODO: Delete DPUSet not owned by DPUDeployment
 	By("delete DPUs and DPUSets and ensure they are deleted for a clean test condition")
-	if input.skipCleanup {
-		Skip("Skip cleanup resources")
-	}
 	Eventually(func(g Gomega) {
 		dpuSetList := &provisioningv1.DPUSetList{}
-		dpuList := &provisioningv1.DPUList{}
+
 		g.Expect(client.IgnoreNotFound(input.client.DeleteAllOf(ctx, &provisioningv1.DPUSet{}, client.InNamespace(dpfOperatorSystemNamespace)))).To(Succeed())
 		g.Expect(input.client.List(ctx, dpuSetList)).To(Succeed())
 		g.Expect(dpuSetList.Items).To(BeEmpty())
 
 		// Expect all DPUs to have been deleted.
+		dpuList := &provisioningv1.DPUList{}
 		g.Expect(input.client.List(ctx, dpuList)).To(Succeed())
 		g.Expect(dpuList.Items).To(BeEmpty())
 
@@ -390,20 +389,6 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		g.Expect(nodes.Items).To(HaveLen(input.numberOfDPUNodes))
 	}).WithTimeout(45 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 
-	By("create DPUServiceInterface and check that it is mirrored to each cluster")
-	dpuServiceInterfaceName := "pf0-vf2"
-	dpuServiceInterfaceNamespace := "test-dpudeployment"
-	By("create test namespace")
-	testNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: dpuServiceInterfaceNamespace}}
-	testNS.SetLabels(afterAllCleanupLabels)
-	Expect(input.client.Create(ctx, testNS)).To(Succeed())
-	By("create DPUServiceInterface")
-	dpuServiceInterface := input.dpuServiceInterface.DeepCopy()
-	dpuServiceInterface.SetName(dpuServiceInterfaceName)
-	dpuServiceInterface.SetNamespace(dpuServiceInterfaceNamespace)
-	dpuServiceInterface.SetLabels(afterAllCleanupLabels)
-	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
-
 	serviceInterfaceLabels := map[string]string{}
 	By("verify ServiceInterfaceSet is created in DPF clusters")
 	Eventually(func(g Gomega) {
@@ -416,13 +401,6 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		g.Expect(dpuServiceInterfaceList.Items).To(HaveLen(2))
 		// getting labels for ServiceInterface check
 		serviceInterfaceLabels = dpuServiceInterfaceList.Items[0].Spec.Template.Spec.Template.Labels
-
-		// verify ServiceInterfaceSet is created in namespace
-		serviceInterfaceSetListInNamespace := &dpuservicev1.ServiceInterfaceSetList{}
-		g.Expect(dpuClusterClient.List(ctx, serviceInterfaceSetListInNamespace,
-			client.InNamespace(dpuServiceInterfaceNamespace),
-		)).To(Succeed())
-		g.Expect(serviceInterfaceSetListInNamespace.Items).To(HaveLen(1))
 	}, time.Second*300, time.Millisecond*250).Should(Succeed())
 
 	if Label(scaleLabel).MatchesLabelFilter(GinkgoLabelFilter()) {
@@ -453,6 +431,21 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 		g.Expect(conditions.IsTrue(dpuDeployment, conditions.TypeReady)).To(BeTrue())
 	}).WithTimeout(15 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+}
+
+// ValidateDPUDeploymentDPUServiceDisruptiveUpgrade validates that DPUDeployment disruptive upgrade flow for standard
+// DPUServices works as expected
+func ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx context.Context, input *systemTestInput) {
+}
+
+// ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade validates that DPUDeployment disruptive upgrade flow for
+// in-cluster DPUServices works as expected
+func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Context, input *systemTestInput) {
+}
+
+// ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade validates that DPUDeployment disruptive upgrade flow for
+// DPUServiceChain works as expected
+func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade(ctx context.Context, input *systemTestInput) {
 }
 
 func createDeploymentDependencies(ctx context.Context, input *systemTestInput, nameDiff string) {

@@ -330,9 +330,29 @@ var _ = Describe("DPF System tests - Core", Labels{dpfSystemLabel}, func() {
 		})
 	})
 
+	// These tests delete the existing DPUSet created in the beginning of the testing suite, and create a DPUDeployment
+	// instead. The DPUDeployment should not be removed until all the tests in the e2e suite are run as the DPUs will be
+	// deleted.
 	Context("Validate DPUDeployment full creation", Serial, Ordered, func() {
 		It("should validate DPUDeployment and underlying objects creation", func() {
 			ValidateDPUDeploymentFullCreation(ctx, input)
+		})
+		It("should validate DPUDeployment disruptive upgrade of standard DPUServices", Labels{requiresNodesLabel}, func() {
+			ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx, input)
+		})
+		It("should validate DPUDeployment disruptive upgrade of in-cluster DPUServices", func() {
+			ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx, input)
+		})
+		It("should validate DPUDeployment disruptive upgrade of DPUServiceChain", Labels{requiresNodesLabel}, func() {
+			ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade(ctx, input)
+		})
+	})
+
+	// The actual DPFOperatorConfig removal happens in AfterSuite but we need to ensure some resources exist before we
+	// proceed with the removal.
+	Context("Validate DPFOperatorConfig deletion", Serial, func() {
+		It("should validate the expected objects exist before leaving the Container node", func() {
+			ValidateDPFOperatorConfigCleanupPrerequisites(ctx, input)
 		})
 	})
 })

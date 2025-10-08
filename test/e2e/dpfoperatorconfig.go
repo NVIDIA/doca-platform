@@ -24,6 +24,7 @@ import (
 	"slices"
 	"time"
 
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
@@ -37,6 +38,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -669,6 +671,55 @@ func triggerDMSRecreation(ctx context.Context, c client.Client) {
 			g.Expect(found).To(BeTrue())
 		}
 	}).WithTimeout(60 * time.Second).Should(Succeed())
+}
+
+// ValidateDPFOperatorConfigCleanupPrerequisites this function ensures that the prerequisite objects exist before removing
+// the DPFOperatorConfig to ensure that we cover edge cases.
+func ValidateDPFOperatorConfigCleanupPrerequisites(ctx context.Context, input *systemTestInput) {
+	// Use case, 2 DPUServiceInterfaces, one created by DPUDeployment and a standalone. The DPF Operator should be able
+	// to delete those gracefully without stuck finalizers due to sfc-controller missing in the DPU Cluster.
+	By("verify DPUServiceInterface owned by DPUDeployment exists and is not removed by previous tests")
+	dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
+	Expect(input.client.List(ctx, dpuServiceInterfaceList, client.HasLabels{dpuservicev1.ParentDPUDeploymentNameLabel})).To(Succeed())
+	Expect(dpuServiceInterfaceList.Items).ToNot(BeEmpty())
+	dpuDeploymentOwnedServiceInterfaceLabels := make([]map[string]string, 0, len(dpuServiceInterfaceList.Items))
+	for _, dpuServiceInterface := range dpuServiceInterfaceList.Items {
+		dpuDeploymentOwnedServiceInterfaceLabels = append(dpuDeploymentOwnedServiceInterfaceLabels, dpuServiceInterface.Spec.Template.Spec.Template.Labels)
+	}
+
+	By("create DPUServiceInterface and check that it is mirrored to each cluster")
+	dpuServiceInterfaceName := "pf0-vf2"
+	dpuServiceInterfaceNamespace := "test-dpfoperatorconfig-removal"
+
+	By("create test namespace")
+	testNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: dpuServiceInterfaceNamespace}}
+	testNS.SetLabels(afterAllCleanupLabels)
+	Expect(input.client.Create(ctx, testNS)).To(Succeed())
+
+	By("create DPUServiceInterface")
+	dpuServiceInterface := input.dpuServiceInterface.DeepCopy()
+	dpuServiceInterface.SetName(dpuServiceInterfaceName)
+	dpuServiceInterface.SetNamespace(dpuServiceInterfaceNamespace)
+	dpuServiceInterface.SetLabels(afterAllCleanupLabels)
+	dpuServiceInterface.Spec.Template.Spec.NodeSelector = nil
+	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
+
+	if input.hasDpuNodes() {
+		By(fmt.Sprintf("verify ServiceInterface is created in %d nodes", input.numberOfDPUNodes))
+		Eventually(func(g Gomega) {
+			// Expect ServiceInterface for standalone DPUServiceInterface to be created
+			standaloneServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
+			g.Expect(dpuClusterClient.List(ctx, standaloneServiceInterfaceList, client.InNamespace(dpuServiceInterfaceNamespace))).To(Succeed())
+			g.Expect(standaloneServiceInterfaceList.Items).To(HaveLen(input.numberOfDPUNodes))
+
+			// Expect ServiceInterface for DPUDeployment owned DPUServiceInterface to exist
+			for _, serviceInterfaceLabels := range dpuDeploymentOwnedServiceInterfaceLabels {
+				dpudeploymentOwnedServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
+				g.Expect(dpuClusterClient.List(ctx, dpudeploymentOwnedServiceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
+				g.Expect(dpudeploymentOwnedServiceInterfaceList.Items).To(HaveLen(input.numberOfDPUNodes))
+			}
+		}).WithTimeout(2 * time.Minute).Should(Succeed())
+	}
 }
 
 func DeleteDPFOperatorConfig(ctx context.Context, testClient client.Client) {
