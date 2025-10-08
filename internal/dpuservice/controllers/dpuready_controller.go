@@ -61,6 +61,9 @@ type DPUReadyReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
 	controller controller.Controller
+
+	// DisableDPUReadyTaints, if set to true, will disable the addition of DPU-ready taints to nodes.
+	DisableDPUReadyTaints bool
 }
 
 const (
@@ -79,7 +82,7 @@ const (
 )
 
 // SetupWithManager configures the controller with the manager and sets up required indexes and predicates
-func (r *DPUReadyReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+func (r *DPUReadyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	p := predicate.NewPredicateFuncs(func(o client.Object) bool {
 		node, ok := o.(*corev1.Node)
 		if !ok {
@@ -129,94 +132,137 @@ func (r *DPUReadyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return r.reconcile(ctx, &node)
 }
 
-func (r *DPUReadyReconciler) reconcile(ctx context.Context, node *corev1.Node) (ctrl.Result, error) {
+type reconcileScope struct {
+	node           *corev1.Node
+	dpuList        []provisioningv1.DPU
+	dpuServiceList *dpuservicev1.DPUServiceList
+}
+
+func (r *DPUReadyReconciler) newReconcileScope(ctx context.Context, node *corev1.Node) (*reconcileScope, error) {
 	dpuList, err := r.getDPUsByNodeName(ctx, node.Name)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("could not get the dpunode from node: %w", err)
+		return nil, fmt.Errorf("could not get the dpunode from node: %w", err)
 	}
 
-	dpuServices, err := r.reconcileForDPUServices(ctx, node, dpuList)
+	dpuServiceList := &dpuservicev1.DPUServiceList{}
+	if err := r.Client.List(ctx, dpuServiceList, client.MatchingFields{
+		dpuServiceDeployInClusterField: strconv.FormatBool(false),
+	}); err != nil {
+		return nil, fmt.Errorf("failed to list DPUServices: %w", err)
+	}
+
+	return &reconcileScope{
+		node:           node,
+		dpuList:        dpuList,
+		dpuServiceList: dpuServiceList,
+	}, nil
+}
+
+func (r *DPUReadyReconciler) reconcile(ctx context.Context, node *corev1.Node) (ctrl.Result, error) {
+	scope, err := r.newReconcileScope(ctx, node)
 	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if err := r.reconcileDPUReadyTaints(ctx, scope); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile DPUServices: %w", err)
 	}
 
-	dpuServicesChains, err := r.reconcileForDPUServiceChains(ctx, dpuList)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to reconcile DPUServiceChains: %w", err)
-	}
-
-	dpuNodeMaintenances, err := r.getDPUNodeMaintenanceObjects(ctx, node)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to get DPUNodeMaintenance objects: %w", err)
-	}
-
-	if len(dpuNodeMaintenances) == 0 {
-		return ctrl.Result{}, nil
-	}
-
-	if err := r.patchDPUNodeMaintenanceObjects(ctx, dpuNodeMaintenances, dpuServices, dpuServicesChains); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to patch DPUNodeMaintenance objects for node %s: %w", node.Name, err)
+	if err := r.reconcileDPUNodeMaintenance(ctx, scope); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to reconcile DPUNodeMaintenance: %w", err)
 	}
 
 	return ctrl.Result{}, nil
 }
 
-// reconcileForDPUServiceChains gets the ready DPUServiceChains that apply to the given node
-// It returns the list of ready DPUServiceChains that match the node
-func (r *DPUReadyReconciler) reconcileForDPUServiceChains(ctx context.Context, dpuList []provisioningv1.DPU) ([]dpuservicev1.DPUServiceChain, error) {
-	dpuServiceChainList := &dpuservicev1.DPUServiceChainList{}
-	if err := r.Client.List(ctx,
-		dpuServiceChainList,
-		client.HasLabels{dpuservicev1.ParentDPUDeploymentNameLabel}); err != nil {
-		return nil, fmt.Errorf("failed to list DPUServiceChains: %w", err)
+// reconcileDPUReadyTaints reconciles the DPUServices for a given node
+// It returns the list of ready DPUServices
+func (r *DPUReadyReconciler) reconcileDPUReadyTaints(ctx context.Context, scope *reconcileScope) error {
+	if r.DisableDPUReadyTaints {
+		return nil
 	}
 
+	log := ctrllog.FromContext(ctx)
+	log.V(3).Info("Reconciling DPU ready taints for node", "node", scope.node.Name)
+	dpuServicesReadyStatus, err := r.getServicesStatus(ctx, scope.dpuList, scope.dpuServiceList)
+	if err != nil {
+		return err
+	}
+
+	criticalServicesReady := isCriticalServiceReady(dpuServicesReadyStatus, r.getCriticalDPUServiceList(scope.dpuServiceList).Items)
+	if criticalServicesReady {
+		if err = r.removeTaintIfExists(ctx, scope.node); err != nil {
+			return fmt.Errorf("error removing taint from node %s: %w", scope.node.Name, err)
+		}
+	} else {
+		if err = r.addTaintIfDoesNotExist(ctx, scope.node); err != nil {
+			return fmt.Errorf("error adding taint to node %s: %w", scope.node.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func (r *DPUReadyReconciler) reconcileDPUNodeMaintenance(ctx context.Context, scope *reconcileScope) error {
+	dpuNodeMaintenances, err := r.getDPUNodeMaintenanceObjects(ctx, scope.node)
+	if err != nil {
+		return fmt.Errorf("failed to get DPUNodeMaintenance objects: %w", err)
+	}
+
+	if len(dpuNodeMaintenances) == 0 {
+		return nil
+	}
+
+	if err := r.patchDPUNodeMaintenanceObjects(ctx, scope, dpuNodeMaintenances); err != nil {
+		return fmt.Errorf("failed to patch DPUNodeMaintenance objects for node %s: %w", scope.node.Name, err)
+	}
+
+	return nil
+}
+
+func (r *DPUReadyReconciler) readyDPUServiceChains(ctx context.Context, dpuList []provisioningv1.DPU) ([]dpuservicev1.DPUServiceChain, error) {
+	dpuServiceChainList := &dpuservicev1.DPUServiceChainList{}
+	if err := r.Client.List(ctx, dpuServiceChainList, client.HasLabels{
+		dpuservicev1.ParentDPUDeploymentNameLabel,
+	}); err != nil {
+		return nil, fmt.Errorf("failed to list DPUServiceChains: %w", err)
+	}
 	dpuServiceChainsReadyStatus, err := r.getDPUServiceChainsStatus(ctx, dpuList, dpuServiceChainList)
 	if err != nil {
 		return nil, err
 	}
+	dpuServicesChains := getReadyDPUServiceChainsFromList(dpuServiceChainList.Items, dpuServiceChainsReadyStatus)
 
-	return getReadyDPUServiceChainsFromList(dpuServiceChainList.Items, dpuServiceChainsReadyStatus), nil
+	return dpuServicesChains, nil
 }
 
-// reconcileForDPUServices reconciles the DPUServices for a given node
-// It returns the list of ready DPUServices
-func (r *DPUReadyReconciler) reconcileForDPUServices(ctx context.Context, node *corev1.Node, dpuList []provisioningv1.DPU) ([]dpuservicev1.DPUService, error) {
-	dpuServiceList := &dpuservicev1.DPUServiceList{}
-	if err := r.Client.List(ctx,
-		dpuServiceList,
-		client.MatchingFields{dpuServiceDeployInClusterField: strconv.FormatBool(false)}); err != nil {
-		return nil, fmt.Errorf("failed to list DPUServices: %w", err)
-	}
-
-	dpuServicesReadyStatus, err := r.getServicesStatus(ctx, dpuList, dpuServiceList)
+func (r *DPUReadyReconciler) readyDPUServices(ctx context.Context, scope *reconcileScope) ([]dpuservicev1.DPUService, error) {
+	dpuServicesReadyStatus, err := r.getServicesStatus(ctx, scope.dpuList, scope.dpuServiceList)
 	if err != nil {
 		return nil, err
 	}
-
-	criticalServicesReady := isCriticalServiceReady(dpuServicesReadyStatus, r.getCriticalDPUServiceList(dpuServiceList).Items)
-	if criticalServicesReady {
-		if err = r.removeTaintIfExists(ctx, node); err != nil {
-			return nil,
-				fmt.Errorf("error removing taint from node %s: %w",
-					node.Name, err)
-		}
-	} else {
-		if err = r.addTaintIfDoesNotExist(ctx, node); err != nil {
-			return nil,
-				fmt.Errorf("error adding taint to node %s: %w",
-					node.Name, err)
-		}
-	}
-
-	return getReadyDPUServicesFromList(dpuServiceList.Items, dpuServicesReadyStatus), nil
+	dpuServices := getReadyDPUServicesFromList(scope.dpuServiceList.Items, dpuServicesReadyStatus)
+	return dpuServices, nil
 }
 
-func (r *DPUReadyReconciler) patchDPUNodeMaintenanceObjects(ctx context.Context, dpuNodeMaintenanceObjects []*provisioningv1.DPUNodeMaintenance,
-	dpuServices []dpuservicev1.DPUService, dpuServicesChains []dpuservicev1.DPUServiceChain) error {
+func (r *DPUReadyReconciler) patchDPUNodeMaintenanceObjects(
+	ctx context.Context,
+	scope *reconcileScope,
+	dpuNodeMaintenanceObjects []*provisioningv1.DPUNodeMaintenance,
+) error {
 	oldDPUNodeMaintenanceObjects := make(map[types.NamespacedName]*provisioningv1.DPUNodeMaintenance, len(dpuNodeMaintenanceObjects))
 	for _, dpuNodeMaintenance := range dpuNodeMaintenanceObjects {
 		oldDPUNodeMaintenanceObjects[client.ObjectKeyFromObject(dpuNodeMaintenance)] = dpuNodeMaintenance.DeepCopy()
+	}
+
+	dpuServices, err := r.readyDPUServices(ctx, scope)
+	if err != nil {
+		return err
+	}
+
+	dpuServicesChains, err := r.readyDPUServiceChains(ctx, scope.dpuList)
+	if err != nil {
+		return err
 	}
 
 	for _, dpuNodeMaintenance := range dpuNodeMaintenanceObjects {
@@ -323,8 +369,11 @@ func (r *DPUReadyReconciler) getDPUServiceChainsStatus(ctx context.Context, dpuL
 // getServicesStatus checks if all DPU services are running on the DPU node.
 // It connects to the DPU cluster and verifies that all service pods are truly ready.
 // Returns a map of service names and their readiness status for all DPUs.
-func (r *DPUReadyReconciler) getServicesStatus(ctx context.Context, dpuList []provisioningv1.DPU,
-	dpuServiceList *dpuservicev1.DPUServiceList) (map[string]bool, error) {
+func (r *DPUReadyReconciler) getServicesStatus(
+	ctx context.Context,
+	dpuList []provisioningv1.DPU,
+	dpuServiceList *dpuservicev1.DPUServiceList,
+) (map[string]bool, error) {
 	var errs []error
 	allDPUStatuses := make([]map[string]bool, 0, len(dpuList))
 

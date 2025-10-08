@@ -82,7 +82,7 @@ func TestDPUServiceControllerManifestSetFlag(t *testing.T) {
 	}
 	g.Expect(dpuserviceCtrl.Parse()).To(Succeed())
 
-	t.Run("test toggling DPUReady controller", func(t *testing.T) {
+	t.Run("test toggling DPUReady taints in DPUService controller", func(t *testing.T) {
 		vars := newDefaultVariables(defaults)
 
 		generatedObjs, err := dpuserviceCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
@@ -92,15 +92,15 @@ func TestDPUServiceControllerManifestSetFlag(t *testing.T) {
 
 		g.Expect(deployment).NotTo(BeNil())
 		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
-		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--disable-dpu-ready-controller=false"))
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--disable-dpu-ready-taints=false"))
 
-		// Disable DPUReady controller and check the flag is set in the deployment.
-		vars.DisableDPUReadyCheck = true
+		// Disable DPUReady taints and check the flag is set in the deployment.
+		vars.DisableDPUReadyTaints = true
 		generatedObjs, err = dpuserviceCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		deployment = getDeploymentFromGeneratedObjs(g, generatedObjs)
-		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--disable-dpu-ready-controller=true"))
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--disable-dpu-ready-taints=true"))
 	})
 }
 

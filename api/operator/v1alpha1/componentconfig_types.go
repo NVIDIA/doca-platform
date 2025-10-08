@@ -219,11 +219,11 @@ type DPUServiceControllerConfiguration struct {
 	// +optional
 	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 
-	// DisableDPUReady disables the DPU Ready Controller functionality in the DPU Service Controller.
-	// The DPU Ready Controller adds taints to the worker nodes when the DPU is not ready.
+	// DisableDPUReadyTaints disables the DPU ready taints feature in the DPU Service Controller.
+	// This feature adds taints to the worker nodes when the DPU is not ready.
 	// This is useful when the DPU is used for networking and the node should not be scheduled until the DPU is ready.
 	// +optional
-	DisableDPUReadyCheck *bool `json:"disableDPUReadyCheck,omitempty"`
+	DisableDPUReadyTaints *bool `json:"disableDPUReadyTaints,omitempty"`
 }
 
 func (c *DPUServiceControllerConfiguration) Name() string {
