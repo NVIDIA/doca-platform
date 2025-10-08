@@ -138,7 +138,7 @@ var _ = BeforeSuite(func() {
 	err = (&DPUReadyReconciler{
 		Client: testManager.GetClient(),
 		Scheme: testManager.GetScheme(),
-	}).SetupWithManager(ctx, testManager)
+	}).SetupWithManager(testManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	chartHelper = utils.NewFakeChartHelper()
