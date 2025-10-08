@@ -214,7 +214,7 @@ _Appears in:_
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
 | `image` _[Image](#image)_ | Image overrides the container image used by the DPUService controller.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the DPU Service controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
-| `disableDPUReadyCheck` _boolean_ | DisableDPUReady disables the DPU Ready Controller functionality in the DPU Service Controller.<br />The DPU Ready Controller adds taints to the worker nodes when the DPU is not ready.<br />This is useful when the DPU is used for networking and the node should not be scheduled until the DPU is ready. |  |  |
+| `disableDPUReadyTaints` _boolean_ | DisableDPUReadyTaints disables the DPU ready taints feature in the DPU Service Controller.<br />This feature adds taints to the worker nodes when the DPU is not ready.<br />This is useful when the DPU is used for networking and the node should not be scheduled until the DPU is ready. |  |  |
 
 
 #### DefaultOverridesConfiguration
