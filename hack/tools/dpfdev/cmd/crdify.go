@@ -38,17 +38,19 @@ import (
 	"sigs.k8s.io/crdify/pkg/runner"
 	"sigs.k8s.io/crdify/pkg/validations"
 	crdifyefr "sigs.k8s.io/crdify/pkg/validations/crd/existingfieldremoval"
+	"sigs.k8s.io/crdify/pkg/validations/property"
 )
 
 const (
-	removedFieldPrefix    = "removed field : "
-	deprecationMarker     = "Deprecated:"
-	typeChangedMarker     = "type changed : "
-	emptyTypeMarker       = `-> ""`
-	fieldSeparator        = " : "
-	versionSeparator      = "^"
-	validationDescription = "description"
-	validationType        = "type"
+	allowRemovalDeprecationWarning = "when --allow-removal-deprecations is set, the description validation must have an enforcement policy of 'warning'"
+	removedFieldPrefix             = "removed field : "
+	deprecationMarker              = "Deprecated:"
+	typeChangedMarker              = "type changed : "
+	emptyTypeMarker                = `-> ""`
+	fieldSeparator                 = " : "
+	versionSeparator               = "^"
+	validationDescription          = "description"
+	validationType                 = "type"
 )
 
 func init() {
@@ -107,6 +109,9 @@ Example use cases:
 
 			results := run.Run(oldCrd, newCrd)
 			if allowRemovalDeprecations {
+				if err := verifyConfigDescription(cfg); err != nil {
+					log.Fatalf("Error: %v", err)
+				}
 				removeDeprecations(results)
 			}
 			if enableAllowList {
@@ -134,6 +139,24 @@ Example use cases:
 	crdifyCmd.PersistentFlags().BoolVar(&enableAllowList, "enable-allow-list", false, "if true, crdify will enable the allow list feature to ignore known issues.")
 
 	rootCmd.AddCommand(crdifyCmd)
+}
+
+func verifyConfigDescription(cfg *config.Config) error {
+	verified := false
+	for _, validation := range cfg.Validations {
+		if validation.Name != (&property.Description{}).Name() {
+			continue
+		}
+		if validation.Enforcement == config.EnforcementPolicyWarn {
+			verified = true
+			continue
+		}
+		verified = false
+	}
+	if verified {
+		return nil
+	}
+	return fmt.Errorf(allowRemovalDeprecationWarning)
 }
 
 type allowList struct {
