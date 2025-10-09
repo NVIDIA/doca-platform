@@ -41,9 +41,10 @@ import (
 )
 
 const (
-	DPFNamespace        = "dpf-operator-system"
-	CurrentRebootIDFile = "/proc/sys/kernel/random/boot_id"
-	LatestRebootIDFile  = "/var/lib/dpf/hostagent/boot_id/latest"
+	DPFNamespace              = "dpf-operator-system"
+	CurrentRebootIDFile       = "/proc/sys/kernel/random/boot_id"
+	LatestRebootIDFile        = "/var/lib/dpf/hostagent/boot_id/latest"
+	SkipDefaultRouteCheckFile = "/var/lib/dpf/dms/hostnetwork-skip-default-route-check"
 )
 
 type Interface interface {
@@ -268,6 +269,14 @@ func (n *NodeManager) bridgeCondition() metav1.Condition {
 		cond.Message = err.Error()
 		return cond
 	}
+
+	// Skip default route check if the file exists. This is mainly used for testing.
+	if _, err := os.Stat(SkipDefaultRouteCheckFile); err == nil {
+		cond.Status = metav1.ConditionTrue
+		cond.Reason = cond.Type
+		return cond
+	}
+
 	routes, err := netlink.RouteList(bridge, netlink.FAMILY_V4)
 	if err != nil {
 		cond.Status = metav1.ConditionFalse

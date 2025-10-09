@@ -40,7 +40,9 @@ const (
 	DMSInitScript         string = "/opt/dpf/dmsinit.sh"
 	DMSServiceAccountName string = "dpf-provisioning-hostagent-service-account"
 	DMSContainerName      string = "dms"
-	HostAgentLocalDir     string = "/var/lib/dpf/hostagent"
+	// DPFLocalDir is mounted to the containers.
+	// For backwards compatibility, /var/lib/dpf is used, which is the parent directory of /var/lib/dpf/hostagent and the old /var/lib/dpf/dms.
+	DPFLocalDir string = "/var/lib/dpf"
 )
 
 func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.Node, option dnutil.HostAgentPodOptions, namespace string, dpfOperatorConfigOwnerRef *metav1.OwnerReference) error {
@@ -190,8 +192,8 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 							MountPath: DMSImageFolder,
 						},
 						{
-							Name:      "hostagent-local-dir",
-							MountPath: HostAgentLocalDir,
+							Name:      "dpf-local-dir",
+							MountPath: DPFLocalDir,
 						},
 						{
 							Name:      "systemd-dbus",
@@ -253,10 +255,10 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 					},
 				},
 				{
-					Name: "hostagent-local-dir",
+					Name: "dpf-local-dir",
 					VolumeSource: corev1.VolumeSource{
 						HostPath: &corev1.HostPathVolumeSource{
-							Path: HostAgentLocalDir,
+							Path: DPFLocalDir,
 							Type: ptr.To(corev1.HostPathDirectoryOrCreate),
 						},
 					},
