@@ -901,6 +901,61 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpu.Spec.DPUFlavor).To(Equal("custom-flavor"))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
+
+		It("DPUSet: should update NodeEffect Action from Taint to Drain", func() {
+			By("creating dpuset with Taint nodeEffect")
+			obj := createDPUSet("obj-dpuset")
+			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{
+					Taint: &corev1.Taint{
+						Key:    "test-key",
+						Value:  "test-value",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, obj))).To(Succeed())
+			})
+
+			dpuList := &provisioningv1.DPUList{}
+
+			By("checking initial DPU is created with Taint nodeEffect")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name))).To(Succeed())
+				g.Expect(dpuList.Items).To(HaveLen(1))
+
+				dpu := dpuList.Items[0]
+				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
+				g.Expect(dpu.Spec.NodeEffect.Taint).ToNot(BeNil())
+				g.Expect(dpu.Spec.NodeEffect.Taint.Key).To(Equal("test-key"))
+				g.Expect(dpu.Spec.NodeEffect.Taint.Value).To(Equal("test-value"))
+				g.Expect(dpu.Spec.NodeEffect.Taint.Effect).To(Equal(corev1.TaintEffectNoSchedule))
+				g.Expect(dpu.Spec.NodeEffect.Drain).To(BeNil())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("updating DPUSet to change nodeEffect from Taint to Drain")
+			patcher := patch.NewSerialPatcher(obj, k8sClient)
+			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{
+					Drain: ptr.To(true),
+				},
+			}
+			Expect(patcher.Patch(ctx, obj)).To(Succeed())
+
+			By("checking DPU is updated with Drain nodeEffect")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name))).To(Succeed())
+				g.Expect(dpuList.Items).To(HaveLen(1))
+
+				dpu := dpuList.Items[0]
+				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
+				g.Expect(dpu.Spec.NodeEffect.Drain).ToNot(BeNil())
+				g.Expect(dpu.Spec.NodeEffect.Drain).To(Equal(ptr.To(true)))
+				g.Expect(dpu.Spec.NodeEffect.Taint).To(BeNil())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
 		// TODO: add more test cases
 	})
 })
