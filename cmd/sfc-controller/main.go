@@ -1,3 +1,5 @@
+//go:build linux
+
 /*
 COPYRIGHT 2024 NVIDIA
 
