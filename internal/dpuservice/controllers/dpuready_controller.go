@@ -735,29 +735,25 @@ func newLabelPredicate() predicate.Predicate {
 func newPhasePredicate() predicate.Funcs {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
-			// we are not interested in create events
-			return false
+			// Accept create events if the pod is already ready.
+			pod := e.Object.(*corev1.Pod)
+			return getPodReadyCondition(pod) == corev1.ConditionTrue
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldPod := e.ObjectOld.(*corev1.Pod)
 			newPod := e.ObjectNew.(*corev1.Pod)
 
-			// We only care about transitions to/from Running phase
-			oldPhase := oldPod.Status.Phase
-			newPhase := newPod.Status.Phase
+			// Get readiness status for both old and new pod
+			oldReady := getPodReadyCondition(oldPod)
+			newReady := getPodReadyCondition(newPod)
 
 			// Only trigger reconciliation if:
-			// 1. Pod is transitioning To Running phase (from any other phase)
-			if oldPhase != corev1.PodRunning && newPhase == corev1.PodRunning {
+			// 1. Pod readiness changed (transition to/from ready state)
+			if oldReady != newReady {
 				return true
 			}
 
-			// 2. Pod is transitioning FROM Running phase (to any other phase)
-			if oldPhase == corev1.PodRunning && newPhase != corev1.PodRunning {
-				return true
-			}
-
-			// 3. Pod deletion timestamp set (pod is being deleted)
+			// 2. Pod deletion timestamp set (pod is being deleted)
 			if oldPod.DeletionTimestamp == nil && newPod.DeletionTimestamp != nil {
 				return true
 			}
@@ -774,6 +770,16 @@ func newPhasePredicate() predicate.Funcs {
 			return false
 		},
 	}
+}
+
+// getPodReadyCondition returns the status of the PodReady condition
+func getPodReadyCondition(pod *corev1.Pod) corev1.ConditionStatus {
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodReady {
+			return cond.Status
+		}
+	}
+	return corev1.ConditionUnknown
 }
 
 // podEventHandler is a handler for pod events
@@ -803,8 +809,15 @@ func (p *podEventHandler) handlePodEventHelper(ctx context.Context, pod *corev1.
 }
 
 func (p *podEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	// Create is not implemented
-	// because we are not interested in create events and the predicate filters out all create events
+	reqLog := ctrllog.FromContext(ctx)
+
+	pod, ok := e.Object.(*corev1.Pod)
+	if !ok {
+		reqLog.Error(fmt.Errorf("event expected a Pod but got a %T", e.Object), "Failed to convert object")
+		return
+	}
+
+	p.handlePodEventHelper(ctx, pod, q)
 }
 
 // Update finds the host node name from the node labels and enqueues a request for the host node
