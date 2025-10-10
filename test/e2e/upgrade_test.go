@@ -112,6 +112,11 @@ var _ = Describe("DPF Upgrade validation", Labels{dpfUpgradeValidationTestLabel}
 			validateDPFVersionUpgrade()
 		})
 
+		It("validate that DMS Pods are upgraded", func() {
+			By("validating that DMS Pods have the correct same image tag")
+			VerifyHostAgentPodsImageTag(ctx, input, tag)
+		})
+
 		It("waiting 30 seconds to let the controllers reconcile", func() {
 			By("waiting for 30 seconds to let the controllers reconcile")
 			time.Sleep(30 * time.Second)
@@ -132,6 +137,26 @@ var _ = Describe("DPF Upgrade validation", Labels{dpfUpgradeValidationTestLabel}
 		})
 	})
 })
+
+func VerifyHostAgentPodsImageTag(ctx context.Context, input *systemTestInput, expectedTag string) {
+	By("verifying HostAgent Pods have the same image tag as the operator")
+	Eventually(func(g Gomega) {
+		dmsPods := &corev1.PodList{}
+		g.Expect(input.client.List(ctx, dmsPods,
+			client.InNamespace(dpfOperatorSystemNamespace),
+			client.MatchingLabels{util.ProvisioningComponentLabelKey: "hostagent"},
+		)).To(Succeed())
+
+		for _, pod := range dmsPods.Items {
+			g.Expect(pod.Spec.Containers).ToNot(BeEmpty(), "DMS Pod should have containers")
+			for _, container := range pod.Spec.Containers {
+				g.Expect(container.Image).To(ContainSubstring(expectedTag),
+					fmt.Sprintf("DMS Pod %s should have image tag %s", pod.Name, expectedTag))
+			}
+		}
+	}).WithTimeout(time.Minute).WithPolling(1*time.Second).Should(Succeed(),
+		"DMS Pods should have the same image tag as the operator")
+}
 
 func validatePreUpgradeConditions(ctx context.Context, input *systemTestInput) {
 	By("validating pre-upgrade conditions of dpfoperatorconfig with stability verification")
