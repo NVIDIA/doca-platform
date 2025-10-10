@@ -37,7 +37,7 @@ spec:
           tenant.clastix.io: dpu-cluster-1
       serviceType: ClusterIP
   kubernetes:
-    version: v1.30.2
+    version: v1.33.0
     kubelet:
       cgroupfs: systemd
       preferredAddressTypes: [InternalIP,Hostname,ExternalIP]
