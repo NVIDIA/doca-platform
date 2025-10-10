@@ -14,11 +14,6 @@ spec:
       values:
         host:
           enabled: true
-          imagePullSecrets: $SPDK_CSI_IMAGE_PULL_SECRET
-          plugin:
-            image:
-              repository: $SPDK_CSI_IMAGE_REGISTRY/spdk-csi-controller
-              tag: $SPDK_CSI_IMAGE_TAG
           config:
             targets:
               nodes:
