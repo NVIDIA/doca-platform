@@ -2016,7 +2016,7 @@ var _ = Describe("podPredicate", func() {
 		})
 	})
 
-	Describe("Phase transition predicate", func() {
+	Describe("Pod readiness predicate", func() {
 		var phasePredicate predicate.Predicate
 
 		BeforeEach(func() {
@@ -2024,30 +2024,73 @@ var _ = Describe("podPredicate", func() {
 		})
 
 		Describe("CreateFunc", func() {
-			It("should reject all create events", func() {
+			It("should accept create events for Ready pods", func() {
 				pod := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-pod",
 						Namespace: "default",
 					},
 					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
+						Conditions: []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
 					},
 				}
 
-				Expect(phasePredicate.Create(event.CreateEvent{Object: pod})).To(BeFalse())
+				Expect(phasePredicate.Create(event.CreateEvent{Object: pod})).To(BeTrue())
+			})
+
+			It("should reject create events for non-Ready pods", func() {
+				testCases := []struct {
+					name      string
+					condition corev1.ConditionStatus
+				}{
+					{"Not Ready", corev1.ConditionFalse},
+					{"Unknown", corev1.ConditionUnknown},
+					{"No Condition", ""},
+				}
+
+				for _, tc := range testCases {
+					pod := &corev1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "test-pod",
+							Namespace: "default",
+						},
+						Status: corev1.PodStatus{},
+					}
+
+					if tc.condition != "" {
+						pod.Status.Conditions = []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: tc.condition,
+							},
+						}
+					}
+
+					Expect(phasePredicate.Create(event.CreateEvent{Object: pod})).To(BeFalse(),
+						"Expected to reject create event for pod with readiness: %s", tc.name)
+				}
 			})
 		})
 
 		Describe("UpdateFunc", func() {
-			It("should accept transition from non-Running to Running", func() {
+			It("should accept transition from not Ready to Ready", func() {
 				oldPod := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-pod",
 						Namespace: "default",
 					},
 					Status: corev1.PodStatus{
-						Phase: corev1.PodPending,
+						Conditions: []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionFalse,
+							},
+						},
 					},
 				}
 
@@ -2057,7 +2100,12 @@ var _ = Describe("podPredicate", func() {
 						Namespace: "default",
 					},
 					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
+						Conditions: []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
 					},
 				}
 
@@ -2067,14 +2115,19 @@ var _ = Describe("podPredicate", func() {
 				})).To(BeTrue())
 			})
 
-			It("should accept transition from Running to non-Running", func() {
+			It("should accept transition from Ready to not Ready", func() {
 				oldPod := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-pod",
 						Namespace: "default",
 					},
 					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
+						Conditions: []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
 					},
 				}
 
@@ -2084,7 +2137,12 @@ var _ = Describe("podPredicate", func() {
 						Namespace: "default",
 					},
 					Status: corev1.PodStatus{
-						Phase: corev1.PodFailed,
+						Conditions: []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionFalse,
+							},
+						},
 					},
 				}
 
@@ -2123,14 +2181,19 @@ var _ = Describe("podPredicate", func() {
 				})).To(BeTrue())
 			})
 
-			It("should reject when phase doesn't change from/to Running", func() {
+			It("should reject when readiness doesn't change", func() {
 				oldPod := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-pod",
 						Namespace: "default",
 					},
 					Status: corev1.PodStatus{
-						Phase: corev1.PodPending,
+						Conditions: []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionFalse,
+							},
+						},
 					},
 				}
 
@@ -2140,7 +2203,12 @@ var _ = Describe("podPredicate", func() {
 						Namespace: "default",
 					},
 					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
+						Conditions: []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionFalse,
+							},
+						},
 					},
 				}
 
@@ -2150,14 +2218,19 @@ var _ = Describe("podPredicate", func() {
 				})).To(BeFalse())
 			})
 
-			It("should reject when phase stays Running", func() {
+			It("should reject when readiness stays True and other fields changed", func() {
 				oldPod := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-pod",
 						Namespace: "default",
 					},
 					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
+						Conditions: []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
 					},
 				}
 
@@ -2171,6 +2244,12 @@ var _ = Describe("podPredicate", func() {
 					},
 					Status: corev1.PodStatus{
 						Phase: corev1.PodRunning,
+						Conditions: []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
 					},
 				}
 
@@ -2178,6 +2257,80 @@ var _ = Describe("podPredicate", func() {
 					ObjectOld: oldPod,
 					ObjectNew: newPod,
 				})).To(BeFalse())
+			})
+
+			It("should accept when readiness changes from False to True", func() {
+				oldPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+					Status: corev1.PodStatus{
+						Conditions: []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionFalse,
+							},
+						},
+					},
+				}
+
+				newPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+					Status: corev1.PodStatus{
+						Conditions: []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				}
+
+				Expect(phasePredicate.Update(event.UpdateEvent{
+					ObjectOld: oldPod,
+					ObjectNew: newPod,
+				})).To(BeTrue())
+			})
+
+			It("should accept when readiness changes from True to False", func() {
+				oldPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+					Status: corev1.PodStatus{
+						Conditions: []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				}
+
+				newPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+					Status: corev1.PodStatus{
+						Conditions: []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionFalse,
+							},
+						},
+					},
+				}
+
+				Expect(phasePredicate.Update(event.UpdateEvent{
+					ObjectOld: oldPod,
+					ObjectNew: newPod,
+				})).To(BeTrue())
 			})
 
 			It("should reject when deletion timestamp was already set", func() {
