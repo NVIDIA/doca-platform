@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -53,6 +54,17 @@ func reconcileDPUServiceInterfaces(
 ) (ctrl.Result, error) {
 	dpuDeploymentOwnerRef := metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)
 	requeue := ctrl.Result{}
+
+	// Get all existing DPUSets
+	existingDPUSets := &provisioningv1.DPUSetList{}
+	if err := c.List(ctx,
+		existingDPUSets,
+		client.MatchingLabels{
+			dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(client.ObjectKeyFromObject(dpuDeployment)),
+		},
+		client.InNamespace(dpuDeployment.Namespace)); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to list existing DPUSets: %w", err)
+	}
 
 	// Get all the existing DPUServices
 	existingDPUServices := &dpuservicev1.DPUServiceList{}
@@ -118,7 +130,7 @@ func reconcileDPUServiceInterfaces(
 			switch {
 			case currentRevision != nil:
 				// we found the current revision based on the digest, there might be old revisions to handle
-				req := reconcileCurrentDPUServiceInterfaceRevision(ctx, c, newRevision, currentRevision, currentDPUService, oldRevisions, serviceConfig, existingDPUServiceInterfacesMap, currentDPUServiceNodeSelector)
+				req := reconcileCurrentDPUServiceInterfaceRevision(ctx, c, newRevision, currentRevision, currentDPUService, oldRevisions, serviceConfig, existingDPUServiceInterfacesMap, currentDPUServiceNodeSelector, existingDPUSets.Items)
 
 				if !req.IsZero() {
 					requeue = req
@@ -248,6 +260,7 @@ func reconcileCurrentDPUServiceInterfaceRevision(ctx context.Context,
 	serviceConfig *dpuservicev1.DPUServiceConfiguration,
 	existingDPUServiceInterfacesMap map[string]dpuservicev1.DPUServiceInterface,
 	currentDPUServiceNodeSelector *metav1.LabelSelector,
+	existingDPUSets []provisioningv1.DPUSet,
 ) ctrl.Result {
 	log := ctrl.LoggerFrom(ctx)
 	requeue := ctrl.Result{RequeueAfter: reconcileRequeueDuration}
@@ -271,7 +284,7 @@ func reconcileCurrentDPUServiceInterfaceRevision(ctx context.Context,
 
 	// if the current revision is ready, clean old revisions. If not, the stale entries won't be removed in the caller
 	// function unless they have their DPUService deleted.
-	if conditions.IsTrue(currentDPUService, conditions.TypeReady) {
+	if conditions.IsTrue(currentDPUService, conditions.TypeReady) && len(getNotReadyDPUSets(existingDPUSets)) == 0 {
 		err := cleanStaleDPUServiceInterfaces(ctx, c, oldRevs)
 		if err != nil {
 			log.Error(err, "failed to clean stale DPUServiceInterfaces")
