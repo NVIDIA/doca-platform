@@ -8,6 +8,6 @@ spec:
   deploymentServiceName: nfs-csi-controller
   helmChart:
     source:
-      repoURL: $NFS_CSI_CHART_REPO
-      version: $NFS_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.1.0
       chart: nfs-csi-controller

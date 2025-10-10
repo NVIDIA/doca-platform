@@ -40,25 +40,6 @@ export DPF_SNAP_IMAGE_TAG="0.0.0"
 # use '[]' to pull images from the registry that doesn't require auth, or '[{"name": "secret-name"}]' to specify the secret name
 export DPF_SNAP_IMAGE_PULL_SECRET='[]'
 
-# NFS CSI environment variables
-# set the NFS CSI chart repository
-export NFS_CSI_CHART_REPO="oci://ghcr.io/mellanox/dpf-storage-vendors-charts"
-# set the NFS CSI chart version
-export NFS_CSI_CHART_VERSION="v0.1.0"
-
-# SPDK CSI environment variables
-# set the SPDK CSI chart repository
-export SPDK_CSI_CHART_REPO="oci://ghcr.io/mellanox/dpf-storage-vendors-charts"
-# set the SPDK CSI chart version
-export SPDK_CSI_CHART_VERSION="v0.1.0"
-# set the SPDK CSI image registry address
-# TODO: update to the image from Mellanox group
-export SPDK_CSI_IMAGE_REGISTRY="ghcr.io/ykulazhenkov"
-# set the SPDK CSI image tag
-export SPDK_CSI_IMAGE_TAG="2fb8a499c89b3cb4e4f04ed8c04e23fad1a8760b"
-# use '[]' to pull images from the registry that doesn't require auth, or '[{"name": "secret-name"}]' to specify the secret name
-export SPDK_CSI_IMAGE_PULL_SECRET='[]'
-
 # Workload environment variables
 
 # For zero trust workloads only, set to the name of the node to which to attach the DPU volume
@@ -584,8 +565,8 @@ spec:
   deploymentServiceName: spdk-csi-controller-dpu
   helmChart:
     source:
-      repoURL: $SPDK_CSI_CHART_REPO
-      version: $SPDK_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.2.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -610,11 +591,6 @@ spec:
       values:
         host:
           enabled: true
-          imagePullSecrets: $SPDK_CSI_IMAGE_PULL_SECRET
-          plugin:
-            image:
-              repository: $SPDK_CSI_IMAGE_REGISTRY/spdk-csi-controller
-              tag: $SPDK_CSI_IMAGE_TAG
           config:
             targets:
               nodes:
@@ -672,8 +648,8 @@ spec:
   deploymentServiceName: spdk-csi-controller
   helmChart:
     source:
-      repoURL: $SPDK_CSI_CHART_REPO
-      version: $SPDK_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.2.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -1299,8 +1275,8 @@ spec:
   deploymentServiceName: spdk-csi-controller-dpu
   helmChart:
     source:
-      repoURL: $SPDK_CSI_CHART_REPO
-      version: $SPDK_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.2.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -1325,11 +1301,6 @@ spec:
       values:
         host:
           enabled: true
-          imagePullSecrets: $SPDK_CSI_IMAGE_PULL_SECRET
-          plugin:
-            image:
-              repository: $SPDK_CSI_IMAGE_REGISTRY/spdk-csi-controller
-              tag: $SPDK_CSI_IMAGE_TAG
           config:
             targets:
               nodes:
@@ -1387,8 +1358,8 @@ spec:
   deploymentServiceName: spdk-csi-controller
   helmChart:
     source:
-      repoURL: $SPDK_CSI_CHART_REPO
-      version: $SPDK_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.2.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -2017,8 +1988,8 @@ spec:
   deploymentServiceName: spdk-csi-controller-dpu
   helmChart:
     source:
-      repoURL: $SPDK_CSI_CHART_REPO
-      version: $SPDK_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.2.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -2043,11 +2014,6 @@ spec:
       values:
         host:
           enabled: true
-          imagePullSecrets: $SPDK_CSI_IMAGE_PULL_SECRET
-          plugin:
-            image:
-              repository: $SPDK_CSI_IMAGE_REGISTRY/spdk-csi-controller
-              tag: $SPDK_CSI_IMAGE_TAG
           config:
             targets:
               nodes:
@@ -2105,8 +2071,8 @@ spec:
   deploymentServiceName: spdk-csi-controller
   helmChart:
     source:
-      repoURL: $SPDK_CSI_CHART_REPO
-      version: $SPDK_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.2.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -2559,8 +2525,8 @@ spec:
   deploymentServiceName: nfs-csi-controller-dpu
   helmChart:
     source:
-      repoURL: $NFS_CSI_CHART_REPO
-      version: $NFS_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.1.0
       chart: nfs-csi-controller
 ```
 </details>
@@ -2585,10 +2551,6 @@ spec:
       values:
         host:
           enabled: true
-          plugin:
-            image:
-              repository: registry.k8s.io/sig-storage/nfsplugin
-              tag: v4.11.0
           config:
             # required parameter, name of the secret that contains connection
             # details to access the DPU cluster.
@@ -2636,8 +2598,8 @@ spec:
   deploymentServiceName: nfs-csi-controller
   helmChart:
     source:
-      repoURL: $NFS_CSI_CHART_REPO
-      version: $NFS_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.1.0
       chart: nfs-csi-controller
 ```
 </details>
@@ -3492,8 +3454,8 @@ spec:
   deploymentServiceName: spdk-csi-controller-dpu
   helmChart:
     source:
-      repoURL: $SPDK_CSI_CHART_REPO
-      version: $SPDK_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.2.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -3518,11 +3480,6 @@ spec:
       values:
         host:
           enabled: true
-          imagePullSecrets: $SPDK_CSI_IMAGE_PULL_SECRET
-          plugin:
-            image:
-              repository: $SPDK_CSI_IMAGE_REGISTRY/spdk-csi-controller
-              tag: $SPDK_CSI_IMAGE_TAG
           config:
             targets:
               nodes:
@@ -3580,8 +3537,8 @@ spec:
   deploymentServiceName: spdk-csi-controller
   helmChart:
     source:
-      repoURL: $SPDK_CSI_CHART_REPO
-      version: $SPDK_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.2.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -4296,8 +4253,8 @@ spec:
   deploymentServiceName: spdk-csi-controller-dpu
   helmChart:
     source:
-      repoURL: $SPDK_CSI_CHART_REPO
-      version: $SPDK_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.2.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -4322,11 +4279,6 @@ spec:
       values:
         host:
           enabled: true
-          imagePullSecrets: $SPDK_CSI_IMAGE_PULL_SECRET
-          plugin:
-            image:
-              repository: $SPDK_CSI_IMAGE_REGISTRY/spdk-csi-controller
-              tag: $SPDK_CSI_IMAGE_TAG
           config:
             targets:
               nodes:
@@ -4384,8 +4336,8 @@ spec:
   deploymentServiceName: spdk-csi-controller
   helmChart:
     source:
-      repoURL: $SPDK_CSI_CHART_REPO
-      version: $SPDK_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.2.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -4859,8 +4811,8 @@ spec:
   deploymentServiceName: nfs-csi-controller-dpu
   helmChart:
     source:
-      repoURL: $NFS_CSI_CHART_REPO
-      version: $NFS_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.1.0
       chart: nfs-csi-controller
 ```
 </details>
@@ -4885,10 +4837,6 @@ spec:
       values:
         host:
           enabled: true
-          plugin:
-            image:
-              repository: registry.k8s.io/sig-storage/nfsplugin
-              tag: v4.11.0
           config:
             # required parameter, name of the secret that contains connection
             # details to access the DPU cluster.
@@ -4936,8 +4884,8 @@ spec:
   deploymentServiceName: nfs-csi-controller
   helmChart:
     source:
-      repoURL: $NFS_CSI_CHART_REPO
-      version: $NFS_CSI_CHART_VERSION
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.1.0
       chart: nfs-csi-controller
 ```
 </details>
