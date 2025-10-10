@@ -14,10 +14,6 @@ spec:
       values:
         host:
           enabled: true
-          plugin:
-            image:
-              repository: registry.k8s.io/sig-storage/nfsplugin
-              tag: v4.11.0
           config:
             # required parameter, name of the secret that contains connection
             # details to access the DPU cluster.
