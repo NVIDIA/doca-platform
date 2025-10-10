@@ -38,6 +38,7 @@ import (
 	dnutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunodemaintenance"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpuset"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	provisioningwebhooks "github.com/nvidia/doca-platform/internal/provisioning/webhooks"
 	"github.com/nvidia/doca-platform/internal/utils"
@@ -104,7 +105,7 @@ func deleteDMSPods(ctx context.Context, k8sClient client.Client) error {
 	if err := k8sClient.List(ctx, podList,
 		client.InNamespace(namespace),
 		client.MatchingLabels{
-			"nvidia.com/dpf-provisioning-component": "dms",
+			cutil.ProvisioningComponentLabelKey: "dms",
 		},
 	); err != nil {
 		setupLog.Error(err, "Failed to list DMS pods", "namespace", namespace)
