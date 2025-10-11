@@ -48,7 +48,7 @@ var _ = Describe("CNI Installer", func() {
 			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
 			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
 			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
-			Expect(os.WriteFile(rdmaSourcePath, []byte("#!/bin/bash\necho 'RDMA CNI binary'"), 0755)).To(Succeed())
+			Expect(os.WriteFile(rdmaSourcePath, []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'"), 0755)).To(Succeed())
 
 			// Create destination directory
 			destCniDir := filepath.Join(tmpDir, "/opt/cni/bin")
@@ -65,7 +65,7 @@ var _ = Describe("CNI Installer", func() {
 			// Verify content was copied correctly
 			destContent, err := os.ReadFile(rdmaDestPath)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(destContent).To(Equal([]byte("#!/bin/bash\necho 'RDMA CNI binary'")))
+			Expect(destContent).To(Equal([]byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'")))
 
 			// Verify permissions were set to 755
 			destInfo, err := os.Stat(rdmaDestPath)
@@ -81,11 +81,11 @@ var _ = Describe("CNI Installer", func() {
 
 			// RDMA CNI (enabled by default)
 			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
-			Expect(os.WriteFile(rdmaSourcePath, []byte("#!/bin/bash\necho 'RDMA CNI binary'"), 0755)).To(Succeed())
+			Expect(os.WriteFile(rdmaSourcePath, []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'"), 0755)).To(Succeed())
 
 			// Extra CNI (not relevant to this installer)
 			extraSourcePath := filepath.Join(sourceCniDir, "extra")
-			Expect(os.WriteFile(extraSourcePath, []byte("#!/bin/bash\necho 'Extra CNI binary'"), 0755)).To(Succeed())
+			Expect(os.WriteFile(extraSourcePath, []byte("#!/usr/bin/env bash\necho 'Extra CNI binary'"), 0755)).To(Succeed())
 
 			// Create destination directory
 			destCniDir := filepath.Join(tmpDir, "/opt/cni/bin")
@@ -150,7 +150,7 @@ var _ = Describe("CNI Installer", func() {
 			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
 			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
 			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
-			Expect(os.WriteFile(rdmaSourcePath, []byte("#!/bin/bash\necho 'RDMA CNI binary'"), 0755)).To(Succeed())
+			Expect(os.WriteFile(rdmaSourcePath, []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'"), 0755)).To(Succeed())
 
 			// Create destination directory
 			destCniDir := filepath.Join(tmpDir, "/opt/cni/bin")
@@ -169,7 +169,7 @@ var _ = Describe("CNI Installer", func() {
 			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
 			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
 			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
-			Expect(os.WriteFile(rdmaSourcePath, []byte("#!/bin/bash\necho 'RDMA CNI binary'"), 0755)).To(Succeed())
+			Expect(os.WriteFile(rdmaSourcePath, []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'"), 0755)).To(Succeed())
 
 			// Note: Destination directory is not created
 
@@ -185,7 +185,7 @@ var _ = Describe("CNI Installer", func() {
 			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
 			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
 			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
-			rdmaContent := []byte("#!/bin/bash\necho 'RDMA CNI binary'")
+			rdmaContent := []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'")
 			Expect(os.WriteFile(rdmaSourcePath, rdmaContent, 0755)).To(Succeed())
 
 			// Create destination directory
@@ -220,7 +220,7 @@ var _ = Describe("CNI Installer", func() {
 			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
 			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
 			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
-			rdmaContent := []byte("#!/bin/bash\necho 'RDMA CNI binary'")
+			rdmaContent := []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'")
 			Expect(os.WriteFile(rdmaSourcePath, rdmaContent, 0755)).To(Succeed())
 
 			// Create destination directory
@@ -229,7 +229,7 @@ var _ = Describe("CNI Installer", func() {
 
 			// Create destination file with different content and permissions
 			rdmaDestPath := filepath.Join(tmpDir, "/opt/cni/bin/rdma")
-			differentContent := []byte("#!/bin/bash\necho 'Different RDMA CNI binary'")
+			differentContent := []byte("#!/usr/bin/env bash\necho 'Different RDMA CNI binary'")
 			Expect(os.WriteFile(rdmaDestPath, differentContent, 0644)).To(Succeed())
 
 			// Install - should copy since content is different
@@ -253,7 +253,7 @@ var _ = Describe("CNI Installer", func() {
 			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
 			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
 			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
-			rdmaContent := []byte("#!/bin/bash\necho 'RDMA CNI binary'")
+			rdmaContent := []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'")
 			Expect(os.WriteFile(rdmaSourcePath, rdmaContent, 0755)).To(Succeed())
 
 			// Create destination directory
@@ -282,7 +282,7 @@ var _ = Describe("CNI Installer", func() {
 			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
 			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
 			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
-			rdmaContent := []byte("#!/bin/bash\necho 'RDMA CNI binary'")
+			rdmaContent := []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'")
 			Expect(os.WriteFile(rdmaSourcePath, rdmaContent, 0755)).To(Succeed())
 
 			// Create destination directory
