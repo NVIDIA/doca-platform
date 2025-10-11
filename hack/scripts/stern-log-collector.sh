@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 #  2024 NVIDIA CORPORATION & AFFILIATES
 #
