@@ -632,6 +632,10 @@ func updateNodeLabelsForDPU(dpu *provisioningv1.DPU, newLabels map[string]string
 func updateNodeEffectAction(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpu *provisioningv1.DPU) bool {
 	logger := log.FromContext(ctx)
 
+	if dpu.Status.Phase != provisioningv1.DPUReady {
+		return false
+	}
+
 	// Get the expected Action from the DPUSet template
 	var expectedAction provisioningv1.Action
 	if dpuSet.Spec.DPUTemplate.Spec.NodeEffect != nil {
