@@ -920,6 +920,7 @@ var _ = Describe("DPUSet", func() {
 			})
 
 			dpuList := &provisioningv1.DPUList{}
+			var createdDPU *provisioningv1.DPU
 
 			By("checking initial DPU is created with Taint nodeEffect")
 			Eventually(func(g Gomega) {
@@ -935,6 +936,28 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpu.Spec.NodeEffect.Drain).To(BeNil())
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
+			By("patching DPU status to Ready state")
+			Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name))).To(Succeed())
+			createdDPU = &dpuList.Items[0]
+			patchBase := client.MergeFrom(createdDPU.DeepCopy())
+			createdDPU.Status.Phase = provisioningv1.DPUReady
+			createdDPU.Status.Conditions = []metav1.Condition{
+				{
+					Type:               provisioningv1.DPUCondReady.String(),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "TestReady",
+					Message:            "DPU is ready for testing",
+				},
+			}
+			Expect(k8sClient.Status().Patch(ctx, createdDPU, patchBase)).To(Succeed())
+
+			By("verifying DPU is in Ready phase")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdDPU), createdDPU)).To(Succeed())
+				g.Expect(createdDPU.Status.Phase).To(Equal(provisioningv1.DPUReady))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
 			By("updating DPUSet to change nodeEffect from Taint to Drain")
 			patcher := patch.NewSerialPatcher(obj, k8sClient)
 			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
@@ -944,12 +967,13 @@ var _ = Describe("DPUSet", func() {
 			}
 			Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
-			By("checking DPU is updated with Drain nodeEffect")
+			By("checking DPU is updated with Drain nodeEffect and remains in Ready phase")
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name))).To(Succeed())
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
+				g.Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPUReady))
 				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.Drain).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.Drain).To(Equal(ptr.To(true)))
