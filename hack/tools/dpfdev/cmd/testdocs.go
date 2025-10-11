@@ -283,7 +283,7 @@ func buildCommandScript(cmd string, envVars map[string]string, envFileName strin
 	var scriptContent strings.Builder
 
 	// Add shebang
-	scriptContent.WriteString("#!/bin/bash\n\n")
+	scriptContent.WriteString("#!/usr/bin/env bash\n\n")
 
 	// Set environment variables from previous command
 	for k, v := range envVars {
