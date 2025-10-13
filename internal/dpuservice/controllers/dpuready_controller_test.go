@@ -2439,7 +2439,7 @@ var _ = Describe("podEventHandler", func() {
 			}
 
 			// Call the helper
-			handler.handlePodEventHelper(ctx, pod, queue)
+			enqueueHostNodeFromDPUNode(ctx, handler.client, pod.Spec.NodeName, queue)
 
 			// Verify the host node was enqueued
 			Eventually(func() bool {
@@ -2466,7 +2466,7 @@ var _ = Describe("podEventHandler", func() {
 			}
 
 			// Call the helper
-			handler.handlePodEventHelper(ctx, pod, queue)
+			enqueueHostNodeFromDPUNode(ctx, handler.client, pod.Spec.NodeName, queue)
 
 			// Verify nothing was enqueued
 			Consistently(func() int {
@@ -2499,7 +2499,7 @@ var _ = Describe("podEventHandler", func() {
 			}
 
 			// Call the helper
-			handler.handlePodEventHelper(ctx, pod, queue)
+			enqueueHostNodeFromDPUNode(ctx, handler.client, pod.Spec.NodeName, queue)
 
 			// Verify nothing was enqueued
 			Consistently(func() int {
@@ -2656,7 +2656,7 @@ var _ = Describe("podEventHandler", func() {
 				{NamespacedName: client.ObjectKey{Name: "node2"}}, // duplicate
 			}
 
-			handler.enqueue(requests, queue)
+			enqueueRequests(requests, queue)
 
 			// Should only have 3 unique items
 			Expect(queue.Len()).To(Equal(3))
@@ -2676,7 +2676,7 @@ var _ = Describe("podEventHandler", func() {
 		})
 
 		It("should handle empty request list", func() {
-			handler.enqueue([]reconcile.Request{}, queue)
+			enqueueRequests([]reconcile.Request{}, queue)
 			Expect(queue.Len()).To(Equal(0))
 		})
 
@@ -2685,7 +2685,7 @@ var _ = Describe("podEventHandler", func() {
 				{NamespacedName: client.ObjectKey{Name: "single-node"}},
 			}
 
-			handler.enqueue(requests, queue)
+			enqueueRequests(requests, queue)
 			Expect(queue.Len()).To(Equal(1))
 
 			item, _ := queue.Get()
@@ -2695,24 +2695,70 @@ var _ = Describe("podEventHandler", func() {
 	})
 
 	Describe("Create", func() {
-		It("should be a no-op", func() {
-			// Create event should not do anything as per the implementation
+		It("should process pod create events correctly", func() {
+			// Create a node with the host label
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "dpu-node",
+					Labels: map[string]string{
+						cutil.HostNameDPULabelKey: hostNodeName,
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			// Create a pod
 			pod := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pod",
 					Namespace: "default",
 				},
+				Spec: corev1.PodSpec{
+					NodeName: "dpu-node",
+				},
 			}
 
+			// Create a create event
 			createEvent := event.CreateEvent{
 				Object: pod,
 			}
 
-			// Call Create - should be a no-op
+			// Call Create
+			handler.Create(ctx, createEvent, queue)
+
+			// Verify the host node was enqueued
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+
+				return item.Name == hostNodeName && item.Namespace == ""
+			}).Should(BeTrue())
+		})
+
+		It("should handle non-pod objects gracefully", func() {
+			// Create a non-pod object
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "some-node",
+				},
+			}
+
+			// Create a create event with a non-pod object
+			createEvent := event.CreateEvent{
+				Object: node,
+			}
+
+			// Call Create - should not panic
 			handler.Create(ctx, createEvent, queue)
 
 			// Verify nothing was enqueued
-			Expect(queue.Len()).To(Equal(0))
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
 		})
 	})
 
@@ -2735,6 +2781,400 @@ var _ = Describe("podEventHandler", func() {
 
 			// Verify nothing was enqueued
 			Expect(queue.Len()).To(Equal(0))
+		})
+	})
+})
+
+var _ = Describe("serviceChainEventHandler", func() {
+	var (
+		handler      *serviceChainEventHandler
+		queue        workqueue.TypedRateLimitingInterface[ctrl.Request]
+		hostNodeName string
+		nodeName     string
+	)
+
+	BeforeEach(func() {
+		hostNodeName = "host-node"
+		nodeName = "dpu-node"
+		handler = &serviceChainEventHandler{
+			client: testClient,
+		}
+
+		// Create a new workqueue for each test
+		queue = workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[ctrl.Request]())
+
+		DeferCleanup(func() {
+			queue.ShutDown()
+		})
+	})
+
+	Describe("handleServiceChainEventHelper", func() {
+		It("should enqueue the host node when ServiceChain's node has the host label", func() {
+			// Create a node with the host label
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nodeName,
+					Labels: map[string]string{
+						cutil.HostNameDPULabelKey: hostNodeName,
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			// Create a ServiceChain on that node
+			serviceChain := &dpuservicev1.ServiceChain{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-servicechain",
+					Namespace: "default",
+				},
+				Spec: dpuservicev1.ServiceChainSpec{
+					Node: ptr.To(nodeName),
+				},
+			}
+
+			// Call the helper
+			enqueueHostNodeFromDPUNode(ctx, handler.client, *serviceChain.Spec.Node, queue)
+
+			// Verify the host node was enqueued
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+
+				return item.Name == hostNodeName && item.Namespace == ""
+			}).Should(BeTrue())
+		})
+
+		It("should not enqueue when node doesn't exist", func() {
+			// Create a ServiceChain on a non-existent node
+			nodeName := "non-existent-node"
+			serviceChain := &dpuservicev1.ServiceChain{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-servicechain",
+					Namespace: "default",
+				},
+				Spec: dpuservicev1.ServiceChainSpec{
+					Node: &nodeName,
+				},
+			}
+
+			// Call the helper
+			enqueueHostNodeFromDPUNode(ctx, handler.client, *serviceChain.Spec.Node, queue)
+
+			// Verify nothing was enqueued
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+
+		It("should not enqueue when node doesn't have host label", func() {
+			// Create a node without the host label
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nodeName,
+					Labels: map[string]string{
+						"some-other-label": "value",
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			// Create a ServiceChain on that node
+			serviceChain := &dpuservicev1.ServiceChain{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-servicechain",
+					Namespace: "default",
+				},
+				Spec: dpuservicev1.ServiceChainSpec{
+					Node: ptr.To(nodeName),
+				},
+			}
+
+			// Call the helper
+			enqueueHostNodeFromDPUNode(ctx, handler.client, *serviceChain.Spec.Node, queue)
+
+			// Verify nothing was enqueued
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+	})
+
+	Describe("Create", func() {
+		It("should process ServiceChain create events correctly", func() {
+			// Create a node with the host label
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nodeName,
+					Labels: map[string]string{
+						cutil.HostNameDPULabelKey: hostNodeName,
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			// Create a ServiceChain
+			serviceChain := &dpuservicev1.ServiceChain{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-servicechain",
+					Namespace: "default",
+				},
+				Spec: dpuservicev1.ServiceChainSpec{
+					Node: ptr.To(nodeName),
+				},
+			}
+
+			// Create a create event
+			createEvent := event.CreateEvent{
+				Object: serviceChain,
+			}
+
+			// Call Create
+			handler.Create(ctx, createEvent, queue)
+
+			// Verify the host node was enqueued
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+
+				return item.Name == hostNodeName && item.Namespace == ""
+			}).Should(BeTrue())
+		})
+
+		It("should handle non-ServiceChain objects gracefully", func() {
+			// Create a non-ServiceChain object
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "some-node",
+				},
+			}
+
+			// Create a create event with a non-ServiceChain object
+			createEvent := event.CreateEvent{
+				Object: node,
+			}
+
+			// Call Create - should not panic
+			handler.Create(ctx, createEvent, queue)
+
+			// Verify nothing was enqueued
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+	})
+
+	Describe("Update", func() {
+		It("should process ServiceChain update events correctly", func() {
+			// Create a node with the host label
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nodeName,
+					Labels: map[string]string{
+						cutil.HostNameDPULabelKey: hostNodeName,
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			// Create a ServiceChain
+			serviceChain := &dpuservicev1.ServiceChain{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-servicechain",
+					Namespace: "default",
+				},
+				Spec: dpuservicev1.ServiceChainSpec{
+					Node: ptr.To(nodeName),
+				},
+			}
+
+			// Create an update event
+			updateEvent := event.UpdateEvent{
+				ObjectOld: serviceChain,
+				ObjectNew: serviceChain,
+			}
+
+			// Call Update
+			handler.Update(ctx, updateEvent, queue)
+
+			// Verify the host node was enqueued
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+
+				return item.Name == hostNodeName && item.Namespace == ""
+			}).Should(BeTrue())
+		})
+
+		It("should handle non-ServiceChain objects gracefully", func() {
+			// Create a non-ServiceChain object
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "some-node",
+				},
+			}
+
+			// Create an update event with a non-ServiceChain object
+			updateEvent := event.UpdateEvent{
+				ObjectOld: node,
+				ObjectNew: node,
+			}
+
+			// Call Update - should not panic
+			handler.Update(ctx, updateEvent, queue)
+
+			// Verify nothing was enqueued
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+	})
+
+	Describe("Delete", func() {
+		It("should process ServiceChain delete events correctly", func() {
+			// Create a node with the host label
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nodeName,
+					Labels: map[string]string{
+						cutil.HostNameDPULabelKey: hostNodeName,
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			// Create a ServiceChain
+			serviceChain := &dpuservicev1.ServiceChain{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-servicechain",
+					Namespace: "default",
+				},
+				Spec: dpuservicev1.ServiceChainSpec{
+					Node: ptr.To(nodeName),
+				},
+			}
+
+			// Create a delete event
+			deleteEvent := event.DeleteEvent{
+				Object: serviceChain,
+			}
+
+			// Call Delete
+			handler.Delete(ctx, deleteEvent, queue)
+
+			// Verify the host node was enqueued
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+
+				return item.Name == hostNodeName && item.Namespace == ""
+			}).Should(BeTrue())
+		})
+
+		It("should handle non-ServiceChain objects gracefully", func() {
+			// Create a non-ServiceChain object
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "some-node",
+				},
+			}
+
+			// Create a delete event with a non-ServiceChain object
+			deleteEvent := event.DeleteEvent{
+				Object: node,
+			}
+
+			// Call Delete - should not panic
+			handler.Delete(ctx, deleteEvent, queue)
+
+			// Verify nothing was enqueued
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+	})
+
+	Describe("Generic", func() {
+		It("should process ServiceChain generic events correctly", func() {
+			// Create a node with the host label
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nodeName,
+					Labels: map[string]string{
+						cutil.HostNameDPULabelKey: hostNodeName,
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			// Create a ServiceChain
+			serviceChain := &dpuservicev1.ServiceChain{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-servicechain",
+					Namespace: "default",
+				},
+				Spec: dpuservicev1.ServiceChainSpec{
+					Node: ptr.To(nodeName),
+				},
+			}
+
+			// Create a generic event
+			genericEvent := event.GenericEvent{
+				Object: serviceChain,
+			}
+
+			// Call Generic
+			handler.Generic(ctx, genericEvent, queue)
+
+			// Verify the host node was enqueued
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+
+				return item.Name == hostNodeName && item.Namespace == ""
+			}).Should(BeTrue())
+		})
+
+		It("should handle non-ServiceChain objects gracefully", func() {
+			// Create a non-ServiceChain object
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "some-node",
+				},
+			}
+
+			// Create a generic event with a non-ServiceChain object
+			genericEvent := event.GenericEvent{
+				Object: node,
+			}
+
+			// Call Generic - should not panic
+			handler.Generic(ctx, genericEvent, queue)
+
+			// Verify nothing was enqueued
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
 		})
 	})
 })
