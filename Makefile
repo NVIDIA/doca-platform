@@ -549,12 +549,11 @@ ARTIFACTS_DIR ?= $(CURDIR)/artifacts
 ARTIFACTS_SUBDIR ?=
 
 E2E_TEST_ARGS ?= -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="DPFSystem && !SDN && !DPFVPCOVN" -e2e.config=./config-quick.yaml
-GINKGO_FOCUS ?= ""
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e ## Run the e2e tests against a Kind k8s instance that is spun up.
 test-e2e: stern ## Run e2e tests
 	STERN=$(STERN) ARTIFACTS=$(ARTIFACTS_DIR)/$(ARTIFACTS_SUBDIR) $(CURDIR)/hack/scripts/stern-log-collector.sh \
-	  go test -timeout 0 ./test/e2e/ -ginkgo.focus="$(GINKGO_FOCUS)" $(E2E_TEST_ARGS)
+	  go test -timeout 0 ./test/e2e/ $(E2E_TEST_ARGS)
 
 ##@ validate commit
 .PHONY: commit-check
