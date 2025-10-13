@@ -31,4 +31,5 @@ type HostAgentFlags struct {
 	BFBRegistryAddress string
 	RebootMethod       string
 	CustomScriptName   string
+	MetricsBindAddress string
 }

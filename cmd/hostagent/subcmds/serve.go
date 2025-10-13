@@ -36,6 +36,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 var opts = &options.HostAgentFlags{}
@@ -69,6 +70,9 @@ var serveCmd = &cobra.Command{
 		ctrl.SetLogger(klog.Background())
 		mgr, err := ctrl.NewManager(clientCfg, ctrl.Options{
 			Scheme: scheme,
+			Metrics: metricsserver.Options{
+				BindAddress: opts.MetricsBindAddress,
+			},
 			Client: client.Options{
 				Cache: &client.CacheOptions{
 					// Don't cache Secrets, ConfigMaps and DPUNodes. In general, the
@@ -121,5 +125,6 @@ func init() {
 	serveCmd.Flags().StringVar(&opts.BFBRegistryAddress, "bfb-registry-address", "", "The address of the BFB registry from which BFBs are downloaded.")
 	serveCmd.Flags().StringVar(&opts.RebootMethod, "reboot-method", "hostAgent", "The method to use to reboot the host. Valid options: gNOI, external, script.")
 	serveCmd.Flags().StringVar(&opts.CustomScriptName, "custom-script-name", "", "The name of the custom script to execute.")
+	serveCmd.Flags().StringVar(&opts.MetricsBindAddress, "metrics-bind-address", ":8087", "The address the metrics endpoint binds to.")
 	RootCmd.AddCommand(serveCmd)
 }
