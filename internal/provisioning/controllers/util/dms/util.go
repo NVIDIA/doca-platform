@@ -158,7 +158,7 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 					Env:     extraEnvs,
 					Command: []string{"/bin/bash", "-c", "--"},
 					Args: []string{
-						"./rshim.sh && /hostagent rundms",
+						"rshim --force && /hostagent rundms",
 					},
 				},
 				{
