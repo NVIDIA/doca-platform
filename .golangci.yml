@@ -98,10 +98,6 @@ linters:
       - linters:
           - staticcheck
         text: "QF1008"
-      - linters:
-          - staticcheck
-        # corev1.Endpoints and related types are needed for DPUService reconciliation. Ignore warnings that they're deprecated.
-        text: "SA1019.*corev1.Endpoint.*deprecated"
     paths:
       - third_party
       - third_party$

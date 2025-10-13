@@ -72,7 +72,7 @@ var pauseDPUServiceReconciler bool
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuservices/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuservices/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=configmaps;secrets,verbs=get;list;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=services;endpoints,verbs=get;list;watch;create;update;patch;delete;deletecollection
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete;deletecollection
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=create
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch;create;update;patch;delete;deletecollection
 // +kubebuilder:rbac:groups=argoproj.io,resources=appprojects;applications,verbs=get;list;watch;create;update;patch;delete
@@ -971,14 +971,6 @@ func (r *DPUServiceReconciler) cleanupAllConfigPorts(ctx context.Context, dpuSer
 		return fmt.Errorf("delete endpoint slices: %w", err)
 	}
 
-	if err := r.Client.DeleteAllOf(ctx, &corev1.Endpoints{},
-		client.InNamespace(dpuService.GetNamespace()),
-		client.HasLabels{dpuservicev1.DPUServiceExposedPortForDPUClusterLabelKey},
-		dpuService.MatchLabels(),
-	); err != nil {
-		return fmt.Errorf("delete endpoints: %w", err)
-	}
-
 	if err := r.Client.DeleteAllOf(ctx, &corev1.Service{},
 		client.InNamespace(dpuService.GetNamespace()),
 		client.HasLabels{dpuservicev1.DPUServiceExposedPortForDPUClusterLabelKey},
@@ -1072,12 +1064,6 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 	// In our case both Service and EndpointSlice have the exact same name.
 	endpointSlice.ObjectMeta.Labels[discoveryv1.LabelServiceName] = endpointSliceName
 
-	// Add all dpuService labels to the endpointSlice.
-	// This helps select the endpoint slice when the DPUService is created by a DPUSet.
-	for k, v := range dpuService.GetLabels() {
-		endpointSlice.ObjectMeta.Labels[k] = v
-	}
-
 	endpointSlice.AddressType = discoveryv1.AddressTypeIPv4
 	endpointSlice.Ports = endpointPorts
 	endpointSlice.Endpoints = endpoints
@@ -1088,120 +1074,7 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 	// Add ownerReference to let the EndpointSlice be garbage collected when the DPUService is deleted.
 	owner := metav1.NewControllerRef(dpuService, dpuservicev1.DPUServiceGroupVersionKind)
 	endpointSlice.SetOwnerReferences([]metav1.OwnerReference{*owner})
-	if err := r.Client.Patch(ctx, endpointSlice, client.Apply, client.ForceOwnership, client.FieldOwner(dpuServiceControllerName)); err != nil {
-		return err
-	}
-	// Create an Endpoints object for the Service. Both Endpoints and EndpointSlice are needed. Some Kubernetes
-	// controllers - e.g. the Prometheus Operator - rely on the older Endpoints API.
-	if err := r.reconcileEndpointsFromEndpointsSlice(ctx, endpointSlice, dpuService); err != nil {
-		return fmt.Errorf("reconcile endpoints: %w", err)
-	}
-	return nil
-}
-
-func (r *DPUServiceReconciler) reconcileEndpointsFromEndpointsSlice(ctx context.Context, endpointSlice *discoveryv1.EndpointSlice, dpuService *dpuservicev1.DPUService) error {
-	log := ctrllog.FromContext(ctx)
-
-	// Create the Endpoints object with the same name and namespace as the EndpointSlice
-	endpoints := &corev1.Endpoints{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      endpointSlice.Name,
-			Namespace: endpointSlice.Namespace,
-		},
-	}
-
-	// Check if the Endpoints already exists
-	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(endpoints), endpoints); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-	}
-
-	// Set metadata
-	endpoints.ObjectMeta.Name = endpointSlice.Name
-	endpoints.ObjectMeta.Namespace = endpointSlice.Namespace
-	if endpoints.ObjectMeta.Labels == nil {
-		endpoints.ObjectMeta.Labels = map[string]string{}
-	}
-
-	// Copy relevant labels from EndpointSlice
-	for key, value := range endpointSlice.Labels {
-		endpoints.ObjectMeta.Labels[key] = value
-	}
-
-	// Add skip-mirror label to signal this Endpoints object is manually managed
-	// and should not be mirrored to EndpointSlices.
-	endpoints.ObjectMeta.Labels[discoveryv1.LabelSkipMirror] = "true"
-
-	// Convert EndpointSlice to Endpoints format
-	endpoints.Subsets = r.convertEndpointSliceToSubsets(endpointSlice)
-
-	endpoints.SetManagedFields(nil)
-	endpoints.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Endpoints"))
-
-	// Add ownerReference to let the Endpoints be garbage collected when the DPUService is deleted
-	owner := metav1.NewControllerRef(dpuService, dpuservicev1.DPUServiceGroupVersionKind)
-	endpoints.SetOwnerReferences([]metav1.OwnerReference{*owner})
-
-	log.Info("Reconciling Endpoints", "Endpoints", klog.KObj(endpoints))
-	if err := r.Client.Patch(ctx, endpoints, client.Apply, client.ForceOwnership, client.FieldOwner(dpuServiceControllerName)); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (r *DPUServiceReconciler) convertEndpointSliceToSubsets(endpointSlice *discoveryv1.EndpointSlice) []corev1.EndpointSubset {
-	if len(endpointSlice.Ports) == 0 || len(endpointSlice.Endpoints) == 0 {
-		return nil
-	}
-
-	// Convert ports from EndpointSlice format to Endpoints format
-	endpointPorts := []corev1.EndpointPort{}
-	for _, port := range endpointSlice.Ports {
-		endpointPort := corev1.EndpointPort{
-			Port:     *port.Port,
-			Protocol: *port.Protocol,
-		}
-		if port.Name != nil {
-			endpointPort.Name = *port.Name
-		}
-		endpointPorts = append(endpointPorts, endpointPort)
-	}
-
-	var readyAddresses []corev1.EndpointAddress
-	var notReadyAddresses []corev1.EndpointAddress
-
-	// Convert endpoints from EndpointSlice format to Endpoints format
-	for _, endpoint := range endpointSlice.Endpoints {
-		for _, address := range endpoint.Addresses {
-			endpointAddress := corev1.EndpointAddress{
-				IP: address,
-			}
-			if endpoint.Hostname != nil {
-				endpointAddress.Hostname = *endpoint.Hostname
-			}
-			if endpoint.NodeName != nil {
-				endpointAddress.NodeName = endpoint.NodeName
-			}
-
-			// Check if endpoint is ready
-			if endpoint.Conditions.Ready != nil && *endpoint.Conditions.Ready {
-				readyAddresses = append(readyAddresses, endpointAddress)
-			} else {
-				notReadyAddresses = append(notReadyAddresses, endpointAddress)
-			}
-		}
-	}
-
-	// Create the subset
-	subset := corev1.EndpointSubset{
-		Addresses:         readyAddresses,
-		NotReadyAddresses: notReadyAddresses,
-		Ports:             endpointPorts,
-	}
-
-	return []corev1.EndpointSubset{subset}
+	return r.Client.Patch(ctx, endpointSlice, client.Apply, client.ForceOwnership, client.FieldOwner(dpuServiceControllerName))
 }
 
 func (r *DPUServiceReconciler) reconcileConfigPortServices(ctx context.Context, clusterName string, dpuService *dpuservicev1.DPUService, dpuNodePorts map[string]int32) error {

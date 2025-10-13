@@ -16,11 +16,5 @@ spec:
         enabled: true
       dpuManifests:
         enabled: true
-        image:
-          repository: $OVN_KUBERNETES_IMAGE
-          tag: $OVNK_TAG
-        imagedpf:
-          repository: $DPF_OVNK_CNI_UTILS_IMAGE
-          tag: $TAG
       leaseNamespace: "ovn-kubernetes"
-      gatewayOpts: "--gateway-interface=br-dpu"
+      gatewayOpts: "--gateway-interface=br-ovn"

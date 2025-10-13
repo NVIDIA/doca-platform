@@ -31,20 +31,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - endpoints
-  - services
-  verbs:
-  - create
-  - delete
-  - deletecollection
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - events
   - serviceaccounts
   verbs:
@@ -67,6 +53,19 @@ rules:
   resources:
   - nodes
   verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - create
+  - delete
+  - deletecollection
   - get
   - list
   - patch

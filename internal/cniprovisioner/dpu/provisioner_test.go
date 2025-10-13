@@ -86,9 +86,10 @@ var _ = Describe("DPU CNI Provisioner in Internal mode", func() {
 			}()
 			Expect(err).NotTo(HaveOccurred())
 			provisioner.FileSystemRoot = tmpDir
-			ovnInputDirPath := filepath.Join(tmpDir, "/etc/openvswitch")
+			ovnInputDirPath := filepath.Join(tmpDir, "/etc/init-output")
 			Expect(os.MkdirAll(ovnInputDirPath, 0755)).To(Succeed())
-			ovnInputPath := filepath.Join(ovnInputDirPath, "ovn_k8s.conf")
+			ovnInputGatewayOptsFakePath := filepath.Join(ovnInputDirPath, "ovn_gateway_opts")
+			ovnInputRouterSubnetFakePath := filepath.Join(ovnInputDirPath, "ovn_gateway_router_subnet")
 
 			mac, _ := net.ParseMAC("00:00:00:00:00:01")
 			fakeExec.CommandScript = append(fakeExec.CommandScript, kexecTesting.FakeCommandAction(func(cmd string, args ...string) kexec.Cmd {
@@ -147,9 +148,13 @@ var _ = Describe("DPU CNI Provisioner in Internal mode", func() {
 			err = provisioner.RunOnce()
 			Expect(err).ToNot(HaveOccurred())
 
-			ovnInputGatewayOpts, err := os.ReadFile(ovnInputPath)
+			ovnInputGatewayOpts, err := os.ReadFile(ovnInputGatewayOptsFakePath)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(string(ovnInputGatewayOpts)).To(Equal("[Gateway]\nnext-hop=192.168.1.10\nrouter-subnet=192.168.1.0/24\n"))
+			Expect(string(ovnInputGatewayOpts)).To(Equal("--gateway-nexthop=192.168.1.10"))
+
+			ovnInputRouterSubnet, err := os.ReadFile(ovnInputRouterSubnetFakePath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(ovnInputRouterSubnet)).To(Equal("192.168.1.0/24"))
 
 			Expect(fakeExec.CommandCalls).To(Equal(1))
 		})
@@ -195,9 +200,10 @@ var _ = Describe("DPU CNI Provisioner in Internal mode", func() {
 			}()
 			Expect(err).NotTo(HaveOccurred())
 			provisioner.FileSystemRoot = tmpDir
-			ovnInputDirPath := filepath.Join(tmpDir, "/etc/openvswitch")
+			ovnInputDirPath := filepath.Join(tmpDir, "/etc/init-output")
 			Expect(os.MkdirAll(ovnInputDirPath, 0755)).To(Succeed())
-			ovnInputPath := filepath.Join(ovnInputDirPath, "ovn_k8s.conf")
+			ovnInputGatewayOptsFakePath := filepath.Join(ovnInputDirPath, "ovn_gateway_opts")
+			ovnInputRouterSubnetFakePath := filepath.Join(ovnInputDirPath, "ovn_gateway_router_subnet")
 
 			mac, _ := net.ParseMAC("00:00:00:00:00:01")
 			fakeExec.CommandScript = append(fakeExec.CommandScript, kexecTesting.FakeCommandAction(func(cmd string, args ...string) kexec.Cmd {
@@ -257,9 +263,13 @@ var _ = Describe("DPU CNI Provisioner in Internal mode", func() {
 			err = provisioner.RunOnce()
 			Expect(err).ToNot(HaveOccurred())
 
-			ovnInputGatewayOpts, err := os.ReadFile(ovnInputPath)
+			ovnInputGatewayOpts, err := os.ReadFile(ovnInputGatewayOptsFakePath)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(string(ovnInputGatewayOpts)).To(Equal("[Gateway]\nnext-hop=192.168.1.10\nrouter-subnet=192.168.1.0/24\n"))
+			Expect(string(ovnInputGatewayOpts)).To(Equal("--gateway-nexthop=192.168.1.10"))
+
+			ovnInputRouterSubnet, err := os.ReadFile(ovnInputRouterSubnetFakePath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(ovnInputRouterSubnet)).To(Equal("192.168.1.0/24"))
 		})
 	})
 	Context("When checking for idempotency", func() {
@@ -296,7 +306,7 @@ var _ = Describe("DPU CNI Provisioner in Internal mode", func() {
 			}()
 			Expect(err).NotTo(HaveOccurred())
 			provisioner.FileSystemRoot = tmpDir
-			ovnInputDirPath := filepath.Join(tmpDir, "/etc/openvswitch")
+			ovnInputDirPath := filepath.Join(tmpDir, "/etc/init-output")
 			Expect(os.MkdirAll(ovnInputDirPath, 0755)).To(Succeed())
 
 			fakeExec.CommandScript = append(fakeExec.CommandScript, kexecTesting.FakeCommandAction(func(cmd string, args ...string) kexec.Cmd {
@@ -363,7 +373,7 @@ var _ = Describe("DPU CNI Provisioner in Internal mode", func() {
 			}()
 			Expect(err).NotTo(HaveOccurred())
 			provisioner.FileSystemRoot = tmpDir
-			ovnInputDirPath := filepath.Join(tmpDir, "/etc/openvswitch")
+			ovnInputDirPath := filepath.Join(tmpDir, "/etc/init-output")
 			Expect(os.MkdirAll(ovnInputDirPath, 0755)).To(Succeed())
 
 			fakeExec.CommandScript = append(fakeExec.CommandScript, kexecTesting.FakeCommandAction(func(cmd string, args ...string) kexec.Cmd {
@@ -455,7 +465,7 @@ var _ = Describe("DPU CNI Provisioner in Internal mode", func() {
 			}()
 			Expect(err).NotTo(HaveOccurred())
 			provisioner.FileSystemRoot = tmpDir
-			ovnInputDirPath := filepath.Join(tmpDir, "/etc/openvswitch")
+			ovnInputDirPath := filepath.Join(tmpDir, "/etc/init-output")
 			Expect(os.MkdirAll(ovnInputDirPath, 0755)).To(Succeed())
 
 			fakeExec.CommandScript = append(fakeExec.CommandScript, kexecTesting.FakeCommandAction(func(cmd string, args ...string) kexec.Cmd {
@@ -528,9 +538,10 @@ var _ = Describe("DPU CNI Provisioner in External mode", func() {
 			provisioner.FileSystemRoot = tmpDir
 			netplanDirPath := filepath.Join(tmpDir, "/etc/netplan")
 			Expect(os.MkdirAll(netplanDirPath, 0755)).To(Succeed())
-			ovnInputDirPath := filepath.Join(tmpDir, "/etc/openvswitch")
+			ovnInputDirPath := filepath.Join(tmpDir, "/etc/init-output")
 			Expect(os.MkdirAll(ovnInputDirPath, 0755)).To(Succeed())
-			ovnInputPath := filepath.Join(ovnInputDirPath, "ovn_k8s.conf")
+			ovnInputGatewayOptsFakePath := filepath.Join(ovnInputDirPath, "ovn_gateway_opts")
+			ovnInputRouterSubnetFakePath := filepath.Join(ovnInputDirPath, "ovn_gateway_router_subnet")
 
 			fakeExec.CommandScript = append(fakeExec.CommandScript, kexecTesting.FakeCommandAction(func(cmd string, args ...string) kexec.Cmd {
 				Expect(cmd).To(Equal("netplan"))
@@ -568,9 +579,13 @@ var _ = Describe("DPU CNI Provisioner in External mode", func() {
 			err = provisioner.RunOnce()
 			Expect(err).ToNot(HaveOccurred())
 
-			ovnInputGatewayOpts, err := os.ReadFile(ovnInputPath)
+			ovnInputGatewayOpts, err := os.ReadFile(ovnInputGatewayOptsFakePath)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(string(ovnInputGatewayOpts)).To(Equal("[Gateway]\nnext-hop=192.168.1.254\nrouter-subnet=192.168.0.0/23\n"))
+			Expect(string(ovnInputGatewayOpts)).To(Equal("--gateway-nexthop=192.168.1.254"))
+
+			ovnInputRouterSubnet, err := os.ReadFile(ovnInputRouterSubnetFakePath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(ovnInputRouterSubnet)).To(Equal("192.168.0.0/23"))
 
 			netplanFileContent, err := os.ReadFile(filepath.Join(netplanDirPath, "80-br-ovn.yaml"))
 			Expect(err).ToNot(HaveOccurred())
@@ -630,7 +645,7 @@ network:
 			provisioner.FileSystemRoot = tmpDir
 			netplanDirPath := filepath.Join(tmpDir, "/etc/netplan")
 			Expect(os.MkdirAll(netplanDirPath, 0755)).To(Succeed())
-			ovnInputDirPath := filepath.Join(tmpDir, "/etc/openvswitch")
+			ovnInputDirPath := filepath.Join(tmpDir, "/etc/init-output")
 			Expect(os.MkdirAll(ovnInputDirPath, 0755)).To(Succeed())
 
 			fakeExec.CommandScript = append(fakeExec.CommandScript, kexecTesting.FakeCommandAction(func(cmd string, args ...string) kexec.Cmd {
@@ -742,7 +757,7 @@ network:
 			provisioner.FileSystemRoot = tmpDir
 			netplanDirPath := filepath.Join(tmpDir, "/etc/netplan")
 			Expect(os.MkdirAll(netplanDirPath, 0755)).To(Succeed())
-			ovnInputDirPath := filepath.Join(tmpDir, "/etc/openvswitch")
+			ovnInputDirPath := filepath.Join(tmpDir, "/etc/init-output")
 			Expect(os.MkdirAll(ovnInputDirPath, 0755)).To(Succeed())
 
 			fakeCommand := kexecTesting.FakeCommandAction(func(cmd string, args ...string) kexec.Cmd {

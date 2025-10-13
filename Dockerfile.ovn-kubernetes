@@ -1,0 +1,180 @@
+ARG builder_image
+
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS ovnkubernetes-builder
+
+ARG TARGETARCH
+ARG gcflags
+ARG ldflags
+
+WORKDIR /workspace
+RUN apt update && apt install -y make git
+ARG ovn_kubernetes_dir
+COPY ${ovn_kubernetes_dir} ovn-kubernetes
+RUN cd ovn-kubernetes/dist/images && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make bld
+
+ARG ipallocator_dir
+COPY ./ ./
+COPY go.mod go.mod
+COPY go.sum go.sum
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath \
+    -ldflags="${ldflags}"  \
+    -gcflags="${gcflags}" \
+    -o ipallocator ./cmd/ipallocator
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath \
+    -ldflags="${ldflags}"  \
+    -gcflags="${gcflags}" \
+    -o dpucniprovisioner ./cmd/dpucniprovisioner
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath \
+    -ldflags="${ldflags}"  \
+    -gcflags="${gcflags}" \
+    -o ovnkubernetesresourceinjector ./cmd/ovnkubernetesresourceinjector
+
+# Create source code archive excluding .gocache, and test files.
+# Skipping `.gocache` since it contains pre-compiled versions of packages and other build artifacts for speeding up subsequent builds
+RUN mkdir src && \
+    find . -name '*.go' \
+      -not -path "./hack/*" \
+      -not -path "./.gocache/*" \
+      -not -name "*_test.go" \
+      -exec cp --parents {} src/ \; && \
+    tar -czf source-code.tar.gz src
+
+# Build the final image
+FROM nvcr.io/nvidia/doca/canonical:ubuntu24.04
+
+ARG TARGETARCH
+
+USER root
+
+ARG ubuntu_mirror=http://archive.ubuntu.com/ubuntu/
+ARG BASE_PACKAGES="iproute2 curl software-properties-common util-linux dnsmasq"
+
+# Dependencies for installing OVN (Netplan, systemd and udev required by dpucniprovisioner).
+ARG OVN_PACKAGES="openvswitch-switch openvswitch-common netplan.io udev systemd"
+
+RUN dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /initial-dpkg-list.txt
+
+RUN find /etc/apt/sources.list* -type f -exec sed -i \
+      -e "s|http://archive.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
+      -e "s|http://ports.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
+      -e "s|http://security.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" '{}' \;
+
+RUN apt-get update && \
+    apt-get install -y -qq ${BASE_PACKAGES} && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+
+RUN apt-get update && \
+    apt-get install -y -qq --no-install-recommends ${OVN_PACKAGES} && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /after-ovn-dpkg-list.txt
+
+ARG KUBECTL_VERSION=1.33.2
+RUN curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+ARG OVN_VERSION="24.03.6"
+
+RUN curl -fsSL "https://github.com/Mellanox/ovn/releases/download/v${OVN_VERSION}/ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+    -o ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb && \
+    curl -fsSL "https://github.com/Mellanox/ovn/releases/download/v${OVN_VERSION}/ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+    -o ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb && \
+    curl -fsSL "https://github.com/Mellanox/ovn/releases/download/v${OVN_VERSION}/ovn-host_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+    -o ovn-host_${OVN_VERSION}-1_${TARGETARCH}.deb
+
+RUN dpkg -i "ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+        "ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+        "ovn-host_${OVN_VERSION}-1_${TARGETARCH}.deb" && \
+    rm "ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+        "ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb" \
+        "ovn-host_${OVN_VERSION}-1_${TARGETARCH}.deb"
+
+RUN mkdir -p /var/run/openvswitch
+
+# Built in ../../go_controller, then the binaries are copied here.
+# put things where they are in the pkg
+RUN mkdir -p /usr/libexec/cni/
+COPY --from=ovnkubernetes-builder /workspace/ipallocator /ipallocator
+COPY --from=ovnkubernetes-builder /workspace/dpucniprovisioner /cniprovisioner
+COPY --from=ovnkubernetes-builder /workspace/ovnkubernetesresourceinjector /ovnkubernetesresourceinjector
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/ovnkube /usr/bin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/ovn-kube-util /usr/bin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/ovndbchecker /usr/bin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/hybrid-overlay-node /usr/bin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/ovnkube-identity /usr/bin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/ovn-k8s-cni-overlay /usr/libexec/cni/ovn-k8s-cni-overlay
+
+# ovnkube.sh is the entry point. This script examines environment
+# variables to direct operation and configure ovn
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/ovnkube.sh /root/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/ovndb-raft-functions.sh /root/
+# override the pkg's ovn_k8s.conf with this local copy
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/ovn_k8s.conf /etc/openvswitch/ovn_k8s.conf
+
+# copy git commit number into image
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/git_info /root
+
+# iptables wrappers
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables-scripts/iptables /usr/sbin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables-scripts/iptables-save /usr/sbin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables-scripts/iptables-restore /usr/sbin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables-scripts/ip6tables /usr/sbin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables-scripts/ip6tables-save /usr/sbin/
+COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/dist/images/iptables-scripts/ip6tables-restore /usr/sbin/
+
+# Get all the source code
+RUN mkdir -p /src
+WORKDIR /src
+
+# Copy ovn-kubernetes source code from builder stage
+COPY --from=ovnkubernetes-builder /workspace/source-code.tar.gz ovn-kubernetes-source-code.tar.gz
+
+RUN curl -fsSL -o kubectl-${KUBECTL_VERSION}.tar.gz \
+    https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz
+
+RUN curl -fsSL -o ovn-${OVN_VERSION}.tar.gz \
+    https://github.com/Mellanox/ovn/archive/refs/tags/v${OVN_VERSION}.tar.gz
+
+# Download source code for apt packages.
+# Starting from Ubuntu 24.04 shifted to the new deb822 format for source management.
+# Enable `deb-src` to be able to fetch sources using `apt-get source`
+ARG PACKAGE_SOURCES
+RUN test "${PACKAGE_SOURCES}" = "false" || ( \
+      sed -i 's/^# deb-src/deb-src/g' /etc/apt/sources.list /etc/apt/sources.list.d/* && \
+      sed -i 's/^Types: deb$/Types: deb deb-src/g' /etc/apt/sources.list.d/*.sources && \
+      apt-get update && \
+      apt-get source --download-only ${BASE_PACKAGES} ${OVN_PACKAGES} && \
+      comm -23 /after-ovn-dpkg-list.txt /initial-dpkg-list.txt | xargs -r apt-get source --download-only && \
+      apt-get clean && \
+      rm -f /initial-dpkg-list.txt /after-ovn-dpkg-list.txt && \
+      rm -rf /var/lib/apt/lists/* && \
+      cd / && \
+      tar -cf source-code.tar /src && \
+      rm -rf /src \
+    )
+
+LABEL io.k8s.display-name="ovn-kubernetes" \
+      io.k8s.description="ovn-kubernetes ubuntu image"
+
+WORKDIR /root
+ENTRYPOINT /root/ovnkube.sh
