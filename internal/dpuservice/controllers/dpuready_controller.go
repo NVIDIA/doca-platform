@@ -724,6 +724,16 @@ func (r *DPUReadyReconciler) WatchServicePods(ctx context.Context, c client.Clie
 	}), nil
 }
 
+// WatchServiceChains sets up watches for ServiceChain objects in DPU clusters
+func (r *DPUReadyReconciler) WatchServiceChains(ctx context.Context, c client.Client, cluster client.ObjectKey) (dpucluster.Watcher, error) {
+	return dpucluster.NewWatcher(dpucluster.WatcherOptions{
+		Name:         "dpuready-servicechain-watcher",
+		Kind:         &dpuservicev1.ServiceChain{},
+		EventHandler: &serviceChainEventHandler{client: c},
+		Watcher:      r.controller,
+	}), nil
+}
+
 func newLabelPredicate() predicate.Predicate {
 	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
 		pod := obj.(*corev1.Pod)
@@ -782,77 +792,8 @@ func getPodReadyCondition(pod *corev1.Pod) corev1.ConditionStatus {
 	return corev1.ConditionUnknown
 }
 
-// podEventHandler is a handler for pod events
-type podEventHandler struct {
-	client client.Client
-}
-
-// handlePodEventHelper retrieve the node name from the pod, and use the remote cache provided client to get the node.
-// It then retrieve the host node name from the node labels and enqueues a request for the host node
-func (p *podEventHandler) handlePodEventHelper(ctx context.Context, pod *corev1.Pod, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	log := ctrllog.FromContext(ctx)
-
-	// get the node from the dpu cluster
-	node := &corev1.Node{}
-	if err := p.client.Get(ctx, client.ObjectKey{Name: pod.Spec.NodeName}, node); err != nil {
-		log.Error(err, "Failed to get node from DPU cluster", "name", pod.Spec.NodeName)
-		return
-	}
-	// find the host node name from the node labels
-	host, exists := node.Labels[cutil.HostNameDPULabelKey]
-	if !exists {
-		log.Error(fmt.Errorf("host name not found for node %s", node.Name), "Failed to get host name for node")
-		return
-	}
-
-	p.enqueue([]reconcile.Request{{NamespacedName: client.ObjectKey{Name: host}}}, q)
-}
-
-func (p *podEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	reqLog := ctrllog.FromContext(ctx)
-
-	pod, ok := e.Object.(*corev1.Pod)
-	if !ok {
-		reqLog.Error(fmt.Errorf("event expected a Pod but got a %T", e.Object), "Failed to convert object")
-		return
-	}
-
-	p.handlePodEventHelper(ctx, pod, q)
-}
-
-// Update finds the host node name from the node labels and enqueues a request for the host node
-func (p *podEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	reqLog := ctrllog.FromContext(ctx)
-
-	pod, ok := e.ObjectNew.(*corev1.Pod)
-	if !ok {
-		reqLog.Error(fmt.Errorf("event expected a Pod but got a %T", e.ObjectNew), "Failed to convert object")
-		return
-	}
-
-	p.handlePodEventHelper(ctx, pod, q)
-}
-
-// Delete finds the host node name from the node labels and enqueues a request for the host node
-func (p *podEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	reqLog := ctrllog.FromContext(ctx)
-
-	pod, ok := e.Object.(*corev1.Pod)
-	if !ok {
-		reqLog.Error(fmt.Errorf("event expected a Pod but got a %T", e.Object), "Failed to convert object")
-		return
-	}
-
-	p.handlePodEventHelper(ctx, pod, q)
-}
-
-func (p *podEventHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	// Generic is not implemented
-	// because we are not interested in generic events and the predicate filters out all generic events
-}
-
-// enqueue enqueues requests into q after deduplication
-func (p *podEventHandler) enqueue(requests []ctrl.Request, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+// enqueueRequests enqueues requests into q after deduplication
+func enqueueRequests(requests []ctrl.Request, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
 	reqs := make(map[ctrl.Request]struct{})
 
 	// deduplicate requests
@@ -862,5 +803,105 @@ func (p *podEventHandler) enqueue(requests []ctrl.Request, q workqueue.TypedRate
 
 	for req := range reqs {
 		q.Add(req)
+	}
+}
+
+// enqueueHostNodeFromDPUNode retrieves the host node name from the DPU node labels and enqueues a request
+func enqueueHostNodeFromDPUNode(ctx context.Context, c client.Client, dpuNodeName string, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	log := ctrllog.FromContext(ctx)
+
+	// Get the node from the DPU cluster
+	node := &corev1.Node{}
+	if err := c.Get(ctx, client.ObjectKey{Name: dpuNodeName}, node); err != nil {
+		log.Error(err, "Failed to get node from DPU cluster", "name", dpuNodeName)
+		return
+	}
+
+	// Find the host node name from the node labels
+	host, exists := node.Labels[cutil.HostNameDPULabelKey]
+	if !exists {
+		log.Error(fmt.Errorf("host name not found for node %s", node.Name), "Failed to get host name for node")
+		return
+	}
+
+	enqueueRequests([]reconcile.Request{{NamespacedName: client.ObjectKey{Name: host}}}, q)
+}
+
+// podEventHandler is a handler for pod events
+type podEventHandler struct {
+	client client.Client
+}
+
+func (p *podEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	if pod, ok := e.Object.(*corev1.Pod); ok {
+		enqueueHostNodeFromDPUNode(ctx, p.client, pod.Spec.NodeName, q)
+	} else {
+		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a Pod but got a %T", e.Object), "Failed to convert object")
+	}
+}
+
+func (p *podEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	if pod, ok := e.ObjectNew.(*corev1.Pod); ok {
+		enqueueHostNodeFromDPUNode(ctx, p.client, pod.Spec.NodeName, q)
+	} else {
+		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a Pod but got a %T", e.ObjectNew), "Failed to convert object")
+	}
+}
+
+func (p *podEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	if pod, ok := e.Object.(*corev1.Pod); ok {
+		enqueueHostNodeFromDPUNode(ctx, p.client, pod.Spec.NodeName, q)
+	} else {
+		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a Pod but got a %T", e.Object), "Failed to convert object")
+	}
+}
+
+func (p *podEventHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	// Generic is not implemented
+	// because we are not interested in generic events and the predicate filters out all generic events
+}
+
+// serviceChainEventHandler is a handler for ServiceChain events
+type serviceChainEventHandler struct {
+	client client.Client
+}
+
+func (s *serviceChainEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	if sc, ok := e.Object.(*dpuservicev1.ServiceChain); ok {
+		if sc.Spec.Node != nil {
+			enqueueHostNodeFromDPUNode(ctx, s.client, *sc.Spec.Node, q)
+		}
+	} else {
+		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a ServiceChain but got a %T", e.Object), "Failed to convert object")
+	}
+}
+
+func (s *serviceChainEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	if sc, ok := e.ObjectNew.(*dpuservicev1.ServiceChain); ok {
+		if sc.Spec.Node != nil {
+			enqueueHostNodeFromDPUNode(ctx, s.client, *sc.Spec.Node, q)
+		}
+	} else {
+		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a ServiceChain but got a %T", e.ObjectNew), "Failed to convert object")
+	}
+}
+
+func (s *serviceChainEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	if sc, ok := e.Object.(*dpuservicev1.ServiceChain); ok {
+		if sc.Spec.Node != nil {
+			enqueueHostNodeFromDPUNode(ctx, s.client, *sc.Spec.Node, q)
+		}
+	} else {
+		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a ServiceChain but got a %T", e.Object), "Failed to convert object")
+	}
+}
+
+func (s *serviceChainEventHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	if sc, ok := e.Object.(*dpuservicev1.ServiceChain); ok {
+		if sc.Spec.Node != nil {
+			enqueueHostNodeFromDPUNode(ctx, s.client, *sc.Spec.Node, q)
+		}
+	} else {
+		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a ServiceChain but got a %T", e.Object), "Failed to convert object")
 	}
 }
