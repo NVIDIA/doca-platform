@@ -227,6 +227,7 @@ func main() {
 		dpucluster.OptionGetWatcherCallbacks{
 			GetWatcherCallbacks: []dpucluster.GetWatcherCallback{
 				dpuReadyReconciler.WatchServicePods,
+				dpuReadyReconciler.WatchServiceChains,
 			},
 		},
 		dpucluster.OptionDisableFor{DisableFor: []client.Object{
