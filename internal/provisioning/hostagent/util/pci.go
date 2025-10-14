@@ -73,18 +73,16 @@ func (h *PCIHelper) VF(vf int) *PCIHelper {
 
 // Path returns the full path to the PCI device.
 func (h *PCIHelper) Path() string {
-	var p string
-	if h.PFIndex != nil {
-		parts := strings.Split(h.PCIAddress, ".")
-		if len(parts) == 2 {
-			p = filepath.Join(SysPCIDevicesDir, parts[0]+fmt.Sprintf(".%d", *h.PFIndex))
-		} else {
-			p = filepath.Join(SysPCIDevicesDir, h.PCIAddress+fmt.Sprintf(".%d", *h.PFIndex))
-		}
-	} else {
-		p = filepath.Join(SysPCIDevicesDir, h.PCIAddress)
+	parts := strings.Split(h.PCIAddress, ".")
+	base := parts[0]
+	suffix := "0"
+	if len(parts) == 2 {
+		suffix = parts[1]
 	}
-
+	if h.PFIndex != nil {
+		suffix = fmt.Sprintf("%d", *h.PFIndex)
+	}
+	p := filepath.Join(SysPCIDevicesDir, fmt.Sprintf("%s.%s", base, suffix))
 	if h.VFIndex != nil {
 		p = filepath.Join(p, fmt.Sprintf("virtfn%d", *h.VFIndex))
 	}
