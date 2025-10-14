@@ -83,6 +83,31 @@ spec:
     - "another-secret"
 ```
 
+### Resources
+
+All system components deployed by the DPF Operator support standard Kubernetes resource requests and limits.
+Resources can be configured per component at the container level. Components may have multiple containers with
+different resource requirements that can be configured independently.
+
+Below is an example of configuring resources for the SFC Controller component:
+
+```yaml
+spec:
+  sfcController:
+    controller:
+      resources:
+        requests:
+          cpu: 6
+          memory: 2Gi
+        limits:
+          cpu: 8
+          memory: 4Gi
+```
+
+This pattern applies to all components listed in
+the [Optional Component Configurations](#optional-component-configurations) section below.  
+For production deployments, it's recommended to set appropriate resource limits based on your cluster's workload.
+
 ### Optional Component Configurations
 
 The following components can be configured to enable/disable features or specify a different container image.  
@@ -91,9 +116,11 @@ testing, or specific deployments.
 
 ```yaml
 spec:
+  cniInstaller: { }
   dpuDetector: { }
   dpuServiceController: { }
   flannel: { }
+  kamajiClusterManager: { }
   multus: { }
   nvipam: { }
   ovsCNI: { }
@@ -101,6 +128,7 @@ spec:
   serviceSetController: { }
   sfcController: { }
   sriovDevicePlugin: { }
+  staticClusterManager: { }
 ```
 
 To disable a component or override its container image, use the following configuration:
@@ -108,27 +136,50 @@ To disable a component or override its container image, use the following config
 ```yaml
 spec:
   sriovDevicePlugin:
-    enabled: false
+    disable: true
   dpuDetector:
-    image: "my-registry/my-dpu-detector:latest"
+    daemon:
+      image: "my-registry/my-dpu-detector:latest"
 ```
 
-To configure the resources of a component, use the following configuration:
-
-```yaml
-spec:
-  sfcController:
-    resources:
-      requests:
-        cpu: 6
-        memory: 2Gi
-      limits:
-        cpu: 8
-        memory: 4Gi
-```
+> [!WARNING]
+> **Deprecated:** Setting the image at component level (e.g., `spec.dpuDetector.image`) is deprecated.
+> Use the sub-component specific image field instead (e.g., `spec.dpuDetector.daemon.image`).
 
 For a detailed description of each component and its available configuration options, see  
 the [API Reference](./api.md#operatordpunvidiacomv1alpha1).
+
+#### DPU Service Controller Configuration options
+
+* `spec.dpuServiceController.disableDPUReadyTaints`: When set to true, disables the automatic tainting of DPU nodes when they're not ready.
+
+```yaml
+spec:
+  dpuServiceController:
+    disableDPUReadyTaints: true
+```
+
+#### Flannel Configuration options
+
+* `spec.flannel.podCIDR`: CIDR range for pod networking when using Flannel CNI.
+
+```yaml
+spec:
+  flannel:
+    podCIDR: "10.244.0.0/16"
+```
+
+#### Component Deployment Configuration
+
+Several components support additional deployment configuration options:
+
+* `helmChart`: Override the Helm chart repository/version for the component
+
+```yaml
+spec:
+  multus:
+    helmChart: "custom-repo/multus:v1.0.0"
+```
 
 #### SFC Controller Configuration options
 
@@ -148,13 +199,92 @@ spec:
 
 #### Provisioning Controller Configuration options
 
-* `spec.provisioningController.maxDPUParallelInstallations`: Controls the maximum number of DPUs that can be provisioned concurrently.
+* `spec.provisioningController.bfbPVCName`: **(Required)** Name of the PVC containing the BFB (BF Bundle) for provisioning DPUs.
 
-    The default value is 50.  
-    The value must be at least 1.
+* `spec.provisioningController.maxDPUParallelInstallations`: Controls the maximum number of DPUs that can be provisioned concurrently.
+    The default value is 50. The value must be at least 1.
+
+* `spec.provisioningController.maxUnavailableDPUNodes`: Maximum number of DPU nodes that can be unavailable during updates.
+
+* `spec.provisioningController.bfCFGTemplateConfigMap`: Name of ConfigMap containing bf-cfg template for DPU configuration.
+
+* `spec.provisioningController.customCASecretName`: Name of Secret containing custom CA certificates for secure communication.
+
+* `spec.provisioningController.dmsTimeout`: Timeout in seconds for DMS (DPU Management Service) operations.
+
+* `spec.provisioningController.multiDPUOperationsSyncWaitTime`: Wait time for synchronizing operations across multiple DPUs.
+    Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration.
+
+* `spec.provisioningController.registry`: Configuration for the container registry used during provisioning.
+    - `address`: Registry address
+    - `port`: Registry port
+
+* `spec.provisioningController.installInterface`: Method for installing DPU firmware. Choose one:
+    - `installViaHostAgent`: Install via host agent
+    - `installViaGNOI`: Install via gNOI protocol
+    - `installViaRedfish`: Install via Redfish API with additional options:
+        - `bfbRegistry.disable`: Disable the BFB registry
+        - `bfbRegistry.port`: Port for BFB registry
+        - `bfbRegistryAddress`: Address of BFB registry
+        - `skipDpuNodeDiscovery`: Skip automatic DPU node discovery
 
 ```yaml
 spec:
   provisioningController:
+    bfbPVCName: bfb-pvc
     maxDPUParallelInstallations: 25  # Limit concurrent provisioning to 25 DPUs
+    maxUnavailableDPUNodes: 5
+    dmsTimeout: 600
+    multiDPUOperationsSyncWaitTime: 30s
+    customCASecretName: my-ca-secret
+    registry:
+      address: "registry.example.com"
+      port: 5000
+    installInterface:
+      installViaRedfish:
+        bfbRegistry:
+          port: 8080
+        skipDpuNodeDiscovery: false
 ```
+
+### Advanced Overrides
+
+The `overrides` section allows customization of system-level paths and settings. These are typically only needed for
+non-standard deployments or testing scenarios.
+
+```yaml
+spec:
+  overrides:
+    # Pause reconciliation of the DPFOperatorConfig
+    paused: false
+    
+    # Kubernetes API server configuration
+    kubernetesAPIServerVIP: "192.168.1.100"
+    kubernetesAPIServerPort: 6443
+    
+    # DPU filesystem paths for CNI
+    dpuCNIPath: "/etc/cni/net.d"
+    dpuCNIBinPath: "/opt/cni/bin"
+    
+    # DPU OpenVSwitch paths
+    dpuOpenvSwitchBinPath: "/usr/bin"
+    dpuOpenvSwitchRunPath: "/var/run/openvswitch"
+    dpuOpenvSwitchSystemSharedPath: "/usr/share/openvswitch"
+    dpuOpenvSwitchSystemSharedLib64Path: "/usr/lib64"
+    
+    # Flannel-specific overrides
+    flannelSkipCNIConfigInstallation: false
+```
+
+#### Override Options
+
+* `paused`: When set to true, pauses reconciliation of the DPFOperatorConfig resource.
+* `kubernetesAPIServerVIP`: Override the Kubernetes API server virtual IP address.
+* `kubernetesAPIServerPort`: Override the Kubernetes API server port (default: 6443).
+* `dpuCNIPath`: Path to CNI configuration directory on DPU nodes.
+* `dpuCNIBinPath`: Path to CNI binaries on DPU nodes.
+* `dpuOpenvSwitchBinPath`: Path to OpenvSwitch binaries on DPU nodes.
+* `dpuOpenvSwitchRunPath`: Path to OpenvSwitch runtime directory on DPU nodes.
+* `dpuOpenvSwitchSystemSharedPath`: Path to OpenvSwitch shared directory on DPU nodes.
+* `dpuOpenvSwitchSystemSharedLib64Path`: Path to OpenvSwitch 64-bit libraries on DPU nodes.
+* `flannelSkipCNIConfigInstallation`: Skip automatic CNI configuration installation for Flannel.
