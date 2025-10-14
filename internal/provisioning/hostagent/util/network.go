@@ -29,6 +29,7 @@ import (
 
 	"github.com/vishvananda/netlink"
 	"gopkg.in/yaml.v3"
+	"k8s.io/utils/ptr"
 )
 
 // PortConfig holds the configuration for a specific network port
@@ -112,8 +113,13 @@ type NetplanNetwork struct {
 }
 
 type NetplanEthernet struct {
-	DHCP4 *bool  `yaml:"dhcp4,omitempty"`
-	MTU   *int32 `yaml:"mtu,omitempty"`
+	DHCP4          *bool           `yaml:"dhcp4,omitempty"`
+	MTU            *int32          `yaml:"mtu,omitempty"`
+	DHCP4Overrides *DHCP4Overrides `yaml:"dhcp4-overrides,omitempty"`
+}
+
+type DHCP4Overrides struct {
+	UseMTU *bool `yaml:"use-mtu,omitempty"`
 }
 
 // GetCurrentMTU returns the current MTU of the specified interface
@@ -182,14 +188,14 @@ func isDHCPEnabled(interfaceName string) (bool, error) {
 // ConfigurePFNetplan configures the PF network interfaces using netplan
 func ConfigurePFNetplan(pciAddress string, portConfigs []PortConfig) error {
 	pciHelper := NewPCIHelper(pciAddress)
-	hasChanges := false
+	needApply := false
 	config := NetplanConfig{
 		Network: NetplanNetwork{
-			Version:   2,
-			Ethernets: make(map[string]NetplanEthernet),
+			Version: 2,
 		},
 	}
 
+	ethernets := make(map[string]NetplanEthernet)
 	// Configure each port based on the provided configurations
 	for _, portConfig := range portConfigs {
 		// Skip if no configuration needed
@@ -204,48 +210,39 @@ func ConfigurePFNetplan(pciAddress string, portConfigs []PortConfig) error {
 		}
 
 		ethernet := NetplanEthernet{}
-		needsUpdate := false
-
 		// Check MTU and only configure if different from current state
 		if portConfig.MTU != nil {
+			ethernet.MTU = portConfig.MTU
+			ethernet.DHCP4Overrides = &DHCP4Overrides{UseMTU: ptr.To(false)}
 			currentMTU, err := GetCurrentMTU(interfaceName)
 			if err != nil {
 				// If we can't get current MTU, log warning but proceed with configuration
 				// to ensure desired state is applied
 				log.Printf("Warning: failed to get current MTU for %s, will apply configuration: %v", interfaceName, err)
-				ethernet.MTU = portConfig.MTU
-				needsUpdate = true
+				needApply = true
 			} else if currentMTU != int(*portConfig.MTU) {
-				ethernet.MTU = portConfig.MTU
-				needsUpdate = true
+				needApply = true
 			}
 		}
 
 		// Check DHCP and only configure if different from current state
 		if portConfig.DHCP != nil {
+			ethernet.DHCP4 = portConfig.DHCP
 			currentDHCP, err := isDHCPEnabled(interfaceName)
 			if err != nil {
 				// If we can't determine current DHCP state, log warning but proceed with configuration
 				// to ensure desired state is applied
 				log.Printf("Warning: failed to determine DHCP state for %s, will apply configuration: %v", interfaceName, err)
-				ethernet.DHCP4 = portConfig.DHCP
-				needsUpdate = true
+				needApply = true
 			} else if currentDHCP != *portConfig.DHCP {
-				ethernet.DHCP4 = portConfig.DHCP
-				needsUpdate = true
+				needApply = true
 			}
 		}
-
-		// Only add to config if changes are needed
-		if needsUpdate {
-			config.Network.Ethernets[interfaceName] = ethernet
-			hasChanges = true
-		}
+		ethernets[interfaceName] = ethernet
 	}
 
-	// Only create netplan file and apply if we have changes to make
-	if !hasChanges {
-		return nil
+	if len(ethernets) > 0 {
+		config.Network.Ethernets = ethernets
 	}
 
 	// Write netplan configuration file
@@ -257,11 +254,13 @@ func ConfigurePFNetplan(pciAddress string, portConfigs []PortConfig) error {
 		return fmt.Errorf("failed to write netplan file: %w", err)
 	}
 
+	if !needApply {
+		return nil
+	}
 	// Apply netplan configuration
 	if err = applyNetplan(); err != nil {
 		return fmt.Errorf("failed to apply netplan configuration: %w", err)
 	}
-
 	return nil
 }
 
