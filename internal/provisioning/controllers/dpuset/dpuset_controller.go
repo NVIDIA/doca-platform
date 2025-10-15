@@ -542,8 +542,9 @@ func (r *DPUSetReconciler) isNodeLabelUpdateNeeded(ctx context.Context, dpuSet *
 
 // in this function, it will:
 // 1. update the node labels for DPUs
-// 2. update the ApplyOnLabelChange field for DPUs
-// 3. update the NodeMaintenanceAdditionalRequestors field for DPUs
+// 2. update the NodeEffect Action fields for DPUs
+// 3. update the ApplyOnLabelChange field for DPUs
+// 4. update the NodeMaintenanceAdditionalRequestors field for DPUs
 func (r *DPUSetReconciler) updateDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuMap map[string]provisioningv1.DPU) error {
 	needUpdateLabels, newLabels, removedLabels := r.isNodeLabelUpdateNeeded(ctx, dpuSet)
 	if needUpdateLabels {
@@ -563,11 +564,15 @@ func (r *DPUSetReconciler) updateDPUs(ctx context.Context, dpuSet *provisioningv
 			updateNodeLabelsForDPU(&dpu, newLabels, removedLabels)
 			update = true
 		}
-		// 2. update the ApplyOnLabelChange field for DPU
+		// 2. update the NodeEffect Action fields for DPU
+		if updateNodeEffectAction(ctx, dpuSet, &dpu) {
+			update = true
+		}
+		// 3. update the ApplyOnLabelChange field for DPU
 		if updateNodeEffectApplyOnLabelChange(ctx, dpuSet, &dpu) {
 			update = true
 		}
-		// 3. update the NodeMaintenanceAdditionalRequestors field for DPU
+		// 4. update the NodeMaintenanceAdditionalRequestors field for DPU
 		expectedRequestors := []string{}
 		if dpuSet.Spec.DPUTemplate.Spec.NodeEffect != nil {
 			expectedRequestors = dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors
@@ -620,6 +625,42 @@ func updateNodeLabelsForDPU(dpu *provisioningv1.DPU, newLabels map[string]string
 	for _, k := range removedLabels {
 		delete(dpu.Spec.Cluster.NodeLabels, k)
 	}
+}
+
+// updateNodeEffectAction updates the NodeEffect Action fields (Taint, Drain, NoEffect, etc.) for existing DPUs when the DPUSet template changes.
+// This function ensures that changes to the Action fields are propagated to existing DPUs without requiring recreation.
+func updateNodeEffectAction(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpu *provisioningv1.DPU) bool {
+	logger := log.FromContext(ctx)
+
+	if dpu.Status.Phase != provisioningv1.DPUReady {
+		return false
+	}
+
+	// Get the expected Action from the DPUSet template
+	var expectedAction provisioningv1.Action
+	if dpuSet.Spec.DPUTemplate.Spec.NodeEffect != nil {
+		expectedAction = dpuSet.Spec.DPUTemplate.Spec.NodeEffect.Action
+	}
+
+	// Get current Action from DPU
+	var currentAction provisioningv1.Action
+	if dpu.Spec.NodeEffect != nil {
+		currentAction = dpu.Spec.NodeEffect.Action
+	}
+
+	// Check if Action has changed
+	if !reflect.DeepEqual(currentAction, expectedAction) {
+		logger.V(3).Info(fmt.Sprintf("Updating NodeEffect Action for DPU (%s/%s)", dpu.Namespace, dpu.Name))
+		// Ensure NodeEffect struct exists
+		if dpu.Spec.NodeEffect == nil {
+			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{}
+		}
+		// Update Action fields
+		dpu.Spec.NodeEffect.Action = expectedAction
+		return true
+	}
+
+	return false
 }
 
 // updateNodeEffectApplyOnLabelChange updates the ApplyOnLabelChange field for existing DPUs when the DPUSet template changes.
