@@ -38,6 +38,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -52,7 +53,7 @@ var _ = Describe("DPU", func() {
 		DefaultNode                    = "dpf-provisinoning-dpu-controller-node-test"
 		DefaultDPUCluster              = "dpf-provisioning-dpu-cluster-test"
 		DefaultPCIAddress              = "0000-aa-00"
-		DefaultSerialNumber            = "MT25066004C7"
+		DefaultSerialNumberPrefix      = "MT25066004C"
 		DefaultDPUInProvisioningMapMax = 3
 	)
 
@@ -80,7 +81,7 @@ var _ = Describe("DPU", func() {
 				Namespace: testNS.Name,
 			},
 			Spec: provisioningv1.DPUSpec{
-				SerialNumber: DefaultSerialNumber,
+				SerialNumber: DefaultSerialNumberPrefix + utilrand.String(5),
 			},
 			Status: provisioningv1.DPUStatus{},
 		}
@@ -267,7 +268,7 @@ var _ = Describe("DPU", func() {
 				},
 			},
 			Spec: provisioningv1.DPUDeviceSpec{
-				SerialNumber: DefaultSerialNumber,
+				SerialNumber: DefaultSerialNumberPrefix + utilrand.String(5),
 			},
 		}
 		Expect(k8sClient.Create(ctx, dpuDevice)).NotTo(HaveOccurred())
@@ -406,7 +407,7 @@ var _ = Describe("DPU", func() {
 								Hold: ptr.To(true),
 							},
 						},
-						SerialNumber: DefaultSerialNumber,
+						SerialNumber: DefaultSerialNumberPrefix + utilrand.String(5),
 					},
 					Status: provisioningv1.DPUStatus{},
 				}
