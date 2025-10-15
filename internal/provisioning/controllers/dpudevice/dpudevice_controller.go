@@ -372,10 +372,22 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 		log.Error(err, "failed to create tls client")
 
 		if err = r.setUpMTLS(ctx, dpuDevice, basicAuthClient); err != nil {
+			condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceResettingBMC)
 			err = fmt.Errorf("failed to set up mTLS: %w", err)
-			log.Error(err, "failed to set up mTLS")
-			cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailedToSetUpMTLS", err.Error()))
-			return err
+			if condition == nil || condition.Status == metav1.ConditionFalse {
+				log.Error(err, "resetting BMC to factory default")
+				_, _, err = basicAuthClient.FactoryResetBMC()
+				if err != nil {
+					log.Error(err, "failed to factory reset BMC")
+					return err
+				}
+				conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceResettingBMC)
+				return nil
+			} else {
+				log.Error(err, "failed to set up mTLS after factory reset BMC")
+				cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailedToSetUpMTLS", err.Error()))
+				return err
+			}
 		}
 	}
 

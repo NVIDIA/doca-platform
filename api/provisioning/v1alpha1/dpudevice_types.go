@@ -41,6 +41,8 @@ const (
 	ConditionDpuDeviceDiscovered conditions.ConditionType = "Discovered"
 	// ConditionDpuDeviceNodeAttached indicates that the DPU is attached to a node
 	ConditionDpuDeviceNodeAttached conditions.ConditionType = "NodeAttached"
+	// ConditionDpuDeviceResettingBMC indicates that the BMC is being reset to factory defaults
+	ConditionDpuDeviceResettingBMC conditions.ConditionType = "ResettingBMC"
 	// ConditionDpuDeviceInitialized indicates that the DPU interface has been initialized
 	ConditionDpuDeviceInitialized conditions.ConditionType = "Initialized"
 	// ConditionDpuDeviceError indicates that the DPUDevice has an error
@@ -53,6 +55,7 @@ var (
 	// DPUDeviceConditions are conditions that can be set on a DPUDevice object.
 	DPUDeviceConditions = []conditions.ConditionType{
 		ConditionDpuDeviceDiscovered,
+		ConditionDpuDeviceResettingBMC,
 		ConditionDpuDeviceNodeAttached,
 		ConditionDpuDeviceInitialized,
 		ConditionDpuDeviceError,
