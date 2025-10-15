@@ -56,7 +56,7 @@ The helmfiles are located at `deploy/helmfiles/` in the [DPF repository].
 
 This approach ensures consistent deployment across different environments and simplifies the installation process.
 
-> [!NOTE] You have to install the `local-path-provisioner` manually. The current helmfile for the release v25.7.0 does not
+> [!NOTE] You have to install the `local-path-provisioner` manually. The current helmfile for the release v25.7.1 does not
 > include it, but it is required for the Kamaji etcd storage.
 
 You can install the `local-path-provisioner` it with the following command:

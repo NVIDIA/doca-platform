@@ -76,7 +76,7 @@ export HBN_NGC_IMAGE_URL=nvcr.io/nvidia/doca/doca_hbn
 export REGISTRY=https://helm.ngc.nvidia.com/nvidia/doca
 
 ## The DPF TAG is the version of the DPF components which will be deployed in this guide.
-export TAG=v25.7.0
+export TAG=v25.7.1
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
 export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.1.0-76_25.07_ubuntu-22.04_prod.bfb"
@@ -380,6 +380,11 @@ that should run on a set of DPUs.
 
 #### Create the DPUDeployment, DPUServiceConfig, DPUServiceTemplate and other necessary objects
 
+> [!WARNING]
+> In case more than 1 DPU exists per node, the relevant selector should be applied in the DPUDeployment
+> to select the appropriate DPU. See [DPUDeployment - DPUs Configuration](../../../../developer-guides/api/dpudeployment.md#dpus-configuration)
+> to understand more about the selectors.
+
 A number of [environment variables](#0-required-variables) must be set before running this command.
 ```shell
 cat manifests/04-dpudeployment-installation/*.yaml | envsubst | kubectl apply -f - 
@@ -504,6 +509,8 @@ spec:
       nodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
+      dpuSelector:
+        provisioning.dpu.nvidia.com/dpudevice-pf0-name: $DPU_P0
   services:
     doca-hbn:
       serviceTemplate: doca-hbn

@@ -104,7 +104,7 @@ export EXTERNAL_CIDR=30.30.0.0/16
 export EXTERNAL_GATEWAY=30.30.0.1
 
 ## The DPF TAG is the version of the DPF components which will be deployed in this guide.
-export TAG=v25.7.0
+export TAG=v25.7.1
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
 export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.1.0-76_25.07_ubuntu-22.04_prod.bfb"
@@ -433,6 +433,11 @@ The OVN VPC service consists of the following components:
 
 #### Deploy OVN VPC DPUDeployment
 
+> [!WARNING]
+> In case more than 1 DPU exists per node, the relevant selector should be applied in the DPUDeployment
+> to select the appropriate DPU. See [DPUDeployment - DPUs Configuration](../../../../developer-guides/api/dpudeployment.md#dpus-configuration)
+> to understand more about the selectors.
+
 ```shell
 cat manifests/04-vpc-ovn-dpudeployment/* | envsubst | kubectl apply -f -
 ```
@@ -622,7 +627,7 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: $TAG
+      version: v25.7.0
       chart: ovn-chart
 ```
 
@@ -639,7 +644,7 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: $TAG
+      version: v25.7.0
       chart: ovn-chart
 ```
 
@@ -656,7 +661,7 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: $TAG
+      version: v25.7.0
       chart: dpf-vpc-ovn
 ```
 
@@ -673,7 +678,7 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: $TAG
+      version: v25.7.0
       chart: dpf-vpc-ovn
 ```
 

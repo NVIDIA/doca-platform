@@ -10,7 +10,7 @@ spec:
     source:
       repoURL: $OVN_KUBERNETES_REPO_URL
       chart: ovn-kubernetes-chart
-      version: $TAG
+      version: v25.7.0
     values:
       commonManifests:
         enabled: true

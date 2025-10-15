@@ -135,7 +135,7 @@ export SERVICE_CIDR=10.233.0.0/18
 export REGISTRY=https://helm.ngc.nvidia.com/nvidia/doca
 
 ## The DPF TAG is the version of the DPF components which will be deployed in this guide.
-export TAG=v25.7.0
+export TAG=v25.7.1
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
 export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.1.0-76_25.07_ubuntu-22.04_prod.bfb"
@@ -162,7 +162,7 @@ kubectl create ns ovn-kubernetes
 
 Install the OVN Kubernetes CNI components from the helm chart. A number of [environment variables](#0-required-variables) must be set before running this command.
 ```shell
-envsubst < manifests/01-cni-installation/helm-values/ovn-kubernetes.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version $TAG --values -
+envsubst < manifests/01-cni-installation/helm-values/ovn-kubernetes.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version v25.7.0 --values -
 ```
 
 <details markdown="1"><summary>OVN-Kubernetes Helm values</summary>
@@ -432,7 +432,7 @@ operator:
 The OVN Kubernetes resource injection webhook injected each pod scheduled to a worker node with a request for a VF and a Network Attachment Definition. This webhook is part of the same helm chart as the other components of the OVN Kubernetes CNI. Here it is installed by adjusting the existing helm installation to add the webhook component to the installation. 
 
 ```shell
-envsubst < manifests/04-enable-accelerated-cni/helm-values/ovn-kubernetes.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes-resource-injector ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version $TAG --values -
+envsubst < manifests/04-enable-accelerated-cni/helm-values/ovn-kubernetes.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes-resource-injector ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version v25.7.0 --values -
 ```
 
 <details markdown="1"><summary>OVN Kubernetes Resource Injector Helm values</summary>
@@ -525,6 +525,11 @@ that should run on a set of DPUs.
 
 #### Create the DPUDeployment, DPUServiceConfig, DPUServiceTemplate and other necessary objects
 
+> [!WARNING]
+> In case more than 1 DPU exists per node, the relevant selector should be applied in the DPUDeployment
+> to select the appropriate DPU. See [DPUDeployment - DPUs Configuration](../../../../developer-guides/api/dpudeployment.md#dpus-configuration)
+> to understand more about the selectors.
+
 A number of [environment variables](#0-required-variables) must be set before running this command.
 ```shell
 cat manifests/05-dpudeployment-installation/*.yaml | envsubst | kubectl apply -f - 
@@ -566,6 +571,8 @@ spec:
       nodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
+      dpuSelector:
+        provisioning.dpu.nvidia.com/dpudevice-pf0-name: $DPU_P0
   services:
     ovn:
       serviceTemplate: ovn
@@ -647,7 +654,7 @@ spec:
     source:
       repoURL: $OVN_KUBERNETES_REPO_URL
       chart: ovn-kubernetes-chart
-      version: $TAG
+      version: v25.7.0
     values:
       commonManifests:
         enabled: true

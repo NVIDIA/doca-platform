@@ -9,5 +9,5 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: $TAG
+      version: v25.7.0
       chart: ovn-chart

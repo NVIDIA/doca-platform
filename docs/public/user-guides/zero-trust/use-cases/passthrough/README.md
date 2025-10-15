@@ -63,7 +63,7 @@ export NFS_SERVER_IP=
 export REGISTRY=https://helm.ngc.nvidia.com/nvidia/doca
 
 ## The DPF TAG is the version of the DPF components which will be deployed in this guide.
-export TAG=v25.7.0
+export TAG=v25.7.1
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
 export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.1.0-76_25.07_ubuntu-22.04_prod.bfb"
@@ -296,6 +296,11 @@ kubectl wait --for=condition=ready --namespace dpu-cplane-tenant1 dpucluster --a
 ```
 
 ### 3. DPU Provisioning and Interface Plumbing
+
+> [!WARNING]
+> In case more than 1 DPU exists per node, the relevant selector should be applied in the DPUSet
+> to select the appropriate DPU. See [DPUSet - DPU Selection](../../../../developer-guides/api/dpuset.md#dpu-selection)
+> to understand more about the selectors.
 
 In this step we provision our DPUs and we do the nessecary interface plumbing to enable the DPU to act as a passthrough
 device.

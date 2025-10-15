@@ -303,13 +303,13 @@ spec:
         matchLabels:
           datacenter.nvidia.com/rack: "b-100"
       dpuSelector:
-        pciAddr: "0000:0e:00.0"
+        provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:0e:00.0"
     - nameSuffix: "dpuset2"
       nodeSelector:
         matchLabels:
           datacenter.nvidia.com/rack: "b-101"
       dpuSelector:
-        pciAddr: "0000:1a:00.0"
+        provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:1a:00.0"
   # services reflects the `DPUServices` that should be deployed on those DPUs. The key of this map is the service name
   # and the value is referencing the respective `DPUServiceTemplate` and `DPUServiceConfiguration` for that each service.
   services:
@@ -382,13 +382,13 @@ spec:
         matchLabels:
           datacenter.nvidia.com/rack: "b-100"
       dpuSelector:
-        pciAddr: "0000:0e:00.0"
+        provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:0e:00.0"
     - nameSuffix: "dpuset2"
       nodeSelector:
         matchLabels:
           datacenter.nvidia.com/rack: "b-101"
       dpuSelector:
-        pciAddr: "0000:1a:00.0"
+        provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:1a:00.0"
     nodeEffect:
       taint:
         key: "dpu"
@@ -411,10 +411,12 @@ The following fields are available in the `spec.dpus`:
   by the `DPUDeployment`.
     * `nameSuffix`: A suffix to be added to the `DPUSet` name. This is a required
       field, as the `DPUSet` name must be unique and identifiable.
-    * `nodeSelector`: The node selector to be used to select the nodes to which the
-      DPUs are attached.
-    * `dpuSelector`: The selector to be used to select the DPUs that are to be targeted.
-      In this example, the DPUs are selected based on their PCI address.
+    * `nodeSelector`: The selector of the DPUNodes to which the DPUs are attached
+      to. See more in [DPU Selection](./dpuset.md#dpu-selection). Note that this
+      field maps to the DPUSet field `dpuNodeSelector`.
+    * `dpuSelector`: The selector of the DPUDevices that are to be targeted. In
+      this example, the DPUs are selected based on their PCI address. See more in
+      [DPU Selection](./dpuset.md#dpu-selection).
     * `dpuAnnotations`: The annotation to be applied on the DPU objects that are
       created by the `DPUDeployment`.
 * `nodeEffect`: The effect to be applied on the nodes to which the DPUs are attached.
