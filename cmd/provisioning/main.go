@@ -392,6 +392,18 @@ func main() {
 		setupLog.Error(err, "unable to create webhook", "webhook", "DPUFlavor")
 		os.Exit(1)
 	}
+	if err = (&provisioningwebhooks.DPUDevice{
+		Client: mgr.GetClient(),
+	}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "DPUDevice")
+		os.Exit(1)
+	}
+	if err = (&provisioningwebhooks.DPUNode{
+		Client: mgr.GetClient(),
+	}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "DPUNode")
+		os.Exit(1)
+	}
 
 	k8sClient := clientset.NewForConfigOrDie(clientConfig)
 	if err = (&csr.CSRReconciler{
