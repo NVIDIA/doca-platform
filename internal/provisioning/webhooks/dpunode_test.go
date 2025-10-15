@@ -106,7 +106,7 @@ var _ = Describe("DPUNode", func() {
               namespace: default
             spec:
               bmcIp: 3.3.3.3
-              serialNumber: MT25066004C7
+              serialNumber: MT25066004E1
               psid: MT_0000000034
               opn: 900-9D3B4-00SV-EA0
             `)
@@ -225,23 +225,43 @@ spec:
 			err = k8sClient.Status().Update(ctx, objUpdatedFetched)
 			Expect(err).To(HaveOccurred())
 		})
-		It("create from yaml", func() {
-			dpudeviceYml := []byte(`
+		It("create from yaml with multiple DPUs", func() {
+			// Create dpu-device-10
+			dpudevice10Yml := []byte(`
             apiVersion: provisioning.dpu.nvidia.com/v1alpha1
             kind: DPUDevice
             metadata:
-              name: dpu-device-2
+              name: dpu-device-10
               namespace: default
             spec:
-              bmcIp: 3.3.3.4
-              serialNumber: MT25066004C7
+              bmcIp: 3.3.3.10
+              serialNumber: MT25066004EA
               psid: MT_0000000034
               opn: 900-9D3B4-00SV-EA0
             `)
-			dpudeviceObj := &provisioningv1.DPUDevice{}
-			err := yaml.UnmarshalStrict(dpudeviceYml, dpudeviceObj)
+			dpudevice10Obj := &provisioningv1.DPUDevice{}
+			err := yaml.UnmarshalStrict(dpudevice10Yml, dpudevice10Obj)
 			Expect(err).To(Succeed())
-			err = k8sClient.Create(ctx, dpudeviceObj)
+			err = k8sClient.Create(ctx, dpudevice10Obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Create dpu-device-11
+			dpudevice11Yml := []byte(`
+            apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+            kind: DPUDevice
+            metadata:
+              name: dpu-device-11
+              namespace: default
+            spec:
+              bmcIp: 3.3.3.11
+              serialNumber: MT25066004EB
+              psid: MT_0000000035
+              opn: 900-9D3B4-00SV-EA1
+            `)
+			dpudevice11Obj := &provisioningv1.DPUDevice{}
+			err = yaml.UnmarshalStrict(dpudevice11Yml, dpudevice11Obj)
+			Expect(err).To(Succeed())
+			err = k8sClient.Create(ctx, dpudevice11Obj)
 			Expect(err).NotTo(HaveOccurred())
 
 			dpunodeYml := []byte(`
@@ -257,8 +277,8 @@ spec:
     ip: 4.4.4.4
     port: 50
   dpus:
-  - name: dpu-device-1
-  - name: dpu-device-2
+  - name: dpu-device-10
+  - name: dpu-device-11
 `)
 			obj := &provisioningv1.DPUNode{}
 			err = yaml.UnmarshalStrict(dpunodeYml, obj)
@@ -424,6 +444,113 @@ spec:
 
 			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 			Expect(*objFetched.Spec.NodeRebootMethod).To(Equal(provisioningv1.NodeRebootMethod{HostAgent: &provisioningv1.HostAgent{}}))
+		})
+		It("create DPUNode with duplicate DPU name should fail", func() {
+			// Create a new DPU device for this test
+			dpudeviceYml := []byte(`
+            apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+            kind: DPUDevice
+            metadata:
+              name: dpu-device-23
+              namespace: default
+            spec:
+              bmcIp: 3.3.3.23
+              serialNumber: MT_0000000023
+              psid: MT_0000000023
+              opn: 900-9D3B4-00SV-EA0
+            `)
+			dpudeviceObj := &provisioningv1.DPUDevice{}
+			err := yaml.UnmarshalStrict(dpudeviceYml, dpudeviceObj)
+			Expect(err).To(Succeed())
+			err = k8sClient.Create(ctx, dpudeviceObj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Create first DPUNode with DPU
+			obj1 := createObj("obj-23")
+			obj1.Spec.DPUs = []provisioningv1.DPURef{
+				{Name: "dpu-device-23"},
+			}
+			Expect(k8sClient.Create(ctx, obj1)).NotTo(HaveOccurred())
+
+			// Try to create second DPUNode with same DPU name
+			obj2 := createObj("obj-24")
+			obj2.Spec.DPUs = []provisioningv1.DPURef{
+				{Name: "dpu-device-23"}, // Same DPU name
+			}
+			Expect(k8sClient.Create(ctx, obj2)).To(HaveOccurred())
+		})
+		It("create DPUNode with duplicate DPU name in different namespace should fail", func() {
+			// Create first DPUNode in default namespace
+			obj1 := createObj("obj-25")
+			obj1.Spec.DPUs = []provisioningv1.DPURef{
+				{Name: "dpu-device-2"},
+			}
+			Expect(k8sClient.Create(ctx, obj1)).NotTo(HaveOccurred())
+
+			// Try to create second DPUNode with same DPU name in different namespace
+			obj2 := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "obj-26",
+					Namespace: "test-namespace",
+				},
+				Spec: provisioningv1.DPUNodeSpec{
+					DPUs: []provisioningv1.DPURef{
+						{Name: "dpu-device-2"}, // Same DPU name
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj2)).To(HaveOccurred())
+		})
+		It("update DPUNode with duplicate DPU name should fail", func() {
+			// Create first DPUNode with DPU
+			obj1 := createObj("obj-27")
+			obj1.Spec.DPUs = []provisioningv1.DPURef{
+				{Name: "dpu-device-3"},
+			}
+			Expect(k8sClient.Create(ctx, obj1)).NotTo(HaveOccurred())
+
+			// Create second DPUNode with different DPU name
+			obj2 := createObj("obj-28")
+			obj2.Spec.DPUs = []provisioningv1.DPURef{
+				{Name: "dpu-device-4"},
+			}
+			Expect(k8sClient.Create(ctx, obj2)).NotTo(HaveOccurred())
+
+			// Try to update second DPUNode to have same DPU name as first
+			obj2.Spec.DPUs = []provisioningv1.DPURef{
+				{Name: "dpu-device-3"}, // Same DPU name as first node
+			}
+			Expect(k8sClient.Update(ctx, obj2)).To(HaveOccurred())
+		})
+		It("create DPUNode with multiple DPUs where one is duplicate should fail", func() {
+			// Create first DPUNode with DPU
+			obj1 := createObj("obj-29")
+			obj1.Spec.DPUs = []provisioningv1.DPURef{
+				{Name: "dpu-device-5"},
+			}
+			Expect(k8sClient.Create(ctx, obj1)).NotTo(HaveOccurred())
+
+			// Try to create second DPUNode with multiple DPUs where one is duplicate
+			obj2 := createObj("obj-30")
+			obj2.Spec.DPUs = []provisioningv1.DPURef{
+				{Name: "dpu-device-6"}, // New DPU name
+				{Name: "dpu-device-5"}, // Duplicate DPU name
+			}
+			Expect(k8sClient.Create(ctx, obj2)).To(HaveOccurred())
+		})
+		It("update DPUNode without changing DPUs should succeed", func() {
+			// Create DPUNode with DPU
+			obj := createObj("obj-31")
+			obj.Spec.DPUs = []provisioningv1.DPURef{
+				{Name: "dpu-device-7"},
+			}
+			Expect(k8sClient.Create(ctx, obj)).NotTo(HaveOccurred())
+
+			// Update DPUNode without changing DPUs
+			obj.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				External: &provisioningv1.External{},
+			}
+			Expect(k8sClient.Update(ctx, obj)).NotTo(HaveOccurred())
 		})
 	})
 })

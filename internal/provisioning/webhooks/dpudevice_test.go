@@ -31,9 +31,6 @@ import (
 )
 
 var _ = Describe("DPUDevice", func() {
-	const (
-		DefaultSerialNumber = "MT25066004C7"
-	)
 
 	var getObjKey = func(obj *provisioningv1.DPUDevice) types.NamespacedName {
 		return types.NamespacedName{
@@ -41,14 +38,14 @@ var _ = Describe("DPUDevice", func() {
 			Namespace: obj.Namespace,
 		}
 	}
-	var createObj = func(name string) *provisioningv1.DPUDevice {
+	var createObj = func(name string, serialNumber string) *provisioningv1.DPUDevice {
 		return &provisioningv1.DPUDevice{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
 				Namespace: "default",
 			},
 			Spec: provisioningv1.DPUDeviceSpec{
-				SerialNumber: DefaultSerialNumber,
+				SerialNumber: serialNumber,
 			},
 		}
 	}
@@ -64,7 +61,7 @@ var _ = Describe("DPUDevice", func() {
 	Context("obj test context", func() {
 		ctx := context.Background()
 		It("check default settings", func() {
-			obj := createObj("obj-4")
+			obj := createObj("obj-4", "MT25066004C4")
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -88,7 +85,7 @@ metadata:
   name: obj-5
   namespace: default
 spec:
-  serialNumber: MT25066004C7
+  serialNumber: MT25066004C5
   bmcIp: 3.3.3.3
   psid: MT_0000000034
   opn: 900-9D3B4-00SV-EA0
@@ -107,7 +104,7 @@ metadata:
   name: obj-6
   namespace: default
 spec:
-  serialNumber: MT25066004C7
+  serialNumber: MT25066004C6
 `)
 			obj := &provisioningv1.DPUDevice{}
 			err := yaml.UnmarshalStrict(yml, obj)
@@ -116,14 +113,14 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 		})
 		It("update object - check immutability of Serial Number", func() {
-			obj := createObj("obj-7")
+			obj := createObj("obj-7", "MT25066004C7")
 			Expect(k8sClient.Create(ctx, obj)).NotTo(HaveOccurred())
 
 			obj.Spec.SerialNumber = "MT25066004C8"
 			Expect(k8sClient.Update(ctx, obj)).To(HaveOccurred())
 		})
 		It("update object - check immutability of PSID", func() {
-			obj := createObj("obj-8")
+			obj := createObj("obj-8", "MT25066004D8")
 			obj.Spec.PSID = ptr.To("MT_0000000034")
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
@@ -133,7 +130,7 @@ spec:
 			Expect(err).To(HaveOccurred())
 		})
 		It("update object - check immutability of OPN", func() {
-			obj := createObj("obj-9")
+			obj := createObj("obj-9", "MT25066004D9")
 			obj.Spec.OPN = ptr.To("900-9D3B4-00SV-EA0")
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
@@ -143,7 +140,7 @@ spec:
 			Expect(err).To(HaveOccurred())
 		})
 		It("update object - check immutability of BMC IP", func() {
-			obj := createObj("obj-10")
+			obj := createObj("obj-10", "MT25066004DA")
 			obj.Spec.BMCIP = ptr.To("22.22.22.22")
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
@@ -230,7 +227,7 @@ spec:
 					Namespace: "default",
 				},
 				Spec: provisioningv1.DPUDeviceSpec{
-					SerialNumber: DefaultSerialNumber,
+					SerialNumber: "MT25066004D6",
 					PSID:         ptr.To("MT_0001234567"),
 					OPN:          ptr.To("900-9D3B4-00SV-EA0"),
 					BMCIP:        ptr.To("10.1.2.3"),
@@ -241,6 +238,85 @@ spec:
 			objFetched := &provisioningv1.DPUDevice{}
 			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).NotTo(HaveOccurred())
 			Expect(objFetched).To(Equal(obj))
+		})
+		It("create object with duplicate serial number should fail", func() {
+			// Create first object
+			obj1 := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "obj-17",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					SerialNumber: "MT25066004D7",
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj1)).NotTo(HaveOccurred())
+
+			// Try to create second object with same serial number
+			obj2 := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "obj-18",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					SerialNumber: "MT25066004D7", // Same serial number
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj2)).To(HaveOccurred())
+		})
+		It("create object with duplicate serial number in different namespace should fail", func() {
+			// Create first object in default namespace
+			obj1 := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "obj-19",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					SerialNumber: "MT25066004C8",
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj1)).NotTo(HaveOccurred())
+
+			// Try to create second object with same serial number in different namespace
+			obj2 := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "obj-20",
+					Namespace: "test-namespace",
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					SerialNumber: "MT25066004C8", // Same serial number
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj2)).To(HaveOccurred())
+		})
+		It("update object with duplicate serial number should fail", func() {
+			// Create first object
+			obj1 := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "obj-21",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					SerialNumber: "MT25066004C9",
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj1)).NotTo(HaveOccurred())
+
+			// Create second object with different serial number
+			obj2 := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "obj-22",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					SerialNumber: "MT25066004C10",
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj2)).NotTo(HaveOccurred())
+
+			// Try to update second object to have same serial number as first
+			obj2.Spec.SerialNumber = "MT25066004C9"
+			Expect(k8sClient.Update(ctx, obj2)).To(HaveOccurred())
 		})
 	})
 })
