@@ -31,6 +31,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
 )
 
@@ -52,7 +53,7 @@ var _ = Describe("Allocator", func() {
 				Namespace: testNS.Name,
 			},
 			Spec: provisioningv1.DPUSpec{
-				SerialNumber:  "MT25066004C7",
+				SerialNumber:  "MT25066004C" + utilrand.String(5),
 				DPUNodeName:   "test-node",
 				DPUDeviceName: "test-dpudevice",
 				BFB:           "test-bfb",

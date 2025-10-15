@@ -105,6 +105,12 @@ var _ = BeforeSuite(func() {
 	err = (&DPUFlavor{}).SetupWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = (&DPUDevice{Client: k8sClient}).SetupWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = (&DPUNode{Client: k8sClient}).SetupWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
 	// +kubebuilder:scaffold:webhook
 
 	go func() {

@@ -33,6 +33,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
@@ -155,7 +156,7 @@ func dpuObj(name string) *provisioningv1.DPU {
 			Labels:       make(map[string]string),
 		},
 		Spec: provisioningv1.DPUSpec{
-			SerialNumber: "MT25066004C7",
+			SerialNumber: "MT25066004C" + utilrand.String(5),
 		},
 	}
 	return dpu
@@ -187,7 +188,7 @@ func dpuDeviceObj(name string) *provisioningv1.DPUDevice {
 			Namespace: testNS.Name,
 		},
 		Spec: provisioningv1.DPUDeviceSpec{
-			SerialNumber: "MT25066004C7",
+			SerialNumber: "MT25066004C" + utilrand.String(5),
 			NumberOfPFs:  ptr.To(2),
 		},
 	}

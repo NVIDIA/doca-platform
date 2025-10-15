@@ -18,9 +18,12 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
@@ -37,17 +40,35 @@ import (
 
 var _ = Describe("DPUSet", func() {
 	const (
-		dpuDeviceName       = "dpudevice-test"
-		DefaultPCIAddress   = "0000-04-00"
-		DPUNodeName         = "node0"
-		DefaultSerialNumber = "MT25066004C7"
+		DefaultSerialNumberPrefix = "MT25066004C"
+		DefaultPCIAddress         = "0000-04-00"
+		DefaultDPFOperatorConfig  = "operator-config-test"
 	)
 
 	var (
 		testNS        *corev1.Namespace
 		testDPUDevice *provisioningv1.DPUDevice
 		testDPUNode   *provisioningv1.DPUNode
+		dpuDeviceName string
+		dpuNodeName   string
 	)
+
+	var createDPFOperatorConfig = func(ctx context.Context, name string) *operatorv1.DPFOperatorConfig {
+		dpfOperatorConfig := &operatorv1.DPFOperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
+			},
+			Spec: operatorv1.DPFOperatorConfigSpec{
+				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+					BFBPersistentVolumeClaimName: "foo-pvc",
+				},
+			},
+		}
+
+		Expect(k8sClient.Create(ctx, dpfOperatorConfig)).NotTo(HaveOccurred())
+		return dpfOperatorConfig
+	}
 
 	var getObjKey = func(obj *provisioningv1.DPUSet) types.NamespacedName {
 		return types.NamespacedName{
@@ -106,7 +127,7 @@ var _ = Describe("DPUSet", func() {
 				},
 			},
 			Spec: provisioningv1.DPUDeviceSpec{
-				SerialNumber: DefaultSerialNumber,
+				SerialNumber: DefaultSerialNumberPrefix + utilrand.String(5),
 				NumberOfPFs:  ptr.To(2),
 				PF0Name:      ptr.To("pf0"),
 			},
@@ -134,12 +155,19 @@ var _ = Describe("DPUSet", func() {
 			return k8sClient.Create(ctx, testNS)
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 
+		// Generate unique names for each test run to avoid conflicts
+		dpuDeviceName = fmt.Sprintf("dpudevice-test-%s", utilrand.String(5))
+		dpuNodeName = fmt.Sprintf("node-%s", utilrand.String(5))
+
+		By("creating the dpfoperatorconfig")
+		_ = createDPFOperatorConfig(ctx, DefaultDPFOperatorConfig)
+
 		// DPUDevices are required to be created before DPUNodes due to the lack of dpudevice-controller, which will be implemented in the next release
 		By("creating the DPUDevice")
-		testDPUDevice = createDPUDevice(ctx, testNS.Name, dpuDeviceName, DefaultPCIAddress, DPUNodeName)
+		testDPUDevice = createDPUDevice(ctx, testNS.Name, dpuDeviceName, DefaultPCIAddress, dpuNodeName)
 
 		By("creating the DPUNode")
-		testDPUNode = createDPUNode(ctx, testNS.Name, DPUNodeName, []string{testDPUDevice.Name})
+		testDPUNode = createDPUNode(ctx, testNS.Name, dpuNodeName, []string{testDPUDevice.Name})
 	})
 
 	AfterEach(func() {
@@ -149,6 +177,9 @@ var _ = Describe("DPUSet", func() {
 		By("deleting the DPUDevice")
 		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &provisioningv1.DPUDevice{ObjectMeta: metav1.ObjectMeta{Namespace: testNS.GetName(), Name: dpuDeviceName}}))).To(Succeed())
 		Expect(k8sClient.DeleteAllOf(ctx, &provisioningv1.DPUSet{}, client.InNamespace(testNS.Name))).To(Succeed())
+
+		By("deleting the dpfoperatorconfig")
+		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &operatorv1.DPFOperatorConfig{ObjectMeta: metav1.ObjectMeta{Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace, Name: DefaultDPFOperatorConfig}}))).To(Succeed())
 
 		By("deleting the namespace")
 		Expect(k8sClient.Delete(ctx, testNS)).To(Succeed())
@@ -355,11 +386,11 @@ var _ = Describe("DPUSet", func() {
 
 		It("DPUSet: should create few DPUs", func() {
 			By("creating few DPUDevices in addition to predefined")
-			dpuDevice5 := createDPUDevice(ctx, testNS.Name, "dpu-device5", "0000-55-00", DPUNodeName)
+			dpuDevice5 := createDPUDevice(ctx, testNS.Name, "dpu-device5", "0000-55-00", dpuNodeName)
 			DeferCleanup(func() {
 				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, dpuDevice5))).To(Succeed())
 			})
-			dpuDevice6 := createDPUDevice(ctx, testNS.Name, "dpu-device6", "0000-66-00", DPUNodeName)
+			dpuDevice6 := createDPUDevice(ctx, testNS.Name, "dpu-device6", "0000-66-00", dpuNodeName)
 			DeferCleanup(func() {
 				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, dpuDevice6))).To(Succeed())
 			})
@@ -819,11 +850,11 @@ var _ = Describe("DPUSet", func() {
 
 		It("DPUSet: should update ApplyOnLabelChange for multiple DPUs", func() {
 			By("creating additional DPUDevices")
-			dpuDevice2 := createDPUDevice(ctx, testNS.Name, "dpu-device2", "0000-55-00", DPUNodeName)
+			dpuDevice2 := createDPUDevice(ctx, testNS.Name, "dpu-device2", "0000-55-00", dpuNodeName)
 			DeferCleanup(func() {
 				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, dpuDevice2))).To(Succeed())
 			})
-			dpuDevice3 := createDPUDevice(ctx, testNS.Name, "dpu-device3", "0000-66-00", DPUNodeName)
+			dpuDevice3 := createDPUDevice(ctx, testNS.Name, "dpu-device3", "0000-66-00", dpuNodeName)
 			DeferCleanup(func() {
 				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, dpuDevice3))).To(Succeed())
 			})

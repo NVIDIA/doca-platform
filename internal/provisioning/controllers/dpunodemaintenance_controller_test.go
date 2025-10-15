@@ -23,6 +23,7 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
@@ -42,23 +43,23 @@ var _ = Describe("DPUNodeMaintenance", func() {
 
 	const (
 		DefaultNS                 = "dpunodemaintenance-ns-test"
-		DefaultNode               = "node-test"
 		DefaultDPUNodeMaintenance = "dpunodemaintenance-test"
 		DefaultDPFOperatorConfig  = "operator-config-test"
 	)
 
 	var (
-		testNS                *corev1.Namespace
-		testNode              *corev1.Node
-		testDPUNode           *provisioningv1.DPUNode
-		testDPFOperatorConfig *operatorv1.DPFOperatorConfig
+		testNS        *corev1.Namespace
+		testNode      *corev1.Node
+		testDPUNode   *provisioningv1.DPUNode
+		nodeName      string
+		dpuDeviceName string
 	)
 
 	var createDPFOperatorConfig = func(ctx context.Context, name string) *operatorv1.DPFOperatorConfig {
 		dpfOperatorConfig := &operatorv1.DPFOperatorConfig{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
-				Namespace: testNS.Name,
+				Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
@@ -77,7 +78,7 @@ var _ = Describe("DPUNodeMaintenance", func() {
 		return node
 	}
 
-	var createDPUNode = func(ctx context.Context, name string) *provisioningv1.DPUNode {
+	var createDPUNode = func(ctx context.Context, name string, dpuDeviceName string) *provisioningv1.DPUNode {
 		dpuNode := &provisioningv1.DPUNode{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
@@ -104,7 +105,7 @@ var _ = Describe("DPUNodeMaintenance", func() {
 				},
 				NodeDMSAddress: &provisioningv1.DMSAddress{IP: "1.1.1.1", Port: 1234},
 				DPUs: []provisioningv1.DPURef{
-					{Name: "dpu-test-device"},
+					{Name: dpuDeviceName},
 				},
 			},
 		}
@@ -130,14 +131,18 @@ var _ = Describe("DPUNodeMaintenance", func() {
 			return k8sClient.Create(ctx, testNS)
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 
+		// Generate unique names for each test run to avoid conflicts
+		nodeName = fmt.Sprintf("node-test-%s", utilrand.String(5))
+		dpuDeviceName = fmt.Sprintf("dpu-test-device-%s", utilrand.String(5))
+
 		By("creating the dpfoperatorconfig")
-		testDPFOperatorConfig = createDPFOperatorConfig(ctx, DefaultDPFOperatorConfig)
+		_ = createDPFOperatorConfig(ctx, DefaultDPFOperatorConfig)
 
 		By("creating the node")
-		testNode = createNode(ctx, DefaultNode)
+		testNode = createNode(ctx, nodeName)
 
 		By("creating the dpuNode")
-		testDPUNode = createDPUNode(ctx, DefaultNode)
+		testDPUNode = createDPUNode(ctx, nodeName, dpuDeviceName)
 	})
 
 	AfterEach(func() {
@@ -148,7 +153,7 @@ var _ = Describe("DPUNodeMaintenance", func() {
 		Expect(k8sClient.Delete(ctx, testNode)).To(Succeed())
 
 		By("deleting the dpfoperatorconfig")
-		Expect(k8sClient.Delete(ctx, testDPFOperatorConfig)).To(Succeed())
+		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &operatorv1.DPFOperatorConfig{ObjectMeta: metav1.ObjectMeta{Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace, Name: DefaultDPFOperatorConfig}}))).To(Succeed())
 
 		By("deleting the namespace")
 		Expect(k8sClient.Delete(ctx, testNS)).To(Succeed())
@@ -176,7 +181,7 @@ var _ = Describe("DPUNodeMaintenance", func() {
 					Namespace: testNS.Name,
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
-					DPUNodeName: DefaultNode,
+					DPUNodeName: nodeName,
 					NodeEffect: &provisioningv1.NodeEffect{
 						Action: provisioningv1.Action{
 							Drain: ptr.To(true),
@@ -190,7 +195,7 @@ var _ = Describe("DPUNodeMaintenance", func() {
 			By("getting nvidia node maintenance obj")
 			fetchedNodemaintenance := &nvidiaNodeMaintenancev1.NodeMaintenance{}
 			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: DefaultNode}, fetchedNodemaintenance)).To(Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: nodeName}, fetchedNodemaintenance)).To(Succeed())
 			}, 10*time.Second).Should(Succeed())
 		})
 
@@ -202,7 +207,7 @@ var _ = Describe("DPUNodeMaintenance", func() {
 					Namespace: testNS.Name,
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
-					DPUNodeName: DefaultNode,
+					DPUNodeName: nodeName,
 					NodeEffect: &provisioningv1.NodeEffect{
 						Action: provisioningv1.Action{
 							CustomLabel: map[string]string{"test-label": "test-value"},
@@ -216,7 +221,7 @@ var _ = Describe("DPUNodeMaintenance", func() {
 			By("getting the node obj")
 			fetchedNode := &corev1.Node{}
 			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: DefaultNode}, fetchedNode)).To(Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: nodeName}, fetchedNode)).To(Succeed())
 				g.Expect(fetchedNode.Labels["test-label"]).To(Equal("test-value"))
 			}, 10*time.Second).Should(Succeed())
 		})
@@ -229,7 +234,7 @@ var _ = Describe("DPUNodeMaintenance", func() {
 					Namespace: testNS.Name,
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
-					DPUNodeName: DefaultNode,
+					DPUNodeName: nodeName,
 					NodeEffect: &provisioningv1.NodeEffect{
 						Action: provisioningv1.Action{
 							Taint: &corev1.Taint{
@@ -247,7 +252,7 @@ var _ = Describe("DPUNodeMaintenance", func() {
 			By("getting the node obj")
 			fetchedNode := &corev1.Node{}
 			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: DefaultNode}, fetchedNode)).To(Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: nodeName}, fetchedNode)).To(Succeed())
 				g.Expect(fetchedNode.Spec.Taints).To(ContainElement(corev1.Taint{
 					Key:    "test-taint",
 					Value:  "test-value",
@@ -292,7 +297,7 @@ data:
 					Namespace: testNS.Name,
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
-					DPUNodeName: DefaultNode,
+					DPUNodeName: nodeName,
 					NodeEffect: &provisioningv1.NodeEffect{
 						Action: provisioningv1.Action{
 							CustomAction: ptr.To("dpu-custom-action"),
@@ -322,7 +327,7 @@ data:
 					Namespace: testNS.Name,
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
-					DPUNodeName: DefaultNode,
+					DPUNodeName: nodeName,
 					NodeEffect: &provisioningv1.NodeEffect{
 						Action: provisioningv1.Action{
 							Hold: ptr.To(true),
