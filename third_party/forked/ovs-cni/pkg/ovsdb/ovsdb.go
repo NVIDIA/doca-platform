@@ -72,10 +72,10 @@ const (
 	MirrorConsumer
 )
 
-func hash(s string) uint8 {
+func hash(s string) uint16 {
 	h := fnv.New32a()
 	h.Write([]byte(s))
-	return uint8(h.Sum32())
+	return uint16(h.Sum32())
 }
 
 // ConnectToOvsDb connect to ovsdb
@@ -1081,6 +1081,15 @@ func createInterfaceOperation(intfName string, ofportRequest uint, ovnPortName s
 	if ofportRequest != 0 {
 		intf["ofport_request"] = ofportRequest
 	} else {
+		// Some interfaces are added in the br-sfc without ofport_request. In particular, this is the case for p0 and p1.
+		// When ofport_request is specified, then this interface might temporarily evict another interface that has this
+		// ofport, if the latter doesn't specify ofport_request. In particular, this is the case for p0 and p1. Evicting
+		// those interface leads to downtime in traffic. The hash function returns uint16 to decrease the chance of
+		// hitting that issue, but it's not guaranteed that we won't hit that issue.
+		// TODO: Consider adding ofport_request when adding DPUServiceInterface of type physical to ensure those ports
+		// are not evicted. This may lead to issues with collisions and errors when trying to bring up HBN, but it's not
+		// worse than what we have today, as it's going to be visible why this issue occurs. Additional logic in the hash
+		// function can be added to ensure no collisions.
 		intf["ofport_request"] = hash(intfName)
 	}
 
