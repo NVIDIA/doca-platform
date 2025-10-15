@@ -699,6 +699,26 @@ webhooks:
     service:
       name: dpf-provisioning-webhook-service
       namespace: dpf-provisioning
+      path: /validate-provisioning-dpu-nvidia-com-v1alpha1-dpudevice
+  failurePolicy: Fail
+  name: vdpudevice.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - dpudevices
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: dpf-provisioning-webhook-service
+      namespace: dpf-provisioning
       path: /validate-provisioning-dpu-nvidia-com-v1alpha1-dpuflavor
   failurePolicy: Fail
   name: vdpuflavor.kb.io
@@ -713,6 +733,26 @@ webhooks:
     - DELETE
     resources:
     - dpuflavors
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: dpf-provisioning-webhook-service
+      namespace: dpf-provisioning
+      path: /validate-provisioning-dpu-nvidia-com-v1alpha1-dpunode
+  failurePolicy: Fail
+  name: vdpunode.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - dpunodes
   sideEffects: None
 - admissionReviewVersions:
   - v1

@@ -198,6 +198,12 @@ var _ = BeforeSuite(func() {
 	err = (&provisioningwebhooks.DPUFlavor{}).SetupWebhookWithManager(k8sManager)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = (&provisioningwebhooks.DPUDevice{Client: k8sManager.GetClient()}).SetupWebhookWithManager(k8sManager)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = (&provisioningwebhooks.DPUNode{Client: k8sManager.GetClient()}).SetupWebhookWithManager(k8sManager)
+	Expect(err).NotTo(HaveOccurred())
+
 	dpuclusterReconciler := &dpucluster.DPUClusterReconciler{
 		Client:    k8sManager.GetClient(),
 		Scheme:    k8sManager.GetScheme(),

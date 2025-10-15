@@ -34,12 +34,12 @@ import (
 
 var _ = Describe("Redfish Mock Server Tests", func() {
 	const (
-		RedfishTestNS           = "dpf-redfish-test"
-		RedfishTestBMCPassword  = "TestPassword123"
-		RedfishTestBMCVersion   = "BF-24.10"
-		RedfishTestSerialNumber = "MT25066004C7"
-		timeout                 = time.Second * 30
-		interval                = time.Millisecond * 250
+		RedfishTestNS                 = "dpf-redfish-test"
+		RedfishTestBMCPassword        = "TestPassword123"
+		RedfishTestBMCVersion         = "BF-24.10"
+		RedfishTestSerialNumberPrefix = "MT25066004C"
+		timeout                       = time.Second * 30
+		interval                      = time.Millisecond * 250
 	)
 
 	var (

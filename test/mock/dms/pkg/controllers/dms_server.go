@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -109,6 +110,10 @@ func (r *DMSServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 func (r *DMSServerReconciler) createDPUDeviceForDPUNode(ctx context.Context, dpuNode *provisioningv1.DPUNode) error {
+	// Generate a unique serial number for each DPU device based on the node name
+	// This prevents the webhook validation error for duplicate serial numbers
+	serialNumber := fmt.Sprintf("MT%08d", sha256.Sum256([]byte(dpuNode.Name)))
+
 	dpuDevice := &provisioningv1.DPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-device", dpuNode.Name),
@@ -119,7 +124,7 @@ func (r *DMSServerReconciler) createDPUDeviceForDPUNode(ctx context.Context, dpu
 			},
 		},
 		Spec: provisioningv1.DPUDeviceSpec{
-			SerialNumber: "MT25066004C7",
+			SerialNumber: serialNumber,
 			PSID:         nil,
 			OPN:          nil,
 			BMCIP:        nil,
