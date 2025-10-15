@@ -219,6 +219,29 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 			},
 		},
 		{
+			name: "ConfigurePFNetplan",
+			f: func(nr NetworkRequest) error {
+				// Only configure netplan on Ubuntu systems
+				if nr.OSType != "ubuntu" {
+					klog.Infof("Skipping netplan configuration for OS type: %s (only supported on Ubuntu)", nr.OSType)
+					return nil
+				}
+				return hostutil.ConfigurePFNetplan(nr.PCIAddress, nr.PortConfigs)
+			},
+		},
+		{
+			// Always set control plane MTU after netplan apply.
+			// Otherwise, it may lead to an edge case where the MTU is overridden by netplan files created by users.
+			// For example, a user may have a netplan file setting MTU of br-dpu to 1500 -
+			// network:
+			//   version: 2
+			//   bridges:
+			//     br-dpu:
+			//       dhcp4: true
+			//       mtu: 1500
+			//       interfaces:
+			//       - ens9f0
+			// This will override the MTU set by the hostagent.
 			name: "SetControlPlaneMTU",
 			f: func(nr NetworkRequest) error {
 				nics := []string{BridgeName}
@@ -242,17 +265,6 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 					}
 				}
 				return nil
-			},
-		},
-		{
-			name: "ConfigurePFNetplan",
-			f: func(nr NetworkRequest) error {
-				// Only configure netplan on Ubuntu systems
-				if nr.OSType != "ubuntu" {
-					klog.Infof("Skipping netplan configuration for OS type: %s (only supported on Ubuntu)", nr.OSType)
-					return nil
-				}
-				return hostutil.ConfigurePFNetplan(nr.PCIAddress, nr.PortConfigs)
 			},
 		},
 	}
