@@ -113,7 +113,12 @@ func NodeEffect(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		}
 		// If DPU is not in Requestor, add it
 		if !isDPUInRequestor(dpunodemaintenance, dpu.Name) {
-			if err := addRequestorAndUpdateForce(ctx, ctrlCtx.Client, dpunodemaintenance, dpu.Name, *dpu.Spec.NodeEffect.Force); err != nil {
+			var additionalRequestors []string
+			if dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors != nil {
+				additionalRequestors = dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors
+			}
+
+			if err := addRequestorAndUpdateForce(ctx, ctrlCtx.Client, dpunodemaintenance, dpu.Name, additionalRequestors, *dpu.Spec.NodeEffect.Force); err != nil {
 				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectReady.String(), err, "FailedAddRequestor", err.Error()))
 				return *state, err
 			}
@@ -165,13 +170,14 @@ func createDPUNodeMaintenance(ctx context.Context, k8sClient client.Client, name
 	if err != nil {
 		return fmt.Errorf("failed to marshal node maintenance additional requestors: %w", err)
 	}
+	lastAppliedAdditionalRequestorsOnDPUKey := cutil.GenerateLastAppliedAdditionalRequestorsOnDPUAnnotationKey(dpu.Name)
 	dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: dpu.Namespace,
 			Annotations: map[string]string{
 				// this annotation is only used to store the service additional requestors
-				cutil.LastAppliedNodeMaintenanceAdditionalRequestorsOnDPUKey: jsonStr,
+				lastAppliedAdditionalRequestorsOnDPUKey: jsonStr,
 			},
 		},
 		Spec: provisioningv1.DPUNodeMaintenanceSpec{
@@ -195,11 +201,11 @@ func createDPUNodeMaintenance(ctx context.Context, k8sClient client.Client, name
 // addRequestorAndUpdateForce adds the requestor to the DPUNodeMaintenance CR.
 // if dpu.Spec.NodeEffect.Force is true, and dpunodemaintenance.Spec.NodeEffect.Force is false, update dpunodemaintenance.Spec.NodeEffect.Force to true. Because true is stronger than false
 // setting force to true is used for critical service update, it means the node effect should be applied immediately.
-func addRequestorAndUpdateForce(ctx context.Context, k8sClient client.Client, dpunodemaintenance *provisioningv1.DPUNodeMaintenance, requestor string, force bool) error {
+func addRequestorAndUpdateForce(ctx context.Context, k8sClient client.Client, dpunodemaintenance *provisioningv1.DPUNodeMaintenance, dpuRequestor string, additionalRequestors []string, force bool) error {
 	originalDPUNodeMaintenance := dpunodemaintenance.DeepCopy()
 	found := false
 	for _, r := range dpunodemaintenance.Spec.Requestor {
-		if r == requestor {
+		if r == dpuRequestor {
 			found = true
 			break
 		}
@@ -208,7 +214,15 @@ func addRequestorAndUpdateForce(ctx context.Context, k8sClient client.Client, dp
 		if force && dpunodemaintenance.Spec.NodeEffect.Force != nil && !*dpunodemaintenance.Spec.NodeEffect.Force {
 			dpunodemaintenance.Spec.NodeEffect.Force = &force
 		}
-		dpunodemaintenance.Spec.Requestor = append(dpunodemaintenance.Spec.Requestor, requestor)
+		dpunodemaintenance.Spec.Requestor = append(dpunodemaintenance.Spec.Requestor, dpuRequestor)
+		dpunodemaintenance.Spec.Requestor = append(dpunodemaintenance.Spec.Requestor, additionalRequestors...)
+		dpunodemaintenance.Spec.Requestor = cutil.RemoveDuplicates(dpunodemaintenance.Spec.Requestor)
+		jsonStr, err := cutil.MarshalJSON(additionalRequestors)
+		if err != nil {
+			return fmt.Errorf("failed to marshal node maintenance additional requestors: %w", err)
+		}
+		lastAppliedRequestorsOnDPUKey := cutil.GenerateLastAppliedAdditionalRequestorsOnDPUAnnotationKey(dpuRequestor)
+		dpunodemaintenance.Annotations[lastAppliedRequestorsOnDPUKey] = jsonStr
 		patch := client.MergeFrom(originalDPUNodeMaintenance)
 		if err := k8sClient.Patch(ctx, dpunodemaintenance, patch); err != nil {
 			return fmt.Errorf("failed to patch dpunodemaintenance %s, err: %v", originalDPUNodeMaintenance.Name, err)

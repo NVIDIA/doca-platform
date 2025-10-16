@@ -111,8 +111,8 @@ const (
 	// LastAppliedLabelsOnDPUKey is the key for the last applied labels.
 	LastAppliedLabelsOnDPUKey = DPUProvisioningLabelPrefix + "last-applied-labels-on-dpu"
 
-	// LastAppliedNodeMaintenanceAdditionalRequestorsOnDPUKey is the key for the last applied node maintenance additional requestors.
-	LastAppliedNodeMaintenanceAdditionalRequestorsOnDPUKey = DPUProvisioningLabelPrefix + "last-applied-node-maintenance-additional-requestors-on-dpu"
+	// LastAppliedRequestorsOnDPUPrefix is the prefix of the key for the last applied node maintenance additional requestors per DPU.
+	LastAppliedAdditionalRequestorsOnDPUPrefix = DPUProvisioningLabelPrefix + "last-applied-additional-requestors-on-"
 
 	HoldNodeEffectKey             = DPUProvisioningLabelPrefix + "wait-for-external-nodeeffect"
 	TrustedSFCount                = DPUProvisioningLabelPrefix + "num-of-trusted-sfs"
@@ -735,4 +735,24 @@ func BuildContextWithTargetPCIAddress(ctx context.Context, pciAddressFromDPUObje
 		PCIAddressTargetKey, strings.ReplaceAll(pciAddressFromDPUObject, "-", ":"),
 	)
 	return metadata.NewOutgoingContext(ctx, md)
+}
+
+func GenerateLastAppliedAdditionalRequestorsOnDPUAnnotationKey(dpuName string) string {
+	dpuNamehash := sha256.Sum256([]byte(dpuName))
+	return fmt.Sprintf("%s%s", LastAppliedAdditionalRequestorsOnDPUPrefix, fmt.Sprintf("%x", dpuNamehash[:8]))
+}
+
+// RemoveDuplicates removes duplicates from an array.
+func RemoveDuplicates(arr []string) []string {
+	seen := make(map[string]struct{})
+	result := make([]string, len(arr))
+
+	for _, item := range arr {
+		if _, exists := seen[item]; !exists {
+			seen[item] = struct{}{}
+			result = append(result, item)
+		}
+	}
+
+	return result
 }
