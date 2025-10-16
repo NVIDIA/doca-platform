@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -144,9 +145,12 @@ func (r *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 		}
 	case reboot.WarmReboot:
 		logger.Info(fmt.Sprintf("DPU %s Bluefield System-Level-Reset", dpu.Name))
-		if err := r.slr(ctx, dpu); err != nil {
+		inProgress, err := r.slr(ctx, dpu)
+		if err != nil {
 			hostutil.NewCondition(condition).Failure(err, "FailedToSLR").Set(&dpu.Status.Conditions)
 			return dpu.Status, ctrl.Result{}, err
+		} else if inProgress {
+			return dpu.Status, ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 	default:
 		err := fmt.Errorf("invalid reboot type: %s", rebootType)
@@ -211,28 +215,49 @@ func (r *Handler) canReboot(ctx context.Context, dpu *provisioningv1.DPU) (bool,
 	return true, nil
 }
 
-func (r *Handler) slr(ctx context.Context, dpu *provisioningv1.DPU) error {
+func (r *Handler) slr(ctx context.Context, dpu *provisioningv1.DPU) (inProgress bool, err error) {
 	log := log.FromContext(ctx)
 	dev, ok := r.getDeviceBySerialNumber(dpu.Spec.SerialNumber)
 	if !ok {
-		return fmt.Errorf("failed to get device by serial number: %s", dpu.Spec.SerialNumber)
+		return false, fmt.Errorf("failed to get device by serial number: %s", dpu.Spec.SerialNumber)
 	}
-	pciAddr := filepath.Base(hostutil.NewPCIHelper(dev.Address).PF(0).Path())
-
-	log.Info("Attempting to stop ARM", "PCI address", pciAddr)
-	cmd := fmt.Sprintf("mlxfwreset -d %s -l 1 -t 4 reset -y --sync 0", pciAddr)
-	_, stderr, err := hostutil.RunBash(cmd)
+	// find DPU rshim
+	rshim, err := RshimNameByPCI(dev.Address)
 	if err != nil {
-		return fmt.Errorf("failed to stop ARM. cmd: %s, stderr: %s", cmd, stderr.String())
+		return false, fmt.Errorf("failed to find DPU rshim for PCI address: %s. err: %v", dev.Address, err)
+	}
+	log.Info("Found DPU rshim", "Rshim", rshim, "PCI address", dev.Address)
+
+	pciAddr := filepath.Base(hostutil.NewPCIHelper(dev.Address).PF(0).Path())
+	off, lastLine, err := IsDPUOff(rshim)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if DPU is off. err: %v", err)
+	} else if !off {
+		log.Info("DPU is not off, attempt to stop ARM", "Last line", lastLine, "PCI address", pciAddr)
+		// the mlxfwreset command returns error if the ARM is already being stopped, so ideally we should not run it again.
+		// However, it's not a trivial task to determine if the ARM is already being stopped.
+		// To make things simpler, we simply run the cmd and return the error until we get "System Off" from rshim/misc.
+		// The downside is that an error message will appear in the DPU.status.condition.
+		// TODO: run SLR only once for each DPU and sync all SLRs
+		cmd := fmt.Sprintf("mlxfwreset -d %s -l 1 -t 4 reset -y --sync 0", pciAddr)
+		stdout, stderr, err := hostutil.RunBash(cmd)
+		if err != nil {
+			// the exit code of mlxfwreset can be confusing. Sometimes, it is 1 even if the ARM is successfully stopped.
+			// So we will continue to reboot the host when we see "System Off" from rshim/misc.
+			// NOTE: mlxfwreset outputs error messages to stdout rather than stderr.
+			return false, fmt.Errorf("failed to stop ARM. This error can be ignored as long as the host is automatically rebooted later. cmd: %s, stderr: %s, stdout: %s", cmd, stderr.String(), stdout.String())
+		}
+		return true, nil
 	}
 
 	log.Info("Attempting to reboot host", "PCI address", pciAddr)
-	cmd = fmt.Sprintf("mlxfwreset -d %s -l 4 r -y", pciAddr)
-	_, stderr, err = hostutil.RunBash(cmd)
+	cmd := fmt.Sprintf("mlxfwreset -d %s -l 4 r -y", pciAddr)
+	stdout, stderr, err := hostutil.RunBash(cmd)
 	if err != nil {
-		return fmt.Errorf("failed to reboot host. cmd: %s, stderr: %s", cmd, stderr.String())
+		// mlxfwreset outputs error messages to stdout
+		return false, fmt.Errorf("failed to reboot host. This error can be ignored as long as the host is automatically rebooted later. cmd: %s, stderr: %s, stdout: %s", cmd, stderr.String(), stdout.String())
 	}
-	return nil
+	return false, nil
 }
 
 func rebootRequestFileName(dpu *provisioningv1.DPU) string {
@@ -282,4 +307,31 @@ func isBeingProvisioned(phase provisioningv1.DPUPhase) bool {
 	default:
 		return false
 	}
+}
+
+// RshimNameByPCI finds the rshim appropriate to the given PCI address.
+// Iterate over all the rshim devices and searches for the one that contains the given target PCI.
+func RshimNameByPCI(PCIAddress string) (string, error) {
+	cmd := "ls /dev | egrep 'rshim.*[0-9]+' | while read line ; do echo $(" +
+		"echo 'DISPLAY_LEVEL 1' > /dev/$line/misc && " +
+		"cat /dev/$line/misc | grep " + PCIAddress + " | xargs -r echo $line | awk 'END {print $1}') ; done | tr -d '[:space:]'"
+	out, stderr, err := hostutil.RunBash(cmd)
+	if err != nil || len(stderr.String()) > 0 || len(out.String()) == 0 {
+		return "", fmt.Errorf("can't find rshim address on device: %v, stderr: %v, error: %v", PCIAddress, stderr, err)
+	}
+	return out.String(), nil
+}
+
+func IsDPUOff(rshim string) (bool, string, error) {
+	cmd := fmt.Sprintf("echo 'DISPLAY_LEVEL 2' > /dev/%s/misc && cat /dev/%s/misc", rshim, rshim)
+	stdout, stderr, err := hostutil.RunBash(cmd)
+	if err != nil {
+		return false, "", fmt.Errorf("failed to run command: %v, stderr: %v, error: %v", cmd, stderr, err)
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) == 0 {
+		return false, "", nil
+	}
+	lastLine := lines[len(lines)-1]
+	return strings.Contains(lastLine, "System Off"), lastLine, nil
 }
