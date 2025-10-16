@@ -538,12 +538,13 @@ var _ = Describe("DPU", func() {
 				By("creating a DPUNodeMaintenance")
 				dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
 				Expect(err).ToNot(HaveOccurred())
+				lastAppliedAdditionalRequestorsOnDPUKey := cutil.GenerateLastAppliedAdditionalRequestorsOnDPUAnnotationKey(dpu.Name)
 				dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      dpunodemaintenanceName,
 						Namespace: testNS.Name,
 						Annotations: map[string]string{
-							cutil.LastAppliedNodeMaintenanceAdditionalRequestorsOnDPUKey: "[]",
+							lastAppliedAdditionalRequestorsOnDPUKey: "[]",
 						},
 					},
 					Spec: provisioningv1.DPUNodeMaintenanceSpec{

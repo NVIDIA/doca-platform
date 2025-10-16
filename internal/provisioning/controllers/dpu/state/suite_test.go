@@ -151,9 +151,9 @@ func createObject(obj client.Object) {
 func dpuObj(name string) *provisioningv1.DPU {
 	dpu := &provisioningv1.DPU{
 		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: name,
-			Namespace:    testNS.Name,
-			Labels:       make(map[string]string),
+			Name:      name,
+			Namespace: testNS.Name,
+			Labels:    make(map[string]string),
 		},
 		Spec: provisioningv1.DPUSpec{
 			SerialNumber: "MT25066004C" + utilrand.String(5),
