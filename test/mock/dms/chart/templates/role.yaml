@@ -18,7 +18,6 @@ rules:
   resources:
   - nodes
   - pods
-  - pods/exec
   - secrets
   verbs:
   - create
