@@ -255,7 +255,7 @@ var _ = AfterSuite(func() {
 	DeleteDPFOperatorConfig(ctx, testClient)
 })
 
-var _ = ReportAfterEach(func(spec SpecReport) {
+func reportAfterEach(spec SpecReport) {
 	// Check if the test failed
 	if spec.Failed() {
 		// Collect and print logs (you can also write to a file or another sink)
@@ -281,6 +281,10 @@ var _ = ReportAfterEach(func(spec SpecReport) {
 		By("cleaning up objects created during the test")
 		Expect(utils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(afterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
 	}
+}
+
+var _ = ReportAfterEach(func(spec SpecReport) {
+	reportAfterEach(spec)
 })
 
 var _ = ReportAfterSuite("My Suite", func(report Report) {

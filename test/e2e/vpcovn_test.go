@@ -191,8 +191,8 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 
 		AfterAll(func() {
 			if contextHasFailed {
-				By("VPC OVN: Skip cleanup for this context because a spec failed")
-				return
+				By("VPC OVN: Report failure for this spec")
+				reportAfterEach(CurrentSpecReport())
 			}
 			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
 			cleanupDPUClusterNodeLabels(ctx)
@@ -405,8 +405,8 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 
 		AfterAll(func() {
 			if contextHasFailed {
-				By("VPC OVN: Skip cleanup for this context because a spec failed")
-				return
+				By("VPC OVN: Report failure for this spec")
+				reportAfterEach(CurrentSpecReport())
 			}
 			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
 			cleanupDPUClusterNodeLabels(ctx)
@@ -627,8 +627,8 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 
 		AfterAll(func() {
 			if contextHasFailed {
-				By("VPC OVN: Skip cleanup for this context because a spec failed")
-				return
+				By("VPC OVN: Report failure for this spec")
+				reportAfterEach(CurrentSpecReport())
 			}
 			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
 			cleanupDPUClusterNodeLabels(ctx)
@@ -857,8 +857,8 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 
 		AfterAll(func() {
 			if contextHasFailed {
-				By("VPC OVN: Skip cleanup for this context because a spec failed")
-				return
+				By("VPC OVN: Report failure for this spec")
+				reportAfterEach(CurrentSpecReport())
 			}
 			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
 			cleanupDPUClusterNodeLabels(ctx)
