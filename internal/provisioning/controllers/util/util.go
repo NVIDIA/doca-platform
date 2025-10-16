@@ -17,8 +17,6 @@ limitations under the License.
 package util
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -40,9 +38,6 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
-	restclient "k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/remotecommand"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -182,49 +177,6 @@ func GenerateDMSServerSecretName(dpuName string) string {
 
 func GenerateNodeName(dpu *provisioningv1.DPU) string {
 	return dpu.Name
-}
-
-func RemoteExec(ns, name, container, cmd string) (string, string, error) {
-	config, err := restclient.InClusterConfig()
-	if err != nil {
-		return "", "", nil
-	}
-
-	// Create a Kubernetes client
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	req := clientset.CoreV1().RESTClient().
-		Post().
-		Resource("pods").
-		Name(name).
-		Namespace(ns).
-		SubResource("exec").
-		VersionedParams(&corev1.PodExecOptions{
-			Container: container,
-			Command:   strings.Fields(cmd),
-			Stdin:     false,
-			Stdout:    true,
-			Stderr:    true,
-			TTY:       false,
-		}, scheme.ParameterCodec)
-
-	executor, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
-	if err != nil {
-		return "", "", err
-	}
-
-	outBuf := new(bytes.Buffer)
-	errBuf := new(bytes.Buffer)
-	cmdErr := executor.StreamWithContext(context.Background(), remotecommand.StreamOptions{
-		Stdin:  nil,
-		Stdout: bufio.NewWriter(outBuf),
-		Stderr: bufio.NewWriter(errBuf),
-		Tty:    false,
-	})
-	return outBuf.String(), errBuf.String(), cmdErr
 }
 
 func GetPCIAddrFromDPU(dpu *provisioningv1.DPU, removePrefix bool) (string, error) {
