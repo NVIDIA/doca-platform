@@ -221,8 +221,8 @@ func addRequestorAndUpdateForce(ctx context.Context, k8sClient client.Client, dp
 		if err != nil {
 			return fmt.Errorf("failed to marshal node maintenance additional requestors: %w", err)
 		}
-		lastAppliedRequestorsOnDPUKey := cutil.GenerateLastAppliedAdditionalRequestorsOnDPUAnnotationKey(dpuRequestor)
-		dpunodemaintenance.Annotations[lastAppliedRequestorsOnDPUKey] = jsonStr
+		lastAppliedAdditionalRequestorsOnDPUKey := cutil.GenerateLastAppliedAdditionalRequestorsOnDPUAnnotationKey(dpuRequestor)
+		dpunodemaintenance.Annotations[lastAppliedAdditionalRequestorsOnDPUKey] = jsonStr
 		patch := client.MergeFrom(originalDPUNodeMaintenance)
 		if err := k8sClient.Patch(ctx, dpunodemaintenance, patch); err != nil {
 			return fmt.Errorf("failed to patch dpunodemaintenance %s, err: %v", originalDPUNodeMaintenance.Name, err)
