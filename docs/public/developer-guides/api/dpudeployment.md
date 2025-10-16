@@ -24,7 +24,8 @@ graph TD
 Throughout this document, there are examples for the required Custom Resources that
 end up building a valid `DPUDeployment` Custom Resource. These examples contain comments
 related to fields that are set for more context. The theoretical example is about
-2 services, one of them producing work and the other one executing work (producer-consumer problem).
+3 services, one of them producing work, another one executing work (producer-consumer
+problem) and the last one observing the state.
 
 ## Capabilities
 
@@ -51,8 +52,10 @@ and available, there will be a couple of objects that are going to be created au
   the [DPUServiceConfiguration](#dpuserviceconfiguration).
 * `DPUServiceChain`: Used to define a Service Chain on the DPU that references the
   interfaces created above. A `DPUDeployment` creates a single `DPUServiceChain`.
-* `DPUService`: Deploys a service as Pod in each DPU. A `DPUDeployment` may create
-  multiple such objects, depending on what is specified in its `spec`.
+* `DPUService`: Deploys a service as Pod in each DPU or in the nodes part of the Host cluster.
+  Standard `DPUServices` are deployed on the DPUs, while in-cluster `DPUServices` are deployed
+  on the Host cluster nodes. A `DPUDeployment` may create multiple such objects, depending on
+  what is specified in its `spec`.
 
 ## Prerequisite Custom Resources With Examples
 
@@ -75,7 +78,7 @@ settings in `DPUServiceConfiguration` take precedence.
 
 A user must create as many `DPUServiceTemplate` Custom Resources as the number of
 services they aim to deploy using a `DPUDeployment`. In this example, we will need
-to create 2 of those since we have 2 `DPUServices`.
+to create 3 of those since we have 3 `DPUServices`.
 
 ```yaml
 ---
@@ -146,6 +149,28 @@ spec:
     cpu: 2
     memory: 4Gi
     nvidia.com/sf: 1
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: observer
+  namespace: customer-namespace
+spec:
+  deploymentServiceName: "observer"
+  helmChart:
+    source:
+      repoURL: https://example.com/charts
+      path: observer
+      version: v0.0.1
+    values:
+      observer:
+        resources:
+          requests:
+            cpu: 0.5
+            memory: 0.5Gi
+          limits:
+            cpu: 0.5
+            memory: 1Gi
 ```
 
 ### DPUServiceConfiguration
@@ -160,7 +185,7 @@ in `DPUServiceConfiguration` take precedence.
 
 A user must create as many `DPUServiceConfiguration` Custom Resources as the number
 of services they aim to deploy using a `DPUDeployment`. In this example, we will
-need to create 2 of those since we have 2 `DPUServices`.
+need to create 3 of those since we have 3 `DPUServices`.
 
 ```yaml
 ---
@@ -206,6 +231,21 @@ spec:
   interfaces:
   - name: app-iface
     network: mynad
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: observer
+  namespace: customer-namespace
+spec:
+  deploymentServiceName: "observer"
+  serviceConfiguration:
+    deployInCluster: true # Indicates that the service should be deployed on the host cluster instead of the DPUCluster
+    serviceDaemonSet:
+      labels:
+        sre.nvidia.com/service-tier: "t2"
+      annotations:
+        sre.nvidia.com/page: "false"
 ```
 
 `spec.deploymentServiceName` must match the key in the `spec.services` field of
@@ -213,6 +253,10 @@ the `DPUDeployment`.
 
 `spec.Interfaces` is a list of interfaces that the `DPUService` should have. They
 can be referenced in the `spec.serviceChains` of the `DPUDeployment`.
+
+`spec.serviceConfiguration.deployInCluster` is a boolean that indicates whether the
+service should be deployed in the Host cluster (where the DPF operator is running)
+rather than on the DPUs. When set to `true`, the service is deployed in the Host cluster.
 
 `spec.upgradePolicy.applyNodeEffect` is a boolean that indicates whether the service
 update should be disruptive or not. The default is `true`, which means that a new
@@ -280,7 +324,7 @@ spec:
 
 The following `DPUDeployment` example is based on the Custom Resources found above.
 It describes a `DPUDeployment` which targets 2 sets of DPUs, provisioned with a specific
-`DPUFlavor` and `BFB`, and all of them running 2 `DPUServices`.
+`DPUFlavor` and `BFB`, and all of them running 3 `DPUServices`.
 
 ```yaml
 apiVersion: svc.dpu.nvidia.com/v1alpha1
@@ -310,8 +354,10 @@ spec:
           datacenter.nvidia.com/rack: "b-101"
       dpuSelector:
         pciAddr: "0000:1a:00.0"
-  # services reflects the `DPUServices` that should be deployed on those DPUs. The key of this map is the service name
-  # and the value is referencing the respective `DPUServiceTemplate` and `DPUServiceConfiguration` for that each service.
+  # services reflects the `DPUServices` that should be deployed on those DPUs. For in-cluster `DPUServices` like the
+  # observer, the pods will be deployed on the host cluster and target the nodes that the DPUSet nodeSelectors target.
+  # The key of this map is the service name and the value is referencing the respective `DPUServiceTemplate` and
+  # `DPUServiceConfiguration` for each service.
   services:
     producer:
       serviceTemplate: "producer"
@@ -319,6 +365,9 @@ spec:
     consumer:
       serviceTemplate: "consumer"
       serviceConfiguration: "consumer"
+    observer:
+      serviceTemplate: "observer"
+      serviceConfiguration: "observer"
   # serviceChains defines the `DPUServiceChain` that should be created as part of this `DPUDeployment`.
   serviceChains:
   - ports:
@@ -361,6 +410,7 @@ producer-consumer-vpn7w   True    Success   36m
 $ kubectl get dpuservice -n customer-namespace
 NAME            READY   PHASE     AGE
 consumer-fjfh8  True    Success   36m
+observer-xk9p2  True    Success   36m
 producer-ln2kk  True    Success   36m
 ```
 
@@ -439,6 +489,9 @@ spec:
     consumer:
       serviceTemplate: "consumer"
       serviceConfiguration: "consumer"
+    observer:
+      serviceTemplate: "observer"
+      serviceConfiguration: "observer"
 ```
 
 The following fields are available in the `spec.services`:
@@ -461,7 +514,7 @@ The `spec.services.dependsOn` field is used to specify the dependencies between 
 of the `DPUServices`. The `LocalObjectDependency` object contains the following fields:
 
 * `name`: The name of the dependency. This field is required and must match the
-  name of the `DPUService` that is being depended on, i.e. it must exist in `spec.services`. 
+  name of the `DPUService` that is being depended on, i.e. it must exist in `spec.services`.
 
 ```yaml
 spec:
@@ -474,10 +527,17 @@ spec:
       serviceConfiguration: "consumer"
       dependsOn:
       - name: producer
+    observer:
+      serviceTemplate: "observer"
+      serviceConfiguration: "observer"
+      dependsOn:
+      - name: producer
+      - name: consumer
 ```
 
-In the above example, the `consumer` service depends on the `producer` service.
-The `consumer` service will not be deployed until the `producer` service is ready.
+In the above example, the `consumer` service depends on the `producer` service,
+and the `observer` service depends on both `producer` and `consumer` services.
+The services will not be deployed until their dependencies are deployed.
 
 #### Templating
 
@@ -503,7 +563,7 @@ spec:
 
 When accessing values in the template, you can use the `{{ .Services.ServiceName.Field }}` syntax,
 where `ServiceName` is the name of the service as defined in `spec.services` and
-`Field` is a field of the `DPUService` object. 
+`Field` is a field of the `DPUService` object.
 
 It is not possible to access a field with a dash in its name, e.g. `{{ .Services.ServiceName.Field-With-Dash }}`
 the same way.
@@ -702,10 +762,15 @@ producer-app-iface2-748qf   True    Success   service   app-iface   5m
 #### Disruptive DPUService Update
 
 Updating "disruptive DPUServices" involves creating a new instance for every new
-version. In addition, `DPUServiceInterfaces` are created for the new `DPUService`
-instances. Up to `revisionHistoryLimit` instances can exist at a given time, e.g.
-when changes are made to the `DPUServiceConfiguration` or `DPUServiceTemplate`
-while no instance has reached a `ready` state yet.
+version. Both standard `DPUServices` (deployed on DPUs) and in-cluster `DPUServices`
+(deployed on Host cluster nodes) are supported. For in-cluster services, the
+`DPUDeployment` controller manages the lifecycle of labels on the Host cluster nodes
+to enable proper scheduling and targeting.
+
+In addition, `DPUServiceInterfaces` are created for the new `DPUService` instances.
+Up to `revisionHistoryLimit` instances can exist at a given time, e.g. when changes
+are made to the `DPUServiceConfiguration` or `DPUServiceTemplate` while no instance
+has reached a `ready` state yet.
 
 **1.** Retrieve the reference `DPUServiceConfiguration` or `DPUServiceTemplate`:
 
@@ -908,6 +973,8 @@ a mismatched combination is configured:
 
 ### Debugging DPUDeployments
 
+#### General guideline
+
 There are several ways to debug `DPUDeployments` in DPF. The recommended way is to
 use the [dpfctl](../../troubleshooting/dpfctl.md) command line tool to describe the `DPUDeployment` and
 its underlying objects. The `dpfctl` tool provides a detailed description of the
@@ -933,3 +1000,31 @@ DPFOperatorConfig/dpfoperatorconfig    dpf-operator-system  Ready: True  Success
       └─DPUServices
         └─4 DPUServices...             dpf-operator-system  Ready: True  Success   3d7h   See ovn-central-9558p, ovn-controller-v5bkr, vpc-ovn-controller-7sbp6, vpc-ovn-node-r84zn
 ```
+
+#### Debugging disruptive upgrades
+
+##### DPUDeployment is not ready because DPUs are stuck in Node Effect Removal
+
+When DPUs are stuck in the Node Effect Removal phase, it indicates that
+the system is waiting for certain prerequisites to be met before
+proceeding with the upgrade. This typically means:
+
+* **DPUService Pods in the DPUCluster are not ready yet**: Verify that
+  the Pod deployed by the DPUService in the DPUCluster for the DPU that
+  is stuck is scheduled and running.
+* **ServiceChain object in the DPUCluster is not ready yet**: Verify
+  that the ServiceChain object deployed by the DPUServiceChain in the
+  DPUCluster for the DPU that is stuck is ready.
+
+##### in-cluster DPUService does not create pod on relevant node
+
+When an in-cluster DPUService fails to create a pod on the expected host
+node, the most common cause is a node labeling mismatch:
+
+* **Verify node labels**: The node should have labels that match the
+  `spec.serviceDaemonSet.nodeSelector` specified in the generated DPUService
+  object.
+* **Check DPUService controller logs**: If the aforementioned node labels are
+  not present on the nodes, check the logs of the
+  `dpuservice-controller-manager` pod for detailed error messages and
+  insights into why those labels are not applied.
