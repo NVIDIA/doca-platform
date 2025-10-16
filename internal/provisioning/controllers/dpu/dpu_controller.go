@@ -346,9 +346,12 @@ func (r *DPUReconciler) UpdateDPUNodeMaintenanceRequestors(ctx context.Context, 
 			return nil
 		}
 
-		lastAppliedRequestorsStr, ok := dpunodemaintenance.Annotations[cutil.LastAppliedNodeMaintenanceAdditionalRequestorsOnDPUKey]
+		lastAppliedAdditionalRequestorsOnDPUKey := cutil.GenerateLastAppliedAdditionalRequestorsOnDPUAnnotationKey(dpu.Name)
+
+		lastAppliedRequestorsStr, ok := dpunodemaintenance.Annotations[lastAppliedAdditionalRequestorsOnDPUKey]
 		if !ok {
-			return fmt.Errorf("last applied node maintenance additional requestors on DPU not found")
+			// wait for node effect action to be completed
+			return nil
 		}
 		// the lastAppliedRequestors is the service additional requestors
 		var lastAppliedRequestors []string
@@ -373,7 +376,7 @@ func (r *DPUReconciler) UpdateDPUNodeMaintenanceRequestors(ctx context.Context, 
 		if err != nil {
 			return fmt.Errorf("failed to marshal expected requestors: %w", err)
 		}
-		dpunodemaintenance.Annotations[cutil.LastAppliedNodeMaintenanceAdditionalRequestorsOnDPUKey] = string(jsonStr)
+		dpunodemaintenance.Annotations[lastAppliedAdditionalRequestorsOnDPUKey] = string(jsonStr)
 
 		// update the Requestor field
 		expectedRequestors = append(expectedRequestors, dpuRequestors...)
@@ -384,8 +387,8 @@ func (r *DPUReconciler) UpdateDPUNodeMaintenanceRequestors(ctx context.Context, 
 	})
 }
 
-// lastAppliedRequestors is only used to store the service additional requestors
-// the requestors in the currentRequestors but not in the lastAppliedRequestors are the DPU requestors
+// lastAppliedRequestors is only used to store the service additional requestors for this DPU
+// the requestors in the currentRequestors but not in the lastAppliedRequestors are the DPU requestors and the service requestors from other DPUs
 func findOutDPURequestors(lastAppliedRequestors []string, currentRequestors []string) []string {
 	var dpuRequestors []string
 	for _, req := range currentRequestors {
