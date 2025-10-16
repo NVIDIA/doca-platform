@@ -111,7 +111,7 @@ const (
 	// LastAppliedLabelsOnDPUKey is the key for the last applied labels.
 	LastAppliedLabelsOnDPUKey = DPUProvisioningLabelPrefix + "last-applied-labels-on-dpu"
 
-	// LastAppliedRequestorsOnDPUPrefix is the prefix of the key for the last applied node maintenance additional requestors per DPU.
+	// LastAppliedAdditionalRequestorsOnDPUPrefix is the prefix of the key for the last applied node maintenance additional requestors per DPU.
 	LastAppliedAdditionalRequestorsOnDPUPrefix = DPUProvisioningLabelPrefix + "last-applied-additional-requestors-on-"
 
 	HoldNodeEffectKey             = DPUProvisioningLabelPrefix + "wait-for-external-nodeeffect"
@@ -745,7 +745,7 @@ func GenerateLastAppliedAdditionalRequestorsOnDPUAnnotationKey(dpuName string) s
 // RemoveDuplicates removes duplicates from an array.
 func RemoveDuplicates(arr []string) []string {
 	seen := make(map[string]struct{})
-	result := make([]string, len(arr))
+	result := make([]string, 0, len(arr))
 
 	for _, item := range arr {
 		if _, exists := seen[item]; !exists {
