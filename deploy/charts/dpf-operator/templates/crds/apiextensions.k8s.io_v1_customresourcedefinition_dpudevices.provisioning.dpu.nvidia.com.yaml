@@ -96,6 +96,8 @@ spec:
                   PF0Name is the name of the PF0 on the device.
                   This value is immutable and should not be changed once set.
                   Example: "eth0"
+
+                  Deprecated: This field is deprecated and will be removed in a future version. Use status.pf0Name instead.
                 type: string
                 x-kubernetes-validations:
                 - message: PF0 Name is immutable
@@ -219,6 +221,11 @@ spec:
                   PF0MAC is the MAC address of the PF0 on the device.
                   Example: "00:00:00:00:00:00"
                 pattern: ^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$
+                type: string
+              pf0Name:
+                description: |-
+                  PF0Name is the name of the PF0 on the device.
+                  Example: "eth0"
                 type: string
               psid:
                 description: |-
