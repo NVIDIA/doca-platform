@@ -129,7 +129,6 @@ var _ = Describe("DPUSet", func() {
 			Spec: provisioningv1.DPUDeviceSpec{
 				SerialNumber: DefaultSerialNumberPrefix + utilrand.String(5),
 				NumberOfPFs:  ptr.To(2),
-				PF0Name:      ptr.To("pf0"),
 			},
 		}
 		Expect(k8sClient.Create(ctx, dpuDevice)).NotTo(HaveOccurred())

@@ -125,6 +125,8 @@ type DPUDeviceSpec struct {
 	// PF0Name is the name of the PF0 on the device.
 	// This value is immutable and should not be changed once set.
 	// Example: "eth0"
+	//
+	// Deprecated: This field is deprecated and will be removed in a future version. Use status.pf0Name instead.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="PF0 Name is immutable"
 	// +optional
 	PF0Name *string `json:"pf0Name,omitempty"`
@@ -174,6 +176,11 @@ type DPUDeviceStatus struct {
 	// Example: "0000-03-00", "03-00"
 	// +optional
 	PCIAddress *string `json:"pciAddress,omitempty"`
+
+	// PF0Name is the name of the PF0 on the device.
+	// Example: "eth0"
+	// +optional
+	PF0Name *string `json:"pf0Name,omitempty"`
 
 	// PF0MAC is the MAC address of the PF0 on the device.
 	// Example: "00:00:00:00:00:00"
