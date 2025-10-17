@@ -75,7 +75,7 @@ var _ = Describe("DPUDevice", func() {
 			Expect(objFetched.Spec.OPN).To(BeNil())
 			Expect(objFetched.Spec.NumberOfPFs).NotTo(BeNil())
 			Expect(*objFetched.Spec.NumberOfPFs).To(Equal(1))
-			Expect(objFetched.Spec.PF0Name).To(BeNil())
+			Expect(objFetched.Spec.PF0Name).To(BeNil()) //nolint:staticcheck
 		})
 		It("create from yaml", func() {
 			yml := []byte(`

@@ -72,10 +72,7 @@ func (n *NodeManager) Start() error {
 	n.registerWithAPIServer()
 	go func() {
 		_ = wait.PollUntilContextCancel(context.TODO(), 30*time.Second, true, func(ctx context.Context) (bool, error) {
-			if err := n.updateDPUNodeStatus(); err != nil {
-				klog.Errorf("failed to update DPUNode status: %v", err)
-				return false, nil
-			}
+			n.updateStatus()
 			return false, nil
 		})
 	}()
@@ -124,10 +121,9 @@ func (n *NodeManager) initDPUDevices() ([]*provisioningv1.DPUDevice, error) {
 		return nil, fmt.Errorf("failed to get node name: %w", err)
 	}
 	for _, device := range devices {
-		pn0Name, _ := hostutil.NewPCIHelper(device.Address).PF(0).InterfaceName()
 		dpuDevice := &provisioningv1.DPUDevice{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      strings.ToLower(device.SerialNumber),
+				Name:      dpuDeviceCRName(device),
 				Namespace: DPFNamespace,
 				Labels: map[string]string{
 					cutil.DPUNodeNameLabel: nodeName,
@@ -136,8 +132,6 @@ func (n *NodeManager) initDPUDevices() ([]*provisioningv1.DPUDevice, error) {
 			Spec: provisioningv1.DPUDeviceSpec{
 				SerialNumber: device.SerialNumber,
 				NumberOfPFs:  ptr.To(device.NumOfPFs),
-				// todo: update pf0 name later?
-				PF0Name: ptr.To(pn0Name),
 			},
 		}
 		if err := n.Create(context.TODO(), dpuDevice); err != nil {
@@ -334,6 +328,42 @@ func (n *NodeManager) rebootOccurred() (RebootResult, error) {
 	return rebootNotOccurred, nil
 }
 
+func (n *NodeManager) updateStatus() {
+	if err := n.updateDPUDeviceStatus(); err != nil {
+		klog.Errorf("failed to update DPU device status: %v", err)
+	}
+	if err := n.updateDPUNodeStatus(); err != nil {
+		klog.Errorf("failed to update DPUNode status: %v", err)
+	}
+}
+
+func (n *NodeManager) updateDPUDeviceStatus() error {
+	devices, err := hostutil.DiscoverDPUs()
+	if err != nil {
+		return fmt.Errorf("failed to discover DPUs: %w", err)
+	}
+	for _, device := range devices {
+		dpuDevice := &provisioningv1.DPUDevice{}
+		if err := n.Get(context.TODO(), client.ObjectKey{Namespace: DPFNamespace, Name: dpuDeviceCRName(device)}, dpuDevice); err != nil {
+			if apierrors.IsNotFound(err) {
+				klog.Warningf("DPUDevice CR for DPU %s does not exist", dpuDeviceCRName(device))
+				continue
+			}
+			return fmt.Errorf("failed to get DPU device %s: %w", dpuDeviceCRName(device), err)
+		}
+		pn0Name, err := hostutil.NewPCIHelper(device.Address).PF(0).InterfaceName()
+		if err != nil {
+			klog.Warningf("failed to get PF0 name for DPU %s: %v", dpuDeviceCRName(device), err)
+			continue
+		}
+		dpuDevice.Status.PF0Name = ptr.To(pn0Name)
+		if err := n.Status().Update(context.TODO(), dpuDevice); err != nil {
+			return fmt.Errorf("failed to update DPU device %s: %w", dpuDeviceCRName(device), err)
+		}
+	}
+	return nil
+}
+
 func (n *NodeManager) updateDPUNodeStatus() error {
 	nodeName, _, err := hostutil.GetNodeName()
 	if err != nil {
@@ -411,4 +441,8 @@ func GetLatestRebootID() (string, error) {
 		return "", err
 	}
 	return string(rebootID), nil
+}
+
+func dpuDeviceCRName(dpuDevice hostutil.Device) string {
+	return strings.ToLower(dpuDevice.SerialNumber)
 }

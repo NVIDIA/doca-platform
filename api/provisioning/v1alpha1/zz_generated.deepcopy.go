@@ -556,6 +556,11 @@ func (in *DPUDeviceStatus) DeepCopyInto(out *DPUDeviceStatus) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.PF0Name != nil {
+		in, out := &in.PF0Name, &out.PF0Name
+		*out = new(string)
+		**out = **in
+	}
 	if in.PF0MAC != nil {
 		in, out := &in.PF0MAC, &out.PF0MAC
 		*out = new(string)
