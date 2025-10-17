@@ -198,8 +198,10 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		if dpuDevice.Spec.NumberOfPFs != nil {
 			dpuDevice.Labels[cutil.DPUDeviceNumOfPFsLabel] = fmt.Sprintf("%d", *dpuDevice.Spec.NumberOfPFs)
 		}
-		if dpuDevice.Spec.PF0Name != nil {
-			dpuDevice.Labels[cutil.DPUDevicePF0NameLabel] = *dpuDevice.Spec.PF0Name
+		if dpuDevice.Status.PF0Name != nil {
+			dpuDevice.Labels[cutil.DPUDevicePF0NameLabel] = *dpuDevice.Status.PF0Name
+		} else if dpuDevice.Spec.PF0Name != nil { //nolint:staticcheck
+			dpuDevice.Labels[cutil.DPUDevicePF0NameLabel] = *dpuDevice.Spec.PF0Name //nolint:staticcheck
 		}
 		if dpuDevice.Spec.BMCIP != nil {
 			dpuDevice.Labels[cutil.DPUDeviceBMCIPLabel] = *dpuDevice.Spec.BMCIP
