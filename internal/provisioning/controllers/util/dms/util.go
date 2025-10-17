@@ -94,36 +94,6 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 			ServiceAccountName: DMSServiceAccountName,
 			HostNetwork:        true,
 			DNSPolicy:          corev1.DNSClusterFirstWithHostNet,
-			InitContainers: []corev1.Container{
-				{
-					Name:            "rshim-preflight",
-					Image:           option.HostAgentImageWithTag,
-					ImagePullPolicy: corev1.PullIfNotPresent,
-					SecurityContext: &corev1.SecurityContext{
-						Privileged: ptr.To(true),
-					},
-					Env:     extraEnvs,
-					Command: []string{"/bin/bash", "-c", "--"},
-					Args: []string{
-						fmt.Sprintf("%s --cmd check-rshim-not-occupied", DMSInitScript),
-					},
-					VolumeMounts: []corev1.VolumeMount{
-						{
-							Name:      "sys",
-							MountPath: "/sys",
-						},
-						{
-							Name:      "dev",
-							MountPath: "/dev",
-						},
-						{
-							Name:      "lib-modules",
-							MountPath: "/lib/modules",
-							ReadOnly:  true,
-						},
-					},
-				},
-			},
 			Containers: []corev1.Container{
 				{
 					Name:            DMSContainerName,
