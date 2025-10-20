@@ -312,37 +312,29 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("create a DPUDeployment with its dependencies and ensure that the underlying objects are created")
-	dpuServiceTemplate := input.dpuServiceTemplate.DeepCopy()
-	dpuServiceTemplate.SetLabels(afterAllCleanupLabels)
+	dpuServiceTemplate := generateDPUServiceTemplate(input, "")
 	useDummyDPUServiceChart(dpuServiceTemplate)
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceTemplate))).To(Succeed())
 
-	dpuServiceTemplate2 := input.dpuServiceTemplate.DeepCopy()
-	dpuServiceTemplate2.SetLabels(afterAllCleanupLabels)
-	dpuServiceTemplate2.SetName("dpudeployment-example2-servicetemplate")
-	dpuServiceTemplate2.Spec.DeploymentServiceName = "example2"
-	useDummyDPUServiceChart(dpuServiceTemplate2)
-	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceTemplate2))).To(Succeed())
-
-	dpuServiceConfiguration := input.dpuServiceConfiguration.DeepCopy()
-	dpuServiceConfiguration.SetLabels(afterAllCleanupLabels)
+	dpuServiceConfiguration := generateServiceConfiguration(input, "")
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceConfiguration))).To(Succeed())
 
-	dpuServiceConfiguration2 := input.dpuServiceConfiguration.DeepCopy()
-	dpuServiceConfiguration2.SetLabels(afterAllCleanupLabels)
-	dpuServiceConfiguration2.SetName("dpudeployment-example2-serviceconfiguration")
-	dpuServiceConfiguration2.Spec.DeploymentServiceName = "example2"
+	dpuServiceTemplate2 := generateDPUServiceTemplate(input, "2")
+	useDummyDPUServiceChart(dpuServiceTemplate2)
+	Expect(input.client.Create(ctx, dpuServiceTemplate2)).To(Succeed())
+
+	dpuServiceConfiguration2 := generateServiceConfiguration(input, "2")
 	dpuServiceConfiguration2.Spec.Interfaces = []dpuservicev1.ServiceInterfaceTemplate{{Name: "net2", Network: "mybrsfc"}}
-	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceConfiguration2))).To(Succeed())
+	Expect(input.client.Create(ctx, dpuServiceConfiguration2)).To(Succeed())
 
 	dpuDeployment := generateDPUObj("dpf-dpudeployment", input.dpuDeployment.DeepCopy().Namespace, input.dpuDeployment.DeepCopy(), afterAllCleanupLabels)
 	dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
 		MatchLabels: map[string]string{"feature.node.kubernetes.io/dpu-enabled": "true"},
 	}
 	// Add example2 service to the DPUDeployment
-	dpuDeployment.Spec.Services["example2"] = dpuservicev1.DPUDeploymentServiceConfiguration{
-		ServiceTemplate:      "dpudeployment-example2-servicetemplate",
-		ServiceConfiguration: "dpudeployment-example2-serviceconfiguration",
+	dpuDeployment.Spec.Services["example-2"] = dpuservicev1.DPUDeploymentServiceConfiguration{
+		ServiceTemplate:      "dpudeployment-example-servicetemplate-2",
+		ServiceConfiguration: "dpudeployment-example-serviceconfiguration-2",
 	}
 	// Update the switch to map net1 to net2
 	dpuDeployment.Spec.ServiceChains.Switches[0] = dpuservicev1.DPUDeploymentSwitch{
@@ -361,7 +353,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 			{
 				Service: &dpuservicev1.DPUDeploymentService{
 					InterfaceName: "net2",
-					Name:          "example2",
+					Name:          "example-2",
 					IPAM: &dpuservicev1.IPAM{
 						MatchLabels: map[string]string{
 							"svc.dpu.nvidia.com/pool": "pool1",
