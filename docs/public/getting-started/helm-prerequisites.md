@@ -443,7 +443,7 @@ datasources:
     datasources:
       - name: prometheus
         type: prometheus
-        url: http://dpf-operator-prometheus-server
+        url: http://prometheus-server
         access: proxy
         isDefault: true
 dashboardProviders:
