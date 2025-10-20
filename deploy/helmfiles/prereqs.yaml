@@ -59,7 +59,7 @@ releases:
     hooks:
       - events: [ "preapply" ]
         command: "./apply-crds.sh"
-        args: ["oci://ghcr.io/nvidia/charts/kamaji", "1.1.0"]
+        args: ["oci://ghcr.io/nvidia/charts/kamaji", "1.2.0"]
         showlogs: true
 
   - name: maintenance-operator
