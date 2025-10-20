@@ -33,6 +33,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -48,9 +49,42 @@ var _ = Describe("DPF Upgrade tests", Labels{dpfUpgradeTestLabel}, func() {
 
 		It("create DPUDeployments dependencies", func() {
 			dpuServiceTemplate := generateDPUServiceTemplate(input, "")
+			useDummyDPUServiceChart(dpuServiceTemplate)
 			Expect(input.client.Create(ctx, dpuServiceTemplate)).To(Succeed())
+
 			dpuServiceConfiguration := generateServiceConfiguration(input, "")
+			// TODO: Remove this one in 25.10 -> 26.1
+			// The reason we have it is because the release 25.7 doesn't include:
+			// * 6672586a98b2b0df24875b5e1e37bfac41828c3d
+			// * 2267ee32751910258d47185546d9e7a52b7d660b
+			dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Resources = corev1.ResourceList{
+				"nvidia.com/bf_sf": resource.MustParse("1"),
+			}
 			Expect(input.client.Create(ctx, dpuServiceConfiguration)).To(Succeed())
+
+			dpuServiceTemplate2 := generateDPUServiceTemplate(input, "2")
+			useDummyDPUServiceChart(dpuServiceTemplate2)
+			Expect(input.client.Create(ctx, dpuServiceTemplate2)).To(Succeed())
+
+			dpuServiceConfiguration2 := generateServiceConfiguration(input, "2")
+			// TODO: Remove this one in 25.10 -> 26.1
+			// The reason we have it is because the release 25.7 doesn't include:
+			// * 6672586a98b2b0df24875b5e1e37bfac41828c3d
+			// * 2267ee32751910258d47185546d9e7a52b7d660b
+			dpuServiceConfiguration2.Spec.ServiceConfiguration.ServiceDaemonSet.Resources = corev1.ResourceList{
+				"nvidia.com/bf_sf": resource.MustParse("1"),
+			}
+			dpuServiceConfiguration2.Spec.Interfaces = []dpuservicev1.ServiceInterfaceTemplate{{Name: "net2", Network: "mybrsfc"}}
+			Expect(input.client.Create(ctx, dpuServiceConfiguration2)).To(Succeed())
+
+			dpuServiceIPAM := input.ipPoolDPUServiceIPAM.DeepCopy()
+			dpuServiceIPAM.SetLabels(afterAllCleanupLabels)
+			dpuServiceIPAM.SetName("dpudeployment-ipam-pool1")
+			dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
+			// Remove selectors so it applies to all nodes/clusters
+			dpuServiceIPAM.Spec.NodeSelector = nil
+			dpuServiceIPAM.Spec.ClusterSelector = nil
+			Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 		})
 
 		It("create DPUDeployment objects", func() {
@@ -65,6 +99,36 @@ var _ = Describe("DPF Upgrade tests", Labels{dpfUpgradeTestLabel}, func() {
 				dpuDeployment.SetName(node.GetName())
 				dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
 					MatchLabels: map[string]string{"kubernetes.io/hostname": node.GetName()},
+				}
+				dpuDeployment.Spec.Services["example-2"] = dpuservicev1.DPUDeploymentServiceConfiguration{
+					ServiceTemplate:      "example-2",
+					ServiceConfiguration: "example-2",
+				}
+				dpuDeployment.Spec.ServiceChains.Switches[0] = dpuservicev1.DPUDeploymentSwitch{
+					Ports: []dpuservicev1.DPUDeploymentPort{
+						{
+							Service: &dpuservicev1.DPUDeploymentService{
+								InterfaceName: "net1",
+								Name:          "example",
+								IPAM: &dpuservicev1.IPAM{
+									MatchLabels: map[string]string{
+										"svc.dpu.nvidia.com/pool": "pool1",
+									},
+								},
+							},
+						},
+						{
+							Service: &dpuservicev1.DPUDeploymentService{
+								InterfaceName: "net2",
+								Name:          "example-2",
+								IPAM: &dpuservicev1.IPAM{
+									MatchLabels: map[string]string{
+										"svc.dpu.nvidia.com/pool": "pool1",
+									},
+								},
+							},
+						},
+					},
 				}
 				Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
 			}
