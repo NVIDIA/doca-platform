@@ -6,7 +6,7 @@ metadata:
 spec:
   deploymentServiceName: example
   interfaces:
-    - name: app-iface
+    - name: net1
       network: mybrsfc
   serviceConfiguration:
     serviceDaemonSet:
