@@ -54,6 +54,8 @@ spec:
                 description: CNIInstaller is the configuration for the cni-installer
                 properties:
                   deployInTargetCluster:
+                    description: 'Deprecated: this field is not supported and will
+                      be removed with v26.1.0.'
                     type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
@@ -360,6 +362,8 @@ spec:
                         type: object
                     type: object
                   deployInTargetCluster:
+                    description: 'Deprecated: this field is not supported and will
+                      be removed with v26.1.0.'
                     type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
@@ -543,6 +547,8 @@ spec:
                         type: object
                     type: object
                   deployInTargetCluster:
+                    description: 'Deprecated: this field is not supported and will
+                      be removed with v26.1.0.'
                     type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
@@ -653,6 +659,8 @@ spec:
                         type: object
                     type: object
                   deployInTargetCluster:
+                    description: 'Deprecated: this field is not supported and will
+                      be removed with v26.1.0.'
                     type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
@@ -861,6 +869,8 @@ spec:
                         type: object
                     type: object
                   deployInTargetCluster:
+                    description: 'Deprecated: this field is not supported and will
+                      be removed with v26.1.0.'
                     type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
@@ -1144,6 +1154,8 @@ spec:
                         type: object
                     type: object
                   deployInTargetCluster:
+                    description: 'Deprecated: this field is not supported and will
+                      be removed with v26.1.0.'
                     type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
@@ -1231,6 +1243,8 @@ spec:
                         type: object
                     type: object
                   deployInTargetCluster:
+                    description: 'Deprecated: this field is not supported and will
+                      be removed with v26.1.0.'
                     type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
@@ -1266,6 +1280,8 @@ spec:
                 description: SRIOVDevicePlugin is the configuration for the SRIOVDevicePlugin
                 properties:
                   deployInTargetCluster:
+                    description: 'Deprecated: this field is not supported and will
+                      be removed with v26.1.0.'
                     type: boolean
                   deviceplugin:
                     description: |-
