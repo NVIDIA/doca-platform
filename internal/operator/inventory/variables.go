@@ -174,6 +174,7 @@ func extractComponentConfigs(variables Variables, config *operatorv1.DPFOperator
 		}
 
 		// Extract DPU service configuration
+		// nolint:staticcheck
 		if dpuServiceConfig, ok := componentConfig.(operatorv1.InClusterDeploymentConfigurable); ok && dpuServiceConfig != nil {
 			if dpuServiceConfig.InClusterDeployment() {
 				deployInCluster[componentName] = true

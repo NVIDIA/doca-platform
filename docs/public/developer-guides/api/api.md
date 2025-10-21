@@ -83,7 +83,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `deployInTargetCluster` _boolean_ |  |  |  |
+| `deployInTargetCluster` _boolean_ | Deprecated: this field is not supported and will be removed with v26.1.0. |  |  |
 | `installer` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Installer contains the configuration for the CNI-Installer component.<br />It contains the image for the controller and its resource requirements. |  |  |
 
 
@@ -277,7 +277,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `deployInTargetCluster` _boolean_ |  |  |  |
+| `deployInTargetCluster` _boolean_ | Deprecated: this field is not supported and will be removed with v26.1.0. |  |  |
 | `cni` _[FlannelCNI](#flannelcni)_ | CNI is the configuration for the Flannel CNI component.<br />It contains the image for the CNI init container.<br />Note: The resources for the CNI container are not configurable. |  |  |
 | `daemon` _[FlannelDaemon](#flanneldaemon)_ | Daemon is the configuration for the Flannel Daemon component.<br />It contains the image for the Flannel Daemon container and its resource requirements. |  |  |
 | `image` _[FlannelImages](#flannelimages)_ | Images overrides the container images used by flannel<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new fields `cni` and `daemon` instead. |  |  |
@@ -436,7 +436,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `deployInTargetCluster` _boolean_ |  |  |  |
+| `deployInTargetCluster` _boolean_ | Deprecated: this field is not supported and will be removed with v26.1.0. |  |  |
 
 
 
@@ -518,7 +518,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `deployInTargetCluster` _boolean_ |  |  |  |
+| `deployInTargetCluster` _boolean_ | Deprecated: this field is not supported and will be removed with v26.1.0. |  |  |
 | `image` _[Image](#image)_ | Image overrides the container image used by the Multus Container.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `cni` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `cni` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | CNI contains the configuration for the Multus CNI component.<br />It contains the image for the controller and its resource requirements. |  |  |
 
@@ -538,7 +538,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `deployInTargetCluster` _boolean_ |  |  |  |
+| `deployInTargetCluster` _boolean_ | Deprecated: this field is not supported and will be removed with v26.1.0. |  |  |
 | `image` _[Image](#image)_ | Image overrides the container image used by the NVIPAM controller.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `controller` _[NVIPAMController](#nvipamcontroller)_ | Controller contains the configuration for the NVIPAM controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
 | `node` _[NVIPAMNode](#nvipamnode)_ | Node contains the configuration for the NVIPAM node component.<br />It contains the image for the node and its resource requirements. |  |  |
@@ -609,7 +609,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `deployInTargetCluster` _boolean_ |  |  |  |
+| `deployInTargetCluster` _boolean_ | Deprecated: this field is not supported and will be removed with v26.1.0. |  |  |
 | `image` _[Image](#image)_ | Image overrides the container image used by the OVS CNI.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `cni` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `cni` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | CNI contains the configuration for the OVS CNI component.<br />It contains the image for the controller and its resource requirements. |  |  |
 
@@ -776,7 +776,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `deployInTargetCluster` _boolean_ |  |  |  |
+| `deployInTargetCluster` _boolean_ | Deprecated: this field is not supported and will be removed with v26.1.0. |  |  |
 | `image` _[Image](#image)_ | Image overrides the container image used by the SFC controller.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the SFC controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
 | `secureFlowDeletionTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | SecureFlowDeletionTimeout controls the timeout for which the API server is unreachable after which all the flows<br />are deleted to prevent unintended packet leaks. It has effect when is greater than zero.<br />Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration. |  |  |
@@ -797,7 +797,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `deployInTargetCluster` _boolean_ |  |  |  |
+| `deployInTargetCluster` _boolean_ | Deprecated: this field is not supported and will be removed with v26.1.0. |  |  |
 | `image` _[Image](#image)_ | Image overrides the container image used by the SRIOV Device Plugin container.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `deviceplugin` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `deviceplugin` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | DevicePlugin contains the configuration for the SRIOV Device Plugin component.<br />It contains the image for the controller and its resource requirements. |  |  |
 
@@ -817,7 +817,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `deployInTargetCluster` _boolean_ |  |  |  |
+| `deployInTargetCluster` _boolean_ | Deprecated: this field is not supported and will be removed with v26.1.0. |  |  |
 | `image` _[Image](#image)_ | Image overrides the container image used by the ServiceChainSet Controller.<br /><br />Deprecated: This field is deprecated and will be removed with v26.1.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the ServiceChainSet controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
 
