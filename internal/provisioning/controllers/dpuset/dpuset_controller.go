@@ -28,6 +28,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/events"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
+	"github.com/nvidia/doca-platform/internal/release"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
@@ -339,6 +340,8 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 	if dpuSet.Spec.DPUTemplate.Spec.Cluster != nil {
 		clusterNodeLabels = dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels
 	}
+	clusterNodeLabels[cutil.HostNameDPULabelKey] = dpuNodeName
+	clusterNodeLabels[release.DPFVersionLabelKey] = release.DPFVersion()
 
 	dpu := &provisioningv1.DPU{
 		ObjectMeta: metav1.ObjectMeta{
