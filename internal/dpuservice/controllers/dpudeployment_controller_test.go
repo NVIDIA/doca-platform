@@ -2078,7 +2078,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
-				chainDigest := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
+				chainDigestOriginal := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
 
 				By("retrieving the DPUServiceChain and DPUService")
 				var gotDPUServiceChain *dpuservicev1.DPUServiceChain
@@ -2175,6 +2175,12 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
 
+				// We need to get the object to calculate the digest taking into account the defaults added by the API server
+				gotDPUDeployment := &dpuservicev1.DPUDeployment{}
+				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), gotDPUDeployment)).To(Succeed())
+				chainDigestModified := calculateDPUServiceChainVersionDigest(gotDPUDeployment.Spec.ServiceChains.Switches)
+				Expect(chainDigestModified).NotTo(Equal(chainDigestOriginal))
+
 				By("checking that the DPUServiceChain is correctly updated")
 				Eventually(func(g Gomega) {
 					gotDPUServiceChains := &dpuservicev1.DPUServiceChainList{}
@@ -2185,7 +2191,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					for _, dpuServiceChain := range gotDPUServiceChains.Items {
 						g.Expect(dpuServiceChain.Labels).To(HaveLen(1))
 						g.Expect(dpuServiceChain.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
-						g.Expect(dpuServiceChain.Annotations).To(HaveKeyWithValue(dpuServiceChainVersionLabelAnnotationKey, chainDigest))
+						g.Expect(dpuServiceChain.Annotations).To(HaveKeyWithValue(dpuServiceChainVersionLabelAnnotationKey, chainDigestModified))
 					}
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
