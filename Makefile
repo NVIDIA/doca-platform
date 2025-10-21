@@ -142,6 +142,23 @@ $(SOS_REPORT_DIR): | $(REPOSDIR)
 EXTERNAL_ATTACHER_BRANCH=release-4.9
 NVIDIA_EXTERNAL_ATTACHER_DIR=third_party/forked/nvidia-external-attacher
 
+# VPC dependencies to be able to build/push images and charts
+VPC_REF=1878fddad5556d33a8177e86f9070a7243006e93
+VPC_DIR=$(REPOSDIR)/ovn-vpc/ovn-vpc-$(VPC_REF)
+# Token used for gitlab reporistory access, usually needed for CI/CD pipelines.
+# dev envs usually have those set in git credentials.
+GITLAB_CLONE_TOKEN?=
+$(VPC_DIR): | $(REPOSDIR)
+	if [ -z "$(GITLAB_CLONE_TOKEN)" ]; then \
+		git clone https://gitlab-master.nvidia.com/doca-platform-foundation/dpf-vpc.git $(VPC_DIR)-tmp; \
+	else \
+		git clone https://token:$(GITLAB_CLONE_TOKEN)@gitlab-master.nvidia.com/doca-platform-foundation/dpf-vpc.git $(VPC_DIR)-tmp; \
+	fi
+	cd $(VPC_DIR)-tmp && git reset --hard $(VPC_REF)
+	mv $(VPC_DIR)-tmp $(VPC_DIR)
+	# delete old ovn-vpc directories.
+	find $(REPOSDIR)/ovn-vpc/ -mindepth 1 -maxdepth 1 -not -name ovn-vpc-$(VPC_REF) -exec rm -rf '{}' \;
+
 ##@ GRPC
 
 # go package for generated code
@@ -626,6 +643,8 @@ release-build: generate ## Build helm and container images for release.
 	# Package the helm charts.
 	$(MAKE) helm-package-all
 
+	# Build vpc release artifacts
+	$(MAKE) release-build-vpc
 
 # controls whether the charts should be pushed in both REGISTRY and HELM_REGISTRY, in case the two are different
 export RELEASE_PUSH_HELM_CHARTS_TO_REGISTRY ?= false
@@ -638,6 +657,9 @@ release: release-build release-dpfctl-ngc ## Build and push helm and container i
 
 	# Push the helm charts.
 	$(MAKE) helm-push-all
+
+	# push vpc release artifacts
+	$(MAKE) release-push-vpc
 
 ifeq ($(RELEASE_PUSH_HELM_CHARTS_TO_REGISTRY),true)
 ifneq ($(HELM_REGISTRY),$(DEFAULT_HELM_REGISTRY))
@@ -666,9 +688,27 @@ ifeq ($(DPFCTL_NGC_ENABLED),true)
 	|| $(NGC) registry resource upload-version --org $(DPFCTL_NGC_ORG) $(DPFCTL_NGC_ORG)/doca/dpfctl:$(TAG) --source $(LOCALBIN)/dpfctl-$(TAG)-release/
 endif
 
+BUILD_VPC ?= false
+ifeq ($(BUILD_VPC),true)
+.PHONY: release-build-vpc
+release-build-vpc: $(VPC_DIR) ## Build vpc release artifacts
+	@cd $(VPC_DIR); $(MAKE) release-build
+
+.PHONY: release-push-vpc
+release-push-vpc: $(VPC_DIR) ## Push vpc release artifacts
+	@cd $(VPC_DIR); $(MAKE) release-push
+else
+.PHONY: release-build-vpc
+release-build-vpc: ## Build vpc release artifacts
+	@echo "VPC skipped"
+
+.PHONY: release-push-vpc
+release-push-vpc: ## Push vpc release artifacts
+	@echo "VPC skipped"
+endif
+
 .PHONY: warm-cache
 warm-cache: ## Warm the cache for the tests.
-
 	$(MAKE) release-build test lint
 
 ##@ Build
@@ -1381,8 +1421,6 @@ helm-package-dummydpuservice: $(DPUSERVICESDIR) helm yq ## Package helm chart fo
 	IMAGE_TAG_PATH=image.tag \
 	RELEASE_HELM_SET_ANNOTATIONS="false" \
 	./hack/scripts/release-helm-package.sh
-
-
 
 .PHONY: helm-package-storage
 helm-package-storage: $(CHARTSDIR) helm yq generate-manifests-storage
