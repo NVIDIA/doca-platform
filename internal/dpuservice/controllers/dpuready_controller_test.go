@@ -24,7 +24,7 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	sfcsetcontroller "github.com/nvidia/doca-platform/internal/servicechainset/controllers"
 	"github.com/nvidia/doca-platform/pkg/conditions"
-	dpucluster "github.com/nvidia/doca-platform/pkg/dpucluster"
+	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -2400,7 +2400,7 @@ var _ = Describe("podEventHandler", func() {
 	)
 
 	BeforeEach(func() {
-		hostNodeName = "host-node"
+		hostNodeName = "host-node" // nolint:goconst
 		handler = &podEventHandler{
 			client: testClient,
 		}
@@ -2794,7 +2794,7 @@ var _ = Describe("serviceChainEventHandler", func() {
 	)
 
 	BeforeEach(func() {
-		hostNodeName = "host-node"
+		hostNodeName = "host-node" // nolint:goconst
 		nodeName = "dpu-node"
 		handler = &serviceChainEventHandler{
 			client: testClient,

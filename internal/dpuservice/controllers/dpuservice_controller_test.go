@@ -17,6 +17,7 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
 	"reflect"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	testutils "github.com/nvidia/doca-platform/test/utils"
@@ -47,8 +49,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/json"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 var _ = Describe("DPUService Controller", func() {
@@ -110,18 +116,72 @@ var _ = Describe("DPUService Controller", func() {
 			clusters := []provisioningv1.DPUCluster{
 				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
 			}
-			for i := range clusters {
-				kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(clusters[i], cfg)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(testClient.Create(ctx, kamajiSecret)).To(Succeed())
-				cleanupObjs = append(cleanupObjs, kamajiSecret)
-			}
+			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
 
-			// Create the DPUCluster objects.
-			for _, cl := range clusters {
-				Expect(testClient.Create(ctx, &cl)).To(Succeed())
-				cleanupObjs = append(cleanupObjs, &cl)
+			By("Get DPUCluster client")
+			dpuClusterConfigs, err := dpucluster.GetConfigs(ctx, testClient)
+			Expect(err).ToNot(HaveOccurred())
+			dpuClusterClient, err := dpuClusterConfigs[0].Client(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Create fake Node in DPUCluster")
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "dpu-node-1",
+					Labels: map[string]string{
+						// key is the nodeSelector used in the DPUService.
+						"key":                    "dpu-node-1",
+						util.HostNameDPULabelKey: "node-1",
+					},
+				},
 			}
+			Expect(dpuClusterClient.Create(ctx, node)).To(Succeed())
+			cleanupObjs = append(cleanupObjs, node)
+
+			By("Create fake Node in DPUCluster with non-matching label")
+			nonMatchingNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "dpu-node-2",
+					Labels: map[string]string{
+						"non-matching":           "random",
+						util.HostNameDPULabelKey: "node-2",
+					},
+				},
+			}
+			Expect(dpuClusterClient.Create(ctx, nonMatchingNode)).To(Succeed())
+			cleanupObjs = append(cleanupObjs, nonMatchingNode)
+
+			By("Add addresses to the fake Node")
+			patcher := patch.NewSerialPatcher(node, dpuClusterClient)
+			node.Status.Addresses = []corev1.NodeAddress{
+				{
+					Type:    corev1.NodeInternalIP,
+					Address: "192.168.1.10",
+				},
+				{
+					Type:    corev1.NodeHostName,
+					Address: "dpu-node-1",
+				},
+			}
+			Expect(patcher.Patch(ctx, node, patch.WithFieldOwner("dpu-service-test"))).To(Succeed())
+			nonMatchingNode.Status.Addresses = []corev1.NodeAddress{
+				{
+					Type:    corev1.NodeInternalIP,
+					Address: "192.168.1.11",
+				},
+				{
+					Type:    corev1.NodeHostName,
+					Address: "dpu-node-2",
+				},
+			}
+			Expect(patcher.Patch(ctx, nonMatchingNode, patch.WithFieldOwner("dpu-service-test"))).To(Succeed())
+
+			expectedEndpointSliceEndpoint := []discoveryv1.Endpoint{{
+				Addresses:  []string{"192.168.1.10"},
+				Hostname:   ptr.To("dpu-node-1"),
+				NodeName:   ptr.To("node-1"),
+				Conditions: discoveryv1.EndpointConditions{Ready: ptr.To(true)},
+			}}
 
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			// A DPUService that should be deployed to the same cluster the DPF system is deployed in.
@@ -178,7 +238,7 @@ var _ = Describe("DPUService Controller", func() {
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			Eventually(func(g Gomega) {
-				assertDPUServiceConfigPorts(g, testClient, dpuServices, nil, "")
+				assertDPUServiceConfigPorts(g, testClient, dpuServices, nil, nil, "")
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			By("update configPorts should expose the DPUService API by creating a Service type NodePort and set the status")
@@ -192,7 +252,7 @@ var _ = Describe("DPUService Controller", func() {
 					},
 				},
 			}
-			patcher := patch.NewSerialPatcher(dpuServices[0], testClient)
+			patcher = patch.NewSerialPatcher(dpuServices[0], testClient)
 			dpuServices[0].Spec.ConfigPorts = configPorts
 			Expect(patcher.Patch(ctx, dpuServices[0], patch.WithFieldOwner(dpuServiceControllerName))).To(Succeed())
 
@@ -201,15 +261,32 @@ var _ = Describe("DPUService Controller", func() {
 			By("create the Service inside the DPUCluster")
 			labels := dpuServices[0].MatchLabels()
 			svc := getExposedService(labels)
-			dpuClusterConfigs, err := dpucluster.GetConfigs(ctx, testClient)
-			Expect(err).ToNot(HaveOccurred())
-			dpuClusterOne, err := dpuClusterConfigs[0].Client(ctx)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(dpuClusterOne.Create(ctx, svc)).To(Succeed())
+			Expect(dpuClusterClient.Create(ctx, svc)).To(Succeed())
 
-			By("check that the ConfigPorts are reconciled")
+			By("check that the ConfigPorts are reconciled with 1 matching corev1.Node")
 			Eventually(func(g Gomega) {
-				assertDPUServiceConfigPorts(g, testClient, []*dpuservicev1.DPUService{dpuServices[0]}, configPorts, dpuClusterConfigs[0].Cluster.Name)
+				assertDPUServiceConfigPorts(g, testClient, []*dpuservicev1.DPUService{dpuServices[0]}, configPorts, expectedEndpointSliceEndpoint, dpuClusterConfigs[0].Cluster.Name)
+			}).WithTimeout(30 * time.Second).Should(BeNil())
+
+			By("check that all Endpoints are added to ConfigPorts after Node has correct labels")
+			nodePatcher := patch.NewSerialPatcher(nonMatchingNode, dpuClusterClient)
+			nonMatchingNode.ObjectMeta.Labels["key"] = "dpu-node-2"
+			Expect(nodePatcher.Patch(ctx, nonMatchingNode, patch.WithFieldOwner("dpu-service-test"))).To(Succeed())
+
+			// We have to delete the created service to be able to test an update.
+			// In evntest we are using the same cluster for both management and DPU cluster.
+			// If we don't delete the created service we will have a duplicated service with the same label selector.
+			By("delete exposed service on management cluster")
+			Expect(testClient.Delete(ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "test-service"}})).To(Succeed())
+
+			expectedEndpointSliceEndpoint = append(expectedEndpointSliceEndpoint, discoveryv1.Endpoint{
+				Addresses:  []string{"192.168.1.11"},
+				Hostname:   ptr.To("dpu-node-2"),
+				NodeName:   ptr.To("node-2"),
+				Conditions: discoveryv1.EndpointConditions{Ready: ptr.To(true)},
+			})
+			Eventually(func(g Gomega) {
+				assertConfigPortEndpointSlice(g, testClient, dpuServices[0], expectedEndpointSliceEndpoint, dpuClusterConfigs[0].Cluster.Name)
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			By("update configPorts should fail if the ServiceType is changed")
@@ -299,12 +376,7 @@ var _ = Describe("DPUService Controller", func() {
 			By("Adding fake kamaji cluster")
 			// 63 is the max name length of a DPUCluster
 			dpuCluster := testutils.GetTestDPUCluster(testNS.Name, utilrand.String(63))
-			kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(dpuCluster, cfg)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(testClient.Create(ctx, kamajiSecret)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, kamajiSecret)
-			Expect(testClient.Create(ctx, &dpuCluster)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, &dpuCluster)
+			cleanupObjs = createDPUClusters([]provisioningv1.DPUCluster{dpuCluster}, cleanupObjs)
 
 			By("creating the DPUService")
 			dpuServices := getMinimalDPUServices(testNS.Name)
@@ -416,17 +488,7 @@ var _ = Describe("DPUService Controller", func() {
 			clusters := []provisioningv1.DPUCluster{
 				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
 			}
-			for i := range clusters {
-				kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(clusters[i], cfg)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(testClient.Create(ctx, kamajiSecret)).To(Succeed())
-				cleanupObjs = append(cleanupObjs, kamajiSecret)
-			}
-
-			for _, cl := range clusters {
-				Expect(testClient.Create(ctx, &cl)).To(Succeed())
-				cleanupObjs = append(cleanupObjs, &cl)
-			}
+			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
 
 			By("creating the DPUService without serviceID")
 			dpuService := getMinimalDPUServices(testNS.Name)
@@ -507,18 +569,7 @@ var _ = Describe("DPUService Controller", func() {
 			clusters := []provisioningv1.DPUCluster{
 				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
 			}
-			for i := range clusters {
-				kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(clusters[i], cfg)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(testClient.Create(ctx, kamajiSecret)).To(Succeed())
-				cleanupObjs = append(cleanupObjs, kamajiSecret)
-			}
-
-			// Create the DPUCluster objects.
-			for _, cl := range clusters {
-				Expect(testClient.Create(ctx, &cl)).To(Succeed())
-				cleanupObjs = append(cleanupObjs, &cl)
-			}
+			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
 
 			By("creating the DPUService with serviceID and interfaces")
 			dpuService := getDPUServiceWithoutHelmchartValues(testNS.Name)
@@ -595,18 +646,7 @@ var _ = Describe("DPUService Controller", func() {
 			clusters := []provisioningv1.DPUCluster{
 				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
 			}
-			for i := range clusters {
-				kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(clusters[i], cfg)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(testClient.Create(ctx, kamajiSecret)).To(Succeed())
-				cleanupObjs = append(cleanupObjs, kamajiSecret)
-			}
-
-			// Create the DPUCluster objects.
-			for _, cl := range clusters {
-				Expect(testClient.Create(ctx, &cl)).To(Succeed())
-				cleanupObjs = append(cleanupObjs, &cl)
-			}
+			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
 
 			By("creating the DPUService with serviceID and interfaces")
 			dpuService := getDPUServiceWithoutHelmchartValues(testNS.Name)
@@ -681,18 +721,7 @@ var _ = Describe("DPUService Controller", func() {
 			clusters := []provisioningv1.DPUCluster{
 				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
 			}
-			for i := range clusters {
-				kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(clusters[i], cfg)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(testClient.Create(ctx, kamajiSecret)).To(Succeed())
-				cleanupObjs = append(cleanupObjs, kamajiSecret)
-			}
-
-			// Create the DPUCluster objects.
-			for _, cl := range clusters {
-				Expect(testClient.Create(ctx, &cl)).To(Succeed())
-				cleanupObjs = append(cleanupObjs, &cl)
-			}
+			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
 
 			By("creating the DPUService with serviceID and interfaces")
 			dpuService := getDPUServiceWithoutHelmchartValues(testNS.Name)
@@ -789,18 +818,7 @@ var _ = Describe("DPUService Controller", func() {
 			clusters := []provisioningv1.DPUCluster{
 				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
 			}
-			for i := range clusters {
-				kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(clusters[i], cfg)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(testClient.Create(ctx, kamajiSecret)).To(Succeed())
-				cleanupObjs = append(cleanupObjs, kamajiSecret)
-			}
-
-			// Create the DPUCluster objects.
-			for _, cl := range clusters {
-				Expect(testClient.Create(ctx, &cl)).To(Succeed())
-				cleanupObjs = append(cleanupObjs, &cl)
-			}
+			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
 
 			By("creating the DPUService with serviceID and interfaces")
 			dpuService := getMinimalDPUServices(testNS.Name)
@@ -873,18 +891,7 @@ var _ = Describe("DPUService Controller", func() {
 			clusters := []provisioningv1.DPUCluster{
 				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
 			}
-			for i := range clusters {
-				kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(clusters[i], cfg)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(testClient.Create(ctx, kamajiSecret)).To(Succeed())
-				cleanupObjs = append(cleanupObjs, kamajiSecret)
-			}
-
-			// Create the DPUCluster objects.
-			for _, cl := range clusters {
-				Expect(testClient.Create(ctx, &cl)).To(Succeed())
-				cleanupObjs = append(cleanupObjs, &cl)
-			}
+			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
 
 			By("creating the DPUService with serviceID and interfaces")
 			dpuService := getMinimalDPUServices(testNS.Name)
@@ -972,6 +979,30 @@ var _ = Describe("DPUService Controller", func() {
 		})
 	})
 })
+
+func createDPUClusters(clusters []provisioningv1.DPUCluster, cleanupObjs []client.Object) []client.Object {
+	if len(cleanupObjs) == 0 {
+		cleanupObjs = []client.Object{}
+	}
+	for i := range clusters {
+		kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(clusters[i], cfg)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(testClient.Create(ctx, kamajiSecret)).To(Succeed())
+		cleanupObjs = append(cleanupObjs, kamajiSecret)
+	}
+
+	for i, cl := range clusters {
+		Expect(testClient.Create(ctx, &cl)).To(Succeed())
+		cleanupObjs = append(cleanupObjs, &clusters[i])
+		patcher := patch.NewSerialPatcher(&cl, testClient)
+
+		// mark the cluster as ready so that the remoteCache treats it as ready
+		cl.Status.Phase = provisioningv1.PhaseReady
+		Expect(patcher.Patch(ctx, &cl, patch.WithFieldOwner(dpuServiceControllerName))).To(Succeed())
+	}
+
+	return cleanupObjs
+}
 
 var _ = Describe("DPUService Controller reconcile interfaces", func() {
 	var (
@@ -1076,7 +1107,7 @@ func assertDPUService(g Gomega, testClient client.Client, dpuServices []*dpuserv
 	}
 }
 
-func assertDPUServiceConfigPorts(g Gomega, testClient client.Client, dpuServices []*dpuservicev1.DPUService, expectedConfigPorts *dpuservicev1.ConfigPorts, clusterName string) {
+func assertDPUServiceConfigPorts(g Gomega, testClient client.Client, dpuServices []*dpuservicev1.DPUService, expectedConfigPorts *dpuservicev1.ConfigPorts, expectedEndpointSliceEndpoint []discoveryv1.Endpoint, clusterName string) {
 	for i := range dpuServices {
 		gotDPUService := &dpuservicev1.DPUService{}
 		g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServices[i]), gotDPUService)).To(Succeed())
@@ -1098,7 +1129,7 @@ func assertDPUServiceConfigPorts(g Gomega, testClient client.Client, dpuServices
 
 		// Validate that Service, EndpointSlices and Endpoints are created correctly
 		assertConfigPortService(g, testClient, dpuServices[i], expectedConfigPorts, clusterName)
-		assertConfigPortEndpointSlice(g, testClient, dpuServices[i], clusterName)
+		assertConfigPortEndpointSlice(g, testClient, dpuServices[i], expectedEndpointSliceEndpoint, clusterName)
 		assertConfigPortEndpoints(g, testClient, dpuServices[i], clusterName)
 	}
 }
@@ -1190,7 +1221,7 @@ func assertConfigPortService(g Gomega, testClient client.Client, dpuService *dpu
 	}
 }
 
-func assertConfigPortEndpointSlice(g Gomega, testClient client.Client, dpuService *dpuservicev1.DPUService, clusterName string) {
+func assertConfigPortEndpointSlice(g Gomega, testClient client.Client, dpuService *dpuservicev1.DPUService, expectedEndpointSliceEndpoint []discoveryv1.Endpoint, clusterName string) {
 	endpointSliceName := getConfigPortName(clusterName, dpuService.GetName())
 	endpointSlice := &discoveryv1.EndpointSlice{}
 	g.Expect(testClient.Get(ctx, types.NamespacedName{
@@ -1238,6 +1269,10 @@ func assertConfigPortEndpointSlice(g Gomega, testClient client.Client, dpuServic
 	g.Expect(ownerRef.Kind).To(Equal(dpuservicev1.DPUServiceGroupVersionKind.Kind))
 	g.Expect(ownerRef.Name).To(Equal(dpuService.GetName()))
 	g.Expect(ownerRef.UID).To(Equal(dpuService.GetUID()))
+
+	// Validate endpoints
+	g.Expect(endpointSlice.Endpoints).To(HaveLen(len(expectedEndpointSliceEndpoint)))
+	g.Expect(endpointSlice.Endpoints).To(ConsistOf(expectedEndpointSliceEndpoint))
 }
 
 func assertConfigPortEndpoints(g Gomega, testClient client.Client, dpuService *dpuservicev1.DPUService, clusterName string) {
@@ -1636,7 +1671,7 @@ func getMinimalDPUServices(testNamespace string) []*dpuservicev1.DPUService {
 								MatchExpressions: []corev1.NodeSelectorRequirement{
 									{
 										Key:      "key",
-										Operator: "Exists",
+										Operator: corev1.NodeSelectorOpExists,
 									},
 								},
 							},
@@ -2155,3 +2190,492 @@ func Test_dpuNodePortsToMap(t *testing.T) {
 		})
 	}
 }
+
+func newTestDPUService(name, namespace string) *dpuservicev1.DPUService {
+	return &dpuservicev1.DPUService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: dpuservicev1.DPUServiceSpec{
+			HelmChart: dpuservicev1.HelmChart{
+				Source: dpuservicev1.ApplicationSource{
+					RepoURL: "oci://repository.com",
+					Version: "v1.1",
+					Chart:   "chart",
+				},
+			},
+			ConfigPorts: &dpuservicev1.ConfigPorts{
+				ServiceType: corev1.ServiceTypeNodePort,
+				Ports: []dpuservicev1.ConfigPort{
+					{
+						Name:     "port1",
+						Protocol: corev1.ProtocolTCP,
+						Port:     80,
+					},
+				},
+			},
+		},
+	}
+}
+
+func newTestNode(name, hostNodeName string) *corev1.Node {
+	return &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Labels: map[string]string{
+				util.HostNameDPULabelKey: hostNodeName,
+			},
+		},
+		Status: corev1.NodeStatus{
+			Addresses: []corev1.NodeAddress{
+				{Type: corev1.NodeInternalIP, Address: "1.1.1.1"},
+			},
+		},
+	}
+}
+
+var _ = Describe("nodeEventHandler", func() {
+	var (
+		handler      *nodeEventHandler
+		queue        workqueue.TypedRateLimitingInterface[ctrl.Request]
+		hostNodeName string
+	)
+
+	// createAndWait creates the given object and waits until it can be retrieved.
+	// This is necessary to avoid race conditions between the creation and the nodeEventHandler processing.
+	createAndWait := func(ctx context.Context, c client.Client, obj client.Object) {
+		Expect(c.Create(ctx, obj)).To(Succeed())
+		Eventually(func(g Gomega) {
+			err := c.Get(ctx, client.ObjectKeyFromObject(obj), obj)
+			g.Expect(err).NotTo(HaveOccurred())
+		}).WithTimeout(10 * time.Second).Should(Succeed())
+	}
+
+	BeforeEach(func() {
+		testNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace}}
+		Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, testNS))).To(Succeed())
+		dpfOperatorConfig := getMinimalDPFOperatorConfig()
+		Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, dpfOperatorConfig))).To(Succeed())
+		DeferCleanup(testClient.Delete, ctx, dpfOperatorConfig)
+
+		hostNodeName = "host-node" // nolint:goconst
+		handler = &nodeEventHandler{
+			hostClient: testManager.GetClient(), // Use the manager's client which has the indexers registered
+		}
+
+		// Create a new workqueue for each test
+		queue = workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[ctrl.Request]())
+
+		DeferCleanup(func() {
+			queue.ShutDown()
+		})
+	})
+
+	Describe("handleNodeEventHelper", func() {
+		var testNamespace string
+
+		BeforeEach(func() {
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "test-node-handler-"}}
+			Expect(testClient.Create(ctx, ns)).To(Succeed())
+			testNamespace = ns.Name
+			DeferCleanup(testClient.Delete, ctx, ns)
+		})
+
+		It("should enqueue the DPUService when node has the host label and matches NodeSelector", func() {
+			dpuService := newTestDPUService("flannel", testNamespace)
+			createAndWait(ctx, testClient, dpuService)
+			DeferCleanup(testClient.Delete, ctx, dpuService)
+
+			node := newTestNode("dpu-node", hostNodeName)
+			node.Labels["key"] = "value"
+
+			handler.handleNodeEventHelper(ctx, node, queue)
+
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+				return item.Name == "flannel" && item.Namespace == testNamespace
+			}, 1*time.Second).Should(BeTrue())
+		})
+
+		It("should not enqueue DPUService when node lacks host label", func() {
+			dpuService := newTestDPUService("test-service-no-label", testNamespace)
+			createAndWait(ctx, testClient, dpuService)
+			DeferCleanup(testClient.Delete, ctx, dpuService)
+
+			node := newTestNode("dpu-node-no-label", hostNodeName)
+			delete(node.Labels, util.HostNameDPULabelKey)
+			node.Labels["other-key"] = "value"
+
+			handler.handleNodeEventHelper(ctx, node, queue)
+
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+
+		It("should not enqueue DPUService when node has no addresses", func() {
+			dpuService := newTestDPUService("test-service-no-addr", testNamespace)
+			createAndWait(ctx, testClient, dpuService)
+			DeferCleanup(testClient.Delete, ctx, dpuService)
+
+			node := newTestNode("dpu-node-no-addresses", hostNodeName)
+			node.Status.Addresses = []corev1.NodeAddress{}
+
+			handler.handleNodeEventHelper(ctx, node, queue)
+
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+
+		It("should not enqueue DPUService without ConfigPorts", func() {
+			dpuService := newTestDPUService("no-config-ports", testNamespace)
+			dpuService.Spec.ConfigPorts = nil
+			createAndWait(ctx, testClient, dpuService)
+			DeferCleanup(testClient.Delete, ctx, dpuService)
+
+			node := newTestNode("dpu-node", hostNodeName)
+
+			handler.handleNodeEventHelper(ctx, node, queue)
+
+			Consistently(func() bool {
+				for queue.Len() > 0 {
+					item, shutdown := queue.Get()
+					if shutdown {
+						return false
+					}
+					defer queue.Done(item)
+					if item.Name == "no-config-ports" && item.Namespace == testNamespace {
+						return false
+					}
+				}
+				return true
+			}, 500*time.Millisecond).Should(BeTrue())
+		})
+
+		It("should enqueue DPUService when node matches NodeSelector", func() {
+			dpuService := newTestDPUService("selective-service", testNamespace)
+			dpuService.Spec.ServiceDaemonSet = &dpuservicev1.ServiceDaemonSetValues{
+				NodeSelector: &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{Key: "region", Operator: corev1.NodeSelectorOpIn, Values: []string{"us-west"}},
+							},
+						},
+					},
+				},
+			}
+			createAndWait(ctx, testClient, dpuService)
+			DeferCleanup(testClient.Delete, ctx, dpuService)
+
+			node := newTestNode("dpu-node-west", hostNodeName)
+			node.Labels["region"] = "us-west"
+
+			handler.handleNodeEventHelper(ctx, node, queue)
+
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+				return item.Name == "selective-service" && item.Namespace == testNamespace
+			}, 1*time.Second).Should(BeTrue())
+		})
+
+		It("should not enqueue DPUService when node does not match NodeSelector", func() {
+			dpuService := newTestDPUService("random-service", testNamespace)
+			dpuService.Spec.ServiceDaemonSet = &dpuservicev1.ServiceDaemonSetValues{
+				NodeSelector: &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{Key: "region", Operator: corev1.NodeSelectorOpIn, Values: []string{"us-west"}},
+							},
+						},
+					},
+				},
+			}
+			createAndWait(ctx, testClient, dpuService)
+			DeferCleanup(testClient.Delete, ctx, dpuService)
+
+			node := newTestNode("dpu-node-east", hostNodeName)
+			node.Labels["region"] = "us-east"
+
+			handler.handleNodeEventHelper(ctx, node, queue)
+
+			Consistently(func() bool {
+				for queue.Len() > 0 {
+					item, shutdown := queue.Get()
+					if shutdown {
+						return false
+					}
+					defer queue.Done(item)
+					if item.Name == "random-service" && item.Namespace == testNamespace {
+						return false
+					}
+				}
+				return true
+			}, 500*time.Millisecond).Should(BeTrue())
+		})
+
+		It("should enqueue multiple matching DPUServices", func() {
+			dpuService1 := newTestDPUService("service-1", testNamespace)
+			dpuService2 := newTestDPUService("service-2", testNamespace)
+			createAndWait(ctx, testClient, dpuService1)
+			createAndWait(ctx, testClient, dpuService2)
+			DeferCleanup(testClient.Delete, ctx, dpuService1)
+			DeferCleanup(testClient.Delete, ctx, dpuService2)
+
+			node := newTestNode("dpu-node", hostNodeName)
+
+			handler.handleNodeEventHelper(ctx, node, queue)
+
+			enqueuedServices := make(map[string]bool)
+			Eventually(func() int {
+				for queue.Len() > 0 {
+					item, shutdown := queue.Get()
+					if shutdown {
+						break
+					}
+					defer queue.Done(item)
+					enqueuedServices[item.Name] = true
+				}
+				return len(enqueuedServices)
+			}, 1*time.Second).Should(Equal(2))
+			Expect(enqueuedServices["service-1"]).To(BeTrue())
+			Expect(enqueuedServices["service-2"]).To(BeTrue())
+		})
+
+		It("should deduplicate requests when enqueueing", func() {
+			dpuService := newTestDPUService("test-service-dedup", testNamespace)
+			createAndWait(ctx, testClient, dpuService)
+			DeferCleanup(testClient.Delete, ctx, dpuService)
+
+			node := newTestNode("dpu-node", hostNodeName)
+
+			handler.handleNodeEventHelper(ctx, node, queue)
+			handler.handleNodeEventHelper(ctx, node, queue)
+
+			count := 0
+			Eventually(func() int {
+				for queue.Len() > 0 {
+					item, shutdown := queue.Get()
+					if shutdown {
+						break
+					}
+					defer queue.Done(item)
+					if item.Name == "test-service-dedup" && item.Namespace == testNamespace {
+						count++
+					}
+				}
+				return count
+			}, 1*time.Second).Should(Equal(1))
+		})
+	})
+
+	Describe("nodeEventHandler Create", func() {
+		var testNamespace string
+
+		BeforeEach(func() {
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "test-create-"}}
+			Expect(testClient.Create(ctx, ns)).To(Succeed())
+			testNamespace = ns.Name
+			DeferCleanup(testClient.Delete, ctx, ns)
+		})
+
+		It("should call handleNodeEventHelper on create event", func() {
+			dpuService := newTestDPUService("test-service-create", testNamespace)
+			createAndWait(ctx, testClient, dpuService)
+			DeferCleanup(testClient.Delete, ctx, dpuService)
+
+			node := newTestNode("new-node", hostNodeName)
+
+			handler.Create(ctx, event.CreateEvent{Object: node}, queue)
+
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+				return item.Name == "test-service-create" && item.Namespace == testNamespace
+			}, 1*time.Second).Should(BeTrue())
+		})
+	})
+
+	Describe("nodeEventHandler Update", func() {
+		var testNamespace string
+
+		BeforeEach(func() {
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "test-update-"}}
+			Expect(testClient.Create(ctx, ns)).To(Succeed())
+			testNamespace = ns.Name
+			DeferCleanup(testClient.Delete, ctx, ns)
+		})
+
+		It("should call handleNodeEventHelper on update event", func() {
+			dpuService := newTestDPUService("test-service-update", testNamespace)
+			createAndWait(ctx, testClient, dpuService)
+			DeferCleanup(testClient.Delete, ctx, dpuService)
+
+			oldNode := newTestNode("updated-node", hostNodeName)
+			newNode := oldNode.DeepCopy()
+			newNode.Status.Addresses = []corev1.NodeAddress{
+				{Type: corev1.NodeInternalIP, Address: "2.2.2.2"},
+			}
+
+			handler.Update(ctx, event.UpdateEvent{ObjectOld: oldNode, ObjectNew: newNode}, queue)
+
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+				return item.Name == "test-service-update" && item.Namespace == testNamespace
+			}, 1*time.Second).Should(BeTrue())
+		})
+	})
+
+	Describe("nodeEventHandler Delete", func() {
+		var testNamespace string
+
+		BeforeEach(func() {
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "test-delete-"}}
+			Expect(testClient.Create(ctx, ns)).To(Succeed())
+			testNamespace = ns.Name
+			DeferCleanup(testClient.Delete, ctx, ns)
+		})
+
+		It("should call handleNodeEventHelper on delete event", func() {
+			dpuService := newTestDPUService("test-service-delete", testNamespace)
+			createAndWait(ctx, testClient, dpuService)
+			DeferCleanup(testClient.Delete, ctx, dpuService)
+
+			node := newTestNode("deleted-node", hostNodeName)
+
+			handler.Delete(ctx, event.DeleteEvent{Object: node}, queue)
+
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+				return item.Name == "test-service-delete" && item.Namespace == testNamespace
+			}, 1*time.Second).Should(BeTrue())
+		})
+	})
+
+	Describe("nodeEventHandler Generic", func() {
+		It("should not process generic events", func() {
+			node := newTestNode("generic-node", hostNodeName)
+
+			handler.Generic(ctx, event.GenericEvent{Object: node}, queue)
+
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+	})
+
+	Describe("nodeAddressPredicate", func() {
+		var predicate predicate.Funcs
+
+		BeforeEach(func() {
+			predicate = nodeAddressPredicate()
+		})
+
+		Context("CreateFunc", func() {
+			It("should return true for all create events", func() {
+				node := newTestNode("new-node", hostNodeName)
+				Expect(predicate.CreateFunc(event.CreateEvent{Object: node})).To(BeTrue())
+			})
+		})
+
+		Context("UpdateFunc", func() {
+			It("should return true when addresses change", func() {
+				oldNode := newTestNode("test-node", hostNodeName)
+				newNode := oldNode.DeepCopy()
+				newNode.Status.Addresses = []corev1.NodeAddress{
+					{Type: corev1.NodeInternalIP, Address: "2.2.2.2"},
+				}
+
+				Expect(predicate.UpdateFunc(event.UpdateEvent{
+					ObjectOld: oldNode,
+					ObjectNew: newNode,
+				})).To(BeTrue())
+			})
+
+			It("should return true when address is added", func() {
+				oldNode := newTestNode("test-node", hostNodeName)
+				newNode := oldNode.DeepCopy()
+				newNode.Status.Addresses = append(newNode.Status.Addresses,
+					corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: "2.2.2.2"})
+
+				Expect(predicate.UpdateFunc(event.UpdateEvent{
+					ObjectOld: oldNode,
+					ObjectNew: newNode,
+				})).To(BeTrue())
+			})
+
+			It("should return true when address is removed", func() {
+				oldNode := newTestNode("test-node", hostNodeName)
+				oldNode.Status.Addresses = append(oldNode.Status.Addresses,
+					corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: "2.2.2.2"})
+				newNode := oldNode.DeepCopy()
+				newNode.Status.Addresses = []corev1.NodeAddress{
+					{Type: corev1.NodeInternalIP, Address: "1.1.1.1"},
+				}
+
+				Expect(predicate.UpdateFunc(event.UpdateEvent{
+					ObjectOld: oldNode,
+					ObjectNew: newNode,
+				})).To(BeTrue())
+			})
+
+			It("should return false when addresses do not change", func() {
+				oldNode := newTestNode("test-node", hostNodeName)
+				newNode := oldNode.DeepCopy()
+
+				Expect(predicate.UpdateFunc(event.UpdateEvent{
+					ObjectOld: oldNode,
+					ObjectNew: newNode,
+				})).To(BeFalse())
+			})
+
+			It("should return false when only labels change", func() {
+				oldNode := newTestNode("test-node", hostNodeName)
+				oldNode.Labels["key"] = "old-value"
+				newNode := oldNode.DeepCopy()
+				newNode.Labels["key"] = "new-value"
+
+				Expect(predicate.UpdateFunc(event.UpdateEvent{
+					ObjectOld: oldNode,
+					ObjectNew: newNode,
+				})).To(BeFalse())
+			})
+		})
+
+		Context("DeleteFunc", func() {
+			It("should return true for all delete events", func() {
+				node := newTestNode("deleted-node", hostNodeName)
+				Expect(predicate.DeleteFunc(event.DeleteEvent{Object: node})).To(BeTrue())
+			})
+		})
+
+		Context("GenericFunc", func() {
+			It("should return false for all generic events", func() {
+				node := newTestNode("generic-node", hostNodeName)
+				Expect(predicate.GenericFunc(event.GenericEvent{Object: node})).To(BeFalse())
+			})
+		})
+	})
+})

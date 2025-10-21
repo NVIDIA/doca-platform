@@ -218,6 +218,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	dpuServiceReconciler := &dpuservicecontroller.DPUServiceReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if err = dpuServiceReconciler.SetupWithManager(ctx, mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DPUService")
+		os.Exit(1)
+	}
+
 	// new remote cache
 	rc, err := dpucluster.SetupRemoteCacheWithManager(ctx, mgr,
 		dpucluster.OptionHostClient{Client: mgr.GetClient()},
@@ -228,6 +237,7 @@ func main() {
 			GetWatcherCallbacks: []dpucluster.GetWatcherCallback{
 				dpuReadyReconciler.WatchServicePods,
 				dpuReadyReconciler.WatchServiceChains,
+				dpuServiceReconciler.WatchNodes,
 			},
 		},
 		dpucluster.OptionDisableFor{DisableFor: []client.Object{
@@ -247,13 +257,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&dpuservicecontroller.DPUServiceReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(ctx, mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DPUService")
-		os.Exit(1)
-	}
+	// Set remote cache to reconcilers that need it
+	dpuServiceReconciler.RemoteCache = rc
 
 	if err = (&dpuservicechaincontroller.DPUServiceInterfaceReconciler{
 		Client:      mgr.GetClient(),

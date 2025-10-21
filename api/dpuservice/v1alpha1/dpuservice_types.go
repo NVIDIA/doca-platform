@@ -50,10 +50,6 @@ const (
 	// DPUServiceInterfaceAnnotationKey is the key used to add an annotation to a
 	// the DPUServiceInterface to indicate that it is consumed by a DPUService.
 	DPUServiceInterfaceAnnotationKey = "dpu.nvidia.com/consumed-by"
-
-	// InterfaceIndexKey is the key used to index the DPUService by the interfaces
-	// it consumes.
-	InterfaceIndexKey = ".metadata.interfaces"
 )
 
 var DPUServiceGroupVersionKind = GroupVersion.WithKind(DPUServiceKind)

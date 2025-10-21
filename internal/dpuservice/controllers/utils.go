@@ -17,13 +17,19 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
 	"slices"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
+	schedulingv1 "k8s.io/component-helpers/scheduling/corev1"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -145,4 +151,97 @@ func newInClusterNodeSelectorFromDPUSetSelector(versionKey string, versionValue 
 		})
 	}
 	return &corev1.NodeSelector{NodeSelectorTerms: nodeSelectorTerms}
+}
+
+func listNodesByNodeAffinity(ctx context.Context, c client.Client, nodeSelectorTerms []corev1.NodeSelectorTerm) ([]corev1.Node, error) {
+	// If a user does not define a NodeSelector we List and return all nodes.
+	if len(nodeSelectorTerms) == 0 {
+		nodeList := &corev1.NodeList{}
+		err := c.List(ctx, nodeList)
+		if err != nil {
+			return nil, err
+		}
+		return nodeList.Items, nil
+	}
+	var matchedNodes []corev1.Node
+	for _, term := range nodeSelectorTerms {
+		selector := convertNodeSelectorTermToSelector(term)
+		nodeList := &corev1.NodeList{}
+		listOptions := &client.ListOptions{
+			LabelSelector: selector,
+		}
+		err := c.List(ctx, nodeList, listOptions)
+		if err != nil {
+			return nil, err
+		}
+		matchedNodes = append(matchedNodes, nodeList.Items...)
+	}
+	return deduplicateNodes(matchedNodes), nil
+}
+
+func convertNodeSelectorTermToSelector(term corev1.NodeSelectorTerm) labels.Selector {
+	reqs := []labels.Requirement{}
+	for _, expr := range term.MatchExpressions {
+		var op selection.Operator
+		switch expr.Operator {
+		case corev1.NodeSelectorOpIn:
+			op = selection.In
+		case corev1.NodeSelectorOpNotIn:
+			op = selection.NotIn
+		case corev1.NodeSelectorOpExists:
+			op = selection.Exists
+		case corev1.NodeSelectorOpDoesNotExist:
+			op = selection.DoesNotExist
+		case corev1.NodeSelectorOpGt:
+			op = selection.GreaterThan
+		case corev1.NodeSelectorOpLt:
+			op = selection.LessThan
+		default:
+			continue
+		}
+
+		req, err := labels.NewRequirement(expr.Key, op, expr.Values)
+		if err == nil {
+			reqs = append(reqs, *req)
+		}
+	}
+	return labels.NewSelector().Add(reqs...)
+}
+
+func deduplicateNodes(nodes []corev1.Node) []corev1.Node {
+	seen := make(map[string]struct{})
+	var unique []corev1.Node
+	for _, node := range nodes {
+		if _, exists := seen[node.Name]; !exists {
+			seen[node.Name] = struct{}{}
+			unique = append(unique, node)
+		}
+	}
+	return unique
+}
+
+// nodeMatchesNodeSelector checks if a node matches the given node selector criteria
+func nodeMatchesNodeSelector(node *corev1.Node, nodeSelector *corev1.NodeSelector) (bool, error) {
+	// If there's no node selector, all nodes are valid
+	if nodeSelector == nil {
+		return true, nil
+	}
+
+	// Kubernetes has a helper function that does this matching for us
+	res, err := schedulingv1.MatchNodeSelectorTerms(node, nodeSelector)
+	return res, err
+}
+
+// enqueueRequests enqueues requests into q after deduplication
+func enqueueRequests(requests []ctrl.Request, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	reqs := make(map[ctrl.Request]struct{})
+
+	// deduplicate requests
+	for _, req := range requests {
+		reqs[req] = struct{}{}
+	}
+
+	for req := range reqs {
+		q.Add(req)
+	}
 }

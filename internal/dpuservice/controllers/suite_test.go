@@ -27,10 +27,12 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/dpuservice/utils"
+	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	argov1 "github.com/nvidia/doca-platform/third_party/api/argocd/api/application/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -44,6 +46,7 @@ import (
 var (
 	cfg                        *rest.Config
 	testClient                 client.Client
+	testManager                ctrl.Manager
 	testEnv                    *envtest.Environment
 	ctx, testManagerCancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
 	chartHelper                *utils.FakeChartHelper
@@ -105,23 +108,40 @@ var _ = BeforeSuite(func() {
 	Expect(testClient).NotTo(BeNil())
 
 	By("setting up and running the test reconciler")
-	testManager, err := ctrl.NewManager(cfg,
+	testManager, err = ctrl.NewManager(cfg,
 		ctrl.Options{
 			Scheme: scheme.Scheme,
+			Client: client.Options{
+				Cache: &client.CacheOptions{
+					DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}},
+				},
+			},
 			// Set metrics server bind address to 0 to disable it.
 			Metrics: server.Options{
 				BindAddress: "0",
 			}})
 	Expect(err).ToNot(HaveOccurred())
 
+	remoteCache, err := dpucluster.SetupRemoteCacheWithManager(ctx, testManager,
+		dpucluster.OptionHostClient{Client: testManager.GetClient()},
+		dpucluster.OptionScheme{Scheme: testManager.GetScheme()},
+		dpucluster.OptionUserAgent{UserAgent: "dpu-service-controller"},
+		dpucluster.OptionDisableFor{DisableFor: []client.Object{
+			&corev1.ConfigMap{},
+			&corev1.Secret{},
+		}})
+	Expect(err).ToNot(HaveOccurred())
+
 	err = SetupIndexers(ctx, testManager)
 	Expect(err).ToNot(HaveOccurred())
 
-	err = (&DPUServiceReconciler{
-		Client: testClient,
-		Scheme: testManager.GetScheme(),
-	}).SetupWithManager(ctx, testManager)
-	Expect(err).ToNot(HaveOccurred())
+	dpuServiceReconciler := &DPUServiceReconciler{
+		Client:      testManager.GetClient(), // Use the manager's client which has the indexers registered
+		Scheme:      testManager.GetScheme(),
+		RemoteCache: remoteCache,
+	}
+	Expect(dpuServiceReconciler.SetupWithManager(ctx, testManager)).ToNot(HaveOccurred())
+	dpuServiceReconciler.RemoteCache = remoteCache
 
 	err = (&DPUDeploymentReconciler{
 		Client: testClient,

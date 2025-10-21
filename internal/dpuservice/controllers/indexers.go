@@ -36,6 +36,10 @@ const (
 	dpuNodeMaintenanceDPUNodeNameField = "spec.dpuNodeName"
 	// dpuServiceDeployInClusterField is the field indexer for DPUService resources by deployment location (true for in cluster, false for DPU)
 	dpuServiceDeployInClusterField = "spec.deployInCluster"
+	// dpuServiceConfigPortsField is the field indexer for DPUService resources by whether ConfigPorts is set
+	dpuServiceConfigPortsField = "spec.configPorts"
+	// dpuServiceInterfacesField is the field indexer for DPUService resources by interfaces
+	dpuServiceInterfacesField = ".metadata.interfaces"
 )
 
 // SetupIndexers initializes all field indexers required by the DPU service controllers
@@ -62,6 +66,26 @@ func SetupIndexers(ctx context.Context, mgr ctrl.Manager) error {
 		return []string{strconv.FormatBool(ptr.Deref(dpuService.Spec.DeployInCluster, false))}
 	}); err != nil {
 		return fmt.Errorf("failed to register indexer for DPUService CR: %w", err)
+	}
+
+	// Set up the index for DPUService lookups by interfaces
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &dpuservicev1.DPUService{}, dpuServiceInterfacesField, func(obj client.Object) []string {
+		dpuService := obj.(*dpuservicev1.DPUService)
+		namespacedNames, err := getInterfaceNamespacedNames(dpuService)
+		if err != nil {
+			return nil
+		}
+		return namespacedNames
+	}); err != nil {
+		return fmt.Errorf("failed to register indexer for DPUService Interfaces field: %w", err)
+	}
+
+	// Set up the index for DPUService lookups by whether ConfigPorts is set
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &dpuservicev1.DPUService{}, dpuServiceConfigPortsField, func(obj client.Object) []string {
+		dpuService := obj.(*dpuservicev1.DPUService)
+		return []string{strconv.FormatBool(dpuService.Spec.ConfigPorts != nil)}
+	}); err != nil {
+		return fmt.Errorf("failed to register indexer for DPUService ConfigPorts field: %w", err)
 	}
 
 	return nil
