@@ -83,9 +83,9 @@ NGC_VERSION ?= 3.64.4
 SHFMT_VERSION ?= v3.11.0
 
 ## Tool Binaries
-export YQ ?= $(TOOLSDIR)/yq-$(YQ_VERSION)
-export HELM ?= $(TOOLSDIR)/helm-$(HELM_VER)
-export HELMFILE ?= $(TOOLSDIR)/helmfile-$(HELMFILE_VERSION)
+export YQ = $(TOOLSDIR)/yq-$(YQ_VERSION)
+export HELM = $(TOOLSDIR)/helm-$(HELM_VER)
+export HELMFILE = $(TOOLSDIR)/helmfile-$(HELMFILE_VERSION)
 KUBECTL ?= kubectl
 KUSTOMIZE ?= $(TOOLSDIR)/kustomize-$(KUSTOMIZE_VERSION)
 CONTROLLER_GEN ?= $(TOOLSDIR)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
