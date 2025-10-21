@@ -28,9 +28,10 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/argocd"
 	"github.com/nvidia/doca-platform/internal/digest"
-	"github.com/nvidia/doca-platform/internal/dpuservice/predicates"
+	dpuservicepredicates "github.com/nvidia/doca-platform/internal/dpuservice/predicates"
 	dpuserviceutils "github.com/nvidia/doca-platform/internal/dpuservice/utils"
 	"github.com/nvidia/doca-platform/internal/operator/utils"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	argov1 "github.com/nvidia/doca-platform/third_party/api/argocd/api/application/v1alpha1"
@@ -39,6 +40,7 @@ import (
 	multusTypes "gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/types"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,21 +50,27 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // DPUServiceReconciler reconciles a DPUService object
 type DPUServiceReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme      *runtime.Scheme
+	RemoteCache *dpucluster.RemoteCache
+	controller  controller.Controller
 }
 
 // pauseDPUServiceReconciler pauses the DPUService Reconciler by doing noop reconciliation loops. This is helpful to
@@ -103,20 +111,7 @@ var applyPatchOptions = []client.PatchOption{
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DPUServiceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &dpuservicev1.DPUService{}, dpuservicev1.InterfaceIndexKey,
-		func(o client.Object) []string {
-			obj := o.(*dpuservicev1.DPUService)
-			namespacedNames, err := getInterfaceNamespacedNames(obj)
-			if err != nil {
-				return nil
-			}
-			return namespacedNames
-		},
-	); err != nil {
-		return err
-	}
-
-	return ctrl.NewControllerManagedBy(mgr).
+	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&dpuservicev1.DPUService{}).
 		Watches(&argov1.Application{}, handler.EnqueueRequestsFromMapFunc(r.requestsForChangeByLabel)).
 		Watches(&corev1.Service{}, handler.EnqueueRequestsFromMapFunc(r.requestsForChangeByLabel)).
@@ -124,10 +119,17 @@ func (r *DPUServiceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 		Watches(
 			&dpuservicev1.DPUServiceInterface{},
 			handler.EnqueueRequestsFromMapFunc(r.requestsForDPUServiceInterfaceChange),
-			builder.WithPredicates(predicates.DPUServiceInterfaceChangePredicate{}),
+			builder.WithPredicates(dpuservicepredicates.DPUServiceInterfaceChangePredicate{}),
 		).
 		Watches(&provisioningv1.DPUCluster{}, handler.EnqueueRequestsFromMapFunc(r.DPUClusterToDPUService)).
-		Complete(r)
+		Build(r)
+
+	if err != nil {
+		return err
+	}
+
+	r.controller = c
+	return nil
 }
 
 // Reconcile reconciles changes in a DPUService.
@@ -952,7 +954,7 @@ func (r *DPUServiceReconciler) reconcileConfigPorts(ctx context.Context, dpuServ
 			errs = append(errs, fmt.Errorf("config ports not ready yet for cluster %q: %w", dpuClusterConfig.Cluster.Name, err))
 			continue
 		}
-		if err := r.reconcileConfigPortEndpointSlices(ctx, dpuClusterConfig.Cluster.Name, dpuService, dpuNodePorts); err != nil {
+		if err := r.reconcileConfigPortEndpointSlices(ctx, dpuClusterConfig, dpuService, dpuNodePorts); err != nil {
 			errs = append(errs, fmt.Errorf("reconcile endpoint slices for cluster %q: %w", dpuClusterConfig.Cluster.Name, err))
 			continue
 		}
@@ -994,12 +996,12 @@ func (r *DPUServiceReconciler) cleanupAllConfigPorts(ctx context.Context, dpuSer
 	return nil
 }
 
-func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Context, clusterName string, dpuService *dpuservicev1.DPUService, dpuNodePorts map[string]int32) error {
+func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Context, dpuClusterConfig *dpucluster.Config, dpuService *dpuservicev1.DPUService, dpuNodePorts map[string]int32) error {
 	log := ctrllog.FromContext(ctx)
 	// First build the EndpointPorts. If there are no ports to expose, return early.
 	endpointPorts := []discoveryv1.EndpointPort{}
 	for _, port := range dpuService.Spec.ConfigPorts.Ports {
-		// TODO: We have to merge the old and new DPU NodePorts for un-disruptive DPUDeployment upgrades.
+		// TODO: We have to merge the old and new DPU NodePorts for disruptive DPUDeployment upgrades.
 		dpuNodePort := dpuNodePorts[port.Name]
 		p := discoveryv1.EndpointPort{
 			Name:     &port.Name,
@@ -1009,7 +1011,7 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 		endpointPorts = append(endpointPorts, p)
 	}
 
-	endpointSliceName := getConfigPortName(clusterName, dpuService.GetName())
+	endpointSliceName := getConfigPortName(dpuClusterConfig.Cluster.Name, dpuService.GetName())
 	endpointSlice := &discoveryv1.EndpointSlice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      endpointSliceName,
@@ -1030,15 +1032,23 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 	}
 
 	log.Info("Reconciling EndpointSlice", "Service", klog.KObj(endpointSlice))
-	// Get the list of DPUs in the cluster to build the Endpoints.
-	dpuList := &provisioningv1.DPUList{}
-	if err := r.Client.List(ctx, dpuList); err != nil {
+	remoteClient, err := r.RemoteCache.GetClient(client.ObjectKeyFromObject(dpuClusterConfig.Cluster))
+	if err != nil {
 		return err
 	}
+	nodeSelectorTerms := []corev1.NodeSelectorTerm{}
+	if dpuService.Spec.ServiceDaemonSet != nil && dpuService.Spec.ServiceDaemonSet.NodeSelector != nil {
+		nodeSelectorTerms = dpuService.Spec.ServiceDaemonSet.NodeSelector.NodeSelectorTerms
+	}
+	dpuClusterNodes, err := listNodesByNodeAffinity(ctx, remoteClient, nodeSelectorTerms)
+	if err != nil {
+		return fmt.Errorf("list nodes by node affinity: %w", err)
+	}
+
 	endpoints := []discoveryv1.Endpoint{}
-	for _, dpu := range dpuList.Items {
+	for _, dpuClusterNode := range dpuClusterNodes {
 		var hostname, address string
-		for _, a := range dpu.Status.Addresses {
+		for _, a := range dpuClusterNode.Status.Addresses {
 			switch a.Type {
 			case corev1.NodeInternalIP:
 				address = a.Address
@@ -1046,13 +1056,26 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 				hostname = a.Address
 			}
 		}
+		hostNodeName := dpuClusterNode.GetLabels()[util.HostNameDPULabelKey]
+		// If one of address, hostname or nodeName is missing, we skip this Node.
+		// We need all information to create a valid Endpoint.
+		if address == "" || hostname == "" || hostNodeName == "" {
+			log.Info("Skipping Node because it has no address or hostname",
+				"Node", klog.KObj(&dpuClusterNode),
+				"address", address,
+				"hostname", hostname,
+				"nodeName", hostNodeName,
+			)
+			continue
+		}
+
 		endpoints = append(endpoints, discoveryv1.Endpoint{
 			Addresses: []string{address},
 			Conditions: discoveryv1.EndpointConditions{
 				Ready: ptr.To(true),
 			},
 			Hostname: &hostname,
-			NodeName: &dpu.Spec.DPUNodeName,
+			NodeName: &hostNodeName,
 		})
 	}
 
@@ -1070,7 +1093,7 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 	}
 	endpointSlice.ObjectMeta.Labels[dpuservicev1.DPUServiceNameLabelKey] = dpuService.GetName()
 	endpointSlice.ObjectMeta.Labels[dpuservicev1.DPUServiceNamespaceLabelKey] = dpuService.GetNamespace()
-	endpointSlice.ObjectMeta.Labels[dpuservicev1.DPUServiceExposedPortForDPUClusterLabelKey] = clusterName
+	endpointSlice.ObjectMeta.Labels[dpuservicev1.DPUServiceExposedPortForDPUClusterLabelKey] = dpuClusterConfig.Cluster.Name
 	endpointSlice.ObjectMeta.Labels[discoveryv1.LabelManagedBy] = dpuServiceControllerName
 
 	// Set the kubernetes.io/service-name to the Service name to label to link the EndpointSlice to the Service.
@@ -1085,7 +1108,12 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 
 	endpointSlice.AddressType = discoveryv1.AddressTypeIPv4
 	endpointSlice.Ports = endpointPorts
-	endpointSlice.Endpoints = endpoints
+
+	// We only set endpoints if we have any. This enables the DPUService to be ready with 0 scheduled Pods, which
+	// is the behavior we want to achieve.
+	if len(endpoints) > 0 {
+		endpointSlice.Endpoints = endpoints
+	}
 
 	endpointSlice.SetManagedFields(nil)
 	endpointSlice.SetGroupVersionKind(discoveryv1.SchemeGroupVersion.WithKind("EndpointSlice"))
@@ -1401,7 +1429,7 @@ func dpuNodePortsToMap(dpuService *dpuservicev1.DPUService, serviceList *corev1.
 	// This can happen if Kubernetes has not assigned a NodePort yet.
 	if len(nodePorts) != len(configPorts) {
 		return nil, fmt.Errorf("creation of Service on DPU not ready yet, expected %d nodePorts, got %d",
-			len(dpuService.Spec.ConfigPorts.Ports), len(nodePorts))
+			len(configPorts), len(nodePorts))
 	}
 
 	return nodePorts, nil
@@ -1613,7 +1641,7 @@ func (r *DPUServiceReconciler) requestsForDPUServiceInterfaceChange(ctx context.
 
 	var list dpuservicev1.DPUServiceList
 	if err := r.List(ctx, &list, client.MatchingFields{
-		dpuservicev1.InterfaceIndexKey: client.ObjectKeyFromObject(dsi).String(),
+		dpuServiceInterfacesField: client.ObjectKeyFromObject(dsi).String(),
 	}); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "failed to list DPUService objects for DPUServiceInterface change")
 		return nil
@@ -1666,4 +1694,151 @@ func getRandomKVPair[T any](m map[string]T) (string, T) {
 
 func isSkipReconcileAnnotationSet(app *argov1.Application) bool {
 	return app.Annotations != nil && app.Annotations[annotationKeyAppSkipReconcile] == strconv.FormatBool(true)
+}
+
+// WatchNodes sets up a watcher for corev1.Node objects in the DPU clusters.
+func (r *DPUServiceReconciler) WatchNodes(_ context.Context, _ client.Client, _ client.ObjectKey) (dpucluster.Watcher, error) {
+	return dpucluster.NewWatcher(dpucluster.WatcherOptions{
+		Name:         "dpuservice-node-watcher",
+		Kind:         &corev1.Node{},
+		EventHandler: &nodeEventHandler{hostClient: r.Client},
+		Predicates: []predicate.Predicate{
+			nodeAddressPredicate(),
+		},
+		Watcher: r.controller,
+	}), nil
+}
+
+func nodeAddressPredicate() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return true
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldNode := e.ObjectOld.(*corev1.Node)
+			newNode := e.ObjectNew.(*corev1.Node)
+
+			// We only care about transitions to/from the node addresses.
+			oldAddresses := oldNode.Status.Addresses
+			newAddresses := newNode.Status.Addresses
+
+			// Only trigger if the addresses have changed
+			if !equality.Semantic.DeepEqual(oldAddresses, newAddresses) {
+				return true
+			}
+
+			// Ignore all other updates
+			return false
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			// accept all delete events
+			return true
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			// we are not interested in generic events
+			return false
+		},
+	}
+}
+
+// nodeEventHandler is a handler for node events
+type nodeEventHandler struct {
+	hostClient client.Client
+}
+
+// handleNodeEventHelper verifies if the node matches any DPUService NodeSelector and enqueues a reconcile request.
+func (p *nodeEventHandler) handleNodeEventHelper(ctx context.Context, node *corev1.Node, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	log := ctrllog.FromContext(ctx)
+
+	if _, exists := node.Labels[util.HostNameDPULabelKey]; !exists {
+		log.Error(fmt.Errorf("host name not found for node %s", node.Name), "Failed to get host name for node")
+		return
+	}
+
+	if len(node.Status.Addresses) == 0 {
+		log.V(1).Info("Node has no addresses, skipping", "node", node.Name)
+		return
+	}
+
+	dpuServiceList := &dpuservicev1.DPUServiceList{}
+	if err := p.hostClient.List(ctx, dpuServiceList, client.MatchingFields{dpuServiceConfigPortsField: "true"}); err != nil {
+		log.Error(err, "failed to list DPUServices for DPUCluster Node change", "node", node.Name)
+		return
+	}
+
+	var requests []reconcile.Request
+	for _, dpuService := range dpuServiceList.Items {
+		// Check if the DPUService has a ServiceDaemonSet with NodeSelector.
+		// If no NodeSelector is defined, the default behavior is to target all DPU nodes.
+		var nodeSelector *corev1.NodeSelector
+		if dpuService.Spec.ServiceDaemonSet != nil && dpuService.Spec.ServiceDaemonSet.NodeSelector != nil {
+			nodeSelector = dpuService.Spec.ServiceDaemonSet.NodeSelector
+		}
+
+		matches, err := nodeMatchesNodeSelector(node, nodeSelector)
+		if err != nil {
+			log.Error(err, "failed to match node against NodeSelector",
+				"Node", node.Name,
+				"DPUService", dpuService.GetName(),
+				"NodeSelector", &nodeSelector)
+			continue
+		}
+
+		if matches {
+			log.V(3).Info("Node matches DPUService NodeSelector, triggering reconciliation",
+				"Node", node.Name,
+				"DPUService", fmt.Sprintf("%s/%s", dpuService.GetNamespace(), dpuService.GetName()))
+			requests = append(requests, reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: dpuService.GetNamespace(),
+					Name:      dpuService.GetName(),
+				},
+			})
+		}
+	}
+
+	enqueueRequests(requests, q)
+}
+
+func (p *nodeEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	reqLog := ctrllog.FromContext(ctx)
+
+	pod, ok := e.Object.(*corev1.Node)
+	if !ok {
+		reqLog.Error(fmt.Errorf("event expected a Node but got a %T", e.Object), "Failed to convert object")
+		return
+	}
+
+	p.handleNodeEventHelper(ctx, pod, q)
+}
+
+// Update finds the host node name from the node labels and enqueues a request for the host node
+func (p *nodeEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	reqLog := ctrllog.FromContext(ctx)
+
+	pod, ok := e.ObjectNew.(*corev1.Node)
+	if !ok {
+		reqLog.Error(fmt.Errorf("event expected a Node but got a %T", e.ObjectNew), "Failed to convert object")
+		return
+	}
+
+	p.handleNodeEventHelper(ctx, pod, q)
+}
+
+// Delete finds the host node name from the node labels and enqueues a request for the host node
+func (p *nodeEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	reqLog := ctrllog.FromContext(ctx)
+
+	pod, ok := e.Object.(*corev1.Node)
+	if !ok {
+		reqLog.Error(fmt.Errorf("event expected a Node but got a %T", e.Object), "Failed to convert object")
+		return
+	}
+
+	p.handleNodeEventHelper(ctx, pod, q)
+}
+
+func (p *nodeEventHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	// Generic is not implemented
+	// because we are not interested in generic events and the predicate filters out all generic events
 }
