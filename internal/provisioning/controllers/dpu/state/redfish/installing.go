@@ -28,10 +28,8 @@ import (
 	rc "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	"github.com/nvidia/doca-platform/internal/release"
 
 	types "k8s.io/apimachinery/pkg/types"
-	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -126,22 +124,6 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	// Wait 3 minutes to finish cloud-init
 	if time.Since(cond.LastTransitionTime.Time) < 3*time.Minute {
 		return *state, nil
-	}
-
-	patch := kclient.MergeFrom(dpu.DeepCopy())
-	if dpu.Spec.Cluster.NodeLabels == nil {
-		dpu.Spec.Cluster.NodeLabels = make(map[string]string)
-	}
-	dpu.Spec.Cluster.NodeLabels[cutil.HostNameDPULabelKey] = dpu.Spec.DPUNodeName
-	// Set the DPU version in the node labels. This is necessary to be able to schedule Pods
-	// on the DPU Node based on the DPF version.
-	// The DPF version in the status should never be nil, but we check it here to avoid nil pointer dereference.
-	if dpu.Status.DPFVersion != nil {
-		dpu.Spec.Cluster.NodeLabels[release.DPFVersionLabelKey] = *dpu.Status.DPFVersion
-	}
-	if err := ctrlCtx.Client.Patch(ctx, dpu, patch); err != nil {
-		err = fmt.Errorf("failed to patch DPU: %w", err)
-		return *state, err
 	}
 
 	ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
