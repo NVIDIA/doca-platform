@@ -40,7 +40,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/util/workqueue"
-	schedulingv1 "k8s.io/component-helpers/scheduling/corev1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -665,18 +664,6 @@ func getReadyDPUServicesFromList(dpuServiceList []dpuservicev1.DPUService, servi
 	return dpuServices
 }
 
-// nodeMatchesNodeSelector checks if a node matches the given node selector criteria
-func nodeMatchesNodeSelector(node *corev1.Node, nodeSelector *corev1.NodeSelector) (bool, error) {
-	// If there's no node selector, all nodes are valid
-	if nodeSelector == nil {
-		return true, nil
-	}
-
-	// Kubernetes has a helper function that does this matching for us
-	res, err := schedulingv1.MatchNodeSelectorTerms(node, nodeSelector)
-	return res, err
-}
-
 // nodeMatchesLabelSelector checks if a node matches the given label selector criteria
 func nodeMatchesLabelSelector(node *corev1.Node, labelSelector *metav1.LabelSelector) (bool, error) {
 	// If there's no label selector, all nodes are valid
@@ -790,20 +777,6 @@ func getPodReadyCondition(pod *corev1.Pod) corev1.ConditionStatus {
 		}
 	}
 	return corev1.ConditionUnknown
-}
-
-// enqueueRequests enqueues requests into q after deduplication
-func enqueueRequests(requests []ctrl.Request, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	reqs := make(map[ctrl.Request]struct{})
-
-	// deduplicate requests
-	for _, req := range requests {
-		reqs[req] = struct{}{}
-	}
-
-	for req := range reqs {
-		q.Add(req)
-	}
 }
 
 // enqueueHostNodeFromDPUNode retrieves the host node name from the DPU node labels and enqueues a request
