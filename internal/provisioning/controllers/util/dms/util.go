@@ -42,7 +42,8 @@ const (
 	DMSContainerName      string = "dms"
 	// DPFLocalDir is mounted to the containers.
 	// For backwards compatibility, /var/lib/dpf is used, which is the parent directory of /var/lib/dpf/hostagent and the old /var/lib/dpf/dms.
-	DPFLocalDir string = "/var/lib/dpf"
+	DPFLocalDir                     string = "/var/lib/dpf"
+	SystemNodeCriticalPriorityClass string = "system-node-critical"
 )
 
 func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.Node, option dnutil.HostAgentPodOptions, namespace string, dpfOperatorConfigOwnerRef *metav1.OwnerReference) error {
@@ -94,6 +95,7 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 			ServiceAccountName: DMSServiceAccountName,
 			HostNetwork:        true,
 			DNSPolicy:          corev1.DNSClusterFirstWithHostNet,
+			PriorityClassName:  SystemNodeCriticalPriorityClass,
 			Containers: []corev1.Container{
 				{
 					Name:            DMSContainerName,
