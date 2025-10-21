@@ -860,19 +860,12 @@ DPFOperatorConfig/dpfoperatorconfig                      dpf-operator-system
 * Check for IP conflicts in subnet ranges.
 * Ensure the target ServiceInterface is ready.
 
-**E/W Traffic Not Passing within Same VPC after DPU Reprovisioning**:
-
-If you experience issues where east-west (E/W) traffic is not passing between nodes under the same VPC after DPU reprovisioning, follow these steps:
-
-* Verify the ServiceInterfaces are ready on all nodes.
-* Confirm that these ServiceInterfaces are associated with the same DPUVirtualNetwork and are part of the expected DPUVPC.
-
 ## Limitations
 
 * **Production Use**: Not recommended for production use.
 * **Network Types**: Only bridged networks are supported.
 * **IPv6**: Limited IPv6 support.
-* **High Availability**: No built-in HA for OVN Central components.
+* **High Availability**: High availability (HA) for OVN Central is supported, but it is not recommended for production deployments.
 * **DPUVirtualNetwork nodeSelector**: The DPUVirtualNetwork `spec.nodeSelector` currently has no effect.
 * **OVN Central connection is not secure**: Currently only `tcp` transport is supported.
 * **Disabling Masquerade is not supported**: The DPUVirtualNetwork `spec.masquerade` should not be set to `false` as this use-case is not currently supported.
