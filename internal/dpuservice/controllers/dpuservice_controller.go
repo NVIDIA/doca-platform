@@ -1803,39 +1803,39 @@ func (p *nodeEventHandler) handleNodeEventHelper(ctx context.Context, node *core
 func (p *nodeEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
 	reqLog := ctrllog.FromContext(ctx)
 
-	pod, ok := e.Object.(*corev1.Node)
+	node, ok := e.Object.(*corev1.Node)
 	if !ok {
 		reqLog.Error(fmt.Errorf("event expected a Node but got a %T", e.Object), "Failed to convert object")
 		return
 	}
 
-	p.handleNodeEventHelper(ctx, pod, q)
+	p.handleNodeEventHelper(ctx, node, q)
 }
 
 // Update finds the host node name from the node labels and enqueues a request for the host node
 func (p *nodeEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
 	reqLog := ctrllog.FromContext(ctx)
 
-	pod, ok := e.ObjectNew.(*corev1.Node)
+	node, ok := e.ObjectNew.(*corev1.Node)
 	if !ok {
 		reqLog.Error(fmt.Errorf("event expected a Node but got a %T", e.ObjectNew), "Failed to convert object")
 		return
 	}
 
-	p.handleNodeEventHelper(ctx, pod, q)
+	p.handleNodeEventHelper(ctx, node, q)
 }
 
 // Delete finds the host node name from the node labels and enqueues a request for the host node
 func (p *nodeEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
 	reqLog := ctrllog.FromContext(ctx)
 
-	pod, ok := e.Object.(*corev1.Node)
+	node, ok := e.Object.(*corev1.Node)
 	if !ok {
 		reqLog.Error(fmt.Errorf("event expected a Node but got a %T", e.Object), "Failed to convert object")
 		return
 	}
 
-	p.handleNodeEventHelper(ctx, pod, q)
+	p.handleNodeEventHelper(ctx, node, q)
 }
 
 func (p *nodeEventHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {

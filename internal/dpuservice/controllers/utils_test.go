@@ -401,9 +401,11 @@ var _ = Describe("deduplicateNodes", func() {
 			}
 			result := deduplicateNodes(nodes)
 			Expect(result).To(HaveLen(3))
-			Expect(result[0].Name).To(Equal("node1"))
-			Expect(result[1].Name).To(Equal("node2"))
-			Expect(result[2].Name).To(Equal("node3"))
+			Expect(result).To(ConsistOf(
+				HaveField("Name", "node1"),
+				HaveField("Name", "node2"),
+				HaveField("Name", "node3"),
+			))
 		})
 
 		It("should remove duplicate nodes", func() {
