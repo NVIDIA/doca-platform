@@ -141,7 +141,6 @@ var _ = BeforeSuite(func() {
 		RemoteCache: remoteCache,
 	}
 	Expect(dpuServiceReconciler.SetupWithManager(ctx, testManager)).ToNot(HaveOccurred())
-	dpuServiceReconciler.RemoteCache = remoteCache
 
 	err = (&DPUDeploymentReconciler{
 		Client: testClient,
