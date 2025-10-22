@@ -53,12 +53,13 @@ func parseVersion(version string) (*semver.Version, error) {
 // isSameMajorMinor returns true if the previous version and the DPF release version
 // have the same major and minor version.
 func isSameMajorMinor(prevVersion *semver.Version, version string) bool {
-	// Create a tilde constraint for the target version to allow patch-level changes within same major.minor.
-	constraint, _ := semver.NewConstraint(fmt.Sprintf("~%s-0", version))
-	if constraint == nil {
+	releaseVersion, err := semver.NewVersion(version)
+	if err != nil {
 		return false
 	}
-	return constraint.Check(prevVersion)
+
+	return prevVersion.Major() == releaseVersion.Major() &&
+		prevVersion.Minor() == releaseVersion.Minor()
 }
 
 // isAllowedSourceVersion returns true if prevVersion is allowed by allowSourceVersions (including pre-releases of allowed).

@@ -19,6 +19,7 @@ package utils
 import (
 	"testing"
 
+	"github.com/Masterminds/semver/v3"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/utils/ptr"
@@ -72,5 +73,22 @@ var _ = Describe("ValidateDPFVersion", func() {
 		Entry("v25.10.2 previous version should succeed with multiple allowed sources", ptr.To("v25.10.2"), []string{"v25.10.0", "v25.7.0"}, true, ""),
 		Entry("v25.7.5 previous version should succeed with multiple allowed sources", ptr.To("v25.7.5"), []string{"v25.10.0", "v25.7.0"}, true, ""),
 		Entry("v25.7.0 should succeed when upgrading from v25.7.0-rc.2", ptr.To("v0.1.0-1e000000-test"), []string{"v25.7.0"}, true, ""),
+	)
+})
+
+var _ = Describe("isSameMajorMinor", func() {
+	DescribeTable("version comparison",
+		func(prevVersionStr string, targetVersion string, expected bool) {
+			prevVersion := semver.MustParse(prevVersionStr)
+			result := isSameMajorMinor(prevVersion, targetVersion)
+			Expect(result).To(Equal(expected))
+		},
+		Entry("same version", "v25.7.0", "v25.7.0", true),
+		Entry("same major.minor with different patch", "v25.7.0", "v25.7.1", true),
+		Entry("same major.minor with prerelease", "v25.7.0", "v25.7.0-beta.3", true),
+		Entry("update from beta to another beta", "v25.10.0-beta.4", "v25.10.0-beta.5", true),
+		Entry("different minor", "v25.7.0", "v25.10.0", false),
+		Entry("different major", "v25.7.0", "v26.7.0", false),
+		Entry("invalid target version", "v25.7.0", "invalid-version", false),
 	)
 })
