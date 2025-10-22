@@ -46,7 +46,6 @@ type TestPodConfig struct {
 	Name          string
 	Namespace     string
 	NADName       string
-	MACAddress    string
 	InterfaceName string
 	IP            string
 	DST           string
