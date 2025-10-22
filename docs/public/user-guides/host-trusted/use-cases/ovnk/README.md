@@ -533,6 +533,11 @@ that should run on a set of DPUs.
 
 #### Create the DPUDeployment, DPUServiceConfig, DPUServiceTemplate and other necessary objects
 
+> [!WARNING]
+> In case more than 1 DPU exists per node, the relevant selector should be applied in the DPUDeployment
+> to select the appropriate DPU. See [DPUDeployment - DPUs Configuration](../../../../developer-guides/api/dpudeployment.md#dpus-configuration)
+> to understand more about the selectors.
+
 A number of [environment variables](#0-required-variables) must be set before running this command.
 
 ```shell
@@ -679,6 +684,8 @@ spec:
       nodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
+      dpuSelector:
+        provisioning.dpu.nvidia.com/dpudevice-pf0-name: $DPU_P0
   services:
     ovn:
       serviceTemplate: ovn

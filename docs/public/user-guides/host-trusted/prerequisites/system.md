@@ -29,7 +29,7 @@ Each worker machine:
 * x86_64 architecture
 * 16 GB RAM
 * 8 CPUs
-* Exactly one DPU
+* Any number of DPUs
 
 #### DPUs
 
