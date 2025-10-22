@@ -24,7 +24,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
-	dpucluster "github.com/nvidia/doca-platform/pkg/dpucluster"
+	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/informer"
 
@@ -83,7 +83,6 @@ var _ = Describe("DPUServiceInterface Controller", func() {
 			Eventually(func(g Gomega) {
 				sis := &dpuservicev1.ServiceInterfaceSet{ObjectMeta: metav1.ObjectMeta{Name: dsiResourceName, Namespace: testNS.Name}}
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(sis), sis)).NotTo(HaveOccurred())
-				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, sis)
 			}, timeout*30, interval).Should(Succeed())
 			By("Verify ServiceInterfaceSet")
 			sis := &dpuservicev1.ServiceInterfaceSet{ObjectMeta: metav1.ObjectMeta{Name: dsiResourceName, Namespace: testNS.Name}}
@@ -100,7 +99,7 @@ var _ = Describe("DPUServiceInterface Controller", func() {
 				updatedSpec := getTestServiceInterfaceSetSpec(labelSelector)
 				dsc.Spec.Template.Spec = *updatedSpec
 				g.Expect(testClient.Update(ctx, dsc)).To(Succeed())
-			}).Should(Succeed())
+			}, timeout, interval).Should(Succeed())
 			By("Verify ServiceInterfaceSet is updated")
 			Eventually(func(g Gomega) {
 				sis := &dpuservicev1.ServiceInterfaceSet{ObjectMeta: metav1.ObjectMeta{Name: dsiResourceName, Namespace: testNS.Name}}
