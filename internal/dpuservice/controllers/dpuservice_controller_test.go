@@ -2290,9 +2290,8 @@ var _ = Describe("nodeEventHandler", func() {
 			node := newTestNode("dpu-node", hostNodeName)
 			node.Labels["key"] = "value"
 
-			handler.handleNodeEventHelper(ctx, node, queue)
-
 			Eventually(func() bool {
+				handler.handleNodeEventHelper(ctx, node, queue)
 				item, shutdown := queue.Get()
 				if shutdown {
 					return false
@@ -2311,9 +2310,8 @@ var _ = Describe("nodeEventHandler", func() {
 			delete(node.Labels, util.HostNameDPULabelKey)
 			node.Labels["other-key"] = "value"
 
-			handler.handleNodeEventHelper(ctx, node, queue)
-
 			Consistently(func() int {
+				handler.handleNodeEventHelper(ctx, node, queue)
 				return queue.Len()
 			}, 1*time.Second).Should(Equal(0))
 		})
@@ -2326,9 +2324,8 @@ var _ = Describe("nodeEventHandler", func() {
 			node := newTestNode("dpu-node-no-addresses", hostNodeName)
 			node.Status.Addresses = []corev1.NodeAddress{}
 
-			handler.handleNodeEventHelper(ctx, node, queue)
-
 			Consistently(func() int {
+				handler.handleNodeEventHelper(ctx, node, queue)
 				return queue.Len()
 			}, 1*time.Second).Should(Equal(0))
 		})
@@ -2341,9 +2338,8 @@ var _ = Describe("nodeEventHandler", func() {
 
 			node := newTestNode("dpu-node", hostNodeName)
 
-			handler.handleNodeEventHelper(ctx, node, queue)
-
 			Consistently(func() bool {
+				handler.handleNodeEventHelper(ctx, node, queue)
 				for queue.Len() > 0 {
 					item, shutdown := queue.Get()
 					if shutdown {
@@ -2377,9 +2373,8 @@ var _ = Describe("nodeEventHandler", func() {
 			node := newTestNode("dpu-node-west", hostNodeName)
 			node.Labels["region"] = "us-west"
 
-			handler.handleNodeEventHelper(ctx, node, queue)
-
 			Eventually(func() bool {
+				handler.handleNodeEventHelper(ctx, node, queue)
 				item, shutdown := queue.Get()
 				if shutdown {
 					return false
@@ -2408,9 +2403,8 @@ var _ = Describe("nodeEventHandler", func() {
 			node := newTestNode("dpu-node-east", hostNodeName)
 			node.Labels["region"] = "us-east"
 
-			handler.handleNodeEventHelper(ctx, node, queue)
-
 			Consistently(func() bool {
+				handler.handleNodeEventHelper(ctx, node, queue)
 				for queue.Len() > 0 {
 					item, shutdown := queue.Get()
 					if shutdown {
@@ -2435,10 +2429,9 @@ var _ = Describe("nodeEventHandler", func() {
 
 			node := newTestNode("dpu-node", hostNodeName)
 
-			handler.handleNodeEventHelper(ctx, node, queue)
-
 			enqueuedServices := make(map[string]bool)
 			Eventually(func() int {
+				handler.handleNodeEventHelper(ctx, node, queue)
 				for queue.Len() > 0 {
 					item, shutdown := queue.Get()
 					if shutdown {
@@ -2460,11 +2453,10 @@ var _ = Describe("nodeEventHandler", func() {
 
 			node := newTestNode("dpu-node", hostNodeName)
 
-			handler.handleNodeEventHelper(ctx, node, queue)
-			handler.handleNodeEventHelper(ctx, node, queue)
-
 			count := 0
 			Eventually(func() int {
+				handler.handleNodeEventHelper(ctx, node, queue)
+				handler.handleNodeEventHelper(ctx, node, queue)
 				for queue.Len() > 0 {
 					item, shutdown := queue.Get()
 					if shutdown {
@@ -2497,9 +2489,8 @@ var _ = Describe("nodeEventHandler", func() {
 
 			node := newTestNode("new-node", hostNodeName)
 
-			handler.Create(ctx, event.CreateEvent{Object: node}, queue)
-
 			Eventually(func() bool {
+				handler.Create(ctx, event.CreateEvent{Object: node}, queue)
 				item, shutdown := queue.Get()
 				if shutdown {
 					return false
@@ -2531,9 +2522,8 @@ var _ = Describe("nodeEventHandler", func() {
 				{Type: corev1.NodeInternalIP, Address: "2.2.2.2"},
 			}
 
-			handler.Update(ctx, event.UpdateEvent{ObjectOld: oldNode, ObjectNew: newNode}, queue)
-
 			Eventually(func() bool {
+				handler.Update(ctx, event.UpdateEvent{ObjectOld: oldNode, ObjectNew: newNode}, queue)
 				item, shutdown := queue.Get()
 				if shutdown {
 					return false
@@ -2561,9 +2551,8 @@ var _ = Describe("nodeEventHandler", func() {
 
 			node := newTestNode("deleted-node", hostNodeName)
 
-			handler.Delete(ctx, event.DeleteEvent{Object: node}, queue)
-
 			Eventually(func() bool {
+				handler.Delete(ctx, event.DeleteEvent{Object: node}, queue)
 				item, shutdown := queue.Get()
 				if shutdown {
 					return false
