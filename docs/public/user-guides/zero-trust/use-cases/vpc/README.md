@@ -435,6 +435,11 @@ The OVN VPC service consists of the following components:
 
 #### Deploy OVN VPC DPUDeployment
 
+> [!WARNING]
+> In case more than 1 DPU exists per node, the relevant selector should be applied in the DPUDeployment
+> to select the appropriate DPU. See [DPUDeployment - DPUs Configuration](../../../../developer-guides/api/dpudeployment.md#dpus-configuration)
+> to understand more about the selectors.
+
 ```shell
 cat manifests/04-vpc-ovn-dpudeployment/* | envsubst | kubectl apply -f -
 ```

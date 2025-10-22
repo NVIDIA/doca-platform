@@ -297,6 +297,11 @@ kubectl wait --for=condition=ready --namespace dpu-cplane-tenant1 dpucluster --a
 
 ### 3. DPU Provisioning and Interface Plumbing
 
+> [!WARNING]
+> In case more than 1 DPU exists per node, the relevant selector should be applied in the DPUSet
+> to select the appropriate DPU. See [DPUSet - DPU Selection](../../../../developer-guides/api/dpuset.md#dpu-selection)
+> to understand more about the selectors.
+
 In this step we provision our DPUs and we do the nessecary interface plumbing to enable the DPU to act as a passthrough
 device.
 
