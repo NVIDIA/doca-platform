@@ -113,6 +113,66 @@ spec:
         effect: NoSchedule
 ```
 
+## DPU Selection
+
+The DPUSet provides two complementary mechanisms for selecting which DPUs should be managed: `dpuNodeSelector` and
+`dpuSelector`.
+
+### dpuNodeSelector
+
+The `dpuNodeSelector` field is used to select DPUNodes based on their labels. It uses the 
+standard Kubernetes LabelSelector format, which supports both `matchLabels` and `matchExpressions`.
+
+For example, to select nodes with a specific label:
+
+```yaml
+spec:
+  dpuNodeSelector:
+    matchLabels:
+      feature.node.kubernetes.io/dpu-enabled: "true"
+```
+
+Or using match expressions for more complex selection:
+
+```yaml
+spec:
+  dpuNodeSelector:
+    matchExpressions:
+      - key: environment
+        operator: In
+        values:
+          - production
+          - staging
+```
+
+### dpuSelector
+
+The `dpuSelector` field is used to further filter DPUDevices based on their labels. This is applied after the
+`dpuNodeSelector` and allows you to select specific DPUDevices on the selected DPUNodes.
+
+The `dpuSelector` uses a simple map of label key-value pairs, where all specified labels must match (AND logic).
+
+For example, to select only specific DPU models or configurations:
+
+```yaml
+spec:
+  dpuNodeSelector:
+    matchLabels:
+      feature.node.kubernetes.io/dpu-enabled: "true"
+  dpuSelector:
+    provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:1a:00.0"
+```
+
+In Host Trusted model, the automatically created DPUDevice objects have the following labels:
+
+- `provisioning.dpu.nvidia.com/dpudevice-num-of-pfs`: The number of PFs on the DPU device
+- `provisioning.dpu.nvidia.com/dpudevice-pciAddress`: The PCI address of the DPU device
+- `provisioning.dpu.nvidia.com/dpudevice-pf0-name`: The name of PF0 on the DPU device
+- `provisioning.dpu.nvidia.com/dpunode-name`: The name of the DPUNode the DPU is part of
+
+### Selection Flow
+
+
 ## Host Power-cycle in DPU provisioning
 
 If the version of running BFB is lower than 2.7 before DPU provisioning, the BlueField firmware upgrades and mlxconfig
