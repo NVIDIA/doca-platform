@@ -339,6 +339,11 @@ We make use of a PF on the host to test traffic.
 
 ##### Create the DPUDeployment, DPUServiceConfig, DPUServiceTemplate and other necessary objects
 
+> [!WARNING]
+> In case more than 1 DPU exists per node, the relevant selector should be applied in the DPUDeployment
+> to select the appropriate DPU. See [DPUDeployment - DPUs Configuration](../../../../developer-guides/api/dpudeployment.md#dpus-configuration)
+> to understand more about the selectors.
+
 A number of [environment variables](#0-required-variables) must be set before running this command.
 ```shell
 cat manifests/03.1-dpudeployment-installation-pf/*.yaml | envsubst | kubectl apply -f -

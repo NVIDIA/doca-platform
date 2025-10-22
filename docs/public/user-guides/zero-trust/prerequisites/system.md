@@ -26,7 +26,7 @@ Each control plane machine:
 Each workload machine has the following characteristics:
 
 * Bare metal - no virtualization
-* Exactly one DPU
+* Any number of DPUs
 
 #### DPUs
 
