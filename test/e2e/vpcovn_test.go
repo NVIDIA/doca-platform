@@ -41,6 +41,10 @@ func VPCOVNBeforeSuite() {
 
 //nolint:dupl
 var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, Ordered, func() {
+	var (
+		dpuNode1 corev1.Node
+		dpuNode2 corev1.Node
+	)
 	BeforeAll(func() {
 		for _, label := range CurrentSpecReport().Labels() {
 			if label != requiresNodesLabel {
@@ -70,11 +74,6 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 		}
 		Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcAfterAllCleanupLabels), resourcesToDelete...)).To(Succeed())
 	})
-
-	var (
-		dpuNode1 corev1.Node
-		dpuNode2 corev1.Node
-	)
 
 	// Pods will have two default routes with same priority (metrics),
 	// primary network default route ( flannel ) and vpc ovn default route.
@@ -122,7 +121,7 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 		})
 
 		It("create dpu service chain", func() {
-			createVPCDPUServiceChain(ctx, input)
+			createOrUpdateVPCDPUServiceChain(ctx, input, nil)
 		})
 
 		It("wait for dpu service chain to be ready", func() {
@@ -320,7 +319,6 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 					Name:        podName1,
 					NodeName:    workerNode1,
 					NADName:     nadName1,
-					MACAddress:  pf0vf2Worker1MacAddress,
 					Labels:      vpcContextCleanupLabels,
 					CommandArgs: []string{deleteFlannelDefaultRouteCmd},
 				},
@@ -329,7 +327,6 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 					Name:        podName2,
 					NodeName:    workerNode2,
 					NADName:     nadName2,
-					MACAddress:  pf0vf2Worker2MacAddress,
 					Labels:      vpcContextCleanupLabels,
 					CommandArgs: []string{deleteFlannelDefaultRouteCmd},
 				},
@@ -338,7 +335,6 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 					Name:        podName3,
 					NodeName:    workerNode1,
 					NADName:     nadName3,
-					MACAddress:  pf0vf3Worker1MacAddress,
 					Labels:      vpcContextCleanupLabels,
 					CommandArgs: []string{deleteFlannelDefaultRouteCmd},
 				},
@@ -360,19 +356,15 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 		})
 
 		It("verify netshoot pods can ping each other in the same node", func() {
-			Eventually(func(g Gomega) {
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod3IP)
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod1IP)
-			}, vpcutils.DefaultTimeout).Should(Succeed())
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod3IP)
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod1IP)
 		})
 
 		It("verify netshoot pods can ping each other cross nodes", func() {
-			Eventually(func(g Gomega) {
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1IP)
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
-			}, vpcutils.DefaultTimeout).Should(Succeed())
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1IP)
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
 		})
 
 		It("verify performance with iperf same node traffic", func() {
@@ -540,7 +532,6 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 					Name:        podName1,
 					NodeName:    workerNode1,
 					NADName:     nadName1,
-					MACAddress:  pf0vf2Worker1MacAddress,
 					Labels:      vpcContextCleanupLabels,
 					CommandArgs: []string{deleteFlannelDefaultRouteCmd},
 				},
@@ -549,7 +540,6 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 					Name:        podName2,
 					NodeName:    workerNode2,
 					NADName:     nadName2,
-					MACAddress:  pf0vf2Worker2MacAddress,
 					Labels:      vpcContextCleanupLabels,
 					CommandArgs: []string{deleteFlannelDefaultRouteCmd},
 				},
@@ -558,7 +548,6 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 					Name:        podName3,
 					NodeName:    workerNode1,
 					NADName:     nadName3,
-					MACAddress:  pf0vf3Worker1MacAddress,
 					Labels:      vpcContextCleanupLabels,
 					CommandArgs: []string{deleteFlannelDefaultRouteCmd},
 				},
@@ -580,19 +569,15 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 		})
 
 		It("verify netshoot pods can ping each other in the same node", func() {
-			Eventually(func(g Gomega) {
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod3IP)
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod1IP)
-			}, vpcutils.DefaultTimeout).Should(Succeed())
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod3IP)
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod1IP)
 		})
 
 		It("verify netshoot pods can ping each other cross nodes", func() {
-			Eventually(func(g Gomega) {
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1IP)
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
-			}, vpcutils.DefaultTimeout).Should(Succeed())
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1IP)
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
 		})
 
 		It("verify performance with iperf same node traffic", func() {
@@ -766,7 +751,6 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 					Name:        podName1,
 					NodeName:    workerNode1,
 					NADName:     nadName1,
-					MACAddress:  pf0vf2Worker1MacAddress,
 					Labels:      vpcContextCleanupLabels,
 					CommandArgs: []string{deleteFlannelDefaultRouteCmd},
 				},
@@ -775,7 +759,6 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 					Name:        podName2,
 					NodeName:    workerNode2,
 					NADName:     nadName2,
-					MACAddress:  pf0vf2Worker2MacAddress,
 					Labels:      vpcContextCleanupLabels,
 					CommandArgs: []string{deleteFlannelDefaultRouteCmd},
 				},
@@ -784,7 +767,6 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 					Name:        podName3,
 					NodeName:    workerNode2,
 					NADName:     nadName3,
-					MACAddress:  pf0vf3Worker2MacAddress,
 					Labels:      vpcContextCleanupLabels,
 					CommandArgs: []string{deleteFlannelDefaultRouteCmd},
 				},
@@ -806,19 +788,15 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 		})
 
 		It("verify netshoot pods within the same vpc can ping each other", func() {
-			Eventually(func(g Gomega) {
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
-			}, vpcutils.DefaultTimeout).Should(Succeed())
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
 		})
 
 		It("verify netshoot pods different vpcs cannot ping each other", func() {
-			Consistently(func(g Gomega) {
-				netshoot.AssertPingFailure(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
-				netshoot.AssertPingFailure(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1IP)
-				netshoot.AssertPingFailure(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod3IP)
-				netshoot.AssertPingFailure(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod1IP)
-			}, vpcutils.DefaultTimeout).Should(Succeed())
+			netshoot.AssertPingFailure(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
+			netshoot.AssertPingFailure(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1IP)
+			netshoot.AssertPingFailure(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod3IP)
+			netshoot.AssertPingFailure(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName3, pod1IP)
 		})
 	})
 
@@ -980,7 +958,6 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 					Name:        podName1,
 					NodeName:    hostWorkerNode1,
 					NADName:     nadName1,
-					MACAddress:  pf0vf2Worker1MacAddress,
 					Labels:      vpcContextCleanupLabels,
 					CommandArgs: []string{deleteFlannelDefaultRouteCmd},
 				},
@@ -989,7 +966,6 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 					Name:        podName2,
 					NodeName:    hostWorkerNode2,
 					NADName:     nadName2,
-					MACAddress:  pf0vf2Worker2MacAddress,
 					Labels:      vpcContextCleanupLabels,
 					CommandArgs: []string{deleteFlannelDefaultRouteCmd},
 				},
@@ -1039,19 +1015,186 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 
 		It("verify netshoot vfs can ping sf pods on same and cross nodes", func() {
 
-			Eventually(func(g Gomega) {
-				By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName1, hostWorkerNode1, sfPods[0].Name, sfPods[0].Spec.NodeName))
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod1SFIP)
+			By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName1, hostWorkerNode1, sfPods[0].Name, sfPods[0].Spec.NodeName))
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod1SFIP)
 
-				By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName1, hostWorkerNode1, sfPods[1].Name, sfPods[1].Spec.NodeName))
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2SFIP)
+			By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName1, hostWorkerNode1, sfPods[1].Name, sfPods[1].Spec.NodeName))
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2SFIP)
 
-				By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName2, hostWorkerNode2, sfPods[0].Name, sfPods[0].Spec.NodeName))
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1SFIP)
+			By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName2, hostWorkerNode2, sfPods[0].Name, sfPods[0].Spec.NodeName))
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod1SFIP)
 
-				By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName2, hostWorkerNode2, sfPods[1].Name, sfPods[1].Spec.NodeName))
-				netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod2SFIP)
-			}, vpcutils.DefaultTimeout).Should(Succeed())
+			By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName2, hostWorkerNode2, sfPods[1].Name, sfPods[1].Spec.NodeName))
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName2, pod2SFIP)
+		})
+	})
+
+	// Note: this Context should always run last as it modifies VPC prerequiesites DPUServiceChain
+	Context("virtual network to external network traffic ", Labels{requiresNodesLabel}, Ordered, func() {
+
+		var (
+			pf0vf2Worker1MacAddress string
+			pod1IP                  string
+			pod2IP                  string
+			testPodConfigs          []*netshoot.TestPodConfig
+			pf0vf7Worker2Labels     map[string]string
+			contextHasFailed        bool
+		)
+
+		pf0vf7Worker2 := "pf0vf7-worker2"
+		p0ToPf0Vf7Gw := "p0-to-pf0vf7-gw"
+
+		AfterEach(func() {
+			if CurrentSpecReport().Failed() {
+				contextHasFailed = true
+			}
+		})
+
+		AfterAll(func() {
+			if contextHasFailed {
+				By("VPC OVN: Skip cleanup for this context because a spec failed")
+				return
+			}
+			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
+			cleanupDPUClusterNodeLabels(ctx)
+		})
+
+		It("label dpu nodes with tenant and tenant-node labels", func() {
+			labelDPUNodesWithTenantAndTenantNode(ctx, dpuClusterClient, dpuNode1, dpuNode2, defaultTenant, "")
+		})
+
+		It("create OVNIsolationClass object", func() {
+			createOVNIsolationClass(ctx, input.client, ovnVPCProvisioner, vpcContextCleanupLabels)
+		})
+
+		It("create DPUVPC object", func() {
+			createDPUVPC(ctx, input.client, vpcName, defaultTenant, ovnVPCProvisioner, vpcContextCleanupLabels)
+		})
+
+		It("create DPUVirtualNetwork object", func() {
+			createDPUVirtualNetwork(ctx, input.client, testnet1, vpcName, defaultTenant, vnet1DefaultSubnet, vpcContextCleanupLabels)
+		})
+
+		It("verify DPUVirtualNetwork is ready", func() {
+			vpcutils.WaitForDPUServiceVirtualNetworkReady(ctx, input.client, testnet1, dpfOperatorSystemNamespace)
+		})
+
+		It("verify DPUVPC is ready", func() {
+			vpcutils.WaitForDPUVPCReady(ctx, input.client, vpcName, dpfOperatorSystemNamespace)
+		})
+
+		It("create DPUServiceInterfaces on the nodes, same virtual network", func() {
+			pf0vf2Worker1Labels := map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf2Worker1,
+			}
+			maps.Copy(pf0vf2Worker1Labels, vpcContextCleanupLabels)
+			pf0vf7Worker2Labels = map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf7Worker2,
+			}
+			maps.Copy(pf0vf7Worker2Labels, vpcContextCleanupLabels)
+
+			createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
+				Name:           pf0vf2Worker1,
+				Namespace:      dpfOperatorSystemNamespace,
+				Labels:         pf0vf2Worker1Labels,
+				NodeName:       &dpuNode1.Name,
+				Type:           dpuservicev1.InterfaceTypeVF,
+				InterfaceName:  pf0vf2Worker1,
+				PFIndex:        0,
+				VFIndex:        2,
+				VirtualNetwork: &testnet1,
+			})
+			// Creating pf0vf7 on second node that will not be part of the VPC that will simulated the endpoint for external network traffic
+			createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
+				Name:          pf0vf7Worker2,
+				Namespace:     dpfOperatorSystemNamespace,
+				Labels:        pf0vf7Worker2Labels,
+				NodeName:      &dpuNode2.Name,
+				Type:          dpuservicev1.InterfaceTypeVF,
+				InterfaceName: pf0vf7Worker2,
+				PFIndex:       0,
+				VFIndex:       7,
+			})
+		})
+
+		It("verify DPUServiceInterfaces are ready", func() {
+			dpuServiceInterfaceNames := []string{pf0vf2Worker1, pf0vf7Worker2}
+			dpuservice.WaitForDPUServiceInterfacesReady(ctx, input.client, dpuClusterClient, dpuServiceInterfaceNames, dpfOperatorSystemNamespace)
+		})
+
+		It("create dpu service chain on second worker node for external network traffic", func() {
+			createDPUServiceChainP0ToInterfaceMatchingLabels(ctx, input, p0ToPf0Vf7Gw, pf0vf7Worker2Labels, &dpuNode2.Name, vpcContextCleanupLabels)
+		})
+
+		It("reconfigure p0 to ovn vtep external patch port dpu service chain to only exist on first node", func() {
+			createOrUpdateVPCDPUServiceChain(ctx, input, &dpuNode1.Name)
+		})
+
+		It("wait for dpu service chains to be ready", func() {
+			dpuservice.WaitForDPUServiceChainsReady(ctx, input.client, dpuClusterClient, []string{p0ToPf0Vf7Gw, vpcutils.VpcOVNServiceChain}, dpfOperatorSystemNamespace, vpcutils.LongTimeout)
+		})
+
+		It("get the MAC addresses of the ServiceInterface objects", func() {
+			pf0vf2Worker1Labels := map[string]string{
+				vpcutils.InterfaceLabelKey: pf0vf2Worker1,
+			}
+			pf0vf2Worker1MacAddressesMap := vpcutils.GetServiceInterfaceMacAddressesMatchingLabels(ctx, dpuClusterClient, dpfOperatorSystemNamespace, pf0vf2Worker1Labels)
+
+			Expect(pf0vf2Worker1MacAddressesMap).To(HaveLen(1))
+			pf0vf2Worker1MacAddress = pf0vf2Worker1MacAddressesMap[dpuNode1.Name]
+		})
+
+		//Note: This is a workaround for testing in nic cloud to avoid rebooting the hosts.
+		//  	MAC addresses will be set as part of the BFB, then when the host boots up, the mac address will be set.
+		It("set mac address of the VF to the pod", func() {
+			workerNode1, _ := getTwoWorkerNodeNames(ctx, input.client)
+			Expect(vpcutils.SetLinkMacAddress(workerNode1, hostPf0Vf2, pf0vf2Worker1MacAddress)).To(Succeed())
+		})
+
+		It("create netshoot pods and NetworkAttachmentDefinitions", func() {
+			vpcutils.CreateTestNamespace(ctx, input.client, vpcTrafficTestNS, vpcContextCleanupLabels)
+			nadName1 := vpcutils.CreatePodNetworkAttachmentDefinition(ctx, input.client, vpcTrafficTestNS, podName1, 2, vpcContextCleanupLabels)
+			gatewayIPCIDR := fmt.Sprintf("%s/%d", vpcutils.GatewayIPPoolGateway, vpcutils.GatewayMask)
+			nadName2 := vpcutils.CreateExternalEndpointPodNetworkAttachmentDefinition(ctx, input.client, vpcTrafficTestNS, podName2, 7, gatewayIPCIDR, vpcContextCleanupLabels)
+			workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.client)
+			testPodConfigs = []*netshoot.TestPodConfig{
+				{
+					Namespace:   vpcTrafficTestNS,
+					Name:        podName1,
+					NodeName:    workerNode1,
+					NADName:     nadName1,
+					Labels:      vpcContextCleanupLabels,
+					CommandArgs: []string{deleteFlannelDefaultRouteCmd},
+				},
+				{
+					Namespace:   vpcTrafficTestNS,
+					Name:        podName2,
+					NodeName:    workerNode2,
+					NADName:     nadName2,
+					Labels:      vpcContextCleanupLabels,
+					CommandArgs: []string{deleteFlannelDefaultRouteCmd},
+				},
+			}
+			netshoot.CreatePods(ctx, input.client, testPodConfigs)
+		})
+
+		It("verify netshoot pods are running", func() {
+			netshoot.WaitForPodsReady(ctx, input.client, testPodConfigs, vpcutils.LongTimeout)
+		})
+
+		It("get pod IP addresses", func() {
+			pod1IP = vpcutils.GetPodIPAddressFromNetworkStatus(ctx, input.client, vpcTrafficTestNS, podName1, vfDefaultInterfaceName)
+			pod2IP = vpcutils.GetPodIPAddressFromNetworkStatus(ctx, input.client, vpcTrafficTestNS, podName2, vfDefaultInterfaceName)
+			Expect(pod1IP).ToNot(BeEmpty())
+			Expect(pod2IP).ToNot(BeEmpty())
+		})
+
+		It("verify netshoot vf pod can ping external network pod", func() {
+			netshoot.AssertPingSuccess(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, pod2IP)
+		})
+
+		It("verify performance with iperf to external network traffic", func() {
+			netshoot.RunTrafficTest(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, podName2, pod2IP)
 		})
 	})
 })
