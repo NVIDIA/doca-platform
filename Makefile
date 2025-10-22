@@ -469,7 +469,16 @@ verify-shfmt: $(SHFMT) ## Check shell scripts are formatted
 	  -not -path './hack/repos/*' \
 	  -not -path './third_party/*' \
 	  -not -path './.gocache/*' \
-	  | xargs -n1 $(SHFMT) -w -bn -sr
+	  -exec $(SHFMT) -l -bn -sr {} + | \
+	{ \
+	  files=$$(cat); \
+	  [ -z "$$files" ] && echo "All shell scripts are properly formatted" && exit 0; \
+	  echo "ERROR: The following shell scripts require formatting:"; \
+	  echo "$$files"; \
+	  echo "$$files" | xargs -n1 $(SHFMT) -w -bn -sr; \
+	  echo "Files have been formatted. Please commit the changes."; \
+	  exit 1; \
+	}
 
 ##@ Testing
 
