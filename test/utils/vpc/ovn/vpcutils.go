@@ -132,6 +132,44 @@ func CreatePodNetworkAttachmentDefinition(ctx context.Context, testClient client
 	return nadName
 }
 
+// CreateExternalEndpointPodNetworkAttachmentDefinition creates a network attachment definition for a pod consuming a VF with the given index and static ip address
+func CreateExternalEndpointPodNetworkAttachmentDefinition(ctx context.Context, testClient client.Client, namespace, podName string, vfIndex int, externalNetIPAddress string, labels map[string]string) string {
+	nadName := fmt.Sprintf("nad-%s", podName)
+	name := fmt.Sprintf("hostpf0vf%d", vfIndex)
+	hostDevice := fmt.Sprintf("enp8s0f0v%d", vfIndex)
+
+	nad := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "k8s.cni.cncf.io/v1",
+			"kind":       "NetworkAttachmentDefinition",
+			"metadata": map[string]interface{}{
+				"name":      nadName,
+				"namespace": namespace,
+				"labels":    labels,
+			},
+			"spec": map[string]interface{}{
+				"config": fmt.Sprintf(`{
+					"cniVersion": "0.4.0",
+					"name": "%s",
+					"type": "host-device",
+					"device": "%s",
+					"ipam": {
+						"type": "static",
+						"addresses": [
+							{
+								"address": "%s"
+							}
+						]
+					}
+				}`, name, hostDevice, externalNetIPAddress),
+			},
+		},
+	}
+
+	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, nad))).To(Succeed())
+	return nadName
+}
+
 // CreateDPUIntergrationBridgeNetworkAttachmentDefinition creates a network attachment definition for a pod
 func CreateDPUIntergrationBridgeNetworkAttachmentDefinition(ctx context.Context, dpuClusterClient client.Client, namespace string) string {
 	nadName := "mybrint-vpc"

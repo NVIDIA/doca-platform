@@ -32,6 +32,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	machineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -281,9 +282,21 @@ func createVPCPrerequisiteDPUServiceInterfaces(ctx context.Context, input *syste
 	})
 }
 
-func createVPCDPUServiceChain(ctx context.Context, input *systemTestInput) {
-	dpuServiceChain := generateVPCDPUObj(vpcutils.VpcOVNServiceChain, input.namespace, input.dpuServiceChainTemplate.DeepCopy(), nil)
-	dpuServiceChain.Spec.Template.Spec.Template.Spec.Switches = []dpuservicev1.Switch{
+func createOrUpdateVPCDPUServiceChain(ctx context.Context, input *systemTestInput, nodeName *string) {
+	// Build desired object from template
+	desired := generateVPCDPUObj(vpcutils.VpcOVNServiceChain, input.namespace, input.dpuServiceChainTemplate.DeepCopy(), nil)
+	if nodeName != nil {
+		desired.Spec.Template.Spec.NodeSelector = &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      vpcutils.TenantNodeLabelKey,
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{*nodeName},
+				},
+			},
+		}
+	}
+	desired.Spec.Template.Spec.Template.Spec.Switches = []dpuservicev1.Switch{
 		{
 			Ports: []dpuservicev1.Port{
 				{
@@ -294,6 +307,50 @@ func createVPCDPUServiceChain(ctx context.Context, input *systemTestInput) {
 				{
 					ServiceInterface: dpuservicev1.ServiceIfc{
 						MatchLabels: map[string]string{vpcutils.InterfaceLabelKey: vpcutils.OvnExtPatchName},
+					},
+				},
+			},
+		},
+	}
+
+	By("creating or updating vpc ovn service chain")
+	existing := &dpuservicev1.DPUServiceChain{}
+	err := input.client.Get(ctx, client.ObjectKey{Namespace: input.namespace, Name: vpcutils.VpcOVNServiceChain}, existing)
+	if apierrors.IsNotFound(err) {
+		Expect(input.client.Create(ctx, desired)).To(Succeed())
+		return
+	}
+	Expect(err).NotTo(HaveOccurred())
+	original := existing.DeepCopy()
+	existing.SetLabels(desired.GetLabels())
+	existing.Spec = desired.Spec
+	Expect(input.client.Patch(ctx, existing, client.MergeFrom(original))).To(Succeed())
+}
+
+func createDPUServiceChainP0ToInterfaceMatchingLabels(ctx context.Context, input *systemTestInput, name string, matchingInterfaceLabels map[string]string, nodeName *string, labels map[string]string) {
+	dpuServiceChain := generateVPCDPUObj(name, input.namespace, input.dpuServiceChainTemplate.DeepCopy(), labels)
+	if nodeName != nil {
+		dpuServiceChain.Spec.Template.Spec.NodeSelector = &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      vpcutils.TenantNodeLabelKey,
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{*nodeName},
+				},
+			},
+		}
+	}
+	dpuServiceChain.Spec.Template.Spec.Template.Spec.Switches = []dpuservicev1.Switch{
+		{
+			Ports: []dpuservicev1.Port{
+				{
+					ServiceInterface: dpuservicev1.ServiceIfc{
+						MatchLabels: map[string]string{vpcutils.InterfaceLabelKey: vpcutils.PhysicalInterface0},
+					},
+				},
+				{
+					ServiceInterface: dpuservicev1.ServiceIfc{
+						MatchLabels: matchingInterfaceLabels,
 					},
 				},
 			},
