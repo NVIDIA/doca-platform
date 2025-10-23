@@ -159,10 +159,10 @@ type InstallViaRedfish struct {
 	// Deprecated: Use RegistryConfiguration instead.
 	// +optional
 	BFBRegistry *BFBRegistryConfiguration `json:"bfbRegistry,omitempty"`
-	// SkipDpuNodeDiscovery is a flag to skip the DPU node discovery.
+	// SkipDPUNodeDiscovery is a flag to skip the DPU node discovery.
 	// +optional
 	// +kubebuilder:default=true
-	SkipDpuNodeDiscovery *bool `json:"skipDpuNodeDiscovery,omitempty"`
+	SkipDPUNodeDiscovery *bool `json:"skipDPUNodeDiscovery,omitempty"`
 }
 
 type BFBRegistryConfiguration struct {

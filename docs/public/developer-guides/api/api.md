@@ -482,7 +482,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `bfbRegistryAddress` _string_ | BFBRegistryAddress is the address of the BFB Registry<br /><br />Deprecated: Use RegistryConfiguration instead. |  | MinLength: 1 <br /> |
 | `bfbRegistry` _[BFBRegistryConfiguration](#bfbregistryconfiguration)_ | BFBRegistry is the configuration for the BFB Registry<br /><br />Deprecated: Use RegistryConfiguration instead. |  |  |
-| `skipDpuNodeDiscovery` _boolean_ | SkipDpuNodeDiscovery is a flag to skip the DPU node discovery. | true |  |
+| `skipDPUNodeDiscovery` _boolean_ | SkipDPUNodeDiscovery is a flag to skip the DPU node discovery. | true |  |
 
 
 #### KamajiClusterManagerConfiguration

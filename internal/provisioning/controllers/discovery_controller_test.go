@@ -143,7 +143,7 @@ var _ = Describe("Redfish Mock Server Tests", func() {
 		It("DPU discovery should successfully discover DPU devices", func() {
 			bmcIP := mockServer.GetIPAddress()
 			bmcPort := uint32(mockServer.GetPort())
-			dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDpuNodeDiscovery = ptr.To(false)
+			dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDPUNodeDiscovery = ptr.To(false)
 			Expect(k8sClient.Update(ctx, dpfOperatorConfig)).To(Succeed())
 
 			By("Getting mock server address information")
@@ -215,12 +215,12 @@ var _ = Describe("Redfish Mock Server Tests", func() {
 			}
 		})
 
-		It("DPU discovery should not create DPU nodes if SkipDpuNodeDiscovery is true", func() {
+		It("DPU discovery should not create DPU nodes if SkipDPUNodeDiscovery is true", func() {
 			bmcIP := mockServer.GetIPAddress()
 			bmcPort := uint32(mockServer.GetPort())
-			dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDpuNodeDiscovery = ptr.To(true)
+			dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDPUNodeDiscovery = ptr.To(true)
 
-			By("setting SkipDpuNodeDiscovery to true")
+			By("setting SkipDPUNodeDiscovery to true")
 			Expect(k8sClient.Update(ctx, dpfOperatorConfig)).To(Succeed())
 
 			By("verifying no DpuNodes and DpuDevices exist")
