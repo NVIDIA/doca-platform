@@ -590,8 +590,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `controlPlaneMTU` _integer_ | ControlPlaneMTU is the MTU value to be set on the management network.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1000 <br /> |
-| `highSpeedMTU` _integer_ | HighSpeedMTU is the MTU value to be set on the high-speed interface.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1000 <br /> |
+| `controlPlaneMTU` _integer_ | ControlPlaneMTU is the MTU value to be set on the management network.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br /> |
+| `highSpeedMTU` _integer_ | HighSpeedMTU is the MTU value to be set on the high-speed interface.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br /> |
 
 
 #### OVSCNIConfiguration
@@ -3369,7 +3369,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `ports` _[DPUDeploymentPort](#dpudeploymentport) array_ | Ports contains the ports of the switch |  | MaxItems: 50 <br />MinItems: 1 <br /> |
-| `serviceMTU` _integer_ | ServiceMTU of the switch<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1000 <br /> |
+| `serviceMTU` _integer_ | ServiceMTU of the switch<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br /> |
 
 
 #### DPUService
@@ -4750,7 +4750,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `ports` _[Port](#port) array_ | Ports of the switch |  | MaxItems: 50 <br />MinItems: 1 <br /> |
-| `serviceMTU` _integer_ | ServiceMTU of the switch<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1000 <br /> |
+| `serviceMTU` _integer_ | ServiceMTU of the switch<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br /> |
 
 
 #### UpgradePolicy

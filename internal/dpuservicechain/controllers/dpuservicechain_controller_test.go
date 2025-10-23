@@ -133,7 +133,7 @@ var _ = Describe("DPUServiceChain Controller", func() {
 		It("should successfully reconcile the DPUServiceChain with valid specified MTU", func() {
 			By("Create DPUServiceChain")
 			dpuServiceChain := getMinimalDPUServiceChain(dscResourceName, testNS.Name, &metav1.LabelSelector{})
-			dpuServiceChain.Spec.Template.Spec.Template.Spec.Switches[0].ServiceMTU = ptr.To(1000)
+			dpuServiceChain.Spec.Template.Spec.Template.Spec.Switches[0].ServiceMTU = ptr.To(1280)
 			Expect(testClient.Create(ctx, dpuServiceChain)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceChain)
 			By("Verify ServiceChainSet is created")
@@ -148,7 +148,7 @@ var _ = Describe("DPUServiceChain Controller", func() {
 				Expect(scs.Labels[k]).To(Equal(v))
 			}
 			expectedSpec := getExpectedTestServiceChainSetSpec(&metav1.LabelSelector{})
-			expectedSpec.Template.Spec.Switches[0].ServiceMTU = ptr.To(1000)
+			expectedSpec.Template.Spec.Switches[0].ServiceMTU = ptr.To(1280)
 			Expect(scs.Spec).To(BeEquivalentTo(expectedSpec))
 		})
 		It("should fail to reconcile the DPUServiceChain - should not create a ServiceChainSet if invalid MTU is specified", func() {

@@ -588,7 +588,7 @@ spec:
                       ControlPlaneMTU is the MTU value to be set on the management network.
                       The default is 1500.
                     maximum: 9216
-                    minimum: 1000
+                    minimum: 1280
                     type: integer
                   highSpeedMTU:
                     default: 1500
@@ -596,7 +596,7 @@ spec:
                       HighSpeedMTU is the MTU value to be set on the high-speed interface.
                       The default is 1500.
                     maximum: 9216
-                    minimum: 1000
+                    minimum: 1280
                     type: integer
                 type: object
               nvipam:
