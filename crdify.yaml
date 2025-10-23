@@ -1,0 +1,54 @@
+unhandledEnforcement: None
+validations:
+  - name: default
+    enforcement: Warn
+  - name: description
+    enforcement: Warn # changing to warning is important for the deprecation feature
+  - name: minLength
+    enforcement: Warn
+  - name: enum
+    enforcement: Error
+    configuration:
+      additionPolicy: Allow
+  - name: required
+    enforcement: Error
+    configuration:
+      # Allow list for known required field changes that were bugs in previous versions
+      allowList:
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUSet"
+          field: ".spec"
+          error: "new required fields: [dpuTemplate]"
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUSet"
+          field: ".spec.dpuTemplate.spec"
+          error: "new required fields: [dpuFlavor]"
+  - name: minimum
+    enforcement: Error
+    configuration:
+      # Allow list for known minimum value changes (IPv6 requires minimum MTU of 1280)
+      allowList:
+        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
+          kind: "DPUServiceChain"
+          field: ".spec.template.spec.template.spec.switches[*].serviceMTU"
+          error: "minimum increased : 1000 -> 1280"
+        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
+          kind: "DPUDeployment"
+          field: ".spec.serviceChains.switches[*].serviceMTU"
+          error: "minimum increased : 1000 -> 1280"
+        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
+          kind: "ServiceChain"
+          field: ".spec.switches[*].serviceMTU"
+          error: "minimum increased : 1000 -> 1280"
+        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
+          kind: "ServiceChainSet"
+          field: ".spec.template.spec.switches[*].serviceMTU"
+          error: "minimum increased : 1000 -> 1280"
+        - apiVersion: "operator.dpu.nvidia.com/v1alpha1"
+          kind: "DPFOperatorConfig"
+          field: ".spec.networking.controlPlaneMTU"
+          error: "minimum increased : 1000 -> 1280"
+        - apiVersion: "operator.dpu.nvidia.com/v1alpha1"
+          kind: "DPFOperatorConfig"
+          field: ".spec.networking.highSpeedMTU"
+          error: "minimum increased : 1000 -> 1280"

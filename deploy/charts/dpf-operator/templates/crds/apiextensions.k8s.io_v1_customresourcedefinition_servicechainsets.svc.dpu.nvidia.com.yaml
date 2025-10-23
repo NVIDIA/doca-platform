@@ -183,7 +183,7 @@ spec:
                                 ServiceMTU of the switch
                                 The default is 1500.
                               maximum: 9216
-                              minimum: 1000
+                              minimum: 1280
                               type: integer
                           required:
                           - ports
