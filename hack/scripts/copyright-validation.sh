@@ -24,7 +24,7 @@ validate_copyrights() {
 	local include_list="\.go$|\.sh$|Makefile.*"
 
 	# Exclude the files which are vendored from argoCD.
-	local exclude_list="internal/argocd/api/|internal/dpuservice/utils/mergemaps.go|internal/kamaji/api/|third_party|internal/vpc/"
+	local exclude_list="internal/argocd/api/|internal/dpuservice/utils/mergemaps.go|internal/kamaji/api/|third_party"
 
 	# Check copyright is correct on all newly added files by checking for a leading `A` in git diff `--name-status`
 	for file in $(git diff --name-status ${BASE_REV} ${COMPARISON_REV} | grep -E '^A' | awk '{print $2}' | grep -E "${include_list}" | grep -Ev "${exclude_list}"); do
