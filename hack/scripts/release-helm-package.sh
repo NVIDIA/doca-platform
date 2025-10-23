@@ -43,19 +43,28 @@ if [[ -n "${SET_IMAGE_IN_VALUES:-}" ]]; then
 	${YQ} e -i '.'${IMAGE_TAG_PATH}' = "'${TAG}'"' ${HELM_CHART_DIR}/values.yaml
 fi
 
-## Set build metadata as annotations on the chart.
+# Set build metadata as annotations on the chart.
 if [[ "${RELEASE_HELM_SET_ANNOTATIONS}" == "true" ]]; then
 	${YQ} e -i '.annotations.dpfVersion = "'${TAG}'"' ${HELM_CHART_DIR}/Chart.yaml
 	${YQ} e -i '.annotations.created = "'${FORMATTED_DATE}'"' ${HELM_CHART_DIR}/Chart.yaml
 	${YQ} e -i '.annotations.commit = "'${FULL_COMMIT}'"' ${HELM_CHART_DIR}/Chart.yaml
 fi
 
+# Save the current appVersion before modifying it
+ORIGINAL_APP_VERSION=$(${YQ} e '.appVersion' ${HELM_CHART_DIR}/Chart.yaml)
+
+# Set appVersion in Chart.yaml to the TAG for release packaging
+${YQ} e -i '.appVersion = "'${TAG}'"' ${HELM_CHART_DIR}/Chart.yaml
+
 ${HELM} dependency update ${HELM_CHART_DIR}
 for tag in ${HELM_CHART_TAGS}; do
 	${HELM} package ${HELM_CHART_DIR} --version ${tag} --destination ${CHARTSDIR}
 done
 
-## Reset the annotations to not pollute the local copy of the helm chart.
+# Reset appVersion to its original value to keep it static for local development
+${YQ} e -i '.appVersion = "'${ORIGINAL_APP_VERSION}'"' ${HELM_CHART_DIR}/Chart.yaml
+
+# Reset the annotations to not pollute the local copy of the helm chart.
 if [[ "${RELEASE_HELM_SET_ANNOTATIONS}" == "true" ]]; then
 	${YQ} e -i '.annotations.dpfVersion = ""' ${HELM_CHART_DIR}/Chart.yaml
 	${YQ} e -i '.annotations.created = ""' ${HELM_CHART_DIR}/Chart.yaml
