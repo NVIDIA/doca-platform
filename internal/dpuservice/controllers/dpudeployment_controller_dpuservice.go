@@ -47,6 +47,7 @@ import (
 )
 
 // reconcileDPUServices reconciles the DPUServices created by the DPUDeployment.
+// Returns the requeue result, error, and a map of the patched DPUService objects for use by subsequent functions.
 func reconcileDPUServices(
 	ctx context.Context,
 	c client.Client,
@@ -54,7 +55,7 @@ func reconcileDPUServices(
 	dependencies *dpuDeploymentDependencies,
 	interfaceNameByServiceName map[string]interfaceNameToDPUServiceInterfaceName,
 	dpuNodeLabels map[string]string,
-) (ctrl.Result, error) {
+) (ctrl.Result, map[string]*dpuservicev1.DPUService, error) {
 	owner := metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)
 	requeue := ctrl.Result{}
 
@@ -66,7 +67,7 @@ func reconcileDPUServices(
 			dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(client.ObjectKeyFromObject(dpuDeployment)),
 		},
 		client.InNamespace(dpuDeployment.Namespace)); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to list existing DPUSets: %w", err)
+		return ctrl.Result{}, nil, fmt.Errorf("failed to list existing DPUSets: %w", err)
 	}
 
 	// Get all existing DPUServices
@@ -77,7 +78,7 @@ func reconcileDPUServices(
 			dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(client.ObjectKeyFromObject(dpuDeployment)),
 		},
 		client.InNamespace(dpuDeployment.Namespace)); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to list existing DPUServices: %w", err)
+		return ctrl.Result{}, nil, fmt.Errorf("failed to list existing DPUServices: %w", err)
 	}
 
 	existingDPUServicesMap := make(map[string]dpuservicev1.DPUService)
@@ -88,7 +89,7 @@ func reconcileDPUServices(
 	// get an ordered list of the DPUServices
 	sortedServices, err := servicesTopologicalSort(dpuDeployment)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to sort DPUService: %w", err)
+		return ctrl.Result{}, nil, fmt.Errorf("failed to sort DPUService: %w", err)
 	}
 
 	patchedDPUServices := make(map[string]*dpuservicev1.DPUService, len(existingDPUServices.Items))
@@ -101,7 +102,7 @@ func reconcileDPUServices(
 			// Check dependencies and requeue the reconciliation if the check fails.
 			err := checkDPUServiceDependencies(ctx, c, dpuDeployment.Spec.Services[serviceName].DependsOn, patchedDPUServices)
 			if err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to check dependencies for DPUService %s: %w", serviceName, err)
+				return ctrl.Result{}, nil, fmt.Errorf("failed to check dependencies for DPUService %s: %w", serviceName, err)
 			}
 			rendered, err := templateDPUServiceConfigurationValues(serviceConfig, dpuDeployment.Spec.Services[serviceName].DependsOn, patchedDPUServices)
 			if err != nil {
@@ -166,17 +167,17 @@ func reconcileDPUServices(
 	// If we have found errors, we don't want to delete any of the existing DPUServices as we might have partially applied
 	// the logic of modifying the existingDPUServicesMap.
 	if len(errs) > 0 {
-		return ctrl.Result{}, kerrors.NewAggregate(errs)
+		return ctrl.Result{}, nil, kerrors.NewAggregate(errs)
 	}
 
 	// Cleanup the remaining stale DPUServices
 	for _, dpuService := range existingDPUServicesMap {
 		if err := c.Delete(ctx, &dpuService); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to delete DPUService %s: %w", client.ObjectKeyFromObject(&dpuService), err)
+			return ctrl.Result{}, nil, fmt.Errorf("failed to delete DPUService %s: %w", client.ObjectKeyFromObject(&dpuService), err)
 		}
 	}
 
-	return requeue, nil
+	return requeue, patchedDPUServices, nil
 }
 
 // reconcileNewDPUServiceRevision reconciles a new revision of the DPUService.
