@@ -1,5 +1,5 @@
 /*
-COPYRIGHT 2024 NVIDIA
+COPYRIGHT 2025 NVIDIA
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -240,7 +240,7 @@ var _ = Describe("PodIpam Controller", func() {
 			Eventually(func(g Gomega) {
 				pod := &corev1.Pod{}
 				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: defaultNS, Name: podName}, pod)).To(Succeed())
-				g.Expect(pod.Annotations[multusKey]).To(BeEquivalentTo(expectedSingleNetAnnotationWithoutIPAM(ifcName, 1500)))
+				g.Expect(pod.Annotations[multusKey]).To(BeEquivalentTo(expectedSingleNetAnnotationWithoutIPAM(1500)))
 			}).WithTimeout(2 * time.Second).Should(BeNil())
 			By("Turning the Pod State to Succeed")
 			changePodState(ctx, corev1.PodSucceeded)
@@ -300,8 +300,255 @@ var _ = Describe("PodIpam Controller", func() {
 			Eventually(func(g Gomega) {
 				pod := &corev1.Pod{}
 				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: defaultNS, Name: podName}, pod)).To(Succeed())
-				g.Expect(pod.Annotations[multusKey]).To(BeEquivalentTo(expectedSingleNetAnnotationWithoutIPAM(ifcName, 3000)))
+				g.Expect(pod.Annotations[multusKey]).To(BeEquivalentTo(expectedSingleNetAnnotationWithoutIPAM(3000)))
 			}).WithTimeout(2 * time.Second).Should(BeNil())
+			By("Turning the Pod State to Succeed")
+			changePodState(ctx, corev1.PodSucceeded)
+		})
+
+		It("should remove invalid network for Pod using virtual network", func() {
+			By("Create ServiceInterface for Service with virtual network")
+			si := &dpuservicev1.ServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      strings.Join([]string{serviceName, ifcName}, "-"),
+					Namespace: defaultNS,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: serviceName,
+						serviceInterfaceAnnotKey:          ifcName,
+					},
+				},
+				Spec: dpuservicev1.ServiceInterfaceSpec{
+					InterfaceType: dpuservicev1.InterfaceTypeService,
+					Node:          ptr.To(nodeName),
+					Service: &dpuservicev1.ServiceDef{
+						ServiceID:     serviceName,
+						InterfaceName: ifcName,
+						Network:       "virtual-network",
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, si)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, si)
+
+			By("Create ServiceChain for the virtual network interface with MTU")
+			cleanupObjects = append(cleanupObjects, createServiceChainWithServiceInterface(ctx, svcName1, nil, serviceName, ifcName, ptr.To(2000)))
+
+			By("Create Pod with Network Annotation including invalid network")
+			cleanupObjects = append(cleanupObjects, createPodWithNetworkAnnotation(ctx, singleNetAnnotationWithInvalid(ifcName)))
+
+			By("Check that invalid network has been removed from Pod annotation")
+			Eventually(func(g Gomega) {
+				pod := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: defaultNS, Name: podName}, pod)).To(Succeed())
+				// Virtual network gets MTU from ServiceChain but no IPAM
+				g.Expect(pod.Annotations[multusKey]).To(BeEquivalentTo(expectedSingleNetAnnotationWithoutIPAM(2000)))
+				// Verify digest is set
+				g.Expect(pod.Annotations[NetworkDigestAnnotation]).NotTo(BeEmpty())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Turning the Pod State to Succeed")
+			changePodState(ctx, corev1.PodSucceeded)
+		})
+
+		It("should update Pod with two service interfaces - one with virtual network and one without (with IPAM)", func() {
+			By("Create ServiceInterface 1 with virtual network")
+			siVirtual := &dpuservicev1.ServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      strings.Join([]string{serviceName, ifcName}, "-"),
+					Namespace: defaultNS,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: serviceName,
+						serviceInterfaceAnnotKey:          ifcName,
+					},
+				},
+				Spec: dpuservicev1.ServiceInterfaceSpec{
+					InterfaceType: dpuservicev1.InterfaceTypeService,
+					Node:          ptr.To(nodeName),
+					Service: &dpuservicev1.ServiceDef{
+						ServiceID:      serviceName,
+						InterfaceName:  ifcName,
+						Network:        "mybrsfc",
+						VirtualNetwork: ptr.To("virtual-network"),
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, siVirtual)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, siVirtual)
+
+			By("Create ServiceInterface 2 without virtual network")
+			siRegular := &dpuservicev1.ServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      strings.Join([]string{serviceName, ifcName2}, "-"),
+					Namespace: defaultNS,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: serviceName,
+						serviceInterfaceAnnotKey:          ifcName2,
+					},
+				},
+				Spec: dpuservicev1.ServiceInterfaceSpec{
+					InterfaceType: dpuservicev1.InterfaceTypeService,
+					Node:          ptr.To(nodeName),
+					Service: &dpuservicev1.ServiceDef{
+						ServiceID:     serviceName,
+						InterfaceName: ifcName2,
+						Network:       "second-network",
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, siRegular)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, siRegular)
+
+			By("Create ServiceChain1 for virtual network interface with MTU (no IPAM)")
+			cleanupObjects = append(cleanupObjects, createServiceChainWithServiceInterface(ctx, svcName1, nil, serviceName, ifcName, ptr.To(2000)))
+
+			By("Create ServiceChain2 for regular interface with IPAM and MTU")
+			defaultGateway := true
+			ipam := &dpuservicev1.IPAM{
+				DefaultGateway: ptr.To(defaultGateway),
+				MatchLabels:    ipamLabels,
+			}
+			cleanupObjects = append(cleanupObjects, createServiceChainWithServiceInterface(ctx, svcName2, ipam, serviceName, ifcName2, ptr.To(3000)))
+
+			By("Create IPPool for regular interface")
+			cleanupObjects = append(cleanupObjects, createIPPool(ctx, ipamName, ipamLabels))
+
+			By("Create Pod with both network interfaces")
+			multiNetAnnot := fmt.Sprintf(`[{"name":"mybrsfc","interface":"%s"},{"name":"second-network","interface":"%s"},{"name":"invalid-network","namespace":"invalid-namespace","interface":"invalid-interface"}]`, ifcName, ifcName2)
+			cleanupObjects = append(cleanupObjects, createPodWithNetworkAnnotation(ctx, multiNetAnnot))
+
+			By("Check that Pod annotation has been updated correctly")
+			Eventually(func(g Gomega) {
+				pod := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: defaultNS, Name: podName}, pod)).To(Succeed())
+				// Verify annotation contains both interfaces:
+				// - Virtual network: MTU 2000, no IPAM
+				// - Regular network: MTU 3000, with IPAM
+				expectedAnnot := fmt.Sprintf(
+					`[{"name":"mybrsfc","namespace":"default","interface":"%s","cni-args":{"mtu":2000}},`+
+						`{"name":"second-network","namespace":"default","interface":"%s","cni-args":{"allocateDefaultGateway":%v,"mtu":3000,"poolNames":["pool-1"],"poolType":"ippool"}}]`,
+					ifcName, ifcName2, defaultGateway)
+				g.Expect(pod.Annotations[multusKey]).To(BeEquivalentTo(expectedAnnot))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Turning the Pod State to Succeed")
+			changePodState(ctx, corev1.PodSucceeded)
+		})
+
+		It("should skip ServiceChains and ServiceInterfaces that don't match pod requirements", func() {
+			By("Create ServiceInterface for the correct service")
+			correctSI := createServiceInterfaceForService(
+				ctx, strings.Join([]string{serviceName, ifcName}, "-"), serviceName, ifcName)
+			cleanupObjects = append(cleanupObjects, correctSI)
+
+			By("Create ServiceInterface on wrong node (should be skipped)")
+			wrongNodeSI := &dpuservicev1.ServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "wrong-node-si",
+					Namespace: defaultNS,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: "other-service",
+					},
+				},
+				Spec: dpuservicev1.ServiceInterfaceSpec{
+					InterfaceType: dpuservicev1.InterfaceTypeService,
+					Node:          ptr.To("other-node"),
+					Service: &dpuservicev1.ServiceDef{
+						ServiceID:     "other-service",
+						InterfaceName: "other-ifc",
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, wrongNodeSI)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, wrongNodeSI)
+
+			By("Create ServiceInterface with wrong type (should be skipped)")
+			wrongTypeSI := &dpuservicev1.ServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "wrong-type-si",
+					Namespace: defaultNS,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: "pf-service",
+					},
+				},
+				Spec: dpuservicev1.ServiceInterfaceSpec{
+					InterfaceType: dpuservicev1.InterfaceTypePF, // Not InterfaceTypeService
+					Node:          ptr.To(nodeName),
+					PF: &dpuservicev1.PF{
+						ID: 0,
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, wrongTypeSI)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, wrongTypeSI)
+
+			By("Create ServiceChain on wrong node (should be skipped)")
+			wrongNodeChain := &dpuservicev1.ServiceChain{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "wrong-node-chain",
+					Namespace: defaultNS,
+				},
+				Spec: dpuservicev1.ServiceChainSpec{
+					Node: ptr.To("other-node"), // Different node
+					Switches: []dpuservicev1.Switch{
+						{
+							ServiceMTU: ptr.To(1500),
+							Ports: []dpuservicev1.Port{
+								{
+									ServiceInterface: dpuservicev1.ServiceIfc{
+										MatchLabels: map[string]string{
+											dpuservicev1.DPFServiceIDLabelKey: "other-service",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, wrongNodeChain)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, wrongNodeChain)
+
+			By("Create ServiceChain with PF interface type (should be skipped)")
+			pfChain := &dpuservicev1.ServiceChain{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pf-chain",
+					Namespace: defaultNS,
+				},
+				Spec: dpuservicev1.ServiceChainSpec{
+					Node: ptr.To(nodeName),
+					Switches: []dpuservicev1.Switch{
+						{
+							ServiceMTU: ptr.To(1500),
+							Ports: []dpuservicev1.Port{
+								{
+									ServiceInterface: dpuservicev1.ServiceIfc{
+										MatchLabels: map[string]string{
+											dpuservicev1.DPFServiceIDLabelKey: "pf-service",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, pfChain)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, pfChain)
+
+			By("Create correct ServiceChain with MTU")
+			cleanupObjects = append(cleanupObjects, createServiceChainWithServiceInterface(ctx, svcName1, nil, serviceName, ifcName, ptr.To(4000)))
+
+			By("Create Pod with Network Annotation")
+			cleanupObjects = append(cleanupObjects, createPodWithNetworkAnnotation(ctx, singleNetAnnotationWithInvalid(ifcName)))
+
+			By("Check that Pod annotation has been updated with correct ServiceChain only")
+			Eventually(func(g Gomega) {
+				pod := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: defaultNS, Name: podName}, pod)).To(Succeed())
+				// Should only get settings from the correct ServiceChain (MTU 4000), not the others
+				g.Expect(pod.Annotations[multusKey]).To(BeEquivalentTo(expectedSingleNetAnnotationWithoutIPAM(4000)))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
 			By("Turning the Pod State to Succeed")
 			changePodState(ctx, corev1.PodSucceeded)
 		})
@@ -398,6 +645,46 @@ var _ = Describe("PodIpam Controller", func() {
 			digest := calculateNetworkDigest(networks)
 			Expect(digest).NotTo(BeEmpty())
 		})
+
+		It("should handle pod with malformed network annotation", func() {
+			By("Create Pod with malformed network annotation")
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "malformed-pod",
+					Namespace: defaultNS,
+					Annotations: map[string]string{
+						multusKey: "this-is-not-valid-json",
+					},
+					Labels: map[string]string{dpuservicev1.DPFServiceIDLabelKey: serviceName},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: nodeName,
+					Containers: []corev1.Container{
+						{Name: "ctr1", Image: "image"},
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, pod)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, pod)
+
+			By("Verify pod annotation remains malformed (reconciler handles error gracefully)")
+			Consistently(func(g Gomega) {
+				p := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: defaultNS, Name: "malformed-pod"}, p)).To(Succeed())
+				// Annotation should remain unchanged because the reconciler can't parse it
+				g.Expect(p.Annotations[multusKey]).To(Equal("this-is-not-valid-json"))
+			}).WithTimeout(2 * time.Second).Should(Succeed())
+
+			By("Turning the Pod State to Succeed")
+			Eventually(func(g Gomega) {
+				p := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: defaultNS, Name: "malformed-pod"}, p)).To(Succeed())
+				p.Status.Phase = corev1.PodSucceeded
+				p.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Pod"))
+				p.ManagedFields = nil
+				g.Expect(testClient.Status().Patch(ctx, p, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
 	})
 
 	Context("When calculating network digests", func() {
@@ -432,8 +719,7 @@ var _ = Describe("PodIpam Controller", func() {
 
 			By("Calculate network digest")
 			networks, _ := GetPodNetworks(pod)
-			digest, _ := CalculatePodNetworkDigest(ctx, testClient, pod, networks)
-			Expect(digest).NotTo(BeEmpty())
+			digest := calculateDigestEventually(ctx, pod, networks)
 
 			By("Verify digest is consistent for same configuration")
 			networks2, err := GetPodNetworks(pod)
@@ -456,7 +742,7 @@ var _ = Describe("PodIpam Controller", func() {
 			By("Calculate network digest")
 			networks, err := GetPodNetworks(pod)
 			Expect(err).NotTo(HaveOccurred())
-			digest, _ := CalculatePodNetworkDigest(ctx, testClient, pod, networks)
+			digest := calculateDigestEventually(ctx, pod, networks)
 			Expect(digest).NotTo(BeEmpty())
 		})
 
@@ -492,8 +778,7 @@ var _ = Describe("PodIpam Controller", func() {
 			By("Calculate network digest")
 			networks, err := GetPodNetworks(pod)
 			Expect(err).NotTo(HaveOccurred())
-			digest, _ := CalculatePodNetworkDigest(ctx, testClient, pod, networks)
-			Expect(digest).NotTo(BeEmpty())
+			digest := calculateDigestEventually(ctx, pod, networks)
 
 			By("Verify digest matches when invalid network is not present")
 			podNoInvalid := createTestPodInMemory(
@@ -525,7 +810,7 @@ var _ = Describe("PodIpam Controller", func() {
 				map[string]string{dpuservicev1.DPFServiceIDLabelKey: serviceName})
 			networks1, err := GetPodNetworks(pod1)
 			Expect(err).NotTo(HaveOccurred())
-			digest1, _ := CalculatePodNetworkDigest(ctx, testClient, pod1, networks1)
+			digest1 := calculateDigestEventually(ctx, pod1, networks1)
 
 			By("Update ServiceChain with MTU 3000")
 			serviceChain := &dpuservicev1.ServiceChain{}
@@ -533,8 +818,18 @@ var _ = Describe("PodIpam Controller", func() {
 			serviceChain.Spec.Switches[0].ServiceMTU = ptr.To(3000)
 			Expect(testClient.Patch(ctx, serviceChain, client.Merge)).To(Succeed())
 
+			By("Wait for cache to reflect the updated ServiceChain")
+			Eventually(func(g Gomega) {
+				sc := &dpuservicev1.ServiceChain{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: defaultNS, Name: svcName1}, sc)).To(Succeed())
+				g.Expect(sc.Spec.Switches[0].ServiceMTU).NotTo(BeNil())
+				g.Expect(*sc.Spec.Switches[0].ServiceMTU).To(Equal(3000))
+			}).WithTimeout(2 * time.Second).Should(Succeed())
+
 			By("Calculate digest with MTU 3000")
-			digest2, _ := CalculatePodNetworkDigest(ctx, testClient, pod1, networks1)
+			digest2, err := CalculatePodNetworkDigest(ctx, testClient, pod1, networks1)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(digest2).NotTo(BeEmpty())
 
 			By("Verify digests are different")
 			Expect(digest1).NotTo(Equal(digest2))
@@ -572,10 +867,542 @@ var _ = Describe("PodIpam Controller", func() {
 			By("Calculate network digest")
 			networks, err := GetPodNetworks(pod)
 			Expect(err).NotTo(HaveOccurred())
-			digest, _ := CalculatePodNetworkDigest(ctx, testClient, pod, networks)
+			digest := calculateDigestEventually(ctx, pod, networks)
 			Expect(digest).NotTo(BeEmpty())
 		})
 
+	})
+
+	Context("isPodUsingOnlyVirtualNetworks", func() {
+		var testPod *corev1.Pod
+		var cleanupObjects []client.Object
+
+		BeforeEach(func() {
+			cleanupObjects = []client.Object{}
+		})
+
+		AfterEach(func() {
+			By("Cleaning up the objects")
+			Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
+		})
+
+		It("should return true for pod using virtual network", func() {
+			By("Create ServiceInterface with virtual network for service")
+			si := &dpuservicev1.ServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "virtual-net-si",
+					Namespace: defaultNS,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: serviceName,
+					},
+				},
+				Spec: dpuservicev1.ServiceInterfaceSpec{
+					InterfaceType: dpuservicev1.InterfaceTypeService,
+					Node:          ptr.To(nodeName),
+					Service: &dpuservicev1.ServiceDef{
+						ServiceID:      serviceName,
+						Network:        "mybrsfc",
+						InterfaceName:  ifcName,
+						VirtualNetwork: ptr.To("virtual-network"),
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, si)).NotTo(HaveOccurred())
+			cleanupObjects = append(cleanupObjects, si)
+
+			By("Create Pod in memory (not in cluster)")
+			testPod = &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-virtual-net",
+					Namespace: defaultNS,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: serviceName,
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: nodeName,
+					Containers: []corev1.Container{
+						{Name: "ctr1", Image: "image"},
+					},
+				},
+			}
+
+			By("Check if pod is using virtual network")
+			Eventually(func(g Gomega) {
+				isVirtual, err := isPodUsingOnlyVirtualNetworks(ctx, testClient, testPod)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(isVirtual).To(BeTrue())
+			}).WithTimeout(2 * time.Second).Should(Succeed())
+		})
+
+		It("should return false for pod not using virtual network", func() {
+			By("Create ServiceInterface without virtual network for service")
+			si := &dpuservicev1.ServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "non-virtual-net-si",
+					Namespace: defaultNS,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: serviceName,
+					},
+				},
+				Spec: dpuservicev1.ServiceInterfaceSpec{
+					InterfaceType: dpuservicev1.InterfaceTypeService,
+					Node:          ptr.To(nodeName),
+					Service: &dpuservicev1.ServiceDef{
+						ServiceID:     serviceName,
+						Network:       "mybrsfc",
+						InterfaceName: ifcName,
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, si)).NotTo(HaveOccurred())
+			cleanupObjects = append(cleanupObjects, si)
+
+			By("Create Pod in memory (not in cluster)")
+			testPod = &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-no-virtual-net",
+					Namespace: defaultNS,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: serviceName,
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: nodeName,
+					Containers: []corev1.Container{
+						{Name: "ctr1", Image: "image"},
+					},
+				},
+			}
+
+			By("Check if pod is not using virtual network")
+			Eventually(func(g Gomega) {
+				isVirtual, err := isPodUsingOnlyVirtualNetworks(ctx, testClient, testPod)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(isVirtual).To(BeFalse())
+			}).WithTimeout(2 * time.Second).Should(Succeed())
+		})
+
+		Context("networks without virtual network attached", func() {
+			It("should return false when pod has no service ID label", func() {
+				By("Create Pod in memory without service ID label")
+				testPod = &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod-no-label",
+						Namespace: defaultNS,
+						Labels:    map[string]string{}, // No service ID label
+					},
+					Spec: corev1.PodSpec{
+						NodeName: nodeName,
+						Containers: []corev1.Container{
+							{Name: "ctr1", Image: "image"},
+						},
+					},
+				}
+
+				By("Check that pod is not using virtual network")
+				isVirtual, err := isPodUsingOnlyVirtualNetworks(ctx, testClient, testPod)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(isVirtual).To(BeFalse())
+			})
+
+			It("should return false and no error when no service interface exists", func() {
+				By("Create Pod in memory with service ID label but no ServiceInterface")
+				testPod = &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod-no-si",
+						Namespace: defaultNS,
+						Labels: map[string]string{
+							dpuservicev1.DPFServiceIDLabelKey: "non-existent-service",
+						},
+					},
+					Spec: corev1.PodSpec{
+						NodeName: nodeName,
+						Containers: []corev1.Container{
+							{Name: "ctr1", Image: "image"},
+						},
+					},
+				}
+
+				By("Check that an error is returned")
+				Eventually(func(g Gomega) {
+					isVirtual, err := isPodUsingOnlyVirtualNetworks(ctx, testClient, testPod)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(isVirtual).To(BeFalse())
+				}).WithTimeout(2 * time.Second).Should(Succeed())
+			})
+		})
+	})
+
+	Context("getServiceInterfaceWithLabels", func() {
+		var cleanupObjects []client.Object
+
+		BeforeEach(func() {
+			cleanupObjects = []client.Object{}
+		})
+
+		AfterEach(func() {
+			By("Cleaning up the objects")
+			Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
+		})
+
+		Context("getServiceInterfaceWithLabels", func() {
+			var cleanupObjects []client.Object
+
+			AfterEach(func() {
+				By("Cleaning up the objects")
+				Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
+			})
+
+			It("should return error when no matching ServiceInterface is found", func() {
+				By("Try to get non-existent ServiceInterface")
+				_, err := getServiceInterfaceWithLabels(ctx, testClient, nodeName, defaultNS, map[string]string{
+					dpuservicev1.DPFServiceIDLabelKey: "non-existent-service",
+				})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("no serviceInterface"))
+			})
+
+			It("should return error when multiple matching ServiceInterfaces are found", func() {
+				By("Create two ServiceInterfaces with same labels")
+				si1 := &dpuservicev1.ServiceInterface{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "duplicate-si-1",
+						Namespace: defaultNS,
+						Labels: map[string]string{
+							dpuservicev1.DPFServiceIDLabelKey: "duplicate-service",
+						},
+					},
+					Spec: dpuservicev1.ServiceInterfaceSpec{
+						InterfaceType: dpuservicev1.InterfaceTypeService,
+						Node:          ptr.To(nodeName),
+						Service: &dpuservicev1.ServiceDef{
+							ServiceID:     "duplicate-service",
+							InterfaceName: "ifc1",
+						},
+					},
+				}
+				Expect(testClient.Create(ctx, si1)).To(Succeed())
+				cleanupObjects = append(cleanupObjects, si1)
+
+				si2 := &dpuservicev1.ServiceInterface{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "duplicate-si-2",
+						Namespace: defaultNS,
+						Labels: map[string]string{
+							dpuservicev1.DPFServiceIDLabelKey: "duplicate-service",
+						},
+					},
+					Spec: dpuservicev1.ServiceInterfaceSpec{
+						InterfaceType: dpuservicev1.InterfaceTypeService,
+						Node:          ptr.To(nodeName),
+						Service: &dpuservicev1.ServiceDef{
+							ServiceID:     "duplicate-service",
+							InterfaceName: "ifc2",
+						},
+					},
+				}
+				Expect(testClient.Create(ctx, si2)).To(Succeed())
+				cleanupObjects = append(cleanupObjects, si2)
+
+				By("Try to get ServiceInterface - should fail due to multiple matches")
+				Eventually(func(g Gomega) {
+					_, err := getServiceInterfaceWithLabels(ctx, testClient, nodeName, defaultNS, map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: "duplicate-service",
+					})
+					g.Expect(err).To(HaveOccurred())
+					g.Expect(err.Error()).To(ContainSubstring("expected only one serviceInterface"))
+				}).WithTimeout(2 * time.Second).Should(Succeed())
+			})
+
+			It("should filter out ServiceInterfaces on different nodes", func() {
+				By("Create ServiceInterface on different node")
+				siWrongNode := &dpuservicev1.ServiceInterface{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "si-wrong-node",
+						Namespace: defaultNS,
+						Labels: map[string]string{
+							dpuservicev1.DPFServiceIDLabelKey: "test-service",
+						},
+					},
+					Spec: dpuservicev1.ServiceInterfaceSpec{
+						InterfaceType: dpuservicev1.InterfaceTypeService,
+						Node:          ptr.To("other-node"),
+						Service: &dpuservicev1.ServiceDef{
+							ServiceID:     "test-service",
+							InterfaceName: "ifc1",
+						},
+					},
+				}
+				Expect(testClient.Create(ctx, siWrongNode)).To(Succeed())
+				cleanupObjects = append(cleanupObjects, siWrongNode)
+
+				By("Try to get ServiceInterface on our node - should fail as it's on wrong node")
+				Eventually(func(g Gomega) {
+					_, err := getServiceInterfaceWithLabels(ctx, testClient, nodeName, defaultNS, map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: "test-service",
+					})
+					g.Expect(err).To(HaveOccurred())
+					g.Expect(err.Error()).To(ContainSubstring("no serviceInterface"))
+				}).WithTimeout(2 * time.Second).Should(Succeed())
+			})
+
+			It("should successfully return ServiceInterface when single match on correct node", func() {
+				By("Create ServiceInterface on correct node")
+				si := &dpuservicev1.ServiceInterface{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "si-correct",
+						Namespace: defaultNS,
+						Labels: map[string]string{
+							dpuservicev1.DPFServiceIDLabelKey: "correct-service",
+						},
+					},
+					Spec: dpuservicev1.ServiceInterfaceSpec{
+						InterfaceType: dpuservicev1.InterfaceTypeService,
+						Node:          ptr.To(nodeName),
+						Service: &dpuservicev1.ServiceDef{
+							ServiceID:     "correct-service",
+							InterfaceName: "ifc1",
+						},
+					},
+				}
+				Expect(testClient.Create(ctx, si)).To(Succeed())
+				cleanupObjects = append(cleanupObjects, si)
+
+				By("Get ServiceInterface - should succeed")
+				Eventually(func(g Gomega) {
+					result, err := getServiceInterfaceWithLabels(ctx, testClient, nodeName, defaultNS, map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: "correct-service",
+					})
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(result.Name).To(Equal("si-correct"))
+				}).WithTimeout(2 * time.Second).Should(Succeed())
+			})
+
+			It("should filter correctly when multiple SIs exist but only one on correct node", func() {
+				By("Create ServiceInterface on wrong node")
+				siWrongNode := &dpuservicev1.ServiceInterface{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "si-wrong-node",
+						Namespace: defaultNS,
+						Labels: map[string]string{
+							dpuservicev1.DPFServiceIDLabelKey: "filter-test-service",
+						},
+					},
+					Spec: dpuservicev1.ServiceInterfaceSpec{
+						InterfaceType: dpuservicev1.InterfaceTypeService,
+						Node:          ptr.To("other-node"),
+						Service: &dpuservicev1.ServiceDef{
+							ServiceID:     "filter-test-service",
+							InterfaceName: "ifc1",
+						},
+					},
+				}
+				Expect(testClient.Create(ctx, siWrongNode)).To(Succeed())
+				cleanupObjects = append(cleanupObjects, siWrongNode)
+
+				By("Create ServiceInterface on correct node")
+				siCorrectNode := &dpuservicev1.ServiceInterface{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "si-correct-node",
+						Namespace: defaultNS,
+						Labels: map[string]string{
+							dpuservicev1.DPFServiceIDLabelKey: "filter-test-service",
+						},
+					},
+					Spec: dpuservicev1.ServiceInterfaceSpec{
+						InterfaceType: dpuservicev1.InterfaceTypeService,
+						Node:          ptr.To(nodeName),
+						Service: &dpuservicev1.ServiceDef{
+							ServiceID:     "filter-test-service",
+							InterfaceName: "ifc2",
+						},
+					},
+				}
+				Expect(testClient.Create(ctx, siCorrectNode)).To(Succeed())
+				cleanupObjects = append(cleanupObjects, siCorrectNode)
+
+				By("Get ServiceInterface - should return only the one on correct node")
+				Eventually(func(g Gomega) {
+					result, err := getServiceInterfaceWithLabels(ctx, testClient, nodeName, defaultNS, map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: "filter-test-service",
+					})
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(result.Name).To(Equal("si-correct-node"))
+				}).WithTimeout(2 * time.Second).Should(Succeed())
+			})
+		})
+	})
+
+	Context("getNVIPAMPoolByMatchLabels", func() {
+		var cleanupObjects []client.Object
+
+		BeforeEach(func() {
+			cleanupObjects = []client.Object{}
+		})
+
+		AfterEach(func() {
+			By("Cleaning up the objects")
+			Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
+		})
+
+		It("should return first IPPool when multiple IPPools match labels", func() {
+			testLabels := map[string]string{
+				"test-label": "multiple-ippools",
+			}
+
+			By("Create first IPPool")
+			pool1 := &nvipamv1.IPPool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ippool-1",
+					Namespace: defaultNS,
+					Labels:    testLabels,
+				},
+				Spec: nvipamv1.IPPoolSpec{
+					Subnet:           "192.168.1.0/24",
+					Gateway:          "192.168.1.1",
+					PerNodeBlockSize: 10,
+				},
+			}
+			Expect(testClient.Create(ctx, pool1)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, pool1)
+
+			By("Create second IPPool with same labels")
+			pool2 := &nvipamv1.IPPool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ippool-2",
+					Namespace: defaultNS,
+					Labels:    testLabels,
+				},
+				Spec: nvipamv1.IPPoolSpec{
+					Subnet:           "192.168.2.0/24",
+					Gateway:          "192.168.2.1",
+					PerNodeBlockSize: 10,
+				},
+			}
+			Expect(testClient.Create(ctx, pool2)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, pool2)
+
+			By("Call getNVIPAMPoolByMatchLabels")
+			ipam := &dpuservicev1.IPAM{
+				MatchLabels: testLabels,
+			}
+			Eventually(func(g Gomega) {
+				poolName, poolType, err := getNVIPAMPoolByMatchLabels(ctx, testClient, ipam)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(poolName).To(Or(Equal("ippool-1"), Equal("ippool-2")))
+				g.Expect(poolType).To(Equal("ippool"))
+			}).WithTimeout(2 * time.Second).Should(Succeed())
+		})
+
+		It("should return first CIDRPool when multiple CIDRPools match labels and no IPPools exist", func() {
+			testLabels := map[string]string{
+				"test-label": "multiple-cidrpools",
+			}
+
+			By("Create first CIDRPool")
+			pool1 := &nvipamv1.CIDRPool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "cidrpool-1",
+					Namespace: defaultNS,
+					Labels:    testLabels,
+				},
+				Spec: nvipamv1.CIDRPoolSpec{
+					CIDR:                 "192.168.10.0/24",
+					PerNodeNetworkPrefix: 31,
+				},
+			}
+			Expect(testClient.Create(ctx, pool1)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, pool1)
+
+			By("Create second CIDRPool with same labels")
+			pool2 := &nvipamv1.CIDRPool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "cidrpool-2",
+					Namespace: defaultNS,
+					Labels:    testLabels,
+				},
+				Spec: nvipamv1.CIDRPoolSpec{
+					CIDR:                 "192.168.20.0/24",
+					PerNodeNetworkPrefix: 31,
+				},
+			}
+			Expect(testClient.Create(ctx, pool2)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, pool2)
+
+			By("Call getNVIPAMPoolByMatchLabels")
+			ipam := &dpuservicev1.IPAM{
+				MatchLabels: testLabels,
+			}
+			Eventually(func(g Gomega) {
+				poolName, poolType, err := getNVIPAMPoolByMatchLabels(ctx, testClient, ipam)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(poolName).To(Or(Equal("cidrpool-1"), Equal("cidrpool-2")))
+				g.Expect(poolType).To(Equal("cidrpool"))
+			}).WithTimeout(2 * time.Second).Should(Succeed())
+		})
+
+		It("should return error when no pools match labels", func() {
+			testLabels := map[string]string{
+				"test-label": "no-match",
+			}
+
+			By("Call getNVIPAMPoolByMatchLabels with non-existent labels")
+			ipam := &dpuservicev1.IPAM{
+				MatchLabels: testLabels,
+			}
+			_, _, err := getNVIPAMPoolByMatchLabels(ctx, testClient, ipam)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("no IPPool or CIDRPool found for labels"))
+		})
+
+		It("should prefer IPPool over CIDRPool when both match", func() {
+			testLabels := map[string]string{
+				"test-label": "both-types",
+			}
+
+			By("Create IPPool")
+			ipPool := &nvipamv1.IPPool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ippool-preferred",
+					Namespace: defaultNS,
+					Labels:    testLabels,
+				},
+				Spec: nvipamv1.IPPoolSpec{
+					Subnet:           "192.168.30.0/24",
+					Gateway:          "192.168.30.1",
+					PerNodeBlockSize: 10,
+				},
+			}
+			Expect(testClient.Create(ctx, ipPool)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, ipPool)
+
+			By("Create CIDRPool with same labels")
+			cidrPool := &nvipamv1.CIDRPool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "cidrpool-not-preferred",
+					Namespace: defaultNS,
+					Labels:    testLabels,
+				},
+				Spec: nvipamv1.CIDRPoolSpec{
+					CIDR:                 "192.168.40.0/24",
+					PerNodeNetworkPrefix: 31,
+				},
+			}
+			Expect(testClient.Create(ctx, cidrPool)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, cidrPool)
+
+			By("Call getNVIPAMPoolByMatchLabels - should return IPPool")
+			ipam := &dpuservicev1.IPAM{
+				MatchLabels: testLabels,
+			}
+			Eventually(func(g Gomega) {
+				poolName, poolType, err := getNVIPAMPoolByMatchLabels(ctx, testClient, ipam)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(poolName).To(Equal("ippool-preferred"))
+				g.Expect(poolType).To(Equal("ippool"))
+			}).WithTimeout(2 * time.Second).Should(Succeed())
+		})
 	})
 })
 
@@ -586,9 +1413,8 @@ func expectedSingleNetAnnotationWithIPAM(ifcName string, pooltype string, assign
 	return s
 }
 
-func expectedSingleNetAnnotationWithoutIPAM(ifcName string, mtu int) string {
-	s := fmt.Sprintf("[{\"name\":\"mybrsfc\",\"namespace\":\"default\",\"interface\":\"%s\",\"cni-args\":{\"mtu\":%d}}]",
-		ifcName, mtu)
+func expectedSingleNetAnnotationWithoutIPAM(mtu int) string {
+	s := fmt.Sprintf("[{\"name\":\"mybrsfc\",\"namespace\":\"default\",\"interface\":\"%s\",\"cni-args\":{\"mtu\":%d}}]", ifcName, mtu)
 	return s
 }
 
@@ -624,6 +1450,18 @@ func changePodState(ctx context.Context, phase corev1.PodPhase) {
 		pod.ManagedFields = nil
 		g.Expect(testClient.Status().Patch(ctx, pod, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
 	}).WithTimeout(10 * time.Second).Should(Succeed())
+}
+
+// calculateDigestEventually wraps CalculatePodNetworkDigest with Eventually to handle cache delays
+func calculateDigestEventually(ctx context.Context, pod *corev1.Pod, networks []*multustypes.NetworkSelectionElement) string {
+	var digest string
+	Eventually(func(g Gomega) {
+		var err error
+		digest, err = CalculatePodNetworkDigest(ctx, testClient, pod, networks)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(digest).NotTo(BeEmpty())
+	}).WithTimeout(2 * time.Second).Should(Succeed())
+	return digest
 }
 
 func createPodWithNetworkAnnotation(ctx context.Context, networkAnnot string) *corev1.Pod {
