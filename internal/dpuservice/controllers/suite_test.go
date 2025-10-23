@@ -136,20 +136,20 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	dpuServiceReconciler := &DPUServiceReconciler{
-		Client:      testManager.GetClient(), // Use the manager's client which has the indexers registered
+		Client:      testManager.GetClient(),
 		Scheme:      testManager.GetScheme(),
 		RemoteCache: remoteCache,
 	}
 	Expect(dpuServiceReconciler.SetupWithManager(ctx, testManager)).ToNot(HaveOccurred())
 
 	err = (&DPUDeploymentReconciler{
-		Client: testClient,
+		Client: testManager.GetClient(),
 		Scheme: testManager.GetScheme(),
 	}).SetupWithManager(testManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&DPUServiceCredentialRequestReconciler{
-		Client: testClient,
+		Client: testManager.GetClient(),
 		Scheme: testManager.GetScheme(),
 	}).SetupWithManager(testManager)
 	Expect(err).ToNot(HaveOccurred())
@@ -162,7 +162,7 @@ var _ = BeforeSuite(func() {
 
 	chartHelper = utils.NewFakeChartHelper()
 	err = (&DPUServiceTemplateReconciler{
-		Client:      testClient,
+		Client:      testManager.GetClient(),
 		Scheme:      testManager.GetScheme(),
 		ChartHelper: chartHelper,
 	}).SetupWithManager(testManager)

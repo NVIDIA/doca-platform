@@ -301,7 +301,7 @@ func (r *DPUDeploymentReconciler) reconcile(ctx context.Context, dpuDeployment *
 		return ctrl.Result{}, fmt.Errorf("error while constructing the DPUServiceInterfaces names: %w", err)
 	}
 
-	requeue, err := reconcileDPUServices(ctx, r.Client, dpuDeployment, deps, interfaceNameByServiceName, dpuNodeLabels)
+	requeue, patchedDPUServices, err := reconcileDPUServices(ctx, r.Client, dpuDeployment, deps, interfaceNameByServiceName, dpuNodeLabels)
 	if err != nil {
 		conditions.AddFalse(
 			dpuDeployment,
@@ -313,7 +313,7 @@ func (r *DPUDeploymentReconciler) reconcile(ctx context.Context, dpuDeployment *
 	}
 	conditions.AddTrue(dpuDeployment, dpuservicev1.ConditionDPUServicesReconciled)
 
-	req, err := reconcileDPUServiceInterfaces(ctx, r.Client, r.Scheme, dpuDeployment, deps, interfaceNameByServiceName, dpuNodeLabels)
+	req, err := reconcileDPUServiceInterfaces(ctx, r.Client, r.Scheme, dpuDeployment, deps, interfaceNameByServiceName, dpuNodeLabels, patchedDPUServices)
 	if err != nil {
 		conditions.AddFalse(
 			dpuDeployment,

@@ -51,6 +51,7 @@ func reconcileDPUServiceInterfaces(
 	dependencies *dpuDeploymentDependencies,
 	interfaceNameByServiceName map[string]interfaceNameToDPUServiceInterfaceName,
 	dpuNodeLabels map[string]string,
+	patchedDPUServices map[string]*dpuservicev1.DPUService,
 ) (ctrl.Result, error) {
 	dpuDeploymentOwnerRef := metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)
 	requeue := ctrl.Result{}
@@ -76,6 +77,7 @@ func reconcileDPUServiceInterfaces(
 		client.InNamespace(dpuDeployment.Namespace)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to list existing DPUService: %w", err)
 	}
+	mergedDPUServices := mergePatchedAndListedDPUServices(existingDPUServices, patchedDPUServices)
 
 	// Get all the existing DPUServiceInterfaces
 	existingDPUServiceInterfaces := &dpuservicev1.DPUServiceInterfaceList{}
@@ -100,7 +102,7 @@ func reconcileDPUServiceInterfaces(
 		serviceTemplate := dependencies.DPUServiceTemplates[serviceName]
 		versionDigest := calculateDPUServiceVersionDigest(serviceConfig, serviceTemplate)
 
-		currentDPUServiceClientObj, _ := getCurrentAndStaleDPUServices(serviceName, versionDigest, existingDPUServices)
+		currentDPUServiceClientObj, _ := getCurrentAndStaleDPUServices(serviceName, versionDigest, mergedDPUServices)
 		// One case where this can happen is if the DPUService was manually deleted
 		if currentDPUServiceClientObj == nil {
 			errs = append(errs, fmt.Errorf("failed to find current DPUService for service '%s' as defined in DPUDeployment", serviceName))
@@ -170,7 +172,7 @@ func reconcileDPUServiceInterfaces(
 	// by checking whether the parent DPUService exists or not, completely relying on the cleanup logic defined in the
 	// reconcileDPUService function.
 	for _, dpuServiceInterface := range existingDPUServiceInterfacesMap {
-		for _, dpuService := range existingDPUServices.Items {
+		for _, dpuService := range mergedDPUServices.Items {
 			isOwner, err := controllerutil.HasOwnerReference(dpuServiceInterface.OwnerReferences, &dpuService, scheme)
 			if err != nil {
 				return ctrl.Result{}, fmt.Errorf("couldn't match owner reference: %w", err)
@@ -462,4 +464,32 @@ func constructCurrentDPUServiceInterfaceNamesForService(dpuDeployment *dpuservic
 		}
 	}
 	return m
+}
+
+// mergePatchedAndListedDPUServices merges the DPUServices that were just created/updated with the ones listed from cache.
+// This is needed because the cache may not have synced yet with the latest changes when reconciling DPUServiceInterfaces.
+// Patched services always take precedence over cached services.
+func mergePatchedAndListedDPUServices(
+	existingDPUServices *dpuservicev1.DPUServiceList,
+	patchedDPUServices map[string]*dpuservicev1.DPUService,
+) *dpuservicev1.DPUServiceList {
+	merged := existingDPUServices.DeepCopy()
+
+	for _, patched := range patchedDPUServices {
+		found := false
+		for i := range merged.Items {
+			if merged.Items[i].Name == patched.Name {
+				// Replace the cached version with the patched version
+				merged.Items[i] = *patched
+				found = true
+				break
+			}
+		}
+		if !found {
+			// Service doesn't exist in cache yet, add it
+			merged.Items = append(merged.Items, *patched)
+		}
+	}
+
+	return merged
 }
