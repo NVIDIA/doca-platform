@@ -543,7 +543,7 @@ metadata:
 			},
 			Entry("valid MTU 1500", int32(1500), false),
 			Entry("valid MTU 9000", int32(9000), false),
-			Entry("valid MTU 1000 (minimum)", int32(1000), false),
+			Entry("valid MTU 1280 (minimum)", int32(1280), false),
 			Entry("valid MTU 9216 (maximum)", int32(9216), false),
 			Entry("invalid MTU too low", int32(999), true),
 			Entry("invalid MTU too high", int32(9217), true),

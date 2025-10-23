@@ -67,8 +67,8 @@ configured. The default value is set to 1500, however it can be adjusted if requ
 ```yaml
 spec:
   networking:
-    controlPlaneMTU: 1500    # Management network MTU (range: 1000-9216, default: 1500)
-    highSpeedMTU: 1500       # High-speed interface MTU (range: 1000-9216, default: 1500)
+    controlPlaneMTU: 1500    # Management network MTU (range: 1280-9216, default: 1500)
+    highSpeedMTU: 1500       # High-speed interface MTU (range: 1280-9216, default: 1500)
 ```
 
 ### Image Pull Secrets
