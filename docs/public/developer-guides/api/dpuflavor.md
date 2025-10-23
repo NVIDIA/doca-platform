@@ -104,7 +104,7 @@ nvconfig:
 
 | Field | Type | Description |
 |-------|------|--------------|
-| `mtu` | *int32 | MTU value (1000-9216) |
+| `mtu` | *int32 | MTU value (1280-9216) |
 | `dhcp` | *bool | Enable DHCP configuration |
 | `portNumber` | int32 | Port identifier (0 or 1) |
 | `nvconfig` | *[NVConfig](#nvconfig) | Port-specific NVConfig settings |
