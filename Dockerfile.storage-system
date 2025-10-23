@@ -38,7 +38,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 RUN go mod vendor
 RUN mkdir src && \
     find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
-    -not -path "./internal/vpc/*" -exec cp --parents \{\}  src/ \; && \
+    -exec cp --parents \{\}  src/ \; && \
     tar -czf source-code.tar.gz src
 
 # 2) Final stage copies artifacts from the builder stage.
