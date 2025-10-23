@@ -47,7 +47,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Copy the go source code so it can be distributed in the final image.
 RUN mkdir src && \
     find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
-    -not -path "./internal/vpc/*" -exec cp --parents \{\}  src/ \; && \
+    -exec cp --parents \{\}  src/ \; && \
     tar -czf source-code.tar.gz src
 
 

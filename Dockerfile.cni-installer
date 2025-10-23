@@ -23,7 +23,7 @@ RUN go mod vendor
 RUN mkdir -p src/dpf && \
     wget https://github.com/k8snetworkplumbingwg/rdma-cni/archive/refs/tags/${rdma_cni_version}.tar.gz -O src/rdma-cni-${rdma_cni_version}.tar.gz && \
     find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
-    -not -path "./internal/vpc/*" -exec cp --parents \{\}  src/dpf/ \; && \
+    -exec cp --parents \{\}  src/dpf/ \; && \
     tar -czf source-code.tar.gz src
 
 # 2) Builder stage builds go binaries (no emulation).
