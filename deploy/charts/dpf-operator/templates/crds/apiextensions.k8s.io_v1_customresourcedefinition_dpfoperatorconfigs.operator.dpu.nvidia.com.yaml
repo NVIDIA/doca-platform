@@ -1032,9 +1032,9 @@ spec:
                               Deprecated: Use RegistryConfiguration instead.
                             minLength: 1
                             type: string
-                          skipDpuNodeDiscovery:
+                          skipDPUNodeDiscovery:
                             default: true
-                            description: SkipDpuNodeDiscovery is a flag to skip the
+                            description: SkipDPUNodeDiscovery is a flag to skip the
                               DPU node discovery.
                             type: boolean
                         type: object
