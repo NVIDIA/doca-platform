@@ -298,7 +298,7 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *syste
 	if modifiedConfig.Spec.Networking == nil {
 		modifiedConfig.Spec.Networking = &operatorv1.Networking{}
 	}
-	modifiedConfig.Spec.Networking.ControlPlaneMTU = ptr.To(1200)
+	modifiedConfig.Spec.Networking.ControlPlaneMTU = ptr.To(1300)
 	modifiedConfig.Spec.Networking.HighSpeedMTU = ptr.To(9000)
 	Eventually(func(g Gomega) {
 		g.Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(originalConfig))).To(Succeed())
@@ -308,7 +308,7 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *syste
 	Eventually(func(g Gomega) {
 		flannelConfigMap := &corev1.ConfigMap{}
 		g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
-		g.Expect(flannelConfigMap.Data["net-conf.json"]).To(ContainSubstring("MTU\": 1200,"))
+		g.Expect(flannelConfigMap.Data["net-conf.json"]).To(ContainSubstring("MTU\": 1300,"))
 
 		netAttachDef := &unstructured.Unstructured{}
 		netAttachDef.SetGroupVersionKind(schema.GroupVersionKind{

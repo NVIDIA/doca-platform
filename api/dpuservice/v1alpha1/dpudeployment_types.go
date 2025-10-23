@@ -240,7 +240,7 @@ type DPUDeploymentSwitch struct {
 
 	// ServiceMTU of the switch
 	// The default is 1500.
-	// +kubebuilder:validation:Minimum=1000
+	// +kubebuilder:validation:Minimum=1280
 	// +kubebuilder:validation:Maximum=9216
 	// +kubebuilder:default=1500
 	// +optional

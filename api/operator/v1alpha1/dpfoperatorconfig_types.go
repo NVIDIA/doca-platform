@@ -115,7 +115,7 @@ type Overrides struct {
 type Networking struct {
 	// ControlPlaneMTU is the MTU value to be set on the management network.
 	// The default is 1500.
-	// +kubebuilder:validation:Minimum=1000
+	// +kubebuilder:validation:Minimum=1280
 	// +kubebuilder:validation:Maximum=9216
 	// +kubebuilder:default=1500
 	// +optional
@@ -123,7 +123,7 @@ type Networking struct {
 
 	// HighSpeedMTU is the MTU value to be set on the high-speed interface.
 	// The default is 1500.
-	// +kubebuilder:validation:Minimum=1000
+	// +kubebuilder:validation:Minimum=1280
 	// +kubebuilder:validation:Maximum=9216
 	// +kubebuilder:default=1500
 	// +optional
