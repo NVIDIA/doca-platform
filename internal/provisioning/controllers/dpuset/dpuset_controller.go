@@ -337,8 +337,10 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 	owner := metav1.NewControllerRef(dpuSet, provisioningv1.GroupVersion.WithKind(provisioningv1.DPUSetKind))
 
 	clusterNodeLabels := map[string]string{}
-	if dpuSet.Spec.DPUTemplate.Spec.Cluster != nil {
-		clusterNodeLabels = dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels
+	if dpuSet.Spec.DPUTemplate.Spec.Cluster != nil && dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels != nil {
+		for k, v := range dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels {
+			clusterNodeLabels[k] = v
+		}
 	}
 	clusterNodeLabels[cutil.HostNameDPULabelKey] = dpuNodeName
 	clusterNodeLabels[release.DPFVersionLabelKey] = release.DPFVersion()
