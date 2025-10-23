@@ -92,8 +92,8 @@ func (r *DPUDiscoveryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	skipDpuNodeDiscovery := true
-	if dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDpuNodeDiscovery != nil {
-		skipDpuNodeDiscovery = *dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDpuNodeDiscovery
+	if dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDPUNodeDiscovery != nil {
+		skipDpuNodeDiscovery = *dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDPUNodeDiscovery
 	}
 	crawler := NewCrawlerService(r.Client, dpuDiscovery.Namespace, workers, skipDpuNodeDiscovery)
 
