@@ -36,6 +36,12 @@ Install the following tools on the machine where you will run the commands in th
 
 Commands in this guide are run in the same directory that contains this readme.
 
+> [NOTE!]
+> This deployment guide assumes that two subnets are available in the network
+> for use by the VPC service for tunneled and external traffic. It is possible to use a single
+> subnet for both traffic types with minor modifications to the deployment manifests.
+> Refer to [OVN VPC Deployment](#4-ovn-vpc-deployment) for more information.
+
 ### 0. Required variables
 
 The following variables are required. Sensible defaults are provided where possible, but many values will be specific to your target infrastructure.
@@ -116,7 +122,6 @@ Modify the variables in `manifests/00-env-vars/envvars.env` to fit your environm
 ```shell
 source manifests/00-env-vars/envvars.env
 ```
-
 
 ### 1. DPF Operator installation
 
@@ -756,6 +761,22 @@ spec:
 ```
 
 </details>
+
+> [NOTE!]
+> In the above deployment we assume separate network subnets for VTEP(tunneled) and external networks.
+> In case its desirable to use only a single network subnet for both traffic types (tunneled, external),
+> simply modify `vpc-ovn-node` DPUServiceConfiguration to reference the same IP pool under `ipRequests` field.
+> 
+> **Example:**
+>   ```yaml
+>   ipRequests:
+>     - name: "vtep"
+>       poolName: "vpc-ippool-vtep"
+>       allocateIPWithIndex: 1
+>     - name: "gateway"
+>       poolName: "vpc-ippool-vtep"
+>       allocateIPWithIndex: 2
+>   ```
 
 #### Make DPUs Ready
 
