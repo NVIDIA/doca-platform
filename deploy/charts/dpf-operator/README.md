@@ -1,6 +1,6 @@
 # dpf-operator
 
-![Version: 25.7.0](https://img.shields.io/badge/Version-25.7.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v25.7.0](https://img.shields.io/badge/AppVersion-v25.7.0-informational?style=flat-square)
+![Version: v0.1.0](https://img.shields.io/badge/Version-v0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.1.0](https://img.shields.io/badge/AppVersion-v0.1.0-informational?style=flat-square)
 
 DPF Operator manages the lifecycle of a DOCA Platform Framework system.
 
