@@ -1,5 +1,5 @@
 /*
-COPYRIGHT 2024 NVIDIA
+COPYRIGHT 2025 NVIDIA
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -47,10 +47,10 @@ type PodIpamReconciler struct {
 }
 
 const (
-	ipamPoolNamesParam      = "poolNames"
 	podIpamControllerName   = "podIpamcontroller"
 	NetworkAttachmentAnnot  = "k8s.v1.cni.cncf.io/networks"
 	NetworkDigestAnnotation = "dpu.nvidia.com/network-digest"
+	ServiceInterfaceNodeKey = "spec.node"
 
 	// The invalid network is used to hold the readiness of the pod until the MTU is injected in the CNI args correctly.
 	// This network is added by the DPUService controller on all DPUServices that have an interface. Depending on the
@@ -100,7 +100,12 @@ func (r *PodIpamReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, fmt.Errorf("failed to get populated networks: %w", err)
 	}
 
-	if !changed {
+	podHasOnlyVirtualNetworks, err := isPodUsingOnlyVirtualNetworks(ctx, r.Client, pod)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if !changed && !podHasOnlyVirtualNetworks {
 		// We need to enqueue again because it might be that the Pod is still in Pending due to IPAM missing. We do not
 		// explicitly return error if we can't find IPAM Pools because we don't know if the Pod should use IPAM (we would
 		// need to implement logic to understand that via the NAD).
@@ -110,7 +115,15 @@ func (r *PodIpamReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// patch the pod with network annotation and digest
 	if err := patchPodWithoutInvalidNetworkAnnotationAndWithDigestAnnotation(ctx, r.Client, pod, populatedNetworks); err != nil {
+		log.Error(err, "Error patching pod without invalid network annotation and digest", "pod", req.NamespacedName)
 		return reconcile.Result{}, fmt.Errorf("error while patching pod without invalid network annotation and digest: %w", err)
+	}
+
+	// Since this pod is connected to a virtual network, we can return early and not requeue since
+	// we do not expect it to use NVIPAM.
+	if podHasOnlyVirtualNetworks {
+		log.Info("Pod is using virtual network, removing invalid network annotation", "pod", pod.Name)
+		return reconcile.Result{}, nil
 	}
 
 	// We need to enqueue again because it might be that the Pod is still in Pending due to IPAM missing. We do not
@@ -518,4 +531,33 @@ func CalculatePodNetworkDigest(ctx context.Context, c client.Client, pod *corev1
 func calculateNetworkDigest(networks []*multustypes.NetworkSelectionElement) string {
 	filteredNetworks := filterInvalidNetwork(networks)
 	return digest.FromObjects(filteredNetworks).String()
+}
+
+// isPodUsingOnlyVirtualNetworks checks if the pod is using a virtual network.
+// Note: A pod can have multiple ServiceInterfaces with the same serviceID (one per interface),
+// so we need to check if ANY of them has a virtual network.
+func isPodUsingOnlyVirtualNetworks(ctx context.Context, c client.Client, pod *corev1.Pod) (bool, error) {
+	serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
+
+	// Not using the getServiceInterfaceWithLabels function here because we need to check all the service interfaces
+	if err := c.List(ctx, serviceInterfaceList, client.InNamespace(pod.Namespace), client.MatchingFields{ServiceInterfaceNodeKey: pod.Spec.NodeName}); err != nil {
+		return false, err
+	}
+	if len(serviceInterfaceList.Items) == 0 {
+		return false, nil
+	}
+
+	isUsingVirtualNetwork := false
+
+	// Check if any of the service interfaces has a virtual network
+	// if it uses only interfaces with virtual network, then it is using a virtual network.
+	for i := range serviceInterfaceList.Items {
+		if serviceInterfaceList.Items[i].HasVirtualNetwork() {
+			isUsingVirtualNetwork = true
+		} else {
+			return false, nil
+		}
+	}
+
+	return isUsingVirtualNetwork, nil
 }
