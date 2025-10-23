@@ -39,6 +39,9 @@ export REGISTRY ?= example.com
 # This variable ensures that the values injected in the operator and charts point to the upstream artifacts.
 export UPSTREAM_REGISTRY ?= $(REGISTRY)
 
+# The latest stable tag is used in various places to refer to the latest stable release of DPF.
+LATEST_STABLE_TAG = v25.7.0
+
 # If V is set to 1 the output will be verbose.
 Q = $(if $(filter 1,$V),,@)
 
@@ -428,7 +431,8 @@ generate-docs-api: gen-crd-api-reference-docs ## Generate docs for the API.
 	@rm docs/public/developer-guides/api/api.md.tmp
 
 .PHONY: generate-docs-helm
-generate-docs-helm: helm-docs ## Generate helm chart documentation.
+generate-docs-helm: helm-docs yq ## Generate helm chart documentation.
+	## Generate helm docs for all charts in the helm directory.
 	$(HELM_DOCS) --ignore-file=.helmdocsignore
 
 .PHONY: generate-docs-embedmd
@@ -607,6 +611,14 @@ verify-md-links: $(LYCHEE) ## Check links in markdown docs are working
 		exit 0; \
 	fi; \
 	$(LYCHEE) --accept 200,429 . *.md --exclude-path third_party --exclude-path ./deploy --exclude-path docs/do_not_publish # Exclude the external `third_party` docs and the generated `charts` docs.
+
+export CRDIFY_BASE_REF ?= v25.7.0
+export CRDIFY_COMPARE_REF ?= HEAD
+export CRDIFY_CONFIG ?= $(PROJECT_DIR)/crdify.yaml
+export CRDIFY_CRD_DIR = $(patsubst $(PROJECT_DIR)/%,%,$(CRDDIR))
+.PHONY: verify-crdify
+verify-crdify: binary-dpfdev ## Verify that the CRDs are valid
+	hack/scripts/crd-validation.sh
 
 .PHONY: lint-helm
 lint-helm: lint-helm-dpu-networking lint-helm-ovn-kubernetes lint-helm-dummydpuservice lint-helm-storage
