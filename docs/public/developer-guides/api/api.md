@@ -2097,7 +2097,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `mtu` _integer_ | MTU is the MTU value to be set on the network interface. |  | Maximum: 9216 <br />Minimum: 1000 <br /> |
+| `mtu` _integer_ | MTU is the MTU value to be set on the network interface. |  | Maximum: 9216 <br />Minimum: 1280 <br /> |
 | `dhcp` _boolean_ | DHCP is the DHCP configuration for the network interface. |  |  |
 | `portNumber` _integer_ | PortNumber identifies which port this configuration applies to. |  | Maximum: 1 <br />Minimum: 0 <br /> |
 | `nvconfig` _[NVConfig](#nvconfig)_ | NVConfig contains port-specific configuration for this network interface.<br />This configuration is applied in addition to the global NVConfig settings in DPUFlavorSpec.<br />Both global and per-interface NVConfig settings can coexist without collision. |  |  |

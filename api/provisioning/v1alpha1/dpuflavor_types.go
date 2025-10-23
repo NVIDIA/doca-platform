@@ -150,7 +150,7 @@ type ContainerdConfig struct {
 // NetworkInterfaceConfig defines the configuration for a network interface
 type NetworkInterfaceConfig struct {
 	// MTU is the MTU value to be set on the network interface.
-	// +kubebuilder:validation:Minimum=1000
+	// +kubebuilder:validation:Minimum=1280
 	// +kubebuilder:validation:Maximum=9216
 	// +optional
 	MTU *int32 `json:"mtu,omitempty"`
