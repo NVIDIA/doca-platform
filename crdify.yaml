@@ -52,3 +52,7 @@ validations:
           kind: "DPFOperatorConfig"
           field: ".spec.networking.highSpeedMTU"
           error: "minimum increased : 1000 -> 1280"
+        - apiVersion: "operator.dpu.nvidia.com/v1alpha1"
+          kind: "DPUFlavor"
+          field: ".spec.hostNetworkInterfaceConfigs.mtu"
+          error: "minimum increased : 1000 -> 1280"

@@ -124,7 +124,7 @@ spec:
                       description: MTU is the MTU value to be set on the network interface.
                       format: int32
                       maximum: 9216
-                      minimum: 1000
+                      minimum: 1280
                       type: integer
                     nvconfig:
                       description: |-
