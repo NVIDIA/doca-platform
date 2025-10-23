@@ -198,7 +198,7 @@ spec:
     installInterface:
       installViaRedfish:
         enabled: true
-        skipDpuNodeDiscovery: false  # Set to true to skip DPUNode creation
+        skipDPUNodeDiscovery: true  # Set to false to create DPUNode by DPUDiscovery process
 ```
 
 ### Redfish Configuration
