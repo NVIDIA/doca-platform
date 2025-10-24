@@ -199,10 +199,10 @@ func skipProvisioning() bool {
 }
 
 var _ = BeforeSuite(func() {
-	By("set input")
+	By("Set input")
 	SetInput()
 
-	By("cleaning up objects created during recent tests")
+	By("Cleaning up objects created during recent tests")
 	if Label(dpfUpgradeValidationTestLabel).MatchesLabelFilter(GinkgoLabelFilter()) {
 		return
 	}
@@ -220,7 +220,7 @@ var _ = BeforeSuite(func() {
 	By(fmt.Sprintf("Run BeforeSuite based on label selector: %v ", GinkgoLabelFilter()))
 	if !skipProvisioning() {
 		SystemSetupBeforeSuite()
-		By("Pre provisioning DPU cluster setup")
+		By("Pre-provisioning DPU cluster setup")
 		ProvisionDPUCluster(ctx, getProvisionDPUClustersInput())
 		ProvisionDPUSet(ctx, getProvisionDPUClustersInput())
 	}
@@ -278,7 +278,7 @@ func reportAfterEach(spec SpecReport) {
 
 	// Cleanup objects for a spec that ran. Ignore Skipped or Pending specs.
 	if !spec.State.Is(types.SpecStateSkipped) && !spec.State.Is(types.SpecStatePending) {
-		By("cleaning up objects created during the test")
+		By("Cleaning up objects created during the test")
 		Expect(utils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(afterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
 	}
 }
@@ -289,7 +289,7 @@ var _ = ReportAfterEach(func(spec SpecReport) {
 
 var _ = ReportAfterSuite("My Suite", func(report Report) {
 	// Collect and print logs (you can also write to a file or another sink)
-	By("collecting resources and logs for the clusters after suite")
+	By("Collecting resources and logs for the clusters after suite")
 	collectInput := collectResourcesInput{
 		collectResources: collectResources,
 		testClient:       testClient,

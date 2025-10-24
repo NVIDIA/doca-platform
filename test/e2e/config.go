@@ -22,6 +22,13 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// config represents the raw configuration data loaded from YAML files.
+// This struct contains file paths and basic configuration values that are used
+// to load and initialize the actual Kubernetes objects for testing.
+//
+// - Loaded from YAML config files (e.g., config-quick.yaml, config-provisioning.yaml)
+// - Used by applyConfig() to populate systemTestInput with actual Kubernetes objects
+// - Used by systemTestInput for object loading and initialization
 type config struct {
 	DPUFlavorPath                     *string  `json:"dpuFlavor,omitempty"`
 	ProvisioningControllerPVCPath     *string  `json:"provisioningControllerPVC,omitempty"`

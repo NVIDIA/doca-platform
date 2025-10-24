@@ -40,6 +40,7 @@ go.work
 # editor and IDE paraphernalia
 .idea
 .vscode
+*.code-workspace
 *.swp
 *.swo
 *~
@@ -47,6 +48,12 @@ go.work
 .cursorrules
 .cursor
 .junie
+
+# OS specific files
+.DS_Store
+
+# Git specific files
+*.patch
 
 # Ignore version file for third_party components
 third_party/forked/ovs-cni/.version
