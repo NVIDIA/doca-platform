@@ -20,7 +20,7 @@ nvIpam:
         memory: 50Mi
       limits:
         cpu: 300m
-        memory: 300Mi
+        memory: 400Mi
   nameOverride: ""
   fullnameOverride: ""
   pullPolicy: IfNotPresent
