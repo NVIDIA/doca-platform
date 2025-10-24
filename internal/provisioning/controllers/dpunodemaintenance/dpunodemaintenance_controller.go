@@ -146,7 +146,6 @@ func (r *DPUNodeMaintenanceReconciler) reconcileDelete(ctx context.Context, dpun
 }
 
 func (r *DPUNodeMaintenanceReconciler) reconcile(ctx context.Context, dpunodemaintenance *provisioningv1.DPUNodeMaintenance) (_ ctrl.Result, reterr error) {
-	logger := log.FromContext(ctx)
 	// If node effect is already applied, return
 	if cutil.IsNodeEffectApplied(dpunodemaintenance) {
 		return ctrl.Result{}, nil
@@ -181,43 +180,10 @@ func (r *DPUNodeMaintenanceReconciler) reconcile(ctx context.Context, dpunodemai
 		dpunodemaintenance.Status.NodeEffectSyncStartTime = &metav1.Time{Time: time.Now()}
 	}
 
-	// If force is false, check the multiDPUOperationsSyncWaitTime and maxUnavailableDPUNodes
-	if dpunodemaintenance.Spec.NodeEffect.Force != nil && !*dpunodemaintenance.Spec.NodeEffect.Force {
-		dpuNodeList := &provisioningv1.DPUNodeList{}
-		if err := r.List(ctx, dpuNodeList, client.InNamespace(dpunodemaintenance.Namespace)); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to list DPU nodes: %w", err)
-		}
-		var nodeNotReadyCount int32 = 0
-		for _, dn := range dpuNodeList.Items {
-			if !cutil.IsDPUNodeReady(&dn) {
-				logger.V(3).Info(fmt.Sprintf("dpunode %s is not ready", dn.Name))
-				nodeNotReadyCount++
-			}
-		}
-
-		// If maxUnavailableDPUNodes is set, check if the number of not ready nodes is greater than maxUnavailableDPUNodes
-		// (*dpunodemaintenance.Status.MaxUnavailableDPUNodes-1) means skip the current node
-		if dpunodemaintenance.Status.MaxUnavailableDPUNodes != nil && (nodeNotReadyCount-1) > *dpunodemaintenance.Status.MaxUnavailableDPUNodes {
-			msg := fmt.Sprintf("Number of not ready nodes is greater than maxUnavailableDPUNodes: %d > %d", nodeNotReadyCount-1, *dpunodemaintenance.Status.MaxUnavailableDPUNodes)
-			conditions.AddFalse(
-				dpunodemaintenance,
-				provisioningv1.ConditionNodeEffectApplied,
-				conditions.ReasonPending,
-				conditions.ConditionMessage(msg),
-			)
-			r.Recorder.Eventf(dpunodemaintenance, corev1.EventTypeWarning, "MaxUnavailableExceeded", msg)
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-		logger.V(3).Info(fmt.Sprintf("nodeNotReadyCount: %d, maxUnavailableDPUNodes: %d", nodeNotReadyCount, *dpunodemaintenance.Status.MaxUnavailableDPUNodes))
-		// If there are multiple DPUs on the node, check the multiDPUOperationsSyncWaitTime
-		if len(dpuNode.Spec.DPUs) > 1 {
-			if time.Since(dpunodemaintenance.Status.NodeEffectSyncStartTime.Time) < dpunodemaintenance.Status.MultiDPUOperationsSyncWaitTime.Duration {
-				requeueAfterTime := dpunodemaintenance.Status.MultiDPUOperationsSyncWaitTime.Duration - time.Since(dpunodemaintenance.Status.NodeEffectSyncStartTime.Time)
-				logger.V(3).Info(fmt.Sprintf("multiple DPU operations sync wait time: %s", requeueAfterTime))
-				r.Recorder.Eventf(dpunodemaintenance, corev1.EventTypeNormal, "WaitingForOperationsSync", "Multiple DPU operations sync wait time")
-				return ctrl.Result{RequeueAfter: requeueAfterTime}, nil
-			}
-		}
+	// Check safety preconditions for applying node effect
+	shouldProceed, result, err := r.checkMaxUnavailableAndSyncWaitTime(ctx, dpunodemaintenance, dpuNode)
+	if !shouldProceed {
+		return result, err
 	}
 
 	var nodeEffectError error
@@ -242,6 +208,9 @@ func (r *DPUNodeMaintenanceReconciler) reconcile(ctx context.Context, dpunodemai
 			conditions.ConditionMessage(fmt.Sprintf("Node effect is being applied: %s", nodeEffectError.Error())),
 		)
 		r.Recorder.Eventf(dpunodemaintenance, corev1.EventTypeNormal, "NodeEffectIsProcessing", nodeEffectError.Error())
+		if err := r.updateDPUNodeEffectInProgress(ctx, dpunodemaintenance.Namespace, dpunodemaintenance.Spec.DPUNodeName, metav1.ConditionTrue, "NodeEffectInProgress", ""); err != nil {
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	} else if nodeEffectError != nil {
 		conditions.AddFalse(
@@ -255,8 +224,108 @@ func (r *DPUNodeMaintenanceReconciler) reconcile(ctx context.Context, dpunodemai
 	}
 	conditions.AddTrue(dpunodemaintenance, provisioningv1.ConditionNodeEffectApplied)
 	r.Recorder.Eventf(dpunodemaintenance, corev1.EventTypeNormal, "NodeEffectApplied", "Node effect is applied")
-
+	if err := r.updateDPUNodeEffectInProgress(ctx, dpunodemaintenance.Namespace, dpunodemaintenance.Spec.DPUNodeName, metav1.ConditionTrue, "NodeEffectInProgress", ""); err != nil {
+		return ctrl.Result{}, err
+	}
 	return ctrl.Result{}, nil
+}
+
+func (r *DPUNodeMaintenanceReconciler) checkMaxUnavailableAndSyncWaitTime(ctx context.Context, dpunodemaintenance *provisioningv1.DPUNodeMaintenance, dpuNode *provisioningv1.DPUNode) (bool, ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	// If force is false, check the multiDPUOperationsSyncWaitTime and maxUnavailableDPUNodes
+	if dpunodemaintenance.Spec.NodeEffect.Force != nil && !*dpunodemaintenance.Spec.NodeEffect.Force {
+		nodeNotReadyCount, err := r.countOtherNotReadyDPUNodes(ctx, dpunodemaintenance)
+		if err != nil {
+			return false, ctrl.Result{}, err
+		}
+
+		// If maxUnavailableDPUNodes is set, check if the number of not ready nodes is greater than maxUnavailableDPUNodes
+		condition := conditions.Get(dpunodemaintenance, provisioningv1.ConditionNodeEffectApplied)
+		logger.V(3).Info(fmt.Sprintf("condition: %+v", condition))
+		if condition == nil || (condition.Status == metav1.ConditionFalse && condition.Reason != "NodeEffectIsProcessing") {
+			if dpunodemaintenance.Status.MaxUnavailableDPUNodes != nil && nodeNotReadyCount >= *dpunodemaintenance.Status.MaxUnavailableDPUNodes {
+				logger.V(3).Info(fmt.Sprintf("Number of not ready nodes would exceed maxUnavailableDPUNodes: %d >= %d", nodeNotReadyCount, *dpunodemaintenance.Status.MaxUnavailableDPUNodes))
+				msg := fmt.Sprintf("Number of not ready nodes would exceed maxUnavailableDPUNodes: %d >= %d", nodeNotReadyCount, *dpunodemaintenance.Status.MaxUnavailableDPUNodes)
+				conditions.AddFalse(
+					dpunodemaintenance,
+					provisioningv1.ConditionNodeEffectApplied,
+					conditions.ReasonPending,
+					conditions.ConditionMessage(msg),
+				)
+				r.Recorder.Eventf(dpunodemaintenance, corev1.EventTypeWarning, "MaxUnavailableExceeded", msg)
+				return false, ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+			}
+		}
+		logger.V(3).Info(fmt.Sprintf("nodeNotReadyCount: %d, maxUnavailableDPUNodes: %d", nodeNotReadyCount, *dpunodemaintenance.Status.MaxUnavailableDPUNodes))
+		// If there are multiple DPUs on the node, check the multiDPUOperationsSyncWaitTime
+		if len(dpuNode.Spec.DPUs) > 1 {
+			if time.Since(dpunodemaintenance.Status.NodeEffectSyncStartTime.Time) < dpunodemaintenance.Status.MultiDPUOperationsSyncWaitTime.Duration {
+				requeueAfterTime := dpunodemaintenance.Status.MultiDPUOperationsSyncWaitTime.Duration - time.Since(dpunodemaintenance.Status.NodeEffectSyncStartTime.Time)
+				msg := "NodeEffect is waiting for MultiDPUOperationsSyncWaitTime to be reached"
+				conditions.AddFalse(
+					dpunodemaintenance,
+					provisioningv1.ConditionNodeEffectApplied,
+					"NodeEffectSyncInProgress",
+					conditions.ConditionMessage(msg),
+				)
+				logger.V(3).Info(fmt.Sprintf("multiple DPU operations sync wait time: %s", requeueAfterTime))
+				r.Recorder.Eventf(dpunodemaintenance, corev1.EventTypeNormal, "WaitingForOperationsSync", "Multiple DPU operations sync wait time")
+				return false, ctrl.Result{RequeueAfter: requeueAfterTime}, nil
+			}
+		}
+	}
+
+	return true, ctrl.Result{}, nil
+}
+
+func (r *DPUNodeMaintenanceReconciler) countOtherNotReadyDPUNodes(ctx context.Context, dpunodemaintenance *provisioningv1.DPUNodeMaintenance) (int32, error) {
+	logger := log.FromContext(ctx)
+	dpuNodeList := &provisioningv1.DPUNodeList{}
+	if err := r.List(ctx, dpuNodeList, client.InNamespace(dpunodemaintenance.Namespace)); err != nil {
+		return 0, fmt.Errorf("failed to list DPU nodes: %w", err)
+	}
+	var nodeNotReadyCount int32 = 0
+	for i := range dpuNodeList.Items {
+		dn := &dpuNodeList.Items[i]
+		if dpunodemaintenance.Spec.DPUNodeName == dn.Name {
+			continue
+		}
+		// add dpuNodeInProgress to avoid the race condition
+		dpuNodeInProgress := false
+		condition := meta.FindStatusCondition(dn.Status.Conditions, provisioningv1.DPUNodeConditionNodeEffectInProgress.String())
+		if condition != nil && (condition.Status == metav1.ConditionTrue) {
+			dpuNodeInProgress = true
+		}
+		if !cutil.IsDPUNodeReady(dn) || dpuNodeInProgress {
+			logger.V(3).Info(fmt.Sprintf("dpunode %s is not ready", dn.Name))
+			nodeNotReadyCount++
+		}
+	}
+	return nodeNotReadyCount, nil
+}
+
+func (r *DPUNodeMaintenanceReconciler) updateDPUNodeEffectInProgress(ctx context.Context, namespace, dpuNodeName string, status metav1.ConditionStatus, reason string, message string) error {
+	logger := log.FromContext(ctx)
+	dpuNode := &provisioningv1.DPUNode{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: dpuNodeName}, dpuNode); err != nil {
+		return err
+	}
+	changed := false
+	changed = meta.SetStatusCondition(&dpuNode.Status.Conditions, metav1.Condition{
+		Type:    provisioningv1.DPUNodeConditionNodeEffectInProgress.String(),
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+	})
+	if changed {
+		if err := r.Client.Status().Update(ctx, dpuNode); err != nil {
+			logger.Error(err, "Failed to update DPUNodeNodeEffectInProgress condition")
+			return err
+		}
+		logger.Info(fmt.Sprintf("DPUNodeNodeEffectInProgress condition updated for %s/%s", namespace, dpuNodeName))
+	}
+	return nil
 }
 
 func (r *DPUNodeMaintenanceReconciler) reconcileCustomLabel(ctx context.Context, dpunodemaintenance *provisioningv1.DPUNodeMaintenance, node *corev1.Node) error {
