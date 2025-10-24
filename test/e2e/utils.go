@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -31,6 +32,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -126,6 +128,21 @@ const (
 	dpfVPCTestLabel = "DPFVPCOVN"
 )
 
+// EventuallyCheckReadyStatusCondition checks for the Ready condition on any object having a Status.Conditions[...].Type == "Ready" field
+// It uses Gomega matchers to validate the condition
+func EventuallyCheckReadyStatusCondition(ctx context.Context, client client.Client, obj client.Object, timeout time.Duration) {
+	Eventually(func(g Gomega) {
+		g.Expect(client.Get(ctx, types.NamespacedName{Name: obj.GetName(), Namespace: obj.GetNamespace()}, obj)).To(Succeed())
+		g.Expect(obj).To(
+			HaveField("Status.Conditions", ContainElement(And(
+				HaveField("Type", Equal("Ready")),
+				HaveField("Status", Equal(metav1.ConditionTrue)),
+			))),
+			fmt.Sprintf("Object of type %T (name: %s, namespace: %s) did not reach Ready condition", obj, obj.GetName(), obj.GetNamespace()),
+		)
+	}).WithTimeout(timeout).Should(Succeed())
+}
+
 // ByTracker tracks Ginkgo By() statements to ensure they are only printed once
 type ByTracker struct {
 	loggedObjects map[string]bool
@@ -146,6 +163,9 @@ func (b *ByTracker) By(key string, format string, args ...interface{}) {
 	}
 }
 
+// generateDPUObj sets the name, namespace, and labels on a given client.Object.
+// Optionally, customLabels can be provided to override the default cleanup labels.
+// afterAllCleanupLabels are always merged into the final label set.
 func generateDPUObj[T client.Object](name, ns string, obj T, customLabels ...map[string]string) T {
 	obj.SetName(name)
 	obj.SetNamespace(ns)

@@ -64,6 +64,16 @@ type ProvisionDPUClustersInput struct {
 	restConfig              *rest.Config
 }
 
+// systemTestInput represents the fully loaded and processed test environment.
+// This struct contains actual Kubernetes API objects and runtime configuration
+// that are ready for use in end-to-end tests.
+//
+// - Contains parsed and loaded Kubernetes manifests from YAML files
+//   - Populated by applyConfig() and applySDNConfig() from config struct
+//
+// - Passed to individual test functions as the primary test context
+// - Provides all necessary objects and configuration for test execution
+// - Depends on `config` struct for file paths and basic configuration
 type systemTestInput struct {
 	namespace                     string
 	config                        *operatorv1.DPFOperatorConfig
