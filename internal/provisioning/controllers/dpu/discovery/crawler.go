@@ -125,7 +125,7 @@ func (c *CrawlerService) Crawl(ctx context.Context, ipRange provisioningv1.IPRan
 		if result.Found {
 			logger.Info("Found DPU BMC", "address", result.IPAddress, "port", result.Port)
 			if err := c.createDPUDeviceAndNode(ctx, result); err != nil {
-				logger.Error(err, "Failed to create DPU device", "address", result.IPAddress, "port", result.Port)
+				return 0, fmt.Errorf("failed to create DPU device %s: %w", result.IPAddress, err)
 			}
 			foundDpus++
 		}
