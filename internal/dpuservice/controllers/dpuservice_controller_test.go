@@ -2292,6 +2292,9 @@ var _ = Describe("nodeEventHandler", func() {
 
 			Eventually(func() bool {
 				handler.handleNodeEventHelper(ctx, node, queue)
+				if queue.Len() == 0 {
+					return false
+				}
 				item, shutdown := queue.Get()
 				if shutdown {
 					return false
@@ -2375,6 +2378,9 @@ var _ = Describe("nodeEventHandler", func() {
 
 			Eventually(func() bool {
 				handler.handleNodeEventHelper(ctx, node, queue)
+				if queue.Len() == 0 {
+					return false
+				}
 				item, shutdown := queue.Get()
 				if shutdown {
 					return false
@@ -2491,6 +2497,9 @@ var _ = Describe("nodeEventHandler", func() {
 
 			Eventually(func() bool {
 				handler.Create(ctx, event.CreateEvent{Object: node}, queue)
+				if queue.Len() == 0 {
+					return false
+				}
 				item, shutdown := queue.Get()
 				if shutdown {
 					return false
@@ -2524,6 +2533,9 @@ var _ = Describe("nodeEventHandler", func() {
 
 			Eventually(func() bool {
 				handler.Update(ctx, event.UpdateEvent{ObjectOld: oldNode, ObjectNew: newNode}, queue)
+				if queue.Len() == 0 {
+					return false
+				}
 				item, shutdown := queue.Get()
 				if shutdown {
 					return false
@@ -2553,6 +2565,9 @@ var _ = Describe("nodeEventHandler", func() {
 
 			Eventually(func() bool {
 				handler.Delete(ctx, event.DeleteEvent{Object: node}, queue)
+				if queue.Len() == 0 {
+					return false
+				}
 				item, shutdown := queue.Get()
 				if shutdown {
 					return false
