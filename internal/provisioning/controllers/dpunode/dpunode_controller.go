@@ -165,10 +165,24 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 		return ctrl.Result{}, nil
 	}
 
-	// handle DPU modified
-	if err := r.noneDPUInNodeEffectOrRebooting(ctx, dpuNode); err == nil {
+	// Delete the NodeEffectInProgress condition if there is no DPUNodeMaintenance for this DPUNode
+	dpunodemaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
+	dpunodemaintenanceExists := true
+	if err := r.List(ctx, dpunodemaintenanceList, client.MatchingLabels{cutil.DPUNodeNameLabel: dpuNode.Name}); err != nil {
+		return ctrl.Result{}, err
+	}
+	if len(dpunodemaintenanceList.Items) == 0 {
+		dpunodemaintenanceExists = false
+		log.Info(fmt.Sprintf("DPUNode %s is ready because there is no DPUNodeMaintenance for this DPUNode", dpuNode.Name))
+		meta.RemoveStatusCondition(&dpuNode.Status.Conditions, provisioningv1.DPUNodeConditionNodeEffectInProgress.String())
+	}
+
+	// Update DPUNode ready condition
+	if err := r.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, dpunodemaintenanceExists); err == nil {
+		log.Info(fmt.Sprintf("DPUNode %s is ready because there is no DPU in NodeEffect or Rebooting phase", dpuNode.Name))
 		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionReady, metav1.ConditionTrue, "", "")
 	} else {
+		log.Info(fmt.Sprintf("DPUNode %s is not ready because there is a DPU in NodeEffect or Rebooting phase: %v", dpuNode.Name, err))
 		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionReady, metav1.ConditionFalse, "", err.Error())
 	}
 
@@ -224,17 +238,23 @@ func (r *DPUNodeReconciler) HandleRebootSync(ctx context.Context, dpuNode *provi
 	return ctrl.Result{}, nil
 }
 
-func (r *DPUNodeReconciler) noneDPUInNodeEffectOrRebooting(ctx context.Context, dpuNode *provisioningv1.DPUNode) error {
+func (r *DPUNodeReconciler) noneDPUInNodeEffectOrRebooting(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpunodemaintenanceExists bool) error {
+	// set DPUNode not ready when DPUNodeMaintenance exists and NodeEffect is in progress
+	if dpunodemaintenanceExists {
+		condition := meta.FindStatusCondition(dpuNode.Status.Conditions, provisioningv1.DPUNodeConditionNodeEffectInProgress.String())
+		if condition != nil && (condition.Status == metav1.ConditionTrue) {
+			return fmt.Errorf("node effect is in progress")
+		}
+	}
 
-	// if DPU is in NodeEffect or Rebooting phase, and the DPUNode is ready, then set the DPUNode condition to false
+	// set DPUNode not ready when DPU is in Rebooting phase, this part will need to be simplified by judge DPUNodeRebootInProgress condition in the future
 	dpuList := &provisioningv1.DPUList{}
 	if err := r.List(ctx, dpuList); err != nil {
 		return err
 	}
-
 	for _, dpu := range dpuList.Items {
 		if dpu.Spec.DPUNodeName == dpuNode.Name {
-			if dpu.Status.Phase == provisioningv1.DPUNodeEffect || dpu.Status.Phase == provisioningv1.DPURebooting {
+			if dpu.Status.Phase == provisioningv1.DPURebooting {
 				return fmt.Errorf("DPU %s is in %s phase", dpu.Name, dpu.Status.Phase)
 			}
 		}
