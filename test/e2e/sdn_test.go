@@ -53,4 +53,10 @@ var _ = Describe("DPF System tests - SDN", Labels{dpfSystemLabel, sdnLabel}, Ord
 			VerifyDPUPodToPodRDMATraffic(ctx, input)
 		})
 	})
+
+	Context("Validate DPU Service NAD", Labels{dpfSystemLabel, requiresNodesLabel}, func() {
+		It("create a pod consuming a DPUServiceNAD with all dependencies and check that it is created successfully", func() {
+			ValidateDPUServiceNADConsumedByPod(ctx, input)
+		})
+	})
 })
