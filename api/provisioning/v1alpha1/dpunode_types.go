@@ -59,6 +59,8 @@ const (
 	DPUNodeConditionBridgeConfigured DPUNodeConditionType = "OOBBridgeConfigured"
 	// DPUNodeConditionRshimAvailable means the rshim is available.
 	DPUNodeConditionRshimAvailable DPUNodeConditionType = "RshimAvailable"
+	// DPUNodeConditionNodeEffectInProgress means the node effect is processing on the node.
+	DPUNodeConditionNodeEffectInProgress DPUNodeConditionType = "DPUNodeNodeEffectInProgress"
 )
 
 const (
