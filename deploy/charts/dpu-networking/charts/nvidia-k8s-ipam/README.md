@@ -19,7 +19,7 @@ A Helm chart for Kubernetes
 | nvIpam.image.tag | string | `"v0.3.5"` |  |
 | nvIpam.nameOverride | string | `""` |  |
 | nvIpam.node.resources.limits.cpu | string | `"300m"` |  |
-| nvIpam.node.resources.limits.memory | string | `"300Mi"` |  |
+| nvIpam.node.resources.limits.memory | string | `"400Mi"` |  |
 | nvIpam.node.resources.requests.cpu | string | `"100m"` |  |
 | nvIpam.node.resources.requests.memory | string | `"50Mi"` |  |
 | nvIpam.pullPolicy | string | `"IfNotPresent"` |  |
