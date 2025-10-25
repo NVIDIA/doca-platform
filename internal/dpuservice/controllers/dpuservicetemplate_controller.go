@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/digest"
@@ -60,7 +61,7 @@ type DPUServiceTemplateReconciler struct {
 
 // pauseDPUServiceTemplateReconciler pauses the DPUServiceTemplate Reconciler by doing noop reconciliation loops. This
 // is helpful to make tests faster and less complex
-var pauseDPUServiceTemplateReconciler bool
+var pauseDPUServiceTemplateReconciler atomic.Bool
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DPUServiceTemplateReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -72,7 +73,7 @@ func (r *DPUServiceTemplateReconciler) SetupWithManager(mgr ctrl.Manager) error 
 // Reconcile reconciles changes in a DPUServiceTemplate object
 func (r *DPUServiceTemplateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := ctrllog.FromContext(ctx)
-	if pauseDPUServiceTemplateReconciler {
+	if pauseDPUServiceTemplateReconciler.Load() {
 		log.Info("noop reconciliation")
 		return ctrl.Result{}, nil
 	}

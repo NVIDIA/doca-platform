@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -182,7 +183,7 @@ func reconcileDPUServiceInterfaces(
 			// Therefore the interfaces it owns should be preserved until clean up is done.
 			if dpuService.IsPaused() && isOwner {
 				delete(existingDPUServiceInterfacesMap, dpuServiceInterface.Name)
-				requeue = ctrl.Result{RequeueAfter: reconcileRequeueDuration}
+				requeue = ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}
 			}
 		}
 	}
@@ -246,7 +247,7 @@ func reconcileDPUServiceInterfaceWithOldRevisions(newRevision *dpuservicev1.DPUS
 		delete(existingDPUServiceInterfacesMap, svcInterface.GetName())
 	}
 
-	return ctrl.Result{RequeueAfter: reconcileRequeueDuration}
+	return ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}
 }
 
 // reconcileCurrentDPUServiceInterfaceRevision reconciles the current revision of the DPUServiceInterface and the old
@@ -265,7 +266,7 @@ func reconcileCurrentDPUServiceInterfaceRevision(ctx context.Context,
 	existingDPUSets []provisioningv1.DPUSet,
 ) ctrl.Result {
 	log := ctrl.LoggerFrom(ctx)
-	requeue := ctrl.Result{RequeueAfter: reconcileRequeueDuration}
+	requeue := ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}
 	oldRevs := clientObjectToDPUServiceInterfaceList(oldRevisions)
 
 	// We update the name of the newRevision to the currentRevision so that we can patch the existing object
