@@ -23,6 +23,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -270,7 +271,7 @@ func reconcileDPUServiceWithOldRevisions(ctx context.Context, c client.Client, n
 		client.ObjectKeyFromObject(dpuDeployment),
 		serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster())
 
-	return ctrl.Result{RequeueAfter: reconcileRequeueDuration}, nil
+	return ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}, nil
 }
 
 // reconcileCurrentDPUServiceRevision reconciles the current revision of the DPUService and the old revisions.
@@ -288,7 +289,7 @@ func reconcileCurrentDPUServiceRevision(ctx context.Context, c client.Client,
 	existingDPUSets []provisioningv1.DPUSet,
 ) ctrl.Result {
 	log := ctrllog.FromContext(ctx)
-	requeue := ctrl.Result{RequeueAfter: reconcileRequeueDuration}
+	requeue := ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}
 	currentRev, oldRevs := currentRevision.(*dpuservicev1.DPUService), clientObjectToDPUServiceList(oldRevisions)
 
 	// We update the name of the newRevision to the currentRevision so that we can patch the existing object
