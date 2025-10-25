@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -75,7 +76,7 @@ type DPUServiceReconciler struct {
 
 // pauseDPUServiceReconciler pauses the DPUService Reconciler by doing noop reconciliation loops. This is helpful to
 // make tests faster and less complex
-var pauseDPUServiceReconciler bool
+var pauseDPUServiceReconciler atomic.Bool
 
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuservices,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuservices/status,verbs=get;update;patch
@@ -135,7 +136,7 @@ func (r *DPUServiceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 // Reconcile reconciles changes in a DPUService.
 func (r *DPUServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := ctrllog.FromContext(ctx)
-	if pauseDPUServiceReconciler {
+	if pauseDPUServiceReconciler.Load() {
 		log.Info("noop reconciliation")
 		return ctrl.Result{}, nil
 	}

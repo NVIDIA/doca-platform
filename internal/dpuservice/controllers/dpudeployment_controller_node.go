@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -45,7 +46,7 @@ const (
 
 // pauseDPUDeploymentNodeReconciler pauses the DPUNodeMaintenance Reconciler associated with DPUDeployments
 // by doing noop reconciliation loops. This is helpful to make tests faster and less complex
-var pauseDPUDeploymentNodeReconciler bool
+var pauseDPUDeploymentNodeReconciler atomic.Bool
 
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpudeployments;dpuservices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodemaintenances;dpunodes,verbs=get;list;watch;update;patch
@@ -154,7 +155,7 @@ func getDPUDeploymentMatchingNodeNames(ctx context.Context, c client.Client, dpu
 
 func (r *DPUDeploymentNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := ctrllog.FromContext(ctx)
-	if pauseDPUDeploymentNodeReconciler {
+	if pauseDPUDeploymentNodeReconciler.Load() {
 		log.Info("noop reconciliation")
 		return ctrl.Result{}, nil
 	}
