@@ -203,14 +203,14 @@ var _ = Describe("DPUReadyReconciler", func() {
 		dpuClusterClient client.Client
 	)
 
-	defaultPauseDPUServiceReconciler := pauseDPUServiceReconciler
+	defaultPauseDPUServiceReconciler := pauseDPUServiceReconciler.Load()
 	BeforeEach(func() {
 		By("Pausing other controllers that are not relevant for these tests")
 		DeferCleanup(func() {
-			pauseDPUServiceReconciler = defaultPauseDPUServiceReconciler
+			pauseDPUServiceReconciler.Store(defaultPauseDPUServiceReconciler)
 		})
 		// These are modified to speed up the testing suite and also simplify the deletion logic
-		pauseDPUServiceReconciler = true
+		pauseDPUServiceReconciler.Store(true)
 
 		By("Creating the namespace for the test")
 		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "dpuready-testns-"}}

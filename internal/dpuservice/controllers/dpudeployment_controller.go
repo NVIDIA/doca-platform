@@ -23,6 +23,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -68,7 +69,7 @@ const (
 
 // pauseDPUDeploymentReconciler pauses the DPUDeployment Reconciler by doing noop reconciliation loops. This is helpful
 // to make tests faster and less complex
-var pauseDPUDeploymentReconciler bool
+var pauseDPUDeploymentReconciler atomic.Bool
 
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpudeployments,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpudeployments/finalizers,verbs=update
@@ -87,7 +88,11 @@ type DPUDeploymentReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-var reconcileRequeueDuration = 30 * time.Second
+var reconcileRequeueDuration atomic.Int64
+
+func init() {
+	reconcileRequeueDuration.Store(int64(30 * time.Second))
+}
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DPUDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -191,7 +196,7 @@ type dpuDeploymentDependencies struct {
 // Reconcile reconciles changes in a DPUDeployment object
 func (r *DPUDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := ctrllog.FromContext(ctx)
-	if pauseDPUDeploymentReconciler {
+	if pauseDPUDeploymentReconciler.Load() {
 		log.Info("noop reconciliation")
 		return ctrl.Result{}, nil
 	}
@@ -915,7 +920,7 @@ func (r *DPUDeploymentReconciler) reconcileDelete(ctx context.Context, dpuDeploy
 			"dpuservices", dpuServiceItems,
 			"dpusets", dpuSetItems,
 		)
-		return ctrl.Result{RequeueAfter: reconcileRequeueDuration}, nil
+		return ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}, nil
 	}
 
 	if err := r.Client.DeleteAllOf(ctx,
@@ -959,7 +964,7 @@ func (r *DPUDeploymentReconciler) reconcileDelete(ctx context.Context, dpuDeploy
 			"dpuservices", dpuServiceItems,
 			"dpusets", dpuSetItems,
 		)
-		return ctrl.Result{RequeueAfter: reconcileRequeueDuration}, nil
+		return ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}, nil
 	}
 
 	if err := releaseAllDependencies(ctx, r.Client, dpuDeployment); err != nil {

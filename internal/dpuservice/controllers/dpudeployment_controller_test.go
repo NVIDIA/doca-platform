@@ -49,23 +49,23 @@ import (
 
 //nolint:goconst
 var _ = Describe("DPUDeployment Controller", func() {
-	defaultPauseDPUServiceReconciler := pauseDPUServiceReconciler
-	defaultPauseDPUServiceTemplateReconciler := pauseDPUServiceTemplateReconciler
-	defaultPauseDPUDeploymentNodeReconciler := pauseDPUDeploymentNodeReconciler
-	defaultDPUDeploymentReconcileDeleteRequeueDuration := reconcileRequeueDuration
+	defaultPauseDPUServiceReconciler := pauseDPUServiceReconciler.Load()
+	defaultPauseDPUServiceTemplateReconciler := pauseDPUServiceTemplateReconciler.Load()
+	defaultPauseDPUDeploymentNodeReconciler := pauseDPUDeploymentNodeReconciler.Load()
+	defaultDPUDeploymentReconcileDeleteRequeueDuration := reconcileRequeueDuration.Load()
 	BeforeEach(func() {
 		DeferCleanup(func() {
-			pauseDPUServiceReconciler = defaultPauseDPUServiceReconciler
-			pauseDPUServiceTemplateReconciler = defaultPauseDPUServiceTemplateReconciler
-			pauseDPUDeploymentNodeReconciler = defaultPauseDPUDeploymentNodeReconciler
-			reconcileRequeueDuration = defaultDPUDeploymentReconcileDeleteRequeueDuration
+			pauseDPUServiceReconciler.Store(defaultPauseDPUServiceReconciler)
+			pauseDPUServiceTemplateReconciler.Store(defaultPauseDPUServiceTemplateReconciler)
+			pauseDPUDeploymentNodeReconciler.Store(defaultPauseDPUDeploymentNodeReconciler)
+			reconcileRequeueDuration.Store(defaultDPUDeploymentReconcileDeleteRequeueDuration)
 		})
 
 		// These are modified to speed up the testing suite and also simplify the deletion logic
-		pauseDPUServiceReconciler = true
-		pauseDPUServiceTemplateReconciler = true
-		pauseDPUDeploymentNodeReconciler = true
-		reconcileRequeueDuration = 1 * time.Second
+		pauseDPUServiceReconciler.Store(true)
+		pauseDPUServiceTemplateReconciler.Store(true)
+		pauseDPUDeploymentNodeReconciler.Store(true)
+		reconcileRequeueDuration.Store(int64(1 * time.Second))
 	})
 	Context("When reconciling a resource", func() {
 		var testNS *corev1.Namespace
