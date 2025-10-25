@@ -85,12 +85,6 @@ func NodeEffect(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
 	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpunodemaintenanceName}, dpunodemaintenance); err != nil {
 		if apierrors.IsNotFound(err) {
-			// This is a pre-condition for creating DPUNodeMaintenance object.
-			// DPUNode should be changed to not ready in DPUNode controller, and we should wait for it before creating DPUNodeMaintenance object.
-			if cutil.IsDPUNodeReady(dpuNode) {
-				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectReady.String(), err, "DPUNodeIsReady", "waiting for DPUNode to be not ready"))
-				return *state, nil
-			}
 			// Create DPUNodeMaintenance object if it doesn't exist
 			logger.V(3).Info(fmt.Sprintf("Creating DPUNodeMaintenance (%s/%s)", dpu.Namespace, dpunodemaintenanceName))
 			if err := createDPUNodeMaintenance(ctx, ctrlCtx.Client, dpunodemaintenanceName, dpu); err != nil {
@@ -175,6 +169,9 @@ func createDPUNodeMaintenance(ctx context.Context, k8sClient client.Client, name
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: dpu.Namespace,
+			Labels: map[string]string{
+				cutil.DPUNodeNameLabel: dpu.Spec.DPUNodeName,
+			},
 			Annotations: map[string]string{
 				// this annotation is only used to store the service additional requestors
 				lastAppliedAdditionalRequestorsOnDPUKey: jsonStr,
