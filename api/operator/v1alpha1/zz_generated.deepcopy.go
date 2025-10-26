@@ -532,8 +532,8 @@ func (in *InstallViaRedfish) DeepCopyInto(out *InstallViaRedfish) {
 		*out = new(BFBRegistryConfiguration)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.SkipDpuNodeDiscovery != nil {
-		in, out := &in.SkipDpuNodeDiscovery, &out.SkipDpuNodeDiscovery
+	if in.SkipDPUNodeDiscovery != nil {
+		in, out := &in.SkipDPUNodeDiscovery, &out.SkipDPUNodeDiscovery
 		*out = new(bool)
 		**out = **in
 	}
