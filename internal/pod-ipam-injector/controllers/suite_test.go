@@ -79,12 +79,7 @@ var _ = BeforeSuite(func() {
 	Expect(dpuservicev1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(nvipamv1.AddToScheme(scheme.Scheme)).To(Succeed())
 
-	s := scheme.Scheme
 	// +kubebuilder:scaffold:scheme
-
-	testClient, err = client.New(cfg, client.Options{Scheme: s})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(testClient).NotTo(BeNil())
 
 	By("setting up and running the test reconciler")
 	testManager, err := ctrl.NewManager(cfg,
@@ -95,6 +90,20 @@ var _ = BeforeSuite(func() {
 				BindAddress: "0",
 			}})
 	Expect(err).ToNot(HaveOccurred())
+
+	// Add field indexer for ServiceInterface spec.node
+	err = testManager.GetFieldIndexer().IndexField(ctx, &dpuservicev1.ServiceInterface{}, "spec.node", func(obj client.Object) []string {
+		si := obj.(*dpuservicev1.ServiceInterface)
+		if si.Spec.Node == nil {
+			return nil
+		}
+		return []string{*si.Spec.Node}
+	})
+	Expect(err).ToNot(HaveOccurred())
+
+	// Use the manager's client so field indexers are available
+	testClient = testManager.GetClient()
+	Expect(testClient).NotTo(BeNil())
 
 	// set reconcile time to 1 second to speed up test execution (less polling for results)
 	reconcileRetryTime = 1 * time.Second
