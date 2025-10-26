@@ -435,8 +435,6 @@ spec:
               tag: $DPF_IMAGE_TAG
             enabled: true
             config:
-              dpuClusterName: dpu-cplane-tenant1
-              dpuClusterNamespace: dpu-cplane-tenant1
               targetNamespace: dpf-operator-system
             affinity:
               nodeAffinity:
@@ -1145,8 +1143,6 @@ spec:
               tag: $DPF_IMAGE_TAG
             enabled: true
             config:
-              dpuClusterName: dpu-cplane-tenant1
-              dpuClusterNamespace: dpu-cplane-tenant1
               targetNamespace: dpf-operator-system
             affinity:
               nodeAffinity:
@@ -1858,8 +1854,6 @@ spec:
               tag: $DPF_IMAGE_TAG
             enabled: true
             config:
-              dpuClusterName: dpu-cplane-tenant1
-              dpuClusterNamespace: dpu-cplane-tenant1
               targetNamespace: dpf-operator-system
             affinity:
               nodeAffinity:
@@ -2724,8 +2718,6 @@ spec:
               tag: $DPF_IMAGE_TAG
             enabled: true
             config:
-              dpuClusterName: dpu-cplane-tenant1
-              dpuClusterNamespace: dpu-cplane-tenant1
               targetNamespace: dpf-operator-system
             affinity:
               nodeAffinity:
@@ -3324,8 +3316,6 @@ spec:
               tag: $DPF_IMAGE_TAG
             enabled: true
             config:
-              dpuClusterName: dpu-cplane-tenant1
-              dpuClusterNamespace: dpu-cplane-tenant1
               targetNamespace: dpf-operator-system
             affinity:
               nodeAffinity:
@@ -4123,8 +4113,6 @@ spec:
               tag: $DPF_IMAGE_TAG
             enabled: true
             config:
-              dpuClusterName: dpu-cplane-tenant1
-              dpuClusterNamespace: dpu-cplane-tenant1
               targetNamespace: dpf-operator-system
             affinity:
               nodeAffinity:
@@ -5076,8 +5064,6 @@ spec:
               tag: $DPF_IMAGE_TAG
             enabled: true
             config:
-              dpuClusterName: dpu-cplane-tenant1
-              dpuClusterNamespace: dpu-cplane-tenant1
               targetNamespace: dpf-operator-system
             affinity:
               nodeAffinity:
