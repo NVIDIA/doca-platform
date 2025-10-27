@@ -63,8 +63,8 @@ type NetworkManager struct {
 	devicesBySN map[string]hostutil.Device
 	// reqs is a map of DPU CR UID to its network request
 	reqs map[string]NetworkRequest
-	// osType caches the detected operating system type
-	osType string
+	// hasNetplan indicates if netplan is available on the system
+	hasNetplan bool
 }
 
 type networkOperation struct {
@@ -84,12 +84,13 @@ func (nm *NetworkManager) Start() error {
 	nm.Lock()
 	defer nm.Unlock()
 
-	// Detect and cache OS type
-	osType, err := hostutil.GetOSType()
-	if err != nil {
-		return fmt.Errorf("failed to detect OS type: %w", err)
+	// Detect and cache netplan availability
+	nm.hasNetplan = hostutil.HasNetplan()
+
+	// Validate that systemd-networkd is available and active
+	if err := hostutil.EnsureSystemdNetworkdActive(); err != nil {
+		return fmt.Errorf("failed to ensure systemd-networkd is active: %w", err)
 	}
-	nm.osType = osType
 
 	devices, err := hostutil.DiscoverDPUs()
 	if err != nil {
@@ -221,52 +222,14 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 			},
 		},
 		{
-			name: "ConfigurePFNetplan",
+			name: "ConfigureNetplan",
 			f: func(nr NetworkRequest) error {
-				// Only configure netplan on Ubuntu systems
-				if nr.OSType != "ubuntu" {
-					klog.Infof("Skipping netplan configuration for OS type: %s (only supported on Ubuntu)", nr.OSType)
+				// Only configure netplan if it's available on the system
+				if !nm.hasNetplan {
+					klog.Info("Skipping netplan configuration - netplan not available on this system")
 					return nil
 				}
-				return hostutil.ConfigurePFNetplan(nr.PCIAddress, nr.PortConfigs)
-			},
-		},
-		{
-			// Always set control plane MTU after netplan apply.
-			// Otherwise, it may lead to an edge case where the MTU is overridden by netplan files created by users.
-			// For example, a user may have a netplan file setting MTU of br-dpu to 1500 -
-			// network:
-			//   version: 2
-			//   bridges:
-			//     br-dpu:
-			//       dhcp4: true
-			//       mtu: 1500
-			//       interfaces:
-			//       - ens9f0
-			// This will override the MTU set by the hostagent.
-			name: "SetControlPlaneMTU",
-			f: func(nr NetworkRequest) error {
-				nics := []string{BridgeName}
-				entries, err := os.ReadDir(filepath.Join("/sys/class/net", BridgeName, "brif"))
-				if err != nil {
-					return err
-				}
-				for _, entry := range entries {
-					nics = append(nics, entry.Name())
-				}
-				for _, nic := range nics {
-					curMTU, err := hostutil.GetCurrentMTU(nic)
-					if err != nil {
-						return fmt.Errorf("failed to get MTU of interface %s, err: %v", nic, err)
-					}
-					if curMTU == nr.ControlPlaneMTU {
-						continue
-					}
-					if err := hostutil.SetLinkMTU(nic, nr.ControlPlaneMTU); err != nil {
-						return fmt.Errorf("failed to set MTU for interface %s, err: %v", nic, err)
-					}
-				}
-				return nil
+				return hostutil.ConfigureNetplan(nr.PCIAddress, nr.PortConfigs, nr.ControlPlaneMTU)
 			},
 		},
 	}
@@ -332,9 +295,6 @@ func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU) error {
 		return fmt.Errorf("failed to get PF network configuration: %w", err)
 	}
 	nr.PortConfigs = portConfigs
-
-	// Use cached OS type
-	nr.OSType = nm.osType
 
 	if err := writeNetworkRequestFile(nr); err != nil {
 		return fmt.Errorf("failed to write network request file: %w", err)
