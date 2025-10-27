@@ -24,6 +24,7 @@ DPF supports dual port NVIDIA BlueField-3 DPUs. BlueField DPUs are installed as 
 The DOCA Platform Framework (DPF) documentation is organized into the following sections:
 
 * [Getting Started](getting-started/README.md) - Quick start guide and initial setup instructions
+* [Lifecycle Management](lifecycle-management/README.md) - Documentation for upgrade and maintenance of DPF
 * [API](developer-guides/api/README.md) - API reference documentation
 * [Architecture](developer-guides/architecture/README.md) - System architecture and design documentation
 * [Storage Developer Guide](developer-guides/services/storage.md) - Documentation for Storage development and configuration
