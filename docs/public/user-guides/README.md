@@ -4,7 +4,7 @@ title: "User Guides"
 
 # DPF User Guides
 
-These guides walk you through deploying and configuring the DOCA Platform Foundation (DPF) for different scenarios.
+These guides walk you through deploying and configuring the DOCA Platform Framework (DPF) for different scenarios.
 
 ## Deployment Scenarios
 
