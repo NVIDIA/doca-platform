@@ -67,6 +67,9 @@ func createTestPodWithName(name string, annotations map[string]string, labels ma
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
 	Expect(testClient.Create(ctx, pod)).To(Succeed())
+	Eventually(func() error {
+		return testClient.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: pod.Name}, pod)
+	}, 10*time.Second).Should(Succeed())
 	return pod
 }
 
@@ -251,13 +254,10 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				},
 			)
 
-			createdPod := &corev1.Pod{}
-			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(Succeed())
-
 			now := metav1.Now()
-			createdPod.DeletionTimestamp = &now
+			pod.DeletionTimestamp = &now
 
-			needsRestart, err := controller.needsRestartDueToDigestChange(ctx, createdPod)
+			needsRestart, err := controller.needsRestartDueToDigestChange(ctx, pod)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(needsRestart).To(BeFalse())
 		})
