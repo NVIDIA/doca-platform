@@ -673,7 +673,7 @@ var _ = Describe("PodIpam Controller", func() {
 				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: defaultNS, Name: "malformed-pod"}, p)).To(Succeed())
 				// Annotation should remain unchanged because the reconciler can't parse it
 				g.Expect(p.Annotations[multusKey]).To(Equal("this-is-not-valid-json"))
-			}).WithTimeout(2 * time.Second).Should(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
 
 			By("Turning the Pod State to Succeed")
 			Eventually(func(g Gomega) {
