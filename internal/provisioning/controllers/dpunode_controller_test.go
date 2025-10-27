@@ -382,23 +382,22 @@ var _ = Describe("DPUNode Controller", func() {
 				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
 
 				// Set DPUInstallInterface on DPUNode to avoid DPU controller errors
-				dpuNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.DPUNodeInstallInterfaceGNOI))
-				Expect(k8sClient.Status().Update(ctx, dpuNode)).To(Succeed())
+				// Get the latest version to avoid conflict errors
+				latestDPUNode := &provisioningv1.DPUNode{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), latestDPUNode)).To(Succeed())
+				orig := latestDPUNode.DeepCopy()
+				latestDPUNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.DPUNodeInstallInterfaceGNOI))
+				Expect(k8sClient.Status().Patch(ctx, latestDPUNode, client.MergeFrom(orig))).To(Succeed())
 
 				// Add OOB bridge configured label to avoid DPU controller errors
 				// Get the latest version to avoid conflict errors
-				Eventually(func() error {
-					latestDPUNode := &provisioningv1.DPUNode{}
-					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), latestDPUNode); err != nil {
-						return err
-					}
-					if latestDPUNode.Labels == nil {
-						latestDPUNode.Labels = make(map[string]string)
-					}
-					latestDPUNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = "true"
-					patch := client.MergeFrom(latestDPUNode.DeepCopy())
-					return k8sClient.Status().Patch(ctx, latestDPUNode, patch)
-				}).WithTimeout(10 * time.Second).Should(Succeed())
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), latestDPUNode)).To(Succeed())
+				orig = latestDPUNode.DeepCopy()
+				if latestDPUNode.Labels == nil {
+					latestDPUNode.Labels = make(map[string]string)
+				}
+				latestDPUNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = "true"
+				Expect(k8sClient.Patch(ctx, latestDPUNode, client.MergeFrom(orig))).To(Succeed())
 
 				// Create DPUs with different phases
 				dpu1 := &provisioningv1.DPU{
@@ -452,7 +451,6 @@ var _ = Describe("DPUNode Controller", func() {
 						HaveField("Status", metav1.ConditionTrue),
 					),
 				))
-
 			})
 
 			It("DPUNode: DPUNode condition RebootInProgress should be set as expected if there is only one DPU deployed on multiple DPUs host", func() {
@@ -482,18 +480,14 @@ var _ = Describe("DPUNode Controller", func() {
 
 				// Add OOB bridge configured label to avoid DPU controller errors
 				// Get the latest version to avoid conflict errors
-				Eventually(func() error {
-					latestDPUNode := &provisioningv1.DPUNode{}
-					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), latestDPUNode); err != nil {
-						return err
-					}
-					if latestDPUNode.Labels == nil {
-						latestDPUNode.Labels = make(map[string]string)
-					}
-					latestDPUNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = "true"
-					patch := client.MergeFrom(latestDPUNode.DeepCopy())
-					return k8sClient.Status().Patch(ctx, latestDPUNode, patch)
-				}).WithTimeout(10 * time.Second).Should(Succeed())
+				latestDPUNode := &provisioningv1.DPUNode{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), latestDPUNode)).To(Succeed())
+				orig := latestDPUNode.DeepCopy()
+				if latestDPUNode.Labels == nil {
+					latestDPUNode.Labels = make(map[string]string)
+				}
+				latestDPUNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = "true"
+				Expect(k8sClient.Patch(ctx, latestDPUNode, client.MergeFrom(orig))).To(Succeed())
 
 				// Create DPUs with different phases
 				dpu1 := &provisioningv1.DPU{
