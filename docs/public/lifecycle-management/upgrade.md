@@ -1,0 +1,121 @@
+---
+title: "DPF Operator Upgrade Guide"
+---
+
+# DPF Operator Version Migration Guides
+
+This document describes the process of upgrading between different versions of the DPF Operator.
+
+[TOC]
+
+## Prerequisites
+
+Before starting the upgrade process, ensure you have the
+following [Helm Prerequisites](../getting-started/helm-prerequisites.md) installed and configured.
+
+Further prerequisites include:
+
+* All DPF Operator components MUST be in a **ready state**
+* All DPUs MUST be in a **ready and healthy state**
+* Always **review the release notes** for the version you're upgrading to
+  * Release notes contain critical information about:
+    * New features and capabilities
+    * Bug fixes and improvements
+    * Breaking changes and migration requirements
+    * Known issues and workarounds
+    * Configuration changes that may be required
+
+### Verifying Readiness
+
+You can verify the readiness of your DPF Operator and DPUs using [`dpfctl`](../troubleshooting/dpfctl.md) or `kubectl`:
+
+**Using dpfctl (recommended):**
+
+```bash
+# Check overall DPF Operator status
+dpfctl describe all --show-resources=dpfoperatorconfig
+
+# Check all conditions for troubleshooting
+dpfctl describe all --show-resources=dpfoperatorconfig --show-conditions=all
+```
+
+The `dpfctl` tool provides a more user-friendly view of the DPFOperatorConfig status and all related conditions, making
+it easier to identify validation issues.
+
+**Using kubectl:**
+
+```bash
+kubectl get dpfoperatorconfig -o yaml
+```
+
+All status conditions in the status section should be `True`, and the `version` field should match the current DPF
+Operator version.
+
+## Supported Upgrade Path (n-1 Policy)
+
+**Important**: DPF Operator follows an **n-1 upgrade policy** with the version pattern `year.month.patchVersion`.
+You can upgrade from the previous release version to the current release version. Patch-level upgrades within the same
+minor version are always allowed.
+
+✅ **Supported**:
+
+* v25.7.0 → v25.10.0
+* v25.7.0 → v25.7.1
+
+❌ **Not Supported**:
+
+* v25.4 → v25.7 (unsupported version upgrade)
+* v25.7 → next GA release (skipping version v25.10)
+
+**Why this matters**: Skipping versions can lead to:
+
+* Failed upgrades due to missing intermediate API changes
+* Data corruption or loss
+* Incompatible resource states
+* Unsupported configuration combinations
+
+## Prevalidation
+
+Before the DPF Operator upgrades any components, the system performs prevalidation checks to ensure the cluster is
+in a safe state for the upgrade. These validations are **automatically executed** and **must pass** before the upgrade
+can continue.
+
+* Version Compatibility Validation
+    * **DPF Version Check**: Validates that the current DPF version is compatible with the target version
+    * **Supported Upgrade Path**: Ensures you're upgrading from a supported version (n-1 policy)
+* System Components Readiness
+    * The operator validates that all critical system components are ready for upgrade
+* DPU State Validation
+    * **DPU Readiness**: All DPUs must be in a ready state
+    * **DPF Version Compatibility**: Each DPU's DPF version must be compatible with the upgrade
+    * **DPU Health**: All DPUs must be healthy and operational
+
+### Validation Failure Handling
+
+If any validation fails:
+
+* **Upgrade Blocked**: The upgrade process is automatically halted
+* **Status Updates**: The `DPFOperatorConfig` status reflects the validation failure
+
+### Status Monitoring
+
+You can monitor prevalidation status using either [dpfctl](../troubleshooting/dpfctl.md) or kubectl as described in the
+prerequisites above. The `DPFOperatorConfig` status will indicate whether prevalidations have passed or failed. All
+conditions must be `True` for the upgrade to proceed.
+
+## What to Do Next
+
+After completing your DPF Operator upgrade, follow these steps to ensure everything is working correctly:
+
+1. **Verify DPFOperatorConfig Status**: Verify that your DPFOperatorConfig custom resource is in a ready state and all
+   conditions are met.
+
+2. **Update to Supported BFB and DPUFlavor**: Create the new BFB object and DPUFlavor
+   object [according to the new guide](../user-guides/README.md). Review and update your DPUDeployment/DPUSet resources as needed
+   to reference those objects to make the system compatible with the new operator version.
+
+3. **Update DPUServices**: Review and update your DPUDeployment/DPUService resources to use services that are compatible with
+   BFB version and operator version.
+
+4. **Monitor the Upgrade**: Use `dpfctl describe all` to monitor the reconciliation process and ensure all resources
+   reach ready state.
