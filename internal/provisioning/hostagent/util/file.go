@@ -28,6 +28,12 @@ func AtomicWrite(path string, data []byte, perm os.FileMode) error {
 	}
 	defer os.Remove(tempFile.Name()) //nolint: errcheck
 	if _, err := tempFile.Write(data); err != nil {
+		_ = tempFile.Close()
+		return err
+	}
+	// Ensure file data and metadata are flushed to stable storage before rename
+	if err := tempFile.Sync(); err != nil {
+		_ = tempFile.Close()
 		return err
 	}
 	if err := tempFile.Close(); err != nil {
@@ -36,5 +42,17 @@ func AtomicWrite(path string, data []byte, perm os.FileMode) error {
 	if err := os.Rename(tempFile.Name(), path); err != nil {
 		return err
 	}
-	return os.Chmod(path, perm)
+	if err := os.Chmod(path, perm); err != nil {
+		return err
+	}
+	// Fsync the directory to persist the rename operation
+	dirFile, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer dirFile.Close() //nolint: errcheck
+	if err := dirFile.Sync(); err != nil {
+		return err
+	}
+	return nil
 }
