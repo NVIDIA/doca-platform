@@ -110,8 +110,11 @@ var _ = Describe("DPUNodeMaintenance", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, dpuNode)).NotTo(HaveOccurred())
+		latestDPUNode := &provisioningv1.DPUNode{}
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), latestDPUNode)).To(Succeed())
+		orig := latestDPUNode.DeepCopy()
 		dpuNode.Status.KubeNodeRef = ptr.To(name)
-		Expect(k8sClient.Status().Update(ctx, dpuNode)).To(Succeed())
+		Expect(k8sClient.Status().Patch(ctx, dpuNode, client.MergeFrom(orig))).To(Succeed())
 		return dpuNode
 	}
 
