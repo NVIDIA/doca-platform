@@ -32,6 +32,7 @@ const (
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced
+// +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 // +kubebuilder:printcolumn:name="Last Scan",type="date",JSONPath=".status.lastScanTime"
 // +kubebuilder:printcolumn:name="Found DPUs",type="integer",JSONPath=".status.foundDPUs"
 
