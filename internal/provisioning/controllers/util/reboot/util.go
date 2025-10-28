@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dmsutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util/dms"
 
 	"google.golang.org/grpc"
@@ -88,7 +89,7 @@ func getHostRebootCmd(annotations map[string]string, key string) (string, error)
 	return "", fmt.Errorf("invalid value %q, supported values: %q", cmd, supported)
 }
 
-func powerCycleRequired(annotations map[string]string) bool {
+func PowerCycleRequired(annotations map[string]string) bool {
 	if annotations != nil {
 		if v, ok := annotations[HostPowerCycleRequireKey]; ok {
 			if b, err := strconv.ParseBool(v); err == nil {
@@ -114,7 +115,7 @@ func ValidateHostPowerCycleRequire(m map[string]string) error {
 
 func GenerateCmd(nodeAnnotations map[string]string, dpuAnnotations map[string]string) (generateCmd string, rebootType RebootType, err error) {
 	var cmd string
-	if powerCycleRequired(dpuAnnotations) {
+	if PowerCycleRequired(dpuAnnotations) {
 		rebootType = PowerCycle
 		if cmd, err = getHostRebootCmd(nodeAnnotations, PowercycleCmdKey); err != nil {
 			return generateCmd, rebootType, err
@@ -143,4 +144,24 @@ func GenerateCmd(nodeAnnotations map[string]string, dpuAnnotations map[string]st
 	}
 
 	return generateCmd, rebootType, nil
+}
+
+func SkipReboot(dpuNode *provisioningv1.DPUNode) bool {
+	return dpuNode.Annotations[PowercycleCmdKey] == Skip || dpuNode.Annotations[RebootCmdKey] == Skip
+}
+
+func PowerCycleCommand(dpuNode *provisioningv1.DPUNode) (string, error) {
+	ipmiCmd := []string{"ipmitool", "chassis", "power"}
+	cmd, ok := dpuNode.Annotations[PowercycleCmdKey]
+	if !ok {
+		return strings.Join(append(ipmiCmd, Cycle), " "), nil
+	}
+	switch cmd {
+	case Cycle, Reset:
+		return strings.Join(append(ipmiCmd, cmd), " "), nil
+	case Skip:
+		return Skip, nil
+	default:
+		return "", fmt.Errorf("invalid value %q, supported values: %q", cmd, []string{Cycle, Reset, Skip})
+	}
 }
