@@ -241,6 +241,7 @@ type serviceChainSettings struct {
 // that is needed to populate the network annotation from the servicechain object
 // If serviceChain is specified, then the settings are calculated for the given serviceChain, otherwise all of the serviceChains
 // in the cluster are analyzed.
+// If one of the interface settings are missing we will return an error and requeue the pod.
 func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, pod *corev1.Pod, networkSettingsForInterface map[string]*networkSettings, serviceChain *dpuservicev1.ServiceChain) (map[string]serviceChainSettings, error) {
 	serviceChainSettingsForInterface := make(map[string]serviceChainSettings)
 	serviceChains := &dpuservicev1.ServiceChainList{}
@@ -252,6 +253,10 @@ func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, p
 		}
 	}
 
+	// Collect errors for interfaces we couldn't process
+	// We'll only return an error if we fail to find settings for interfaces that the pod actually needs
+	interfaceErrors := make(map[string]error)
+
 	for _, serviceChain := range serviceChains.Items {
 		if serviceChain.Spec.Node == nil || *serviceChain.Spec.Node != pod.Spec.NodeName {
 			continue
@@ -261,7 +266,10 @@ func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, p
 			for _, port := range sw.Ports {
 				svcIfc, err := getServiceInterfaceWithLabels(ctx, c, pod.Spec.NodeName, pod.Namespace, port.ServiceInterface.MatchLabels)
 				if err != nil {
-					return nil, fmt.Errorf("failed to get serviceInterface for chain. %w", err)
+					// Collect the error but continue processing other ports
+					// We'll check later if this error is relevant to the pod
+					interfaceErrors[fmt.Sprintf("chain-%s", serviceChain.Name)] = err
+					continue
 				}
 
 				// We only care about interfaces of type service since such are attached to the Pods
@@ -293,6 +301,34 @@ func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, p
 				}
 			}
 		}
+	}
+
+	// Check if we found settings for all the interfaces the pod needs
+	// Only report errors if we're missing settings for interfaces that the pod actually requested
+	missingInterfaces := []string{}
+	for interfaceName := range networkSettingsForInterface {
+		if _, found := serviceChainSettingsForInterface[interfaceName]; !found {
+			missingInterfaces = append(missingInterfaces, interfaceName)
+		}
+	}
+
+	// If we're missing settings for interfaces the pod needs, return an error to trigger requeue.
+	// This can happen due to:
+	// - Faulty ServiceChain selectors (errors will be in interfaceErrors map)
+	// - ServiceChains/ServiceInterfaces not created yet (timing issues)
+	// - Missing or misconfigured resources
+	if len(missingInterfaces) > 0 {
+		message := "missing settings for interfaces %v"
+		if len(interfaceErrors) > 0 {
+			message += fmt.Sprintf(". Errors encountered: %v", interfaceErrors)
+		}
+		return nil, fmt.Errorf(message, missingInterfaces)
+	}
+
+	// Log any errors we encountered for debugging, even if they didn't affect this pod
+	if len(interfaceErrors) > 0 {
+		log := log.FromContext(ctx)
+		log.Info("Encountered errors while processing ServiceChains (may be unrelated to this pod)", "errors", interfaceErrors)
 	}
 
 	return serviceChainSettingsForInterface, nil
