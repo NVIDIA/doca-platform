@@ -833,6 +833,48 @@ DPFOperatorConfig/dpfoperatorconfig                      dpf-operator-system
                         └─ServiceInterfaceSetReconciled                       True    Success  25m
 ```
 
+### Default route for VPC VirtualNetworks
+
+#### Problems
+
+- ServiceInterfaces attached to different VirtualNetworks within the same VPC cannot reach each other.
+- ServiceInterfaces trying to reach the external network do not use the VPC interface.
+
+In both cases traffic egresses via the primary cluster network instead of the VPC gateway.
+
+Assumptions: The VPC is correctly configured, and the `DPUVPC` resource is configured with `spec.interNetworkAccess: true` and `DPUVirtualNetwork` resource is configured with `spec.externallyRouted: true`.
+
+#### Cause
+
+The primary network’s default route has equal or higher priority than the VPC network’s default route (its metric is less than or equal to the VPC route’s metric), so traffic prefers the primary network and bypasses the VPC gateway.
+
+#### Fix
+
+Prefer the VPC default route. The VPC route cannot set a metric and defaults to 0, so raise the primary network’s default-route metric above 0 (e.g., 100).
+
+#### Check
+
+Connect to the worker and check default routes:
+
+  ```sh
+  ip route show
+
+  default via 10.100.0.1 dev enp202s0f0np0 # VPC related interface
+  default via 10.0.110.254 dev eno1 proto static metric 100 # The host's cluster network interface
+  10.0.110.0/24 dev eno1 proto kernel scope link src 10.0.110.31
+  10.100.0.0/16 dev enp202s0f0np0 proto kernel scope link src 10.100.0.2
+  ```
+
+  Ensure the VPC default route has default metric value 0 and the primary default route has a higher metric (e.g., 100).
+
+#### Verify
+
+Verify you have the VPC default route with higher priority as described in the Fix.
+
+  * ServiceInterfaces on different VirtualNetworks within the same VPC can reach each other.
+  * ServiceInterfaces targeting the external network use the VPC interface as their default route.
+  * Traffic uses the VPC gateway (e.g., traceroute shows the VPC gateway as the first hop).
+
 ### Common Issues
 
 **VPC Not Ready**:
