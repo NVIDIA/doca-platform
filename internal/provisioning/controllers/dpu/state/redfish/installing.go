@@ -29,6 +29,7 @@ import (
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -36,14 +37,6 @@ import (
 func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
-
-	taskName := fmt.Sprintf("%s-%s", dpu.Name, dpu.UID)
-	defer func(oldPhase provisioningv1.DPUPhase) {
-		if oldPhase == state.Phase {
-			return
-		}
-		dutil.OsInstallTaskMap.Delete(taskName)
-	}(state.Phase)
 
 	device := &provisioningv1.DPUDevice{}
 	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, device); err != nil {
@@ -56,51 +49,10 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
-	taskID, ok := dutil.OsInstallTaskMap.Load(taskName)
-	if !ok {
-		resp, taskInfo, err := client.InstallBFB(concatBFBAndBFCFGPath(ctrlCtx.Options.BFBRegistry, dpu.Status.BFBFile, dpu.Status.BFCFGFile))
-		if err != nil {
-			err = fmt.Errorf("failed to install BFB: %w", err)
-			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToInstall", err.Error()))
-			state.Phase = provisioningv1.DPUError
-			// when we transition to ERROR phase, we should return nil to make sure the next Reconcile is trigger by the UPDATE event.
-			// If an error is returned, the next Reconcile may be triggered as a retry, leading to installing BFB again.
-			// todo: other phases trasitioning to ERROR phase should also follow this pattern
-			return *state, nil
-		} else if resp.StatusCode() != http.StatusAccepted {
-			err = fmt.Errorf("get status: %s", resp.Status())
-			logger.Error(err, "Failed to install BFB", "status", resp.Status(), "body", resp.String())
-			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToInstall", err.Error()))
-			state.Phase = provisioningv1.DPUError
-			return *state, nil
-		}
-		dutil.OsInstallTaskMap.Store(taskName, taskInfo.ID)
-		logger.Info(fmt.Sprintf("new install task: %+v", *taskInfo))
-		return *state, nil
-	}
 
-	// check progress
-	resp, prog, err := client.CheckTaskProgress(taskID.(string))
-	if err != nil {
-		err = fmt.Errorf("failed to check task progress: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToCheckProgress", err.Error()))
-		return *state, err
-	} else if resp.StatusCode() != http.StatusOK {
-		err = fmt.Errorf("get status: %s is not OK", resp.Status())
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToCheckProgress", err.Error()))
-		return *state, err
-	}
-	logger.Info(fmt.Sprintf("taskProgress: %+v", prog))
-	if prog.TaskState == "Exception" {
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToInstall", fmt.Sprintf("Task %s is in Exception state: %v", taskID.(string), prog.Messages)))
-		state.Phase = provisioningv1.DPUError
-		return *state, nil
-	}
-	if prog.PercentComplete < 100 {
-		taskProgress := fmt.Sprintf("install task %d%% complete", prog.PercentComplete)
-		logger.Info(taskProgress)
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "TaskProgress", taskProgress))
-		return *state, nil
+	_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondBFBTransferred))
+	if cond == nil || cond.Status != metav1.ConditionTrue {
+		return submitAndMonitorBfbInstallTask(ctx, dpu, ctrlCtx, client)
 	}
 
 	resp, system, err := client.GetSystem()
@@ -115,7 +67,7 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, nil
 	}
 
-	_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondOSInstalled))
+	_, cond = cutil.GetDPUCondition(state, string(provisioningv1.DPUCondOSInstalled))
 	if cond == nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "", ""))
 		_, cond = cutil.GetDPUCondition(state, string(provisioningv1.DPUCondOSInstalled))
@@ -126,9 +78,75 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, nil
 	}
 
-	ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
 	state.Phase = provisioningv1.DPURebooting
 	logger.Info("installation finished")
+	return *state, nil
+}
+
+func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, client *rc.Client) (provisioningv1.DPUStatus, error) {
+	logger := log.FromContext(ctx)
+	state := dpu.Status.DeepCopy()
+	taskName := fmt.Sprintf("%s-%s", dpu.Name, dpu.UID)
+	defer func(oldPhase provisioningv1.DPUPhase) {
+		if oldPhase == state.Phase {
+			return
+		}
+		dutil.OsInstallTaskMap.Delete(taskName)
+	}(state.Phase)
+
+	taskID, ok := dutil.OsInstallTaskMap.Load(taskName)
+
+	if !ok {
+		resp, taskInfo, err := client.InstallBFB(concatBFBAndBFCFGPath(ctrlCtx.Options.BFBRegistry, dpu.Status.BFBFile, dpu.Status.BFCFGFile))
+		if err != nil {
+			err = fmt.Errorf("failed to install BFB: %w", err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToInstall", err.Error()))
+			state.Phase = provisioningv1.DPUError
+			// when we transition to ERROR phase, we should return nil to make sure the next Reconcile is trigger by the UPDATE event.
+			// If an error is returned, the next Reconcile may be triggered as a retry, leading to installing BFB again.
+			// todo: other phases trasitioning to ERROR phase should also follow this pattern
+			return *state, nil
+		} else if resp.StatusCode() != http.StatusAccepted {
+			err = fmt.Errorf("get status: %s", resp.Status())
+			logger.Error(err, "Failed to install BFB", "status", resp.Status(), "body", resp.String())
+			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToInstall", resp.String()))
+			state.Phase = provisioningv1.DPUError
+			return *state, nil
+		}
+		dutil.OsInstallTaskMap.Store(taskName, taskInfo.ID)
+		logger.Info(fmt.Sprintf("new install task: %+v", *taskInfo))
+		return *state, nil
+	}
+
+	// check progress
+	resp, prog, err := client.CheckTaskProgress(taskID.(string))
+	if err != nil {
+		err = fmt.Errorf("failed to check task progress: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToCheckProgress", err.Error()))
+		return *state, err
+	} else if resp.StatusCode() != http.StatusOK {
+		err = fmt.Errorf("get status: %s is not OK", resp.Status())
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToCheckProgress", err.Error()))
+		return *state, err
+	}
+	logger.Info(fmt.Sprintf("taskProgress: %+v", prog))
+	if prog.TaskState == "Exception" {
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToInstall", fmt.Sprintf("Task %s is in Exception state: %v", taskID.(string), prog.Messages)))
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+	if prog.PercentComplete < 100 {
+		taskProgress := fmt.Sprintf("install task %d%% complete", prog.PercentComplete)
+		cond := cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), nil, "TaskProgress", taskProgress)
+		cond.Status = metav1.ConditionFalse
+		cutil.SetDPUCondition(state, cond)
+		return *state, nil
+	}
+
+	cond := cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), nil, "", "")
+	cond.Status = metav1.ConditionTrue
+	cutil.SetDPUCondition(state, cond)
+	ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
 	return *state, nil
 }
 
