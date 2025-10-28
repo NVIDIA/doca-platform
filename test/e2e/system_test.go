@@ -334,7 +334,8 @@ var _ = Describe("DPF System tests - Core", Labels{dpfSystemLabel}, func() {
 	// instead. The DPUDeployment should not be removed until all the tests in the e2e suite are run as the DPUs will be
 	// deleted.
 	Context("Validate DPUDeployment full creation", Serial, Ordered, func() {
-		It("should validate DPUDeployment and underlying objects creation", func() {
+		BeforeAll(func() {
+			By("should validate DPUDeployment and underlying objects creation")
 			ValidateDPUDeploymentFullCreation(ctx, input)
 		})
 		It("should validate DPUDeployment disruptive upgrade of standard DPUServices", Labels{requiresNodesLabel}, func() {

@@ -18,10 +18,7 @@ spec:
       dpuAnnotations:
         doMagic: "true"
     nodeEffect:
-        taint:
-          key: "dpu"
-          value: "provisioning"
-          effect: NoSchedule
+      drain: true
   services:
     example:
       serviceTemplate: "dpudeployment-example-servicetemplate"
