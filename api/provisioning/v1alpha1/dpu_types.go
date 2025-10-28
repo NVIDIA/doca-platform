@@ -83,6 +83,7 @@ const (
 	DPUCondBFBPrepared           DPUConditionType = "BFBPrepared"
 	DPUCondInterfaceInitialized  DPUConditionType = "InterfaceInitialized"
 	DPUCondFWConfigured          DPUConditionType = "FWConfigured"
+	DPUCondBFBTransferred        DPUConditionType = "BFBTransferred"
 	DPUCondOSInstalled           DPUConditionType = "OSInstalled"
 	DPUCondCheckedHostRebootNeed DPUConditionType = "CheckedHostRebootNeed"
 	DPUCondRebooted              DPUConditionType = "Rebooted"
