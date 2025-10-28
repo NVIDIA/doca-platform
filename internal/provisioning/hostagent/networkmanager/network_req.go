@@ -52,9 +52,6 @@ type NetworkRequest struct {
 
 	// PortConfigs holds the network interface configuration for each port
 	PortConfigs []hostutil.PortConfig `json:"portConfigs,omitempty"`
-
-	// OSType is the operating system type of the host (e.g., "ubuntu", "rhel", "centos")
-	OSType string `json:"osType,omitempty"`
 }
 
 func (nr *NetworkRequest) SetDPUObjectMeta(dpu provisioningv1.DPU) {
