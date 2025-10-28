@@ -740,9 +740,9 @@ func CmdDel(args *skel.CmdArgs) error {
 
 	// removes all ports whose interfaces have an error
 	// TODO Disable this because of ovs-doca, re-enable this at a later date
-	if err := cleanPorts(ovsBridgeDriver); err != nil {
-		return err
-	}
+	//if err := cleanPorts(ovsBridgeDriver); err != nil {
+	//	return err
+	//}
 
 	return err
 }
