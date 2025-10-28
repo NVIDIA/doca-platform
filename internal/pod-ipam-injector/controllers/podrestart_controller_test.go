@@ -142,6 +142,21 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 			sc := createServiceChainWithServiceInterface(ctx, "sc-digest-change", nil, "firewall", "sfceth1", &mtu)
 			cleanupObjects = append(cleanupObjects, sc)
 
+			// Wait for resources to be available in cache and properly indexed
+			Eventually(func(g Gomega) {
+				retrievedSC := &dpuservicev1.ServiceChain{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: "sc-digest-change"}, retrievedSC)).To(Succeed())
+				retrievedSI := &dpuservicev1.ServiceInterface{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: "firewall-sfceth1-digest-change"}, retrievedSI)).To(Succeed())
+
+				// Also verify getServiceInterfaceWithLabels can find it via label selector
+				_, err := getServiceInterfaceWithLabels(ctx, testClient, "worker-1", "default", map[string]string{
+					dpuservicev1.DPFServiceIDLabelKey: "firewall",
+					"svc.dpu.nvidia.com/interface":    "sfceth1",
+				})
+				g.Expect(err).NotTo(HaveOccurred())
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
 			pod := createTestPodWithName(
 				"test-pod-digest-change",
 				map[string]string{
@@ -149,7 +164,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					NetworkDigestAnnotation: "old-digest",
 				},
 				map[string]string{
-					"svc.dpu.nvidia.com/service-id": "firewall",
+					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
 
@@ -157,9 +172,12 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 			pod.Status.Phase = corev1.PodRunning
 			Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
 
-			needsRestart, err := controller.needsRestartDueToDigestChange(ctx, pod)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(needsRestart).To(BeTrue())
+			// Now check if restart is needed - resources should be available
+			Eventually(func(g Gomega) {
+				needsRestart, err := controller.needsRestartDueToDigestChange(ctx, pod)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(needsRestart).To(BeTrue())
+			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
 		})
 
 		It("returns false when digest has not changed", func() {
@@ -170,6 +188,21 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 			sc := createServiceChainWithServiceInterface(ctx, "sc-digest-match-unique", nil, "firewall", "sfceth1", &mtu)
 			cleanupObjects = append(cleanupObjects, sc)
 
+			// Wait for resources to be available in cache and properly indexed
+			Eventually(func(g Gomega) {
+				retrievedSC := &dpuservicev1.ServiceChain{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: "sc-digest-match-unique"}, retrievedSC)).To(Succeed())
+				retrievedSI := &dpuservicev1.ServiceInterface{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: "firewall-sfceth1-digest-match-unique"}, retrievedSI)).To(Succeed())
+
+				// Also verify getServiceInterfaceWithLabels can find it via label selector
+				_, err := getServiceInterfaceWithLabels(ctx, testClient, "worker-1", "default", map[string]string{
+					dpuservicev1.DPFServiceIDLabelKey: "firewall",
+					"svc.dpu.nvidia.com/interface":    "sfceth1",
+				})
+				g.Expect(err).NotTo(HaveOccurred())
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
 			// Create a pod with the same configuration that will be used for digest calculation
 			testPod := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
@@ -179,7 +212,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 						NetworkAttachmentAnnot: `[{"name":"mybrsfc","interface":"sfceth1"}]`,
 					},
 					Labels: map[string]string{
-						"svc.dpu.nvidia.com/service-id": "firewall",
+						dpuservicev1.DPFServiceIDLabelKey: "firewall",
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -191,11 +224,15 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				Status: corev1.PodStatus{Phase: corev1.PodRunning},
 			}
 
-			// Calculate the expected digest
-			networks, err := GetPodNetworks(testPod)
-			Expect(err).NotTo(HaveOccurred())
-			expectedDigest, err := CalculatePodNetworkDigest(ctx, testClient, testPod, networks)
-			Expect(err).ToNot(HaveOccurred())
+			// Calculate the expected digest - wrap in Eventually to handle cache delays
+			var expectedDigest string
+			Eventually(func(g Gomega) {
+				networks, err := GetPodNetworks(testPod)
+				g.Expect(err).NotTo(HaveOccurred())
+				digest, err := CalculatePodNetworkDigest(ctx, testClient, testPod, networks)
+				g.Expect(err).ToNot(HaveOccurred())
+				expectedDigest = digest
+			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
 
 			pod := createTestPodWithName(
 				"test-pod-digest-match-unique",
@@ -204,7 +241,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					NetworkDigestAnnotation: expectedDigest,
 				},
 				map[string]string{
-					"svc.dpu.nvidia.com/service-id": "firewall",
+					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
 
@@ -212,9 +249,13 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 			pod.Status.Phase = corev1.PodRunning
 			Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
 
-			needsRestart, err := controller.needsRestartDueToDigestChange(ctx, pod)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(needsRestart).To(BeFalse())
+			// Use Eventually to wait for ServiceChain/ServiceInterface to be available in cache
+			// This allows transient errors (missing resources) while they propagate
+			Eventually(func(g Gomega) {
+				needsRestart, err := controller.needsRestartDueToDigestChange(ctx, pod)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(needsRestart).To(BeFalse())
+			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
 		})
 
 		It("returns false when pod is in Pending phase", func() {
@@ -225,7 +266,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					NetworkDigestAnnotation: "stored-digest",
 				},
 				map[string]string{
-					"svc.dpu.nvidia.com/service-id": "firewall",
+					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
 
@@ -250,7 +291,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					NetworkDigestAnnotation: "stored-digest",
 				},
 				map[string]string{
-					"svc.dpu.nvidia.com/service-id": "firewall",
+					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
 
@@ -358,7 +399,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					NetworkDigestAnnotation: "initial-digest",
 				},
 				map[string]string{
-					"svc.dpu.nvidia.com/service-id": "firewall",
+					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
 
@@ -404,7 +445,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					NetworkDigestAnnotation: "old-digest",
 				},
 				map[string]string{
-					"svc.dpu.nvidia.com/service-id": "firewall",
+					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
 
@@ -435,7 +476,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 						NetworkDigestAnnotation: "old-digest",
 					},
 					Labels: map[string]string{
-						"svc.dpu.nvidia.com/service-id": "firewall",
+						dpuservicev1.DPFServiceIDLabelKey: "firewall",
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -472,7 +513,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					NetworkDigestAnnotation: "old-digest-1",
 				},
 				map[string]string{
-					"svc.dpu.nvidia.com/service-id": "firewall",
+					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
 			// Don't add pod1 to cleanupObjects - controller will handle deletion
@@ -488,7 +529,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					NetworkDigestAnnotation: "matching-digest",
 				},
 				map[string]string{
-					"svc.dpu.nvidia.com/service-id": "firewall",
+					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
 			// Don't add pod2 to cleanupObjects - controller will handle deletion
@@ -647,7 +688,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 						NetworkDigestAnnotation: "old-digest",
 					},
 					map[string]string{
-						"svc.dpu.nvidia.com/service-id": "firewall",
+						dpuservicev1.DPFServiceIDLabelKey: "firewall",
 					},
 				)
 
@@ -709,8 +750,8 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 									{
 										ServiceInterface: dpuservicev1.ServiceIfc{
 											MatchLabels: map[string]string{
-												"svc.dpu.nvidia.com/service-id": "firewall",
-												"svc.dpu.nvidia.com/interface":  "sfceth1",
+												dpuservicev1.DPFServiceIDLabelKey: "firewall",
+												"svc.dpu.nvidia.com/interface":    "sfceth1",
 											},
 										},
 									},
@@ -730,7 +771,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 						NetworkDigestAnnotation: "old-digest",
 					},
 					map[string]string{
-						"svc.dpu.nvidia.com/service-id": "firewall",
+						dpuservicev1.DPFServiceIDLabelKey: "firewall",
 					},
 				)
 
@@ -764,7 +805,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					"test-pod-no-annot",
 					map[string]string{}, // No network annotation
 					map[string]string{
-						"svc.dpu.nvidia.com/service-id": "firewall",
+						dpuservicev1.DPFServiceIDLabelKey: "firewall",
 					},
 				)
 
@@ -799,7 +840,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 						// No NetworkDigestAnnotation
 					},
 					map[string]string{
-						"svc.dpu.nvidia.com/service-id": "firewall",
+						dpuservicev1.DPFServiceIDLabelKey: "firewall",
 					},
 				)
 
@@ -834,7 +875,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 						NetworkDigestAnnotation: "matching-digest",
 					},
 					map[string]string{
-						"svc.dpu.nvidia.com/service-id": "firewall",
+						dpuservicev1.DPFServiceIDLabelKey: "firewall",
 					},
 				)
 
@@ -871,7 +912,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 						NetworkDigestAnnotation: "old-digest",
 					},
 					map[string]string{
-						"svc.dpu.nvidia.com/service-id": "firewall",
+						dpuservicev1.DPFServiceIDLabelKey: "firewall",
 					},
 				)
 
@@ -902,7 +943,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 						NetworkDigestAnnotation: "old-digest",
 					},
 					map[string]string{
-						"svc.dpu.nvidia.com/service-id": "firewall",
+						dpuservicev1.DPFServiceIDLabelKey: "firewall",
 					},
 				)
 
@@ -954,7 +995,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 						NetworkDigestAnnotation: "old-digest-1",
 					},
 					map[string]string{
-						"svc.dpu.nvidia.com/service-id": "firewall",
+						dpuservicev1.DPFServiceIDLabelKey: "firewall",
 					},
 				)
 
@@ -966,7 +1007,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 						NetworkDigestAnnotation: "matching-digest",
 					},
 					map[string]string{
-						"svc.dpu.nvidia.com/service-id": "firewall",
+						dpuservicev1.DPFServiceIDLabelKey: "firewall",
 					},
 				)
 
