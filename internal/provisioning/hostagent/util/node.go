@@ -23,6 +23,7 @@ import (
 )
 
 const (
+	DPFNamespace          = "dpf-operator-system"
 	MaximumHostNameLength = 48
 	NodeNameEnv           = "NODE_NAME"
 	K8sNodeNameEnv        = "KUBERNETES_NODE_NAME"
