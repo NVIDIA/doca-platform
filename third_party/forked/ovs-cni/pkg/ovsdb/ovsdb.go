@@ -239,16 +239,18 @@ func (ovsd *OvsBridgeDriver) CleanupStaleHbn(contIfaceName string) error {
 		if err = ovsd.DelPort(element["name"].(string)); err != nil {
 			return err
 		}
-		externalIDs, err := getExternalIDs(element)
-		if err != nil {
-			return fmt.Errorf("get external ids: %v", err)
-		}
 
-		if v, ok := externalIDs["hbn_rep_ofport"]; ok {
-			if err = ovsd.DelPort(v); err != nil {
-				return err
-			}
-		}
+		// RM: ##4690834, we are skipping deleting sf reps from br-sfc and expecting
+		// CleanupStaleSfc to do it.
+		//externalIDs, err := getExternalIDs(element)
+		//if err != nil {
+		//	return fmt.Errorf("get external ids: %v", err)
+		//}
+		//if v, ok := externalIDs["hbn_rep_ofport"]; ok {
+		//	if err = ovsd.DelPort(v); err != nil {
+		//		return err
+		//	}
+		//}
 	}
 
 	return nil
@@ -896,6 +898,27 @@ func (ovsd *OvsDriver) GetOvsPortForContIface(contIface, contNetnsPath string) (
 	}
 
 	return fmt.Sprintf("%v", port["name"]), true, nil
+}
+
+func (ovsd *OvsDriver) DoesContIfaceWithDpfIdExists(dpfId string) (bool, error) {
+	searchMap := map[string]string{
+		"dpf-id": dpfId,
+	}
+	ovsmap, err := ovsdb.NewOvsMap(searchMap)
+	if err != nil {
+		if errors.Is(err, errObjectNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	condition := ovsdb.NewCondition("external_ids", ovsdb.ConditionIncludes, ovsmap)
+	colums := []string{"name", "external_ids"}
+	_, err = ovsd.findByCondition("Interface", condition, colums)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // CleanEmptyMirrors removes all empty mirrors
