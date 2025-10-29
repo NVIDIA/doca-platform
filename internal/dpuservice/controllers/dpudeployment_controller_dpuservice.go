@@ -56,9 +56,10 @@ func reconcileDPUServices(
 	dependencies *dpuDeploymentDependencies,
 	interfaceNameByServiceName map[string]interfaceNameToDPUServiceInterfaceName,
 	dpuNodeLabels map[string]string,
-) (ctrl.Result, map[string]*dpuservicev1.DPUService, error) {
+) (ctrl.Result, map[string]*dpuservicev1.DPUService, bool, error) {
 	owner := metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)
 	requeue := ctrl.Result{}
+	hasDisruptiveChanges := false
 
 	// Get all existing DPUSets
 	existingDPUSets := &provisioningv1.DPUSetList{}
@@ -68,7 +69,7 @@ func reconcileDPUServices(
 			dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(client.ObjectKeyFromObject(dpuDeployment)),
 		},
 		client.InNamespace(dpuDeployment.Namespace)); err != nil {
-		return ctrl.Result{}, nil, fmt.Errorf("failed to list existing DPUSets: %w", err)
+		return ctrl.Result{}, nil, false, fmt.Errorf("failed to list existing DPUSets: %w", err)
 	}
 
 	// Get all existing DPUServices
@@ -79,7 +80,7 @@ func reconcileDPUServices(
 			dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(client.ObjectKeyFromObject(dpuDeployment)),
 		},
 		client.InNamespace(dpuDeployment.Namespace)); err != nil {
-		return ctrl.Result{}, nil, fmt.Errorf("failed to list existing DPUServices: %w", err)
+		return ctrl.Result{}, nil, false, fmt.Errorf("failed to list existing DPUServices: %w", err)
 	}
 
 	existingDPUServicesMap := make(map[string]dpuservicev1.DPUService)
@@ -90,7 +91,7 @@ func reconcileDPUServices(
 	// get an ordered list of the DPUServices
 	sortedServices, err := servicesTopologicalSort(dpuDeployment)
 	if err != nil {
-		return ctrl.Result{}, nil, fmt.Errorf("failed to sort DPUService: %w", err)
+		return ctrl.Result{}, nil, false, fmt.Errorf("failed to sort DPUService: %w", err)
 	}
 
 	patchedDPUServices := make(map[string]*dpuservicev1.DPUService, len(existingDPUServices.Items))
@@ -103,7 +104,7 @@ func reconcileDPUServices(
 			// Check dependencies and requeue the reconciliation if the check fails.
 			err := checkDPUServiceDependencies(ctx, c, dpuDeployment.Spec.Services[serviceName].DependsOn, patchedDPUServices)
 			if err != nil {
-				return ctrl.Result{}, nil, fmt.Errorf("failed to check dependencies for DPUService %s: %w", serviceName, err)
+				return ctrl.Result{}, nil, false, fmt.Errorf("failed to check dependencies for DPUService %s: %w", serviceName, err)
 			}
 			rendered, err := templateDPUServiceConfigurationValues(serviceConfig, dpuDeployment.Spec.Services[serviceName].DependsOn, patchedDPUServices)
 			if err != nil {
@@ -136,9 +137,10 @@ func reconcileDPUServices(
 			if !req.IsZero() {
 				requeue = req
 			}
+			// No new version created, so not disruptive in this reconciliation
 		case len(oldRevisions) > 0:
 			// we have only previous revisions
-			req, err := reconcileDPUServiceWithOldRevisions(ctx, c, newRevision, oldRevisions, serviceName, dpuDeployment, serviceConfig, dpuNodeLabels, existingDPUServicesMap)
+			req, isDisruptive, err := reconcileDPUServiceWithOldRevisions(ctx, c, newRevision, oldRevisions, serviceName, dpuDeployment, serviceConfig, dpuNodeLabels, existingDPUServicesMap)
 			if err != nil {
 				errs = append(errs, err)
 				continue
@@ -147,9 +149,12 @@ func reconcileDPUServices(
 			if !req.IsZero() {
 				requeue = req
 			}
+			// Mark if this was a disruptive change
+			hasDisruptiveChanges = hasDisruptiveChanges || isDisruptive
 		default:
 			// no previous version, we are creating a new one
-			reconcileNewDPUServiceRevision(newRevision, serviceName, dpuDeployment, serviceConfig, dpuNodeLabels)
+			isDisruptive := reconcileNewDPUServiceRevision(newRevision, serviceName, dpuDeployment, serviceConfig, dpuNodeLabels)
+			hasDisruptiveChanges = hasDisruptiveChanges || isDisruptive
 		}
 
 		newRevision.SetManagedFields(nil)
@@ -168,27 +173,28 @@ func reconcileDPUServices(
 	// If we have found errors, we don't want to delete any of the existing DPUServices as we might have partially applied
 	// the logic of modifying the existingDPUServicesMap.
 	if len(errs) > 0 {
-		return ctrl.Result{}, nil, kerrors.NewAggregate(errs)
+		return ctrl.Result{}, nil, false, kerrors.NewAggregate(errs)
 	}
 
 	// Cleanup the remaining stale DPUServices
 	for _, dpuService := range existingDPUServicesMap {
 		if err := c.Delete(ctx, &dpuService); err != nil {
-			return ctrl.Result{}, nil, fmt.Errorf("failed to delete DPUService %s: %w", client.ObjectKeyFromObject(&dpuService), err)
+			return ctrl.Result{}, nil, false, fmt.Errorf("failed to delete DPUService %s: %w", client.ObjectKeyFromObject(&dpuService), err)
 		}
 	}
 
-	return requeue, patchedDPUServices, nil
+	return requeue, patchedDPUServices, hasDisruptiveChanges, nil
 }
 
 // reconcileNewDPUServiceRevision reconciles a new revision of the DPUService.
 // It accepts a new DPUService object and the DPUService name as defined in the DPUDeployment.
 // It sets the nodeSelector for the DPUService and updates the DPUNodeLabels.
+// Returns true if this is a disruptive service.
 func reconcileNewDPUServiceRevision(newRevision *dpuservicev1.DPUService, serviceName string,
 	dpuDeployment *dpuservicev1.DPUDeployment,
 	serviceConfig *dpuservicev1.DPUServiceConfiguration,
 	dpuNodeLabels map[string]string,
-) {
+) bool {
 
 	var dpuServiceNodeSelector *corev1.NodeSelector
 	if !serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster() {
@@ -206,22 +212,26 @@ func reconcileNewDPUServiceRevision(newRevision *dpuservicev1.DPUService, servic
 		client.ObjectKeyFromObject(dpuDeployment),
 		serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster())
 
-	// TODO: By default when creating a new non-disruptive DPUService
-	// we should not cause nodeEffect because of labels
+	// Return true if this is a disruptive service
+	return serviceConfig.Spec.UpgradePolicy.ShouldApplyNodeEffect()
 }
 
 // reconcileDPUServiceWithOldRevisions reconciles a new revision of the DPUService and the old revisions.
 // It accepts a new DPUService object,the DPUService name as defined in the DPUDeployment and the old revisions.
 // It sets the nodeSelector for the DPUService and updates the DPUNodeLabels. It also pauses the old revisions.
+// Returns true if a new version is created due to a disruptive upgrade.
 func reconcileDPUServiceWithOldRevisions(ctx context.Context, c client.Client, newRevision *dpuservicev1.DPUService, oldRevisions []client.Object,
 	serviceName string,
 	dpuDeployment *dpuservicev1.DPUDeployment,
 	serviceConfig *dpuservicev1.DPUServiceConfiguration,
 	dpuNodeLabels map[string]string,
-	existingDPUServicesMap map[string]dpuservicev1.DPUService) (ctrl.Result, error) {
+	existingDPUServicesMap map[string]dpuservicev1.DPUService) (ctrl.Result, bool, error) {
 	nodeLabelValue := newRevision.Name
 	var toRetain []client.Object
+	isDisruptive := false
 	if serviceConfig.Spec.UpgradePolicy.ShouldApplyNodeEffect() {
+		// Mark this as a disruptive change
+		isDisruptive = true
 		// the logic regarding the previous revisions is as follows:
 		// - pause all previous revisions before creating the new one
 		//   - The number of previous are controlled by the revisionHistoryLimit. This limit can be hit when several updates are done in a short period of time
@@ -232,7 +242,7 @@ func reconcileDPUServiceWithOldRevisions(ctx context.Context, c client.Client, n
 		// Hence we never delete old revisions while the current one is not ready, this is to avoid downtime
 		toRetain = getRevisionHistoryLimitList(oldRevisions, *dpuDeployment.Spec.RevisionHistoryLimit-1)
 		if err := pauseStaleDPUServices(ctx, c, clientObjectToDPUServiceList(toRetain)); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to pause stale %s %s: %w", newRevision.GetObjectKind().GroupVersionKind().String(), newRevision.GetName(), err)
+			return ctrl.Result{}, false, fmt.Errorf("failed to pause stale %s %s: %w", newRevision.GetObjectKind().GroupVersionKind().String(), newRevision.GetName(), err)
 		}
 
 		var dpuServiceNodeSelector *corev1.NodeSelector
@@ -271,7 +281,7 @@ func reconcileDPUServiceWithOldRevisions(ctx context.Context, c client.Client, n
 		client.ObjectKeyFromObject(dpuDeployment),
 		serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster())
 
-	return ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}, nil
+	return ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}, isDisruptive, nil
 }
 
 // reconcileCurrentDPUServiceRevision reconciles the current revision of the DPUService and the old revisions.

@@ -38,9 +38,10 @@ import (
 func reconcileDPUServiceChain(ctx context.Context,
 	c client.Client,
 	dpuDeployment *dpuservicev1.DPUDeployment,
-	dpuNodeLabels map[string]string) (ctrl.Result, error) {
+	dpuNodeLabels map[string]string) (ctrl.Result, bool, error) {
 	owner := metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)
 	requeue := ctrl.Result{}
+	hasDisruptiveChanges := false
 
 	// Get all existing DPUSets
 	existingDPUSets := &provisioningv1.DPUSetList{}
@@ -50,7 +51,7 @@ func reconcileDPUServiceChain(ctx context.Context,
 			dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(client.ObjectKeyFromObject(dpuDeployment)),
 		},
 		client.InNamespace(dpuDeployment.Namespace)); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to list existing DPUSets: %w", err)
+		return ctrl.Result{}, false, fmt.Errorf("failed to list existing DPUSets: %w", err)
 	}
 
 	// Grab existing DPUServiceChains
@@ -61,7 +62,7 @@ func reconcileDPUServiceChain(ctx context.Context,
 			dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(client.ObjectKeyFromObject(dpuDeployment)),
 		},
 		client.InNamespace(dpuDeployment.Namespace)); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to list existing DPUServiceChains: %w", err)
+		return ctrl.Result{}, false, fmt.Errorf("failed to list existing DPUServiceChains: %w", err)
 	}
 
 	existingDPUServiceChainsMap := make(map[string]dpuservicev1.DPUServiceChain)
@@ -86,61 +87,70 @@ func reconcileDPUServiceChain(ctx context.Context,
 			if !req.IsZero() {
 				requeue = req
 			}
+			// No new version created, so not disruptive in this reconciliation
 		case len(oldRevisions) > 0:
 			// we have only previous revisions
-			req := reconcileDPUServiceChainWithOldRevisions(newRevision, oldRevisions, dpuDeployment, dpuNodeLabels, existingDPUServiceChainsMap)
+			req, isDisruptive := reconcileDPUServiceChainWithOldRevisions(newRevision, oldRevisions, dpuDeployment, dpuNodeLabels, existingDPUServiceChainsMap)
 			if !req.IsZero() {
 				requeue = req
 			}
+			// Mark if this was a disruptive change
+			hasDisruptiveChanges = hasDisruptiveChanges || isDisruptive
 		default:
 			// no previous revision, we are creating a new one
-			reconcileNewDPUServiceChainRevision(newRevision, dpuDeployment, dpuNodeLabels)
+			isDisruptive := reconcileNewDPUServiceChainRevision(newRevision, dpuDeployment, dpuNodeLabels)
+			hasDisruptiveChanges = hasDisruptiveChanges || isDisruptive
 		}
 
 		newRevision.SetManagedFields(nil)
 		newRevision.SetGroupVersionKind(dpuservicev1.DPUServiceChainGroupVersionKind)
 		if err := c.Patch(ctx, newRevision, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName)); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to patch DPUServiceChain %s: %w", client.ObjectKeyFromObject(newRevision), err)
+			return ctrl.Result{}, false, fmt.Errorf("failed to patch DPUServiceChain %s: %w", client.ObjectKeyFromObject(newRevision), err)
 		}
 	}
 
 	// Cleanup the remaining stale DPUServiceChains
 	for _, dpuServiceChain := range existingDPUServiceChainsMap {
 		if err := c.Delete(ctx, &dpuServiceChain); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to delete DPUServiceChain %s: %w", client.ObjectKeyFromObject(&dpuServiceChain), err)
+			return ctrl.Result{}, false, fmt.Errorf("failed to delete DPUServiceChain %s: %w", client.ObjectKeyFromObject(&dpuServiceChain), err)
 		}
 	}
 
-	return requeue, nil
+	return requeue, hasDisruptiveChanges, nil
 }
 
 // reconcileNewDPUServiceChainRevision reconciles a new revision of the DPUServiceChain.
 // It accepts a new DPUServiceChain object.
 // It sets the nodeSelector for the DPUServiceChain and updates the DPUNodeLabels.
+// Returns true if this is a disruptive service chain.
 func reconcileNewDPUServiceChainRevision(newRevision *dpuservicev1.DPUServiceChain,
 	dpuDeployment *dpuservicev1.DPUDeployment,
-	dpuNodeLabels map[string]string) {
+	dpuNodeLabels map[string]string) bool {
 	newRevision.SetServiceChainSetLabelSelector(newObjectLabelSelectorWithOwner(dpuServiceChainVersionLabelAnnotationKey, newRevision.Name, client.ObjectKeyFromObject(dpuDeployment)))
 
 	// This is needed in all cases, because we don't know if a dpuSet will be updated or created
 	setDPUServiceChainNodeLabelValue(newRevision.Name, dpuNodeLabels)
 
-	// TODO: By default when creating a new non-disruptive DPUServiceChain
-	// we should not cause node effect because of labels
+	// Return true if this is a disruptive service chain
+	return dpuDeployment.Spec.ServiceChains.UpgradePolicy.ShouldApplyNodeEffect()
 }
 
 // reconcileDPUServiceChainWithOldRevisions reconciles a new revision of the DPUServiceChain and the old revisions.
 // It accepts a new DPUServiceChain object and the old revisions of the DPUServiceChain.
 // It sets the nodeSelector for the DPUServiceChain and updates the DPUNodeLabels.
+// Returns true if a new version is created due to a disruptive upgrade.
 func reconcileDPUServiceChainWithOldRevisions(newRevision *dpuservicev1.DPUServiceChain,
 	oldRevisions []client.Object,
 	dpuDeployment *dpuservicev1.DPUDeployment,
 	dpuNodeLabels map[string]string,
-	existingDPUServiceChainsMap map[string]dpuservicev1.DPUServiceChain) ctrl.Result {
+	existingDPUServiceChainsMap map[string]dpuservicev1.DPUServiceChain) (ctrl.Result, bool) {
 	dpuServiceChainNodeSelector := newObjectLabelSelectorWithOwner(dpuServiceChainVersionLabelAnnotationKey, newRevision.Name, client.ObjectKeyFromObject(dpuDeployment))
 	nodeLabelValue := newRevision.Name
 	var toRetain []client.Object
+	isDisruptive := false
 	if dpuDeployment.Spec.ServiceChains.UpgradePolicy.ShouldApplyNodeEffect() {
+		// Mark this as a disruptive change
+		isDisruptive = true
 		toRetain = getRevisionHistoryLimitList(oldRevisions, *dpuDeployment.Spec.RevisionHistoryLimit-1)
 		newRevision.SetServiceChainSetLabelSelector(dpuServiceChainNodeSelector)
 	} else {
@@ -163,7 +173,7 @@ func reconcileDPUServiceChainWithOldRevisions(newRevision *dpuservicev1.DPUServi
 	// This is needed in all cases, because we don't know if a dpuSet will be updated or created
 	setDPUServiceChainNodeLabelValue(nodeLabelValue, dpuNodeLabels)
 
-	return ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}
+	return ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}, isDisruptive
 }
 
 // reconcileCurrentDPUServiceChainRevision reconciles the current revision of the DPUServiceChain and the old revisions.

@@ -1257,7 +1257,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 										Force: ptr.To(false),
 									},
 									UpgradePolicy: provisioningv1.UpgradePolicy{
-										ApplyOnLabelChange: ptr.To(true),
+										ApplyOnLabelChange: ptr.To(false),
 									},
 								},
 							},
@@ -1290,7 +1290,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 										Force: ptr.To(false),
 									},
 									UpgradePolicy: provisioningv1.UpgradePolicy{
-										ApplyOnLabelChange: ptr.To(true),
+										ApplyOnLabelChange: ptr.To(false),
 									},
 								},
 							},
@@ -1538,7 +1538,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							Force:    ptr.To(false),
 						},
 						UpgradePolicy: provisioningv1.UpgradePolicy{
-							ApplyOnLabelChange: ptr.To(true),
+							ApplyOnLabelChange: ptr.To(false),
 							NodeMaintenanceAdditionalRequestors: []string{
 								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
 								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
@@ -1550,7 +1550,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							Force:    ptr.To(false),
 						},
 						UpgradePolicy: provisioningv1.UpgradePolicy{
-							ApplyOnLabelChange: ptr.To(true),
+							ApplyOnLabelChange: ptr.To(false),
 							NodeMaintenanceAdditionalRequestors: []string{
 								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
 								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
@@ -1580,7 +1580,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							Force: ptr.To(false),
 						},
 						UpgradePolicy: provisioningv1.UpgradePolicy{
-							ApplyOnLabelChange: ptr.To(true),
+							ApplyOnLabelChange: ptr.To(false),
 							NodeMaintenanceAdditionalRequestors: []string{
 								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
 								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
@@ -1593,7 +1593,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							Force: ptr.To(false),
 						},
 						UpgradePolicy: provisioningv1.UpgradePolicy{
-							ApplyOnLabelChange: ptr.To(true),
+							ApplyOnLabelChange: ptr.To(false),
 							NodeMaintenanceAdditionalRequestors: []string{
 								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
 								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
@@ -1800,6 +1800,9 @@ var _ = Describe("DPUDeployment Controller", func() {
 						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUServiceChain.Name),
 						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
 					}
+
+					// ApplyOnLabelChange should be true because we are modifying a disruptive DPUServiceConfiguration
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(true)
 				}
 
 				By("checking that the DPUSets are correctly updated")
@@ -1874,6 +1877,11 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
 				By("checking that the DPUSets are correctly updated")
+				for i := range expectedDPUSetSpecs {
+					// We have no more diusruptive changes, and we kicked a new reconciliation by setting the DPUService ready,
+					// so the ApplyOnLabelChange should be false
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(false)
+				}
 				Eventually(func(g Gomega) {
 					gotDPUSetList := &provisioningv1.DPUSetList{}
 					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
@@ -2045,6 +2053,9 @@ var _ = Describe("DPUDeployment Controller", func() {
 						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUServiceChain.Name),
 						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
 					}
+
+					// ApplyOnLabelChange should be true because we are modifying a disruptive DPUServiceChain
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(true)
 				}
 
 				By("checking that the DPUSets are correctly updated")
@@ -2398,6 +2409,11 @@ var _ = Describe("DPUDeployment Controller", func() {
 						specs = append(specs, dpuSet.Spec)
 					}
 					expectedDPUSetSpecs[1].DPUTemplate.Annotations["newkey"] = "newvalue"
+					// All existing DPUSetSpecs should have ApplyOnLabelChange set to false
+					// Because we are not modifying the DPUServices and DPUServiceChains
+					for i := range expectedDPUSetSpecs {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(false)
+					}
 					expectedDPUSetSpecs = append(expectedDPUSetSpecs, provisioningv1.DPUSetSpec{
 						DPUNodeSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
@@ -2425,7 +2441,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 										Force: ptr.To(false),
 									},
 									UpgradePolicy: provisioningv1.UpgradePolicy{
-										ApplyOnLabelChange: ptr.To(true),
+										// ApplyOnLabelChange should be false because we are not modifying the DPUServices and DPUServiceChains
+										// A nodeEffect should still be applied as this is a new DPUSet, and by default
+										// we add our owned objects to the NodeMaintenanceAdditionalRequestors list
+										ApplyOnLabelChange: ptr.To(false),
 										NodeMaintenanceAdditionalRequestors: []string{
 											fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUServiceChain.Name),
 											fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
