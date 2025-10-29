@@ -53,9 +53,10 @@ func reconcileDPUServiceInterfaces(
 	interfaceNameByServiceName map[string]interfaceNameToDPUServiceInterfaceName,
 	dpuNodeLabels map[string]string,
 	patchedDPUServices map[string]*dpuservicev1.DPUService,
-) (ctrl.Result, error) {
+) (ctrl.Result, bool, error) {
 	dpuDeploymentOwnerRef := metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)
 	requeue := ctrl.Result{}
+	hasDisruptiveChanges := false
 
 	// Get all existing DPUSets
 	existingDPUSets := &provisioningv1.DPUSetList{}
@@ -65,7 +66,7 @@ func reconcileDPUServiceInterfaces(
 			dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(client.ObjectKeyFromObject(dpuDeployment)),
 		},
 		client.InNamespace(dpuDeployment.Namespace)); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to list existing DPUSets: %w", err)
+		return ctrl.Result{}, false, fmt.Errorf("failed to list existing DPUSets: %w", err)
 	}
 
 	// Get all the existing DPUServices
@@ -76,7 +77,7 @@ func reconcileDPUServiceInterfaces(
 			dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(client.ObjectKeyFromObject(dpuDeployment)),
 		},
 		client.InNamespace(dpuDeployment.Namespace)); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to list existing DPUService: %w", err)
+		return ctrl.Result{}, false, fmt.Errorf("failed to list existing DPUService: %w", err)
 	}
 	mergedDPUServices := mergePatchedAndListedDPUServices(existingDPUServices, patchedDPUServices)
 
@@ -88,7 +89,7 @@ func reconcileDPUServiceInterfaces(
 			dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(client.ObjectKeyFromObject(dpuDeployment)),
 		},
 		client.InNamespace(dpuDeployment.Namespace)); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to list existing DPUServiceInterfaces: %w", err)
+		return ctrl.Result{}, false, fmt.Errorf("failed to list existing DPUServiceInterfaces: %w", err)
 	}
 
 	existingDPUServiceInterfacesMap := make(map[string]dpuservicev1.DPUServiceInterface)
@@ -138,15 +139,19 @@ func reconcileDPUServiceInterfaces(
 				if !req.IsZero() {
 					requeue = req
 				}
+				// No new version created, so not disruptive in this reconciliation
 			case len(oldRevisions) > 0:
 				// we have only previous revisions
-				req := reconcileDPUServiceInterfaceWithOldRevisions(newRevision, oldRevisions, dpuDeployment, serviceConfig, existingDPUServiceInterfacesMap, currentDPUServiceNodeSelector)
+				req, isDisruptive := reconcileDPUServiceInterfaceWithOldRevisions(newRevision, oldRevisions, dpuDeployment, serviceConfig, existingDPUServiceInterfacesMap, currentDPUServiceNodeSelector)
 				if !req.IsZero() {
 					requeue = req
 				}
+				// Mark if this was a disruptive change
+				hasDisruptiveChanges = hasDisruptiveChanges || isDisruptive
 			default:
 				// no previous version, we are creating a new one
-				reconcileNewDPUServiceInterfaceRevision(newRevision, serviceConfig, currentDPUServiceNodeSelector)
+				isDisruptive := reconcileNewDPUServiceInterfaceRevision(newRevision, serviceConfig, currentDPUServiceNodeSelector)
+				hasDisruptiveChanges = hasDisruptiveChanges || isDisruptive
 			}
 
 			newRevision.SetManagedFields(nil)
@@ -160,7 +165,7 @@ func reconcileDPUServiceInterfaces(
 	// If we have found errors, we don't want to delete any of the existing DPUServiceInterfaces as we might have partially
 	// applied the logic of modifying the existingDPUServicesMap.
 	if len(errs) > 0 {
-		return ctrl.Result{}, kerrors.NewAggregate(errs)
+		return ctrl.Result{}, false, kerrors.NewAggregate(errs)
 	}
 
 	// We don't want to remove stale DPUServiceInterfaces that still have their DPUService around to ensure that they
@@ -176,7 +181,7 @@ func reconcileDPUServiceInterfaces(
 		for _, dpuService := range mergedDPUServices.Items {
 			isOwner, err := controllerutil.HasOwnerReference(dpuServiceInterface.OwnerReferences, &dpuService, scheme)
 			if err != nil {
-				return ctrl.Result{}, fmt.Errorf("couldn't match owner reference: %w", err)
+				return ctrl.Result{}, false, fmt.Errorf("couldn't match owner reference: %w", err)
 			}
 			// If a service is paused, it should have been as part of the dpuService reconciliation process. This
 			// means that it's no longer the most current one, and will be cleaned up after the latest revision is ready.
@@ -191,11 +196,11 @@ func reconcileDPUServiceInterfaces(
 	// Cleanup the remaining stale DPUServiceInterfaces
 	for _, dpuServiceInterface := range existingDPUServiceInterfacesMap {
 		if err := c.Delete(ctx, &dpuServiceInterface); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to delete DPUServiceInterface %s: %w", client.ObjectKeyFromObject(&dpuServiceInterface), err)
+			return ctrl.Result{}, false, fmt.Errorf("failed to delete DPUServiceInterface %s: %w", client.ObjectKeyFromObject(&dpuServiceInterface), err)
 		}
 	}
 
-	return requeue, nil
+	return requeue, hasDisruptiveChanges, nil
 }
 
 // reconcileNewDPUServiceInterfaceRevision reconciles a new revision of the DPUServiceInterface.
@@ -203,28 +208,35 @@ func reconcileDPUServiceInterfaces(
 // current DPUService.
 // It sets the nodeSelector to the one matching the current DPUService in order for the DPUServiceInterface to match
 // the same nodes as the current DPUService.
+// Returns true if this is a disruptive service interface.
 func reconcileNewDPUServiceInterfaceRevision(newRevision *dpuservicev1.DPUServiceInterface,
 	serviceConfig *dpuservicev1.DPUServiceConfiguration,
 	currentDPUServiceNodeSelector *metav1.LabelSelector,
-) {
+) bool {
 	if !serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster() {
 		newRevision.SetServiceInterfaceSetLabelSelector(currentDPUServiceNodeSelector)
 	}
+	// Return true if this is a disruptive service interface
+	return serviceConfig.Spec.UpgradePolicy.ShouldApplyNodeEffect()
 }
 
 // reconcileDPUServiceInterfaceWithOldRevisions reconciles a new revision of the DPUServiceInterface and the old revisions.
 // It accepts a new DPUServiceInterface object, the DPUService name as defined in the DPUDeployment and the old revisions.
 // It sets the nodeSelector to the one matching the current DPUService in order for the DPUServiceInterface to match
 // the same nodes as the current DPUService.
+// Returns true if a new version is created due to a disruptive upgrade.
 func reconcileDPUServiceInterfaceWithOldRevisions(newRevision *dpuservicev1.DPUServiceInterface,
 	oldRevisions []client.Object,
 	dpuDeployment *dpuservicev1.DPUDeployment,
 	serviceConfig *dpuservicev1.DPUServiceConfiguration,
 	existingDPUServiceInterfacesMap map[string]dpuservicev1.DPUServiceInterface,
 	currentDPUServiceNodeSelector *metav1.LabelSelector,
-) ctrl.Result {
+) (ctrl.Result, bool) {
 	var toRetain []client.Object
+	isDisruptive := false
 	if serviceConfig.Spec.UpgradePolicy.ShouldApplyNodeEffect() {
+		// Mark this as a disruptive change
+		isDisruptive = true
 		toRetain = getRevisionHistoryLimitList(oldRevisions, *dpuDeployment.Spec.RevisionHistoryLimit-1)
 		if !serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster() {
 			newRevision.SetServiceInterfaceSetLabelSelector(currentDPUServiceNodeSelector)
@@ -247,7 +259,7 @@ func reconcileDPUServiceInterfaceWithOldRevisions(newRevision *dpuservicev1.DPUS
 		delete(existingDPUServiceInterfacesMap, svcInterface.GetName())
 	}
 
-	return ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}
+	return ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}, isDisruptive
 }
 
 // reconcileCurrentDPUServiceInterfaceRevision reconciles the current revision of the DPUServiceInterface and the old
