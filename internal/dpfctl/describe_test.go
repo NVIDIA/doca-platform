@@ -139,6 +139,53 @@ func Test_dpfctlTreeDiscovery(t *testing.T) {
 			},
 		},
 		{
+			name: "Add DPUSet with DPUNode and DPUDevice",
+			objectsTree: []objectsWithConditions{
+				{object: defaultDPFOperatorConfig(), conditions: getTrueCondition()},
+				{object: defaultDPUSet(), conditions: getTrueCondition()},
+				{object: dpuWithNodeReference(), conditions: getTrueCondition()},
+				{object: defaultDPUNode(), conditions: getTrueCondition()},
+				{object: defaultDPUDevice(), conditions: getTrueCondition()},
+			},
+			expectedPrefix: []string{
+				"DPFOperatorConfig/test             default  Ready: True  Success",
+				"└─DPUSets",
+				"  └─DPUSet/test                    default",
+				"    ├─DPUNodes",
+				"    │ └─DPUNode/test-node          default  Ready: True  Success",
+				"    │   └─DPUDevices",
+				"    │     └─DPUDevice/test-device  default  Ready: True  Success",
+				"    └─DPUs",
+				"      └─DPU/test-dpu-with-node     default  Ready: True  Success",
+			},
+		},
+		{
+			name: "Add DPUSet with DPUNode, DPUDevice and DPUNodeMaintenance",
+			objectsTree: []objectsWithConditions{
+				{object: defaultDPFOperatorConfig(), conditions: getTrueCondition()},
+				{object: defaultDPUSet(), conditions: getTrueCondition()},
+				{object: dpuWithNodeReference(), conditions: getTrueCondition()},
+				{object: defaultDPUNode(), conditions: getTrueCondition()},
+				{object: defaultDPUDevice(), conditions: getTrueCondition()},
+				{object: defaultDPUNodeMaintenance(), conditions: getTrueCondition()},
+			},
+			expectedPrefix: []string{
+				"DPFOperatorConfig/test                                                                  default  Ready: True  Success",
+				"└─DPUSets",
+				"  └─DPUSet/test                                                                         default",
+				"    ├─DPUNodes",
+				"    │ └─DPUNode/test-node                                                               default  Ready: True  Success",
+				"    │   ├─DPUDevices",
+				"    │   │ └─DPUDevice/test-device                                                       default  Ready: True  Success",
+				"    │   └─DPUNodeMaintenance/test-maintenance                                           default",
+				"    │                 ├─Ready                                                                    True         Success",
+				"    │                 ├─Requestor/dpf-operator-system/ovn-kubernetes/ovn-control-plane           False        MaintenanceInProgress  0s  Maintenance requested by DPUService dpf-operator-system/ovn-control-plane (service: ovn-kubernetes)",
+				"    │                 └─Requestor/DPU/worker1-mt2413xz0awv                                       False        MaintenanceInProgress  0s  Maintenance requested by DPU worker1-mt2413xz0awv",
+				"    └─DPUs",
+				"      └─DPU/test-dpu-with-node                                                          default  Ready: True  Success",
+			},
+		},
+		{
 			name: "Add DPUService without showing Applications",
 			objectsTree: []objectsWithConditions{
 				{object: defaultDPFOperatorConfig(), conditions: getTrueCondition()},
@@ -1477,6 +1524,50 @@ func defaultStaticDPUCluster() *provisioningv1.DPUCluster {
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec: provisioningv1.DPUClusterSpec{
 			Type: string(provisioningv1.StaticCluster),
+		},
+	}
+}
+
+func defaultDPUNode() *provisioningv1.DPUNode {
+	return &provisioningv1.DPUNode{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-node", Namespace: "default"},
+		Spec:       provisioningv1.DPUNodeSpec{},
+	}
+}
+
+func defaultDPUDevice() *provisioningv1.DPUDevice {
+	return &provisioningv1.DPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-device", Namespace: "default"},
+		Spec: provisioningv1.DPUDeviceSpec{
+			SerialNumber: "MT25066004C7",
+		},
+	}
+}
+
+func defaultDPUNodeMaintenance() *provisioningv1.DPUNodeMaintenance {
+	return &provisioningv1.DPUNodeMaintenance{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-maintenance", Namespace: "default"},
+		Spec: provisioningv1.DPUNodeMaintenanceSpec{
+			DPUNodeName: "test-node",
+			Requestor:   []string{"dpf-operator-system_ovn-kubernetes_ovn-control-plane", "worker1-mt2413xz0awv"},
+		},
+	}
+}
+
+func dpuWithNodeReference() *provisioningv1.DPU {
+	return &provisioningv1.DPU{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-dpu-with-node",
+			Namespace: "default",
+			Labels: map[string]string{
+				util.DPUSetNameLabel:      "test",
+				util.DPUSetNamespaceLabel: "default",
+			},
+		},
+		Spec: provisioningv1.DPUSpec{
+			DPUNodeName:   "test-node",
+			DPUDeviceName: "test-device",
+			SerialNumber:  "MT25066004C7",
 		},
 	}
 }
