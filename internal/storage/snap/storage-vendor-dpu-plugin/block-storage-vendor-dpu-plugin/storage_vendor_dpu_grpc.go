@@ -22,6 +22,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	pb "github.com/nvidia/doca-platform/api/grpc/nvidia/storage/plugins/v1"
 
@@ -237,8 +238,13 @@ func (s *StoragePluginServer) CreateDevice(ctx context.Context, req *pb.CreateDe
 		return nil, status.Errorf(codes.Internal, "failed to get bdevs: %v", err)
 	}
 
+	trtype := req.VolumeContext["targetType"]
+	if strings.ToLower(trtype) == "tcp" {
+		trtype = "NVDA_TCP"
+	}
+
 	attachRequest := BdevNvmeAttachControllerRequest{
-		Trtype:  req.VolumeContext["targetType"],
+		Trtype:  trtype,
 		Traddr:  req.VolumeContext["targetAddr"],
 		Adrfam:  "ipv4",
 		Trsvcid: req.VolumeContext["targetPort"],
