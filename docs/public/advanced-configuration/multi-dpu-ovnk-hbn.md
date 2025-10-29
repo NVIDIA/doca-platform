@@ -176,7 +176,55 @@ spec:
 
 ### Step 2: Create Additional DPUDeployment for Blueman and DTS Services
 
-Create a **new, additional** DPUDeployment for Blueman and DTS services that targets the second DPU:
+Create a **new, additional** DPUDeployment for Blueman and DTS services that targets the second DPU. This new
+DPUDeployment must use a different `dpuSelector` to target the second DPU's PF0 interface.
+
+#### Creating a Separate DPUFlavor
+
+The second DPU requires a slightly different `DPUFlavor` without the `hostNetworkInterfaceConfigs` section. 
+
+> [!NOTE]  
+> **When to use `hostNetworkInterfaceConfigs`:**  
+> The `hostNetworkInterfaceConfigs` section (which configures DHCP and MTU settings for host-side network 
+> interfaces) is only needed for the DPU that handles host networking (the one running OVN-Kubernetes and HBN). 
+> Since the second DPU only runs Blueman and DTS services, it does not need to configure the host network 
+> interfaces, and therefore the `hostNetworkInterfaceConfigs` section should be omitted.
+
+To create the new flavor, modify the existing `dpuflavor-hbn-ovn.yaml` file by removing the 
+`hostNetworkInterfaceConfigs` section as shown below and save it as a new file (e.g., 
+`dpuflavor-other-services.yaml`) with a new `metadata.name`:
+
+> [!TIP]  
+> The diff below shows the path from the documentation repository for reference. Use your actual file location 
+> when making these changes.
+
+```diff
+--- a/docs/public/user-guides/host-trusted/use-cases/hbn-ovnk/manifests/05-dpudeployment-installation/dpuflavor-hbn-ovn.yaml
++++ b/docs/public/user-guides/host-trusted/use-cases/hbn-ovnk/manifests/05-dpudeployment-installation/dpuflavor-hbn-ovn.yaml
+@@ -2,7 +2,7 @@
+ apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+ kind: DPUFlavor
+ metadata:
+-  name: hbn-ovn
++  name: hbn-ovn-other-services
+   namespace: dpf-operator-system
+ spec:
+   grub:
+@@ -74,11 +74,6 @@ spec:
+     - UPDATE_DPU_OS=yes
+     - WITH_NIC_FW_UPDATE=yes
+
+-  hostNetworkInterfaceConfigs:
+-    - portNumber: 0
+-      dhcp: true
+-      mtu: 1500
+-
+   configFiles:
+   - path: /etc/mellanox/mlnx-bf.conf
+     operation: override
+```
+
+#### Creating the DPUDeployment
 
 ```yaml
 ---
@@ -188,7 +236,7 @@ metadata:
 spec:
   dpus:
     bfb: bf-bundle
-    flavor: hbn-ovn
+    flavor: hbn-ovn-other-services
     dpuSets:
       - nameSuffix: "dpuset1"
         nodeSelector:
