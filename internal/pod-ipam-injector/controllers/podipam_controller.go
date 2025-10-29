@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -177,7 +178,7 @@ func getSettingsForNetworkInterface(ctx context.Context, c client.Client, pod *c
 	}
 
 	// Gather all the information needed from ServiceChains
-	serviceChainSettingsForInterface, err := getServiceChainSettingsForInterface(ctx, c, pod, networkSettingsForInterface, serviceChain)
+	serviceChainSettingsForInterface, err := getServiceChainSettingsForInterface(ctx, c, pod, networks, networkSettingsForInterface, serviceChain)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get information from servicechains related to the pod interfaces: %w", err)
 	}
@@ -241,8 +242,9 @@ type serviceChainSettings struct {
 // that is needed to populate the network annotation from the servicechain object
 // If serviceChain is specified, then the settings are calculated for the given serviceChain, otherwise all of the serviceChains
 // in the cluster are analyzed.
-// If one of the interface settings are missing we will return an error and requeue the pod.
-func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, pod *corev1.Pod, networkSettingsForInterface map[string]*networkSettings, serviceChain *dpuservicev1.ServiceChain) (map[string]serviceChainSettings, error) {
+// If interface settings are missing for interfaces without existing CNI args, we will return an error and requeue the pod.
+// Interfaces that already have CNI args (e.g., IPAM configuration) don't require ServiceChain settings.
+func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, pod *corev1.Pod, networks []*multustypes.NetworkSelectionElement, networkSettingsForInterface map[string]*networkSettings, serviceChain *dpuservicev1.ServiceChain) (map[string]serviceChainSettings, error) {
 	serviceChainSettingsForInterface := make(map[string]serviceChainSettings)
 	serviceChains := &dpuservicev1.ServiceChainList{}
 	if serviceChain != nil {
@@ -304,11 +306,25 @@ func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, p
 	}
 
 	// Check if we found settings for all the interfaces the pod needs
-	// Only report errors if we're missing settings for interfaces that the pod actually requested
+	// Interfaces that already have CNI args (e.g., IPAM configuration) are optional -
+	// we'll add MTU if a ServiceChain exists, but won't error if it doesn't.
 	missingInterfaces := []string{}
 	for interfaceName := range networkSettingsForInterface {
 		if _, found := serviceChainSettingsForInterface[interfaceName]; !found {
-			missingInterfaces = append(missingInterfaces, interfaceName)
+			// Check if this interface already has CNI args from the original annotation
+			hasExistingConfig := false
+			for _, net := range networks {
+				if net.InterfaceRequest == interfaceName && net.CNIArgs != nil && len(*net.CNIArgs) > 0 {
+					hasExistingConfig = true
+					break
+				}
+			}
+
+			// Only mark as missing if it doesn't have existing configuration
+			// Interfaces with existing CNI args don't require ServiceChain settings
+			if !hasExistingConfig {
+				missingInterfaces = append(missingInterfaces, interfaceName)
+			}
 		}
 	}
 
@@ -390,11 +406,19 @@ func shouldSkipPod(pod *corev1.Pod, networks []*multustypes.NetworkSelectionElem
 }
 
 // mutateNetworksWithSettings mutates the networks with relevant information for each interface
+// It merges new settings with existing CNI args rather than replacing them
 func mutateNetworksWithSettings(networks []*multustypes.NetworkSelectionElement, settings map[string]*networkSettings) ([]*multustypes.NetworkSelectionElement, bool) {
 	var changed bool
 	for i, net := range networks {
 		if s, ok := settings[net.InterfaceRequest]; ok && s != nil {
+			// Start with existing CNI args if present, otherwise create new map
 			cniArgs := make(map[string]interface{})
+			if net.CNIArgs != nil {
+				// Copy existing CNI args to preserve them (e.g., IPAM pool configuration)
+				maps.Copy(cniArgs, *net.CNIArgs)
+			}
+
+			// Add/override with new settings from ServiceChain
 			if s.IPAMAssignDefaultGateway != nil {
 				cniArgs["allocateDefaultGateway"] = *s.IPAMAssignDefaultGateway
 			}
