@@ -58,6 +58,7 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, nil
 	}
 
+	ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
 	state.Phase = provisioningv1.DPUCheckingHostRebootNeed
 	return *state, nil
 }
