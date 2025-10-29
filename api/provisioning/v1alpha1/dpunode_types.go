@@ -19,6 +19,8 @@ package v1alpha1
 import (
 	"fmt"
 
+	"github.com/nvidia/doca-platform/pkg/conditions"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -69,6 +71,16 @@ const (
 
 func (ct DPUNodeConditionType) String() string {
 	return string(ct)
+}
+
+var _ conditions.GetSet = &DPUNode{}
+
+func (c *DPUNode) GetConditions() []metav1.Condition {
+	return c.Status.Conditions
+}
+
+func (c *DPUNode) SetConditions(conditions []metav1.Condition) {
+	c.Status.Conditions = conditions
 }
 
 // +kubebuilder:object:root=true
