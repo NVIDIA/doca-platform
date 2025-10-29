@@ -184,10 +184,21 @@ func getBridgeName(driver *ovsdb.OvsDriver, bridgeName, ovnPort, deviceID string
 	return "", fmt.Errorf("failed to get bridge name")
 }
 
-func attachIfaceToBridge(ovsDriver *ovsdb.OvsBridgeDriver, hostIfaceName string,
-	contIface *current.Interface, ofportRequest uint, vlanTag uint,
-	trunks []uint, portType string, intfType string,
-	mtu int, contNetnsPath string, ovnPortName string, contPodUid string, dpfId string) error {
+func attachIfaceToBridge(
+	ovsDriver *ovsdb.OvsBridgeDriver,
+	hostIfaceName string,
+	contIface *current.Interface,
+	ofportRequest uint,
+	vlanTag uint,
+	trunks []uint,
+	portType string,
+	intfType string,
+	mtu int,
+	contNetnsPath string,
+	ovnPortName string,
+	contPodUid string,
+	dpfId string,
+) error {
 	err := ovsDriver.CreatePort(hostIfaceName, contNetnsPath, contIface.Name, ovnPortName, dpfId, contIface, ofportRequest, vlanTag, trunks, portType, mtu, intfType, contPodUid)
 	if err != nil {
 		return err
@@ -334,9 +345,9 @@ func CmdAdd(args *skel.CmdArgs) error {
 	if sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID) {
 		if sriov.IsPCIDeviceName(netconf.DeviceID) {
 			userspaceMode, err = sriov.HasUserspaceDriver(netconf.DeviceID)
-		}
-		if err != nil {
-			return err
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -623,9 +634,11 @@ func CmdDel(args *skel.CmdArgs) error {
 		return err
 	}
 
-	var ovnPort string
+	var ovnPort, dpfId string
+
 	if envArgs != nil {
 		ovnPort = string(envArgs.OvnPort)
+		dpfId = string(envArgs.K8S_POD_NAMESPACE) + "/" + string(envArgs.K8S_POD_NAME) + "/" + args.IfName
 	}
 	ovsDriver, err := ovsdb.NewOvsDriver(cache.Netconf.SocketFile)
 	if err != nil {
@@ -649,6 +662,17 @@ func CmdDel(args *skel.CmdArgs) error {
 	}
 
 	if args.Netns == "" {
+		// For empty netns: verify port exists by dpfID before deletion, don't rely on deviceID alone.
+		if dpfId != "" {
+			portFound, err := ovsDriver.DoesContIfaceWithDpfIdExists(dpfId)
+			if err != nil {
+				return err
+			}
+			if !portFound {
+				return nil
+			}
+		}
+
 		// The CNI_NETNS parameter may be empty according to version 0.4.0
 		// of the CNI spec (https://github.com/containernetworking/cni/blob/spec-v0.4.0/SPEC.md).
 		if sriov.IsOvsHardwareOffloadEnabled(cache.Netconf.DeviceID) {
