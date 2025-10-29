@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -445,6 +446,11 @@ func addDPUSets(ctx context.Context, o objectScope, root client.Object, matchLab
 		}
 		addToTree = append(addToTree, &dpuSet)
 
+		// Add DPUNodes (and their children) under this DPUSet
+		if err := addDPUNodesForDPUSet(ctx, o, dpuSet.DeepCopy()); err != nil {
+			return err
+		}
+
 		if dpuSet.Spec.DPUTemplate.Spec.BFB.Name != "" {
 			// Add BFB to the tree.
 			bfb := &provisioningv1.BFB{
@@ -868,4 +874,187 @@ func addDPUStoragePolicies(ctx context.Context, o objectScope, root client.Objec
 // addDPUStorageVendors adds DPUStorageVendors to the tree.
 func addDPUStorageVendors(ctx context.Context, o objectScope, root client.Object, matchLabels client.MatchingLabels, skipFunc func(map[string]string) bool) error {
 	return addResourceByGVK(ctx, o, root, storagev1.DPUStorageVendorGroupVersionKind, matchLabels, skipFunc)
+}
+
+// addDPUNodesForDPUSet adds DPUNodes (and their children) that belong to a DPUSet.
+func addDPUNodesForDPUSet(ctx context.Context, o objectScope, dpuSet *provisioningv1.DPUSet) error {
+	if !showResource(o.opts, provisioningv1.DPUNodeKind) {
+		return nil
+	}
+
+	// Get all DPUs for this DPUSet to find their DPUNodes
+	dpuList := &provisioningv1.DPUList{}
+	if err := o.client.List(ctx, dpuList, client.MatchingLabels{
+		util.DPUSetNameLabel:      dpuSet.Name,
+		util.DPUSetNamespaceLabel: dpuSet.Namespace,
+	}); err != nil {
+		return err
+	}
+
+	// Collect unique DPUNode names from DPUs
+	dpuNodeNames := make(map[string]bool)
+	for _, dpu := range dpuList.Items {
+		if dpu.Spec.DPUNodeName != "" {
+			dpuNodeNames[dpu.Spec.DPUNodeName] = true
+		}
+	}
+
+	if len(dpuNodeNames) == 0 {
+		return nil
+	}
+
+	dpuNodesToAdd := []client.Object{}
+	for nodeName := range dpuNodeNames {
+		dpuNode := &provisioningv1.DPUNode{}
+		if err := o.client.Get(ctx, client.ObjectKey{
+			Namespace: dpuSet.Namespace,
+			Name:      nodeName,
+		}, dpuNode); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
+			continue
+		}
+
+		dpuNode.TypeMeta = metav1.TypeMeta{
+			Kind:       provisioningv1.DPUNodeKind,
+			APIVersion: provisioningv1.GroupVersion.String(),
+		}
+		dpuNodesToAdd = append(dpuNodesToAdd, dpuNode)
+
+		// Add DPUDevices for this DPUNode
+		if err := addDPUDevicesForNode(ctx, o, dpuNode, dpuList.Items); err != nil {
+			return err
+		}
+
+		// Add DPUNodeMaintenances for this DPUNode
+		if err := addDPUNodeMaintenancesForNode(ctx, o, dpuNode); err != nil {
+			return err
+		}
+	}
+
+	if len(dpuNodesToAdd) > 0 {
+		o.tree.AddMultipleWithHeader(dpuSet, dpuNodesToAdd, "DPUNodes", GroupingObject(true))
+	}
+
+	return nil
+}
+
+// addDPUDevicesForNode adds DPUDevices that are referenced by DPUs on a specific node.
+func addDPUDevicesForNode(ctx context.Context, o objectScope, dpuNode *provisioningv1.DPUNode, dpuList []provisioningv1.DPU) error {
+	if !showResource(o.opts, provisioningv1.DPUDeviceKind) {
+		return nil
+	}
+
+	// Collect DPUDevice names from DPUs on this node
+	dpuDeviceNames := make(map[string]bool)
+	for _, dpu := range dpuList {
+		if dpu.Spec.DPUNodeName == dpuNode.Name && dpu.Spec.DPUDeviceName != "" {
+			dpuDeviceNames[dpu.Spec.DPUDeviceName] = true
+		}
+	}
+
+	if len(dpuDeviceNames) == 0 {
+		return nil
+	}
+
+	// Fetch and add DPUDevices
+	dpuDevicesToAdd := []client.Object{}
+	for deviceName := range dpuDeviceNames {
+		dpuDevice := &provisioningv1.DPUDevice{}
+		if err := o.client.Get(ctx, client.ObjectKey{
+			Namespace: dpuNode.Namespace,
+			Name:      deviceName,
+		}, dpuDevice); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
+			continue
+		}
+
+		dpuDevice.TypeMeta = metav1.TypeMeta{
+			Kind:       provisioningv1.DPUDeviceKind,
+			APIVersion: provisioningv1.GroupVersion.String(),
+		}
+		dpuDevicesToAdd = append(dpuDevicesToAdd, dpuDevice)
+	}
+
+	if len(dpuDevicesToAdd) > 0 {
+		o.tree.AddMultipleWithHeader(dpuNode, dpuDevicesToAdd, "DPUDevices", GroupingObject(true))
+	}
+
+	return nil
+}
+
+// addDPUNodeMaintenancesForNode adds DPUNodeMaintenances that target a specific DPUNode.
+func addDPUNodeMaintenancesForNode(ctx context.Context, o objectScope, dpuNode *provisioningv1.DPUNode) error {
+	if !showResource(o.opts, provisioningv1.DPUNodeMaintenanceKind) {
+		return nil
+	}
+
+	dpuNodeMaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
+	if err := o.client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(dpuNode.Namespace)); err != nil {
+		return err
+	}
+
+	// Filter for maintenances targeting this node
+	addToTree := []client.Object{}
+	for _, dpuNodeMaintenance := range dpuNodeMaintenanceList.Items {
+		if dpuNodeMaintenance.Spec.DPUNodeName != dpuNode.Name {
+			continue
+		}
+
+		dpuNodeMaintenance.TypeMeta = metav1.TypeMeta{
+			Kind:       provisioningv1.DPUNodeMaintenanceKind,
+			APIVersion: provisioningv1.GroupVersion.String(),
+		}
+
+		// Create fake conditions for each requestor
+		conds := dpuNodeMaintenance.GetConditions()
+		existingConditions := map[string]bool{}
+		for _, cond := range conds {
+			existingConditions[cond.Type] = true
+		}
+
+		for _, requestor := range dpuNodeMaintenance.Spec.Requestor {
+			// Parse requestor name: if it's <namespace>_<service name>_<dpuservice name> format it nicely
+			var condType, message string
+			parts := strings.Split(requestor, "_")
+			if len(parts) == 3 {
+				// Format: namespace/servicename/dpuservicename
+				condType = fmt.Sprintf("Requestor/%s/%s/%s", parts[0], parts[1], parts[2])
+				message = fmt.Sprintf("Maintenance requested by DPUService %s/%s (service: %s)", parts[0], parts[2], parts[1])
+			} else {
+				// Treat as DPU name
+				condType = fmt.Sprintf("Requestor/DPU/%s", requestor)
+				message = fmt.Sprintf("Maintenance requested by DPU %s", requestor)
+			}
+
+			if !existingConditions[condType] {
+				// Find the most recent lastTransitionTime in conditions to set the Age.
+				newestLastTransitionTime := dpuNodeMaintenance.ObjectMeta.GetCreationTimestamp()
+				for _, c := range conds {
+					if c.LastTransitionTime.After(newestLastTransitionTime.Time) {
+						newestLastTransitionTime = c.LastTransitionTime
+					}
+				}
+
+				conds = append(conds, metav1.Condition{
+					Type:               condType,
+					Status:             metav1.ConditionFalse,
+					LastTransitionTime: newestLastTransitionTime,
+					Reason:             "MaintenanceInProgress",
+					Message:            message,
+				})
+			}
+		}
+		dpuNodeMaintenance.SetConditions(conds)
+		addToTree = append(addToTree, &dpuNodeMaintenance)
+	}
+
+	for _, dpuNodeMaintenance := range addToTree {
+		o.tree.Add(dpuNode, dpuNodeMaintenance)
+	}
+
+	return nil
 }
