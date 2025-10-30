@@ -12,6 +12,8 @@ spec:
         dpu:
           docaSnap:
             enabled: true
+            env:
+              XLIO_ENABLED: "0"
             image:
               repository: $DPF_SNAP_IMAGE_REGISTRY/doca_vfs
               tag: $DPF_SNAP_IMAGE_TAG
