@@ -40,6 +40,15 @@ guides with corresponding deployment guides.
 | VPC OVN-Controller | OVN-Controller for VPC management and networking |
 | VPC OVN-Node       | OVN-Node for VPC networking and connectivity     |
 
+### HBN and SNAP Storage
+
+* [HBN and SNAP Storage](use-cases/hbn-snap/README.md)
+
+| DPU Services                     | Comments                                                           |
+|----------------------------------|--------------------------------------------------------------------|
+| DOCA Host-Based Networking (HBN) | Accelerates underlay BGP routing with ECMP and EVPN-based overlays |
+| DOCA SNAP                        | Provides SNAP storage services for the DPUs                        |
+
 ### Passthrough
 
 * [Passthrough](use-cases/passthrough/README.md)

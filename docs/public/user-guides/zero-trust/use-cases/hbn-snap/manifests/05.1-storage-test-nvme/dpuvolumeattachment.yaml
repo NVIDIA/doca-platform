@@ -1,0 +1,22 @@
+---
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUVolumeAttachment
+metadata:
+  name: test-volume-attachment-static-pf-${DPU1_SERIAL}
+  namespace: dpf-operator-system
+spec:
+  dpuNodeName: dpu-node-${DPU1_SERIAL}
+  dpuVolumeName: test-volume-static-pf-${DPU1_SERIAL}
+  functionType: pf
+  hotplugFunction: false
+---
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUVolumeAttachment
+metadata:
+  name: test-volume-attachment-static-pf-${DPU2_SERIAL}
+  namespace: dpf-operator-system
+spec:
+  dpuNodeName: dpu-node-${DPU2_SERIAL}
+  dpuVolumeName: test-volume-static-pf-${DPU2_SERIAL}
+  functionType: pf
+  hotplugFunction: false

@@ -1,0 +1,13 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: spdk-csi-controller-dpu
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: spdk-csi-controller-dpu
+  helmChart:
+    source:
+      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
+      version: v0.2.0
+      chart: spdk-csi-controller
