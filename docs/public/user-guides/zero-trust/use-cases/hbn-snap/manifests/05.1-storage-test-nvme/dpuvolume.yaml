@@ -1,0 +1,28 @@
+---
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUVolume
+metadata:
+  name: test-volume-static-pf-${DPU1_SERIAL}
+  namespace: dpf-operator-system
+spec:
+  dpuStoragePolicyName: policy-block
+  resources:
+    requests:
+      storage: 30Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Block
+---
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUVolume
+metadata:
+  name: test-volume-static-pf-${DPU2_SERIAL}
+  namespace: dpf-operator-system
+spec:
+  dpuStoragePolicyName: policy-block
+  resources:
+    requests:
+      storage: 30Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Block

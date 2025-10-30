@@ -1,0 +1,11 @@
+---
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUStoragePolicy
+metadata:
+  name: policy-fs
+  namespace: dpf-operator-system
+spec:
+  dpuStorageVendors:
+    - nfs-csi
+  selectionAlgorithm: "NumberVolumes"
+  parameters: {}
