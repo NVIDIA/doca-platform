@@ -678,7 +678,7 @@ metadata:
 spec:
   dpus:
     bfb: bf-bundle
-    flavor: hbn-ovn
+    flavor: ovn
     dpuSets:
     - nameSuffix: "dpuset1"
       nodeSelector:
