@@ -127,25 +127,20 @@ spec:
               {{- . | nindent 14 }}
           {{- end }}
           env:
+            {{- $env := .Values.dpu.docaSnap.env | default dict }}
+            {{- range $key, $val := $env }}
+            {{- if not (kindIs "invalid" $val) }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if not (hasKey $env "SPDK_RPC_INIT_CONF") }}
             - name: SPDK_RPC_INIT_CONF
               value: /startup_config/spdk_rpc_init.conf
+            {{- end }}
+            {{- if not (hasKey $env "SNAP_RPC_INIT_CONF") }}
             - name: SNAP_RPC_INIT_CONF
               value: /startup_config/snap_rpc_init.conf
-            {{- if .Values.dpu.docaSnap.env.SPDK_XLIO_PATH }}
-            - name: SPDK_XLIO_PATH
-              value: "{{ .Values.dpu.docaSnap.env.SPDK_XLIO_PATH }}"
-            {{- end }}
-            {{- if .Values.dpu.docaSnap.env.APP_ARGS }}
-            - name: APP_ARGS
-              value: "{{ .Values.dpu.docaSnap.env.APP_ARGS }}"
-            {{- end }}
-            {{- if .Values.dpu.docaSnap.env.SPDK_RPC_INIT_CONF_JSON }}
-            - name: SPDK_RPC_INIT_CONF_JSON
-              value: "{{ .Values.dpu.docaSnap.env.SPDK_RPC_INIT_CONF_JSON }}"
-            {{- end }}
-            {{- if .Values.dpu.docaSnap.env.SNAP_SPDK_SOCK }}
-            - name: SNAP_SPDK_SOCK
-              value: "{{ .Values.dpu.docaSnap.env.SNAP_SPDK_SOCK }}"
             {{- end }}
 ---
 apiVersion: v1
