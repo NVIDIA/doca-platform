@@ -1,0 +1,14 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: block-storage-dpu-plugin
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: block-storage-dpu-plugin
+  serviceConfiguration:
+    helmChart:
+      values:
+        dpu:
+          blockStorageVendorDpuPlugin:
+            enabled: true

@@ -60,6 +60,15 @@ Below are the validated user guides with corresponding deployment guides.
 
 No DPUServices are necessary for this use case.
 
+### HBN and SNAP Storage
+
+* [Host Based Networking and SNAP Storage](use-cases/hbn-snap/README.md)
+
+| DPU Services                     | Comments                                                           |
+|----------------------------------|--------------------------------------------------------------------|
+| DOCA Host-Based Networking (HBN) | Accelerates underlay BGP routing with ECMP and EVPN-based overlays |
+| DOCA SNAP                        | Provides shared storage for Kubernetes workloads                   |
+
 ## Prerequisites
 
 Before deploying DPF in Host Trusted mode, ensure you have the necessary hardware

@@ -1,0 +1,22 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceIPAM
+metadata:
+  name: pool1
+  namespace: dpf-operator-system
+spec:
+  ipv4Network:
+    network: "10.0.121.0/24"
+    gatewayIndex: 2
+    prefixSize: 29
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceIPAM
+metadata:
+  name: pool2
+  namespace: dpf-operator-system
+spec:
+  ipv4Network:
+    network: "10.0.122.0/24"
+    gatewayIndex: 2
+    prefixSize: 29
