@@ -1,0 +1,17 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: fs-storage-dpu-plugin
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: fs-storage-dpu-plugin
+  serviceConfiguration:
+    helmChart:
+      values:
+        dpu:
+          fsStorageVendorDpuPlugin:
+            enabled: true
+  interfaces:
+    - name: app_sf
+      network: mybrsfc
