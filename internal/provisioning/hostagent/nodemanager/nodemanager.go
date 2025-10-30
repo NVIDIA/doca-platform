@@ -41,7 +41,6 @@ import (
 )
 
 const (
-	DPFNamespace              = "dpf-operator-system"
 	CurrentRebootIDFile       = "/proc/sys/kernel/random/boot_id"
 	LatestRebootIDFile        = "/var/lib/dpf/hostagent/boot_id/latest"
 	SkipDefaultRouteCheckFile = "/var/lib/dpf/dms/hostnetwork-skip-default-route-check"
@@ -122,7 +121,7 @@ func (n *NodeManager) initDPUDevices() ([]*provisioningv1.DPUDevice, error) {
 		dpuDevice := &provisioningv1.DPUDevice{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      dpuDeviceCRName(device),
-				Namespace: DPFNamespace,
+				Namespace: hostutil.DPFNamespace,
 				Labels: map[string]string{
 					cutil.DPUNodeNameLabel: nodeName,
 				},
@@ -136,7 +135,7 @@ func (n *NodeManager) initDPUDevices() ([]*provisioningv1.DPUDevice, error) {
 			if !apierrors.IsAlreadyExists(err) {
 				return nil, fmt.Errorf("failed to create DPU device %s: %w", dpuDevice.Name, err)
 			}
-			if err := n.Get(context.TODO(), client.ObjectKey{Namespace: DPFNamespace, Name: dpuDevice.Name}, dpuDevice); err != nil {
+			if err := n.Get(context.TODO(), client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: dpuDevice.Name}, dpuDevice); err != nil {
 				return nil, fmt.Errorf("failed to get DPU device %s: %w", dpuDevice.Name, err)
 			}
 		}
@@ -152,7 +151,7 @@ func (n *NodeManager) initDPUDevices() ([]*provisioningv1.DPUDevice, error) {
 func (n *NodeManager) initDPUNode(dpuDevices []*provisioningv1.DPUDevice) error {
 	dpuNode := &provisioningv1.DPUNode{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: DPFNamespace,
+			Namespace: hostutil.DPFNamespace,
 		},
 	}
 
@@ -222,7 +221,7 @@ func (n *NodeManager) initDPUNode(dpuDevices []*provisioningv1.DPUDevice) error 
 			return fmt.Errorf("failed to create DPUNode: %w", err)
 		}
 		existingDPUNode := &provisioningv1.DPUNode{}
-		if err := n.Get(context.TODO(), client.ObjectKey{Namespace: DPFNamespace, Name: dpuNode.Name}, existingDPUNode); err != nil {
+		if err := n.Get(context.TODO(), client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: dpuNode.Name}, existingDPUNode); err != nil {
 			return fmt.Errorf("failed to get DPUNode: %w", err)
 		}
 		equal := equality.Semantic.DeepEqual(dpuNode.Spec.DPUs, existingDPUNode.Spec.DPUs)
@@ -342,7 +341,7 @@ func (n *NodeManager) updateDPUDeviceStatus() error {
 	}
 	for _, device := range devices {
 		dpuDevice := &provisioningv1.DPUDevice{}
-		if err := n.Get(context.TODO(), client.ObjectKey{Namespace: DPFNamespace, Name: dpuDeviceCRName(device)}, dpuDevice); err != nil {
+		if err := n.Get(context.TODO(), client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: dpuDeviceCRName(device)}, dpuDevice); err != nil {
 			if apierrors.IsNotFound(err) {
 				klog.Warningf("DPUDevice CR for DPU %s does not exist", dpuDeviceCRName(device))
 				continue
@@ -368,7 +367,7 @@ func (n *NodeManager) updateDPUNodeStatus() error {
 		return fmt.Errorf("failed to get node name: %w", err)
 	}
 	dpuNode := &provisioningv1.DPUNode{}
-	if err := n.Get(context.TODO(), client.ObjectKey{Namespace: DPFNamespace, Name: nodeName}, dpuNode); err != nil {
+	if err := n.Get(context.TODO(), client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: nodeName}, dpuNode); err != nil {
 		return fmt.Errorf("failed to get DPUNode: %w", err)
 	}
 	cond := n.bridgeCondition()
