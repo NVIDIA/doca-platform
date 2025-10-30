@@ -1,0 +1,29 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: snap-csi-plugin
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: snap-csi-plugin
+  upgradePolicy:
+    applyNodeEffect: false
+  serviceConfiguration:
+    deployInCluster: true
+    helmChart:
+      values:
+        host:
+          snapCsiPlugin:
+            enabled: true
+            emulationMode: "nvme"
+            controller:
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: "node-role.kubernetes.io/master"
+                            operator: Exists
+                      - matchExpressions:
+                          - key: "node-role.kubernetes.io/control-plane"
+                            operator: Exists

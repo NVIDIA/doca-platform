@@ -1,0 +1,72 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: p0
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            uplink: "p0"
+        spec:
+          interfaceType: physical
+          physical:
+            interfaceName: p0
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: p1
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            uplink: "p1"
+        spec:
+          interfaceType: physical
+          physical:
+            interfaceName: p1
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: pf0vf10-rep
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            vf: "pf0vf10"
+        spec:
+          interfaceType: vf
+          vf:
+            parentInterfaceRef: p0
+            pfID: 0
+            vfID: 10
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: pf1vf10-rep
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            vf: "pf1vf10"
+        spec:
+          interfaceType: vf
+          vf:
+            parentInterfaceRef: p1
+            pfID: 1
+            vfID: 10
