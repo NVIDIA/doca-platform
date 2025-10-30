@@ -30,6 +30,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	"github.com/nvidia/doca-platform/internal/release"
 
 	"github.com/vishvananda/netlink"
 	corev1 "k8s.io/api/core/v1"
@@ -192,7 +193,8 @@ func (n *NodeManager) initDPUNode(dpuDevices []*provisioningv1.DPUDevice) error 
 	}
 	if len(devices) > 0 {
 		dpuNode.Labels = map[string]string{
-			cutil.NodeSelectorLabel: "true",
+			cutil.NodeSelectorLabel:    "true",
+			release.DPFVersionLabelKey: release.DPFVersion(),
 		}
 	}
 
