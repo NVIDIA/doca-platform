@@ -338,13 +338,13 @@ var _ = Describe("DPF System tests - Core", Labels{dpfSystemLabel}, func() {
 			By("should validate DPUDeployment and underlying objects creation")
 			ValidateDPUDeploymentFullCreation(ctx, input)
 		})
-		It("should validate DPUDeployment disruptive upgrade of standard DPUServices", Labels{requiresNodesLabel}, func() {
+		It("should validate DPUDeployment disruptive upgrade of standard DPUServices", func() {
 			ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx, input)
 		})
 		It("should validate DPUDeployment disruptive upgrade of in-cluster DPUServices", func() {
 			ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx, input)
 		})
-		It("should validate DPUDeployment disruptive upgrade of DPUServiceChain", Labels{requiresNodesLabel}, func() {
+		It("should validate DPUDeployment disruptive upgrade of DPUServiceChain", func() {
 			ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade(ctx, input)
 		})
 	})

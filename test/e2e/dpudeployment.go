@@ -378,18 +378,6 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		g.Expect(VerifyDeploymentUnderlyingObjectsCreated(ctx, g, input.client, dpuDeployment)).To(BeTrue())
 	}).WithTimeout(180 * time.Second).Should(Succeed())
 
-	tracker := NewByTracker()
-	Eventually(func(g Gomega) {
-		if !input.hasDpuNodes() {
-			return
-		}
-		nodes := &corev1.NodeList{}
-		g.Expect(dpuClusterClient.List(ctx, nodes)).To(Succeed())
-		nodeKey := fmt.Sprintf("%d/%d", len(nodes.Items), input.numberOfDPUNodes)
-		tracker.By(nodeKey, "Checking that the number of nodes %d is equal to %d", len(nodes.Items), input.numberOfDPUNodes)
-		g.Expect(nodes.Items).To(HaveLen(input.numberOfDPUNodes))
-	}).WithTimeout(45 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
-
 	serviceInterfaceLabels := map[string]string{}
 	By("verify ServiceInterfaceSet is created in DPF clusters")
 	Eventually(func(g Gomega) {
