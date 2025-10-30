@@ -1,0 +1,26 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceIPAM
+metadata:
+  name: pool1
+  namespace: dpf-operator-system
+spec:
+  ipv4Network:
+    network: "10.0.121.0/24"
+    gatewayIndex: 2
+    prefixSize: 29
+    # These preallocations are not necessary. We specify them so that the validation commands are straightforward.
+    allocations:
+      dpu-node-${DPU1_SERIAL}-${DPU1_SERIAL}: 10.0.121.0/29
+      dpu-node-${DPU2_SERIAL}-${DPU2_SERIAL}: 10.0.121.8/29
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceIPAM
+metadata:
+  name: pool2
+  namespace: dpf-operator-system
+spec:
+  ipv4Network:
+    network: "10.0.122.0/24"
+    gatewayIndex: 2
+    prefixSize: 29

@@ -1,0 +1,9 @@
+---
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUStorageVendor
+metadata:
+  name: nfs-csi
+  namespace: dpf-operator-system
+spec:
+  storageClassName: nfs-csi
+  pluginName: nvidia-fs
