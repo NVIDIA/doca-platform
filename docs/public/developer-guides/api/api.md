@@ -1812,6 +1812,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `dpuStatistics` _object (keys:[DPUPhase](#dpuphase), values:integer)_ | DPUStatistics is a map of DPUPhase to the number of DPUs in that phase. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
 #### DPUSetStrategy
@@ -1880,6 +1882,7 @@ _Appears in:_
 | `addresses` _[NodeAddress](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#nodeaddress-v1-core) array_ | The DPU node's IP addresses |  |  |
 | `dpuInstallInterface` _string_ | the name of the interface which will be used to install the bfb image,<br />and communicate with DPU, can be one of hostAgent,redfish |  | Enum: [gNOI hostAgent redfish] <br /> |
 | `postProvisioningNodeEffect` _boolean_ | Indicates that node effect was triggered by post-provisioning label changes |  |  |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
 #### DPUTemplate
