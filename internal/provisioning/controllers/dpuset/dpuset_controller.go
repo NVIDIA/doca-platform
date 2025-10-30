@@ -25,10 +25,12 @@ import (
 	"sort"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/events"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	"github.com/nvidia/doca-platform/internal/release"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
@@ -87,10 +89,13 @@ func (r *DPUSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ c
 		if err := patcher.Patch(ctx, dpuSet,
 			patch.WithFieldOwner(DPUSetControllerName),
 			patch.WithStatusObservedGeneration{},
+			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(provisioningv1.DPUSetConditions)},
 		); err != nil {
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 	}()
+
+	conditions.EnsureConditions(dpuSet, provisioningv1.DPUSetConditions)
 
 	if !dpuSet.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, r.reconcileDelete(ctx, dpuSet)
@@ -140,6 +145,23 @@ func (r *DPUSetReconciler) reconcileDelete(ctx context.Context, dpuSet *provisio
 
 func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DPUSet) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
+
+	if dpuSet.GetLabels() == nil {
+		dpuSet.SetLabels(make(map[string]string))
+	}
+
+	// Only compute hash if template spec has changed
+	var dpuTemplateSpecHash string
+	existingHash, exists := dpuSet.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey]
+	// Check if we need to recompute by comparing generation or if hash is missing
+	if exists && dpuSet.Status.ObservedGeneration == dpuSet.Generation {
+		dpuTemplateSpecHash = existingHash
+	} else {
+		// First time or hash is missing, compute it
+		dpuTemplateSpecHash = calculateDPUTemplateSpecDigest(&dpuSet.Spec.DPUTemplate.Spec)
+	}
+
+	dpuSet.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey] = dpuTemplateSpecHash
 
 	// Add finalizer if not set.
 	if !controllerutil.ContainsFinalizer(dpuSet, provisioningv1.DPUSetFinalizer) {
@@ -463,6 +485,7 @@ func (r *DPUSetReconciler) needDisruptDPU(dpuSet provisioningv1.DPUSet, dpu prov
 func updateDPUSetStatus(dpuSet *provisioningv1.DPUSet,
 	dpuMap map[string]provisioningv1.DPU) {
 	dpuStatistics := make(map[provisioningv1.DPUPhase]int)
+	dpuSetReady := true
 	for _, dpu := range dpuMap {
 		switch dpu.Status.Phase {
 		case "":
@@ -470,6 +493,21 @@ func updateDPUSetStatus(dpuSet *provisioningv1.DPUSet,
 		default:
 			dpuStatistics[dpu.Status.Phase]++
 		}
+
+		// Simply comparing the dpu metadata generation and observed generation is not sufficient, because if the DPU is not updated in the dpuset controller cache at this time,
+		// the DPU observed generation will be the same as the generation, but the DPU is stale.
+		// So we introduce the dpu template spec hash to the label of the DPU, and compare it with the dpu set template spec hash, to ensure the DPU is up to date.
+		if dpu.Status.Phase != provisioningv1.DPUReady {
+			dpuSetReady = false
+		}
+		if hash, exists := dpu.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey]; exists && hash != dpuSet.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey] {
+			dpuSetReady = false
+		}
+	}
+	if dpuSetReady {
+		conditions.AddTrue(dpuSet, conditions.TypeReady)
+	} else {
+		conditions.AddFalse(dpuSet, conditions.TypeReady, conditions.ReasonPending, "Some DPUs are not ready")
 	}
 	if reflect.DeepEqual(dpuStatistics, dpuSet.Status.DPUStatistics) {
 		return
@@ -587,6 +625,7 @@ func (r *DPUSetReconciler) updateDPUs(ctx context.Context, dpuSet *provisioningv
 		}
 
 		if update {
+			dpu.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey] = dpuSet.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey]
 			if err := patcher.Patch(ctx, &dpu); err != nil {
 				return fmt.Errorf("failed to patch DPU (%s/%s): %w", dpu.Namespace, dpu.Name, err)
 			}
@@ -700,4 +739,10 @@ func updateNodeEffectApplyOnLabelChange(ctx context.Context, dpuSet *provisionin
 	}
 
 	return false
+}
+
+// calculateDPUTemplateSpecDigest calculates the digest of the DPU template spec.
+func calculateDPUTemplateSpecDigest(spec *provisioningv1.DPUTemplateSpec) string {
+	config := spec.DeepCopy()
+	return digest.Short(digest.FromObjects(config), 10)
 }

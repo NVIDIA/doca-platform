@@ -318,6 +318,11 @@ spec:
                     description: UEFI is the used UEFI firmware version
                     type: string
                 type: object
+              observedGeneration:
+                description: ObservedGeneration records the Generation observed on
+                  the object the last time it was patched.
+                format: int64
+                type: integer
               pciDevice:
                 description: pci device information of this DPU
                 type: string
