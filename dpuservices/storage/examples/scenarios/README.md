@@ -597,7 +597,7 @@ spec:
                   # management address
                   rpcURL: http://10.33.33.33:8000
                   # type of the target, e.g. nvme-tcp, nvme-rdma
-                  targetType: nvme-tcp
+                  targetType: nvme-rdma
                   # target service IP
                   targetAddr: 10.44.44.100
             # required parameter, name of the secret that contains connection
@@ -1305,7 +1305,7 @@ spec:
                   # management address
                   rpcURL: http://10.33.33.33:8000
                   # type of the target, e.g. nvme-tcp, nvme-rdma
-                  targetType: nvme-tcp
+                  targetType: nvme-rdma
                   # target service IP
                   targetAddr: 10.44.44.100
             # required parameter, name of the secret that contains connection
@@ -2016,7 +2016,7 @@ spec:
                   # management address
                   rpcURL: http://10.33.33.33:8000
                   # type of the target, e.g. nvme-tcp, nvme-rdma
-                  targetType: nvme-tcp
+                  targetType: nvme-rdma
                   # target service IP
                   targetAddr: 10.44.44.100
             # required parameter, name of the secret that contains connection
@@ -2225,6 +2225,8 @@ spec:
         dpu:
           docaSnap:
             enabled: true
+            env:
+              XLIO_ENABLED: "0"
             image:
               repository: $DPF_SNAP_IMAGE_REGISTRY/doca_vfs
               tag: $DPF_SNAP_IMAGE_TAG
@@ -3478,7 +3480,7 @@ spec:
                   # management address
                   rpcURL: http://10.33.33.33:8000
                   # type of the target, e.g. nvme-tcp, nvme-rdma
-                  targetType: nvme-tcp
+                  targetType: nvme-rdma
                   # target service IP
                   targetAddr: 10.44.44.100
             # required parameter, name of the secret that contains connection
@@ -4275,7 +4277,7 @@ spec:
                   # management address
                   rpcURL: http://10.33.33.33:8000
                   # type of the target, e.g. nvme-tcp, nvme-rdma
-                  targetType: nvme-tcp
+                  targetType: nvme-rdma
                   # target service IP
                   targetAddr: 10.44.44.100
             # required parameter, name of the secret that contains connection
@@ -4502,6 +4504,8 @@ spec:
         dpu:
           docaSnap:
             enabled: true
+            env:
+              XLIO_ENABLED: "0"
             image:
               repository: $DPF_SNAP_IMAGE_REGISTRY/doca_vfs
               tag: $DPF_SNAP_IMAGE_TAG

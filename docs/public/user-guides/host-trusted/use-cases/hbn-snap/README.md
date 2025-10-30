@@ -1127,7 +1127,7 @@ spec:
                   # management address
                   rpcURL: http://10.0.110.25:8000
                   # type of the target, e.g. nvme-tcp, nvme-rdma
-                  targetType: nvme-tcp
+                  targetType: nvme-rdma
                   # target service IP
                   targetAddr: 10.0.124.1
             # required parameter, name of the secret that contains connection
@@ -1715,6 +1715,8 @@ spec:
         dpu:
           docaSnap:
             enabled: true
+            env:
+              XLIO_ENABLED: "0"
             image:
               repository: $SNAP_NGC_IMAGE_URL
               tag: 1.5.0-doca3.2.0

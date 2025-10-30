@@ -22,7 +22,7 @@ spec:
                   # management address
                   rpcURL: http://10.0.110.25:8000
                   # type of the target, e.g. nvme-tcp, nvme-rdma
-                  targetType: nvme-tcp
+                  targetType: nvme-rdma
                   # target service IP
                   targetAddr: 10.0.124.1
             # required parameter, name of the secret that contains connection
