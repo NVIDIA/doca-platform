@@ -244,6 +244,9 @@ type DPUStatus struct {
 	// Indicates that node effect was triggered by post-provisioning label changes
 	// +optional
 	PostProvisioningNodeEffect *bool `json:"postProvisioningNodeEffect,omitempty"`
+
+	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 type Firmware struct {

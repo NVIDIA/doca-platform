@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/nvidia/doca-platform/pkg/conditions"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -38,6 +40,22 @@ const (
 	NodeEffectNoEffect     = "NoEffect"
 	NodeEffectUnknown      = "Unknown"
 )
+
+var (
+	DPUSetConditions = []conditions.ConditionType{
+		conditions.TypeReady,
+	}
+)
+
+var _ conditions.GetSet = &DPUSet{}
+
+func (c *DPUSet) GetConditions() []metav1.Condition {
+	return c.Status.Conditions
+}
+
+func (c *DPUSet) SetConditions(conditions []metav1.Condition) {
+	c.Status.Conditions = conditions
+}
 
 // DPUSetGroupVersionKind is the GroupVersionKind of the DPUSet object
 var DPUSetGroupVersionKind = GroupVersion.WithKind(DPUSetKind)
@@ -246,6 +264,10 @@ type DPUSetStatus struct {
 	// DPUStatistics is a map of DPUPhase to the number of DPUs in that phase.
 	// +optional
 	DPUStatistics map[DPUPhase]int `json:"dpuStatistics,omitempty"`
+	// Conditions reflect the status of the object
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // +kubebuilder:object:root=true
