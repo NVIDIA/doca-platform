@@ -342,11 +342,7 @@ dpu:
           - "SYS_RAWIO"
           - "SYS_NICE"
     env:
-      SPDK_XLIO_PATH: "" # e.g., "/usr/lib/libxlio.so" to enable XLIO
-      APP_ARGS: "-m 0xff"      # e.g., "--wait-for-rpc"
-      SPDK_RPC_INIT_CONF_JSON: ""  # e.g., "/etc/nvda_snap/config.json"
-      SPDK_RPC_INIT_CONF: ""       # e.g., "/etc/nvda_snap/spdk_rpc_init.conf"
-      SNAP_RPC_INIT_CONF: ""       # e.g., "/etc/nvda_snap/snap_rpc_init.conf"
+      APP_ARGS: "-m 0xff"
       SNAP_SPDK_SOCK: "/var/lib/nvidia/storage/snap/providers/nvidia/snap.sock"
     snapRpcInitConf: ""
     spdkRpcInitConf: ""
