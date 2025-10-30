@@ -1,4 +1,5 @@
 ARG builder_image
+ARG hostdriver_base_image
 
 # 1) dependency stage to create a dependency layer with go vendor folder and other dependencies
 FROM ${builder_image} AS dependency
@@ -52,7 +53,7 @@ RUN mkdir src && \
 
 
 # 3) Final stage copies artefacts from the builder and dependency stages.
-FROM nvcr.io/nvidia/doca/doca:3.1.0-full-rt-host
+FROM ${hostdriver_base_image}
 
 ENV DEBIAN_FRONTEND=noninteractive
 # Forces systemctl to connect via D-Bus instead of PID 1's private listener
