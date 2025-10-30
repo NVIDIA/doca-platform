@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -29,6 +30,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	machineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -171,6 +173,14 @@ func constructDummyDPUServiceObject(serviceName, namespace, interfaceName string
 		Chart:   serviceName + "-chart",
 		Version: tag,
 		RepoURL: helmRegistry,
+	}
+
+	if ngcAPIKey != "" {
+		dpuServiceDummy.Spec.HelmChart.Values = &machineryruntime.RawExtension{
+			Raw: []byte(fmt.Sprintf(
+				`{"imagePullSecrets": [{"name": "%s"}]}`, ngcPullSecretName,
+			)),
+		}
 	}
 
 	dpuServiceDummy.Spec.ServiceID = ptr.To(serviceName)
