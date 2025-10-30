@@ -553,6 +553,222 @@ var _ = Describe("PodIpam Controller", func() {
 			changePodState(ctx, corev1.PodSucceeded)
 		})
 
+		It("should not fail when unrelated ServiceChain has faulty selector", func() {
+			By("Create ServiceInterface for the pod's service")
+			cleanupObjects = append(cleanupObjects, createServiceInterfaceForService(
+				ctx, strings.Join([]string{serviceName, ifcName}, "-"), serviceName, ifcName))
+
+			By("Create unrelated ServiceChain with faulty selector (no matching ServiceInterface)")
+			faultyChain := &dpuservicev1.ServiceChain{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "faulty-chain",
+					Namespace: defaultNS,
+				},
+				Spec: dpuservicev1.ServiceChainSpec{
+					Node: ptr.To(nodeName),
+					Switches: []dpuservicev1.Switch{
+						{
+							ServiceMTU: ptr.To(2000),
+							Ports: []dpuservicev1.Port{
+								{
+									ServiceInterface: dpuservicev1.ServiceIfc{
+										MatchLabels: map[string]string{
+											"uplink": "p0", // This label doesn't match any ServiceInterface
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, faultyChain)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, faultyChain)
+
+			By("Verify that getServiceInterfaceWithLabels would fail for the faulty selector")
+			// This demonstrates that the faulty ServiceChain would cause an error if not handled properly
+			_, err := getServiceInterfaceWithLabels(ctx, testClient, nodeName, defaultNS, map[string]string{"uplink": "p0"})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("no serviceInterface"))
+
+			By("Create correct ServiceChain for the pod with IPAM")
+			defaultGateway := true
+			ipam := &dpuservicev1.IPAM{
+				DefaultGateway: ptr.To(defaultGateway),
+				MatchLabels:    ipamLabels,
+			}
+			cleanupObjects = append(cleanupObjects, createServiceChainWithServiceInterface(ctx, svcName1, ipam, serviceName, ifcName, ptr.To(4000)))
+
+			By("Create IPPool for the pod")
+			cleanupObjects = append(cleanupObjects, createIPPool(ctx, ipamName, ipamLabels))
+
+			By("Create Pod with Network Annotation")
+			cleanupObjects = append(cleanupObjects, createPodWithNetworkAnnotation(ctx, singleNetAnnotationWithInvalid(ifcName)))
+
+			By("Check that Pod annotation has been updated correctly despite faulty ServiceChain")
+			Eventually(func(g Gomega) {
+				pod := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: defaultNS, Name: podName}, pod)).To(Succeed())
+				// Should get settings from the correct ServiceChain only (MTU 4000, IPAM)
+				// The faulty ServiceChain's error should be collected but not cause reconciliation to fail
+				// because the pod doesn't actually need that interface
+				g.Expect(pod.Annotations[multusKey]).To(BeEquivalentTo(expectedSingleNetAnnotationWithIPAM(ifcName, "ippool", defaultGateway, 4000)))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Turning the Pod State to Succeed")
+			changePodState(ctx, corev1.PodSucceeded)
+		})
+
+		It("should return error when pod needs interface but ServiceChain has faulty selector", func() {
+			By("Create ServiceChain with faulty selector for interface the pod needs")
+			// This ServiceChain references an interface the pod will request, but the selector is wrong
+			faultyChain := &dpuservicev1.ServiceChain{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "faulty-needed-chain",
+					Namespace: defaultNS,
+				},
+				Spec: dpuservicev1.ServiceChainSpec{
+					Node: ptr.To(nodeName),
+					Switches: []dpuservicev1.Switch{
+						{
+							ServiceMTU: ptr.To(2000),
+							Ports: []dpuservicev1.Port{
+								{
+									ServiceInterface: dpuservicev1.ServiceIfc{
+										MatchLabels: map[string]string{
+											dpuservicev1.DPFServiceIDLabelKey: serviceName,
+											serviceInterfaceAnnotKey:          ifcName,
+											"nonexistent":                     "label", // Added label that doesn't exist
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, faultyChain)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, faultyChain)
+
+			By("Create Pod with Network Annotation requesting interface from faulty chain")
+			cleanupObjects = append(cleanupObjects, createPodWithNetworkAnnotation(ctx, singleNetAnnotationWithInvalid(ifcName)))
+
+			By("Verify Pod annotation is NOT updated because reconciliation fails with error")
+			Consistently(func(g Gomega) {
+				pod := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: defaultNS, Name: podName}, pod)).To(Succeed())
+				// Annotation should still have the invalid network because an error is returned
+				// Controller will requeue automatically and retry until settings are available
+				g.Expect(pod.Annotations[multusKey]).To(BeEquivalentTo(singleNetAnnotationWithInvalid(ifcName)))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Turning the Pod State to Succeed")
+			changePodState(ctx, corev1.PodSucceeded)
+		})
+
+		It("should not error for interfaces with pre-populated CNI args when ServiceChain is missing (HBN case)", func() {
+			By("Create ServiceInterface for the physical interface")
+			cleanupObjects = append(cleanupObjects, createServiceInterfaceForService(
+				ctx, strings.Join([]string{serviceName, ifcName}, "-"), serviceName, ifcName))
+
+			By("Create ServiceChain only for the physical interface")
+			cleanupObjects = append(cleanupObjects, createServiceChainWithServiceInterface(ctx, svcName1, nil, serviceName, ifcName, ptr.To(1500)))
+
+			By("Create Pod with both IPAM interface (with CNI args) and physical interface (without CNI args)")
+			// The IPAM interface "ip_pf0vf3" has pre-populated CNI args with IPAM pools
+			// The physical interface "sfceth1" does not have CNI args and needs ServiceChain
+			hbnAnnotation := fmt.Sprintf(`[{"name":"iprequest","interface":"ip_pf0vf3","cni-args":{"poolNames":["pool1"],"poolType":"cidrpool"}},{"name":"mybrsfc","interface":"%s"},{"name":"invalid-network","namespace":"invalid-namespace","interface":"invalid-interface"}]`, ifcName)
+			cleanupObjects = append(cleanupObjects, createPodWithNetworkAnnotation(ctx, hbnAnnotation))
+
+			By("Check that Pod annotation has been updated correctly")
+			Eventually(func(g Gomega) {
+				pod := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: defaultNS, Name: podName}, pod)).To(Succeed())
+				// The IPAM interface should keep its existing CNI args (no ServiceChain exists for it, but that's OK)
+				// The physical interface should get MTU from ServiceChain
+				expectedAnnot := fmt.Sprintf(`[{"name":"iprequest","namespace":"default","interface":"ip_pf0vf3","cni-args":{"poolNames":["pool1"],"poolType":"cidrpool"}},{"name":"mybrsfc","namespace":"default","interface":"%s","cni-args":{"mtu":1500}}]`, ifcName)
+				g.Expect(pod.Annotations[multusKey]).To(BeEquivalentTo(expectedAnnot))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Turning the Pod State to Succeed")
+			changePodState(ctx, corev1.PodSucceeded)
+		})
+
+		It("should merge MTU into pre-populated CNI args when ServiceChain exists for IPAM interface", func() {
+			By("Create ServiceInterface for both the IPAM interface and physical interface")
+			// Note: This is a special case where a ServiceInterface exists matching the IPAM interface name
+			ipamSI := &dpuservicev1.ServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ipam-interface-si",
+					Namespace: defaultNS,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: serviceName,
+						serviceInterfaceAnnotKey:          "ip_pf0vf3",
+					},
+				},
+				Spec: dpuservicev1.ServiceInterfaceSpec{
+					InterfaceType: dpuservicev1.InterfaceTypeService,
+					Node:          ptr.To(nodeName),
+					Service: &dpuservicev1.ServiceDef{
+						ServiceID:     serviceName,
+						InterfaceName: "ip_pf0vf3",
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, ipamSI)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, ipamSI)
+
+			cleanupObjects = append(cleanupObjects, createServiceInterfaceForService(
+				ctx, strings.Join([]string{serviceName, ifcName}, "-"), serviceName, ifcName))
+
+			By("Create ServiceChains for both interfaces with different MTUs")
+			ipamChain := &dpuservicev1.ServiceChain{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ipam-chain",
+					Namespace: defaultNS,
+				},
+				Spec: dpuservicev1.ServiceChainSpec{
+					Node: ptr.To(nodeName),
+					Switches: []dpuservicev1.Switch{
+						{
+							ServiceMTU: ptr.To(9000),
+							Ports: []dpuservicev1.Port{
+								{
+									ServiceInterface: dpuservicev1.ServiceIfc{
+										MatchLabels: map[string]string{
+											dpuservicev1.DPFServiceIDLabelKey: serviceName,
+											serviceInterfaceAnnotKey:          "ip_pf0vf3",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, ipamChain)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, ipamChain)
+
+			cleanupObjects = append(cleanupObjects, createServiceChainWithServiceInterface(ctx, svcName1, nil, serviceName, ifcName, ptr.To(1500)))
+
+			By("Create Pod with IPAM interface that has pre-populated CNI args")
+			hbnAnnotation := fmt.Sprintf(`[{"name":"iprequest","interface":"ip_pf0vf3","cni-args":{"poolNames":["pool1"],"poolType":"cidrpool","allocateDefaultGateway":true}},{"name":"mybrsfc","interface":"%s"},{"name":"invalid-network","namespace":"invalid-namespace","interface":"invalid-interface"}]`, ifcName)
+			cleanupObjects = append(cleanupObjects, createPodWithNetworkAnnotation(ctx, hbnAnnotation))
+
+			By("Check that Pod annotation has been updated with MTU merged into existing CNI args")
+			Eventually(func(g Gomega) {
+				pod := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: defaultNS, Name: podName}, pod)).To(Succeed())
+				// The IPAM interface should have its original CNI args PLUS the MTU from ServiceChain
+				// The physical interface should get MTU from ServiceChain
+				expectedAnnot := fmt.Sprintf(`[{"name":"iprequest","namespace":"default","interface":"ip_pf0vf3","cni-args":{"allocateDefaultGateway":true,"mtu":9000,"poolNames":["pool1"],"poolType":"cidrpool"}},{"name":"mybrsfc","namespace":"default","interface":"%s","cni-args":{"mtu":1500}}]`, ifcName)
+				g.Expect(pod.Annotations[multusKey]).To(BeEquivalentTo(expectedAnnot))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("Turning the Pod State to Succeed")
+			changePodState(ctx, corev1.PodSucceeded)
+		})
+
 		It("should calculate digest for valid networks", func() {
 			By("Create networks with different configurations")
 			networks1 := []*multustypes.NetworkSelectionElement{
@@ -1428,14 +1644,12 @@ func singleNetAnnotation() string {
 }
 
 func multipleNetAnnotation() string {
-	return fmt.Sprintf(`[{"name":"mybrsfc","interface":"%s"},{"name":"othernet","interface":"dummy"},
-	{"name":"second-network","interface":"%s"},{"name":"invalid-network","namespace":"invalid-namespace","interface":"invalid-interface"}]`, ifcName, ifcName2)
+	return fmt.Sprintf(`[{"name":"mybrsfc","interface":"%s"},{"name":"second-network","interface":"%s"},{"name":"invalid-network","namespace":"invalid-namespace","interface":"invalid-interface"}]`, ifcName, ifcName2)
 }
 
 func expectedMultipleNetAnnotation(pooltype string, assignGW bool, mtu1 int, mtu2 int) string {
 	s := fmt.Sprintf(
 		"[{\"name\":\"mybrsfc\",\"namespace\":\"default\",\"interface\":\"sfceth1\",\"cni-args\":{\"allocateDefaultGateway\":%v,\"mtu\":%d,\"poolNames\":[\"pool-1\"],\"poolType\":\"%s\"}},"+
-			"{\"name\":\"othernet\",\"namespace\":\"default\",\"interface\":\"dummy\",\"cni-args\":null},"+
 			"{\"name\":\"second-network\",\"namespace\":\"default\",\"interface\":\"sfceth2\",\"cni-args\":{\"allocateDefaultGateway\":%v,\"mtu\":%d,\"poolNames\":[\"pool-2\"],\"poolType\":\"%s\"}}]",
 		assignGW, mtu1, pooltype, assignGW, mtu2, pooltype)
 	return s

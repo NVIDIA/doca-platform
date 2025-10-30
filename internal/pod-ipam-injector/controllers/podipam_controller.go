@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -174,7 +175,7 @@ func getSettingsForNetworkInterface(ctx context.Context, c client.Client, pod *c
 	}
 
 	// Gather all the information needed from ServiceChains
-	serviceChainSettingsForInterface, err := getServiceChainSettingsForInterface(ctx, c, pod, networkSettingsForInterface, serviceChain)
+	serviceChainSettingsForInterface, err := getServiceChainSettingsForInterface(ctx, c, pod, networks, networkSettingsForInterface, serviceChain)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get information from servicechains related to the pod interfaces: %w", err)
 	}
@@ -238,7 +239,9 @@ type serviceChainSettings struct {
 // that is needed to populate the network annotation from the servicechain object
 // If serviceChain is specified, then the settings are calculated for the given serviceChain, otherwise all of the serviceChains
 // in the cluster are analyzed.
-func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, pod *corev1.Pod, networkSettingsForInterface map[string]*networkSettings, serviceChain *dpuservicev1.ServiceChain) (map[string]serviceChainSettings, error) {
+// If interface settings are missing for interfaces without existing CNI args, we will return an error and requeue the pod.
+// Interfaces that already have CNI args (e.g., IPAM configuration) don't require ServiceChain settings.
+func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, pod *corev1.Pod, networks []*multustypes.NetworkSelectionElement, networkSettingsForInterface map[string]*networkSettings, serviceChain *dpuservicev1.ServiceChain) (map[string]serviceChainSettings, error) {
 	serviceChainSettingsForInterface := make(map[string]serviceChainSettings)
 	serviceChains := &dpuservicev1.ServiceChainList{}
 	if serviceChain != nil {
@@ -249,6 +252,10 @@ func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, p
 		}
 	}
 
+	// Collect errors for interfaces we couldn't process
+	// We'll only return an error if we fail to find settings for interfaces that the pod actually needs
+	interfaceErrors := make(map[string]error)
+
 	for _, serviceChain := range serviceChains.Items {
 		if serviceChain.Spec.Node == nil || *serviceChain.Spec.Node != pod.Spec.NodeName {
 			continue
@@ -258,7 +265,10 @@ func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, p
 			for _, port := range sw.Ports {
 				svcIfc, err := getServiceInterfaceWithLabels(ctx, c, pod.Spec.NodeName, pod.Namespace, port.ServiceInterface.MatchLabels)
 				if err != nil {
-					return nil, fmt.Errorf("failed to get serviceInterface for chain. %w", err)
+					// Collect the error but continue processing other ports
+					// We'll check later if this error is relevant to the pod
+					interfaceErrors[fmt.Sprintf("chain-%s", serviceChain.Name)] = err
+					continue
 				}
 
 				// We only care about interfaces of type service since such are attached to the Pods
@@ -290,6 +300,48 @@ func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, p
 				}
 			}
 		}
+	}
+
+	// Check if we found settings for all the interfaces the pod needs
+	// Interfaces that already have CNI args (e.g., IPAM configuration) are optional -
+	// we'll add MTU if a ServiceChain exists, but won't error if it doesn't.
+	missingInterfaces := []string{}
+	for interfaceName := range networkSettingsForInterface {
+		if _, found := serviceChainSettingsForInterface[interfaceName]; !found {
+			// Check if this interface already has CNI args from the original annotation
+			hasExistingConfig := false
+			for _, net := range networks {
+				if net.InterfaceRequest == interfaceName && net.CNIArgs != nil && len(*net.CNIArgs) > 0 {
+					hasExistingConfig = true
+					break
+				}
+			}
+
+			// Only mark as missing if it doesn't have existing configuration
+			// Interfaces with existing CNI args don't require ServiceChain settings
+			if !hasExistingConfig {
+				missingInterfaces = append(missingInterfaces, interfaceName)
+			}
+		}
+	}
+
+	// If we're missing settings for interfaces the pod needs, return an error to trigger requeue.
+	// This can happen due to:
+	// - Faulty ServiceChain selectors (errors will be in interfaceErrors map)
+	// - ServiceChains/ServiceInterfaces not created yet (timing issues)
+	// - Missing or misconfigured resources
+	if len(missingInterfaces) > 0 {
+		message := "missing settings for interfaces %v"
+		if len(interfaceErrors) > 0 {
+			message += fmt.Sprintf(". Errors encountered: %v", interfaceErrors)
+		}
+		return nil, fmt.Errorf(message, missingInterfaces)
+	}
+
+	// Log any errors we encountered for debugging, even if they didn't affect this pod
+	if len(interfaceErrors) > 0 {
+		log := log.FromContext(ctx)
+		log.Info("Encountered errors while processing ServiceChains (may be unrelated to this pod)", "errors", interfaceErrors)
 	}
 
 	return serviceChainSettingsForInterface, nil
@@ -351,11 +403,19 @@ func shouldSkipPod(pod *corev1.Pod, networks []*multustypes.NetworkSelectionElem
 }
 
 // mutateNetworksWithSettings mutates the networks with relevant information for each interface
+// It merges new settings with existing CNI args rather than replacing them
 func mutateNetworksWithSettings(networks []*multustypes.NetworkSelectionElement, settings map[string]*networkSettings) ([]*multustypes.NetworkSelectionElement, bool) {
 	var changed bool
 	for i, net := range networks {
 		if s, ok := settings[net.InterfaceRequest]; ok && s != nil {
+			// Start with existing CNI args if present, otherwise create new map
 			cniArgs := make(map[string]interface{})
+			if net.CNIArgs != nil {
+				// Copy existing CNI args to preserve them (e.g., IPAM pool configuration)
+				maps.Copy(cniArgs, *net.CNIArgs)
+			}
+
+			// Add/override with new settings from ServiceChain
 			if s.IPAMAssignDefaultGateway != nil {
 				cniArgs["allocateDefaultGateway"] = *s.IPAMAssignDefaultGateway
 			}
