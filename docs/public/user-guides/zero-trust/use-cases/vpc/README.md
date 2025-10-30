@@ -1015,6 +1015,14 @@ in the following manner:
 
 Ensure you have SSH access to your worker hosts from the management or out-of-band (OOB) network.
 
+##### Create SR-IOV virtual functions for each DPU
+Login to each host and create SR-IOV virtual functions(VFs)
+
+Example for creating VFs on node1, do the same on the other node. the DPU is assumed to have PCI address of `0000:08:00.0`
+```shell
+root@node1:~# echo 2 > /sys/bus/pci/devices/0000:08:00.0/sriov_numvfs
+```
+
 ##### Deploy test topology
 
 ```shell
@@ -1147,8 +1155,6 @@ To do the same for PF interfaces refer to [Test traffic between hosts](#test-tra
 
 An example output for a node named `node1` and VF 0 network interface `enp8s0f0`:
 ```shell
-# create SR-IOV virtual functions for the DPU card
-root@node1:~# echo 2 > /sys/bus/pci/devices/0000:08:00.0/sriov_numvfs
 # send dhcp request
 root@node1:~# ip link set enp8s0f0v0 up
 root@node1:~# dhclient -1 -v enp8s0f0v0
