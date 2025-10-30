@@ -42,43 +42,60 @@ import (
 )
 
 const (
-	// RequeueInterval is the interval to requeue the request.
-	RequeueInterval = 5 * time.Second
-
-	// RebootSyncInterval is the interval to requeue the request for waiting all DPUs get into non-provisioning phase.
-	RebootSyncInterval = 30 * time.Second
-
-	// CFGExtension is the extension of the BFB configuration file.
-	CFGExtension = "cfg"
-	// DPUProvisioningLabelPrefix is the prefix for all DPU provisioning labels.
-	DPUProvisioningLabelPrefix = "provisioning.dpu.nvidia.com/"
+	// DPUProvisioningLabelPrefix is the prefix for all DPU provisioning labels and annotations.
+	DPUProvisioningPrefix = "provisioning.dpu.nvidia.com/"
 	// DPUNodeRebootMethodLabel is the label that specify the reboot method
-	DPUNodeRebootMethodLabel = DPUProvisioningLabelPrefix + "reboot-method"
+	DPUNodeRebootMethodLabel = DPUProvisioningPrefix + "reboot-method"
 	// DPUNodeAdditionalDPURebootLabel is the label that should be added to a DPUNode to trigger an additional DPU reboot
 	// after the BFB is installed.
-	DPUNodeAdditionalDPURebootLabel = DPUProvisioningLabelPrefix + "dpu-reboot-after-install"
+	DPUNodeAdditionalDPURebootLabel = DPUProvisioningPrefix + "dpu-reboot-after-install"
 	// DPUNodeScriptNameLabel is the label that specify the script name for the custom script reboot method.
-	DPUNodeScriptNameLabel = DPUProvisioningLabelPrefix + "script-name"
+	DPUNodeScriptNameLabel = DPUProvisioningPrefix + "script-name"
 	// DPUSetNameLabel is the label that indicates the name of the DPUSet.
-	DPUSetNameLabel = DPUProvisioningLabelPrefix + "dpuset-name"
+	DPUSetNameLabel = DPUProvisioningPrefix + "dpuset-name"
 	// DPUSetNamespaceLabel is the label that indicates the namespace of the DPUSet.
-	DPUSetNamespaceLabel = DPUProvisioningLabelPrefix + "dpuset-namespace"
+	DPUSetNamespaceLabel = DPUProvisioningPrefix + "dpuset-namespace"
 	// DPUNodeNameLabel is the label that indicates the name of the DPUNode the DPU is associated with.
-	DPUNodeNameLabel = DPUProvisioningLabelPrefix + "dpunode-name"
+	DPUNodeNameLabel = DPUProvisioningPrefix + "dpunode-name"
 	// DPUDeviceNameLabel is the label that indicates the name of the DPUDevice the DPU is associated with.
-	DPUDeviceNameLabel = DPUProvisioningLabelPrefix + "dpudevice-name"
+	DPUDeviceNameLabel = DPUProvisioningPrefix + "dpudevice-name"
 	// DPUDevicePCIAddressLabel is the label that indicates the PCI address of the DPU device.
-	DPUDevicePCIAddressLabel = DPUProvisioningLabelPrefix + "dpudevice-pciAddress"
+	DPUDevicePCIAddressLabel = DPUProvisioningPrefix + "dpudevice-pciAddress"
 	// DPUDevicePSIDLabel is the label that indicates the PSID of the DPU device.
-	DPUDevicePSIDLabel = DPUProvisioningLabelPrefix + "dpudevice-psid"
+	DPUDevicePSIDLabel = DPUProvisioningPrefix + "dpudevice-psid"
 	// DPUDeviceOPNLabel is the label that indicates the OPN of the DPU device.
-	DPUDeviceOPNLabel = DPUProvisioningLabelPrefix + "dpudevice-opn"
+	DPUDeviceOPNLabel = DPUProvisioningPrefix + "dpudevice-opn"
 	// DPUDeviceNumOfPFsLabel is the label that indicates the number of PFs on the DPU device.
-	DPUDeviceNumOfPFsLabel = DPUProvisioningLabelPrefix + "dpudevice-num-of-pfs"
+	DPUDeviceNumOfPFsLabel = DPUProvisioningPrefix + "dpudevice-num-of-pfs"
 	// DPUDevicePF0NameLabel is the label that indicates the name of the PF0 on the DPU device.
-	DPUDevicePF0NameLabel = DPUProvisioningLabelPrefix + "dpudevice-pf0-name"
+	DPUDevicePF0NameLabel = DPUProvisioningPrefix + "dpudevice-pf0-name"
 	// DPUDeviceBMCIPLabel is the label that indicates the BMC IP of the DPU device.
-	DPUDeviceBMCIPLabel = DPUProvisioningLabelPrefix + "dpudevice-bmc-ip"
+	DPUDeviceBMCIPLabel = DPUProvisioningPrefix + "dpudevice-bmc-ip"
+	// DPUOOBBridgeConfiguredLabel is the label that indicates that the DPU OOB bridge is configured.
+	DPUOOBBridgeConfiguredLabel = "dpu-oob-bridge-configured"
+	// NodeFeatureDiscoveryLabelPrefix is the prefix for all NodeFeatureDiscovery labels.
+	NodeFeatureDiscoveryLabelPrefix = "feature.node.kubernetes.io/"
+	// NodeSelectorLabel is a label for linking Node with DPU.
+	NodeSelectorLabel = NodeFeatureDiscoveryLabelPrefix + "dpu-enabled"
+	// DPUSetDPUTemplateSpecHashLabelKey is the label for the hash of the DPU template spec from the DPUSet.
+	DPUSetDPUTemplateSpecHashLabelKey = DPUProvisioningPrefix + "dpuset-dpu-template-spec-hash"
+	// LastAppliedLabelsOnDPUKey is the key for the last applied labels.
+	LastAppliedLabelsOnDPUKey = DPUProvisioningPrefix + "last-applied-labels-on-dpu"
+	// ProvisioningComponentLabelKey is the label for the component of the DPU.
+	ProvisioningComponentLabelKey = DPUProvisioningPrefix + "component"
+	// HostNameDPULabelKey is the label added to the DPU Kubernetes Node that indicates the hostname of the host that
+	// this DPU belongs to.
+	HostNameDPULabelKey = DPUProvisioningPrefix + "host"
+
+	// OverrideDMSPodNameAnnotationKey is the key for the override DMS pod name annotation.
+	OverrideDMSPodNameAnnotationKey = DPUProvisioningPrefix + "override-dms-pod-name"
+	// LastAppliedAdditionalRequestorsOnDPUPrefix is the prefix of the annotation key for the last applied node maintenance additional requestors per DPU.
+	LastAppliedAdditionalRequestorsOnDPUPrefix = DPUProvisioningPrefix + "last-applied-additional-requestors-on-"
+	// HoldNodeEffectKey is the key for the hold node effect annotation.
+	HoldNodeEffectKey = DPUProvisioningPrefix + "wait-for-external-nodeeffect"
+	// TrustedSFCount is the key for the trusted SFC count annotation.
+	TrustedSFCount = DPUProvisioningPrefix + "num-of-trusted-sfs"
+
 	// TolerationNotReadyKey is the key for the NotReady taint.
 	TolerationNotReadyKey = "node.kubernetes.io/not-ready"
 	// TolerationUnreachableKey is the key for the Unreachable taint.
@@ -87,12 +104,13 @@ const (
 	TolerationUnschedulableKey = "node.kubernetes.io/unschedulable"
 	// TolerationOVNKubernetesNetworkUnavailableKey is the key for the OVN Kubernetes NotReady taint.
 	TolerationOVNKubernetesNetworkUnavailableKey = "k8s.ovn.org/network-unavailable"
-	// DPUOOBBridgeConfiguredLabel is the label that indicates that the DPU OOB bridge is configured.
-	DPUOOBBridgeConfiguredLabel = "dpu-oob-bridge-configured"
-	// NodeFeatureDiscoveryLabelPrefix is the prefix for all NodeFeatureDiscovery labels.
-	NodeFeatureDiscoveryLabelPrefix = "feature.node.kubernetes.io/"
-	// NodeSelectorLabel is a label for linking Node with DPU.
-	NodeSelectorLabel = NodeFeatureDiscoveryLabelPrefix + "dpu-enabled"
+
+	// RequeueInterval is the interval to requeue the request.
+	RequeueInterval = 5 * time.Second
+	// RebootSyncInterval is the interval to requeue the request for waiting all DPUs get into non-provisioning phase.
+	RebootSyncInterval = 30 * time.Second
+	// CFGExtension is the extension of the BFB configuration file.
+	CFGExtension = "cfg"
 	// NodeMaintenanceRequestorID is the requestor ID used for NodeMaintenance CRs
 	NodeMaintenanceRequestorID = "dpu.nvidia.com"
 	// ProvisioningGroupName is the provisioning group, used to identify provisioning as
@@ -100,28 +118,11 @@ const (
 	ProvisioningGroupName = "provisioning.dpu.nvidia.com"
 	// PCIAddressTargetKey is the key for the PCI address in the metadata context.
 	PCIAddressTargetKey = "target"
-
-	OverrideDMSPodNameAnnotationKey = "provisioning.dpu.nvidia.com/override-dms-pod-name"
-
-	// LastAppliedLabelsOnDPUKey is the key for the last applied labels.
-	LastAppliedLabelsOnDPUKey = DPUProvisioningLabelPrefix + "last-applied-labels-on-dpu"
-
-	// LastAppliedAdditionalRequestorsOnDPUPrefix is the prefix of the key for the last applied node maintenance additional requestors per DPU.
-	LastAppliedAdditionalRequestorsOnDPUPrefix = DPUProvisioningLabelPrefix + "last-applied-additional-requestors-on-"
-
-	HoldNodeEffectKey             = DPUProvisioningLabelPrefix + "wait-for-external-nodeeffect"
-	TrustedSFCount                = DPUProvisioningLabelPrefix + "num-of-trusted-sfs"
-	ProvisioningComponentLabelKey = DPUProvisioningLabelPrefix + "component"
-
 	// KubernetesVersion is the version used by the DPUCluster.
 	// It has a one-to-one relationship with the DPF Operator version and needs to be updated with each minor release.
 	KubernetesVersion = "v1.34.0"
 	// MaxNameLength is the maximum length of the name of the K8s resource.
 	MaxNameLength = validation.DNS1123SubdomainMaxLength // 253
-
-	// HostNameDPULabelKey is the label added to the DPU Kubernetes Node that indicates the hostname of the host that
-	// this DPU belongs to.
-	HostNameDPULabelKey = "provisioning.dpu.nvidia.com/host"
 )
 
 var (

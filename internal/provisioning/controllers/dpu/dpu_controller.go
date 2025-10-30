@@ -34,8 +34,10 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
+	"github.com/fluxcd/pkg/runtime/patch"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -160,7 +162,7 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodes,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodemaintenances,verbs=get;list;watch;create;update;patch;delete;deletecollection
 
-func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconcile")
 
@@ -172,12 +174,20 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, fmt.Errorf("failed to get DPU %w", err)
 	}
 
+	patcher := patch.NewSerialPatcher(dpu, r.ctrlCtx.Client)
+	defer func() {
+		logger.Info("Patching")
+		if err := patcher.Patch(ctx, dpu,
+			patch.WithFieldOwner(DPUControllerName),
+			patch.WithStatusObservedGeneration{},
+		); err != nil {
+			reterr = kerrors.NewAggregate([]error{reterr, err})
+		}
+	}()
+
 	// Add finalizer if not set and DPU is not currently deleting.
 	if !controllerutil.ContainsFinalizer(dpu, provisioningv1.DPUFinalizer) && dpu.DeletionTimestamp.IsZero() {
 		controllerutil.AddFinalizer(dpu, provisioningv1.DPUFinalizer)
-		if err := r.ctrlCtx.Client.Update(ctx, dpu); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to add DPU finalizer %w", err)
-		}
 		return ctrl.Result{}, nil
 	}
 
@@ -227,10 +237,8 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	if !reflect.DeepEqual(dpu.Status, nextState) {
 		logger.Info("Update DPU status", "current phase", dpu.Status.Phase, "next phase", nextState.Phase)
 		dpu.Status = nextState
-		if err := r.ctrlCtx.Client.Status().Update(ctx, dpu); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to update DPU %w", err)
-		}
-	} else if nextState.Phase != provisioningv1.DPUError {
+	}
+	if nextState.Phase != provisioningv1.DPUError {
 		// TODO: move the state checking in state machine
 		logger.Info(fmt.Sprintf("Requeue in %s", cutil.RequeueInterval), "current phase", dpu.Status.Phase)
 		return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
