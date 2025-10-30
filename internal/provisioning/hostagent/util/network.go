@@ -17,6 +17,8 @@ limitations under the License.
 package util
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,6 +27,7 @@ import (
 
 	"github.com/vishvananda/netlink"
 	"gopkg.in/yaml.v3"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 )
 
@@ -156,43 +159,147 @@ func GetBridgeMembers(bridgeName string) ([]string, error) {
 	return members, nil
 }
 
-// isDHCPEnabledNetworkctl checks DHCP status using networkctl (systemd-networkd)
-func isDHCPEnabledNetworkctl(interfaceName string) (bool, error) {
+// networkctlInfo holds parsed information from networkctl status output
+type networkctlInfo struct {
+	hasDHCPAddress bool
+	networkFile    string
+}
+
+// getNetworkctlInfo runs networkctl once and extracts both DHCP status and network file path
+func getNetworkctlInfo(interfaceName string) (*networkctlInfo, error) {
 	if _, err := exec.LookPath("networkctl"); err != nil {
-		return false, fmt.Errorf("networkctl not available: %w", err)
+		return nil, fmt.Errorf("networkctl not available: %w", err)
 	}
 
 	cmd := exec.Command("networkctl", "status", interfaceName)
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return false, fmt.Errorf("failed to run networkctl status for interface %s: %w", interfaceName, err)
+		return nil, fmt.Errorf("failed to run networkctl status for interface %s: %w", interfaceName, err)
 	}
 
-	outputStr := string(output)
-	if len(strings.TrimSpace(outputStr)) == 0 {
-		return false, fmt.Errorf("networkctl returned empty output for interface %s", interfaceName)
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	info := &networkctlInfo{}
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		// Parse lines with "Key: Value" format
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+
+		switch key {
+		case "Address":
+			if strings.Contains(val, "(DHCP4 via") {
+				info.hasDHCPAddress = true
+			}
+		case "DHCP4 Client ID":
+			info.hasDHCPAddress = true
+		case "Network File":
+			if val != "" && val != "n/a" {
+				info.networkFile = val
+			}
+		}
 	}
 
-	// Look for DHCP4 indicators in networkctl output
-	for line := range strings.SplitSeq(outputStr, "\n") {
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading networkctl output: %w", err)
+	}
+
+	return info, nil
+}
+
+// isDHCPConfigured checks if DHCP is configured for the interface.
+// It uses a two-tier approach:
+// 1. First checks runtime state via networkctl (if DHCP obtained an address, it's definitely configured)
+// 2. If no address found, checks the configuration file (DHCP may be configured but no address yet)
+func isDHCPConfigured(interfaceName string) (bool, error) {
+	// Call networkctl once to get both DHCP status and network file path
+	info, err := getNetworkctlInfo(interfaceName)
+	if err != nil {
+		return false, err
+	}
+
+	// If DHCP has obtained an address, definitely configured
+	if info.hasDHCPAddress {
+		return true, nil
+	}
+
+	// If networkctl doesn't provide a network file, systemd-networkd isn't managing this interface
+	// This means DHCP is not configured via systemd-networkd
+	if info.networkFile == "" {
+		return false, nil
+	}
+
+	// Parse the network file to check DHCP configuration
+	return parseDHCPFromNetworkdConfig(info.networkFile)
+}
+
+// parseDHCPFromNetworkdConfig robustly parses DHCP for IPv4 (yes/ipv4) from .network config.
+// Handles case-insensitivity and inline comments.
+func parseDHCPFromNetworkdConfig(networkFilePath string) (bool, error) {
+	f, err := os.Open(networkFilePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to open systemd-networkd config file %s: %w", networkFilePath, err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			klog.Errorf("failed to close network config file %s: %v", networkFilePath, err)
+		}
+	}()
+
+	scanner := bufio.NewScanner(f)
+	inNetworkSection := false
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		// Remove inline comments (anything after "#" or ";")
+		if idx := strings.IndexAny(line, "#;"); idx != -1 {
+			line = line[:idx]
+		}
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
 
-		// Check for address obtained via DHCP4: "Address: x.x.x.x (DHCP4 via y.y.y.y)"
-		if strings.Contains(trimmed, "Address:") && strings.Contains(trimmed, "(DHCP4 via") {
-			return true, nil
+		// Case-insensitive section header compare
+		if strings.EqualFold(trimmed, "[Network]") {
+			inNetworkSection = true
+			continue
 		}
-
-		// Check for DHCP4 client configuration: "DHCP4 Client ID: xx:xx:xx:xx:xx:xx"
-		if strings.HasPrefix(trimmed, "DHCP4 Client ID:") {
-			return true, nil
+		// Leave [Network] if a new section starts
+		if strings.HasPrefix(trimmed, "[") {
+			inNetworkSection = false
+			continue
+		}
+		// Only process when in [Network] section
+		if inNetworkSection {
+			parts := strings.SplitN(trimmed, "=", 2)
+			if len(parts) == 2 {
+				key := strings.TrimSpace(parts[0])
+				val := strings.TrimSpace(parts[1])
+				// Case-insensitive key
+				if strings.EqualFold(key, "DHCP") {
+					// Case-insensitive value logic for "yes" or "ipv4"
+					lval := strings.ToLower(val)
+					if lval == "yes" || lval == "ipv4" {
+						return true, nil
+					}
+					return false, nil // Found DHCP, but not enabled for IPv4
+				}
+			}
 		}
 	}
-
-	// If we reach here, we found no DHCP indicators (DHCP is not enabled)
-	return false, nil
+	if err := scanner.Err(); err != nil {
+		return false, fmt.Errorf("error reading config file %s: %w", networkFilePath, err)
+	}
+	return false, nil // DHCP setting not found
 }
 
 // ConfigureNetplan configures the PF network interfaces and bridge MTU using netplan
@@ -258,6 +365,7 @@ func configurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
 				return false, fmt.Errorf("failed to get current MTU for %s: %w", interfaceName, err)
 			}
 			if currentMTU != int(*portConfig.MTU) {
+				klog.Infof("%s MTU mismatch (current=%d, desired=%d)", interfaceName, currentMTU, *portConfig.MTU)
 				needApply = true
 			}
 		}
@@ -265,11 +373,12 @@ func configurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
 		// Check DHCP and only configure if different from current state
 		if portConfig.DHCP != nil {
 			ethernet.DHCP4 = portConfig.DHCP
-			currentDHCP, err := isDHCPEnabledNetworkctl(interfaceName)
+			currentDHCP, err := isDHCPConfigured(interfaceName)
 			if err != nil {
-				return false, fmt.Errorf("failed to determine DHCP state for %s: %w", interfaceName, err)
+				return false, fmt.Errorf("failed to determine DHCP configuration for %s: %w", interfaceName, err)
 			}
 			if currentDHCP != *portConfig.DHCP {
+				klog.Infof("%s DHCP mismatch (current=%v, desired=%v)", interfaceName, currentDHCP, *portConfig.DHCP)
 				needApply = true
 			}
 		}
@@ -316,6 +425,7 @@ func writeNetplanFile(filePath string, config *NetplanConfig) error {
 
 // applyNetplan applies the netplan configuration
 func applyNetplan() error {
+	klog.Infof("Executing 'netplan apply'")
 	cmd := exec.Command("netplan", "apply")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("netplan apply failed: %w, output: %s", err, string(output))
@@ -340,6 +450,7 @@ func checkIfBridgeMTUChangeNeeded(controlPlaneMTU int) (bool, error) {
 
 	// If bridge MTU differs, we need to apply changes
 	if currentBridgeMTU != controlPlaneMTU {
+		klog.Infof("Bridge %s MTU mismatch (current=%d, desired=%d)", BridgeName, currentBridgeMTU, controlPlaneMTU)
 		return true, nil
 	}
 
@@ -356,6 +467,7 @@ func checkIfBridgeMTUChangeNeeded(controlPlaneMTU int) (bool, error) {
 			return false, fmt.Errorf("failed to get current MTU for bridge member %s: %w", memberName, err)
 		}
 		if currentMTU != controlPlaneMTU {
+			klog.Infof("Bridge member %s MTU mismatch (current=%d, desired=%d)", memberName, currentMTU, controlPlaneMTU)
 			return true, nil
 		}
 	}

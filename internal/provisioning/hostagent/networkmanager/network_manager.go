@@ -229,7 +229,10 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 					klog.Info("Skipping netplan configuration - netplan not available on this system")
 					return nil
 				}
-				return hostutil.ConfigureNetplan(nr.PCIAddress, nr.PortConfigs, nr.ControlPlaneMTU)
+				if err := hostutil.ConfigureNetplan(nr.PCIAddress, nr.PortConfigs, nr.ControlPlaneMTU); err != nil {
+					return err
+				}
+				return nil
 			},
 		},
 	}
