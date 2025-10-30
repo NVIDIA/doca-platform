@@ -1,0 +1,28 @@
+---
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUVolume
+metadata:
+  name: test-volume-virtiofs-hotplug-pf-${DPU1_SERIAL}
+  namespace: dpf-operator-system
+spec:
+  dpuStoragePolicyName: policy-fs
+  resources:
+    requests:
+      storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+---
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUVolume
+metadata:
+  name: test-volume-virtiofs-hotplug-pf-${DPU2_SERIAL}
+  namespace: dpf-operator-system
+spec:
+  dpuStoragePolicyName: policy-fs
+  resources:
+    requests:
+      storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
