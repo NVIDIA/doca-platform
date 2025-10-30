@@ -40,6 +40,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	// NodeUnschedulableTaintKey is the well known taint key that indicates a node is unschedulable, typically used when
+	// draining a node
+	NodeUnschedulableTaintKey = "node.kubernetes.io/unschedulable"
+)
+
 func ValidateDPUDeploymentCreation(ctx context.Context, input *systemTestInput) {
 	By("creating the dependencies")
 	createDeploymentDependencies(ctx, input, "")
@@ -533,7 +539,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx context.Context, input
 		for _, node := range gotHostNodeList.Items {
 			// Check if node has the unschedulable tain (drain)
 			for _, taint := range node.Spec.Taints {
-				if taint.Key == "node.kubernetes.io/unschedulable" && taint.Effect == corev1.TaintEffectNoSchedule {
+				if taint.Key == NodeUnschedulableTaintKey && taint.Effect == corev1.TaintEffectNoSchedule {
 					drainedHostNode = &node
 					break
 				}
@@ -612,7 +618,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx context.Context, input
 		// Determine whether node is drained
 		isNodeDrained := false
 		for _, taint := range node.Spec.Taints {
-			if taint.Key == "node.kubernetes.io/unschedulable" && taint.Effect == corev1.TaintEffectNoSchedule {
+			if taint.Key == NodeUnschedulableTaintKey && taint.Effect == corev1.TaintEffectNoSchedule {
 				isNodeDrained = true
 				break
 			}
@@ -676,6 +682,251 @@ func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Conte
 // ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade validates that DPUDeployment disruptive upgrade flow for
 // DPUServiceChain works as expected
 func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade(ctx context.Context, input *systemTestInput) {
+	if input.numberOfDPUNodes != 2 {
+		// Test assumes that there are exactly 2 host nodes to match the DPU cluster
+		Skip("Skip test as there are not exactly 2 nodes")
+	}
+
+	By("Patching the provisioning controller to apply node effect sequentially")
+	dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
+	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, dpfOperatorConfig)).To(Succeed())
+	originalDPFOperatorConfig := dpfOperatorConfig.DeepCopy()
+
+	// Set MaxUnavailableDPUNodes to 1 to ensure only one node is upgraded at a time
+	if dpfOperatorConfig.Spec.ProvisioningController == nil {
+		dpfOperatorConfig.Spec.ProvisioningController = &operatorv1.ProvisioningControllerConfiguration{}
+	}
+	dpfOperatorConfig.Spec.ProvisioningController.MaxUnavailableDPUNodes = ptr.To(int32(1))
+	Expect(input.client.Patch(ctx, dpfOperatorConfig, client.MergeFrom(originalDPFOperatorConfig))).To(Succeed())
+
+	By("Validating that the DPFOperatorConfig is ready for the current generation")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
+		// TODO: Replace with conditions.IsReady() when we start checking for correct generation in the function
+		readyCondition := conditions.Get(dpfOperatorConfig, conditions.TypeReady)
+		g.Expect(readyCondition).NotTo(BeNil())
+		g.Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue))
+		g.Expect(readyCondition.ObservedGeneration).To(Equal(dpfOperatorConfig.Generation))
+	}).WithTimeout(2 * time.Minute).Should(Succeed())
+
+	// TODO: Remove this when the DPUDeployment controller has a more precise condition to check
+	// whether the DPUSet is ready. Race condition, internal reference #4686288.
+	By("Sleeping for 30 seconds to allow the provisioning controller to reconcile")
+	time.Sleep(30 * time.Second)
+
+	By("Getting the existing DPUDeployment")
+	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
+	dpuDeployment := &dpuservicev1.DPUDeployment{}
+	dpuDeployment.SetName("dpf-dpudeployment")
+	dpuDeployment.SetNamespace(dpfOperatorSystemNamespace)
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+
+	By("Getting initial ServiceChains in DPU cluster")
+	var initialServiceChains []dpuservicev1.ServiceChain
+	Eventually(func(g Gomega) {
+		serviceChainList := &dpuservicev1.ServiceChainList{}
+		g.Expect(dpuClusterClient.List(ctx, serviceChainList,
+			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(serviceChainList.Items).To(HaveLen(input.numberOfDPUNodes))
+		initialServiceChains = serviceChainList.Items
+	}).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Getting the mapping between host nodes and ServiceChains existing in the DPU cluster on a DPU that is part of that node")
+	// Get all DPUs in the system
+	dpuList := &provisioningv1.DPUList{}
+	Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+	// Get all DPUNodes in the system
+	dpuNodeList := &provisioningv1.DPUNodeList{}
+	Expect(input.client.List(ctx, dpuNodeList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+	// Create a map from DPUNode name to host node name (via KubeNodeRef)
+	dpuNodeToHostNodeMap := make(map[string]string)
+	for _, dpuNode := range dpuNodeList.Items {
+		if dpuNode.Status.KubeNodeRef != nil {
+			dpuNodeToHostNodeMap[dpuNode.Name] = *dpuNode.Status.KubeNodeRef
+		}
+	}
+
+	// Create a map from DPU name to DPUNode name
+	dpuToDPUNodeMap := make(map[string]string)
+	for _, dpu := range dpuList.Items {
+		dpuToDPUNodeMap[dpu.Name] = dpu.Spec.DPUNodeName
+	}
+
+	// Create a map from host node name to ServiceChains running on the DPU cluster
+	// The node name in the ServiceChain spec is the same as the DPU object name
+	hostNodeToServiceChainMap := make(map[string]dpuservicev1.ServiceChain)
+	for _, serviceChain := range initialServiceChains {
+		Expect(serviceChain.Spec.Node).ToNot(BeNil())
+		dpuNodeName, ok := dpuToDPUNodeMap[*serviceChain.Spec.Node]
+		if !ok {
+			continue
+		}
+		hostNodeName, ok := dpuNodeToHostNodeMap[dpuNodeName]
+		if !ok {
+			continue
+		}
+		hostNodeToServiceChainMap[hostNodeName] = serviceChain
+	}
+	Expect(hostNodeToServiceChainMap).To(HaveLen(input.numberOfDPUNodes), "Expected to find a ServiceChain for each host node")
+
+	By("Modifying the DPUDeployment ServiceChains by changing ServiceMTU")
+	originalDPUDeployment := dpuDeployment.DeepCopy()
+	// Change the ServiceMTU to trigger a disruptive upgrade
+	newMTU := 1300
+	dpuDeployment.Spec.ServiceChains.Switches[0].ServiceMTU = &newMTU
+	Expect(input.client.Patch(ctx, dpuDeployment, client.MergeFrom(originalDPUDeployment))).To(Succeed())
+
+	By("Checking that one of the nodes is drained")
+	var drainedHostNode *corev1.Node
+	Eventually(func(g Gomega) {
+		gotHostNodeList := &corev1.NodeList{}
+		labelSelectorForNodes, err := utils.LabelSelectorAsSelector(dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(input.client.List(ctx, gotHostNodeList, client.MatchingLabelsSelector{Selector: labelSelectorForNodes})).To(Succeed())
+		Expect(gotHostNodeList.Items).To(HaveLen(input.numberOfDPUNodes))
+
+		for _, node := range gotHostNodeList.Items {
+			// Check if node has the unschedulable taint (drain)
+			for _, taint := range node.Spec.Taints {
+				if taint.Key == NodeUnschedulableTaintKey && taint.Effect == corev1.TaintEffectNoSchedule {
+					drainedHostNode = &node
+					break
+				}
+			}
+		}
+		g.Expect(drainedHostNode).ToNot(BeNil(), "At least one node should be drained")
+	}).WithTimeout(5 * time.Minute).Should(Succeed())
+
+	By("Checking that the ServiceChain on the DPU cluster is updated on the drained node while others remain unchanged")
+	var newServiceChain *dpuservicev1.ServiceChain
+	Eventually(func(g Gomega) {
+		serviceChainList := &dpuservicev1.ServiceChainList{}
+		g.Expect(dpuClusterClient.List(ctx, serviceChainList,
+			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+		// Verify that we have service chains on both nodes
+		g.Expect(serviceChainList.Items).To(HaveLen(input.numberOfDPUNodes))
+
+		// Track which nodes have new vs old service chains
+		foundOldServiceChainOnDrainedNode := false
+		foundNewServiceChainOnDrainedNode := false
+		foundOldServiceChainOnNonDrainedNode := false
+		foundNewServiceChainOnNonDrainedNode := false
+
+		for _, serviceChain := range serviceChainList.Items {
+			g.Expect(serviceChain.Spec.Node).ToNot(BeNil())
+
+			// Find the DPUNode name that is related to the DPU this ServiceChain belongs to
+			serviceChainDPUNodeName, dpuNodeExists := dpuToDPUNodeMap[*serviceChain.Spec.Node]
+			if !dpuNodeExists {
+				continue
+			}
+
+			// Find the host node name that the above DPUNode is related to
+			serviceChainHostNodeName, hostExists := dpuNodeToHostNodeMap[serviceChainDPUNodeName]
+			if !hostExists {
+				continue
+			}
+
+			// Check if this is a new ServiceChain
+			previousServiceChain := hostNodeToServiceChainMap[serviceChainHostNodeName]
+			isNewServiceChain := previousServiceChain.UID != serviceChain.UID
+			serviceChainIsOnDrainedNode := serviceChainHostNodeName == drainedHostNode.Name
+
+			switch {
+			case serviceChainIsOnDrainedNode && isNewServiceChain:
+				foundNewServiceChainOnDrainedNode = true
+				newServiceChain = &serviceChain
+			case serviceChainIsOnDrainedNode && !isNewServiceChain:
+				foundOldServiceChainOnDrainedNode = true
+			case !serviceChainIsOnDrainedNode && isNewServiceChain:
+				foundNewServiceChainOnNonDrainedNode = true
+			case !serviceChainIsOnDrainedNode && !isNewServiceChain:
+				foundOldServiceChainOnNonDrainedNode = true
+			}
+		}
+
+		// Drained node should have new ServiceChain, not old ServiceChain
+		g.Expect(foundOldServiceChainOnDrainedNode).To(BeFalse(), "Old ServiceChain should be removed from drained node")
+		g.Expect(foundNewServiceChainOnDrainedNode).To(BeTrue(), "New ServiceChain should exist on drained node")
+		// Non-drained nodes should have old ServiceChains, not new ServiceChains
+		g.Expect(foundOldServiceChainOnNonDrainedNode).To(BeTrue(), "Old ServiceChain should still exist on non-drained nodes")
+		g.Expect(foundNewServiceChainOnNonDrainedNode).To(BeFalse(), "New ServiceChain should not exist on non-drained nodes yet")
+	}).WithTimeout(1 * time.Minute).Should(Succeed())
+
+	By("Check that the drain is not removed until the new ServiceChain is ready")
+	Eventually(func(g Gomega) {
+		// Get the ServiceChain to understand if it's ready or not
+		gotServiceChain := &dpuservicev1.ServiceChain{}
+		g.Expect(dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(newServiceChain), gotServiceChain)).To(Succeed())
+
+		// Determine whether ServiceChain is ready
+		isServiceChainReady := conditions.IsTrue(gotServiceChain, conditions.TypeReady)
+
+		// Get the node to understand if it's tainted or not
+		node := &corev1.Node{}
+		g.Expect(input.client.Get(ctx, client.ObjectKey{Name: drainedHostNode.Name}, node)).To(Succeed())
+
+		// Determine whether node is drained
+		isNodeDrained := false
+		for _, taint := range node.Spec.Taints {
+			if taint.Key == NodeUnschedulableTaintKey && taint.Effect == corev1.TaintEffectNoSchedule {
+				isNodeDrained = true
+				break
+			}
+		}
+
+		if isServiceChainReady {
+			g.Expect(isNodeDrained).To(BeFalse(), "Drain should be removed from the node when new ServiceChain is ready")
+		} else {
+			g.Expect(isNodeDrained).To(BeTrue(), "Drain should not be removed from the node until new ServiceChain is ready")
+		}
+
+		// Get out of this loop when the ServiceChain finally becomes ready and the drain is removed
+		g.Expect(isServiceChainReady).To(BeTrue())
+		g.Expect(isNodeDrained).To(BeFalse())
+	}).WithTimeout(15 * time.Minute).Should(Succeed())
+
+	By("Verifying that the DPUDeployment becomes ready")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+		g.Expect(conditions.IsTrue(dpuDeployment, conditions.TypeReady)).To(BeTrue())
+	}).WithTimeout(15 * time.Minute).Should(Succeed())
+
+	By("Verifying all ServiceChains are running the new configuration")
+	Eventually(func(g Gomega) {
+		serviceChainList := &dpuservicev1.ServiceChainList{}
+		g.Expect(dpuClusterClient.List(ctx, serviceChainList,
+			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(serviceChainList.Items).To(HaveLen(input.numberOfDPUNodes))
+
+		// Verify all ServiceChains have the new MTU
+		for _, serviceChain := range serviceChainList.Items {
+			g.Expect(serviceChain.Spec.Switches).To(HaveLen(1))
+			g.Expect(serviceChain.Spec.Switches[0].ServiceMTU).ToNot(BeNil())
+			g.Expect(*serviceChain.Spec.Switches[0].ServiceMTU).To(Equal(1300))
+		}
+	}).WithTimeout(5 * time.Minute).Should(Succeed())
+
+	By("Reverting the DPFOperatorConfig to its original setting")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
+		resetConfig := dpfOperatorConfig.DeepCopy()
+		resetConfig.Spec = originalDPFOperatorConfig.Spec
+		g.Expect(input.client.Patch(ctx, resetConfig, client.MergeFrom(dpfOperatorConfig))).To(Succeed())
+	}).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Validating that the DPFOperatorConfig is ready for the current generation")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
+		// TODO: Replace with conditions.IsReady() when we start checking for correct generation in the function
+		readyCondition := conditions.Get(dpfOperatorConfig, conditions.TypeReady)
+		g.Expect(readyCondition).NotTo(BeNil())
+		g.Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue))
+		g.Expect(readyCondition.ObservedGeneration).To(Equal(dpfOperatorConfig.Generation))
+	}).WithTimeout(2 * time.Minute).Should(Succeed())
 }
 
 func createDeploymentDependencies(ctx context.Context, input *systemTestInput, nameDiff string) {
