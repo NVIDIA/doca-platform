@@ -24,6 +24,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/test/utils/informer"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -69,6 +70,9 @@ var _ = Describe("DPUNode Controller", func() {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
 				Namespace: namespace,
+				Labels: map[string]string{
+					release.DPFVersionLabelKey: release.DPFVersion(),
+				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
 						APIVersion: operatorv1.GroupVersion.String(),
@@ -521,6 +525,49 @@ var _ = Describe("DPUNode Controller", func() {
 					),
 				))
 
+			})
+
+			It("DPUNode: Validate the DPUNode condition are set correctly for non-k8s upgrade", func() {
+				dpuNode := createDPUNode("test-dpunode-15", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace)
+				dpuNode.Labels[release.DPFVersionLabelKey] = release.V2570
+				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
+
+				Eventually(func(g Gomega) []metav1.Condition {
+					dpuNodeFetched := &provisioningv1.DPUNode{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), dpuNodeFetched)).To(Succeed())
+					return dpuNodeFetched.Status.Conditions
+				}).WithTimeout(5 * time.Second).Should(ContainElement(
+					And(
+						HaveField("Type", provisioningv1.DPUNodeConditionNeedHostAgentUpgrade.String()),
+						HaveField("Status", metav1.ConditionTrue),
+					),
+				))
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), dpuNode)).To(Succeed())
+				var updatedCondition metav1.Condition
+				for _, condition := range dpuNode.Status.Conditions {
+					if condition.Type == provisioningv1.DPUNodeConditionNeedHostAgentUpgrade.String() {
+						condition.Status = metav1.ConditionFalse
+						condition.Reason = provisioningv1.DPUNodeConditionNeedHostAgentUpgrade.String()
+						updatedCondition = condition
+						break
+					}
+				}
+				patch := client.MergeFrom(dpuNode.DeepCopy())
+				dpuNode.Status.Conditions = []metav1.Condition{updatedCondition}
+				Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+				Eventually(func(g Gomega) []metav1.Condition {
+					dpuNodeFetched := &provisioningv1.DPUNode{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), dpuNodeFetched)).To(Succeed())
+					g.Expect(dpuNodeFetched.Labels[release.DPFVersionLabelKey]).To(Equal(release.DPFVersion()))
+					return dpuNodeFetched.Status.Conditions
+				}).WithTimeout(5 * time.Second).Should(ContainElement(
+					And(
+						HaveField("Type", provisioningv1.DPUNodeConditionNeedHostAgentUpgrade.String()),
+						HaveField("Status", metav1.ConditionFalse),
+						HaveField("Reason", provisioningv1.DPUNodeConditionNeedHostAgentUpgrade.String()),
+					),
+				))
 			})
 		})
 	})
