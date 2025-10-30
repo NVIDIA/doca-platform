@@ -26,7 +26,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dnutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	dpfutils "github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/release"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	batchv1 "k8s.io/api/batch/v1"
@@ -152,8 +152,8 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 	}
 
 	// Handle host agent upgrade
-	if result, err := r.handleHostAgentUpgrade(ctx, dpuNode, nodeRef != nil); err != nil || !result.IsZero() {
-		return result, err
+	if result := r.handleHostAgentUpgrade(ctx, dpuNode, nodeRef != nil); !result.IsZero() {
+		return result, nil
 	}
 
 	// Update DPUNode status - DPUInstallInterface
@@ -600,19 +600,14 @@ func (r *DPUNodeReconciler) ensureMount(mnts []corev1.VolumeMount, name, path st
 	return append(mnts, corev1.VolumeMount{Name: name, MountPath: path})
 }
 
-func (r *DPUNodeReconciler) handleHostAgentUpgrade(ctx context.Context, dpuNode *provisioningv1.DPUNode, isKubernetes bool) (ctrl.Result, error) {
+func (r *DPUNodeReconciler) handleHostAgentUpgrade(ctx context.Context, dpuNode *provisioningv1.DPUNode, isKubernetes bool) ctrl.Result {
 	log := log.FromContext(ctx)
 
 	if isKubernetes {
-		return ctrl.Result{}, nil
+		return ctrl.Result{}
 	}
-	dpfOperatorConfig, err := dpfutils.GetDPFOperatorConfig(ctx, r.Client)
-	if err != nil {
-		log.Error(fmt.Errorf("getting DPFOperatorConfig, err: %v", err), "")
-		return ctrl.Result{}, err
-	}
-	if !dpfOperatorConfig.UpgradeInProgress() {
-		return ctrl.Result{}, nil
+	if version, ok := dpuNode.Labels[release.DPFVersionLabelKey]; ok && version == release.DPFVersion() {
+		return ctrl.Result{}
 	}
 
 	dpuNodeUpgradeConditionExists, needHostAgentUpgradeValue := r.getDPUNodeUpgradeCondition(dpuNode)
@@ -620,16 +615,19 @@ func (r *DPUNodeReconciler) handleHostAgentUpgrade(ctx context.Context, dpuNode 
 		// Update the DPUNode condition to true and wait for the user to upgrade DMS
 		msg := "Need user to upgrade host agent during the dpf upgrade."
 		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionNeedHostAgentUpgrade, metav1.ConditionTrue, "", msg)
-		return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
+		return ctrl.Result{RequeueAfter: cutil.RequeueInterval}
 	} else if !needHostAgentUpgradeValue {
 		// User has completed the DMS upgrade
 		log.Info("Host agent upgrade is completed.")
-		return ctrl.Result{}, nil
+		if dpuNode.Labels == nil {
+			dpuNode.Labels = make(map[string]string)
+		}
+		dpuNode.Labels[release.DPFVersionLabelKey] = release.DPFVersion()
+		return ctrl.Result{}
 	} else {
 		log.Info("Waiting for the user to upgrade host agent.")
-		return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
+		return ctrl.Result{RequeueAfter: cutil.RequeueInterval}
 	}
-
 }
 
 func (r *DPUNodeReconciler) updateDPUNodeStatusConditions(dpuNode *provisioningv1.DPUNode, condType provisioningv1.DPUNodeConditionType, status metav1.ConditionStatus, reason string, message string) {
