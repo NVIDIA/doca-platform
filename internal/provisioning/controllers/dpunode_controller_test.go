@@ -549,6 +549,7 @@ var _ = Describe("DPUNode Controller", func() {
 					if condition.Type == provisioningv1.DPUNodeConditionNeedHostAgentUpgrade.String() {
 						condition.Status = metav1.ConditionFalse
 						condition.Reason = provisioningv1.DPUNodeConditionNeedHostAgentUpgrade.String()
+						condition.ObservedGeneration = dpuNode.Generation
 						updatedCondition = condition
 						break
 					}
