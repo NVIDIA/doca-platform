@@ -29,6 +29,8 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -71,7 +73,7 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 	taskID := string(dpu.UID)
 	task, maxReached := h.taskManager.RunTask(taskID, func() (any, error) {
 		return nil, h.handle(ctx, dev, dpu)
-	})
+	}, h.cleanupTask(dpu))
 	if task == nil || task.GetState() != future.Ready {
 		logger.Info("installation in progress, requeue after 10 seconds")
 		hostutil.NewCondition(condition).Failure(fmt.Errorf("installing"), InstallationInProgress).Set(&dpu.Status.Conditions)
@@ -126,7 +128,7 @@ func (h *Handler) download(ctx context.Context, filename string, dst string) err
 		return nil
 	} else if err := h.downloadWithKubernetesAPIServerVIP(ctx, filename, dst); err == nil {
 		logger.Info("download finished", "url", filename, "dst", dst)
-		return err
+		return nil
 	}
 	return origErr
 }
@@ -231,4 +233,20 @@ func (h *Handler) downloadWithKubernetesAPIServerVIP(ctx context.Context, filena
 		logger.Error(fmt.Errorf("workaround 2 failed to download file: %w", err), "url", httpURL)
 	}
 	return err
+}
+
+func (h *Handler) cleanupTask(dpu *provisioningv1.DPU) func() bool {
+	return func() bool {
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		latest := &provisioningv1.DPU{}
+		err := h.Client.Get(timeoutCtx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Name}, latest)
+		if err != nil {
+			return apierrors.IsNotFound(err)
+		} else if dpu.UID != latest.UID {
+			return true
+		}
+		return latest.Status.Phase != provisioningv1.DPUOSInstalling
+	}
 }
