@@ -89,6 +89,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 					Status:             metav1.ConditionTrue,
 					Reason:             string(conditions.ReasonSuccess),
 					LastTransitionTime: metav1.NewTime(time.Now()),
+					ObservedGeneration: dpuNodeMaintenance.Generation,
 				},
 			}
 			dpuNodeMaintenance.SetGroupVersionKind(provisioningv1.DPUNodeMaintenanceGroupVersionKind)
@@ -140,6 +141,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 					Status:             metav1.ConditionTrue,
 					Reason:             string(conditions.ReasonSuccess),
 					LastTransitionTime: metav1.NewTime(time.Now()),
+					ObservedGeneration: dpuNodeMaintenance.Generation,
 				},
 			}
 			dpuNodeMaintenance.SetGroupVersionKind(provisioningv1.DPUNodeMaintenanceGroupVersionKind)
@@ -198,6 +200,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 					Status:             metav1.ConditionTrue,
 					Reason:             string(conditions.ReasonSuccess),
 					LastTransitionTime: metav1.NewTime(time.Now()),
+					ObservedGeneration: dpuNodeMaintenance.Generation,
 				},
 			}
 			dpuNodeMaintenance.SetGroupVersionKind(provisioningv1.DPUNodeMaintenanceGroupVersionKind)
@@ -255,6 +258,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 					Status:             metav1.ConditionTrue,
 					Reason:             string(conditions.ReasonSuccess),
 					LastTransitionTime: metav1.NewTime(time.Now()),
+					ObservedGeneration: dpuNodeMaintenance.Generation,
 				},
 			}
 			dpuNodeMaintenance.SetGroupVersionKind(provisioningv1.DPUNodeMaintenanceGroupVersionKind)
@@ -308,6 +312,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 					Status:             metav1.ConditionTrue,
 					Reason:             string(conditions.ReasonSuccess),
 					LastTransitionTime: metav1.NewTime(time.Now()),
+					ObservedGeneration: dpuNodeMaintenance.Generation,
 				},
 			}
 			dpuNodeMaintenance.SetGroupVersionKind(provisioningv1.DPUNodeMaintenanceGroupVersionKind)
@@ -358,6 +363,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 					Status:             metav1.ConditionTrue,
 					Reason:             string(conditions.ReasonSuccess),
 					LastTransitionTime: metav1.NewTime(time.Now()),
+					ObservedGeneration: dpuNodeMaintenance.Generation,
 				},
 			}
 			dpuNodeMaintenance.SetGroupVersionKind(provisioningv1.DPUNodeMaintenanceGroupVersionKind)

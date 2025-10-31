@@ -242,6 +242,7 @@ var _ = Describe("DPUStoragePolicy controller", Ordered, func() {
 					Status:             metav1.ConditionTrue,
 					Reason:             string(conditions.ReasonSuccess),
 					LastTransitionTime: metav1.Now(),
+					ObservedGeneration: v.Generation,
 				}}
 				g.Expect(testClient.Status().Update(ctx, v)).NotTo(HaveOccurred())
 			}, timeout, interval).Should(Succeed())
