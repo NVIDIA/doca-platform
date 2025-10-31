@@ -771,6 +771,20 @@ func TestIsTrue(t *testing.T) {
 			expected: false,
 		},
 		{
+			name:          "Condition is true but old generation",
+			obj:           &MockObject{generation: 2},
+			conditionType: TypeReady,
+			initialConditions: []metav1.Condition{
+				{
+					Type:               string(TypeReady),
+					Status:             metav1.ConditionTrue,
+					Reason:             string(ReasonSuccess),
+					ObservedGeneration: 1,
+				},
+			},
+			expected: false,
+		},
+		{
 			name:          "Condition does not exist",
 			obj:           &MockObject{},
 			conditionType: TypeReady,

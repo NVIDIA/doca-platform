@@ -338,9 +338,8 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 			clusterDPUService: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "sfc-controller",
-					Namespace:  "test-namespace",
-					Generation: 1,
+					Name:      "sfc-controller",
+					Namespace: "test-namespace",
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
 				Status: dpuservicev1.DPUServiceStatus{
@@ -350,7 +349,6 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 							Status: "True",
 						},
 					},
-					ObservedGeneration: 1,
 				},
 			},
 			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
@@ -414,9 +412,8 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 			clusterDPUService: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "sfc-controller",
-					Namespace:  "test-namespace",
-					Generation: 1,
+					Name:      "sfc-controller",
+					Namespace: "test-namespace",
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
 				Status: dpuservicev1.DPUServiceStatus{
@@ -426,7 +423,6 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 							Status: "False",
 						},
 					},
-					ObservedGeneration: 1,
 				},
 			},
 			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
@@ -467,9 +463,8 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 			clusterDPUService: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "sfc-controller",
-					Namespace:  "test-namespace",
-					Generation: 1,
+					Name:      "sfc-controller",
+					Namespace: "test-namespace",
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
 				Status: dpuservicev1.DPUServiceStatus{
@@ -479,7 +474,6 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 							Status: "True",
 						},
 					},
-					ObservedGeneration: 1,
 				},
 			},
 			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
@@ -544,9 +538,8 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 			clusterDPUService: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "sfc-controller",
-					Namespace:  "test-namespace",
-					Generation: 1,
+					Name:      "sfc-controller",
+					Namespace: "test-namespace",
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
 				Status: dpuservicev1.DPUServiceStatus{
@@ -556,7 +549,6 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 							Status: "True",
 						},
 					},
-					ObservedGeneration: 1,
 				},
 			},
 			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
@@ -597,9 +589,8 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 			clusterDPUService: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "sfc-controller",
-					Namespace:  "test-namespace",
-					Generation: 1,
+					Name:      "sfc-controller",
+					Namespace: "test-namespace",
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
 				Status: dpuservicev1.DPUServiceStatus{
@@ -609,7 +600,6 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 							Status: "True",
 						},
 					},
-					ObservedGeneration: 1,
 				},
 			},
 			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
@@ -645,67 +635,13 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 			expectedErrorMsg: "SFC Controller related DPUServiceNAD test-namespace/test-nad-1 is not ready",
 		},
 		{
-			name: "SFC Controller is not ready when DPUService generation mismatch",
-			// Cluster objects - DPUService exists but generation doesn't match
-			clusterDPUService: &dpuservicev1.DPUService{
-				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "sfc-controller",
-					Namespace:  "test-namespace",
-					Generation: 1,
-				},
-				Spec: dpuservicev1.DPUServiceSpec{},
-				Status: dpuservicev1.DPUServiceStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:   "Ready",
-							Status: "True",
-						},
-					},
-					ObservedGeneration: 2, // Mismatch with generation 1
-				},
-			},
-			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
-				{
-					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-nad-1",
-						Namespace: "test-namespace",
-					},
-					Spec: dpuservicev1.DPUServiceNADSpec{},
-					Status: dpuservicev1.DPUServiceNADStatus{
-						Conditions: []metav1.Condition{
-							{
-								Type:   "Ready",
-								Status: "True",
-							},
-						},
-					},
-				},
-			},
-			// Internal structure objects - SFC Controller expects this NAD to exist
-			internalSFCNADs: []*unstructured.Unstructured{
-				{
-					Object: map[string]interface{}{
-						"metadata": map[string]interface{}{
-							"name":      "test-nad-1",
-							"namespace": "internal-namespace",
-						},
-					},
-				},
-			},
-			wantErr:          true,
-			expectedErrorMsg: "DPUService test-namespace/sfc-controller is not ready: generation is not equal to observed generation",
-		},
-		{
 			name: "SFC Controller is not ready when DPUServiceNAD is not found",
 			// Cluster objects - DPUService is ready, but NAD doesn't exist in cluster
 			clusterDPUService: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "sfc-controller",
-					Namespace:  "test-namespace",
-					Generation: 1,
+					Name:      "sfc-controller",
+					Namespace: "test-namespace",
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
 				Status: dpuservicev1.DPUServiceStatus{
@@ -715,7 +651,6 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 							Status: "True",
 						},
 					},
-					ObservedGeneration: 1,
 				},
 			},
 			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
@@ -741,9 +676,8 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 			clusterDPUService: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "sfc-controller",
-					Namespace:  "test-namespace",
-					Generation: 1,
+					Name:      "sfc-controller",
+					Namespace: "test-namespace",
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
 				Status: dpuservicev1.DPUServiceStatus{
@@ -753,7 +687,6 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 							Status: "True",
 						},
 					},
-					ObservedGeneration: 1,
 				},
 			},
 			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
@@ -834,9 +767,8 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 			clusterDPUService: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "sfc-controller",
-					Namespace:  "test-namespace",
-					Generation: 1,
+					Name:      "sfc-controller",
+					Namespace: "test-namespace",
 					Labels: map[string]string{
 						release.DPFVersionLabelKey: release.DPFVersion(),
 					},
@@ -849,7 +781,6 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 							Status: "True",
 						},
 					},
-					ObservedGeneration: 1,
 				},
 			},
 			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
@@ -919,9 +850,8 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 			clusterDPUService: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "sfc-controller",
-					Namespace:  "test-namespace",
-					Generation: 1,
+					Name:      "sfc-controller",
+					Namespace: "test-namespace",
 					Labels: map[string]string{
 						release.DPFVersionLabelKey: "v0.0.9", // Wrong version
 					},
@@ -934,7 +864,6 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 							Status: "True",
 						},
 					},
-					ObservedGeneration: 1,
 				},
 			},
 			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
@@ -978,9 +907,8 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 			clusterDPUService: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "sfc-controller",
-					Namespace:  "test-namespace",
-					Generation: 1,
+					Name:      "sfc-controller",
+					Namespace: "test-namespace",
 					Labels: map[string]string{
 						release.DPFVersionLabelKey: release.DPFVersion(),
 					},
@@ -993,7 +921,6 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 							Status: "True",
 						},
 					},
-					ObservedGeneration: 1,
 				},
 			},
 			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
@@ -1037,9 +964,8 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 			clusterDPUService: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "sfc-controller",
-					Namespace:  "test-namespace",
-					Generation: 1,
+					Name:      "sfc-controller",
+					Namespace: "test-namespace",
 					// No version label - this is allowed
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
@@ -1050,7 +976,6 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 							Status: "True",
 						},
 					},
-					ObservedGeneration: 1,
 				},
 			},
 			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
@@ -1091,9 +1016,8 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 			clusterDPUService: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "sfc-controller",
-					Namespace:  "test-namespace",
-					Generation: 1,
+					Name:      "sfc-controller",
+					Namespace: "test-namespace",
 					Labels: map[string]string{
 						release.DPFVersionLabelKey: release.DPFVersion(),
 					},
@@ -1106,7 +1030,6 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 							Status: "False",
 						},
 					},
-					ObservedGeneration: 1,
 				},
 			},
 			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
@@ -1150,9 +1073,8 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 			clusterDPUService: &dpuservicev1.DPUService{
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "sfc-controller",
-					Namespace:  "test-namespace",
-					Generation: 1,
+					Name:      "sfc-controller",
+					Namespace: "test-namespace",
 					Labels: map[string]string{
 						release.DPFVersionLabelKey: release.DPFVersion(),
 					},
@@ -1165,7 +1087,6 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 							Status: "True",
 						},
 					},
-					ObservedGeneration: 1,
 				},
 			},
 			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{

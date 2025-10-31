@@ -421,9 +421,7 @@ func (f *fromDPUService) isReady(ctx context.Context, c client.Client, namespace
 				obj.GetNamespace(), obj.GetName(), obj.GetLabels()[release.DPFVersionLabelKey], release.DPFVersion())
 		}
 	}
-	if obj.GetGeneration() != obj.Status.ObservedGeneration {
-		return fmt.Errorf("DPUService %s/%s is not ready: generation is not equal to observed generation", obj.Namespace, obj.Name)
-	}
+
 	if !conditions.IsTrue(obj, conditions.TypeReady) {
 		return fmt.Errorf("DPUService %s/%s is not ready", obj.Namespace, obj.Name)
 	}
