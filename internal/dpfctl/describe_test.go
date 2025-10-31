@@ -178,9 +178,8 @@ func Test_dpfctlTreeDiscovery(t *testing.T) {
 				"    │   ├─DPUDevices",
 				"    │   │ └─DPUDevice/test-device                                                       default  Ready: True  Success",
 				"    │   └─DPUNodeMaintenance/test-maintenance                                           default",
-				"    │                 ├─Ready                                                                    True         Success",
-				"    │                 ├─Requestor/dpf-operator-system/ovn-kubernetes/ovn-control-plane           False        MaintenanceInProgress  0s  Maintenance requested by DPUService dpf-operator-system/ovn-control-plane (service: ovn-kubernetes)",
-				"    │                 └─Requestor/DPU/worker1-mt2413xz0awv                                       False        MaintenanceInProgress  0s  Maintenance requested by DPU worker1-mt2413xz0awv",
+				"    │                 ├─Requestor/dpf-operator-system/ovn-kubernetes/ovn-control-plane           False        MaintenanceInProgress  0s  Maintenance requested by dpf-operator-system/ovn-control-plane",
+				"    │                 └─Requestor/DPU/test-dpu-with-node                                         False        MaintenanceInProgress  0s  Maintenance requested by DPU test-dpu-with-node",
 				"    └─DPUs",
 				"      └─DPU/test-dpu-with-node                                                          default  Ready: True  Success",
 			},
@@ -1555,7 +1554,7 @@ func defaultDPUNodeMaintenance() *provisioningv1.DPUNodeMaintenance {
 		ObjectMeta: metav1.ObjectMeta{Name: "test-maintenance", Namespace: "default"},
 		Spec: provisioningv1.DPUNodeMaintenanceSpec{
 			DPUNodeName: "test-node",
-			Requestor:   []string{"dpf-operator-system_ovn-kubernetes_ovn-control-plane", "worker1-mt2413xz0awv"},
+			Requestor:   []string{"dpf-operator-system_ovn-kubernetes_ovn-control-plane", "test-dpu-with-node"},
 		},
 	}
 }

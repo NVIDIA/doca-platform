@@ -916,19 +916,28 @@ func addDPUNodesForDPUSet(ctx context.Context, o objectScope, dpuSet *provisioni
 			continue
 		}
 
-		dpuNode.TypeMeta = metav1.TypeMeta{
+		// Create a COPY of the DPUNode so each DPUSet has its own instance with unique UID in the tree
+		// This prevents children from one DPUSet appearing under the same node in another DPUSet
+		dpuNodeCopy := dpuNode.DeepCopy()
+		dpuNodeCopy.TypeMeta = metav1.TypeMeta{
 			Kind:       provisioningv1.DPUNodeKind,
 			APIVersion: provisioningv1.GroupVersion.String(),
 		}
-		dpuNodesToAdd = append(dpuNodesToAdd, dpuNode)
+		// Generate a new UID to make this a distinct instance in the tree
+		// Format: original-uid_dpuset-namespace_dpuset-name to make it unique per DPUSet context
+		newUID := fmt.Sprintf("%s_%s_%s", dpuNode.GetUID(), dpuSet.GetNamespace(), dpuSet.GetName())
+		dpuNodeCopy.SetUID(types.UID(newUID))
 
-		// Add DPUDevices for this DPUNode
-		if err := addDPUDevicesForNode(ctx, o, dpuNode, dpuList.Items); err != nil {
+		// Add the DPUNode copy to the tree under the DPUNodes header
+		dpuNodesToAdd = append(dpuNodesToAdd, dpuNodeCopy)
+
+		// Add DPUDevices for this DPUNode (use the copy so children are added to the right instance)
+		if err := addDPUDevicesForNode(ctx, o, dpuNodeCopy, dpuList.Items); err != nil {
 			return err
 		}
 
-		// Add DPUNodeMaintenances for this DPUNode
-		if err := addDPUNodeMaintenancesForNode(ctx, o, dpuNode); err != nil {
+		// Add DPUNodeMaintenances for this DPUNode, filtered by DPUSet context
+		if err := addDPUNodeMaintenancesForNode(ctx, o, dpuNodeCopy, dpuSet, dpuList.Items); err != nil {
 			return err
 		}
 	}
@@ -987,7 +996,8 @@ func addDPUDevicesForNode(ctx context.Context, o objectScope, dpuNode *provision
 }
 
 // addDPUNodeMaintenancesForNode adds DPUNodeMaintenances that target a specific DPUNode.
-func addDPUNodeMaintenancesForNode(ctx context.Context, o objectScope, dpuNode *provisioningv1.DPUNode) error {
+// It filters requestors to only show those relevant to the given DPUSet context.
+func addDPUNodeMaintenancesForNode(ctx context.Context, o objectScope, dpuNode *provisioningv1.DPUNode, dpuSet *provisioningv1.DPUSet, dpusInSet []provisioningv1.DPU) error {
 	if !showResource(o.opts, provisioningv1.DPUNodeMaintenanceKind) {
 		return nil
 	}
@@ -997,6 +1007,22 @@ func addDPUNodeMaintenancesForNode(ctx context.Context, o objectScope, dpuNode *
 		return err
 	}
 
+	// Build a set of DPU names in this DPUSet
+	dpuNamesInSet := make(map[string]bool)
+	for _, dpu := range dpusInSet {
+		dpuNamesInSet[dpu.Name] = true
+	}
+
+	// Get the parent DPUDeployment label from the DPUSet (if it exists)
+	// The label value format is: namespace_dpudeployment
+	parentDPUDeploymentPrefix := ""
+	if dpuSet.Labels != nil {
+		// ParentDPUDeploymentNameLabel = "svc.dpu.nvidia.com/owned-by-dpudeployment"
+		if parentLabel, ok := dpuSet.Labels[dpuservicev1.ParentDPUDeploymentNameLabel]; ok {
+			parentDPUDeploymentPrefix = parentLabel
+		}
+	}
+
 	// Filter for maintenances targeting this node
 	addToTree := []client.Object{}
 	for _, dpuNodeMaintenance := range dpuNodeMaintenanceList.Items {
@@ -1004,52 +1030,60 @@ func addDPUNodeMaintenancesForNode(ctx context.Context, o objectScope, dpuNode *
 			continue
 		}
 
-		dpuNodeMaintenance.TypeMeta = metav1.TypeMeta{
+		// Create a COPY of the maintenance object so we don't modify the original
+		// (same DPUNode can be in multiple DPUSets with different filtered requestors)
+		maintenanceCopy := dpuNodeMaintenance.DeepCopy()
+		maintenanceCopy.TypeMeta = metav1.TypeMeta{
 			Kind:       provisioningv1.DPUNodeMaintenanceKind,
 			APIVersion: provisioningv1.GroupVersion.String(),
 		}
+		// Generate a new UID to make this a distinct instance in the tree
+		// Format: original-uid_dpuset-namespace_dpuset-name to make it unique per DPUSet context
+		newUID := fmt.Sprintf("%s_%s_%s", dpuNodeMaintenance.GetUID(), dpuSet.GetNamespace(), dpuSet.GetName())
+		maintenanceCopy.SetUID(types.UID(newUID))
 
-		// Create fake conditions for each requestor
-		conds := dpuNodeMaintenance.GetConditions()
-		existingConditions := map[string]bool{}
-		for _, cond := range conds {
-			existingConditions[cond.Type] = true
+		// Filter requestors to only show those relevant to this DPUSet
+		relevantRequestors := filterRequestorsForDPUSet(dpuNodeMaintenance.Spec.Requestor, parentDPUDeploymentPrefix, dpuNamesInSet)
+
+		// Skip this maintenance if no relevant requestors for this DPUSet
+		if len(relevantRequestors) == 0 {
+			maintenanceCopy.Status.Conditions = []metav1.Condition{}
+			conditions.AddTrue(maintenanceCopy, conditions.TypeReady)
+			addToTree = append(addToTree, maintenanceCopy)
+			continue
 		}
 
-		for _, requestor := range dpuNodeMaintenance.Spec.Requestor {
-			// Parse requestor name: if it's <namespace>_<service name>_<dpuservice name> format it nicely
+		// Create fake conditions for each relevant requestor
+		// Start with empty conditions - we only want to show conditions for relevant requestors
+		conds := []metav1.Condition{}
+
+		for _, requestor := range relevantRequestors {
+			// Parse requestor name: if it's <namespace>_<dpudeployment>_<object name> format it nicely
 			var condType, message string
 			parts := strings.Split(requestor, "_")
-			if len(parts) == 3 {
-				// Format: namespace/servicename/dpuservicename
-				condType = fmt.Sprintf("Requestor/%s/%s/%s", parts[0], parts[1], parts[2])
-				message = fmt.Sprintf("Maintenance requested by DPUService %s/%s (service: %s)", parts[0], parts[2], parts[1])
+			if len(parts) >= 3 {
+				// Format: namespace_dpudeployment_objectname (DPUService/DPUServiceChain requestor)
+				condType = fmt.Sprintf("Requestor/%s/%s/%s", parts[0], parts[1], strings.Join(parts[2:], "_"))
+				message = fmt.Sprintf("Maintenance requested by %s/%s", parts[0], strings.Join(parts[2:], "_"))
 			} else {
 				// Treat as DPU name
 				condType = fmt.Sprintf("Requestor/DPU/%s", requestor)
 				message = fmt.Sprintf("Maintenance requested by DPU %s", requestor)
 			}
 
-			if !existingConditions[condType] {
-				// Find the most recent lastTransitionTime in conditions to set the Age.
-				newestLastTransitionTime := dpuNodeMaintenance.ObjectMeta.GetCreationTimestamp()
-				for _, c := range conds {
-					if c.LastTransitionTime.After(newestLastTransitionTime.Time) {
-						newestLastTransitionTime = c.LastTransitionTime
-					}
-				}
+			// Use the creation timestamp for the condition age
+			newestLastTransitionTime := maintenanceCopy.ObjectMeta.GetCreationTimestamp()
 
-				conds = append(conds, metav1.Condition{
-					Type:               condType,
-					Status:             metav1.ConditionFalse,
-					LastTransitionTime: newestLastTransitionTime,
-					Reason:             "MaintenanceInProgress",
-					Message:            message,
-				})
-			}
+			conds = append(conds, metav1.Condition{
+				Type:               condType,
+				Status:             metav1.ConditionFalse,
+				LastTransitionTime: newestLastTransitionTime,
+				Reason:             "MaintenanceInProgress",
+				Message:            message,
+			})
 		}
-		dpuNodeMaintenance.SetConditions(conds)
-		addToTree = append(addToTree, &dpuNodeMaintenance)
+		maintenanceCopy.SetConditions(conds)
+		addToTree = append(addToTree, maintenanceCopy)
 	}
 
 	for _, dpuNodeMaintenance := range addToTree {
@@ -1057,4 +1091,34 @@ func addDPUNodeMaintenancesForNode(ctx context.Context, o objectScope, dpuNode *
 	}
 
 	return nil
+}
+
+// filterRequestorsForDPUSet filters requestors to only show those relevant to a specific DPUSet.
+// It returns requestors that either:
+// 1. Match DPU names in the DPUSet (for DPU requestors)
+// 2. Start with the parent DPUDeployment prefix (for DPUService/DPUServiceChain requestors)
+func filterRequestorsForDPUSet(requestors []string, parentDPUDeploymentPrefix string, dpuNamesInSet map[string]bool) []string {
+	var relevantRequestors []string
+	for _, requestor := range requestors {
+		parts := strings.Split(requestor, "_")
+		if len(parts) >= 3 {
+			// This is a DPUService/DPUServiceChain requestor: namespace_dpudeployment_objectname
+			// Check if it matches the parent DPUDeployment
+			// Format: dpf-operator-system_ovn-hbn_blueman-wbwp7
+			requestorPrefix := fmt.Sprintf("%s_%s", parts[0], parts[1])
+
+			// If no parent prefix (standalone DPUSet), show all requestors
+			// Otherwise only show requestors matching this DPUDeployment
+			if parentDPUDeploymentPrefix == "" || requestorPrefix == parentDPUDeploymentPrefix {
+				relevantRequestors = append(relevantRequestors, requestor)
+			}
+		} else {
+			// This is a DPU requestor - check if it's in our DPUSet
+			// If no DPUs in set, it means we're showing a standalone DPUSet, so include all
+			if len(dpuNamesInSet) == 0 || dpuNamesInSet[requestor] {
+				relevantRequestors = append(relevantRequestors, requestor)
+			}
+		}
+	}
+	return relevantRequestors
 }
