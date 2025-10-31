@@ -102,6 +102,39 @@ func (od ObjectTree) AddMultipleWithHeader(parent client.Object, objs []client.O
 	}
 }
 
+// hasNotReadyChildren checks if an object has any children that are not ready.
+// This is used to prevent grouping of nodes that have failing or in-progress children.
+func (od ObjectTree) hasNotReadyChildren(obj client.Object) bool {
+	children := od.GetObjectsByParent(obj.GetUID())
+	for _, child := range children {
+		childReady := getReadyCondition(child)
+
+		// If child has no Ready condition, check if it has ANY non-True conditions
+		// (e.g., DPUNodeMaintenance with requestor conditions showing False)
+		if childReady == nil {
+			// Check if the child has any failed conditions
+			if hasFailedConditions(child) {
+				return true
+			}
+
+			// If it has no failed conditions, it might be a virtual/organizational object
+			// Recursively check its children instead
+			if !hasFailedConditions(child) && len(GetConditions(child)) == 0 {
+				if od.hasNotReadyChildren(child) {
+					return true
+				}
+			}
+			continue
+		}
+
+		// If child has a Ready condition but it's not True, consider it not ready
+		if childReady.Status != metav1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
 // Add a object to the object tree.
 // Adoption from: https://github.com/kubernetes-sigs/cluster-api/blob/release-1.9/cmd/clusterctl/client/tree/tree.go#L89
 func (od ObjectTree) Add(parent, obj client.Object, opts ...AddObjectOption) (added bool, visible bool) {
@@ -131,7 +164,8 @@ func (od ObjectTree) Add(parent, obj client.Object, opts ...AddObjectOption) (ad
 	// If it is requested that this object and its sibling should be grouped in case the ready condition
 	// has the same Status and Reason, process all the sibling nodes that are Ready and group them. All
 	// other siblings that are not Ready will be printed ungrouped.
-	if IsGroupingObject(parent) && objReady != nil && objReady.Status == metav1.ConditionTrue {
+	// Also don't group if this object has children that aren't ready.
+	if IsGroupingObject(parent) && objReady != nil && objReady.Status == metav1.ConditionTrue && !od.hasNotReadyChildren(obj) {
 		siblings := od.GetObjectsByParent(parent.GetUID())
 
 		// The loop below will process the next node and decide if it belongs in a group. Since objects in the same group
@@ -147,6 +181,12 @@ func (od ObjectTree) Add(parent, obj client.Object, opts ...AddObjectOption) (ad
 			// If the object's ready condition has a different Status, Severity and Reason than the sibling object,
 			// move on (they should not be grouped).
 			if !hasSameStatusAndReason(objReady, sReady) {
+				continue
+			}
+
+			// Don't group if the sibling has children that aren't ready (e.g., DPUNodeMaintenances in progress)
+			// This ensures that nodes with active maintenance or failing children are shown individually
+			if od.hasNotReadyChildren(s) {
 				continue
 			}
 
