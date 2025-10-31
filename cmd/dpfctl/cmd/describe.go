@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -33,7 +34,10 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -109,10 +113,12 @@ func init() {
 func runDescribe(subCmd string) error {
 	ctx := context.Background()
 
-	c, err := newClient()
+	c, cacheStopFunc, err := newCachedClient(ctx)
 	if err != nil {
 		return err
 	}
+	// Stop the cache when we're done to release resources
+	defer cacheStopFunc()
 
 	options := dpfctl.ObjectTreeOptions{
 		ShowResources:       opts.showResources,
@@ -139,24 +145,67 @@ func runDescribe(subCmd string) error {
 	return dpfctl.PrintObjectTree(tree)
 }
 
-func newClient() (client.Client, error) {
+// newCachedClient creates a cached client for better performance when doing many List/Get calls.
+// Returns the client, a stop function to cleanup the cache, and any error.
+func newCachedClient(ctx context.Context) (client.Client, func(), error) {
 	config, err := ctrl.GetConfig()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	c, err := client.New(config, client.Options{})
+	// Create a scheme with all the types we need
+	scheme := runtime.NewScheme()
+	_ = operatorv1.AddToScheme(scheme)
+	_ = provisioningv1.AddToScheme(scheme)
+	_ = dpuservicev1.AddToScheme(scheme)
+	_ = argov1.AddToScheme(scheme)
+	_ = vpcv1.AddToScheme(scheme)
+	_ = storagev1.AddToScheme(scheme)
+	_ = kamajiv1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	// Create a cache to hold the objects
+	cacheObj, err := cache.New(config, cache.Options{
+		Scheme: scheme,
+	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	_ = operatorv1.AddToScheme(c.Scheme())
-	_ = provisioningv1.AddToScheme(c.Scheme())
-	_ = dpuservicev1.AddToScheme(c.Scheme())
-	_ = argov1.AddToScheme(c.Scheme())
-	_ = vpcv1.AddToScheme(c.Scheme())
-	_ = storagev1.AddToScheme(c.Scheme())
-	_ = kamajiv1.AddToScheme(c.Scheme())
+	// Start the cache in a goroutine
+	cacheCtx, cacheCancel := context.WithTimeout(ctx, time.Minute)
+	go func() {
+		if err := cacheObj.Start(cacheCtx); err != nil {
+			// Log error but don't fail - the cache will just not work
+			fmt.Fprintf(os.Stderr, "Warning: cache failed to start: %v\n", err)
+		}
+	}()
 
-	return c, nil
+	// Wait for the cache to sync
+	if !cacheObj.WaitForCacheSync(cacheCtx) {
+		cacheCancel()
+		return nil, nil, fmt.Errorf("failed to sync cache")
+	}
+
+	// Create a client that uses the cache for reads
+	// This approach follows the pattern used in pkg/dpucluster/accessor_client.go
+	c, err := client.New(config, client.Options{
+		Scheme: scheme,
+		Cache: &client.CacheOptions{
+			Reader:       cacheObj,
+			Unstructured: true,
+			// Don't cache secrets and configmaps as they're not needed and can be numerous
+			DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}},
+		},
+	})
+	if err != nil {
+		cacheCancel()
+		return nil, nil, err
+	}
+
+	stopFunc := func() {
+		cacheCancel()
+	}
+
+	return c, stopFunc, nil
 }
