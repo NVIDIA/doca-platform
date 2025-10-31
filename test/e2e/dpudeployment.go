@@ -452,11 +452,6 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx context.Context, input
 		g.Expect(readyCondition.ObservedGeneration).To(Equal(dpfOperatorConfig.Generation))
 	}).WithTimeout(2 * time.Minute).Should(Succeed())
 
-	// TODO: Remove this when the DPUDeployment controller has a more precise condition to check
-	// whether the DPUSet is ready. Race condition, internal reference #4686288.
-	By("Sleeping for 30 seconds to allow the provisioning controller to reconcile")
-	time.Sleep(30 * time.Second)
-
 	By("Getting the existing DPUDeployment")
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
@@ -696,11 +691,6 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade(ctx context.Context, 
 		g.Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue))
 		g.Expect(readyCondition.ObservedGeneration).To(Equal(dpfOperatorConfig.Generation))
 	}).WithTimeout(2 * time.Minute).Should(Succeed())
-
-	// TODO: Remove this when the DPUDeployment controller has a more precise condition to check
-	// whether the DPUSet is ready. Race condition, internal reference #4686288.
-	By("Sleeping for 30 seconds to allow the provisioning controller to reconcile")
-	time.Sleep(30 * time.Second)
 
 	By("Getting the existing DPUDeployment")
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
