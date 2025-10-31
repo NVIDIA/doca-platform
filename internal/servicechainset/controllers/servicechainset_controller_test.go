@@ -577,6 +577,7 @@ var _ = Describe("ServiceChainSet Controller", func() {
 						Status:             metav1.ConditionTrue,
 						Reason:             string(conditions.ReasonSuccess),
 						LastTransitionTime: metav1.NewTime(time.Now()),
+						ObservedGeneration: serviceChain.Generation,
 					},
 				}
 				serviceChain.SetGroupVersionKind(dpuservicev1.ServiceChainGroupVersionKind)
@@ -638,6 +639,7 @@ var _ = Describe("ServiceChainSet Controller", func() {
 							Status:             metav1.ConditionTrue,
 							Reason:             string(conditions.ReasonSuccess),
 							LastTransitionTime: metav1.NewTime(time.Now()),
+							ObservedGeneration: serviceChain.Generation,
 						},
 					}
 				} else {
@@ -647,6 +649,7 @@ var _ = Describe("ServiceChainSet Controller", func() {
 							Status:             metav1.ConditionFalse,
 							Reason:             string(conditions.ReasonPending),
 							LastTransitionTime: metav1.NewTime(time.Now()),
+							ObservedGeneration: serviceChain.Generation,
 						},
 					}
 				}

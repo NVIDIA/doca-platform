@@ -177,8 +177,6 @@ func (p *sfcControllerObjects) areDPUServiceNADsReady(ctx context.Context, c cli
 			}
 		}
 
-		//TODO: Add extra check for observedGeneration once observedGeneration is added at the DPUServiceNAD conditions
-
 		if !conditions.IsTrue(gotDPUServiceNAD, conditions.TypeReady) {
 			errs = append(errs, fmt.Errorf("SFC Controller related DPUServiceNAD %s is not ready", key))
 			continue

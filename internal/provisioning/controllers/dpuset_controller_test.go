@@ -978,6 +978,7 @@ var _ = Describe("DPUSet", func() {
 					LastTransitionTime: metav1.Now(),
 					Reason:             "TestReady",
 					Message:            "DPU is ready for testing",
+					ObservedGeneration: createdDPU.Generation,
 				},
 			}
 			Expect(k8sClient.Status().Patch(ctx, createdDPU, patchBase)).To(Succeed())

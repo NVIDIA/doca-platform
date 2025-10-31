@@ -683,6 +683,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 						Status:             metav1.ConditionTrue,
 						Reason:             string(conditions.ReasonSuccess),
 						LastTransitionTime: metav1.NewTime(time.Now()),
+						ObservedGeneration: serviceInterface.Generation,
 					},
 				}
 				serviceInterface.SetGroupVersionKind(dpuservicev1.ServiceInterfaceGroupVersionKind)
@@ -744,6 +745,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 							Status:             metav1.ConditionTrue,
 							Reason:             string(conditions.ReasonSuccess),
 							LastTransitionTime: metav1.NewTime(time.Now()),
+							ObservedGeneration: serviceInterface.Generation,
 						},
 					}
 				} else {
@@ -753,6 +755,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 							Status:             metav1.ConditionFalse,
 							Reason:             string(conditions.ReasonPending),
 							LastTransitionTime: metav1.NewTime(time.Now()),
+							ObservedGeneration: serviceInterface.Generation,
 						},
 					}
 				}

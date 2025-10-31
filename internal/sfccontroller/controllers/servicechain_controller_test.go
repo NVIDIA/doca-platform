@@ -239,6 +239,7 @@ var _ = Describe("service chain controller", func() {
 				Reason:             "Pending",
 				Message:            "The following conditions are not ready:\n* ServiceChainReconciled",
 				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: siList.Items[0].Generation,
 			},
 			{
 				Type:               string(dpuservicev1.ServiceChainReconciled),
@@ -246,6 +247,7 @@ var _ = Describe("service chain controller", func() {
 				Reason:             "Error",
 				Message:            "dummy error message",
 				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: siList.Items[0].Generation,
 			},
 		}
 
