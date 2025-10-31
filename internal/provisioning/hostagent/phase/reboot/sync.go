@@ -274,12 +274,8 @@ func (r *Handler) listDPUWithClient(ctx context.Context) ([]provisioningv1.DPU, 
 }
 
 func (r *Handler) persistDPUBootID(dpus []provisioningv1.DPU, skip bool) error {
-	f := r.persistBootIDFunc
-	if f == nil {
-		f = writeDPUBootIDFile
-	}
 	for _, dpu := range dpus {
-		if err := f(&dpu, skip); err != nil {
+		if err := r.bootIDStore.PersistBootID(&dpu, skip); err != nil {
 			return fmt.Errorf("failed to write DPU boot ID file. dpu: %s, err: %w", dpu.Name, err)
 		}
 	}
@@ -338,7 +334,7 @@ func (r *Handler) isDPUOff(rshim string) (bool, string, error) {
 }
 
 func (r *Handler) needRebooting(dpu provisioningv1.DPU) (bool, error) {
-	finished, err := r.rebootFinished(&dpu)
+	finished, err := r.bootIDStore.IsRebootFinished(&dpu)
 	if err != nil {
 		return false, fmt.Errorf("failed to check if reboot is finished. dpu: %s, err: %v", dpu.Name, err)
 	}

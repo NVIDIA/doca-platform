@@ -16,21 +16,29 @@ limitations under the License.
 
 package future
 
-import "sync"
+import (
+	"context"
+	"sync"
+	"time"
 
-type FurtureTaskState int
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
+)
+
+type FutureTaskState int
 
 const (
-	Poll FurtureTaskState = iota
+	Poll FutureTaskState = iota
 	Ready
 )
 
 type Future struct {
-	mutex  sync.Mutex
-	wg     sync.WaitGroup
-	result any
-	err    error
-	state  FurtureTaskState
+	mutex       sync.Mutex
+	wg          sync.WaitGroup
+	result      any
+	err         error
+	state       FutureTaskState
+	cleanupFunc func() bool
 }
 
 func (f *Future) GetResult() (any, error) {
@@ -39,17 +47,18 @@ func (f *Future) GetResult() (any, error) {
 	return f.result, f.err
 }
 
-func (f *Future) GetState() FurtureTaskState {
+func (f *Future) GetState() FutureTaskState {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 	return f.state
 }
 
-func New(fn func() (any, error)) *Future {
+func New(fn func() (any, error), cleanupFunc func() bool) *Future {
 
 	f := Future{
-		state: Poll,
-		err:   nil,
+		state:       Poll,
+		err:         nil,
+		cleanupFunc: cleanupFunc,
 	}
 	f.wg.Add(1)
 
@@ -72,19 +81,28 @@ type TaskManager struct {
 }
 
 func NewTaskManager(maxRun int) *TaskManager {
-	return &TaskManager{
+	tm := &TaskManager{
 		maxRun:     maxRun,
 		tasks:      make(map[string]*Future),
 		taskRunCnt: make(map[string]int),
 	}
+	tm.StartHousekeeping()
+	return tm
 }
 
-func (m *TaskManager) RunTask(taskID string, f func() (any, error)) (task *Future, maxReached bool) {
+func (m *TaskManager) StartHousekeeping() {
+	go wait.PollUntilContextCancel(context.Background(), 10*time.Second, true, func(ctx context.Context) (bool, error) { //nolint:errcheck
+		m.housekeeping()
+		return false, nil
+	})
+}
+
+func (m *TaskManager) RunTask(taskID string, f func() (any, error), cleanupFunc func() bool) (task *Future, maxReached bool) {
 	m.Lock()
 	defer m.Unlock()
 	task, ok := m.tasks[taskID]
 	if !ok {
-		task = New(f)
+		task = New(f, cleanupFunc)
 		m.tasks[taskID] = task
 		m.taskRunCnt[taskID] = 1
 		return task, m.isMaxRunReached(taskID)
@@ -99,12 +117,33 @@ func (m *TaskManager) RunTask(taskID string, f func() (any, error)) (task *Futur
 		if m.isMaxRunReached(taskID) {
 			return task, m.isMaxRunReached(taskID)
 		}
-		task = New(f)
+		task = New(f, cleanupFunc)
 		m.taskRunCnt[taskID]++
 		m.tasks[taskID] = task
 		return task, m.isMaxRunReached(taskID)
 	}
 	return task, m.isMaxRunReached(taskID)
+}
+
+func (m *TaskManager) Len() int {
+	m.Lock()
+	defer m.Unlock()
+	return len(m.tasks)
+}
+
+func (m *TaskManager) housekeeping() {
+	m.Lock()
+	defer m.Unlock()
+	for taskID, task := range m.tasks {
+		if task.cleanupFunc == nil {
+			continue
+		}
+		if task.cleanupFunc() {
+			klog.Infof("delete task %s", taskID)
+			delete(m.tasks, taskID)
+			delete(m.taskRunCnt, taskID)
+		}
+	}
 }
 
 func (m *TaskManager) isMaxRunReached(taskID string) bool {
