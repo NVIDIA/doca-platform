@@ -134,12 +134,15 @@ func reconcileDPUServiceInterfaces(
 			switch {
 			case currentRevision != nil:
 				// we found the current revision based on the digest, there might be old revisions to handle
-				req := reconcileCurrentDPUServiceInterfaceRevision(ctx, c, newRevision, currentRevision, currentDPUService, oldRevisions, serviceConfig, existingDPUServiceInterfacesMap, currentDPUServiceNodeSelector, existingDPUSets.Items)
+				isDisruptiveUpgradeOngoing := reconcileCurrentDPUServiceInterfaceRevision(ctx, c, newRevision, currentRevision, currentDPUService, oldRevisions, serviceConfig, existingDPUServiceInterfacesMap, currentDPUServiceNodeSelector, existingDPUSets.Items)
 
-				if !req.IsZero() {
-					requeue = req
+				// If we are in the middle of a disruptive upgrade, we need to enqueue until the upgrade is done
+				if isDisruptiveUpgradeOngoing {
+					requeue = ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}
 				}
-				// No new version created, so not disruptive in this reconciliation
+
+				// If we have an ongoing disruptive upgrade, we still apply disruptive changes in the cluster
+				hasDisruptiveChanges = hasDisruptiveChanges || isDisruptiveUpgradeOngoing
 			case len(oldRevisions) > 0:
 				// we have only previous revisions
 				req, isDisruptive := reconcileDPUServiceInterfaceWithOldRevisions(newRevision, oldRevisions, dpuDeployment, serviceConfig, existingDPUServiceInterfacesMap, currentDPUServiceNodeSelector)
@@ -276,10 +279,10 @@ func reconcileCurrentDPUServiceInterfaceRevision(ctx context.Context,
 	existingDPUServiceInterfacesMap map[string]dpuservicev1.DPUServiceInterface,
 	currentDPUServiceNodeSelector *metav1.LabelSelector,
 	existingDPUSets []provisioningv1.DPUSet,
-) ctrl.Result {
+) bool {
 	log := ctrl.LoggerFrom(ctx)
-	requeue := ctrl.Result{RequeueAfter: time.Duration(reconcileRequeueDuration.Load())}
 	oldRevs := clientObjectToDPUServiceInterfaceList(oldRevisions)
+	isDisruptiveUpgradeOngoing := false
 
 	// We update the name of the newRevision to the currentRevision so that we can patch the existing object
 	newRevision.Name = currentRevision.GetName()
@@ -292,9 +295,10 @@ func reconcileCurrentDPUServiceInterfaceRevision(ctx context.Context,
 	// We delete the current revision so that it doesn't get cleaned up
 	delete(existingDPUServiceInterfacesMap, currentRevision.GetName())
 
-	// If there are no old revisions, we don't need to enqueue as there are no old revisions that need cleanup.
+	// If there are no old revisions, it means that we are not in the middle of a disruptive upgrade operation, so there
+	// are no leftovers to handle
 	if len(oldRevs) == 0 {
-		return ctrl.Result{}
+		return isDisruptiveUpgradeOngoing
 	}
 
 	// if the current revision is ready, clean old revisions. If not, the stale entries won't be removed in the caller
@@ -304,11 +308,16 @@ func reconcileCurrentDPUServiceInterfaceRevision(ctx context.Context,
 		if err != nil {
 			log.Error(err, "failed to clean stale DPUServiceInterfaces")
 		}
-		// don't requeue if the current revision is ready
-		return ctrl.Result{}
+		// If we reached that stage, it means that we have completed the upgrade and now we just need to clean any
+		// leftovers. We expect additional reconcilliations to be triggered for leftovers that are getting deleted.
+		isDisruptiveUpgradeOngoing = false
+	} else {
+		// If we found old revisions and either the DPUServiceChain or the DPUSets are not ready, it means that an
+		// upgrade is still ongoing
+		isDisruptiveUpgradeOngoing = true
 	}
 
-	return requeue
+	return isDisruptiveUpgradeOngoing
 }
 
 // getCurrentAndStaleDPUServiceInterfaces returns the current and stale DPUServiceInterface objects filtered by the name
