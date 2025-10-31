@@ -187,7 +187,7 @@ func downloadBFB(ctx context.Context, bfbTask butil.BFBTask) {
 
 		logger.V(3).Info("createBFBPackage", "finish", bfbTask.FileName)
 		return true, nil
-	})
+	}, nil)
 	butil.DownloadingTaskMap.Store(bfbTask.TaskName, bfbDownloader)
 }
 
