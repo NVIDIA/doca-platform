@@ -1843,6 +1843,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								Status:             metav1.ConditionTrue,
 								Reason:             string(conditions.ReasonSuccess),
 								LastTransitionTime: metav1.NewTime(time.Now()),
+								ObservedGeneration: dpuService.Generation,
 							},
 						}
 						dpuService.SetGroupVersionKind(dpuservicev1.DPUServiceGroupVersionKind)
@@ -3176,6 +3177,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 						Status:             metav1.ConditionTrue,
 						Reason:             string(conditions.ReasonSuccess),
 						LastTransitionTime: metav1.NewTime(time.Now()),
+						ObservedGeneration: gotDPUService.Generation,
 					},
 				}
 				Expect(patcher.Patch(ctx, gotDPUService, patch.WithFieldOwner("test"))).To(Succeed())
@@ -3564,6 +3566,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 						Status:             metav1.ConditionTrue,
 						Reason:             string(conditions.ReasonSuccess),
 						LastTransitionTime: metav1.NewTime(time.Now()),
+						ObservedGeneration: gotDPUService.Generation,
 					},
 				}
 				Expect(patcher.Patch(ctx, gotDPUService, patch.WithFieldOwner("test"))).To(Succeed())
@@ -4058,6 +4061,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 						Status:             metav1.ConditionTrue,
 						Reason:             string(conditions.ReasonSuccess),
 						LastTransitionTime: metav1.NewTime(time.Now()),
+						ObservedGeneration: currentDPUService.Generation,
 					},
 				}
 				Expect(patcher.Patch(ctx, &currentDPUService, patch.WithFieldOwner("test"))).To(Succeed())
@@ -4301,6 +4305,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 						Status:             metav1.ConditionTrue,
 						Reason:             string(conditions.ReasonSuccess),
 						LastTransitionTime: metav1.NewTime(time.Now()),
+						ObservedGeneration: gotDPUService.Generation,
 					},
 				}
 				Expect(patcher.Patch(ctx, gotDPUService, patch.WithFieldOwner("test"))).To(Succeed())
@@ -5986,6 +5991,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 						Status:             metav1.ConditionTrue,
 						Reason:             string(conditions.ReasonSuccess),
 						LastTransitionTime: metav1.NewTime(time.Now()),
+						ObservedGeneration: currentSvc.Generation,
 					},
 				}
 				Expect(patcher.Patch(ctx, currentSvc, patch.WithFieldOwner("test"))).To(Succeed())
@@ -6169,6 +6175,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 						Status:             metav1.ConditionTrue,
 						Reason:             string(conditions.ReasonSuccess),
 						LastTransitionTime: metav1.NewTime(time.Now()),
+						ObservedGeneration: gotDPUService.Generation,
 					},
 				}
 				Expect(patcher.Patch(ctx, gotDPUService, patch.WithFieldOwner("test"))).To(Succeed())
@@ -7327,6 +7334,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 						Status:             metav1.ConditionTrue,
 						Reason:             string(conditions.ReasonSuccess),
 						LastTransitionTime: metav1.NewTime(time.Now()),
+						ObservedGeneration: currentSvcChain.Generation,
 					},
 				}
 				Expect(patcher.Patch(ctx, currentSvcChain, patch.WithFieldOwner("test"))).To(Succeed())
@@ -8119,6 +8127,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							Status:             metav1.ConditionTrue,
 							Reason:             string(conditions.ReasonSuccess),
 							LastTransitionTime: metav1.NewTime(time.Now()),
+							ObservedGeneration: dpuService.Generation,
 						},
 					}
 					dpuService.SetGroupVersionKind(dpuservicev1.DPUServiceGroupVersionKind)
@@ -8136,6 +8145,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							Status:             metav1.ConditionTrue,
 							Reason:             string(conditions.ReasonSuccess),
 							LastTransitionTime: metav1.NewTime(time.Now()),
+							ObservedGeneration: dpuServiceChain.Generation,
 						},
 					}
 					dpuServiceChain.SetGroupVersionKind(dpuservicev1.DPUServiceChainGroupVersionKind)
@@ -8153,6 +8163,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							Status:             metav1.ConditionTrue,
 							Reason:             string(conditions.ReasonSuccess),
 							LastTransitionTime: metav1.NewTime(time.Now()),
+							ObservedGeneration: dpuServiceInterface.Generation,
 						},
 					}
 					dpuServiceInterface.SetGroupVersionKind(dpuservicev1.DPUServiceInterfaceGroupVersionKind)
@@ -8677,6 +8688,7 @@ func patchDPUServiceTemplateWithStatus(dpuServiceTemplate *dpuservicev1.DPUServi
 			Status:             metav1.ConditionTrue,
 			Reason:             string(conditions.ReasonSuccess),
 			LastTransitionTime: metav1.NewTime(time.Now()),
+			ObservedGeneration: dpuServiceTemplate.Generation,
 		},
 	}
 	dpuServiceTemplate.Status.ObservedGeneration = dpuServiceTemplate.Generation

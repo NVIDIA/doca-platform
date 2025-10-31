@@ -27,6 +27,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	"github.com/nvidia/doca-platform/internal/operator/utils"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
@@ -35,6 +36,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -321,7 +323,10 @@ func (r *DPFOperatorConfigReconciler) validateDPUState(ctx context.Context, conf
 		if err := utils.ValidateDPFVersion(dpu.Status.DPFVersion); err != nil {
 			errs = append(errs, fmt.Errorf("DPU %s: %w", dpu.Name, err))
 		}
-		if !conditions.IsTrue(&dpu, conditions.TypeReady) {
+
+		// TODO: Replace with conditions.IsTrue() when DPU implements ObservedGeneration in the conditions.
+		_, readyCondition := util.GetDPUCondition(&dpu.Status, provisioningv1.DPUCondReady.String())
+		if readyCondition == nil || readyCondition.Status != metav1.ConditionTrue {
 			errs = append(errs, fmt.Errorf("DPU %s is not ready", dpu.Name))
 		}
 	}

@@ -59,7 +59,7 @@ const (
 )
 
 // setDPUServiceChainReadyStatus sets the Ready condition on a ServiceChain
-func setDPUServiceChainReadyStatus(ctx context.Context, dpuClusterClient client.Client, chain *dpuservicev1.DPUServiceChain, ready bool) error {
+func setDPUServiceChainReadyStatus(ctx context.Context, dpuClusterClient client.Client, chain *dpuservicev1.DPUServiceChain, ready bool) (*dpuservicev1.ServiceChain, error) {
 	// Create a ServiceChain object in the DPU cluster
 	serviceChain := &dpuservicev1.ServiceChain{
 		ObjectMeta: metav1.ObjectMeta{
@@ -90,13 +90,13 @@ func setDPUServiceChainReadyStatus(ctx context.Context, dpuClusterClient client.
 
 	// Create the ServiceChain in the DPU cluster
 	if err := dpuClusterClient.Create(ctx, serviceChain); err != nil {
-		return err
+		return serviceChain, err
 	}
 
 	// Set the Ready condition on the ServiceChain
 	createdServiceChain := &dpuservicev1.ServiceChain{}
 	if err := dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(serviceChain), createdServiceChain); err != nil {
-		return err
+		return serviceChain, err
 	}
 	originalServiceChain := createdServiceChain.DeepCopy()
 
@@ -116,9 +116,10 @@ func setDPUServiceChainReadyStatus(ctx context.Context, dpuClusterClient client.
 			LastTransitionTime: metav1.Now(),
 			Reason:             reason,
 			Message:            message,
+			ObservedGeneration: createdServiceChain.Generation,
 		},
 	}
-	return dpuClusterClient.Status().Patch(ctx, createdServiceChain, client.MergeFrom(originalServiceChain))
+	return serviceChain, dpuClusterClient.Status().Patch(ctx, createdServiceChain, client.MergeFrom(originalServiceChain))
 }
 
 // createTestDPUServiceChain creates a test DPUServiceChain with the given parameters
@@ -305,6 +306,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					LastTransitionTime: metav1.Now(),
 					Reason:             "Applied",
 					Message:            "Node effect applied",
+					ObservedGeneration: createdMaintenance.Generation,
 				},
 			}
 			// Update status after getting the latest version
@@ -424,6 +426,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					LastTransitionTime: metav1.Now(),
 					Reason:             "Applied",
 					Message:            "Node effect applied",
+					ObservedGeneration: createdMaintenance.Generation,
 				},
 			}
 			Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
@@ -472,6 +475,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					LastTransitionTime: metav1.Now(),
 					Reason:             "Applied",
 					Message:            "Node effect applied",
+					ObservedGeneration: createdMaintenance.Generation,
 				},
 			}
 			Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
@@ -482,7 +486,9 @@ var _ = Describe("DPUReadyReconciler", func() {
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceChain)
 
 			// Set the DPUServiceChain to Ready by creating a ServiceChain in the DPU cluster
-			Expect(setDPUServiceChainReadyStatus(ctx, dpuClusterClient, dpuServiceChain, true)).To(Succeed())
+			serviceChain, err := setDPUServiceChainReadyStatus(ctx, dpuClusterClient, dpuServiceChain, true)
+			Expect(err).ToNot(HaveOccurred())
+			DeferCleanup(testutils.CleanupAndWait, ctx, dpuClusterClient, serviceChain)
 
 			By("Triggering node reconcile")
 			Eventually(func(g Gomega) {
@@ -518,6 +524,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					LastTransitionTime: metav1.Now(),
 					Reason:             "Applied",
 					Message:            "Node effect applied",
+					ObservedGeneration: createdMaintenance.Generation,
 				},
 			}
 			Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
@@ -528,7 +535,9 @@ var _ = Describe("DPUReadyReconciler", func() {
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceChain)
 
 			// Set the DPUServiceChain to NOT Ready by creating a ServiceChain in the DPU cluster with not ready status
-			Expect(setDPUServiceChainReadyStatus(ctx, dpuClusterClient, dpuServiceChain, false)).To(Succeed())
+			serviceChain, err := setDPUServiceChainReadyStatus(ctx, dpuClusterClient, dpuServiceChain, false)
+			Expect(err).ToNot(HaveOccurred())
+			DeferCleanup(testutils.CleanupAndWait, ctx, dpuClusterClient, serviceChain)
 
 			By("Triggering node reconcile")
 			Eventually(func(g Gomega) {
@@ -563,6 +572,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					LastTransitionTime: metav1.Now(),
 					Reason:             "Applied",
 					Message:            "Node effect applied",
+					ObservedGeneration: createdMaintenance.Generation,
 				},
 			}
 			Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
@@ -585,8 +595,10 @@ var _ = Describe("DPUReadyReconciler", func() {
 			Expect(testClient.Create(ctx, nonMatchingChain)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, nonMatchingChain)
 
-			// Set matching chain to Ready by creating a ServiceChain in the DPU cluster
-			Expect(setDPUServiceChainReadyStatus(ctx, dpuClusterClient, matchingChain, true)).To(Succeed())
+			// Set the DPUServiceChain to Ready by creating a ServiceChain in the DPU cluster
+			serviceChain, err := setDPUServiceChainReadyStatus(ctx, dpuClusterClient, matchingChain, true)
+			Expect(err).ToNot(HaveOccurred())
+			DeferCleanup(testutils.CleanupAndWait, ctx, dpuClusterClient, serviceChain)
 
 			By("Triggering node reconcile")
 			Eventually(func(g Gomega) {
@@ -638,6 +650,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					LastTransitionTime: metav1.Now(),
 					Reason:             "Applied",
 					Message:            "Node effect applied",
+					ObservedGeneration: createdMaintenance.Generation,
 				},
 			}
 			Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
@@ -720,8 +733,10 @@ var _ = Describe("DPUReadyReconciler", func() {
 			Expect(testClient.Create(ctx, readyChain)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, readyChain)
 
-			// Set chain to Ready by creating a ServiceChain in the DPU cluster
-			Expect(setDPUServiceChainReadyStatus(ctx, dpuClusterClient, readyChain, true)).To(Succeed())
+			// Set the DPUServiceChain to Ready by creating a ServiceChain in the DPU cluster
+			serviceChain, err := setDPUServiceChainReadyStatus(ctx, dpuClusterClient, readyChain, true)
+			Expect(err).ToNot(HaveOccurred())
+			DeferCleanup(testutils.CleanupAndWait, ctx, dpuClusterClient, serviceChain)
 
 			By("Creating a not-ready DPUService")
 			notReadyService := getMinimalDPUServices(testNS.Name)[1]
@@ -748,8 +763,24 @@ var _ = Describe("DPUReadyReconciler", func() {
 
 			By("Verifying only ready DPUService and DPUServiceChain requestors were removed")
 			Eventually(func(g Gomega) {
+				// We must patch the status here because we have 2 requestors that will need to be removed from the spec
+				// leading to the generation changing since this the controller mutates the spec. Alternative is to catch
+				// the first removal, update the observedGeneration in the condition and then wait for the second removal.
 				updatedMaintenance := &provisioningv1.DPUNodeMaintenance{}
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenance), updatedMaintenance)).To(Succeed())
+				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(maintenance), updatedMaintenance)).To(Succeed())
+				originalMaintenance := updatedMaintenance.DeepCopy()
+				updatedMaintenance.Status.Conditions = []metav1.Condition{
+					{
+						Type:               string(provisioningv1.ConditionNodeEffectApplied),
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             "Applied",
+						Message:            "Node effect applied",
+						ObservedGeneration: updatedMaintenance.Generation,
+					},
+				}
+				g.Expect(testClient.Status().Patch(ctx, updatedMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
+
 				// Ready ones should be removed
 				g.Expect(updatedMaintenance.Spec.Requestor).NotTo(ContainElement(testNS.Name + "_dpudeployment1_" + service1Name))
 				g.Expect(updatedMaintenance.Spec.Requestor).NotTo(ContainElement(testNS.Name + "_dpudeployment2_chain1"))
@@ -783,6 +814,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 						LastTransitionTime: metav1.Now(),
 						Reason:             "Applied",
 						Message:            "Node effect applied",
+						ObservedGeneration: createdMaintenance.Generation,
 					},
 				}
 				Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
@@ -939,6 +971,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					LastTransitionTime: metav1.Now(),
 					Reason:             "Removed",
 					Message:            "Node effect removed",
+					ObservedGeneration: createdMaintenance.Generation,
 				},
 			}
 			Expect(testClient.Status().Patch(ctx, createdMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())

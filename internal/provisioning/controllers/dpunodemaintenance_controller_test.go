@@ -369,7 +369,6 @@ data:
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
 			By("waiting for NodeEffectApplied condition to be true")
-
 			Eventually(func(g Gomega) {
 				fetchedDPUNodeMaintenance := &provisioningv1.DPUNodeMaintenance{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: DefaultDPUNodeMaintenance}, fetchedDPUNodeMaintenance)).To(Succeed())

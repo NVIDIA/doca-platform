@@ -147,6 +147,7 @@ var _ = Describe("DPU: Node Effect", func() {
 					Status:             metav1.ConditionTrue,
 					LastTransitionTime: metav1.Now(),
 					Reason:             "NodeEffectApplied",
+					ObservedGeneration: dpunodemaintenance.Generation,
 				},
 			}
 			Expect(k8sClient.Status().Patch(ctx, dpunodemaintenance, patch)).To(Succeed())
@@ -512,6 +513,7 @@ var _ = Describe("DPU: Node Effect", func() {
 					Status:             metav1.ConditionTrue,
 					LastTransitionTime: metav1.Now(),
 					Reason:             "NodeEffectApplied",
+					ObservedGeneration: dpunodemaintenance.Generation,
 				},
 			}
 			Expect(k8sClient.Status().Patch(ctx, dpunodemaintenance, patch)).To(Succeed())
