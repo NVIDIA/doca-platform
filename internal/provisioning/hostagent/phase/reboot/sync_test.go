@@ -155,11 +155,13 @@ var _ = Describe("Reboot Sync", func() {
 			}
 			store := map[types.NamespacedName]bool{}
 			handler := &Handler{
-				listDPUFunc:       mockListDPUFunc(dpus),
-				getDPUNodeFunc:    mockGetDPUNodeFunc(dpuNode),
-				persistBootIDFunc: mockPersistDPUBootIDFunc(store),
-				isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
-					return false, nil
+				listDPUFunc:    mockListDPUFunc(dpus),
+				getDPUNodeFunc: mockGetDPUNodeFunc(dpuNode),
+				bootIDStore: &mockBootIDStore{
+					persistBootIDFunc: mockPersistDPUBootIDFunc(store),
+					isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
+						return false, nil
+					},
 				},
 			}
 			result := handler.run()
@@ -177,11 +179,13 @@ var _ = Describe("Reboot Sync", func() {
 			}
 			store := map[types.NamespacedName]bool{}
 			handler := &Handler{
-				listDPUFunc:       mockListDPUFunc(dpus),
-				getDPUNodeFunc:    mockGetDPUNodeFunc(dpuNode),
-				persistBootIDFunc: mockPersistDPUBootIDFunc(store),
-				isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
-					return false, nil
+				listDPUFunc:    mockListDPUFunc(dpus),
+				getDPUNodeFunc: mockGetDPUNodeFunc(dpuNode),
+				bootIDStore: &mockBootIDStore{
+					persistBootIDFunc: mockPersistDPUBootIDFunc(store),
+					isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
+						return false, nil
+					},
 				},
 			}
 			result := handler.run()
@@ -202,11 +206,13 @@ var _ = Describe("Reboot Sync", func() {
 			}
 			store := map[types.NamespacedName]bool{}
 			handler := &Handler{
-				listDPUFunc:       mockListDPUFunc(dpus),
-				getDPUNodeFunc:    mockGetDPUNodeFunc(dpuNode),
-				persistBootIDFunc: mockPersistDPUBootIDFunc(store),
-				isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
-					return false, nil
+				listDPUFunc:    mockListDPUFunc(dpus),
+				getDPUNodeFunc: mockGetDPUNodeFunc(dpuNode),
+				bootIDStore: &mockBootIDStore{
+					persistBootIDFunc: mockPersistDPUBootIDFunc(store),
+					isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
+						return false, nil
+					},
 				},
 			}
 			result := handler.run()
@@ -230,11 +236,13 @@ var _ = Describe("Reboot Sync", func() {
 			}
 			store := map[types.NamespacedName]bool{}
 			handler := &Handler{
-				listDPUFunc:       mockListDPUFunc(dpus),
-				getDPUNodeFunc:    mockGetDPUNodeFunc(dpuNode),
-				persistBootIDFunc: mockPersistDPUBootIDFunc(store),
-				isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
-					return false, nil
+				listDPUFunc:    mockListDPUFunc(dpus),
+				getDPUNodeFunc: mockGetDPUNodeFunc(dpuNode),
+				bootIDStore: &mockBootIDStore{
+					persistBootIDFunc: mockPersistDPUBootIDFunc(store),
+					isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
+						return false, nil
+					},
 				},
 			}
 			result := handler.run()
@@ -255,11 +263,13 @@ var _ = Describe("Reboot Sync", func() {
 			}
 			store := map[types.NamespacedName]bool{}
 			handler := &Handler{
-				listDPUFunc:       mockListDPUFunc(dpus),
-				getDPUNodeFunc:    mockGetDPUNodeFunc(dpuNode),
-				persistBootIDFunc: mockPersistDPUBootIDFunc(store),
-				isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
-					return false, nil
+				listDPUFunc:    mockListDPUFunc(dpus),
+				getDPUNodeFunc: mockGetDPUNodeFunc(dpuNode),
+				bootIDStore: &mockBootIDStore{
+					persistBootIDFunc: mockPersistDPUBootIDFunc(store),
+					isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
+						return false, nil
+					},
 				},
 			}
 			failures := handler.run()
@@ -291,7 +301,6 @@ var _ = Describe("Reboot Sync", func() {
 				getRshimNameByPCIFunc:       mockGetRshimNameByPCIFunc(),
 				listDPUFunc:                 mockListDPUFunc(dpus),
 				getDPUNodeFunc:              mockGetDPUNodeFunc(dpuNode),
-				persistBootIDFunc:           mockPersistDPUBootIDFunc(store),
 				runPowerCycleCmdFunc: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					powerCycleCnt++
 					return bytes.Buffer{}, bytes.Buffer{}, nil
@@ -300,8 +309,11 @@ var _ = Describe("Reboot Sync", func() {
 					SLRCount++
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
-				isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
-					return false, nil
+				bootIDStore: &mockBootIDStore{
+					persistBootIDFunc: mockPersistDPUBootIDFunc(store),
+					isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
+						return false, nil
+					},
 				},
 			}
 			failures := handler.run()
@@ -329,7 +341,6 @@ var _ = Describe("Reboot Sync", func() {
 				getRshimNameByPCIFunc:       mockGetRshimNameByPCIFunc(),
 				listDPUFunc:                 mockListDPUFunc(dpus),
 				getDPUNodeFunc:              mockGetDPUNodeFunc(dpuNode),
-				persistBootIDFunc:           mockPersistDPUBootIDFunc(store),
 				runPowerCycleCmdFunc: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					powerCycleCnt++
 					Expect(cmd).To(Equal("ipmitool chassis power cycle"))
@@ -339,8 +350,11 @@ var _ = Describe("Reboot Sync", func() {
 					SLRCount++
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
-				isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
-					return false, nil
+				bootIDStore: &mockBootIDStore{
+					persistBootIDFunc: mockPersistDPUBootIDFunc(store),
+					isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
+						return false, nil
+					},
 				},
 			}
 			failures := handler.run()
@@ -369,7 +383,6 @@ var _ = Describe("Reboot Sync", func() {
 				getRshimNameByPCIFunc:       mockGetRshimNameByPCIFunc(),
 				listDPUFunc:                 mockListDPUFunc(dpus),
 				getDPUNodeFunc:              mockGetDPUNodeFunc(dpuNode),
-				persistBootIDFunc:           mockPersistDPUBootIDFunc(store),
 				runPowerCycleCmdFunc: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					powerCycleCnt++
 					Expect(cmd).To(Equal("ipmitool chassis power cycle"))
@@ -379,8 +392,11 @@ var _ = Describe("Reboot Sync", func() {
 					SLRCount++
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
-				isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
-					return false, nil
+				bootIDStore: &mockBootIDStore{
+					persistBootIDFunc: mockPersistDPUBootIDFunc(store),
+					isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
+						return false, nil
+					},
 				},
 			}
 			failures := handler.run()
@@ -411,7 +427,6 @@ var _ = Describe("Reboot Sync", func() {
 				getRshimNameByPCIFunc:       mockGetRshimNameByPCIFunc(),
 				listDPUFunc:                 mockListDPUFunc(dpus),
 				getDPUNodeFunc:              mockGetDPUNodeFunc(dpuNode),
-				persistBootIDFunc:           mockPersistDPUBootIDFunc(store),
 				runPowerCycleCmdFunc: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					powerCycleCnt++
 					Expect(cmd).To(Equal("ipmitool chassis power reset"))
@@ -421,8 +436,11 @@ var _ = Describe("Reboot Sync", func() {
 					SLRCount++
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
-				isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
-					return false, nil
+				bootIDStore: &mockBootIDStore{
+					persistBootIDFunc: mockPersistDPUBootIDFunc(store),
+					isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
+						return false, nil
+					},
 				},
 			}
 			failures := handler.run()
@@ -451,7 +469,6 @@ var _ = Describe("Reboot Sync", func() {
 				getRshimNameByPCIFunc:       mockGetRshimNameByPCIFunc(),
 				listDPUFunc:                 mockListDPUFunc(dpus),
 				getDPUNodeFunc:              mockGetDPUNodeFunc(dpuNode),
-				persistBootIDFunc:           mockPersistDPUBootIDFunc(store),
 				runPowerCycleCmdFunc: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					powerCycleCnt++
 					return bytes.Buffer{}, bytes.Buffer{}, nil
@@ -476,8 +493,11 @@ var _ = Describe("Reboot Sync", func() {
 					// returns false for the first time and true for the subsequent times
 					return ok, "", nil
 				},
-				isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
-					return false, nil
+				bootIDStore: &mockBootIDStore{
+					persistBootIDFunc: mockPersistDPUBootIDFunc(store),
+					isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
+						return false, nil
+					},
 				},
 			}
 			failures := handler.run()
@@ -507,7 +527,6 @@ var _ = Describe("Reboot Sync", func() {
 				getRshimNameByPCIFunc:       mockGetRshimNameByPCIFunc(),
 				listDPUFunc:                 mockListDPUFunc(dpus),
 				getDPUNodeFunc:              mockGetDPUNodeFunc(dpuNode),
-				persistBootIDFunc:           mockPersistDPUBootIDFunc(store),
 				runPowerCycleCmdFunc: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					powerCycleCnt++
 					return bytes.Buffer{}, bytes.Buffer{}, nil
@@ -532,8 +551,11 @@ var _ = Describe("Reboot Sync", func() {
 					// returns false for the first time and true for the subsequent times
 					return ok, "", nil
 				},
-				isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
-					return true, nil
+				bootIDStore: &mockBootIDStore{
+					persistBootIDFunc: mockPersistDPUBootIDFunc(store),
+					isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
+						return true, nil
+					},
 				},
 			}
 			failures := handler.run()
@@ -565,7 +587,6 @@ var _ = Describe("Reboot Sync", func() {
 				getRshimNameByPCIFunc:       mockGetRshimNameByPCIFunc(),
 				listDPUFunc:                 mockListDPUFunc(dpus),
 				getDPUNodeFunc:              mockGetDPUNodeFunc(dpuNode),
-				persistBootIDFunc:           mockPersistDPUBootIDFunc(store),
 				runPowerCycleCmdFunc: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					powerCycleCnt++
 					return bytes.Buffer{}, bytes.Buffer{}, nil
@@ -597,8 +618,11 @@ var _ = Describe("Reboot Sync", func() {
 					}
 					return true, "", nil
 				},
-				isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
-					return false, nil
+				bootIDStore: &mockBootIDStore{
+					persistBootIDFunc: mockPersistDPUBootIDFunc(store),
+					isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
+						return false, nil
+					},
 				},
 			}
 			failures := handler.run()
@@ -616,3 +640,16 @@ var _ = Describe("Reboot Sync", func() {
 		})
 	})
 })
+
+type mockBootIDStore struct {
+	persistBootIDFunc    func(*provisioningv1.DPU, bool) error
+	isRebootFinishedFunc func(*provisioningv1.DPU) (bool, error)
+}
+
+func (s *mockBootIDStore) PersistBootID(dpu *provisioningv1.DPU, skip bool) error {
+	return s.persistBootIDFunc(dpu, skip)
+}
+
+func (s *mockBootIDStore) IsRebootFinished(dpu *provisioningv1.DPU) (bool, error) {
+	return s.isRebootFinishedFunc(dpu)
+}
