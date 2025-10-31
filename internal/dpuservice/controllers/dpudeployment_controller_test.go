@@ -1806,6 +1806,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 
 				By("checking that the DPUSets are correctly updated")
+				dpuSetGenerationAfterModification := make(map[string]int64, 2)
 				Eventually(func(g Gomega) {
 					gotDPUSetList := &provisioningv1.DPUSetList{}
 					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
@@ -1813,6 +1814,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 					By("checking the object metadata")
 					for _, dpuSet := range gotDPUSetList.Items {
+						dpuSetGenerationAfterModification[dpuSet.Name] = dpuSet.Generation
 						g.Expect(dpuSet.Labels).To(HaveLen(1))
 						g.Expect(dpuSet.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
 						// Validate that the same object is updated
@@ -1828,6 +1830,24 @@ var _ = Describe("DPUDeployment Controller", func() {
 					}
 					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				By("triggering additional DPUDeployment reconciliations and ensuring the DPUSet generation doesn't change and ApplyOnLabelChange is still true")
+				Consistently(func(g Gomega) {
+					updatedDPUDeployment := &dpuservicev1.DPUDeployment{}
+					g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), updatedDPUDeployment)).To(Succeed())
+					g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedDPUDeployment)).To(Succeed())
+
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+
+					for _, dpuSet := range gotDPUSetList.Items {
+						// Validate that the generation hasn't changed
+						g.Expect(dpuSet.Generation).To(Equal(dpuSetGenerationAfterModification[dpuSet.Name]))
+						// Validate that ApplyOnLabelChange is still true
+						g.Expect(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
+					}
+				}).WithTimeout(5 * time.Second).Should(Succeed())
 
 				By("marking the DPUService ready")
 				gotDPUServiceList := &dpuservicev1.DPUServiceList{}
@@ -1891,6 +1911,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					By("checking the object metadata")
 					for _, dpuSet := range gotDPUSetList.Items {
 						g.Expect(dpuSet.Labels).To(HaveLen(1))
+						g.Expect(dpuSet.Generation).To(Equal(dpuSetGenerationAfterModification[dpuSet.Name] + 1))
 						g.Expect(dpuSet.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
 						// Validate that the same object is updated
 						g.Expect(firstDPUSetUIDs).To(ContainElement(dpuSet.UID))
@@ -2060,6 +2081,103 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 
 				By("checking that the DPUSets are correctly updated")
+				dpuSetGenerationAfterModification := make(map[string]int64, 2)
+				Eventually(func(g Gomega) {
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+
+					By("checking the object metadata")
+					for _, dpuSet := range gotDPUSetList.Items {
+						dpuSetGenerationAfterModification[dpuSet.Name] = dpuSet.Generation
+						g.Expect(dpuSet.Labels).To(HaveLen(1))
+						g.Expect(dpuSet.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
+						// Validate that the same object is updated
+						g.Expect(firstDPUSetUIDs).To(ContainElement(dpuSet.UID))
+
+						g.Expect(dpuSet.OwnerReferences).To(ConsistOf(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
+					}
+
+					By("checking the specs")
+					specs := make([]provisioningv1.DPUSetSpec, 0, len(gotDPUSetList.Items))
+					for _, dpuSet := range gotDPUSetList.Items {
+						specs = append(specs, dpuSet.Spec)
+					}
+					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				By("triggering additional DPUDeployment reconciliations and ensuring the DPUSet generation doesn't change and ApplyOnLabelChange is still true")
+				Consistently(func(g Gomega) {
+					updatedDPUDeployment := &dpuservicev1.DPUDeployment{}
+					g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), updatedDPUDeployment)).To(Succeed())
+					g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedDPUDeployment)).To(Succeed())
+
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+
+					for _, dpuSet := range gotDPUSetList.Items {
+						// Validate that the generation hasn't changed
+						g.Expect(dpuSet.Generation).To(Equal(dpuSetGenerationAfterModification[dpuSet.Name]))
+						// Validate that ApplyOnLabelChange is still true
+						g.Expect(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
+					}
+				}).WithTimeout(5 * time.Second).Should(Succeed())
+
+				By("marking the DPUServiceChain ready")
+				gotDPUServiceChainList := &dpuservicev1.DPUServiceChainList{}
+				Expect(testClient.List(ctx, gotDPUServiceChainList, &client.ListOptions{
+					Namespace: testNS.Name,
+				})).To(Succeed())
+				Expect(gotDPUServiceChainList.Items).To(HaveLen(2))
+				for _, dpuServiceChain := range gotDPUServiceChainList.Items {
+					if dpuServiceChain.Annotations["svc.dpu.nvidia.com/dpuservicechain-version"] == chainDigest2 {
+						dpuServiceChain.Status.Conditions = []metav1.Condition{
+							{
+								Type:               string(conditions.TypeReady),
+								Status:             metav1.ConditionTrue,
+								Reason:             string(conditions.ReasonSuccess),
+								LastTransitionTime: metav1.NewTime(time.Now()),
+								ObservedGeneration: dpuServiceChain.Generation,
+							},
+						}
+						dpuServiceChain.SetGroupVersionKind(dpuservicev1.DPUServiceChainGroupVersionKind)
+						dpuServiceChain.SetManagedFields(nil)
+						Expect(testClient.Status().Patch(ctx, &dpuServiceChain, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+					}
+				}
+				By("marking the DPUSet ready")
+				gotDPUSetList := &provisioningv1.DPUSetList{}
+				Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+				Expect(gotDPUSetList.Items).ToNot(BeEmpty())
+				for _, dpuSet := range gotDPUSetList.Items {
+					dpuSet.Status.DPUStatistics = map[provisioningv1.DPUPhase]int{
+						provisioningv1.DPUReady: 1,
+					}
+					dpuSet.SetGroupVersionKind(provisioningv1.DPUSetGroupVersionKind)
+					dpuSet.SetManagedFields(nil)
+					Expect(testClient.Status().Patch(ctx, &dpuSet, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+				}
+
+				By("checking that the DPUServiceChains are correctly updated")
+				Eventually(func(g Gomega) {
+					gotDPUServiceChains := &dpuservicev1.DPUServiceChainList{}
+					g.Expect(testClient.List(ctx, gotDPUServiceChains)).To(Succeed())
+					g.Expect(gotDPUServiceChains.Items).To(HaveLen(1))
+
+					By("checking the object metadata")
+					for _, dpuServiceChain := range gotDPUServiceChains.Items {
+						g.Expect(dpuServiceChain.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
+						g.Expect(dpuServiceChain.Annotations).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpuservicechain-version", chainDigest2))
+					}
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				By("checking that the DPUSets are correctly updated")
+				for i := range expectedDPUSetSpecs {
+					// We have no more disruptive changes, and we kicked a new reconciliation by setting the DPUServiceChain ready,
+					// so the ApplyOnLabelChange should be false
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(false)
+				}
 				Eventually(func(g Gomega) {
 					gotDPUSetList := &provisioningv1.DPUSetList{}
 					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
@@ -2068,6 +2186,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					By("checking the object metadata")
 					for _, dpuSet := range gotDPUSetList.Items {
 						g.Expect(dpuSet.Labels).To(HaveLen(1))
+						g.Expect(dpuSet.Generation).To(Equal(dpuSetGenerationAfterModification[dpuSet.Name] + 1))
 						g.Expect(dpuSet.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
 						// Validate that the same object is updated
 						g.Expect(firstDPUSetUIDs).To(ContainElement(dpuSet.UID))
