@@ -348,5 +348,59 @@ data:
 				g.Expect(fetchedDPUNodeMaintenance.Annotations[cutil.HoldNodeEffectKey]).To(Equal("true"))
 			}, 10*time.Second).Should(Succeed())
 		})
+
+		It("DPUNodeMaintenance: observed generation should change when requestors are updated while NodeEffectApplied", func() {
+			By("creating the dpunodemaintenance object")
+			obj := &provisioningv1.DPUNodeMaintenance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      DefaultDPUNodeMaintenance,
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUNodeMaintenanceSpec{
+					DPUNodeName: nodeName,
+					NodeEffect: &provisioningv1.NodeEffect{
+						Action: provisioningv1.Action{
+							CustomLabel: map[string]string{"test-label": "test-value"},
+						},
+					},
+					Requestor: []string{"test-requestor-1", "test-requestor-2"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			By("waiting for NodeEffectApplied condition to be true")
+
+			Eventually(func(g Gomega) {
+				fetchedDPUNodeMaintenance := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: DefaultDPUNodeMaintenance}, fetchedDPUNodeMaintenance)).To(Succeed())
+				g.Expect(fetchedDPUNodeMaintenance.Status.Conditions).To(ContainElement(
+					And(
+						HaveField("Type", "NodeEffectApplied"),
+						HaveField("Status", metav1.ConditionTrue),
+						HaveField("ObservedGeneration", int64(1)),
+					),
+				))
+			}, 10*time.Second).Should(Succeed())
+
+			By("updating the requestors")
+			fetchedDPUNodeMaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: DefaultDPUNodeMaintenance}, fetchedDPUNodeMaintenance)).To(Succeed())
+			orig := fetchedDPUNodeMaintenance.DeepCopy()
+			fetchedDPUNodeMaintenance.Spec.Requestor = []string{"test-requestor-1"}
+			Expect(k8sClient.Patch(ctx, fetchedDPUNodeMaintenance, client.MergeFrom(orig))).To(Succeed())
+
+			By("verifying that observed generation has changed")
+			Eventually(func(g Gomega) {
+				fetchedDPUNodeMaintenance := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: DefaultDPUNodeMaintenance}, fetchedDPUNodeMaintenance)).To(Succeed())
+				g.Expect(fetchedDPUNodeMaintenance.Status.Conditions).To(ContainElement(
+					And(
+						HaveField("Type", "NodeEffectApplied"),
+						HaveField("Status", metav1.ConditionTrue),
+						HaveField("ObservedGeneration", int64(2)),
+					),
+				))
+			}, 10*time.Second).Should(Succeed())
+		})
 	})
 })

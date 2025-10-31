@@ -148,6 +148,7 @@ func (r *DPUNodeMaintenanceReconciler) reconcileDelete(ctx context.Context, dpun
 func (r *DPUNodeMaintenanceReconciler) reconcile(ctx context.Context, dpunodemaintenance *provisioningv1.DPUNodeMaintenance) (_ ctrl.Result, reterr error) {
 	// If node effect is already applied, return
 	if cutil.IsNodeEffectApplied(dpunodemaintenance) {
+		conditions.AddTrue(dpunodemaintenance, provisioningv1.ConditionNodeEffectApplied)
 		return ctrl.Result{}, nil
 	}
 
