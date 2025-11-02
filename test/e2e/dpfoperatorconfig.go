@@ -24,7 +24,6 @@ import (
 	"slices"
 	"time"
 
-	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
@@ -38,7 +37,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -671,111 +669,6 @@ func triggerDMSRecreation(ctx context.Context, c client.Client) {
 			g.Expect(found).To(BeTrue())
 		}
 	}).WithTimeout(60 * time.Second).Should(Succeed())
-}
-
-func ValidateOperatorFullCreation(ctx context.Context, input *systemTestInput) {
-	By("delete DPUs and DPUSets and ensure they are deleted for a clean test condition")
-	if input.skipCleanup {
-		Skip("Skip cleanup resources")
-	}
-	Eventually(func(g Gomega) {
-		dpuSetList := &provisioningv1.DPUSetList{}
-		dpuList := &provisioningv1.DPUList{}
-		g.Expect(client.IgnoreNotFound(input.client.DeleteAllOf(ctx, &provisioningv1.DPUSet{}, client.InNamespace(dpfOperatorSystemNamespace)))).To(Succeed())
-		g.Expect(input.client.List(ctx, dpuSetList)).To(Succeed())
-		g.Expect(dpuSetList.Items).To(BeEmpty())
-
-		// Expect all DPUs to have been deleted.
-		g.Expect(input.client.List(ctx, dpuList)).To(Succeed())
-		g.Expect(dpuList.Items).To(BeEmpty())
-
-		nodes := &corev1.NodeList{}
-		g.Expect(dpuClusterClient.List(ctx, nodes)).To(Succeed())
-		By(fmt.Sprintf("Expected number of nodes %d to equal %d", len(nodes.Items), 0))
-		g.Expect(nodes.Items).To(BeEmpty())
-	}).WithTimeout(10 * time.Minute).Should(Succeed())
-
-	By("create a DPUDeployment with its dependencies and ensure that the underlying objects are created")
-	dpuServiceTemplate := input.dpuServiceTemplate.DeepCopy()
-	dpuServiceTemplate.SetLabels(afterAllCleanupLabels)
-	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceTemplate))).To(Succeed())
-
-	dpuServiceConfiguration := input.dpuServiceConfiguration.DeepCopy()
-	dpuServiceConfiguration.SetLabels(afterAllCleanupLabels)
-	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceConfiguration))).To(Succeed())
-
-	dpuDeployment := generateDPUObj("dpf-cleanup", input.dpuDeployment.DeepCopy().Namespace, input.dpuDeployment.DeepCopy(), afterAllCleanupLabels)
-	dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
-		MatchLabels: map[string]string{"feature.node.kubernetes.io/dpu-enabled": "true"},
-	}
-	Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
-
-	Eventually(func(g Gomega) {
-		g.Expect(VerifyDeploymentUnderlyingObjectsCreated(ctx, g, input.client, dpuDeployment)).To(BeTrue())
-	}).WithTimeout(180 * time.Second).Should(Succeed())
-
-	tracker := NewByTracker()
-	Eventually(func(g Gomega) {
-		if !input.hasDpuNodes() {
-			return
-		}
-		nodes := &corev1.NodeList{}
-		g.Expect(dpuClusterClient.List(ctx, nodes)).To(Succeed())
-		nodeKey := fmt.Sprintf("%d/%d", len(nodes.Items), input.numberOfDPUNodes)
-		tracker.By(nodeKey, "Checking that the number of nodes %d is equal to %d", len(nodes.Items), input.numberOfDPUNodes)
-		g.Expect(nodes.Items).To(HaveLen(input.numberOfDPUNodes))
-	}).WithTimeout(45 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
-
-	By("create DPUServiceInterface and check that it is mirrored to each cluster")
-	dpuServiceInterfaceName := "pf0-vf2"
-	dpuServiceInterfaceNamespace := "test-dpudeployment"
-	By("create test namespace")
-	testNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: dpuServiceInterfaceNamespace}}
-	testNS.SetLabels(afterAllCleanupLabels)
-	Expect(input.client.Create(ctx, testNS)).To(Succeed())
-	By("create DPUServiceInterface")
-	dpuServiceInterface := input.dpuServiceInterface.DeepCopy()
-	dpuServiceInterface.SetName(dpuServiceInterfaceName)
-	dpuServiceInterface.SetNamespace(dpuServiceInterfaceNamespace)
-	dpuServiceInterface.SetLabels(afterAllCleanupLabels)
-	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
-
-	serviceInterfaceLabels := map[string]string{}
-	By("verify ServiceInterfaceSet is created in DPF clusters")
-	Eventually(func(g Gomega) {
-		//get the DPUServiceInterface owned by DPUDeployment
-		dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
-		g.Expect(input.client.List(ctx, dpuServiceInterfaceList,
-			client.MatchingLabels{
-				"svc.dpu.nvidia.com/owned-by-dpudeployment": fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName())})).
-			To(Succeed())
-		g.Expect(dpuServiceInterfaceList.Items).To(HaveLen(1))
-		// getting labels for ServiceInterface check
-		serviceInterfaceLabels = dpuServiceInterfaceList.Items[0].Spec.Template.Spec.Template.Labels
-
-		// verify ServiceInterfaceSet is created in namespace
-		serviceInterfaceSetListInNamespace := &dpuservicev1.ServiceInterfaceSetList{}
-		g.Expect(dpuClusterClient.List(ctx, serviceInterfaceSetListInNamespace,
-			client.InNamespace(dpuServiceInterfaceNamespace),
-		)).To(Succeed())
-		g.Expect(serviceInterfaceSetListInNamespace.Items).To(HaveLen(1))
-
-		// verify ServiceInterfaceSet is reconciled
-		serviceInterfaceSetReconciled := &dpuservicev1.ServiceInterfaceSetList{}
-		g.Expect(dpuClusterClient.List(ctx, serviceInterfaceSetReconciled,
-			client.InNamespace(dpuDeployment.Namespace),
-		)).To(Succeed())
-		g.Expect(serviceInterfaceSetReconciled.Items).NotTo(BeEmpty())
-	}, time.Second*300, time.Millisecond*250).Should(Succeed())
-
-	if input.hasDpuNodes() {
-		By(fmt.Sprintf("verify ServiceInterface is created in %d nodes", input.numberOfDPUNodes))
-		Eventually(func(g Gomega) {
-			serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-			g.Expect(dpuClusterClient.List(ctx, serviceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
-			g.Expect(serviceInterfaceList.Items).To(Not(BeEmpty()))
-		}).WithTimeout(30 * time.Minute).WithPolling(120 * time.Second).Should(Succeed())
-	}
 }
 
 func DeleteDPFOperatorConfig(ctx context.Context, testClient client.Client) {

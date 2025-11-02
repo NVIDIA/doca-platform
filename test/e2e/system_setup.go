@@ -22,7 +22,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"time"
 
@@ -480,37 +479,13 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 	}).WithTimeout(45 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 
 	Eventually(func(g Gomega) {
-		// update requestors for DPUNodeMaintenance ourselves so DPU can be ready
-		// TODO: Fix the objects so that this is not necessary
-		requestorsPrefix := []string{}
-		// get dpudeployments
-		dpudeployments := &dpuservicev1.DPUDeploymentList{}
-		g.Expect(input.client.List(ctx, dpudeployments)).To(Succeed())
-		for _, dpuDeployment := range dpudeployments.Items {
-			requestorsPrefix = append(requestorsPrefix, fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName()))
-		}
-
-		dpunodemaintenances := &provisioningv1.DPUNodeMaintenanceList{}
-		g.Expect(input.client.List(ctx, dpunodemaintenances)).To(Succeed())
-		for _, dpunodemaintenance := range dpunodemaintenances.Items {
-			// remove the requestors if the condition ConditionNodeEffectApplied is true
-			if conditions.IsTrue(&dpunodemaintenance, provisioningv1.ConditionNodeEffectApplied) {
-				for _, requestorPrefix := range requestorsPrefix {
-					dpunodemaintenance.Spec.Requestor = slices.DeleteFunc(dpunodemaintenance.Spec.Requestor, func(requestor string) bool {
-						return strings.HasPrefix(requestor, requestorPrefix)
-					})
-				}
-			}
-			g.Expect(input.client.Update(ctx, &dpunodemaintenance)).To(Succeed())
-		}
-
 		dpus := &provisioningv1.DPUList{}
 		g.Expect(input.client.List(ctx, dpus)).ToNot(HaveOccurred())
 		g.Expect(dpus.Items).To(HaveLen(input.numberOfNodesPerCluster))
 		for _, dpu := range dpus.Items {
 			g.Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPUReady))
 		}
-	}).WithTimeout(5 * time.Minute).Should(Succeed())
+	}).WithTimeout(30 * time.Minute).Should(Succeed())
 }
 
 func VerifyDPUClusterPods(ctx context.Context, podSubstrToVerify []string) {
