@@ -306,7 +306,7 @@ func (r *DPUDeploymentReconciler) reconcile(ctx context.Context, dpuDeployment *
 		return ctrl.Result{}, fmt.Errorf("error while constructing the DPUServiceInterfaces names: %w", err)
 	}
 
-	requeue, patchedDPUServices, err := reconcileDPUServices(ctx, r.Client, dpuDeployment, deps, interfaceNameByServiceName, dpuNodeLabels)
+	requeue, patchedDPUServices, hasDisruptiveServices, err := reconcileDPUServices(ctx, r.Client, dpuDeployment, deps, interfaceNameByServiceName, dpuNodeLabels)
 	if err != nil {
 		conditions.AddFalse(
 			dpuDeployment,
@@ -318,7 +318,7 @@ func (r *DPUDeploymentReconciler) reconcile(ctx context.Context, dpuDeployment *
 	}
 	conditions.AddTrue(dpuDeployment, dpuservicev1.ConditionDPUServicesReconciled)
 
-	req, err := reconcileDPUServiceInterfaces(ctx, r.Client, r.Scheme, dpuDeployment, deps, interfaceNameByServiceName, dpuNodeLabels, patchedDPUServices)
+	req, hasDisruptiveInterfaces, err := reconcileDPUServiceInterfaces(ctx, r.Client, r.Scheme, dpuDeployment, deps, interfaceNameByServiceName, dpuNodeLabels, patchedDPUServices)
 	if err != nil {
 		conditions.AddFalse(
 			dpuDeployment,
@@ -334,7 +334,7 @@ func (r *DPUDeploymentReconciler) reconcile(ctx context.Context, dpuDeployment *
 		requeue = req
 	}
 
-	req, err = reconcileDPUServiceChain(ctx, r.Client, dpuDeployment, dpuNodeLabels)
+	req, hasDisruptiveChains, err := reconcileDPUServiceChain(ctx, r.Client, dpuDeployment, dpuNodeLabels)
 	if err != nil {
 		conditions.AddFalse(
 			dpuDeployment,
@@ -350,7 +350,10 @@ func (r *DPUDeploymentReconciler) reconcile(ctx context.Context, dpuDeployment *
 		requeue = req
 	}
 
-	if err := reconcileDPUSets(ctx, r.Client, dpuDeployment, dpuNodeLabels); err != nil {
+	// Aggregate disruptive changes from all object types
+	hasDisruptiveChanges := hasDisruptiveServices || hasDisruptiveInterfaces || hasDisruptiveChains
+
+	if err := reconcileDPUSets(ctx, r.Client, dpuDeployment, dpuNodeLabels, hasDisruptiveChanges); err != nil {
 		conditions.AddFalse(
 			dpuDeployment,
 			dpuservicev1.ConditionDPUSetsReconciled,
@@ -666,7 +669,7 @@ func getDependencies(ctx context.Context, c client.Client, dpuDeployment *dpuser
 // As part of this flow, we try to find existing DPUSets and update them to match the DPUDeployment spec instead of
 // creating new ones. The reason behind that is so that we can minimize the mutations on DPU objects that impose infra
 // changes (provisioning of BFB) that may be disruptive and take a lot of time.
-func reconcileDPUSets(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment, dpuNodeLabels map[string]string) error {
+func reconcileDPUSets(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment, dpuNodeLabels map[string]string, hasDisruptiveChanges bool) error {
 	owner := metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)
 
 	// Grab existing DPUSets
@@ -686,7 +689,8 @@ func reconcileDPUSets(ctx context.Context, c client.Client, dpuDeployment *dpuse
 			owner,
 			&dpuSetOption,
 			dpuDeployment,
-			dpuNodeLabels)
+			dpuNodeLabels,
+			hasDisruptiveChanges)
 
 		if i := matchDPUSetIndex(newDPUSet, existingDPUSets.Items); i >= 0 {
 			// patch the existing dpuset
@@ -735,6 +739,7 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 	dpuSetSettings *dpuservicev1.DPUSet,
 	dpuDeployment *dpuservicev1.DPUDeployment,
 	dpuNodeLabels map[string]string,
+	hasDisruptiveChanges bool,
 ) *provisioningv1.DPUSet {
 	dpuSet := &provisioningv1.DPUSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -775,6 +780,7 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 	// Each DPUService and DPUServiceChain has a NodeMaintenanceAdditionalRequestor.
 	// This is needed because the DPUReadyController and the DPUDeployment Node Controller will need to remove those
 	// requestors when those DPUServices and DPUServiceChains are ready.
+	// Always populate this list regardless of whether changes are disruptive
 	dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = make([]string, 0)
 	for _, revision := range dpuNodeLabels {
 		requestor := getRequestorForDPUObjectVersion(getParentDPUDeploymentLabelValue(dpuDeploymentNamespacedName), revision)
@@ -784,7 +790,9 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 	}
 	slices.Sort(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors)
 
-	dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(true)
+	// Only set ApplyOnLabelChange=true if there are disruptive changes
+	// This prevents non-disruptive label updates from triggering node effect
+	dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(hasDisruptiveChanges)
 
 	nodeLabels := map[string]string{
 		dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(dpuDeploymentNamespacedName),
