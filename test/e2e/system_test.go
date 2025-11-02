@@ -61,7 +61,7 @@ func SetInput() {
 					Disable: ptr.To(true),
 				},
 			},
-			ImagePullSecrets: []string{"dpf-pull-secret", "pull-secret-extra"},
+			ImagePullSecrets: []string{dpfPullSecretName, "pull-secret-extra"},
 		},
 	}
 
