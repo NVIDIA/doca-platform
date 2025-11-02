@@ -51,7 +51,7 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) 
 		RepoURL: helmRegistry,
 	}
 	dpuService.Spec.HelmChart.Values = &machineryruntime.RawExtension{
-		Raw: []byte(`{"imagePullSecrets": [{"name": "dpf-pull-secret"}]}`),
+		Raw: []byte(fmt.Sprintf(`{"imagePullSecrets": [{"name": "%s"}]}`, dpfPullSecretName)),
 	}
 	dpuService.Spec.ConfigPorts = &dpuservicev1.ConfigPorts{
 		// TODO: test also ClusterIP. Currently this is not working as k3s doesn't have kube-proxy deployed.
