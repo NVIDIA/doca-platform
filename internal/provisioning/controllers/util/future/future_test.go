@@ -18,7 +18,9 @@ package future
 
 import (
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -41,7 +43,7 @@ var _ = Describe("TaskManager Test", func() {
 			task, maxReached := tm.RunTask("test", func() (any, error) {
 				runCnt++
 				return nil, nil
-			})
+			}, nil)
 			Expect(task).NotTo(BeNil())
 			_, err := task.GetResult()
 			Expect(err).NotTo(HaveOccurred())
@@ -55,7 +57,7 @@ var _ = Describe("TaskManager Test", func() {
 				return nil, fmt.Errorf("test error")
 			}
 			for i := 0; i < maxRun; i++ {
-				task, maxReached := tm.RunTask("test", testFunc)
+				task, maxReached := tm.RunTask("test", testFunc, nil)
 				Expect(task).NotTo(BeNil())
 				_, err := task.GetResult()
 				Expect(err).To(HaveOccurred())
@@ -77,14 +79,14 @@ var _ = Describe("TaskManager Test", func() {
 				runCnt++
 				return nil, fmt.Errorf("test error")
 			}
-			task, maxReached := tm.RunTask("test", failFunc)
+			task, maxReached := tm.RunTask("test", failFunc, nil)
 			Expect(task).NotTo(BeNil())
 			_, err := task.GetResult()
 			Expect(err).To(HaveOccurred())
 			Expect(maxReached).To(BeFalse())
 			Expect(runCnt).To(Equal(1))
 
-			task, maxReached = tm.RunTask("test", succFunc)
+			task, maxReached = tm.RunTask("test", succFunc, nil)
 			Expect(task).NotTo(BeNil())
 			_, err = task.GetResult()
 			Expect(err).NotTo(HaveOccurred())
@@ -92,12 +94,36 @@ var _ = Describe("TaskManager Test", func() {
 			Expect(runCnt).To(Equal(2))
 			rc := runCnt
 
-			task, maxReached = tm.RunTask("test", succFunc)
+			task, maxReached = tm.RunTask("test", succFunc, nil)
 			Expect(task).NotTo(BeNil())
 			_, err = task.GetResult()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(maxReached).To(BeFalse())
 			Expect(runCnt).To(Equal(rc))
+		})
+		It("should cleanup the task if the cleanup function returns true", func() {
+			runCnt := 0
+			runCntLock := sync.Mutex{}
+			taskFunc := func() (any, error) {
+				runCntLock.Lock()
+				defer runCntLock.Unlock()
+				runCnt++
+				return nil, nil
+			}
+			cleanupFunc := func() bool {
+				runCntLock.Lock()
+				defer runCntLock.Unlock()
+				return runCnt > 0
+			}
+			_, _ = tm.RunTask("test", taskFunc, cleanupFunc)
+			Eventually(func(g Gomega) {
+				runCntLock.Lock()
+				defer runCntLock.Unlock()
+				g.Expect(runCnt).To(Equal(1))
+			}).WithTimeout(time.Minute).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(tm.Len()).To(BeZero())
+			}).WithTimeout(time.Minute).Should(Succeed())
 		})
 	})
 })
