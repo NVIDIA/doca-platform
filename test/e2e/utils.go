@@ -102,6 +102,8 @@ const (
 	argoCDInstanceLabel        = "argocd.argoproj.io/instance"
 	// ngcPullSecretName is the name of the secret used to pull images from NGC
 	ngcPullSecretName = "ngc-pull-secret"
+	// dpfPullSecretName is the name of the secret that is set in hack/scripts/create-artefact-secrets.sh
+	dpfPullSecretName = "dpf-pull-secret"
 	// scaleLabel is used to mark the tests related to the Scale test suite
 	scaleLabel = "SCALE"
 	// dpfSystemLabel is used to mark the tests related to the DPFSystem test suite, ex: e2e, provisioning-e2e
