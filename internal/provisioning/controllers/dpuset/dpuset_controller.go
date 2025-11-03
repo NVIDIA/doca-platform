@@ -177,12 +177,13 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 	logger.Info(fmt.Sprintf("DPUSet %s/%s selected %d DPUDevices", dpuSet.Namespace, dpuSet.Name, len(dpuDeviceMap)))
 
 	// Get dpu map which are owned by dpuset
-	dpuMap, err := r.getDPUsMap(ctx, dpuSet)
+	dpuMap, err := r.GetDPUsMap(ctx, dpuSet)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get DPU map %w", err)
 	}
 
-	if err := r.createMissingDPUs(ctx, dpuSet, dpuDeviceMap, dpuMap); err != nil {
+	dpusCreated, err := r.createMissingDPUs(ctx, dpuSet, dpuDeviceMap, dpuMap)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -191,25 +192,33 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 	}
 
 	// handle rolling update
-	dpuMap, err = r.getDPUsMap(ctx, dpuSet)
+	dpuMap, err = r.GetDPUsMap(ctx, dpuSet)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get DPUs %w", err)
 	}
 
-	switch dpuSet.Spec.Strategy.Type {
-	case provisioningv1.OnDeleteStrategyType:
-		// do nothing, waiting for user delete DPU object manually.
-	case provisioningv1.RollingUpdateStrategyType:
-		if err := r.rolloutRolling(ctx, dpuSet, dpuMap, len(dpuDeviceMap)); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to rollout DPU %w", err)
+	if dpuSet.Spec.Strategy != nil {
+		switch dpuSet.Spec.Strategy.Type {
+		case provisioningv1.OnDeleteStrategyType:
+			// do nothing, waiting for user delete DPU object manually.
+		case provisioningv1.RollingUpdateStrategyType:
+			if err := r.rolloutRolling(ctx, dpuSet, dpuMap, len(dpuDeviceMap)); err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to rollout DPU %w", err)
+			}
 		}
 	}
 
-	if err := r.updateDPUs(ctx, dpuSet, dpuMap); err != nil {
+	dpusUpdated, err := r.UpdateDPUs(ctx, dpuSet, dpuMap)
+	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update node effect ApplyOnLabelChange for DPUs %w", err)
 	}
 
-	updateDPUSetStatus(dpuSet, dpuMap)
+	// Check if any DPU changes were made (created or updated)
+	dpusChanged := dpusCreated || dpusUpdated
+
+	if err := r.UpdateDPUSetStatus(ctx, dpuSet, dpusChanged); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to update DPUSet status: %w", err)
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -321,7 +330,7 @@ func (r *DPUSetReconciler) getDPUDeviceMap(ctx context.Context, dpuSet *provisio
 	return dpuDeviceMap, nil
 }
 
-func (r *DPUSetReconciler) getDPUsMap(ctx context.Context, dpuSet *provisioningv1.DPUSet) (map[string]provisioningv1.DPU, error) {
+func (r *DPUSetReconciler) GetDPUsMap(ctx context.Context, dpuSet *provisioningv1.DPUSet) (map[string]provisioningv1.DPU, error) {
 	dpuMap := make(map[string]provisioningv1.DPU)
 	dpuList := &provisioningv1.DPUList{}
 	if err := r.List(ctx, dpuList, client.MatchingLabels{
@@ -482,16 +491,51 @@ func (r *DPUSetReconciler) needDisruptDPU(dpuSet provisioningv1.DPUSet, dpu prov
 	return false
 }
 
-func updateDPUSetStatus(dpuSet *provisioningv1.DPUSet,
-	dpuMap map[string]provisioningv1.DPU) {
+func (r *DPUSetReconciler) collectDPUStatistics(dpuMap map[string]provisioningv1.DPU) map[provisioningv1.DPUPhase]int {
 	dpuStatistics := make(map[provisioningv1.DPUPhase]int)
-	dpuSetReady := true
 	for _, dpu := range dpuMap {
+		// Skip DPUs that are being deleted
+		if !dpu.DeletionTimestamp.IsZero() {
+			continue
+		}
 		switch dpu.Status.Phase {
 		case "":
 			dpuStatistics[provisioningv1.DPUInitializing]++
 		default:
 			dpuStatistics[dpu.Status.Phase]++
+		}
+	}
+	return dpuStatistics
+}
+
+func (r *DPUSetReconciler) UpdateDPUSetStatus(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpusChanged bool) error {
+	dpuMap, err := r.GetDPUsMap(ctx, dpuSet)
+	if err != nil {
+		return fmt.Errorf("failed to get DPU map from cache: %w", err)
+	}
+
+	dpuStatistics := r.collectDPUStatistics(dpuMap)
+	if !reflect.DeepEqual(dpuStatistics, dpuSet.Status.DPUStatistics) {
+		dpuSet.Status.DPUStatistics = dpuStatistics
+	}
+
+	if dpusChanged {
+		// DPUs were just created, deleted, or updated - they won't be ready until they reconcile
+		// The DPU watch will trigger a new reconcile when they update their status
+		conditions.AddFalse(dpuSet, conditions.TypeReady, conditions.ReasonPending, "DPUs are being reconciled")
+		return nil
+	}
+
+	// Check readiness conditions
+	dpuSetReady := true
+	for _, dpu := range dpuMap {
+		// Skip DPUs that are being deleted - they shouldn't block DPUSet readiness
+		if !dpu.DeletionTimestamp.IsZero() {
+			continue
+		}
+
+		if dpu.Status.ObservedGeneration != dpu.Generation {
+			dpuSetReady = false
 		}
 
 		// Simply comparing the dpu metadata generation and observed generation is not sufficient, because if the DPU is not updated in the dpuset controller cache at this time,
@@ -504,30 +548,33 @@ func updateDPUSetStatus(dpuSet *provisioningv1.DPUSet,
 			dpuSetReady = false
 		}
 	}
+
 	if dpuSetReady {
 		conditions.AddTrue(dpuSet, conditions.TypeReady)
 	} else {
 		conditions.AddFalse(dpuSet, conditions.TypeReady, conditions.ReasonPending, "Some DPUs are not ready")
 	}
-	if reflect.DeepEqual(dpuStatistics, dpuSet.Status.DPUStatistics) {
-		return
-	}
-	dpuSet.Status.DPUStatistics = dpuStatistics
+
+	return nil
 }
 
-func (r *DPUSetReconciler) createMissingDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuDeviceMap map[string]provisioningv1.DPUDevice, dpuMap map[string]provisioningv1.DPU) error {
+func (r *DPUSetReconciler) createMissingDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuDeviceMap map[string]provisioningv1.DPUDevice, dpuMap map[string]provisioningv1.DPU) (bool, error) {
+	dpusCreated := false
 	for dpuDeviceName, dpuDevice := range dpuDeviceMap {
 		var err error
 		if dpu, exists := dpuMap[dpuDeviceName]; exists {
 			err = r.updatePCIAddress(ctx, &dpu, &dpuDevice)
 		} else {
 			err = r.createDPU(ctx, dpuSet, &dpuDevice)
+			if err == nil {
+				dpusCreated = true
+			}
 		}
 		if err != nil {
-			return err
+			return dpusCreated, err
 		}
 	}
-	return nil
+	return dpusCreated, nil
 }
 
 func (r *DPUSetReconciler) deleteStaleDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuDeviceMap map[string]provisioningv1.DPUDevice, dpuMap map[string]provisioningv1.DPU) error {
@@ -583,21 +630,24 @@ func (r *DPUSetReconciler) isNodeLabelUpdateNeeded(ctx context.Context, dpuSet *
 	return false, nil, nil
 }
 
+// UpdateDPUs updates the DPUs in the DPUSet.
 // in this function, it will:
 // 1. update the node labels for DPUs
 // 2. update the NodeEffect Action fields for DPUs
 // 3. update the ApplyOnLabelChange field for DPUs
 // 4. update the NodeMaintenanceAdditionalRequestors field for DPUs
-func (r *DPUSetReconciler) updateDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuMap map[string]provisioningv1.DPU) error {
+// Returns true if any DPUs were updated, false otherwise.
+func (r *DPUSetReconciler) UpdateDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuMap map[string]provisioningv1.DPU) (bool, error) {
 	needUpdateLabels, newLabels, removedLabels := r.isNodeLabelUpdateNeeded(ctx, dpuSet)
 	if needUpdateLabels {
 		// Update the last applied labels annotation
 		if jsonStr, err := cutil.MarshalJSON(newLabels); err != nil {
-			return fmt.Errorf("failed to marshal new labels: %w", err)
+			return false, fmt.Errorf("failed to marshal new labels: %w", err)
 		} else {
 			dpuSet.Annotations[cutil.LastAppliedLabelsOnDPUKey] = jsonStr
 		}
 	}
+	anyUpdated := false
 	for i := range dpuMap {
 		dpu := dpuMap[i] // copy into new variable
 		update := false
@@ -627,12 +677,13 @@ func (r *DPUSetReconciler) updateDPUs(ctx context.Context, dpuSet *provisioningv
 		if update {
 			dpu.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey] = dpuSet.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey]
 			if err := patcher.Patch(ctx, &dpu); err != nil {
-				return fmt.Errorf("failed to patch DPU (%s/%s): %w", dpu.Namespace, dpu.Name, err)
+				return false, fmt.Errorf("failed to patch DPU (%s/%s): %w", dpu.Namespace, dpu.Name, err)
 			}
+			anyUpdated = true
 		}
 	}
 
-	return nil
+	return anyUpdated, nil
 }
 
 // updateNodeMaintenanceAdditionalRequestors updates the NodeMaintenanceAdditionalRequestors field for existing DPUs when the DPUSet template changes.
