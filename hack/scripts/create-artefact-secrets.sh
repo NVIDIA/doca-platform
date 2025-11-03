@@ -33,6 +33,9 @@ fi
 
 REGISTRY_SERVER=$(echo $REGISTRY | cut -d'/' -f1)
 
+## create namespace if it doesn't exist
+kubectl create namespace dpf-operator-system --dry-run=client -o yaml | kubectl apply -f -
+
 ## Create a pull secret to be used for images in Kubernetes.
 kubectl -n dpf-operator-system create secret docker-registry dpf-pull-secret --docker-server=$REGISTRY_SERVER --docker-username="\$oauthtoken" --docker-password=$IMAGE_PULL_KEY
 
