@@ -287,9 +287,9 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 			ResourceType: "sf",
 			Bridge:       "br-sfc",
 			// TODO: Remove once the defaulting is fixed in DPUServiceNAD
-			ServiceMTU: 1500,
-			IPAM:       true,
-			Chain:      []dpuservicev1.CNIPlugin{{Type: ptr.To("rdma")}},
+			ServiceMTU:  1500,
+			IPAM:        true,
+			ChainedCNIs: []dpuservicev1.CNIPlugin{{Type: ptr.To("rdma")}},
 		},
 	}
 	dpuServiceNAD := generateDPUObj("mybrsfc-rdma", input.namespace, &dpuServiceNADTemplate)
