@@ -1870,13 +1870,20 @@ var _ = Describe("DPUDeployment Controller", func() {
 						Expect(testClient.Status().Patch(ctx, &dpuService, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
 					}
 				}
+
 				By("marking the DPUSet ready")
 				gotDPUSetList := &provisioningv1.DPUSetList{}
 				Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
 				Expect(gotDPUSetList.Items).ToNot(BeEmpty())
 				for _, dpuSet := range gotDPUSetList.Items {
-					dpuSet.Status.DPUStatistics = map[provisioningv1.DPUPhase]int{
-						provisioningv1.DPUReady: 1,
+					dpuSet.Status.Conditions = []metav1.Condition{
+						{
+							Type:               string(conditions.TypeReady),
+							Status:             metav1.ConditionTrue,
+							Reason:             string(conditions.ReasonSuccess),
+							LastTransitionTime: metav1.NewTime(time.Now()),
+							ObservedGeneration: dpuSet.Generation,
+						},
 					}
 					dpuSet.SetGroupVersionKind(provisioningv1.DPUSetGroupVersionKind)
 					dpuSet.SetManagedFields(nil)
@@ -2150,8 +2157,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
 				Expect(gotDPUSetList.Items).ToNot(BeEmpty())
 				for _, dpuSet := range gotDPUSetList.Items {
-					dpuSet.Status.DPUStatistics = map[provisioningv1.DPUPhase]int{
-						provisioningv1.DPUReady: 1,
+					dpuSet.Status.Conditions = []metav1.Condition{
+						{
+							Type:               string(conditions.TypeReady),
+							Status:             metav1.ConditionTrue,
+							Reason:             string(conditions.ReasonSuccess),
+							LastTransitionTime: metav1.NewTime(time.Now()),
+							ObservedGeneration: dpuSet.Generation,
+						},
 					}
 					dpuSet.SetGroupVersionKind(provisioningv1.DPUSetGroupVersionKind)
 					dpuSet.SetManagedFields(nil)
@@ -2177,6 +2190,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					// so the ApplyOnLabelChange should be false
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(false)
 				}
+
 				Eventually(func(g Gomega) {
 					gotDPUSetList := &provisioningv1.DPUSetList{}
 					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
@@ -3311,8 +3325,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
 				Expect(gotDPUSetList.Items).ToNot(BeEmpty())
 				for _, dpuSet := range gotDPUSetList.Items {
-					dpuSet.Status.DPUStatistics = map[provisioningv1.DPUPhase]int{
-						provisioningv1.DPUReady: 1,
+					dpuSet.Status.Conditions = []metav1.Condition{
+						{
+							Type:               string(conditions.TypeReady),
+							Status:             metav1.ConditionTrue,
+							Reason:             string(conditions.ReasonSuccess),
+							LastTransitionTime: metav1.NewTime(time.Now()),
+							ObservedGeneration: dpuSet.Generation,
+						},
 					}
 					dpuSet.SetGroupVersionKind(provisioningv1.DPUSetGroupVersionKind)
 					dpuSet.SetManagedFields(nil)
@@ -6121,8 +6141,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
 				Expect(gotDPUSetList.Items).ToNot(BeEmpty())
 				for _, dpuSet := range gotDPUSetList.Items {
-					dpuSet.Status.DPUStatistics = map[provisioningv1.DPUPhase]int{
-						provisioningv1.DPUReady: 1,
+					dpuSet.Status.Conditions = []metav1.Condition{
+						{
+							Type:               string(conditions.TypeReady),
+							Status:             metav1.ConditionTrue,
+							Reason:             string(conditions.ReasonSuccess),
+							LastTransitionTime: metav1.NewTime(time.Now()),
+							ObservedGeneration: dpuSet.Generation,
+						},
 					}
 					dpuSet.SetGroupVersionKind(provisioningv1.DPUSetGroupVersionKind)
 					dpuSet.SetManagedFields(nil)
@@ -7462,8 +7488,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
 				Expect(gotDPUSetList.Items).ToNot(BeEmpty())
 				for _, dpuSet := range gotDPUSetList.Items {
-					dpuSet.Status.DPUStatistics = map[provisioningv1.DPUPhase]int{
-						provisioningv1.DPUReady: 1,
+					dpuSet.Status.Conditions = []metav1.Condition{
+						{
+							Type:               string(conditions.TypeReady),
+							Status:             metav1.ConditionTrue,
+							Reason:             string(conditions.ReasonSuccess),
+							LastTransitionTime: metav1.NewTime(time.Now()),
+							ObservedGeneration: dpuSet.Generation,
+						},
 					}
 					dpuSet.SetGroupVersionKind(provisioningv1.DPUSetGroupVersionKind)
 					dpuSet.SetManagedFields(nil)
@@ -8283,8 +8315,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 				g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
 				g.Expect(gotDPUSetList.Items).ToNot(BeEmpty())
 				for _, dpuSet := range gotDPUSetList.Items {
-					dpuSet.Status.DPUStatistics = map[provisioningv1.DPUPhase]int{
-						provisioningv1.DPUReady: 1,
+					dpuSet.Status.Conditions = []metav1.Condition{
+						{
+							Type:               string(conditions.TypeReady),
+							Status:             metav1.ConditionTrue,
+							Reason:             string(conditions.ReasonSuccess),
+							LastTransitionTime: metav1.NewTime(time.Now()),
+							ObservedGeneration: dpuSet.Generation,
+						},
 					}
 					dpuSet.SetGroupVersionKind(provisioningv1.DPUSetGroupVersionKind)
 					dpuSet.SetManagedFields(nil)

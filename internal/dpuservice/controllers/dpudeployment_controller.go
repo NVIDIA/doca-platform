@@ -1074,12 +1074,7 @@ func (r *DPUDeploymentReconciler) updateSummary(ctx context.Context, dpuDeployme
 		var unreadyObjs []types.NamespacedName
 		var err error
 
-		switch objs.GroupVersionKind() {
-		case provisioningv1.GroupVersion.WithKind(provisioningv1.DPUSetListKind):
-			unreadyObjs, err = getNotReadyDPUSetsFromUnstructured(objs)
-		default:
-			unreadyObjs, err = getNotReadyObjects(objs)
-		}
+		unreadyObjs, err = getNotReadyUnstructuredObjects(objs)
 		if err != nil {
 			conditions.AddFalse(
 				dpuDeployment,
@@ -1110,9 +1105,9 @@ func (r *DPUDeploymentReconciler) updateSummary(ctx context.Context, dpuDeployme
 	return nil
 }
 
-// getNotReadyObjects returns a list of objects from a given list that are not in Ready state. This function
+// getNotReadyUnstructuredObjects returns a list of objects from a given list that are not in Ready state. This function
 // works under the assumption that these objects implement the standard DPF conditions.
-func getNotReadyObjects(objs *unstructured.UnstructuredList) ([]types.NamespacedName, error) {
+func getNotReadyUnstructuredObjects(objs *unstructured.UnstructuredList) ([]types.NamespacedName, error) {
 	unreadyObjs := []types.NamespacedName{}
 	for _, o := range objs.Items {
 		conds, exists, err := unstructured.NestedSlice(o.Object, "status", "conditions")
@@ -1158,61 +1153,17 @@ func getNotReadyObjects(objs *unstructured.UnstructuredList) ([]types.Namespaced
 	return unreadyObjs, nil
 }
 
-// getNotReadyDPUSetsFromUnstructured returns a list of objects from a given list that are not in Ready state. This function
-// expects the unstructured objects provided as input to be of type DPUSet. We can't use getNotReadyObjects() because the DPUSet
-// object doesn't implement the standard DPF conditions.
-func getNotReadyDPUSetsFromUnstructured(objs *unstructured.UnstructuredList) ([]types.NamespacedName, error) {
+// getNotReadyDPUSets returns a list of DPUSets from a given list that are not in Ready state.
+func getNotReadyDPUSets(dpuSets []provisioningv1.DPUSet) []types.NamespacedName {
 	unreadyObjs := []types.NamespacedName{}
-	for _, o := range objs.Items {
-		dpuStatistics, exists, err := unstructured.NestedMap(o.Object, "status", "dpuStatistics")
-		if err != nil {
-			return nil, err
-		}
-
-		if !exists {
-			unreadyObjs = append(unreadyObjs, types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()})
+	for _, dpuSet := range dpuSets {
+		// We don't use conditions.IsTrue() because it doesn't check for generation.
+		readyCondition := conditions.Get(&dpuSet, conditions.TypeReady)
+		if readyCondition != nil && readyCondition.Status == metav1.ConditionTrue && readyCondition.ObservedGeneration == dpuSet.Generation {
 			continue
 		}
 
-		isReady := true
-		for phase := range dpuStatistics {
-			if phase != string(provisioningv1.DPUReady) {
-				isReady = false
-				break
-			}
-		}
-
-		if !isReady {
-			unreadyObjs = append(unreadyObjs, types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()})
-		}
-	}
-
-	return unreadyObjs, nil
-}
-
-// getNotReadyDPUSets returns a list of strings that identify the DPUSets from a given list that are not in Ready state.
-// We can't use getNotReadyObjects() because the DPUSet object doesn't implement the standard DPF conditions.
-func getNotReadyDPUSets(objs []provisioningv1.DPUSet) []types.NamespacedName {
-	unreadyObjs := []types.NamespacedName{}
-	for _, o := range objs {
-		dpuStatistics := o.Status.DPUStatistics
-
-		if dpuStatistics == nil {
-			unreadyObjs = append(unreadyObjs, types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()})
-			continue
-		}
-
-		isReady := true
-		for phase := range dpuStatistics {
-			if phase != provisioningv1.DPUReady {
-				isReady = false
-				break
-			}
-		}
-
-		if !isReady {
-			unreadyObjs = append(unreadyObjs, types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()})
-		}
+		unreadyObjs = append(unreadyObjs, types.NamespacedName{Name: dpuSet.GetName(), Namespace: dpuSet.GetNamespace()})
 	}
 
 	return unreadyObjs
