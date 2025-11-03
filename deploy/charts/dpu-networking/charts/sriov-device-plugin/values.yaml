@@ -44,5 +44,15 @@ sriovdpConfig:
                 "pfNames": ["p0#101-110"],
                 "auxTypes": ["sf"]
             }]
+        },
+        {
+            "resourceName": "bf_vf",
+            "resourcePrefix": "nvidia.com",
+            "deviceType": "netDevice",
+            "selectors": [{
+                "vendors": ["15b3"],
+                "pfNames": ["p0", "p1"],
+                "isRdma": true
+            }]
         }]
     }

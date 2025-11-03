@@ -29,7 +29,7 @@ DPUServiceNAD is automatically installed as part of the DPF operator installatio
 
 ### Creating a DPUServiceNAD
 
-Here's an example of creating a basic DPUServiceNAD:
+Here's an example of creating a basic DPUServiceNAD with SF (Scalable Function):
 
 ```yaml
 apiVersion: svc.dpu.nvidia.com/v1alpha1
@@ -148,6 +148,6 @@ spec:
   resourceType: "sf"
   bridge: "test-ovsbridge"
   mtu: 1500
-  chainCNI:
+  chainedCNIs:
   - type: rdma
 ```

@@ -3172,7 +3172,9 @@ _Appears in:_
 
 
 
-
+CNIPlugin defines a CNI plugin to be used in a chained CNI configuration.
+When multiple CNI plugins are specified in ChainedCNIs, they are executed in order
+after the base OVS CNI plugin to provide additional network functionality.
 
 
 
@@ -3181,8 +3183,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `type` _string_ |  |  | Enum: [rdma] <br /> |
-| `config` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#rawextension-runtime-pkg)_ |  |  |  |
+| `type` _string_ | Type specifies the CNI plugin type to be used in the chain.<br />Currently only "rdma" is supported, which enables RDMA capabilities for the network interface. |  | Enum: [rdma] <br /> |
+| `config` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#rawextension-runtime-pkg)_ | Config contains optional plugin-specific configuration as raw JSON.<br />The configuration is merged into the CNI plugin configuration. |  |  |
 
 
 #### ConfigPort
@@ -3857,11 +3859,11 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `resourceType` _string_ |  |  | Enum: [vf sf veth] <br /> |
-| `bridge` _string_ |  |  |  |
-| `serviceMTU` _integer_ |  |  |  |
-| `ipam` _boolean_ |  |  |  |
-| `chainCNI` _[CNIPlugin](#cniplugin) array_ |  |  |  |
+| `resourceType` _string_ | ResourceType specifies the type of network resource to allocate for pods using this NAD.<br />- "vf": Virtual Function (SR-IOV VF) from the DPU's physical ports<br />- "sf": Scalable Function from the DPU (maps to nvidia.com/bf_sf or nvidia.com/bf_sf_trusted)<br />- "veth": Virtual Ethernet pair (no device plugin resource required)<br />The resource type determines which SR-IOV device plugin resource will be requested. |  | Enum: [vf sf veth] <br /> |
+| `bridge` _string_ | Bridge specifies the name of the OVS bridge to which the network interface will be connected.<br />This bridge name is used in the CNI configuration for the OVS plugin. |  |  |
+| `serviceMTU` _integer_ | ServiceMTU specifies the MTU size in bytes for the network interface.<br />This value is passed to the OVS CNI plugin and determines the maximum packet size.<br />If there is a DPUServiceChain that references an interface that is part of this network,<br />then the MTU that is defined in the DPUServiceChain takes precedence. |  |  |
+| `ipam` _boolean_ | IPAM enables IP Address Management for the network interfaces attached to this network<br />When set to true, a DPUServiceChain that references the DPUServiceInterface that has<br />requested this network must be created and include the relevant IPAM information. See<br />DPUServiceChain documentation for more.<br />When set to false, the network interfaces attached to this network will not get an IP |  |  |
+| `chainedCNIs` _[CNIPlugin](#cniplugin) array_ | ChainedCNIs specifies additional CNI plugins to be chained after the base OVS plugin.<br />When specified, the NAD will use the CNI chaining format with the OVS plugin as the<br />first plugin, followed by the plugins defined in this list.<br />This allows adding capabilities like RDMA support on top of the base network interface.<br />If empty, the NAD uses a single OVS plugin configuration (backward compatible format). |  |  |
 
 
 #### DPUServiceNADStatus

@@ -22,7 +22,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	dpucluster "github.com/nvidia/doca-platform/pkg/dpucluster"
+	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -499,7 +499,7 @@ func getDPUServiceNADWithChainedCNI(namespace string) *dpuservicev1.DPUServiceNA
 			Bridge:       "test-ovsbridge",
 			ServiceMTU:   1500,
 			IPAM:         false,
-			Chain: []dpuservicev1.CNIPlugin{
+			ChainedCNIs: []dpuservicev1.CNIPlugin{
 				{
 					Type: &rdmaType,
 				},

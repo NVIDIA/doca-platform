@@ -226,7 +226,8 @@ func (r *DPUServiceNADReconciler) registerKindToWatcher(ctx context.Context, dpu
 func (r *DPUServiceNADReconciler) networkAttachmentDefinitionToDPUServiceNad(ctx context.Context, o client.Object) []reconcile.Request {
 	log := ctrllog.FromContext(ctx)
 	match := o.GetObjectKind().GroupVersionKind().Kind == nadKind &&
-		o.GetObjectKind().GroupVersionKind().Group == nadGroup && o.GetObjectKind().GroupVersionKind().Version == nadVersion
+		o.GetObjectKind().GroupVersionKind().Group == nadGroup &&
+		o.GetObjectKind().GroupVersionKind().Version == nadVersion
 	if !match {
 		log.Error(fmt.Errorf("expected a NetworkAttachmentDefinition, got %T", o), "failed to convert object")
 		return nil
@@ -285,18 +286,19 @@ func (r *DPUServiceNADReconciler) createOrUpdateObjectsInDPUCluster(ctx context.
 	}
 
 	// Check if we need chained CNI format (backward compatible)
-	if len(DPUServiceNAD.Spec.Chain) == 0 {
+	if len(DPUServiceNAD.Spec.ChainedCNIs) == 0 {
 		// Use old single-plugin format for backward compatibility
 		for k, v := range ovsPlugin {
 			config[k] = v
 		}
 	} else {
 		// Use new chained CNI format when additional plugins are specified
-		plugins := []map[string]interface{}{}
-		plugins = append(plugins, ovsPlugin)
+		plugins := []map[string]interface{}{
+			ovsPlugin,
+		}
 
 		// Add additional plugins from Chain
-		for _, plugin := range DPUServiceNAD.Spec.Chain {
+		for _, plugin := range DPUServiceNAD.Spec.ChainedCNIs {
 			pluginConfig := map[string]interface{}{
 				"type": *plugin.Type,
 			}
@@ -337,11 +339,6 @@ func (r *DPUServiceNADReconciler) createOrUpdateObjectsInDPUCluster(ctx context.
 		},
 	}
 
-	// Clear ManagedFields if necessary
-	err = unstructured.SetNestedField(nad.Object, nil, "metadata", "managedFields")
-	if err != nil {
-		return fmt.Errorf("error while clearing ManagedFields: %w", err)
-	}
 	// Set GroupVersionKind
 	nad.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   nadGroup,
