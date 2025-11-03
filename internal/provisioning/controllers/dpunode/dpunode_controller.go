@@ -151,11 +151,6 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 		return result, err
 	}
 
-	// Handle host agent upgrade
-	if result := r.handleHostAgentUpgrade(ctx, dpuNode, nodeRef != nil); !result.IsZero() {
-		return result, nil
-	}
-
 	// Update DPUNode status - DPUInstallInterface
 	if r.DPUInstallInterface == nil {
 		return ctrl.Result{}, errors.New("DPUInstallInterface is not set")
@@ -163,6 +158,11 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 	if dpuNode.Status.DPUInstallInterface == nil {
 		dpuNode.Status.DPUInstallInterface = r.DPUInstallInterface
 		return ctrl.Result{}, nil
+	}
+
+	// Handle host agent upgrade
+	if result := r.handleHostAgentUpgrade(ctx, dpuNode, nodeRef != nil); !result.IsZero() {
+		return result, nil
 	}
 
 	// Delete the NodeEffectInProgress condition if there is no DPUNodeMaintenance for this DPUNode
@@ -603,6 +603,9 @@ func (r *DPUNodeReconciler) ensureMount(mnts []corev1.VolumeMount, name, path st
 func (r *DPUNodeReconciler) handleHostAgentUpgrade(ctx context.Context, dpuNode *provisioningv1.DPUNode, isKubernetes bool) ctrl.Result {
 	log := log.FromContext(ctx)
 
+	if *dpuNode.Status.DPUInstallInterface == string(provisioningv1.DPUNodeInstallIntrefaceRedfish) {
+		return ctrl.Result{}
+	}
 	if isKubernetes {
 		return ctrl.Result{}
 	}
