@@ -113,11 +113,15 @@ spec:
                 - veth
                 type: string
               serviceMTU:
+                default: 1500
                 description: |-
                   ServiceMTU specifies the MTU size in bytes for the network interface.
                   This value is passed to the OVS CNI plugin and determines the maximum packet size.
                   If there is a DPUServiceChain that references an interface that is part of this network,
                   then the MTU that is defined in the DPUServiceChain takes precedence.
+                  The default is 1500.
+                maximum: 9216
+                minimum: 1280
                 type: integer
             required:
             - resourceType
