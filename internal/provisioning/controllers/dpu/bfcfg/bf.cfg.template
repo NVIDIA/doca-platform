@@ -402,22 +402,14 @@ write_files:
     permissions: '0755'
     content: |
         #! /bin/bash
-        set -euo pipefail
-        
-        # TODO: remove mlxconfig checking and use only with --with_default flag in next release - 26.1
-
-        flag=""
-        if mlxconfig --help | grep -qe --with_default; then
-            flag="--with_default"
-        fi
-
+        set -e
         for dev in /dev/mst/*; do
-            if [[ -z "$flag" ]]; then
-                echo "reset NVConfig on dev $dev to defaults"
-                mlxconfig -d "$dev" -y reset
-            fi
-            echo "set NVConfig on dev $dev"
-            mlxconfig -d "$dev" $flag -y set {{.NVConfigParams}}
+          echo "reset NVConfig on dev ${dev} to defaults"
+          mlxconfig -d ${dev} -y reset
+        done
+        for dev in /dev/mst/*; do
+          echo "set NVConfig on dev ${dev}"
+          mlxconfig -d ${dev} -y set {{.NVConfigParams}}
         done
         echo "Finished setting nvconfig parameters"
 {{end}}
