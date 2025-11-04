@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -190,6 +191,39 @@ func createTestNamespace(ctx context.Context, testClient client.Client, namespac
 	}
 	testNS.SetLabels(cleanupLabels)
 	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, testNS))).To(Succeed())
+}
+
+// CopySecretToNamespace copies a secret from one namespace to another
+// If the source secret doesn't exist, does nothing (nothing to copy)
+// Always set's the label "dpu.nvidia.com/image-pull-secret" to "" in the target namespace
+// to ensure reconciliation in the DPU cluster
+func CopySecretToNamespace(ctx context.Context, c client.Client, secretName string, sourceNamespace, targetNamespace string, targetNamespaceLabels map[string]string) {
+	// Get source secret
+	secret := &corev1.Secret{}
+	err := c.Get(ctx, client.ObjectKey{Name: secretName, Namespace: sourceNamespace}, secret)
+	if err != nil {
+		// Secret doesn't exist, nothing to copy
+		Expect(client.IgnoreNotFound(err)).NotTo(HaveOccurred())
+		return
+	}
+
+	mergedLabels := make(map[string]string)
+	maps.Copy(mergedLabels, secret.Labels)
+	maps.Copy(mergedLabels, targetNamespaceLabels)
+	// Make sure the secret is reconciled in the DPU cluster
+	mergedLabels[dpuservicev1.DPFImagePullSecretLabelKey] = ""
+
+	secret.ObjectMeta = metav1.ObjectMeta{
+		Name:      secretName,
+		Namespace: targetNamespace,
+		Labels:    mergedLabels,
+	}
+
+	Expect(client.IgnoreAlreadyExists(c.Create(ctx, secret))).To(Succeed())
+
+	Eventually(func(g Gomega) {
+		g.Expect(c.Get(ctx, client.ObjectKey{Name: secretName, Namespace: targetNamespace}, secret)).To(Succeed())
+	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
 // getTwoNodes returns two worker nodes using the client provided as input
