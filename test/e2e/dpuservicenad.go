@@ -58,6 +58,9 @@ func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *systemTestIn
 	By("Create test namespace: " + namespace)
 	createTestNamespace(ctx, input.client, namespace)
 
+	By("Copy image pull secret to namespace " + namespace)
+	CopySecretToNamespace(ctx, input.client, dpfPullSecretName, dpfOperatorSystemNamespace, namespace, afterEachCleanupLabels)
+
 	By("Create DPUServiceNAD")
 	dpuServiceNAD := constructDPUServiceNAD(dpuServiceNADName, namespace, mtu)
 	Expect(input.client.Create(ctx, dpuServiceNAD)).To(Succeed())
