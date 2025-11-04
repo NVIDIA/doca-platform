@@ -1,0 +1,143 @@
+SETTINGS:
+  name: Dpf-Test
+
+VARS:
+  POD_TEMPLATE_PATH: $NLASTIC_DIR/nlastic_configs/pod_dpf_template.yaml
+  CLUSTER_IP_TEMPLATE_PATH: $NLASTIC_DIR/nlastic_configs/cluster_ip_dpf_template.yaml
+  NODE_PORT_TEMPLATE_PATH: $NLASTIC_DIR/nlastic_configs/node_port_dpf_template.yaml
+  IPERF_DURATION: 20
+  RDMA_DURATION: 20
+  WORKERS: worker[1,2]
+  WORKER_INTERFACE: eth2
+  CLUSTER_IP_SERVICE: 'cluster_ip'
+  NODE_PORT_SERVICE: 'node_port'
+  UDP: false #?P[false,true]
+  CLUSTER_NAME: DPF
+  CONFIGURATION: OVN_HBN
+
+
+JOBS:
+  # 1 pod 2 pod - same host
+  - $iperf[udp={UDP}]$
+    $k8s_all_hosts[pods_per_worker=2]$
+    $keep_pods $same_host
+    $print_commands
+    $tags[use_case='pod_2_pods_same_host']$
+
+  # 2 pod 2 pod 10 pods per worker- same host
+  - $iperf[udp={UDP}]$
+    $k8s_all_hosts[pods_per_worker=10]$
+    $keep_pods $same_host
+    $print_commands
+    $tags[use_case='pod_2_pods_same_host_deploy_10_pods_per_worker']$
+
+  # 3 pod 2 pod - diff host
+  - $iperf[udp={UDP}]$
+    $k8s_all_hosts[pods_per_worker=1]$
+    $keep_pods $diff_host
+    $print_commands
+    $tags[use_case='pod_2_pods_diff_host']$
+
+  # 4 pod to host - same host
+  - $iperf[udp={UDP}]$
+    $k8s_all_hosts[pods_per_worker=1]$
+    $keep_host_nis $define_pod_as_client $same_host
+    $print_commands
+    $tags[use_case='pod_2_host_same_host']$
+
+  # 5 pod to host - diff host
+  - $iperf[udp={UDP}]$
+    $k8s_all_hosts[pods_per_worker=1]$
+    $keep_host_nis $define_pod_as_client $diff_host
+    $print_commands
+    $tags[use_case='pod_2_host_diff_host']$
+
+
+  # 6 pod to pod via cluster ip - same host
+  # TODO: add docs.
+  - $iperf_service[udp={UDP},service={CLUSTER_IP_SERVICE}]$
+    $k8s_all_hosts[pods_per_worker=2]$ --service_config_path={CLUSTER_IP_TEMPLATE_PATH} --services_per_pod=1
+    $keep_pods $same_host
+    $print_commands
+    $tags[use_case='pod_2_pod_via_cluster_ip_same_host']$
+
+  # 7 pod to pod via cluster ip - diff host
+  - $iperf_service[udp={UDP} service={CLUSTER_IP_SERVICE}]$
+    $k8s_all_hosts[pods_per_worker=1]$ --service_config_path={CLUSTER_IP_TEMPLATE_PATH} --services_per_pod=1
+    $keep_pods $diff_host
+    $print_commands
+    $tags[use_case='pod_2_pod_via_cluster_ip_diff_host']$
+
+  # 8 pod to pod via node port - same host
+  - $iperf_service[udp={UDP} service={NODE_PORT_SERVICE}]$ --target_device={WORKER_INTERFACE}
+    $k8s_all_hosts[pods_per_worker=2]$ --service_config_path={NODE_PORT_TEMPLATE_PATH} --services_per_pod=1
+    $keep_pods $same_host $quantity_pods
+    $print_commands
+    $tags[use_case='pod_2_pod_via_node_port_same_host']$
+
+  # 9 pod to pod via node port - diff host
+  - $iperf_service[udp={UDP} service={NODE_PORT_SERVICE}]$ --target_device={WORKER_INTERFACE}
+    $k8s_all_hosts[pods_per_worker=1]$ --service_config_path={NODE_PORT_TEMPLATE_PATH} --services_per_pod=1
+    $keep_pods $diff_host
+    $print_commands
+    $tags[use_case='pod_2_pod_via_node_port_diff_host']$
+
+  ###################################################################################################
+  ########### RDMA
+
+  # 10 pod 2 pod - diff host
+  - $rdma_bw_job
+    $k8s_all_hosts[pods_per_worker=1]$
+    $keep_pods
+    $diff_host
+    $print_commands
+    $tags[use_case='pod_2_pod_diff_host_rdma']$
+
+  # 11 pod 2 pod - same host
+  - $rdma_bw_job
+    $k8s_all_hosts[pods_per_worker=2]$
+    $keep_pods
+    $same_host
+    $print_commands
+    $tags[use_case='pod_2_pod_same_host_rdma']$
+ALIAS:
+
+  # jobs
+  iperf_service udp=false service=0: jobs tcp_perf --benchmark=iperf3 --duration={IPERF_DURATION} --udp=$udp
+    jobs hpc app_configuration --service=$service
+  iperf udp=false service=0: jobs tcp_perf --benchmark=iperf3 --duration={IPERF_DURATION} --udp=$udp
+
+  rdma_bw_job mtu=2048 num_of_qps=1 service=0: jobs rdma_perf --benchmark=ib_write_bw --duration={RDMA_DURATION}
+    --message_size=65536 --mtu=$mtu --num_of_qps=$num_of_qps --tclass=96 --gid_index=3 --sl=3
+
+  # monitors
+  dpf_monitors: nic_monitors --monitor monitor_linux_statistics scheduling --background=true $Keep_Nics &
+    host_monitors --monitor monitor_host_statistics scheduling --background=true &
+    ni_monitors --monitor monitor_network_interface $Keep_Nics scheduling --background=true &
+
+  # modifiers
+  # TODO: convert 5 to pod.
+  keep_pods: pairing_allocation pairing_rules field_filter --node_type=NetworkInterface --field_name=worker_role --field_values='[5]'
+  same_host: pairing_allocation pairing_rules group_by_field --node_type=Host --field_name=hostname #--should_be_equal=true
+  diff_host: pairing_allocation pairing_rules group_by_field --node_type=Host --field_name=hostname --should_be_equal=false
+  quantity_pods quantity=2: nlastic pairing_allocation pairing_rules quantity_filter --amount=$quantity
+
+  define_pod_as_client: pairing_allocation pairing_rules field_filter --node_type=NetworkInterface --field_name=worker_role
+    --field_values='[5]' --node_action=SET_AS_CLIENTS --setting_role_affects_other_nodes=true
+
+  define_pod_as_server: pairing_allocation pairing_rules field_filter --node_type=NetworkInterface --field_name=worker_role
+    --field_values='[5]' --node_action=SET_AS_SERVERS --setting_role_affects_other_nodes=true
+  # todo: to be more generic
+  keep_host_nis: pairing_allocation nodes_filtering worker_interface_selector
+    --worker_to_interfaces='{"{WORKERS}":"{WORKER_INTERFACE}"}' --include_unmatched_workers=true
+  Keep_Nics: pairing_allocation pairing_rules node_selector --nics=mlx5_3
+
+  # allocators
+  k8s_all_hosts pods_per_worker=1: jobs k8s_allocator --all_hosts=true --pods_per_worker=$pods_per_worker
+    --pod_template_path={POD_TEMPLATE_PATH}
+
+  print_commands: jobs log_configuration --commands_info=true
+  # tagging
+  tags use_case=0: tagging --cluster_name={CLUSTER_NAME} --configuration={CONFIGURATION}
+    --benchmark=$use_case
+

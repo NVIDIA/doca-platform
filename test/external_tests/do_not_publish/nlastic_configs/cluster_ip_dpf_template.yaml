@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: iperf-performance
+  labels:
+    app: iperf-performance
+spec:
+  selector:
+    app: iperf-performance
+  ports:
+    - protocol: TCP
+      name: tcp
+      port: 5073
+      targetPort: 5073
+    - protocol: TCP
+      port: 5075
+      name: tcp1
+      targetPort: 5075
+    - protocol: TCP
+      name: tcp2
+      port: 5077
+      targetPort: 5077
+    - protocol: TCP
+      name: tcp3
+      port: 5079
+      targetPort: 5079
+    - protocol: TCP
+      name: tcp4
+      port: 5081
+      targetPort: 5081
+    - protocol: TCP
+      name: tcp5
+      port: 5083
+      targetPort: 5083
+    - protocol: TCP
+      name: tcp6
+      port: 5085
+      targetPort: 5085
+    - protocol: TCP
+      name: tcp7
+      port: 5087
+      targetPort: 5087
+    - protocol: TCP
+      name: tcp8
+      port: 5089
+      targetPort: 5089
+    - protocol: TCP
+      port: 5091
+      name: tcp9
+      targetPort: 5091
+    - protocol: TCP
+      name: tcp10
+      port: 5093
+      targetPort: 5093
+    - protocol: TCP
+      name: tcp11
+      port: 5095
+      targetPort: 5095
+    - protocol: TCP
+      name: tcp12
+      port: 5097
+      targetPort: 5097
+    - protocol: TCP
+      name: tcp13
+      port: 5099
+      targetPort: 5099
+    - protocol: TCP
+      name: tcp14
+      port: 5101
+      targetPort: 5101
+    - protocol: TCP
+      name: tcp15
+      port: 5103
+      targetPort: 5103
+    - protocol: TCP
+      name: tcp16
+      port: 5105
+      targetPort: 5105
+    - protocol: TCP
+      name: tcp17
+      port: 5107
+      targetPort: 5107
+    - protocol: TCP
+      name: tcp18
+      port: 5109
+      targetPort: 5109
+    - protocol: TCP
+      name: tcp19
+      port: 5111
+      targetPort: 5111

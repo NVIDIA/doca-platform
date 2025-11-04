@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client-pod
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: worker2
+  containers:
+    - name: iperf-dpf
+      #image: "harbor.mellanox.com/nbu-solutions-labs/iperf:dpf_v2"
+      image: "harbor.mellanox.com/e2e-networking/rdma:latest"
+      #image: "harbor.mellanox.com/nbu-solutions-labs/dpf-performance-test:24.04"
+      imagePullPolicy: Always
+      command: [ '/bin/sh', '-c', 'sleep infinity' ]
+      securityContext:
+        privileged: true
