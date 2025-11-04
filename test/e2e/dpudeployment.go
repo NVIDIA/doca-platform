@@ -20,11 +20,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/test/utils/metrics"
@@ -250,6 +252,12 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 
 func VerifyDeploymentUnderlyingObjectsCreated(ctx context.Context, g Gomega, testClient client.Client, dpuDeployment *dpuservicev1.DPUDeployment) bool {
 	serviceCount := len(dpuDeployment.Spec.Services)
+	serviceInterfaceCount := 0
+	for _, config := range dpuDeployment.Spec.Services {
+		serviceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
+		g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: dpuDeployment.GetNamespace(), Name: config.ServiceConfiguration}, serviceConfiguration)).To(Succeed())
+		serviceInterfaceCount += len(serviceConfiguration.Spec.Interfaces)
+	}
 	gotDPUSetList := &provisioningv1.DPUSetList{}
 	g.Expect(testClient.List(ctx,
 		gotDPUSetList,
@@ -284,7 +292,7 @@ func VerifyDeploymentUnderlyingObjectsCreated(ctx context.Context, g Gomega, tes
 		client.MatchingLabels{
 			"svc.dpu.nvidia.com/owned-by-dpudeployment": fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName()),
 		})).To(Succeed())
-	return g.Expect(gotDPUServiceInterfaceList.Items).To(HaveLen(serviceCount))
+	return g.Expect(gotDPUServiceInterfaceList.Items).To(HaveLen(serviceInterfaceCount))
 	// A couple of dependencies must become ready before the DPUDeployment can take action, therefore we have to wait
 	// a little longer here.
 }
@@ -336,6 +344,20 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 	dpuServiceConfiguration2.Spec.Interfaces = []dpuservicev1.ServiceInterfaceTemplate{{Name: "net2", Network: "mybrsfc"}}
 	Expect(input.client.Create(ctx, dpuServiceConfiguration2)).To(Succeed())
 
+	inClusterDPUServiceTemplate := input.dpuServiceTemplate.DeepCopy()
+	inClusterDPUServiceTemplate.SetLabels(afterAllCleanupLabels)
+	inClusterDPUServiceTemplate.SetName("dpudeployment-example-in-cluster-servicetemplate")
+	inClusterDPUServiceTemplate.Spec.DeploymentServiceName = "example-in-cluster"
+	Expect(input.client.Create(ctx, inClusterDPUServiceTemplate)).To(Succeed())
+
+	inClusterDPUServiceConfiguration := input.dpuServiceConfiguration.DeepCopy()
+	inClusterDPUServiceConfiguration.SetLabels(afterAllCleanupLabels)
+	inClusterDPUServiceConfiguration.SetName("dpudeployment-example-in-cluster-serviceconfiguration")
+	inClusterDPUServiceConfiguration.Spec.Interfaces = nil
+	inClusterDPUServiceConfiguration.Spec.DeploymentServiceName = "example-in-cluster"
+	inClusterDPUServiceConfiguration.Spec.ServiceConfiguration.DeployInCluster = ptr.To(true)
+	Expect(input.client.Create(ctx, inClusterDPUServiceConfiguration)).To(Succeed())
+
 	dpuDeployment := generateDPUObj("dpf-dpudeployment", input.dpuDeployment.DeepCopy().Namespace, input.dpuDeployment.DeepCopy(), afterAllCleanupLabels)
 	dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
 		MatchLabels: map[string]string{"feature.node.kubernetes.io/dpu-enabled": "true"},
@@ -345,6 +367,12 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		ServiceTemplate:      "dpudeployment-example-servicetemplate-2",
 		ServiceConfiguration: "dpudeployment-example-serviceconfiguration-2",
 	}
+
+	dpuDeployment.Spec.Services["example-in-cluster"] = dpuservicev1.DPUDeploymentServiceConfiguration{
+		ServiceTemplate:      inClusterDPUServiceTemplate.GetName(),
+		ServiceConfiguration: inClusterDPUServiceConfiguration.GetName(),
+	}
+
 	// Update the switch to map net1 to net2
 	dpuDeployment.Spec.ServiceChains.Switches[0] = dpuservicev1.DPUDeploymentSwitch{
 		Ports: []dpuservicev1.DPUDeploymentPort{
@@ -372,6 +400,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 			},
 		},
 	}
+
 	Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
 
 	Eventually(func(g Gomega) {
@@ -660,6 +689,90 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx context.Context, input
 // ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade validates that DPUDeployment disruptive upgrade flow for
 // in-cluster DPUServices works as expected
 func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Context, input *systemTestInput) {
+	if input.numberOfDPUNodes != 2 {
+		// Test assumes that there are exactly 2 host nodes to match the DPU cluster
+		Skip("Skip test as there are not exactly 2 nodes")
+	}
+
+	By("getting the existing DPUDeployment")
+	dpuDeployment := &dpuservicev1.DPUDeployment{}
+	dpuDeployment.SetName("dpf-dpudeployment")
+	dpuDeployment.SetNamespace(dpfOperatorSystemNamespace)
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+
+	parentLabel := fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name)
+
+	By("getting the dpuServiceConfiguration for in-cluster service")
+	dpuServiceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
+	dpuServiceConfiguration.SetName("dpudeployment-example-in-cluster-serviceconfiguration")
+	dpuServiceConfiguration.SetNamespace(dpfOperatorSystemNamespace)
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuServiceConfiguration), dpuServiceConfiguration)).To(Succeed())
+
+	dpuDeploymentKey := client.ObjectKeyFromObject(dpuDeployment)
+	expectedVersionKey := fmt.Sprintf("%s-%s", "svc.dpu.nvidia.com/dpuservice-in-cluster-version", digest.Short(digest.FromObjects(dpuDeploymentKey, "example-in-cluster"), 10))
+
+	By("getting the in-cluster DPUService")
+	dpuServiceList := &dpuservicev1.DPUServiceList{}
+	Expect(input.client.List(ctx, dpuServiceList,
+		client.InNamespace(dpuDeployment.Namespace),
+		client.MatchingLabels{dpuservicev1.ParentDPUDeploymentNameLabel: parentLabel},
+	)).To(Succeed())
+
+	inClusterServices := getInClusterDPUServices(dpuServiceList.Items)
+	Expect(inClusterServices).To(HaveLen(1))
+
+	originalInClusterService := inClusterServices[0].DeepCopy()
+
+	By("getting the target nodes")
+	nodesInfo := getTargetNodesAndDPUNodeNames(ctx, input.client, dpuDeployment)
+
+	By("verifying that the in-cluster services is deployed")
+	Eventually(func(g Gomega) {
+		allNodes := &corev1.NodeList{}
+		g.Expect(input.client.List(ctx, allNodes)).To(Succeed())
+
+		nodesWithLabel := make(map[string]struct{})
+		for _, node := range allNodes.Items {
+			val, ok := node.Labels[expectedVersionKey]
+			if !ok {
+				continue
+			}
+			g.Expect(val).To(Equal(originalInClusterService.Name), fmt.Sprintf("unexpected label value on node %s", node.Name))
+			nodesWithLabel[node.Name] = struct{}{}
+			g.Expect(nodesInfo.targetNodes).To(HaveKey(node.Name), fmt.Sprintf("node %s should not carry in-cluster label", node.Name))
+		}
+
+		g.Expect(nodesWithLabel).To(HaveLen(len(nodesInfo.targetNodes)), "expected number of nodes with label to match targeted nodes")
+	}).WithTimeout(15 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+
+	By("capturing old pod UIDs before update")
+	oldPodUIDs := captureOldPodUIDs(ctx, input.client, dpuDeployment.Namespace, originalInClusterService.Name)
+
+	By("capturing initial NodeEffect condition times from DPUs before update")
+	initialNodeEffectStates := captureInitialNodeEffectStates(ctx, input.client, nodesInfo.dpuNodeNames)
+
+	By("updating the dpuServiceConfiguration by adding an extra label to trigger disruptive upgrade")
+	originalDPUServiceConfiguration := dpuServiceConfiguration.DeepCopy()
+	if dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels == nil {
+		dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = make(map[string]string)
+	}
+	dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels["test-disruptive-upgrade"] = "true"
+	Expect(input.client.Patch(ctx, dpuServiceConfiguration, client.MergeFrom(originalDPUServiceConfiguration))).To(Succeed())
+
+	By("verifying that a new DPUService is created")
+	newInClusterService := waitForNewInClusterDPUService(ctx, input.client, dpuDeployment.Namespace, parentLabel, originalInClusterService.Name)
+
+	By("verifying that all target DPUs went through maintenance (NodeEffectReady completed and NodeEffectRemoved)")
+	verifyDPUsCompletedMaintenance(ctx, input.client, nodesInfo.dpuNodeNames, initialNodeEffectStates)
+
+	By("verifying that pods were recreated")
+	verifyPodsRecreated(ctx, input.client, dpuDeployment.Namespace, newInClusterService.Name, oldPodUIDs)
+
+	By("Verifying that the DPUDeployment becomes ready")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+		g.Expect(conditions.IsTrue(dpuDeployment, conditions.TypeReady)).To(BeTrue())
+	}).WithTimeout(15 * time.Minute).Should(Succeed())
 }
 
 // ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade validates that DPUDeployment disruptive upgrade flow for
@@ -992,4 +1105,198 @@ func getDPUServiceNameToApplication(dpuServices []dpuservicev1.DPUService, appli
 		}
 	}
 	return dpuServiceNameToApplicationName
+}
+
+// dpuNodeEffectState holds the state of NodeEffect conditions for a DPU
+type dpuNodeEffectState struct {
+	nodeEffectReadyTime   metav1.Time
+	nodeEffectRemovedTime metav1.Time
+}
+
+// getInClusterDPUServices filters and returns only in-cluster DPU services from a service list
+func getInClusterDPUServices(services []dpuservicev1.DPUService) []dpuservicev1.DPUService {
+	inClusterServices := make([]dpuservicev1.DPUService, 0)
+	for _, svc := range services {
+		if ptr.Deref(svc.Spec.DeployInCluster, false) {
+			inClusterServices = append(inClusterServices, svc)
+		}
+	}
+	return inClusterServices
+}
+
+// DPUDeploymentNodesInfo holds information about target nodes and DPUNodes
+type DPUDeploymentNodesInfo struct {
+	targetNodes  map[string]corev1.Node
+	dpuNodeNames []string
+}
+
+// getTargetNodesAndDPUNodeNames gets target nodes and DPU node names based on DPUDeployment selector
+func getTargetNodesAndDPUNodeNames(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment) DPUDeploymentNodesInfo {
+	targetNodes := make(map[string]corev1.Node)
+	nodeSelector := dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector
+	Expect(nodeSelector).ToNot(BeNil())
+
+	selector, err := metav1.LabelSelectorAsSelector(nodeSelector)
+	Expect(err).ToNot(HaveOccurred())
+
+	// List DPUNodes matching the selector
+	dpuNodeList := &provisioningv1.DPUNodeList{}
+	Expect(c.List(ctx, dpuNodeList, client.MatchingLabelsSelector{Selector: selector})).To(Succeed())
+	Expect(dpuNodeList.Items).ToNot(BeEmpty(), fmt.Sprintf("expected DPUNodes matching selector for DPUSet %s", dpuDeployment.Spec.DPUs.DPUSets[0].NameSuffix))
+
+	// Get the corev1.Nodes referenced by the DPUNodes
+	dpuNodeNames := make([]string, 0)
+	for _, dpuNode := range dpuNodeList.Items {
+		if dpuNode.Status.KubeNodeRef == nil {
+			continue
+		}
+		node := &corev1.Node{}
+		Expect(c.Get(ctx, client.ObjectKey{Name: *dpuNode.Status.KubeNodeRef}, node)).To(Succeed())
+		targetNodes[node.Name] = *node
+		dpuNodeNames = append(dpuNodeNames, dpuNode.Name)
+	}
+	Expect(targetNodes).ToNot(BeEmpty(), "expected DPUDeployment to target nodes")
+
+	return DPUDeploymentNodesInfo{
+		targetNodes:  targetNodes,
+		dpuNodeNames: dpuNodeNames,
+	}
+}
+
+// captureOldPodUIDs captures UIDs of old pods before update
+func captureOldPodUIDs(ctx context.Context, c client.Client, namespace string, serviceName string) map[string]struct{} {
+	oldPods := &corev1.PodList{}
+	Expect(c.List(ctx, oldPods,
+		client.InNamespace(namespace),
+		client.MatchingLabels{"app.kubernetes.io/instance": "in-cluster-" + serviceName})).To(Succeed())
+	Expect(oldPods.Items).ToNot(BeEmpty())
+	oldPodUIDs := make(map[string]struct{})
+	for _, pod := range oldPods.Items {
+		oldPodUIDs[string(pod.UID)] = struct{}{}
+	}
+	return oldPodUIDs
+}
+
+// captureInitialNodeEffectStates captures initial NodeEffect condition states from DPUs
+func captureInitialNodeEffectStates(ctx context.Context, c client.Client, dpuNodeNames []string) map[string]dpuNodeEffectState {
+	initialNodeEffectStates := make(map[string]dpuNodeEffectState)
+	dpuList := &provisioningv1.DPUList{}
+	Expect(c.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+	for _, dpu := range dpuList.Items {
+		// Only track DPUs that belong to our target DPUNodes
+		if !slices.Contains(dpuNodeNames, dpu.Spec.DPUNodeName) {
+			continue
+		}
+
+		state := dpuNodeEffectState{}
+		for _, cond := range dpu.Status.Conditions {
+			if cond.Type == string(provisioningv1.DPUCondNodeEffectReady) {
+				state.nodeEffectReadyTime = cond.LastTransitionTime
+			} else if cond.Type == string(provisioningv1.DPUCondNodeEffectRemoved) {
+				state.nodeEffectRemovedTime = cond.LastTransitionTime
+			}
+		}
+		initialNodeEffectStates[dpu.Name] = state
+	}
+	return initialNodeEffectStates
+}
+
+// waitForNewInClusterDPUService waits for a new in-cluster DPU service to be created during disruptive upgrade
+func waitForNewInClusterDPUService(ctx context.Context, c client.Client, namespace, parentLabel string, originalServiceName string) *dpuservicev1.DPUService {
+	var newInClusterService *dpuservicev1.DPUService
+	Eventually(func(g Gomega) {
+		dpuServiceList := &dpuservicev1.DPUServiceList{}
+		g.Expect(c.List(ctx, dpuServiceList,
+			client.InNamespace(namespace),
+			client.MatchingLabels{dpuservicev1.ParentDPUDeploymentNameLabel: parentLabel},
+		)).To(Succeed())
+
+		inClusterServices := getInClusterDPUServices(dpuServiceList.Items)
+
+		// During disruptive upgrade, we should have 2 services (old, new)
+		g.Expect(inClusterServices).To(HaveLen(2), "expected 2 in-cluster services during disruptive upgrade")
+
+		// Find the new service (different name from original)
+		for i := range inClusterServices {
+			if inClusterServices[i].Name != originalServiceName {
+				newInClusterService = &inClusterServices[i]
+				break
+			}
+		}
+		g.Expect(newInClusterService).ToNot(BeNil(), "expected new in-cluster service to be created")
+	}).WithTimeout(2 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+
+	return newInClusterService
+}
+
+// dpuMaintenanceCompleted checks if a DPU has completed its maintenance cycle
+func dpuMaintenanceCompleted(dpu provisioningv1.DPU, initialStates map[string]dpuNodeEffectState) bool {
+	initialState, hadInitialState := initialStates[dpu.Name]
+	nodeEffectReadyCompleted := false
+	nodeEffectRemoved := false
+
+	for _, cond := range dpu.Status.Conditions {
+		if cond.Type == string(provisioningv1.DPUCondNodeEffectReady) {
+			if cond.Status == metav1.ConditionTrue &&
+				cond.Reason == "NodeEffectCompleted" &&
+				(!hadInitialState || cond.LastTransitionTime.After(initialState.nodeEffectReadyTime.Time)) {
+				nodeEffectReadyCompleted = true
+			}
+		} else if cond.Type == string(provisioningv1.DPUCondNodeEffectRemoved) {
+			if cond.Status == metav1.ConditionTrue &&
+				cond.Reason == "NodeEffectRemoved" &&
+				(!hadInitialState || cond.LastTransitionTime.After(initialState.nodeEffectRemovedTime.Time)) {
+				nodeEffectRemoved = true
+			}
+		}
+	}
+
+	return nodeEffectReadyCompleted && nodeEffectRemoved
+}
+
+// verifyDPUsCompletedMaintenance verifies that all target DPUs completed their maintenance cycle
+func verifyDPUsCompletedMaintenance(ctx context.Context, c client.Client, dpuNodeNames []string, initialStates map[string]dpuNodeEffectState) {
+	Eventually(func(g Gomega) {
+		dpusCompletedMaintenance := make(map[string]struct{})
+
+		dpuList := &provisioningv1.DPUList{}
+		g.Expect(c.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+		for _, dpu := range dpuList.Items {
+			// Only check DPUs that belong to our target DPUNodes
+			if !slices.Contains(dpuNodeNames, dpu.Spec.DPUNodeName) {
+				continue
+			}
+
+			if dpuMaintenanceCompleted(dpu, initialStates) {
+				dpusCompletedMaintenance[dpu.Spec.DPUNodeName] = struct{}{}
+			}
+		}
+
+		g.Expect(dpusCompletedMaintenance).To(HaveLen(len(dpuNodeNames)),
+			fmt.Sprintf("expected all %d target DPUNodes' DPUs to complete maintenance cycle (NodeEffectReady=True with reason=NodeEffectCompleted and NodeEffectRemoved updated), but only %d did",
+				len(dpuNodeNames), len(dpusCompletedMaintenance)))
+	}).WithTimeout(15 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+}
+
+// verifyPodsRecreated verifies that pods were recreated with new UIDs
+func verifyPodsRecreated(ctx context.Context, c client.Client, namespace, serviceName string, oldPodUIDs map[string]struct{}) {
+	Eventually(func(g Gomega) {
+		newPods := &corev1.PodList{}
+		g.Expect(c.List(ctx, newPods,
+			client.InNamespace(namespace),
+			client.MatchingLabels{"app.kubernetes.io/instance": "in-cluster-" + serviceName})).To(Succeed())
+
+		g.Expect(newPods.Items).ToNot(BeEmpty(), "expected new pods to be created")
+
+		// Verify these are NEW pods (different UIDs from old ones)
+		for _, pod := range newPods.Items {
+			_, existsInOld := oldPodUIDs[string(pod.UID)]
+			g.Expect(existsInOld).To(BeFalse(),
+				fmt.Sprintf("expected new pod, but found old pod UID: %s", pod.UID))
+			g.Expect(pod.Status.Phase).To(Equal(corev1.PodRunning),
+				fmt.Sprintf("expected pod %s to be running", pod.Name))
+		}
+	}).WithTimeout(5 * time.Minute).WithPolling(250 * time.Millisecond).Should(Succeed())
 }
