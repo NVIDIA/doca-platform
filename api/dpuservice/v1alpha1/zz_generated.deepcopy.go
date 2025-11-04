@@ -1034,8 +1034,8 @@ func (in *DPUServiceNADList) DeepCopyObject() runtime.Object {
 func (in *DPUServiceNADSpec) DeepCopyInto(out *DPUServiceNADSpec) {
 	*out = *in
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	if in.Chain != nil {
-		in, out := &in.Chain, &out.Chain
+	if in.ChainedCNIs != nil {
+		in, out := &in.ChainedCNIs, &out.ChainedCNIs
 		*out = make([]CNIPlugin, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
