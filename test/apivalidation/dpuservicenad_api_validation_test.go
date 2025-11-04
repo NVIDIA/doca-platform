@@ -77,6 +77,27 @@ var _ = Describe("DPUServiceNAD API Validation", func() {
 			Entry("invalid config - invalid plugin type", []dpuservicev1.CNIPlugin{{Type: ptr.To("invalid")}}, true),
 		)
 
+		DescribeTable("Validates ServiceMTU",
+			func(serviceMTU, expectedServiceMTU int, expectError bool) {
+				nad := getMinimalDPUServiceNAD(testNS.Name)
+				nad.Spec.ServiceMTU = serviceMTU
+
+				err := testClient.Create(ctx, nad)
+				if expectError {
+					Expect(err).To(HaveOccurred())
+				} else {
+					DeferCleanup(testClient.Delete, ctx, nad)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(nad.Spec.ServiceMTU).To(Equal(expectedServiceMTU))
+				}
+			},
+			Entry("valid config - no MTU given, default should be applied", nil, 1500, false),
+			Entry("valid config - minimum MTU of 1280", 1280, 1280, false),
+			Entry("valid config - maximum MTU of 9216", 9216, 9216, false),
+			Entry("invalid config - MTU of 1279 is too low", 1279, nil, true),
+			Entry("invalid config - MTU of 9217 is too high", 9217, nil, true),
+		)
+
 		It("should create DPUServiceNAD with all optional fields", func() {
 			nad := getMinimalDPUServiceNAD(testNS.Name)
 			nad.Spec.Bridge = "br-test"

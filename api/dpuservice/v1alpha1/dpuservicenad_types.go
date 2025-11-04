@@ -105,6 +105,10 @@ type DPUServiceNADSpec struct {
 	// This value is passed to the OVS CNI plugin and determines the maximum packet size.
 	// If there is a DPUServiceChain that references an interface that is part of this network,
 	// then the MTU that is defined in the DPUServiceChain takes precedence.
+	// The default is 1500.
+	// +kubebuilder:validation:Minimum=1280
+	// +kubebuilder:validation:Maximum=9216
+	// +kubebuilder:default=1500
 	// +optional
 	ServiceMTU int `json:"serviceMTU,omitempty"`
 	// IPAM enables IP Address Management for the network interfaces attached to this network
