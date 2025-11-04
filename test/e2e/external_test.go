@@ -26,19 +26,13 @@ import (
 
 //nolint:dupl
 var _ = Describe("External DPF tests", Labels{externalTestLabel}, func() {
-	BeforeEach(func() {
-		for _, label := range CurrentSpecReport().Labels() {
-			if label == requiresNodesLabel {
-				By("Waiting for provisioning")
-				VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
-				By("Waiting for DPU cluster pods to be ready")
-				VerifyDPUClusterPods(ctx, systemPodsToVerify)
-			}
-		}
-	})
+	Context("External DPF tests - OVNK based", func() {
+		BeforeEach(func() {
+			By("wait for OVNK HBN deployment to be ready")
+			WaitForOVNKHBNDeploymentReady(ctx, input)
+		})
 
-	Context("External DPF tests", Labels{}, func() {
-		It("Executes external bash script from the externalTestScript argument", func() {
+		It("Executes external bash script from the externalTestScript argument", Labels{ovnkPrimaryLabel, requiresNodesLabel}, func() {
 			By("DPF system is configured, provisioned and ready for external testing")
 			runExternalTestScript()
 		})
