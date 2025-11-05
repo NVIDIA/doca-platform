@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -28,14 +29,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
 	condition = string(provisioningv1.DPUCondFWConfigured)
-	// getModeCmd is the command to get the mode of the DPU. The command is copied from DMS source code
-	getModeCmd = "mlxconfig -d $TargetPCIAddrFull q INTERNAL_CPU_MODEL | grep INTERNAL_CPU_MODEL.*0 | [ $(wc -l) -eq 1 ] && echo SEPARATE || echo $(mlxconfig -d $TargetPCIAddrFull q INTERNAL_CPU_OFFLOAD_ENGINE | grep INTERNAL_CPU_OFFLOAD_ENGINE.*0 | [ $(wc -l) -eq 1 ] && echo DPU || echo NIC)"
-	// setModeCmd is the command to set the mode of the DPU. The command is copied from DMS source code
-	setModeCmd = "bf3=$(lspci | grep $TargetPCIAddrFull.*BlueField-3 | [ $(wc -l) -eq 1 ] && echo true || echo false);sep=$([ '$0' == 'SEPARATE' ] && echo 0 || echo 1);sepb=$([ '$0' == 'SEPARATE' ] && echo true || echo false);nic=$([ '$0' == 'NIC' ] && echo 1 || echo 0);mlxconfig -d $TargetPCIAddrFull -y s $(echo INTERNAL_CPU_MODEL=$sep);$sepb || mlxconfig -d $TargetPCIAddrFull -y s $(echo INTERNAL_CPU_OFFLOAD_ENGINE=$nic);params=$(echo INTERNAL_CPU_MODEL=$sep $($sepb || echo INTERNAL_CPU_OFFLOAD_ENGINE=$nic) $($bf3 && echo EXP_ROM_UEFI_ARM_ENABLE=$sep || echo $($sepb || echo INTERNAL_CPU_IB_VPORT0=$nic INTERNAL_CPU_PAGE_SUPPLIER=$nic INTERNAL_CPU_ESWITCH_MANAGER=$nic)));mlxconfig -d $TargetPCIAddrFull -y s $params"
 )
 
 type Handler struct {
@@ -51,6 +49,7 @@ func NewHandler(client client.Client, getDevice func(string) (hostutil.Device, b
 }
 
 func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisioningv1.DPUStatus, ctrl.Result, error) {
+	logger := log.FromContext(ctx)
 	dev, ok := h.GetDevice(dpu.Spec.SerialNumber)
 	if !ok {
 		return dpu.Status, ctrl.Result{}, fmt.Errorf("device not found")
@@ -60,39 +59,80 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 		hostutil.NewCondition(condition).Failure(err, "FailedToGetDPUFlavor").Set(&dpu.Status.Conditions)
 		return dpu.Status, ctrl.Result{}, err
 	}
+
+	if len(flavor.Spec.DpuMode) == 0 {
+		flavor.Spec.DpuMode = provisioningv1.DpuMode
+	}
+
+	if flavor.Spec.DpuMode != provisioningv1.DpuMode {
+		err := fmt.Errorf("DPU mode: %s is unsupported in hostagent. Only DPU mode is supported", flavor.Spec.DpuMode)
+		hostutil.NewCondition(condition).Failure(err, "RequestedDPUModeUnsupported").Set(&dpu.Status.Conditions)
+		return dpu.Status, ctrl.Result{}, err
+	}
+
 	pciAddress := filepath.Base(hostutil.NewPCIHelper(dev.Address).PF(0).Path())
-	mode, err := GetDPUMode(pciAddress)
+
+	mode, err := GetDPUMode(ctx, pciAddress)
 	if err != nil {
 		hostutil.NewCondition(condition).Failure(err, "FailedToGetDPUMode").Set(&dpu.Status.Conditions)
 		return dpu.Status, ctrl.Result{}, err
 	}
 	if strings.EqualFold(mode, "DPU") {
 		hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
-		return dpu.Status, ctrl.Result{}, nil
+	} else {
+		if err := SetDPUMode(pciAddress); err != nil {
+			hostutil.NewCondition(condition).Failure(err, "FailedToSetDPUMode").Set(&dpu.Status.Conditions)
+			return dpu.Status, ctrl.Result{}, err
+		}
+		// DPUCondReasonModeUpdate is the reason for updating the DPU mode in hostagent interface
+		// which will be used to select the way of host rebooting in rebooting phase.
+		hostutil.NewCondition(condition).Success(string(provisioningv1.DPUCondMessageModeUpdate)).Set(&dpu.Status.Conditions)
+		logger.Info(fmt.Sprintf("Set DPU mode for %s successfully", pciAddress))
 	}
-	if err := SetDPUMode(pciAddress); err != nil {
-		hostutil.NewCondition(condition).Failure(err, "FailedToSetDPUMode").Set(&dpu.Status.Conditions)
-		return dpu.Status, ctrl.Result{}, err
-	}
-	hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
 	return dpu.Status, ctrl.Result{}, nil
 }
 
-func GetDPUMode(pciAddress string) (string, error) {
-	cmd := strings.ReplaceAll(getModeCmd, "$TargetPCIAddrFull", pciAddress)
-	stdout, stderr, err := hostutil.RunBash(cmd)
-	if err != nil {
-		return "", fmt.Errorf("failed to get mode. cmd: %s, err: %w, stderr: %s", cmd, err, stderr.String())
+func GetDPUMode(ctx context.Context, pciAddress string) (string, error) {
+	logger := log.FromContext(ctx)
+	cmd := fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure --address 127.0.0.1:9339 --target %s get --path /nvidia/mode/config/mode", pciAddress)
+	if stdout, stderr, err := hostutil.RunBash(cmd); err != nil {
+		return "", fmt.Errorf("failed to run cmd: %s, err: %w, stderr: %s", cmd, err, stderr.String())
+	} else {
+		logger.Info(fmt.Sprintf("Get mode of %s output: %s", pciAddress, stdout.String()))
+		// dmsc outputs the mode in a pretty weird format:
+		//[
+		//	{
+		//	  "source": "127.0.0.1:9339",
+		//	  "timestamp": 1761796906478936518,
+		//	  "time": "2025-10-30T04:01:46.478936518Z",
+		//	  "target": "c9:00.0",
+		//	  "updates": [
+		//		{
+		//		  "Path": "nvidia/mode/config/mode",
+		//		  "values": {
+		//			"nvidia/mode/config/mode": "DPU"
+		//		  }
+		//		}
+		//	  ]
+		//	}
+		//]
+
+		pattern := `"nvidia/mode/config/mode"\s*:\s*"([^"]+)"`
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(stdout.String())
+		if len(matches) > 1 {
+			return matches[1], nil
+		}
+		return "", fmt.Errorf("failed to parse DPU mode from: %s", stdout.String())
 	}
-	return strings.TrimSpace(stdout.String()), nil
 }
 
 func SetDPUMode(pciAddress string) error {
-	cmd := strings.ReplaceAll(setModeCmd, "$0", "DPU")
-	cmd = strings.ReplaceAll(cmd, "$TargetPCIAddrFull", pciAddress)
-	_, stderr, err := hostutil.RunBash(cmd)
-	if err != nil {
-		return fmt.Errorf("failed to set mode. cmd: %s, err: %w, stderr: %s", cmd, err, stderr.String())
+	// DMS will use the PCI address without the "0000:" prefix to determine if the device is BlueField3.
+	pciAddress = strings.TrimPrefix(pciAddress, "0000:")
+	cmd := fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure --address 127.0.0.1:9339 --target %s set --update /nvidia/mode/config/mode:::string:::DPU", pciAddress)
+	if _, stderr, err := hostutil.RunBash(cmd); err != nil {
+		return fmt.Errorf("failed to run cmd: %s, err: %w, stderr: %s", cmd, err, stderr.String())
 	}
 	return nil
 }

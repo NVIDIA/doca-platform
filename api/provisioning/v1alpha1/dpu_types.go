@@ -95,11 +95,11 @@ const (
 	DPUCondError                 DPUConditionType = "Error"
 )
 
-type DPUConditionReason string
+type DPUConditionMessage string
 
 const (
-	// DPUCondReasonModeUpdate is the reason for updating the DPU mode in gNOI interface
-	DPUCondReasonModeUpdate DPUConditionReason = "SwitchFromNicMode"
+	// DPUCondMessageModeUpdate is the message for updating the DPU mode in gNOI interface
+	DPUCondMessageModeUpdate DPUConditionMessage = "DPU switches from NIC mode to DPU mode"
 )
 
 type DPUInstallInterfaceType string

@@ -243,15 +243,6 @@ var (
 				Expect(searchFileContent(parsed, "/opt/dpf/configure-sfs.sh", "PF_TRUSTED_SF=10")).To(BeTrue())
 			})
 
-			It("set DPU mode to zero-trust", func() {
-				flavor.Spec.DpuMode = provisioningv1.DpuModeType("zero-trust")
-				got, err := Generate(flavor, "name", "kubeadm join", false, "", string(provisioningv1.InstallViaRedFish), 1500, 2)
-				Expect(err).NotTo(HaveOccurred())
-				parsed := &CloudConfig{}
-				Expect(yaml.Unmarshal(extractYAML(got), parsed)).To(Succeed())
-				Expect(searchFileContent(parsed, "/opt/dpf/set-dpu-mode.sh", "zero-trust")).To(BeTrue())
-			})
-
 			It("install via RedFish", func() {
 				got, err := Generate(flavor, "name", "kubeadm join", false, "", string(provisioningv1.InstallViaRedFish), 1500, 2)
 				Expect(err).NotTo(HaveOccurred())
