@@ -144,7 +144,7 @@ func (r *Handler) runPowerCycle(dpuNode *provisioningv1.DPUNode, dpus []provisio
 	if err := r.persistDPUBootID(dpus, false); err != nil {
 		return fmt.Errorf("failed to persist DPU boot ID. err: %w", err)
 	}
-	klog.Info(fmt.Sprintf("run powercycle with command %q", powerCycleCommand))
+	klog.Infof("run powercycle with command %q", powerCycleCommand)
 	_, stderr, err := r.runPowerCycleCmd(powerCycleCommand)
 	if err != nil {
 		return fmt.Errorf("failed to powercycle. cmd: %s, stderr: %s, err: %w", powerCycleCommand, stderr.String(), err)
@@ -163,11 +163,24 @@ func (r *Handler) runSLR(ctx context.Context, toBeRebooted []provisioningv1.DPU)
 	}
 	// shut down ARMs in parallel
 	results := sync.Map{}
-	group := wait.Group{}
+	group := sync.WaitGroup{}
 	for i, dpu := range toBeRebooted {
-		group.Start(func() {
-			results.Store(i, r.shutDownARM(ctx, &dpu, devs[i]))
-		})
+		// skip shutdown ARM if the DPU mode is updated from NIC mode to DPU mode
+		skipShutdownARM := false
+		for _, cond := range dpu.Status.Conditions {
+			if cond.Type == string(provisioningv1.DPUCondFWConfigured) && cond.Message == string(provisioningv1.DPUCondMessageModeUpdate) {
+				klog.Infof("Skip shutdown ARM for DPU %s", dpu.Name)
+				skipShutdownARM = true
+				break
+			}
+		}
+		if !skipShutdownARM {
+			group.Add(1)
+			go func(index int, rebootingDPU provisioningv1.DPU, dev hostutil.Device) {
+				defer group.Done()
+				results.Store(index, r.shutDownARM(ctx, rebootingDPU, dev))
+			}(i, dpu, devs[i])
+		}
 	}
 	group.Wait()
 
@@ -198,7 +211,7 @@ func (r *Handler) runSLR(ctx context.Context, toBeRebooted []provisioningv1.DPU)
 	return nil
 }
 
-func (r *Handler) shutDownARM(ctx context.Context, dpu *provisioningv1.DPU, dev hostutil.Device) error {
+func (r *Handler) shutDownARM(ctx context.Context, dpu provisioningv1.DPU, dev hostutil.Device) error {
 	rshimFunc := r.getRshimNameByPCIFunc
 	if rshimFunc == nil {
 		rshimFunc = r.rshimNameByPCI
@@ -249,7 +262,7 @@ func (r *Handler) shutDownARM(ctx context.Context, dpu *provisioningv1.DPU, dev 
 	})
 	if rshimErr != nil {
 		// NOTE: mlxfwreset outputs error messages to stdout rather than stderr.
-		return fmt.Errorf("failed shutdown ARM shutdown for dpu: %s. mlxfwreset stdout: %s, mlxfwreset stderr: %s, rshim err: %v",
+		return fmt.Errorf("failed ARM shutdown for dpu: %s. mlxfwreset stdout: %s, mlxfwreset stderr: %s, rshim err: %v",
 			dpu.Name, stdout.String(), stderr.String(), rshimErr)
 	}
 	return nil
