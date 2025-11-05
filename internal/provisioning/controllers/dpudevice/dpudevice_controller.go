@@ -371,12 +371,11 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 
 	_, err = rfclient.NewTLSClient(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
 	if err != nil {
-		log.Error(err, "failed to create tls client")
-
-		if err = r.setUpMTLS(ctx, dpuDevice, basicAuthClient); err != nil {
+		log.Error(err, "failed to create tls client, setting up mTLS")
+		if needBmcReset, err := r.setUpMTLS(ctx, dpuDevice, basicAuthClient); err != nil {
 			condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceResettingBMC)
 			err = fmt.Errorf("failed to set up mTLS: %w", err)
-			if condition == nil || condition.Status == metav1.ConditionFalse {
+			if needBmcReset && (condition == nil || condition.Status == metav1.ConditionFalse) {
 				log.Error(err, "resetting BMC to factory default")
 				_, _, err = basicAuthClient.FactoryResetBMC()
 				if err != nil {
@@ -386,7 +385,7 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 				conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceResettingBMC)
 				return nil
 			} else {
-				log.Error(err, "failed to set up mTLS after factory reset BMC")
+				log.Error(err, "failed to set up mTLS")
 				cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailedToSetUpMTLS", err.Error()))
 				return err
 			}
@@ -439,7 +438,9 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		return err
 	}
 
-	dpuDevice.Status.PF0MAC = ptr.To(pf0.Ethernet.MACAddress)
+	if pf0.Ethernet.MACAddress != "" {
+		dpuDevice.Status.PF0MAC = ptr.To(pf0.Ethernet.MACAddress)
+	}
 
 	// TODO: Get the PCI address once it will be available in the Redfish API
 
@@ -506,31 +507,31 @@ func (r *DPUDeviceReconciler) reconcileDelete(ctx context.Context, dpuDevice *pr
 }
 
 // setUpMTLS sets up BMC mTLS in the same way as https://github.com/openbmc/bmcweb/blob/master/scripts/generate_auth_certificates.py
-func (r *DPUDeviceReconciler) setUpMTLS(ctx context.Context, dpudevice *provisioningv1.DPUDevice, basicAuthClient *rfclient.Client) error {
+func (r *DPUDeviceReconciler) setUpMTLS(ctx context.Context, dpudevice *provisioningv1.DPUDevice, basicAuthClient *rfclient.Client) (bool, error) {
 	caSecret := &corev1.Secret{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: rfclient.CASecret, Namespace: dpudevice.Namespace}, caSecret); err != nil {
-		return fmt.Errorf("failed to get CA cert, err: %v", err)
+		return false, fmt.Errorf("failed to get CA cert, err: %v", err)
 	}
 	caCert, ok := caSecret.Data["tls.crt"]
 	if !ok {
-		return fmt.Errorf("no CA cert in secret %s", caSecret.Name)
+		return false, fmt.Errorf("no CA cert in secret %s", caSecret.Name)
 	}
 
 	// step 1: install or replace CA certificate
 	resp, _, err := basicAuthClient.InstallCert(string(caCert))
 	if err != nil {
-		return fmt.Errorf("failed to install CA cert, err: %v", err)
+		return true, fmt.Errorf("failed to install CA cert, err: %v", err)
 	} else if resp.StatusCode() == http.StatusInternalServerError {
 		log.FromContext(ctx).Info("An existing CA certificate is likely already installed. Replacing...")
 		resp, _, err = basicAuthClient.ReplaceCACert(string(caCert))
 		if err != nil {
-			return fmt.Errorf("failed to replace CA cert, err: %v", err)
+			return true, fmt.Errorf("failed to replace CA cert, err: %v", err)
 		} else if resp.StatusCode() != http.StatusOK {
-			return fmt.Errorf("failed to replace CA cert, unexpected response status: %s", resp.Status())
+			return true, fmt.Errorf("failed to replace CA cert, unexpected response status: %s", resp.Status())
 		}
 		log.FromContext(ctx).Info("Successfully replaced CA certificate")
 	} else if resp.StatusCode() != http.StatusOK {
-		return fmt.Errorf("failed to install CA cert, unexpected response status: %s", resp.Status())
+		return true, fmt.Errorf("failed to install CA cert, unexpected response status: %s", resp.Status())
 	}
 
 	// step 2: replace server certificate
@@ -547,38 +548,38 @@ func (r *DPUDeviceReconciler) setUpMTLS(ctx context.Context, dpudevice *provisio
 			log.FromContext(ctx).Info("cert-manager CertificateRequest does not exist, try create one...")
 			resp, csrInfo, err := basicAuthClient.GenerateCSR(*dpudevice.Status.BMCIP)
 			if err != nil {
-				return fmt.Errorf("failed to generate CSR, err: %v", err)
+				return true, fmt.Errorf("failed to generate CSR, err: %v", err)
 			} else if resp.StatusCode() != http.StatusOK {
-				return fmt.Errorf("failed to generate CSR, unexpected response status: %s", resp.Status())
+				return true, fmt.Errorf("failed to generate CSR, unexpected response status: %s", resp.Status())
 			}
 			if err := r.createCR(ctx, dpudevice, csrInfo.CSRString); err != nil {
-				return fmt.Errorf("failed to create cert-manager CertificateRequest, err: %v", err)
+				return false, fmt.Errorf("failed to create cert-manager CertificateRequest, err: %v", err)
 			}
 			log.FromContext(ctx).Info("successfully created cert-manager CertificateRequest")
 		} else {
-			return fmt.Errorf("failed to get existing cert-manager CertificateRequest, err: %v", err)
+			return false, fmt.Errorf("failed to get existing cert-manager CertificateRequest, err: %v", err)
 
 		}
 	}
 
 	certificate, found, err := unstructured.NestedString(cr.Object, "status", "certificate")
 	if err != nil {
-		return fmt.Errorf("failed to extract certificate %w", err)
+		return false, fmt.Errorf("failed to extract certificate %w", err)
 	}
 	if !found {
-		return fmt.Errorf("cert-manager CertificateRequest is not issued yet, retry later")
+		return false, fmt.Errorf("cert-manager CertificateRequest is not issued yet, retry later")
 	}
 
 	decodedCert, err := b64.StdEncoding.DecodeString(certificate)
 	if err != nil {
-		return fmt.Errorf("failed to base64 decode certificate %w", err)
+		return false, fmt.Errorf("failed to base64 decode certificate %w", err)
 	}
 
 	resp, _, err = basicAuthClient.ReplaceServerCert(string(decodedCert))
 	if err != nil {
-		return fmt.Errorf("failed to replace server cert, err: %v", err)
+		return true, fmt.Errorf("failed to replace server cert, err: %v", err)
 	} else if resp.StatusCode() != http.StatusOK {
-		return fmt.Errorf("failed to replace server cert, unexpected response status: %s", resp.Status())
+		return true, fmt.Errorf("failed to replace server cert, unexpected response status: %s", resp.Status())
 	}
 	log.FromContext(ctx).Info("Successfully replaced server certificate")
 
@@ -586,33 +587,33 @@ func (r *DPUDeviceReconciler) setUpMTLS(ctx context.Context, dpudevice *provisio
 	log.FromContext(ctx).Info("Install client certificate...")
 	clientSecret := &corev1.Secret{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: rfclient.ClientCertSecret, Namespace: dpudevice.Namespace}, clientSecret); err != nil {
-		return fmt.Errorf("failed to get client cert, err: %v", err)
+		return false, fmt.Errorf("failed to get client cert, err: %v", err)
 	}
 	clientCert, ok := clientSecret.Data["tls.crt"]
 	if !ok {
-		return fmt.Errorf("no client cert in client secret %s", clientSecret.Name)
+		return false, fmt.Errorf("no client cert in client secret %s", clientSecret.Name)
 	}
 	resp, _, err = basicAuthClient.InstallCert(string(clientCert))
 	if err != nil {
-		return fmt.Errorf("failed to install client cert, err: %v", err)
+		return true, fmt.Errorf("failed to install client cert, err: %v", err)
 	} else if resp.StatusCode() == http.StatusInternalServerError {
 		log.FromContext(ctx).Info("An existing client certificate is likely already installed. Skip installing client certificate")
 	} else if resp.StatusCode() == http.StatusOK {
 		log.FromContext(ctx).Info("Successfully installed client certificate")
 	} else {
-		return fmt.Errorf("failed to install client cert, unexpected response status: %s", resp.Status())
+		return true, fmt.Errorf("failed to install client cert, unexpected response status: %s", resp.Status())
 	}
 
 	// step 4: enable mTLS
 	log.FromContext(ctx).Info("enable mTLS...")
 	resp, _, err = basicAuthClient.EnableMTLS()
 	if err != nil {
-		return fmt.Errorf("failed to enable mTLS, err: %v", err)
+		return true, fmt.Errorf("failed to enable mTLS, err: %v", err)
 	} else if resp.StatusCode() != http.StatusOK {
-		return fmt.Errorf("failed to enable mTLS, unexpected response status: %s", resp.Status())
+		return true, fmt.Errorf("failed to enable mTLS, unexpected response status: %s", resp.Status())
 	}
 	log.FromContext(ctx).Info("Successfully enabled mTLS")
-	return nil
+	return false, nil
 }
 
 func (r *DPUDeviceReconciler) generateCR(dpudevice *provisioningv1.DPUDevice, csr string) (*unstructured.Unstructured, error) {
