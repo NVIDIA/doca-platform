@@ -22,6 +22,30 @@ post_bmc_components_update() {
 {{end}}
 
 bfb_post_install() {
+{{- if .NVConfigParams}}
+  # set nvconfig params
+  for dev in /dev/mst/*; do
+    echo "reset NVConfig on dev ${dev} to defaults"
+    mlxconfig -d ${dev} -y reset
+  done
+  for dev in /dev/mst/*; do
+    echo "set NVConfig on dev ${dev}"
+    mlxconfig -d ${dev} -y set {{.NVConfigParams}}
+  done
+{{end}}
+
+  # set DPU mode
+  dpuMode={{.DpuMode}}
+  for dev in /dev/mst/*; do
+    if [ "${dpuMode}" = "zero-trust" ]; then
+      echo "Setting DPU to zero-trust mode"
+      mlxprivhost -d ${dev} r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner
+    elif [ "${dpuMode}" = "dpu" ]; then
+      echo "Setting DPU to DPU mode"
+      mlxprivhost -d ${dev} p
+    fi
+  done
+
   rm /etc/bf.cfg
 }
 
@@ -357,22 +381,6 @@ write_files:
         [main]
         dns=none
 
-  - path: /opt/dpf/set-dpu-mode.sh
-    permissions: '0755'
-    content: |
-        #!/bin/bash
-
-        set -euo pipefail
-        dpuMode=$1
-        for dev in /dev/mst/*; do
-          if [ "${dpuMode}" = "zero-trust" ]; then
-            echo "Setting DPU to zero-trust mode"
-            mlxprivhost -d ${dev} r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner
-          elif [ "${dpuMode}" = "dpu" ]; then
-            echo "Setting DPU to DPU mode"
-            mlxprivhost -d ${dev} p
-          fi
-        done
   - path: /opt/dpf/cleanup-dns.sh
     permissions: '0755'
     content: |
@@ -397,22 +405,6 @@ write_files:
 
         systemctl mask dnsmasq
 
-{{- if .NVConfigParams}}
-  - path: /opt/dpf/set-nvconfig-params.sh
-    permissions: '0755'
-    content: |
-        #! /bin/bash
-        set -e
-        for dev in /dev/mst/*; do
-          echo "reset NVConfig on dev ${dev} to defaults"
-          mlxconfig -d ${dev} -y reset
-        done
-        for dev in /dev/mst/*; do
-          echo "set NVConfig on dev ${dev}"
-          mlxconfig -d ${dev} -y set {{.NVConfigParams}}
-        done
-        echo "Finished setting nvconfig parameters"
-{{end}}
 {{- if .Sysctl}}
   - path: /etc/sysctl.d/99-dpf.conf
     permissions: '0644'
@@ -538,9 +530,6 @@ runcmd:
   - [ systemctl, enable, bootstrap-dpf.service ]
   - [ systemctl, enable, kubeadm-join.service ]
   - [ systemctl, enable, vfmac.service ]
-{{- if .NVConfigParams}}
-  - [ /opt/dpf/set-nvconfig-params.sh ]{{end}}
-  - [ /opt/dpf/set-dpu-mode.sh,  {{.DpuMode}}]
 {{- if .ContainerdRegistryEndpoint}}
   - [ /opt/dpf/config_containerd.sh ]
   - [ systemctl, restart, containerd ]{{end}}
