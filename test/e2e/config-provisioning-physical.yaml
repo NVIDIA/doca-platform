@@ -1,7 +1,7 @@
 bfb: "../objects/infrastructure/bfb.yaml"
 dpuCluster: "../objects/infrastructure/dpucluster.yaml"
 dpuSet: "../objects/infrastructure/dpuset.yaml"
-dpuFlavor: "../objects/infrastructure/dpuflavor.yaml"
+dpuFlavor: "../objects/infrastructure/dpuflavor-physical.yaml"
 dpuClusterPrerequisiteObjectPath:
   - "../objects/infrastructure/kamaji-provisioning.yaml"
   - "../objects/infrastructure/nodeport-dpucluster.yaml"
