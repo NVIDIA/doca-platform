@@ -149,7 +149,7 @@ func shouldTriggerAdditionalReboot(ctx context.Context, dpuNode *provisioningv1.
 	}
 	conds := append([]metav1.Condition(nil), dpu.Status.Conditions...) // shallow copy
 	for _, cond := range conds {
-		if cond.Type == string(provisioningv1.DPUCondFWConfigured) && cond.Reason == string(provisioningv1.DPUCondReasonModeUpdate) {
+		if cond.Type == string(provisioningv1.DPUCondFWConfigured) && cond.Message == string(provisioningv1.DPUCondMessageModeUpdate) {
 			return true, nil
 		}
 	}
