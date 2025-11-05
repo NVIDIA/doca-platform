@@ -11,21 +11,21 @@ ARG KUBECTL_VERSION
 ARG OVN_VERSION
 
 WORKDIR /workspace
-RUN apt-get update && apt-get install -y -qq make git
+RUN apt-get update && apt-get install -y -qq make git && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Download all files (combining RUN commands reduces layers and improves caching)
 RUN curl -fsSL --retry 5 --retry-delay 3 \
     "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" -o kubectl && \
-    chmod +x kubectl
-
-RUN curl -fsSL --retry 5 --retry-delay 3 \
+    chmod +x kubectl && \
+    curl -fsSL --retry 5 --retry-delay 3 \
     -o kubectl-${KUBECTL_VERSION}.tar.gz \
-    https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz
-
-RUN curl -fsSL --retry 5 --retry-delay 3 \
+    https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz && \
+    curl -fsSL --retry 5 --retry-delay 3 \
     -o ovn-${OVN_VERSION}.tar.gz \
-    https://github.com/Mellanox/ovn/archive/refs/tags/v${OVN_VERSION}.tar.gz
-
-# Download OVN packages in the builder stage (native execution, better network reliability)
-RUN curl -fsSL --retry 5 --retry-delay 3 \
+    https://github.com/Mellanox/ovn/archive/refs/tags/v${OVN_VERSION}.tar.gz && \
+    curl -fsSL --retry 5 --retry-delay 3 \
     "https://github.com/Mellanox/ovn/releases/download/v${OVN_VERSION}/ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb" \
     -o ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb && \
     curl -fsSL --retry 5 --retry-delay 3 \
@@ -97,12 +97,20 @@ ARG BASE_PACKAGES="iproute2 curl software-properties-common util-linux dnsmasq"
 # Dependencies for installing OVN (Netplan, systemd and udev required by dpucniprovisioner).
 ARG OVN_PACKAGES="openvswitch-switch openvswitch-common netplan.io udev systemd"
 
-RUN dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /initial-dpkg-list.txt
-
 RUN find /etc/apt/sources.list* -type f -exec sed -i \
       -e "s|http://archive.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
       -e "s|http://ports.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
       -e "s|http://security.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" '{}' \;
+
+# Upgrade all packages to latest versions.
+# This is necessary to be able to download the sources for all packages later.
+# If some packages are not up to date, `apt-get source` may fail with errors like:
+# Can not find version '0.60ubuntu0.3' of package 'distro-info-data'
+RUN apt-get update && \
+    apt-get upgrade -y -qq && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+RUN dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /initial-dpkg-list.txt
 
 RUN apt-get update && \
     apt-get install -y -qq ${BASE_PACKAGES} && \
