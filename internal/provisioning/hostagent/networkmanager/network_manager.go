@@ -324,7 +324,6 @@ func (nm *NetworkManager) getNumOfVFs(dpu *provisioningv1.DPU) (int, error) {
 }
 
 func (nm *NetworkManager) getControlPlaneMTU() (int, error) {
-	// Get control-plane MTU to pass it to the hostnetwork.sh.
 	dpfOperatorConfigList := operatorv1.DPFOperatorConfigList{}
 	if err := nm.List(context.TODO(), &dpfOperatorConfigList); err != nil {
 		return -1, fmt.Errorf("list DPFOperatorConfigs: %w", err)
