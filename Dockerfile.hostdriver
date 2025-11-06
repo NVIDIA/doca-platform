@@ -106,7 +106,6 @@ RUN echo "dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/fr
 RUN curl -LO https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin
 
 COPY --from=builder /workspace/bin/ .
-COPY ./internal/dmsinit/dmsinit.sh /opt/dpf/
 
 # Move source code to a directory
 ARG PACKAGE_SOURCES

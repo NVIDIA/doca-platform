@@ -37,7 +37,6 @@ import (
 
 const (
 	DMSImageFolder        string = "/tmp/dms"
-	DMSInitScript         string = "/opt/dpf/dmsinit.sh"
 	DMSServiceAccountName string = "dpf-provisioning-hostagent-service-account"
 	DMSContainerName      string = "dms"
 	// DPFLocalDir is mounted to the containers.
