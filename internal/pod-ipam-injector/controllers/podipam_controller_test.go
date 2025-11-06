@@ -883,6 +883,12 @@ var _ = Describe("PodIpam Controller", func() {
 			Expect(testClient.Create(ctx, pod)).To(Succeed())
 			cleanupObjects = append(cleanupObjects, pod)
 
+			By("Wait for pod to be created")
+			Eventually(func(g Gomega) {
+				p := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: defaultNS, Name: "malformed-pod"}, p)).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
 			By("Verify pod annotation remains malformed (reconciler handles error gracefully)")
 			Consistently(func(g Gomega) {
 				p := &corev1.Pod{}
