@@ -371,6 +371,9 @@ func (d *ConfigurableAPIHandler) Set(ctx context.Context, req *gnmi.SetRequest) 
 	return &gnmi.SetResponse{}, nil
 }
 
+// Get is a mock implementation of the DMS API.
+// TODO: remove the whole DMS API mock because they are now used by the host agent
+// rather than the provisioning controller.
 func (d *ConfigurableAPIHandler) Get(ctx context.Context, req *gnmi.GetRequest) (*gnmi.GetResponse, error) {
 	path := req.GetPath()
 	if len(path) == 0 {
@@ -509,8 +512,6 @@ func getDMSCommandType(input string) DMSAPICommand {
 		PCIRescanRequiredCommand: `mlxreg -d [0-9a-f:.]+ --get --reg_name MFRL`,
 		CurrentFWVersionCommand:  `flint -d [0-9a-f:.]+ q \|grep 'FW Version'`,
 		RunningFWVersionCommand:  `flint -d [0-9a-f:.]+ q |grep 'FW Version\(Running\)'`,
-		HostNetworkConfigCommand: `/opt/dpf/hostnetwork.sh --num_of_vfs [0-9]+ --serial_number [^--]+ --device_pci_address [0-9a-f:.]+ --control_plane_mtu [0-9]+`,
-		HostNetworDeleteCommand:  `/opt/dpf/hostnetwork.sh --delete --device_pci_address [0-9a-f:.]+ --control_plane_mtu [0-9]+`,
 	}
 	for cmdType, pattern := range patterns {
 		com := regexp.MustCompile(pattern)
