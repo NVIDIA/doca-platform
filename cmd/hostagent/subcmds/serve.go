@@ -52,6 +52,7 @@ var serveCmd = &cobra.Command{
 		utilruntime.Must(provisioningv1.AddToScheme(scheme))
 		utilruntime.Must(operatorv1.AddToScheme(scheme))
 		setupLog := ctrl.Log.WithName("setup")
+		ctrl.SetLogger(klog.Background())
 
 		clientCfg := app.GetConfigOrDie(opts)
 		unCachedClient, err := client.New(clientCfg, client.Options{Scheme: scheme})
@@ -67,7 +68,6 @@ var serveCmd = &cobra.Command{
 			klog.Fatalf("failed to convert VF config to network request: %v", err)
 		}
 
-		ctrl.SetLogger(klog.Background())
 		mgr, err := ctrl.NewManager(clientCfg, ctrl.Options{
 			Scheme: scheme,
 			Metrics: metricsserver.Options{
