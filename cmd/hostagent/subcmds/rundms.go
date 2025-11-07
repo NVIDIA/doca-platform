@@ -43,6 +43,8 @@ var runDMSCmd = &cobra.Command{
 	Short: "Run DMS server",
 	Long:  "Run DMS server",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		defer klog.Flush()
+
 		devices, err := hostutil.DiscoverDPUs()
 		if err != nil {
 			return err

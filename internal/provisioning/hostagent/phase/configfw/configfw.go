@@ -65,8 +65,8 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 	}
 
 	if flavor.Spec.DpuMode != provisioningv1.DpuMode {
-		err := fmt.Errorf("DPU mode: %s is unsupported in hostagent. Only DPU mode is supported", flavor.Spec.DpuMode)
-		hostutil.NewCondition(condition).Failure(err, "RequestedDPUModeUnsupported").Set(&dpu.Status.Conditions)
+		err := fmt.Errorf("requested mode %s is not supported by hostagent. Supported mode: %s", flavor.Spec.DpuMode, provisioningv1.DpuMode)
+		hostutil.NewCondition(condition).Failure(err, "UnsupportedDPUMode").Set(&dpu.Status.Conditions)
 		return dpu.Status, ctrl.Result{}, err
 	}
 
@@ -80,6 +80,7 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 	if strings.EqualFold(mode, "DPU") {
 		hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
 	} else {
+		logger.Info("Setting DPU mode to DPU", "current mode", mode, "pciAddress", pciAddress)
 		if err := SetDPUMode(pciAddress); err != nil {
 			hostutil.NewCondition(condition).Failure(err, "FailedToSetDPUMode").Set(&dpu.Status.Conditions)
 			return dpu.Status, ctrl.Result{}, err
@@ -87,7 +88,7 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 		// DPUCondReasonModeUpdate is the reason for updating the DPU mode in hostagent interface
 		// which will be used to select the way of host rebooting in rebooting phase.
 		hostutil.NewCondition(condition).Success(string(provisioningv1.DPUCondMessageModeUpdate)).Set(&dpu.Status.Conditions)
-		logger.Info(fmt.Sprintf("Set DPU mode for %s successfully", pciAddress))
+		logger.Info("Successfully set DPU mode", "PCI Address", pciAddress)
 	}
 	return dpu.Status, ctrl.Result{}, nil
 }
@@ -96,7 +97,7 @@ func GetDPUMode(ctx context.Context, pciAddress string) (string, error) {
 	logger := log.FromContext(ctx)
 	cmd := fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure --address 127.0.0.1:9339 --target %s get --path /nvidia/mode/config/mode", pciAddress)
 	if stdout, stderr, err := hostutil.RunBash(cmd); err != nil {
-		return "", fmt.Errorf("failed to run cmd: %s, err: %w, stderr: %s", cmd, err, stderr.String())
+		return "", fmt.Errorf("failed to run cmd: %s, err: %w, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
 	} else {
 		logger.Info(fmt.Sprintf("Get mode of %s output: %s", pciAddress, stdout.String()))
 		// dmsc outputs the mode in a pretty weird format:
@@ -131,8 +132,8 @@ func SetDPUMode(pciAddress string) error {
 	// DMS will use the PCI address without the "0000:" prefix to determine if the device is BlueField3.
 	pciAddress = strings.TrimPrefix(pciAddress, "0000:")
 	cmd := fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure --address 127.0.0.1:9339 --target %s set --update /nvidia/mode/config/mode:::string:::DPU", pciAddress)
-	if _, stderr, err := hostutil.RunBash(cmd); err != nil {
-		return fmt.Errorf("failed to run cmd: %s, err: %w, stderr: %s", cmd, err, stderr.String())
+	if stdout, stderr, err := hostutil.RunBash(cmd); err != nil {
+		return fmt.Errorf("failed to run cmd: %s, err: %w, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
 	}
 	return nil
 }

@@ -74,6 +74,7 @@ func (r *Handler) run() []*provisioningv1.DPU {
 	if err != nil {
 		klog.Errorf("failed to reboot: %v", err)
 		for _, dpu := range failedDPUs {
+			klog.Errorf("failed to reboot DPU %s", dpu.Name)
 			cpy := dpu.DeepCopy()
 			hostutil.NewCondition(condition).Failure(err, failReason).Set(&cpy.Status.Conditions)
 			ret = append(ret, cpy)

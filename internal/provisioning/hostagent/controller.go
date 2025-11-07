@@ -86,22 +86,24 @@ func (r *HostAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
+		log.Error(err, "Failed to get DPU object", "name", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
-	log.V(3).Info("Reconciling", "phase", dpu.Status.Phase)
+	log.Info("Reconciling", "phase", dpu.Status.Phase)
 	if dpu.Status.DPUInstallInterface != nil && *dpu.Status.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
+		log.Info("DPU is not being installed via host agent, skip reconciliation", "phase", dpu.Status.Phase, "install interface", *dpu.Status.DPUInstallInterface)
 		return ctrl.Result{}, nil
 	}
 
 	h, ok := r.handlers[dpu.Status.Phase]
 	if !ok {
 		// skip phases that are not handled by host agent
-		log.V(3).Info("Skipping phase", "phase", dpu.Status.Phase)
+		log.Info("Phase is not handled by host agent, skip reconciliation", "phase", dpu.Status.Phase)
 		return ctrl.Result{}, nil
 	}
 	newStatus, result, err := h.Handle(ctx, dpu.DeepCopy())
 	if equality.Semantic.DeepEqual(dpu.Status, newStatus) {
-		log.V(3).Info("No change in DPU status", "phase", dpu.Status.Phase)
+		log.Info("No change in DPU status", "phase", dpu.Status.Phase)
 		return result, err
 	}
 	log.Info("Update DPU status", "phase", dpu.Status.Phase)
