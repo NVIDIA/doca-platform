@@ -78,6 +78,7 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, nil
 	}
 
+	ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
 	state.Phase = provisioningv1.DPURebooting
 	logger.Info("installation finished")
 	return *state, nil
@@ -146,7 +147,6 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 	cond := cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), nil, "", "")
 	cond.Status = metav1.ConditionTrue
 	cutil.SetDPUCondition(state, cond)
-	ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
 	return *state, nil
 }
 
