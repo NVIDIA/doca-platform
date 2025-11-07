@@ -70,6 +70,7 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 }
 
 func (h *Handler) canSatisfy(ctx context.Context, dpu *provisioningv1.DPU) (dutil.CapacityResult, error) {
+	logger := log.FromContext(ctx)
 	flavor := &provisioningv1.DPUFlavor{}
 	if err := h.Get(ctx, types.NamespacedName{Name: dpu.Spec.DPUFlavor, Namespace: dpu.Namespace}, flavor); err != nil {
 		return dutil.CapacityUnknown, err
@@ -81,7 +82,7 @@ func (h *Handler) canSatisfy(ctx context.Context, dpu *provisioningv1.DPU) (duti
 	cmd := fmt.Sprintf("flint -d %s query full", filepath.Base(hostutil.NewPCIHelper(dev.Address).PF(0).Path()))
 	stdout, stderr, err := hostutil.RunBash(cmd)
 	if err != nil {
-		return dutil.CapacityUnknown, fmt.Errorf("failed to query DPU, cmd: %s, err: %v, stderr: %s", cmd, err, stderr.String())
+		return dutil.CapacityUnknown, fmt.Errorf("failed to query DPU, cmd: %s, err: %v, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
 	}
 	for _, line := range strings.Split(stdout.String(), "\n") {
 		kv := strings.SplitN(line, ":", 2)
@@ -100,10 +101,11 @@ func (h *Handler) canSatisfy(ctx context.Context, dpu *provisioningv1.DPU) (duti
 		if bfSpecs == nil {
 			continue
 		}
-		log.FromContext(ctx).Info("retrieved DPU specs via flint", "bfSpecs", bfSpecs)
+		logger.Info("retrieved DPU specs via flint", "bfSpecs", bfSpecs)
 		if result := bfSpecs.CanSatisfy(flavor.Spec.DPUResources); result != dutil.CapacityUnknown {
 			return result, nil
 		}
 	}
+	logger.Info("WARNING: failed to retrieve DPU specs via flint", "flint output", stdout.String())
 	return dutil.CapacityUnknown, nil
 }

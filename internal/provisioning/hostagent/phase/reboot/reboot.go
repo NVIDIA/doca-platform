@@ -75,6 +75,7 @@ func (r *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 		return dpu.Status, ctrl.Result{}, err
 	}
 	if finished {
+		logger.Info("Reboot finished")
 		hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
 	}
 	return dpu.Status, ctrl.Result{}, nil
@@ -88,7 +89,7 @@ func (r *Handler) Start() {
 		}
 		for _, dpu := range failedDPUs {
 			if err := r.Status().Update(ctx, dpu); err != nil {
-				klog.Errorf("failed to update DPU: %v", err)
+				klog.Errorf("failed to update reboot failure condition for DPU %s: %v", dpu.Name, err)
 			}
 		}
 		return false, nil

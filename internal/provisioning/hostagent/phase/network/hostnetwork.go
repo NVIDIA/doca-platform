@@ -23,6 +23,7 @@ import (
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
@@ -40,7 +41,9 @@ func NewHandler(addNetworkRequest func(dpu *provisioningv1.DPU) error) *Handler 
 }
 
 func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisioningv1.DPUStatus, ctrl.Result, error) {
+	log := log.FromContext(ctx)
 	if err := h.AddNetworkRequest(dpu); err != nil {
+		log.Error(err, "Failed to add network request")
 		hostutil.NewCondition(condition).Failure(err, "FailedToSetupHostNetwork").Set(&dpu.Status.Conditions)
 		return dpu.Status, ctrl.Result{}, err
 	}

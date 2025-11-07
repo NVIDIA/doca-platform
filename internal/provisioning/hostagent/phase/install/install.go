@@ -43,6 +43,9 @@ const (
 	InstallationFailed     = "InstallationFailed"
 	InstallationTerminated = "InstallationTerminated"
 	MaxRun                 = 2
+
+	bfbRegistryServiceHostEnv = "BFB_REGISTRY_SERVICE_HOST"
+	bfbRegistryServicePortEnv = "BFB_REGISTRY_SERVICE_PORT"
 )
 
 type Handler struct {
@@ -188,19 +191,22 @@ func (h *Handler) installBFB(ctx context.Context, pciAddress, bfbFile, bfcfgFile
 // TODO: remove this workaround when the CI issue is fixed
 func (h *Handler) downloadWithBFBRegistryServiceEnv(ctx context.Context, filename string, dst string) error {
 	logger := log.FromContext(ctx)
-	bfbRegistryServiceHost := os.Getenv("BFB_REGISTRY_SERVICE_HOST")
-	bfbRegistryServicePort := os.Getenv("BFB_REGISTRY_SERVICE_PORT")
+	bfbRegistryServiceHost := os.Getenv(bfbRegistryServiceHostEnv)
+	bfbRegistryServicePort := os.Getenv(bfbRegistryServicePortEnv)
 	if bfbRegistryServiceHost == "" || bfbRegistryServicePort == "" {
-		return fmt.Errorf("BFB_REGISTRY_SERVICE_HOST or BFB_REGISTRY_SERVICE_PORT is not set")
+		err := fmt.Errorf("BFB Registry Service env not set, skip")
+		logger.Error(err, "skip download with BFB Registry Service env", bfbRegistryServiceHostEnv, bfbRegistryServiceHost, bfbRegistryServicePortEnv, bfbRegistryServicePort)
+		return err
 	}
 	httpURL, err := url.JoinPath(fmt.Sprintf("http://%s:%s", bfbRegistryServiceHost, bfbRegistryServicePort), filename)
 	if err != nil {
+		logger.Error(err, "failed to generate URL from BFB Registry Service host and port", bfbRegistryServiceHostEnv, bfbRegistryServiceHost, bfbRegistryServicePortEnv, bfbRegistryServicePort, "filename", filename)
 		return err
 	}
-	logger.Info("workaround 1: use bfb-register service address given by env BFB_REGISTRY_SERVICE_HOST and BFB_REGISTRY_SERVICE_PORT", "url", httpURL, "dst", dst)
+	logger.Info("workaround 1: download with bfb-register service address read from env", "url", httpURL, "dst", dst)
 	err = hostutil.DownloadFile(ctx, httpURL, dst, 0644)
 	if err != nil {
-		logger.Error(fmt.Errorf("workaround 1 failed to download file: %w", err), "url", httpURL)
+		logger.Error(fmt.Errorf("workaround 1 failed to download file: %w", err), "url", httpURL, "dst", dst)
 	}
 	return err
 }
@@ -212,10 +218,13 @@ func (h *Handler) downloadWithKubernetesAPIServerVIP(ctx context.Context, filena
 	logger := log.FromContext(ctx)
 	kubernetesAPIServerVIP := os.Getenv("KUBERNETES_SERVICE_HOST")
 	if kubernetesAPIServerVIP == "" {
-		return fmt.Errorf("KUBERNETES_SERVICE_HOST is not set")
+		err := fmt.Errorf("KUBERNETES_SERVICE_HOST is not set")
+		logger.Error(err, "skip download with Kubernetes API Server VIP")
+		return err
 	}
 	u, err := url.Parse(h.bfbRegistryAddr)
 	if err != nil {
+		logger.Error(err, "failed to parse port from bfb registry address", "bfbRegistryAddr", h.bfbRegistryAddr)
 		return err
 	}
 	kubernetesAPIServerPort := u.Port()
@@ -225,12 +234,13 @@ func (h *Handler) downloadWithKubernetesAPIServerVIP(ctx context.Context, filena
 	}
 	httpURL, err = url.JoinPath(httpURL, filename)
 	if err != nil {
+		logger.Error(err, "failed to join path with kubernetes API server VIP and port", "httpURL", httpURL, "filename", filename)
 		return err
 	}
-	logger.Info("workaround 2: use kubernetesAPIServerVIP given by env KUBERNETES_SERVICE_HOST", "kubernetesAPIServerVIP", kubernetesAPIServerVIP, "httpURL", httpURL)
+	logger.Info("workaround 2: download with kubernetesAPIServerVIP read from env KUBERNETES_SERVICE_HOST", "kubernetesAPIServerVIP", kubernetesAPIServerVIP, "httpURL", httpURL)
 	err = hostutil.DownloadFile(ctx, httpURL, dst, 0644)
 	if err != nil {
-		logger.Error(fmt.Errorf("workaround 2 failed to download file: %w", err), "url", httpURL)
+		logger.Error(fmt.Errorf("workaround 2 failed to download file: %w", err), "url", httpURL, "dst", dst)
 	}
 	return err
 }

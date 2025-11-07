@@ -240,6 +240,7 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 	for _, op := range operations {
 		klog.V(3).Infof("Setting up host network. operation: %s", op.name)
 		if err := op.f(nr); err != nil {
+			klog.Errorf("failed to setup host network, network request: %+v, operation: %s, err: %v", nr, op.name, err)
 			reason := fmt.Sprintf("FailedTo%s", op.name)
 			hostutil.NewCondition(condition).Failure(err, reason).Set(&cpy.Status.Conditions)
 			if updateErr := nm.Status().Update(context.TODO(), cpy); updateErr != nil {
