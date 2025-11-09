@@ -147,7 +147,7 @@ EXTERNAL_ATTACHER_BRANCH=release-4.9
 NVIDIA_EXTERNAL_ATTACHER_DIR=third_party/forked/nvidia-external-attacher
 
 # VPC dependencies to be able to build/push images and charts
-VPC_REF=1878fddad5556d33a8177e86f9070a7243006e93
+VPC_REF=cb191c005da20ec292bd0b8e89151f0f93530512
 VPC_DIR=$(REPOSDIR)/ovn-vpc/ovn-vpc-$(VPC_REF)
 # Token used for gitlab reporistory access, usually needed for CI/CD pipelines.
 # dev envs usually have those set in git credentials.
