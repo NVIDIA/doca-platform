@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -45,6 +46,9 @@ const (
 	CurrentRebootIDFile       = "/proc/sys/kernel/random/boot_id"
 	LatestRebootIDFile        = "/var/lib/dpf/hostagent/boot_id/latest"
 	SkipDefaultRouteCheckFile = "/var/lib/dpf/dms/hostnetwork-skip-default-route-check"
+
+	timeout     = 5 * time.Minute
+	nodeNameKey = "nodeName"
 )
 
 type Interface interface {
@@ -53,7 +57,7 @@ type Interface interface {
 }
 type NodeManager struct {
 	client.Client
-	nodeName         string
+	nodeName         sync.Map
 	rebootMethod     string
 	customScriptName string
 }
@@ -78,7 +82,15 @@ func (n *NodeManager) Start() error {
 }
 
 func (n *NodeManager) GetNodeName() string {
-	return n.nodeName
+	v, ok := n.nodeName.Load(nodeNameKey)
+	if !ok {
+		return ""
+	}
+	name, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return name
 }
 
 func (n *NodeManager) registerWithAPIServer() {
@@ -109,6 +121,9 @@ func (n *NodeManager) registerWithAPIServer() {
 }
 
 func (n *NodeManager) initDPUDevices() ([]*provisioningv1.DPUDevice, error) {
+	timeoutCtx, cancel := context.WithTimeout(context.TODO(), timeout)
+	defer cancel()
+
 	ret := []*provisioningv1.DPUDevice{}
 	devices, err := hostutil.DiscoverDPUs()
 	if err != nil {
@@ -132,38 +147,45 @@ func (n *NodeManager) initDPUDevices() ([]*provisioningv1.DPUDevice, error) {
 				NumberOfPFs:  ptr.To(device.NumOfPFs),
 			},
 		}
-		if err := n.Create(context.TODO(), dpuDevice); err != nil {
+		if err := n.Create(timeoutCtx, dpuDevice); err != nil {
 			if !apierrors.IsAlreadyExists(err) {
 				return nil, fmt.Errorf("failed to create DPU device %s: %w", dpuDevice.Name, err)
 			}
-			if err := n.Get(context.TODO(), client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: dpuDevice.Name}, dpuDevice); err != nil {
+			if err := n.Get(timeoutCtx, client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: dpuDevice.Name}, dpuDevice); err != nil {
 				return nil, fmt.Errorf("failed to get DPU device %s: %w", dpuDevice.Name, err)
 			}
 		}
-		dpuDevice.Status.PCIAddress = ptr.To(strings.ReplaceAll(device.Address, ":", "-"))
-		if err := n.Status().Update(context.TODO(), dpuDevice); err != nil {
+		pciAddress := strings.ReplaceAll(device.Address, ":", "-")
+		dpuDevice.Status.PCIAddress = &pciAddress
+		if err := n.Status().Update(timeoutCtx, dpuDevice); err != nil {
 			return nil, fmt.Errorf("failed to update DPU device %s: %w", dpuDevice.Name, err)
 		}
 		ret = append(ret, dpuDevice)
+		klog.Infof("Registered DPUDevice. name: %s, serial number: %s, PCI address: %s", dpuDevice.Name, dpuDevice.Spec.SerialNumber, pciAddress)
 	}
 	return ret, nil
 }
 
 func (n *NodeManager) initDPUNode(dpuDevices []*provisioningv1.DPUDevice) error {
+	timeoutCtx, cancel := context.WithTimeout(context.TODO(), timeout)
+	defer cancel()
+
 	dpuNode := &provisioningv1.DPUNode{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: hostutil.DPFNamespace,
 		},
 	}
 
+	var nodeName string
 	kubeNodeRef := ""
 	k8sNodeName := os.Getenv(hostutil.K8sNodeNameEnv)
 	if k8sNodeName != "" {
+		klog.Infof("Env %s=%s, running in a K8s env", hostutil.K8sNodeNameEnv, k8sNodeName)
 		node := &corev1.Node{}
-		if err := n.Get(context.TODO(), client.ObjectKey{Name: k8sNodeName}, node); err != nil {
+		if err := n.Get(timeoutCtx, client.ObjectKey{Name: k8sNodeName}, node); err != nil {
 			return fmt.Errorf("in a K8s env, but failed to get K8s node %s: %w", k8sNodeName, err)
 		}
-		n.nodeName = node.Name
+		nodeName = node.Name
 		kubeNodeRef = node.Name
 		ref := metav1.OwnerReference{
 			APIVersion: "v1",
@@ -174,16 +196,18 @@ func (n *NodeManager) initDPUNode(dpuDevices []*provisioningv1.DPUDevice) error 
 		}
 		dpuNode.ObjectMeta.OwnerReferences = []metav1.OwnerReference{ref}
 	} else {
-		nodeName, truncated, err := hostutil.GetNodeName()
+		klog.Infof("Env %s is not set, running in a non-K8s env", hostutil.K8sNodeNameEnv)
+		name, truncated, err := hostutil.GetNodeName()
 		if err != nil {
 			return fmt.Errorf("failed to init DPUNode CR: %w", err)
 		}
 		if truncated {
-			klog.Warningf("hostname length is greater than %d, truncating to %s", hostutil.MaximumHostNameLength, nodeName)
+			klog.Warningf("hostname length is greater than %d, using %s as DPUNode name", hostutil.MaximumHostNameLength, name)
 		}
-		n.nodeName = nodeName
+		nodeName = name
 	}
-	dpuNode.Name = n.nodeName
+	n.nodeName.Store(nodeNameKey, nodeName)
+	dpuNode.Name = nodeName
 
 	devices, err := hostutil.DiscoverDPUs()
 	if err != nil {
@@ -218,19 +242,20 @@ func (n *NodeManager) initDPUNode(dpuDevices []*provisioningv1.DPUDevice) error 
 			Name: dpuDevice.Name,
 		})
 	}
-	if err := n.Create(context.TODO(), dpuNode); err != nil {
+	if err := n.Create(timeoutCtx, dpuNode); err != nil {
 		if !apierrors.IsAlreadyExists(err) {
 			return fmt.Errorf("failed to create DPUNode: %w", err)
 		}
 		existingDPUNode := &provisioningv1.DPUNode{}
-		if err := n.Get(context.TODO(), client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: dpuNode.Name}, existingDPUNode); err != nil {
+		if err := n.Get(timeoutCtx, client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: dpuNode.Name}, existingDPUNode); err != nil {
 			return fmt.Errorf("failed to get DPUNode: %w", err)
 		}
 		equal := equality.Semantic.DeepEqual(dpuNode.Spec.DPUs, existingDPUNode.Spec.DPUs)
 		if !equal {
+			klog.Infof("The DPU list in DPUNode is out of date. Updating it. Old: %v, New: %v", existingDPUNode.Spec.DPUs, dpuNode.Spec.DPUs)
 			existingDPUNode.Spec.DPUs = dpuNode.Spec.DPUs
-			if err := n.Update(context.TODO(), existingDPUNode); err != nil {
-				return fmt.Errorf("failed to update DPUNode: %w", err)
+			if err := n.Update(timeoutCtx, existingDPUNode); err != nil {
+				return fmt.Errorf("failed to update the DPU list in DPUNode: %w", err)
 			}
 		}
 		dpuNode = existingDPUNode
@@ -241,14 +266,15 @@ func (n *NodeManager) initDPUNode(dpuDevices []*provisioningv1.DPUDevice) error 
 	}
 	switch rebootOccurred {
 	case rebootOccurred, firstRun:
+		klog.Infof("Reboot is finished or this is the first run. Setting RebootInProgress to false. rebootOccurred: %v", rebootOccurred)
 		dpuNode.Status.RebootInProgress = ptr.To(false)
 	}
 	dpuNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaHostAgent))
 	if kubeNodeRef != "" {
 		dpuNode.Status.KubeNodeRef = ptr.To(kubeNodeRef)
 	}
-	if err := n.Status().Update(context.TODO(), dpuNode); err != nil {
-		return fmt.Errorf("failed to update DPUNode: %w", err)
+	if err := n.Status().Update(timeoutCtx, dpuNode); err != nil {
+		return fmt.Errorf("failed to update DPUNode status: %w", err)
 	}
 	return nil
 }
@@ -328,8 +354,9 @@ func (n *NodeManager) rebootOccurred() (RebootResult, error) {
 }
 
 func (n *NodeManager) updateStatus() {
+	klog.V(3).Info("Updating DPUDevice and DPUNode status")
 	if err := n.updateDPUDeviceStatus(); err != nil {
-		klog.Errorf("failed to update DPU device status: %v", err)
+		klog.Errorf("failed to update DPUDevice status: %v", err)
 	}
 	if err := n.updateDPUNodeStatus(); err != nil {
 		klog.Errorf("failed to update DPUNode status: %v", err)
@@ -337,39 +364,45 @@ func (n *NodeManager) updateStatus() {
 }
 
 func (n *NodeManager) updateDPUDeviceStatus() error {
+	timeoutCtx, cancel := context.WithTimeout(context.TODO(), timeout)
+	defer cancel()
+
 	devices, err := hostutil.DiscoverDPUs()
 	if err != nil {
 		return fmt.Errorf("failed to discover DPUs: %w", err)
 	}
 	for _, device := range devices {
 		dpuDevice := &provisioningv1.DPUDevice{}
-		if err := n.Get(context.TODO(), client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: dpuDeviceCRName(device)}, dpuDevice); err != nil {
+		if err := n.Get(timeoutCtx, client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: dpuDeviceCRName(device)}, dpuDevice); err != nil {
 			if apierrors.IsNotFound(err) {
-				klog.Warningf("DPUDevice CR for DPU %s does not exist", dpuDeviceCRName(device))
+				klog.Warningf("DPUDevice CR for DPU %s does not exist. It will not be created until host agent is restarted", dpuDeviceCRName(device))
 				continue
 			}
 			return fmt.Errorf("failed to get DPU device %s: %w", dpuDeviceCRName(device), err)
 		}
 		pn0Name, err := hostutil.NewPCIHelper(device.Address).PF(0).InterfaceName()
 		if err != nil {
-			klog.Warningf("failed to get PF0 name for DPU %s: %v", dpuDeviceCRName(device), err)
+			klog.Warningf("failed to get PF0 name. DPU %s, PCI Address: %s, Serial Number: %s, %v", dpuDeviceCRName(device), device.Address, device.SerialNumber, err)
 			continue
 		}
 		dpuDevice.Status.PF0Name = ptr.To(pn0Name)
-		if err := n.Status().Update(context.TODO(), dpuDevice); err != nil {
-			return fmt.Errorf("failed to update DPU device %s: %w", dpuDeviceCRName(device), err)
+		if err := n.Status().Update(timeoutCtx, dpuDevice); err != nil {
+			return fmt.Errorf("failed to update DPUDevice status. name:%s, err: %w", dpuDeviceCRName(device), err)
 		}
 	}
 	return nil
 }
 
 func (n *NodeManager) updateDPUNodeStatus() error {
+	timeoutCtx, cancel := context.WithTimeout(context.TODO(), timeout)
+	defer cancel()
+
 	nodeName, _, err := hostutil.GetNodeName()
 	if err != nil {
 		return fmt.Errorf("failed to get node name: %w", err)
 	}
 	dpuNode := &provisioningv1.DPUNode{}
-	if err := n.Get(context.TODO(), client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: nodeName}, dpuNode); err != nil {
+	if err := n.Get(timeoutCtx, client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: nodeName}, dpuNode); err != nil {
 		return fmt.Errorf("failed to get DPUNode: %w", err)
 	}
 	cond := n.bridgeCondition()
@@ -377,11 +410,10 @@ func (n *NodeManager) updateDPUNodeStatus() error {
 	if !needUpdate {
 		return nil
 	}
-	klog.V(3).Infof("need update bridge condition for DPUNode status. New: %+v", cond)
-	if err := n.Status().Update(context.TODO(), dpuNode); err != nil {
-		return fmt.Errorf("failed to update DPUNode: %w", err)
+	klog.V(3).Infof("Updating bridge condition for DPUNode status. New: %+v", cond)
+	if err := n.Status().Update(timeoutCtx, dpuNode); err != nil {
+		return fmt.Errorf("failed to update DPUNode status: %w", err)
 	}
-	klog.V(3).Infof("updated bridge condition for DPUNode status. New: %+v", cond)
 	return nil
 }
 
