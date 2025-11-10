@@ -1,0 +1,9 @@
+---
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUStorageVendor
+metadata:
+  name: spdk-csi
+  namespace: dpf-operator-system
+spec:
+  storageClassName: spdkcsi-sc
+  pluginName: nvidia-block

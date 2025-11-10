@@ -1,0 +1,15 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: snap-node-driver
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: snap-node-driver
+  serviceConfiguration:
+    helmChart:
+      values:
+        dpu:
+          deployCrds: true
+          snapNodeDriver:
+            enabled: true

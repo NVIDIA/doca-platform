@@ -12,3 +12,4 @@ configurations on the DPU for optimal performance.
 * [Host Based Networking](hbn/README.md)
 * [DPU Passthrough in DPF Host Trusted](passthrough/README.md)
 * [Host Based Networking and SNAP Storage](hbn-snap/README.md)
+* [Host Based Networking and OVN Kubernetes and SNAP Storage](hbn-ovnk-snap/README.md)

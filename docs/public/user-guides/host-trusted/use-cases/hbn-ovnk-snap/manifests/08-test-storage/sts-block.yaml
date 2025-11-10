@@ -1,0 +1,33 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: storage-test-pod-nvme-vf
+spec:
+  serviceName: "storage-test-pod-nvme-vf"
+  podManagementPolicy: "Parallel"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: storage-test-pod-nvme-vf
+  template:
+    metadata:
+      labels:
+        app: storage-test-pod-nvme-vf
+    spec:
+      containers:
+      - name: test
+        image: registry.k8s.io/nginx-slim:0.21
+        volumeDevices:
+          - name: vol1
+            devicePath: /dev/xvda
+  volumeClaimTemplates:
+  - metadata:
+      name: vol1
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      volumeMode: Block
+      storageClassName: snap-nvme-vf
+      resources:
+        requests:
+          storage: 1Gi
