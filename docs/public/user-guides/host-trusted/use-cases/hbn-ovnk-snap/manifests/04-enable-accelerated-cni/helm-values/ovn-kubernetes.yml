@@ -1,0 +1,3 @@
+ovn-kubernetes-resource-injector:
+  ## Enable the ovn-kubernetes-resource-injector
+  enabled: true
