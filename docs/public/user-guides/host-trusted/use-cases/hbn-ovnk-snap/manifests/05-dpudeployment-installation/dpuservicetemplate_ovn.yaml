@@ -1,0 +1,20 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: ovn
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "ovn"
+  helmChart:
+    source:
+      repoURL: $OVN_KUBERNETES_REPO_URL
+      chart: ovn-kubernetes-chart
+      version: $TAG
+    values:
+      commonManifests:
+        enabled: true
+      dpuManifests:
+        enabled: true
+      leaseNamespace: "ovn-kubernetes"
+      gatewayOpts: "--gateway-interface=br-ovn"
