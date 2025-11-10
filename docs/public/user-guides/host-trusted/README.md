@@ -69,6 +69,18 @@ No DPUServices are necessary for this use case.
 | DOCA Host-Based Networking (HBN) | Accelerates underlay BGP routing with ECMP and EVPN-based overlays |
 | DOCA SNAP                        | Provides shared storage for Kubernetes workloads                   |
 
+### HBN and OVN Kubernetes and SNAP Storage
+
+* [Host Based Networking and OVN Kubernetes and SNAP Storage](use-cases/hbn-ovnk-snap/README.md)
+
+| DPU Services                     | Comments                                                           |
+|----------------------------------|--------------------------------------------------------------------|
+| DOCA Host-Based Networking (HBN) | Accelerates underlay BGP routing with ECMP and EVPN-based overlays |
+| OVN Kubernetes with DPU offload  | Provides SDN overlay services and Kubernetes CNI offloads          |
+| DOCA Telemetry Service (DTS)     | Provides enhanced DPU telemetry                                    |
+| DOCA BlueMan                     | Offers a user-friendly GUI for DTS                                 |
+| DOCA SNAP                        | Provides shared storage for Kubernetes workloads                   |
+
 ## Prerequisites
 
 Before deploying DPF in Host Trusted mode, ensure you have the necessary hardware

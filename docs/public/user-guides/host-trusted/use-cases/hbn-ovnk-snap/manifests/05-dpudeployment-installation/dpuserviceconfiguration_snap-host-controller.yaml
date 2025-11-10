@@ -1,0 +1,29 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: snap-host-controller
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: snap-host-controller
+  upgradePolicy:
+    applyNodeEffect: false
+  serviceConfiguration:
+    deployInCluster: true
+    helmChart:
+      values:
+        host:
+          snapHostController:
+            enabled: true
+            config:
+              targetNamespace: dpf-operator-system
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: "node-role.kubernetes.io/master"
+                        operator: Exists
+                  - matchExpressions:
+                      - key: "node-role.kubernetes.io/control-plane"
+                        operator: Exists

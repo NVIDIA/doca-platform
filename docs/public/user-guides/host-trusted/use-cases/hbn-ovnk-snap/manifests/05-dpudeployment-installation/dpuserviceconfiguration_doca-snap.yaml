@@ -1,0 +1,23 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: doca-snap
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: doca-snap
+  serviceConfiguration:
+    helmChart:
+      values:
+        dpu:
+          docaSnap:
+            enabled: true
+            image:
+              repository: $SNAP_NGC_IMAGE_URL
+              tag: 1.5.0-doca3.2.0
+            snapRpcInitConf: |
+              nvme_subsystem_create --nqn nqn.2022-10.io.nvda.nvme:0
+              nvme_controller_create --nqn nqn.2022-10.io.nvda.nvme:0 --ctrl NVMeCtrl1 --pf_id 0 --admin_only
+  interfaces:
+    - name: app_sf
+      network: mybrsfc
