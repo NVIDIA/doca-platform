@@ -113,6 +113,29 @@ spec:
         effect: NoSchedule
 ```
 
+## Cluster Configuration
+
+The `spec.dpuTemplate.spec.cluster` section in the DPUSet allows you to specify configuration for the Kubernetes cluster that the DPU will join.
+
+### nodeLabels
+
+The `spec.cluster.nodeLabels` field specifies custom labels to add to the Kubernetes node when the DPU joins the cluster. This is a map of string key-value pairs. The system automatically adds the following labels in addition to any custom labels you specify:
+- `provisioning.dpu.nvidia.com/host` - The hostname of the host machine
+- `operator.dpu.nvidia.com/dpf-version` - The DPF version used
+
+Example usage with custom labels:
+
+```yaml
+spec:
+  dpuTemplate:
+    spec:
+      cluster:
+        nodeLabels:
+          environment: production
+          workload-type: ai-training
+          rack-id: "rack-42"
+```
+
 ## DPU Selection
 
 The DPUSet provides two complementary mechanisms for selecting which DPUs should be managed: `dpuNodeSelector` and
@@ -303,3 +326,43 @@ spec:
 
 * hold (bool) - places an annotation with key `wait-for-external-nodeeffect` on the DPU object and waits for it to be
     removed - this is the default behaviour in a non Kubernetes environment
+
+### Additional Node Effect Configuration
+
+The following additional fields can be configured within the `nodeEffect` section:
+
+* **force** (bool) - when set to `true`, the node effect is applied immediately, bypassing `dpfOperatorConfig.spec.provisioningController.multiDPUOperationsSyncWaitTime` and `dpfOperatorConfig.spec.provisioningController.maxUnavailableDPUNodes` settings. Default: `false`.
+
+* **applyOnLabelChange** (bool) - when set to `true`, changes to `spec.cluster.nodeLabels` on DPUs in Ready state will trigger the node effect logic. This is useful when you want the configured node effect (drain, taint, etc.) to be applied when DPU cluster node labels are updated. Default: `false`.
+
+Example configuration:
+
+```yaml
+spec:
+  dpuTemplate:
+    spec:
+      cluster:
+        nodeLabels:
+          environment: staging
+          tier: standard
+      nodeEffect:
+        drain: true
+        applyOnLabelChange: true
+```
+
+With this configuration, updating the `spec.cluster.nodeLabels` on a Ready DPU (e.g., adding a new label `tier: production` or changing `environment: staging` to `environment: production`) will trigger the drain node effect.
+
+* **nodeMaintenanceAdditionalRequestors** (array of strings) - additional requestors to be added to the NVIDIA NodeMaintenance CR when Drain is selected. This field is automatically managed by the DPUDeployment controller for coordinating upgrades of DPUServices and DPUServiceChains. Advanced users can also set this manually in standalone DPUSets to coordinate maintenance with external systems.
+
+Example for advanced manual coordination:
+
+```yaml
+spec:
+  dpuTemplate:
+    spec:
+      nodeEffect:
+        drain: true
+        nodeMaintenanceAdditionalRequestors:
+          - "custom-coordination-service"
+          - "external-maintenance-system"
+```
