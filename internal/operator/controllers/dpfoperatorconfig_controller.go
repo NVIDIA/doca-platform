@@ -153,7 +153,7 @@ func (r *DPFOperatorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if r.Settings.ConfigSingletonNamespaceName != nil {
 		if req.Namespace != r.Settings.ConfigSingletonNamespaceName.Name && req.Name != r.Settings.ConfigSingletonNamespaceName.Name {
 			return ctrl.Result{}, fmt.Errorf("invalid config: only one object with name %s in namespace %s is allowed",
-				r.Settings.ConfigSingletonNamespaceName.Namespace, r.Settings.ConfigSingletonNamespaceName.Name)
+				r.Settings.ConfigSingletonNamespaceName.Name, r.Settings.ConfigSingletonNamespaceName.Namespace)
 		}
 	}
 
