@@ -136,8 +136,10 @@ func (r *DPUSet) ValidateDelete(ctx context.Context, obj runtime.Object) (admiss
 
 func validateStrategy(strategy provisioningv1.DPUSetStrategy) error {
 	if strategy.Type == provisioningv1.RollingUpdateStrategyType {
+		//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
 		switch strategy.RollingUpdate.MaxUnavailable.Type {
 		case intstr.String:
+			//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
 			if scaledValue, err := intstr.GetScaledValueFromIntOrPercent(strategy.RollingUpdate.MaxUnavailable, 100, false); err != nil {
 				return err
 			} else {
@@ -147,6 +149,7 @@ func validateStrategy(strategy provisioningv1.DPUSetStrategy) error {
 			}
 
 		case intstr.Int:
+			//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
 			if strategy.RollingUpdate.MaxUnavailable.IntVal <= 0 {
 				return errors.New("the value range of maxUnavailable must be greater 0")
 			}
