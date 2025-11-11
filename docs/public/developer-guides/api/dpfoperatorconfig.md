@@ -204,7 +204,16 @@ spec:
 * `spec.provisioningController.maxDPUParallelInstallations`: Controls the maximum number of DPUs that can be provisioned concurrently.
     The default value is 50. The value must be at least 1.
 
-* `spec.provisioningController.maxUnavailableDPUNodes`: Maximum number of DPU nodes that can be unavailable during updates.
+* `spec.provisioningController.maxUnavailableDPUNodes`: Maximum number of DPU nodes that can be unavailable during updates. The provisioning controller interacts with the maintenance-operator to implement the drain node effect. The number of nodes that can be applied node effect simultaneously is determined by MaxUnavailableDPUNodes in dpfoperatorconfig and MaxParallelOperations in the NodeMaintenance-operator configuration. NodeMainteanceOperator has higher priority than what is defined in the DPFOperatorConfig. The default value of DPFOperatorConfig.MaxUnavailableDPUNodes is 50. For the default MaintenanceOperatorConfig values see instructions in [helm prerequisites](https://gitlab-master.nvidia.com/doca-platform-foundation/doca-platform-foundation/-/blob/main/docs/public/getting-started/helm-prerequisites.md?ref_type=heads).
+
+  The maxDPUParallelInstallations and maxUnavailableDPUNodes options can be configured together and can be combined with maxParallelOperations and maxUnavailable in Nvidia NodeMaintenance-operator configuration. Below are some examples to show the expected behaviour.
+
+| maxDPUParallelInstallations in DPFOperatorconfig | maxUnavailableDPUNodes in DPFOperatorconfig | maxParallelOperations in Nvidia NodeMaintenanceConfig | maxUnavailable in Nvidia NodeMaintenanceConfig | max number of DPUs in provisioning | max number of Nodes under node effect in NodeMaintenanceOperator|
+|-------------------------------------|-------------------------------|-----------------------------------------------------|-----------------------------------|--------------------------------------------------------|--------------------------------------------------------|
+| 5 | 1 | 10 | 5  | up to 5 DPUs provisioning in parallel | up to 1 node under node effect |
+| 1 | 5 | 10 | 10 | up to 1 DPU provisioning              | up to 1 node under node effect |
+| 5 | 5 | 1  | 5  | up to 5 DPUs provisioning in parallel | up to 1 node under node effect |
+| 5 | 5 | 10 | 2  | up to 5 DPUs provisioning in parallel | up to 2 node under node effect |
 
 * `spec.provisioningController.bfCFGTemplateConfigMap`: Name of ConfigMap containing bf-cfg template for DPU configuration.
 
