@@ -430,6 +430,7 @@ func (r *DPUSetReconciler) updatePCIAddress(ctx context.Context, dpu *provisioni
 
 func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provisioningv1.DPUSet,
 	dpuMap map[string]provisioningv1.DPU, total int) error {
+	//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
 	scaledValue, err := intstr.GetScaledValueFromIntOrPercent(intstr.ValueOrDefault(
 		dpuSet.Spec.Strategy.RollingUpdate.MaxUnavailable, intstr.FromInt(0)), total, true)
 	if err != nil {

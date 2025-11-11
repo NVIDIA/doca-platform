@@ -225,8 +225,10 @@ spec:
                         anyOf:
                         - type: integer
                         - type: string
-                        description: MaxUnavailable is the maximum number of DPUs
-                          that can be unavailable during the update.
+                        description: |-
+                          MaxUnavailable is the maximum number of DPUs that can be unavailable during the update.
+
+                          Deprecated: This field is deprecated and will be removed with v26.1.0.
                         x-kubernetes-int-or-string: true
                     type: object
                   type:
