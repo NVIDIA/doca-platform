@@ -554,7 +554,7 @@ This will deploy the following objects:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: BFB
 metadata:
-  name: bf-bundle
+  name: bf-bundle-$TAG
   namespace: dpf-operator-system
 spec:
   url: $BFB_URL
@@ -569,7 +569,7 @@ spec:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: ovn
+  name: ovn-$TAG
   namespace: dpf-operator-system
 spec:
   grub:
@@ -677,8 +677,8 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dpus:
-    bfb: bf-bundle
-    flavor: ovn
+    bfb: bf-bundle-$TAG
+    flavor: ovn-$TAG
     dpuSets:
     - nameSuffix: "dpuset1"
       nodeSelector:
