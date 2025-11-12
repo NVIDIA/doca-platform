@@ -359,7 +359,7 @@ This will deploy the following objects:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: BFB
 metadata:
-  name: bf-bundle
+  name: bf-bundle-$TAG
   namespace: dpf-operator-system
 spec:
   url: $BFB_URL
@@ -374,7 +374,7 @@ spec:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: hbn
+  name: hbn-$TAG
   namespace: dpf-operator-system
 spec:
   dpuMode: zero-trust
@@ -465,8 +465,8 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dpus:
-    bfb: bf-bundle
-    flavor: hbn
+    bfb: bf-bundle-$TAG
+    flavor: hbn-$TAG
     nodeEffect:
       noEffect: true
     dpuSets:
@@ -1054,7 +1054,7 @@ This will deploy the following objects:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: BFB
 metadata:
-  name: bf-bundle
+  name: bf-bundle-$TAG
   namespace: dpf-operator-system
 spec:
   url: $BFB_URL
@@ -1069,7 +1069,7 @@ spec:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: hbn
+  name: hbn-$TAG
   namespace: dpf-operator-system
 spec:
   dpuMode: zero-trust
@@ -1160,8 +1160,8 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dpus:
-    bfb: bf-bundle
-    flavor: hbn
+    bfb: bf-bundle-$TAG
+    flavor: hbn-$TAG
     nodeEffect:
       noEffect: true
     dpuSets:

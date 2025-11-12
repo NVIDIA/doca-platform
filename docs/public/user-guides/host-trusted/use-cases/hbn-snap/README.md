@@ -404,7 +404,7 @@ This will deploy the following objects:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: BFB
 metadata:
-  name: bf-bundle
+  name: bf-bundle-$TAG
   namespace: dpf-operator-system
 spec:
   url: $BFB_URL
@@ -419,7 +419,7 @@ spec:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: hbn-snap-nvme
+  name: hbn-snap-nvme-$TAG
   namespace: dpf-operator-system
 spec:
   bfcfgParameters:
@@ -1270,8 +1270,8 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dpus:
-    bfb: bf-bundle
-    flavor: hbn-snap-nvme
+    bfb: bf-bundle-$TAG
+    flavor: hbn-snap-nvme-$TAG
     nodeEffect:
       noEffect: true
     dpuSets:
@@ -1383,7 +1383,7 @@ This will deploy the following objects:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: BFB
 metadata:
-  name: bf-bundle
+  name: bf-bundle-$TAG
   namespace: dpf-operator-system
 spec:
   url: $BFB_URL
@@ -1398,7 +1398,7 @@ spec:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: hbn-snap-virtiofs
+  name: hbn-snap-virtiofs-$TAG
   namespace: dpf-operator-system
 spec:
   bfcfgParameters:
@@ -2217,8 +2217,8 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dpus:
-    bfb: bf-bundle
-    flavor: hbn-snap-virtiofs
+    bfb: bf-bundle-$TAG
+    flavor: hbn-snap-virtiofs-$TAG
     nodeEffect:
       noEffect: true
     dpuSets:

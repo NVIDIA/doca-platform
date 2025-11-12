@@ -6,8 +6,8 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dpus:
-    bfb: bf-bundle
-    flavor: dpf-provisioning-hbn
+    bfb: bf-bundle-$TAG
+    flavor: hbn-$TAG
     dpuSets:
     - nameSuffix: "dpuset1"
       nodeSelector:

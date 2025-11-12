@@ -328,7 +328,7 @@ This will deploy the following objects:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: BFB
 metadata:
-  name: bf-bundle
+  name: bf-bundle-$TAG
   namespace: dpf-operator-system
 spec:
   url: $BFB_URL
@@ -343,7 +343,7 @@ spec:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: passthrough
+  name: passthrough-$TAG
   namespace: dpf-operator-system
 spec:
   dpuMode: zero-trust
@@ -442,9 +442,9 @@ spec:
       feature.node.kubernetes.io/dpu-enabled: "true"
   dpuTemplate:
     spec:
-      dpuFlavor: passthrough
+      dpuFlavor: passthrough-$TAG
       bfb:
-        name: "bf-bundle"
+        name: bf-bundle-$TAG
       nodeEffect:
         noEffect: true
 ```

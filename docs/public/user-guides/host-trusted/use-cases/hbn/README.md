@@ -399,7 +399,7 @@ This will deploy the following objects:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: BFB
 metadata:
-  name: bf-bundle
+  name: bf-bundle-$TAG
   namespace: dpf-operator-system
 spec:
   url: $BFB_URL
@@ -414,7 +414,7 @@ spec:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: dpf-provisioning-hbn
+  name: hbn-$TAG
   namespace: dpf-operator-system
 spec:
   bfcfgParameters:
@@ -504,8 +504,8 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dpus:
-    bfb: bf-bundle
-    flavor: dpf-provisioning-hbn
+    bfb: bf-bundle-$TAG
+    flavor: hbn-$TAG
     dpuSets:
     - nameSuffix: "dpuset1"
       nodeSelector:
