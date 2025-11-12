@@ -2,7 +2,7 @@
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: hbn-snap-virtiofs
+  name: hbn-snap-virtiofs-$TAG
   namespace: dpf-operator-system
 spec:
   bfcfgParameters:

@@ -6,8 +6,8 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dpus:
-    bfb: bf-bundle
-    flavor: hbn-snap-virtiofs
+    bfb: bf-bundle-$TAG
+    flavor: hbn-snap-virtiofs-$TAG
     nodeEffect:
       noEffect: true
     dpuSets:

@@ -2,7 +2,7 @@
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: vpc-flavor
+  name: vpc-flavor-$TAG
   namespace: dpf-operator-system
 spec:
   dpuMode: zero-trust

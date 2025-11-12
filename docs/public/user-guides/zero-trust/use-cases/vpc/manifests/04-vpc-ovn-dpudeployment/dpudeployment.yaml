@@ -6,8 +6,8 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dpus:
-    bfb: bf-bundle
-    flavor: vpc-flavor
+    bfb: bf-bundle-$TAG
+    flavor: vpc-flavor-$TAG
     nodeEffect:
       noEffect: true
     dpuSets:

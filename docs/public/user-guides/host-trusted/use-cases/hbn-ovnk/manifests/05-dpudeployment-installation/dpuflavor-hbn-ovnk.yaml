@@ -2,7 +2,7 @@
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: hbn-ovn
+  name: hbn-ovnk-$TAG
   namespace: dpf-operator-system
 spec:
   grub:
