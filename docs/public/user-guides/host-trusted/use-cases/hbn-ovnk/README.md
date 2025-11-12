@@ -546,7 +546,7 @@ This will deploy the following objects:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: BFB
 metadata:
-  name: bf-bundle
+  name: bf-bundle-$TAG
   namespace: dpf-operator-system
 spec:
   url: $BFB_URL
@@ -555,13 +555,13 @@ spec:
 
 <details markdown="1"><summary>HBN OVN DPUFlavor to correctly configure the DPUs on provisioning</summary>
 
-[embedmd]:#(manifests/05-dpudeployment-installation/dpuflavor-hbn-ovn.yaml)
+[embedmd]:#(manifests/05-dpudeployment-installation/dpuflavor-hbn-ovnk.yaml)
 ```yaml
 ---
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: hbn-ovn
+  name: hbn-ovnk-$TAG
   namespace: dpf-operator-system
 spec:
   grub:
@@ -671,8 +671,8 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dpus:
-    bfb: bf-bundle
-    flavor: hbn-ovn
+    bfb: bf-bundle-$TAG
+    flavor: hbn-ovnk-$TAG
     dpuSets:
     - nameSuffix: "dpuset1"
       nodeSelector:
