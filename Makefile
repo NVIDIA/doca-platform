@@ -764,6 +764,8 @@ DPU_ARCH = arm64
 # Use distroless as minimal base image to package the manager binary
 BASE_IMAGE = nvcr.io/nvidia/doca/dpf_containers:1.0.2-ubuntu22.04-distroless
 ALPINE_IMAGE = alpine:3.19
+# Base image for hostdriver (DOCA full runtime host image)
+HOSTDRIVER_BASE_IMAGE ?= nvcr.io/nvidia/doca/doca:3.1.0-full-rt-host
 
 .PHONY: binaries
 binaries: $(addprefix binary-,$(BUILD_TARGETS)) ## Build all binaries
@@ -1100,6 +1102,7 @@ docker-build-hostdriver: ## Build docker image for DMS and hostnetwork.
 		--provenance=false \
 		--platform linux/${HOST_ARCH} \
 		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg hostdriver_base_image=$(HOSTDRIVER_BASE_IMAGE) \
 		--build-arg ldflags=$(GO_LDFLAGS) \
 		--build-arg gcflags=$(GO_GCFLAGS) \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
