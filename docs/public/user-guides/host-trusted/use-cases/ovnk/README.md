@@ -569,7 +569,7 @@ spec:
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: ovn-$TAG
+  name: ovnk-$TAG
   namespace: dpf-operator-system
 spec:
   grub:
@@ -678,7 +678,7 @@ metadata:
 spec:
   dpus:
     bfb: bf-bundle-$TAG
-    flavor: ovn-$TAG
+    flavor: ovnk-$TAG
     dpuSets:
     - nameSuffix: "dpuset1"
       nodeSelector:
