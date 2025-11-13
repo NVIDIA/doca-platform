@@ -83,7 +83,7 @@ export REGISTRY=$YOUR_REGISTRY
 export TAG=$YOUR_TAG
 export IMAGE_PULL_KEY=$YOUR_IMAGE_KEY
 export NODE_MEMORY=16g #adjust as per your system limits
-export E2E_TEST_ARGS="-v -ginkgo.v -e2e.config=config-scale.yaml -ginkgo.label-filter=SCALE"
+export E2E_TEST_ARGS="-ginkgo.label-filter=SCALE -e2e.config=config-scale.yaml"
 export E2E_SKIP_CLEANUP=true
 
 
