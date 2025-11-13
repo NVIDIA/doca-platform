@@ -405,6 +405,9 @@ func ProvisionDPUCluster(ctx context.Context, input ProvisionDPUClustersInput) {
 		}
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
+	By("creating a client for the DPUCluster")
+	getDPUClusterClient(ctx, input)
+
 	By("create the BFB and DPUSet")
 	Eventually(func(g Gomega) {
 		By("creating the BFB")
@@ -435,9 +438,6 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 		dpuset.SetLabels(afterAllCleanupLabels)
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuset))).NotTo(HaveOccurred())
 	}).WithTimeout(60 * time.Second).Should(Succeed())
-
-	By("creating a client for the DPUCluster")
-	getDPUClusterClient(ctx, input)
 
 	By("Checking the DPUServices have been mirrored to the target cluster")
 	Eventually(func(g Gomega) {
@@ -565,19 +565,51 @@ func verifyDPUServicesReady(ctx context.Context, input *systemTestInput, dpuServ
 
 // getDPUClusterClient retrieves the DPUCluster client for the given input.
 func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput) {
+	var clientHealthCheck func() bool
+	var restConfigHealthCheck func() bool
 	Eventually(func(g Gomega) {
 		// Use the new tunnel helper to create a client and the restConfig for the Kamaji cluster
-		dpuClusterClient = tunnel.NewTunneledClient(ctx, input.client, input.restConfig, input.dpuCluster)
-		dpuClusterRestConfig = tunnel.NewTunneledRestConfig(ctx, input.client, input.restConfig, input.dpuCluster)
-
+		dpuClusterClient, clientHealthCheck = tunnel.NewTunneledClient(ctx, input.client, input.restConfig, input.dpuCluster)
+		dpuClusterRestConfig, restConfigHealthCheck = tunnel.NewTunneledRestConfig(ctx, input.client, input.restConfig, input.dpuCluster)
 		// Setup the dpuClusterRestClient
 		dpuClusterRestConfig.APIPath = "/api"
 		dpuClusterRestConfig.GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
 		dpuClusterRestConfig.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
 		var err error
 		dpuClusterRestClient, err = rest.RESTClientFor(dpuClusterRestConfig)
-		Expect(err).ToNot(HaveOccurred())
+		g.Expect(err).ToNot(HaveOccurred())
 	}).WithTimeout(10 * time.Second).Should(Succeed())
+
+	// Start a go routine that monitors the health of the tunnel and recreates the client and rest config
+	// if the health check fails.
+	go func() {
+		defer GinkgoRecover()
+		// By making this tick faster, we risk opening more ports until we have a functional port that can forward our
+		// requests to the DPUCluster. All these connections are closed in the end of the test run. This can happen if
+		// the DPUCluster is completely unavailable for long time, which is very unlikely since we run DPUCluster HA.
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !clientHealthCheck() {
+					By("Tunneled client health check failed, recreating client and rest config")
+					getDPUClusterClient(ctx, input)
+					// Exit this goroutine as a new one will be created
+					return
+				}
+				if !restConfigHealthCheck() {
+					By("Tunneled rest config health check failed, recreating client and rest config")
+					getDPUClusterClient(ctx, input)
+					// Exit this goroutine as a new one will be created
+					return
+				}
+			}
+		}
+	}()
 }
 
 func unstructuredFromFile(path string) *unstructured.Unstructured {
