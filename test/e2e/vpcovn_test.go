@@ -63,7 +63,6 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 			}
 
 			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
-			getDPUClusterClient(ctx, getProvisionDPUClustersInput())
 		}
 	})
 

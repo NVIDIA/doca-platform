@@ -60,8 +60,22 @@ func (t *Tunnel) LocalPort() int {
 	return t.localPort
 }
 
-// NewTunneledRestConfig creates a tunneled REST config for accessing the Kamaji cluster
-func NewTunneledRestConfig(ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) *rest.Config {
+// IsHealthy checks if the tunnel is still healthy and operational.
+// Returns true if the tunnel is healthy, false if an error has occurred or a Close() has been issued.
+func (t *Tunnel) IsHealthy() bool {
+	select {
+	case <-t.errCh:
+		return false
+	case <-t.stopCh:
+		return false
+	default:
+		return true
+	}
+}
+
+// NewTunneledRestConfig creates a tunneled REST config for accessing the Kamaji cluster.
+// Returns the REST config and a health check function that returns true if the tunnel is healthy.
+func NewTunneledRestConfig(ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) (*rest.Config, func() bool) {
 	// Create dpucluster.Config to handle kubeconfig retrieval
 	clusterConfig := dpucluster.NewConfig(hostClient, dpuCluster)
 
@@ -79,31 +93,38 @@ func NewTunneledRestConfig(ctx context.Context, hostClient client.Client, hostRE
 	// Update the host to use local port
 	kamajiRESTConfig.Host = fmt.Sprintf("https://localhost:%d", tunnel.LocalPort())
 
-	return kamajiRESTConfig
+	// Return REST config and a health check function
+	healthCheck := func() bool {
+		return tunnel.IsHealthy()
+	}
+
+	return kamajiRESTConfig, healthCheck
 }
 
 // NewTunneledClient creates a new client that tunnels through the host cluster to access the Kamaji cluster.
 // This function works in air-gapped environments where only the Kubernetes API is accessible.
-func NewTunneledClient(ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) client.Client {
-	kamajiRESTConfig := NewTunneledRestConfig(ctx, hostClient, hostRESTConfig, dpuCluster)
+// Returns the client and a health check function that returns true if the tunnel is healthy.
+func NewTunneledClient(ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) (client.Client, func() bool) {
+	kamajiRESTConfig, healthCheck := NewTunneledRestConfig(ctx, hostClient, hostRESTConfig, dpuCluster)
 
 	// Create client for Kamaji cluster
 	kamajiClient, err := client.New(kamajiRESTConfig, client.Options{})
 	Expect(err).NotTo(HaveOccurred(), "Should create Kamaji client")
 
-	return kamajiClient
+	return kamajiClient, healthCheck
 }
 
 // NewTunneledClientset creates a new clientset that tunnels through the host cluster to access the Kamaji cluster.
 // This function works in air-gapped environments where only the Kubernetes API is accessible.
-func NewTunneledClientset(ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) *kubernetes.Clientset {
-	kamajiRESTConfig := NewTunneledRestConfig(ctx, hostClient, hostRESTConfig, dpuCluster)
+// Returns the clientset and a health check function that returns true if the tunnel is healthy.
+func NewTunneledClientset(ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) (*kubernetes.Clientset, func() bool) {
+	kamajiRESTConfig, healthCheck := NewTunneledRestConfig(ctx, hostClient, hostRESTConfig, dpuCluster)
 
 	// Create clientset for Kamaji cluster
 	kamajiClientset, err := kubernetes.NewForConfig(kamajiRESTConfig)
 	Expect(err).NotTo(HaveOccurred(), "Should create Kamaji clientset")
 
-	return kamajiClientset
+	return kamajiClientset, healthCheck
 }
 
 // setupPortForward sets up port forwarding to the Kamaji cluster service

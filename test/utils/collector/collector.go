@@ -95,8 +95,8 @@ func GetClusterCollectors(ctx context.Context, cc ClusterCollector, artifactsDir
 		return nil, err
 	}
 	for _, conf := range clusterConfigs {
-		dpuClusterClient := tunnel.NewTunneledClient(ctx, cc.Client, cc.RestConfig, conf.Cluster)
-		dpuClusterClientset := tunnel.NewTunneledClientset(ctx, cc.Client, cc.RestConfig, conf.Cluster)
+		dpuClusterClient, _ := tunnel.NewTunneledClient(ctx, cc.Client, cc.RestConfig, conf.Cluster)
+		dpuClusterClientset, _ := tunnel.NewTunneledClientset(ctx, cc.Client, cc.RestConfig, conf.Cluster)
 		directory = filepath.Join(artifactsDirectory, conf.Cluster.Name)
 		c, err := NewCluster(dpuClusterClient, directory, inventoryManifestsDirectory, dpuClusterClientset, conf.Cluster.Name)
 		if err != nil {
