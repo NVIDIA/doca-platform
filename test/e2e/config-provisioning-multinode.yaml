@@ -1,3 +1,4 @@
+provisioningControllerPVC: "../objects/infrastructure/pvc-provisioning.yaml"
 bfb: "../objects/infrastructure/bfb.yaml"
 dpuCluster: "../objects/infrastructure/dpucluster.yaml"
 dpuSet: "../objects/infrastructure/dpuset.yaml"
