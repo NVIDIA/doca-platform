@@ -44,9 +44,11 @@ var _ = Describe("DPF System tests - SDN", Labels{dpfSystemLabel, sdnLabel}, Ord
 			VerifyPlainServiceFunctionChain(ctx, input)
 		})
 		It("create HBN only dpu chain and verify performance", func() {
+			Skip("Skipped due to BFB issue - will re-enable when resolved")
 			VerifyHBNOnlyServiceFunctionChain(ctx, input)
 		})
 		It("create HBN only dpu chain and verify performance after killing HBN", Labels{l2ConnectivityLabel}, func() {
+			Skip("Skipped due to BFB issue - will re-enable when resolved")
 			VerifyHBNOnlyBadFlowRecovery(ctx, input)
 		})
 		It("create Pods running in the DPUCluster via DPUService and verify RDMA traffic between them", func() {
