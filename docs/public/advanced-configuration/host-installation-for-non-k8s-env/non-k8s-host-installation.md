@@ -6,9 +6,15 @@ title: "Host Installation for non-Kubernetes Environments"
 
 ## Installation Steps
 
-### 1. Create Bootstrap Token 
-For security reasons, it’s recommended that the host agent join the cluster using a bootstrap token. The following commands create a bootstrap token that expires in 24 hours and use that token to generate a kubeconfig. Run the following commands on any of the **control plane node**
-```
+### 1. Install DPF
+
+Select a use case from the [host trusted use cases](/docs/public/user-guides/host-trusted/README.md#use-cases) and complete all prerequisite steps before provisioning.
+
+### 2. Create Bootstrap Token 
+For security reasons, it’s recommended that the host agent join the cluster using a bootstrap token. The following commands create a bootstrap token that expires in 24 hours and use that token to generate a kubeconfig. 
+
+Run the following commands on any of the **control plane nodes**
+```bash
 export TOKEN_SUFFIX=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 6 | head -n 1)
 export TOKEN_SECRET=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 16 | head -n 1)
 export CLUSTER_NAME="cluster.local"
@@ -44,10 +50,11 @@ kubectl config use-context bootstrap-context \
   --kubeconfig=$BOOTSTRAP_KUBECONFIG_FILE
 ```
 
-### 2. Distribute The Kubeconfig File
+### 3. Distribute The Kubeconfig File
 Distribute the generated kubeconfig file under /var/lib/dpf/hostagent/ of each worker node.
 
-### 3. Install DOCA and containerd
+### 4. Install DOCA and containerd
+Run the following commands on worker host.
 
 ```bash
 # Set DOCA repository URL
@@ -64,17 +71,21 @@ sudo apt-get update
 sudo apt-get -y install doca-all doca-networking containerd
 ```
 
-### 4. Pull The HostDriver Image From NGC
+### 5. Pull The HostDriver Image From NGC
+Run the following commands on worker host.
 
-```
+```bash
 export IMAGE=<the hostdriver image>
 export IMAGE_PULL_KEY=<your NGC key granted permission for pulling image>
 sudo ctr image pull --user \$oauthtoken:$IMAGE_PULL_KEY  $IMAGE
 ```
 
-### 5. Initialize Host Agent Flags
+### 6. Initialize Host Agent Flags
 Before you run the following commands, you need to set the BFB_REGISTRY_ADDRESS with the same value as you set in [DPFOperatorConfig.spec.provisioningController.registry](../../developer-guides/api/api.md#registryconfiguration)
-```
+
+
+Run the following commands on worker host.
+```bash
 export BFB_REGISTRY_ADDRESS=<address of the bfb-registry>
 export HOST_AGENT_DIR=/var/lib/dpf/hostagent
 export HOST_AGENT_ENV_FILE=$HOST_AGENT_DIR/dpf-host-agent.env
@@ -88,8 +99,10 @@ RUN_CONTAINER_ARGS="--rm --net-host --privileged --mount type=bind,src=/var/run/
 EOF
 ```
 
-### 6. Start rshim and DMS
-```
+### 7. Start rshim and DMS
+
+Run the following commands on worker host.
+```bash
 export DMSD_SERVICE_FILE=/etc/systemd/system/dpf-dmsd.service
 sudo tee $DMSD_SERVICE_FILE >/dev/null <<EOF
 [Unit]
@@ -123,9 +136,10 @@ sudo systemctl start dpf-dmsd
 ```
 
 
-### 7. Start Host Agent With Systemd and containerd
+### 8. Start Host Agent With Systemd and containerd
+Run the following commands on worker host.
 
-```
+```bash
 export HOST_AGENT_SERVICE_FILE=/etc/systemd/system/dpf-host-agent.service
 sudo tee $HOST_AGENT_SERVICE_FILE >/dev/null <<EOF
 [Unit]
@@ -158,7 +172,7 @@ sudo systemctl start dpf-host-agent
 
 ## Verification
 
-To verify the installation is working correctly:
+To verify the installation is working correctly, run the following commands on worker host.
 
 ```bash
 # Check services status
