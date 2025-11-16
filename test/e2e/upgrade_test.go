@@ -345,7 +345,7 @@ func extractGenerationInfo(objects []client.Object) []map[string]interface{} {
 // verifySystemReady checks if the DPF system components are ready.
 // This is not a complete list of all system pods, but it includes the most important ones.
 func verifySystemReady() {
-	VerifyDPUClusterPods(ctx, []string{
+	VerifyClusterPods(ctx, dpuClusterClient, []string{
 		// Kubernetes system pods
 		"kube-flannel-ds", "coredns", "kube-proxy",
 		// DPF system components

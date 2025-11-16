@@ -55,7 +55,7 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 				By("Waiting for provisioning")
 				VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 				By("Waiting for DPU cluster pods to be ready")
-				VerifyDPUClusterPods(ctx, systemPodsToVerify)
+				VerifyClusterPods(ctx, dpuClusterClient, systemPodsToVerify)
 			}
 
 			if !input.hasDpuNodes() {
