@@ -17,13 +17,13 @@ limitations under the License.
 package gitlab
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -325,7 +325,7 @@ func (c *Client) updateRunnerPausedState(runnerID int, paused bool) error {
 		return fmt.Errorf("failed to marshal request body: %v", err)
 	}
 
-	req, err := http.NewRequest("PUT", url, strings.NewReader(string(jsonData)))
+	req, err := http.NewRequest("PUT", url, bytes.NewReader(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
@@ -378,4 +378,85 @@ func (c *Client) DeleteRunner(runnerID int) error {
 	}
 
 	return nil
+}
+
+// GetRunnerJobs retrieves jobs for a specific runner with optional status filter.
+// status can be "running", "success", "failed", "canceled", or empty for all
+func (c *Client) GetRunnerJobs(runnerID int, status string, limit int) ([]Job, error) {
+	var allJobs []Job
+	page := 1
+	perPage := 100
+	if limit > 0 && limit < perPage {
+		perPage = limit
+	}
+
+	for {
+		jobs, err := c.getRunnerJobsPage(runnerID, status, page, perPage)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(jobs) == 0 {
+			break
+		}
+
+		allJobs = append(allJobs, jobs...)
+
+		// Stop if we've reached the limit
+		if limit > 0 && len(allJobs) >= limit {
+			if len(allJobs) > limit {
+				allJobs = allJobs[:limit]
+			}
+			break
+		}
+
+		page++
+	}
+
+	return allJobs, nil
+}
+
+// getRunnerJobsPage retrieves a single page of jobs for a specific runner
+func (c *Client) getRunnerJobsPage(runnerID int, status string, page, perPage int) ([]Job, error) {
+	queryParams := url.Values{}
+	queryParams.Add("page", strconv.Itoa(page))
+	queryParams.Add("per_page", strconv.Itoa(perPage))
+	queryParams.Add("order_by", "id")
+	queryParams.Add("sort", "desc")
+
+	if status != "" {
+		queryParams.Add("status", status)
+	}
+
+	url := fmt.Sprintf("%s/runners/%d/jobs?%s",
+		c.baseURL,
+		runnerID,
+		queryParams.Encode())
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %v", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var jobs []Job
+	if err := json.Unmarshal(body, &jobs); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	return jobs, nil
 }
