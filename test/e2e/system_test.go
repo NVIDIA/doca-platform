@@ -197,7 +197,7 @@ var _ = Describe("DPF System tests - Core", Labels{dpfSystemLabel}, func() {
 			By("Waiting for provisioning")
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 			By("Waiting for DPU cluster pods to be ready")
-			VerifyDPUClusterPods(ctx, systemPodsToVerify)
+			VerifyClusterPods(ctx, dpuClusterClient, systemPodsToVerify)
 		}
 	})
 

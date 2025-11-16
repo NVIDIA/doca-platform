@@ -501,11 +501,11 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 	}).WithTimeout(30 * time.Minute).Should(Succeed())
 }
 
-func VerifyDPUClusterPods(ctx context.Context, podSubstrToVerify []string) {
+func VerifyClusterPods(ctx context.Context, client client.Client, podSubstrToVerify []string) {
 	tracker := NewByTracker()
 	Eventually(func(g Gomega) {
 		pods := &corev1.PodList{}
-		g.Expect(dpuClusterClient.List(ctx, pods)).To(Succeed())
+		g.Expect(client.List(ctx, pods)).To(Succeed())
 
 		// Create a map to track which pods from podsToVerify we've found
 		foundPods := make(map[string]bool)
@@ -537,6 +537,8 @@ func VerifyDPUClusterPods(ctx context.Context, podSubstrToVerify []string) {
 				tracker.By(containerKey, "Verifying container %s with image %s", containerKey, containerStatus.Image)
 				g.Expect(containerStatus.ImageID).ToNot(BeEmpty())
 			}
+
+			g.Expect(pod.Status.Phase).To(Equal(corev1.PodRunning))
 		}
 
 		// Verify all expected pods were found
