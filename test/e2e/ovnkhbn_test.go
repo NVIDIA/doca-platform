@@ -30,6 +30,9 @@ var _ = Describe("DPF System tests - OVNK HBN", Labels{ovnkPrimaryLabel, require
 	BeforeEach(func() {
 		By("wait for OVNK HBN deployment to be ready")
 		WaitForOVNKHBNDeploymentReady(ctx, input)
+
+		By("Waiting for multus pods to be ready")
+		VerifyClusterPods(ctx, input.client, []string{"kube-multus-ds"})
 	})
 
 	AfterEach(func() {

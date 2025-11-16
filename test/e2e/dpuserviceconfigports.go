@@ -67,7 +67,7 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) 
 	Expect(input.client.Create(ctx, dpuService)).To(Succeed())
 
 	By("Waiting for dummydpuservice Pods to be ready")
-	VerifyDPUClusterPods(ctx, []string{"dummydpuservice"})
+	VerifyClusterPods(ctx, dpuClusterClient, []string{"dummydpuservice"})
 
 	By("Verifying the ConfigPorts are exposed via the DPUService")
 	Eventually(func(g Gomega) {
