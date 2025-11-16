@@ -21,6 +21,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -40,6 +43,50 @@ type Job struct {
 		ID          int    `json:"id"`
 		Description string `json:"description"`
 	} `json:"runner,omitempty"`
+}
+
+// Runner represents a GitLab CI runner
+type Runner struct {
+	ID          int    `json:"id"`
+	Description string `json:"description"`
+	Active      bool   `json:"active"`
+	Paused      bool   `json:"paused"`
+	IsShared    bool   `json:"is_shared"`
+	RunnerType  string `json:"runner_type"`
+	Name        string `json:"name,omitempty"`
+	Online      bool   `json:"online"`
+	Status      string `json:"status"`
+	IPAddress   string `json:"ip_address"`
+}
+
+// RunnerDetails represents detailed information about a GitLab CI runner.
+type RunnerDetails struct {
+	Active          bool      `json:"active"`
+	Paused          bool      `json:"paused"`
+	Architecture    string    `json:"architecture,omitempty"`
+	Description     string    `json:"description"`
+	ID              int       `json:"id"`
+	IPAddress       string    `json:"ip_address"`
+	IsShared        bool      `json:"is_shared"`
+	RunnerType      string    `json:"runner_type"`
+	ContactedAt     time.Time `json:"contacted_at"`
+	MaintenanceNote string    `json:"maintenance_note,omitempty"`
+	Name            string    `json:"name,omitempty"`
+	Online          bool      `json:"online"`
+	Status          string    `json:"status"`
+	Platform        string    `json:"platform,omitempty"`
+	Projects        []struct {
+		ID                int    `json:"id"`
+		Name              string `json:"name"`
+		NameWithNamespace string `json:"name_with_namespace"`
+		Path              string `json:"path"`
+		PathWithNamespace string `json:"path_with_namespace"`
+	} `json:"projects"`
+	Revision       string   `json:"revision,omitempty"`
+	TagList        []string `json:"tag_list"`
+	Version        string   `json:"version,omitempty"`
+	AccessLevel    string   `json:"access_level"`
+	MaximumTimeout int      `json:"maximum_timeout"`
 }
 
 // Client represents a GitLab API client
@@ -151,4 +198,184 @@ func (c *Client) getJobsPage(page, perPage int) ([]Job, error) {
 	}
 
 	return jobs, nil
+}
+
+// ListRunners retrieves all runners for a gitlab project. all enabled runners for the project are listed.
+func (c *Client) ListRunners(tagFilters string, typeFilters string) ([]Runner, error) {
+	var allRunners []Runner
+	page := 1
+	perPage := 100
+
+	for {
+		runners, err := c.getRunnersPage(page, perPage, tagFilters, typeFilters)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(runners) == 0 {
+			break
+		}
+
+		allRunners = append(allRunners, runners...)
+		page++
+	}
+
+	return allRunners, nil
+}
+
+// getRunnersPage retrieves a single page of runners from GitLab
+func (c *Client) getRunnersPage(page, perPage int, tagFilters string, typeFilters string) ([]Runner, error) {
+	queryParams := url.Values{}
+
+	queryParams.Add("page", strconv.Itoa(page))
+	queryParams.Add("per_page", strconv.Itoa(perPage))
+
+	if tagFilters != "" {
+		queryParams.Add("tag_list", tagFilters)
+	}
+	if typeFilters != "" {
+		queryParams.Add("type", typeFilters)
+	}
+
+	url := fmt.Sprintf("%s/projects/%s/runners?%s",
+		c.baseURL,
+		c.projectID,
+		queryParams.Encode())
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %v", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var runners []Runner
+	if err := json.Unmarshal(body, &runners); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	return runners, nil
+}
+
+// GetRunnerDetails fetches detailed information about a specific runner by ID.
+func (c *Client) GetRunnerDetails(runnerID int) (*RunnerDetails, error) {
+	url := fmt.Sprintf("%s/runners/%d", c.baseURL, runnerID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %v", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var runnerDetails RunnerDetails
+	if err := json.Unmarshal(body, &runnerDetails); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	return &runnerDetails, nil
+}
+
+// PauseRunner pauses a runner by ID.
+func (c *Client) PauseRunner(runnerID int) error {
+	return c.updateRunnerPausedState(runnerID, true)
+}
+
+// UnpauseRunner unpauses a runner by ID.
+func (c *Client) UnpauseRunner(runnerID int) error {
+	return c.updateRunnerPausedState(runnerID, false)
+}
+
+// updateRunnerPausedState updates the paused state of a runner.
+func (c *Client) updateRunnerPausedState(runnerID int, paused bool) error {
+	url := fmt.Sprintf("%s/runners/%d", c.baseURL, runnerID)
+
+	// Create JSON payload
+	payload := map[string]interface{}{
+		"paused": paused,
+	}
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %v", err)
+	}
+
+	req, err := http.NewRequest("PUT", url, strings.NewReader(string(jsonData)))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to make request: %v", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// DeleteRunner deletes a runner by ID from the GitLab instance.
+// Note: This requires admin or owner permissions for the runner.
+func (c *Client) DeleteRunner(runnerID int) error {
+	url := fmt.Sprintf("%s/runners/%d", c.baseURL, runnerID)
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to make request: %v", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	// Read response body for error messages
+	body, _ := io.ReadAll(resp.Body)
+
+	// GitLab returns 204 No Content on successful deletion
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
 }
