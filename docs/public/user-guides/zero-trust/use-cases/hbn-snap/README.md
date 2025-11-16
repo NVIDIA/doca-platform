@@ -2699,6 +2699,7 @@ This section covers only the DPF related components and not the prerequisites as
 
 >[!WARNING]
 > Be sure to unmount all volumes from the worker nodes before deleting the DPUVolumeAttachments or the operation may fail.
+> For NVMe attachments, it is recommended to unbind the device from the driver before deleting the DPUVolumeAttachment. `echo <pci_address> > /sys/bus/pci/drivers/nvme/unbind`
 
 ```shell
 kubectl delete -n dpf-operator-system dpuvolumeattachments --all --wait
