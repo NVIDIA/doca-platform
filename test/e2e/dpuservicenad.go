@@ -299,7 +299,7 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 	By("Create and wait for dummydpuservice DPUService")
 	createDummyDPUServiceForRDMA(ctx, input.client, input.namespace, input.dpuService)
 	dpuservice.WaitForDPUServices(ctx, input.client, input.namespace, []string{"dummydpuservice-rdma"})
-	VerifyDPUClusterPods(ctx, []string{"dummydpuservice-rdma"})
+	VerifyClusterPods(ctx, dpuClusterClient, []string{"dummydpuservice-rdma"})
 
 	By("Verify underlying ServiceChain and ServiceInterface objects are ready")
 	dpuservice.VerifyUnderlyingDPUObjectsReady(ctx, dpuClusterClient, input.namespace, interfaceConfigs, []string{"pod-to-fabric"})
