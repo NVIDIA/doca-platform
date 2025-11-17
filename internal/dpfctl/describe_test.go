@@ -1409,8 +1409,7 @@ func defaultTenantControlPlane() *kamajiv1.TenantControlPlane {
 			},
 		},
 		Spec: kamajiv1.TenantControlPlaneSpec{
-			DataStore:       "default",
-			DataStoreSchema: "default",
+			DataStore: "default",
 			ControlPlane: kamajiv1.ControlPlane{
 				Deployment: kamajiv1.DeploymentSpec{
 					Replicas: ptr.To[int32](3),

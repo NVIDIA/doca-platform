@@ -5,7 +5,6 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dataStore: default
-  dataStoreSchema: default
   controlPlane:
     deployment:
       replicas: 3

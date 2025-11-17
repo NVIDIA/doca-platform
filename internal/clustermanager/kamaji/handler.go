@@ -347,8 +347,7 @@ func expectedTenantControlPlane(dc *provisioningv1.DPUCluster, scheme *runtime.S
 			},
 		},
 		Spec: kamajiv1.TenantControlPlaneSpec{
-			DataStore:       "default",
-			DataStoreSchema: "default",
+			DataStore: "default",
 			ControlPlane: kamajiv1.ControlPlane{
 				Deployment: kamajiv1.DeploymentSpec{
 					Affinity: &corev1.Affinity{
