@@ -405,6 +405,7 @@ func TestExposeBlockDevice(t *testing.T) {
 		snapProvider               string
 		dpuStatus                  snapstoragev1.VolumeAttachmentStatusDPU
 		spec                       snapstoragev1.VolumeAttachmentSpec
+		parameters                 map[string]string
 		shouldFailEmulationList    bool
 		shouldFailSubsystemList    bool
 		shouldFailNamespaceCreate  bool
@@ -540,7 +541,7 @@ func TestExposeBlockDevice(t *testing.T) {
 
 			client := NewClient(rpcClient)
 
-			nsid, pciBDF, uuid, err := client.ExposeBlockDevice(tt.dpuStatus, tt.spec)
+			nsid, pciBDF, uuid, err := client.ExposeBlockDevice(tt.dpuStatus, tt.spec, tt.parameters)
 
 			if tt.expectError {
 				if err == nil {
