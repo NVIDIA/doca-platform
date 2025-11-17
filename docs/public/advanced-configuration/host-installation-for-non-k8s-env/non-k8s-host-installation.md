@@ -8,7 +8,7 @@ title: "Host Installation for non-Kubernetes Environments"
 
 ### 1. Install DPF
 
-Select a use case from the [host trusted use cases](/docs/public/user-guides/host-trusted/README.md#use-cases) and complete all prerequisite steps before provisioning.
+Select a use case from the [host trusted use cases](../../user-guides/host-trusted/README.md#use-cases) and complete all prerequisite steps before provisioning.
 
 ### 2. Create Bootstrap Token 
 For security reasons, it’s recommended that the host agent join the cluster using a bootstrap token. The following commands create a bootstrap token that expires in 24 hours and use that token to generate a kubeconfig. 
