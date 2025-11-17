@@ -59,8 +59,15 @@ func CleanupAndWait(ctx context.Context, c client.Client, objs ...client.Object)
 func CleanupWithLabelAndWait(ctx context.Context, c client.Client, labelSelector labels.Selector, resources ...client.ObjectList) error {
 	var deleteObjs []client.Object
 
+	logger := log.FromContext(ctx)
+
 	for _, list := range resources {
 		if err := c.List(context.Background(), list, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+			if meta.IsNoMatchError(err) {
+				// resource not registered in API server, skip
+				logger.Info("Resource not registered in API server, skipping", "resource", list.GetObjectKind().GroupVersionKind().String())
+				continue
+			}
 			return err
 		}
 
