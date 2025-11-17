@@ -41,7 +41,7 @@ import (
 )
 
 var (
-	// vpcContextCleanupLabels is used to cleanup the entire Context of different testcases
+	// vpcContextCleanupLabels is used to cleanup the objects between test Context execution (which represents different testcases)
 	vpcContextCleanupLabels = map[string]string{"vpc-ctx-cleanup": "true"}
 	// vpcAfterAllCleanupLabels is used to cleanup the pre-requisite services and objects
 	vpcAfterAllCleanupLabels = map[string]string{"vpc-after-all-cleanup": "true"}
