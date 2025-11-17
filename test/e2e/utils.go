@@ -28,6 +28,7 @@ import (
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
 	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
 
+	netattdefv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
@@ -61,6 +62,7 @@ var (
 	ngcAPIKey = ""
 	// Labels and resources targeted for cleanup before running our e2e tests.
 	// This cleanup is typically handled by cleanupObjs, but if an e2e test fails, the standard cleanup may not be executed.
+	// Note: order matters as some object deletion depends on controllers that may be deployed via dpuservices/dpudeployments
 	resourcesToDelete = []client.ObjectList{
 		&dpuservicev1.DPUDeploymentList{},
 		&dpuservicev1.DPUServiceCredentialRequestList{},
@@ -88,12 +90,18 @@ var (
 		&vpcv1.DPUVirtualNetworkList{},
 		&vpcv1.DPUVPCList{},
 		&vpcv1.IsolationClassList{},
+		&netattdefv1.NetworkAttachmentDefinitionList{},
 	}
 	// systemPodsToVerify is a list of pod name patterns that should be verified in the DPU cluster
 	systemPodsToVerify = []string{
 		"kube-proxy",
-		"kube-flannel-ds",
-		"coredns",
+		"kube-flannel",
+		"cni-installer",
+		"nvidia-k8s-ipam",
+		"ovs-cni",
+		"sfc-controller",
+		"sriov-device-plugin",
+		"kube-multus",
 	}
 )
 

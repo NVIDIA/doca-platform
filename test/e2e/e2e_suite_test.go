@@ -35,6 +35,7 @@ import (
 	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 
+	netattdefv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	. "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/ginkgo/v2/types"
 	. "github.com/onsi/gomega"
@@ -149,6 +150,7 @@ func TestE2E(t *testing.T) {
 	Expect(nvipamv1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(kamajiv1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(vpcv1.AddToScheme(scheme.Scheme)).To(Succeed())
+	Expect(netattdefv1.AddToScheme(scheme.Scheme)).To(Succeed())
 	s := scheme.Scheme
 
 	// SchemeGroupVersion is group version used to register these objects

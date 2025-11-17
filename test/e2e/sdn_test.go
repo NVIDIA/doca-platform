@@ -17,6 +17,8 @@ limitations under the License.
 package e2e
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 )
 
@@ -35,6 +37,8 @@ var _ = Describe("DPF System tests - SDN", Labels{dpfSystemLabel, sdnLabel}, Ord
 				VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 				By("Waiting for DPU cluster pods to be ready")
 				VerifyClusterPods(ctx, dpuClusterClient, systemPodsToVerify)
+				By("Waiting for DPFOperatorConfig to be ready")
+				VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
 			}
 		}
 	})
