@@ -100,9 +100,9 @@ func (mr *MockClientMockRecorder) DestroyFSDevice(deviceName, pciAddr any) *gomo
 }
 
 // ExposeBlockDevice mocks base method.
-func (m *MockClient) ExposeBlockDevice(dpuStatus v1alpha1.VolumeAttachmentStatusDPU, spec v1alpha1.VolumeAttachmentSpec) (int, string, string, error) {
+func (m *MockClient) ExposeBlockDevice(dpuStatus v1alpha1.VolumeAttachmentStatusDPU, spec v1alpha1.VolumeAttachmentSpec, parameters map[string]string) (int, string, string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExposeBlockDevice", dpuStatus, spec)
+	ret := m.ctrl.Call(m, "ExposeBlockDevice", dpuStatus, spec, parameters)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(string)
 	ret2, _ := ret[2].(string)
@@ -111,9 +111,9 @@ func (m *MockClient) ExposeBlockDevice(dpuStatus v1alpha1.VolumeAttachmentStatus
 }
 
 // ExposeBlockDevice indicates an expected call of ExposeBlockDevice.
-func (mr *MockClientMockRecorder) ExposeBlockDevice(dpuStatus, spec any) *gomock.Call {
+func (mr *MockClientMockRecorder) ExposeBlockDevice(dpuStatus, spec, parameters any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExposeBlockDevice", reflect.TypeOf((*MockClient)(nil).ExposeBlockDevice), dpuStatus, spec)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExposeBlockDevice", reflect.TypeOf((*MockClient)(nil).ExposeBlockDevice), dpuStatus, spec, parameters)
 }
 
 // ExposeFSDevice mocks base method.
