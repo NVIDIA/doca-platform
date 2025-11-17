@@ -56,6 +56,7 @@ func getTestDPUVolume() *storagev1.DPUVolume {
 			Namespace: "default",
 		},
 		Spec: storagev1.DPUVolumeSpec{
+			Parameters:           map[string]string{"specparam1": "specvalue1"},
 			DPUStoragePolicyName: "test-policy",
 			VolumeMode:           ptr.To(corev1.PersistentVolumeFilesystem),
 			AccessModes:          []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
@@ -71,6 +72,7 @@ func getTestDPUVolume() *storagev1.DPUVolume {
 				CSIDriverName:                &csiDriverName,
 				SelectedDPUStorageVendorName: &vendorName,
 				StorageVendorPluginName:      &pluginName,
+				Parameters:                   map[string]string{"statusparam1": "specvalue1", "policyparam1": "policyvalue1"},
 			},
 		},
 	}
@@ -356,6 +358,8 @@ var _ = Describe("VolumeProvisioner", func() {
 				volumeCR := volumeList.Items[0]
 				Expect(volumeCR.Name).To(Equal(dpuVolume.Name))
 				Expect(volumeCR.Namespace).To(Equal(testTargetNamespace))
+				Expect(volumeCR.Spec.StorageParameters).To(Equal(dpuVolume.Status.State.Parameters))
+				Expect(volumeCR.Spec.StoragePolicyParameters).To(Equal(dpuVolume.Status.State.Parameters))
 				Expect(volumeCR.Status.State).To(Equal(storagev1.VolumeStateAvailable))
 			}
 		})
