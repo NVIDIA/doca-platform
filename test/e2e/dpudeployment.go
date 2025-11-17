@@ -472,14 +472,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx context.Context, input
 	Expect(input.client.Patch(ctx, dpfOperatorConfig, client.MergeFrom(originalDPFOperatorConfig))).To(Succeed())
 
 	By("Validating that the DPFOperatorConfig is ready for the current generation")
-	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
-		// TODO: Replace with conditions.IsReady() when we start checking for correct generation in the function
-		readyCondition := conditions.Get(dpfOperatorConfig, conditions.TypeReady)
-		g.Expect(readyCondition).NotTo(BeNil())
-		g.Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue))
-		g.Expect(readyCondition.ObservedGeneration).To(Equal(dpfOperatorConfig.Generation))
-	}).WithTimeout(2 * time.Minute).Should(Succeed())
+	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
 
 	By("Getting the existing DPUDeployment")
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
@@ -676,14 +669,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx context.Context, input
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 
 	By("Validating that the DPFOperatorConfig is ready for the current generation")
-	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
-		// TODO: Replace with conditions.IsReady() when we start checking for correct generation in the function
-		readyCondition := conditions.Get(dpfOperatorConfig, conditions.TypeReady)
-		g.Expect(readyCondition).NotTo(BeNil())
-		g.Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue))
-		g.Expect(readyCondition.ObservedGeneration).To(Equal(dpfOperatorConfig.Generation))
-	}).WithTimeout(2 * time.Minute).Should(Succeed())
+	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
 }
 
 // ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade validates that DPUDeployment disruptive upgrade flow for

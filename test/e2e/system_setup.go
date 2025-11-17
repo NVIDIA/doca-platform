@@ -517,11 +517,11 @@ func VerifyClusterPods(ctx context.Context, client client.Client, podSubstrToVer
 			// Check if this pod matches any of the expected prefixes.
 			// If it does, we add it to the foundPods map.
 			var matchedSubstr string
-			for _, prefix := range podSubstrToVerify {
-				if !strings.Contains(pod.Name, prefix) {
+			for _, podSubstr := range podSubstrToVerify {
+				if !strings.Contains(pod.Name, podSubstr) {
 					continue
 				}
-				matchedSubstr = prefix
+				matchedSubstr = podSubstr
 			}
 			if matchedSubstr == "" {
 				continue
@@ -542,11 +542,24 @@ func VerifyClusterPods(ctx context.Context, client client.Client, podSubstrToVer
 		}
 
 		// Verify all expected pods were found
-		for podPrefix, found := range foundPods {
-			tracker.By(podPrefix, "Verifying pod %s was scheduled", podPrefix)
+		for podSubstr, found := range foundPods {
+			tracker.By(podSubstr, "Verifying pod %s was scheduled", podSubstr)
 			g.Expect(found).To(BeTrue())
 		}
 	}).WithTimeout(20 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+}
+
+// VerifyDPFOperatorConfigReady waits and verifies if the DPFOperatorConfig is ready.
+func VerifyDPFOperatorConfigReady(ctx context.Context, kclient client.Client, timeout time.Duration) {
+	Eventually(func(g Gomega) {
+		dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
+		g.Expect(kclient.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, dpfOperatorConfig)).To(Succeed())
+		// TODO: Replace with conditions.IsReady() when we start checking for correct generation in the function
+		readyCondition := conditions.Get(dpfOperatorConfig, conditions.TypeReady)
+		g.Expect(readyCondition).NotTo(BeNil())
+		g.Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue))
+		g.Expect(readyCondition.ObservedGeneration).To(Equal(dpfOperatorConfig.Generation))
+	}).WithTimeout(timeout).WithPolling(1 * time.Second).Should(Succeed())
 }
 
 // verifyDPUServicesReady checks that the DPUService is ready.

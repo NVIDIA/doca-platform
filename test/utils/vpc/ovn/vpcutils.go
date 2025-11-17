@@ -171,7 +171,7 @@ func CreateExternalEndpointPodNetworkAttachmentDefinition(ctx context.Context, t
 }
 
 // CreateDPUIntergrationBridgeNetworkAttachmentDefinition creates a network attachment definition for a pod
-func CreateDPUIntergrationBridgeNetworkAttachmentDefinition(ctx context.Context, dpuClusterClient client.Client, namespace string) string {
+func CreateDPUIntergrationBridgeNetworkAttachmentDefinition(ctx context.Context, dpuClusterClient client.Client, namespace string, labels map[string]string) string {
 	nadName := "mybrint-vpc"
 
 	annotations := map[string]string{
@@ -186,6 +186,7 @@ func CreateDPUIntergrationBridgeNetworkAttachmentDefinition(ctx context.Context,
 				"name":        nadName,
 				"namespace":   namespace,
 				"annotations": annotations,
+				"labels":      labels,
 			},
 			"spec": map[string]interface{}{
 				"config": `{

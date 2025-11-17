@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/test/utils"
@@ -50,19 +51,24 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 			if label != requiresNodesLabel {
 				continue
 			}
+
+			if !input.hasDpuNodes() {
+				Skip("Skip test as there are not multiple nodes")
+			}
+
 			// Provisioning is skipped if the test is labels with !provisioningLabel
 			if !strings.Contains(GinkgoLabelFilter(), "!"+provisioningLabel) {
 				By("Waiting for provisioning")
 				VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 				By("Waiting for DPU cluster pods to be ready")
 				VerifyClusterPods(ctx, dpuClusterClient, systemPodsToVerify)
+				By("Waiting for DPFOperatorConfig to be ready")
+				VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
 			}
 
-			if !input.hasDpuNodes() {
-				Skip("Skip test as there are not multiple nodes")
-			}
-
+			// delete any vpc related resources (needed when rerunning tests with skip cleanup)
 			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
+			getDPUClusterClient(ctx, getProvisionDPUClustersInput())
 		}
 	})
 
@@ -225,10 +231,12 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 				vpcutils.InterfaceLabelKey: pf0vf2Worker1,
 			}
 			maps.Copy(pf0vf2Worker1Labels, vpcContextCleanupLabels)
+
 			pf0vf2Worker2Labels := map[string]string{
 				vpcutils.InterfaceLabelKey: pf0vf2Worker2,
 			}
 			maps.Copy(pf0vf2Worker2Labels, vpcContextCleanupLabels)
+
 			pf0vf3Worker1Labels := map[string]string{
 				vpcutils.InterfaceLabelKey: pf0vf3Worker1,
 			}
@@ -437,14 +445,17 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 				vpcutils.InterfaceLabelKey: pf0vf2Worker1,
 			}
 			maps.Copy(pf0vf2Worker1Labels, vpcContextCleanupLabels)
+
 			pf0vf2Worker2Labels := map[string]string{
 				vpcutils.InterfaceLabelKey: pf0vf2Worker2,
 			}
 			maps.Copy(pf0vf2Worker2Labels, vpcContextCleanupLabels)
+
 			pf0vf3Worker1Labels := map[string]string{
 				vpcutils.InterfaceLabelKey: pf0vf3Worker1,
 			}
 			maps.Copy(pf0vf3Worker1Labels, vpcContextCleanupLabels)
+
 			createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           pf0vf2Worker1,
 				Namespace:      dpfOperatorSystemNamespace,
@@ -652,14 +663,17 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 				vpcutils.InterfaceLabelKey: pf0vf2Worker1,
 			}
 			maps.Copy(pf0vf2Worker1Labels, vpcContextCleanupLabels)
+
 			pf0vf2Worker2Labels := map[string]string{
 				vpcutils.InterfaceLabelKey: pf0vf2Worker2,
 			}
 			maps.Copy(pf0vf2Worker2Labels, vpcContextCleanupLabels)
+
 			pf0vf3Worker2Labels := map[string]string{
 				vpcutils.InterfaceLabelKey: pf0vf3Worker2,
 			}
 			maps.Copy(pf0vf3Worker2Labels, vpcContextCleanupLabels)
+
 			createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           pf0vf2Worker1,
 				Namespace:      dpfOperatorSystemNamespace,
@@ -977,7 +991,7 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 		})
 
 		It("create DPU NAD for br-int", func() {
-			vpcutils.CreateDPUIntergrationBridgeNetworkAttachmentDefinition(ctx, dpuClusterClient, dpfOperatorSystemNamespace)
+			vpcutils.CreateDPUIntergrationBridgeNetworkAttachmentDefinition(ctx, dpuClusterClient, dpfOperatorSystemNamespace, vpcContextCleanupLabels)
 		})
 
 		It("create dummy service consuming the SF", func() {
@@ -1051,8 +1065,8 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 
 		AfterAll(func() {
 			if contextHasFailed {
-				By("VPC OVN: Skip cleanup for this context because a spec failed")
-				return
+				By("VPC OVN: Report failure for this spec")
+				reportAfterEach(CurrentSpecReport())
 			}
 			Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(vpcContextCleanupLabels), resourcesToDelete...)).To(Succeed())
 			cleanupDPUClusterNodeLabels(ctx)
@@ -1087,6 +1101,7 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 				vpcutils.InterfaceLabelKey: pf0vf2Worker1,
 			}
 			maps.Copy(pf0vf2Worker1Labels, vpcContextCleanupLabels)
+
 			pf0vf7Worker2Labels = map[string]string{
 				vpcutils.InterfaceLabelKey: pf0vf7Worker2,
 			}
@@ -1194,6 +1209,11 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 
 		It("verify performance with iperf to external network traffic", func() {
 			netshoot.RunTrafficTest(hostClusterRESTClient, input.restConfig, vpcTrafficTestNS, podName1, podName2, pod2IP)
+		})
+
+		It("revert p0 to ovn vtep external patch port dpu service chain to its original configuration", func() {
+			createOrUpdateVPCDPUServiceChain(ctx, input, nil)
+			dpuservice.WaitForDPUServiceChainsReady(ctx, input.client, dpuClusterClient, []string{vpcutils.VpcOVNServiceChain}, dpfOperatorSystemNamespace, vpcutils.LongTimeout)
 		})
 	})
 })
