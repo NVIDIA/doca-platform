@@ -52,6 +52,7 @@ var _ = Describe("DPF System tests - SDN", Labels{dpfSystemLabel, sdnLabel}, Ord
 			VerifyHBNOnlyBadFlowRecovery(ctx, input)
 		})
 		It("create Pods running in the DPUCluster via DPUService and verify RDMA traffic between them", func() {
+			Skip("Skipped due to possible BFB/OVS issue - will re-enable when resolved")
 			VerifyDPUPodToPodRDMATraffic(ctx, input)
 		})
 	})
