@@ -194,13 +194,11 @@ func (p *volumeProvisioner) buildDesiredVolumeCR(dpuVolume *storagev1.DPUVolume,
 			Namespace: p.targetNamespace,
 		},
 		Spec: storagev1.VolumeSpec{
-			StorageParameters: dpuVolume.Spec.Parameters,
 			Request: storagev1.VolumeRequest{
 				CapacityRange: capacityRange,
 				AccessModes:   dpuVolume.Spec.AccessModes,
 				VolumeMode:    dpuVolume.Spec.VolumeMode,
 			},
-			StoragePolicyParameters: dpuVolume.Spec.Parameters,
 			VolumeSpecDPU: storagev1.VolumeSpecDPU{
 				ID:            dpuVolume.Name,
 				AccessModes:   dpuVolume.Spec.AccessModes,
@@ -221,6 +219,12 @@ func (p *volumeProvisioner) buildDesiredVolumeCR(dpuVolume *storagev1.DPUVolume,
 		}
 		if state.StorageClassName != nil {
 			desired.Spec.VolumeSpecDPU.CSIReference.StorageClassName = *state.StorageClassName
+		}
+		if state.Parameters != nil {
+			// set both fields to the same value, at this point the controller already merged the parameters
+			// from the DPUStoragePolicy and the DPUVolume with the needed algorithm.
+			desired.Spec.StorageParameters = state.Parameters
+			desired.Spec.StoragePolicyParameters = state.Parameters
 		}
 	}
 	if volumeData != nil {
