@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"reflect"
 	"time"
@@ -204,7 +205,11 @@ func (r *VolumeAttachmentReconciler) handleAttachment(ctx context.Context, volum
 		klog.InfoS("GetSNAPProvider success", "ProviderName", snapProvResp.GetProviderName())
 	}
 
-	deviceName, err := r.callCreateDeviceAPI(ctx, client, volumeAttachment, volume)
+	// in the current implementation, snap-host-controller is responsible for merging storageParameters and storagePolicyParameters.
+	// values in Volume CR Spec.StorageParameters already contain the merged values from DPUVolume and DPUStoragePolicy.
+	storageParameters := maps.Clone(volume.Spec.StorageParameters)
+
+	deviceName, err := r.callCreateDeviceAPI(ctx, client, volumeAttachment, volume, storageParameters)
 	if err != nil {
 		klog.ErrorS(err, "Failed to create device via gRPC API")
 		volumeAttachment.Status.Message = err.Error()
@@ -231,12 +236,12 @@ func (r *VolumeAttachmentReconciler) handleAttachment(ctx context.Context, volum
 	// to be created again and what doesn't.
 	switch *volumeMode {
 	case corev1.PersistentVolumeBlock:
-		nsID, pciAddr, uuid, err = r.exposeBlockDeviceOnSNAP(snapProvResp.GetProviderName(), volumeAttachment)
+		nsID, pciAddr, uuid, err = r.exposeBlockDeviceOnSNAP(snapProvResp.GetProviderName(), volumeAttachment, storageParameters)
 		if nsID > 0 && uuid != "" {
 			volumeAttachment.Status.DPU.BdevAttrs = snapstoragev1.BdevAttrs{NVMeNsID: int64(nsID), NVMeUUID: uuid}
 		}
 	case corev1.PersistentVolumeFilesystem:
-		fsTag, pciAddr, err = r.exposeFSDeviceOnSNAP(snapProvResp.GetProviderName(), volumeAttachment)
+		fsTag, pciAddr, err = r.exposeFSDeviceOnSNAP(snapProvResp.GetProviderName(), volumeAttachment, storageParameters)
 		if fsTag != "" {
 			volumeAttachment.Status.DPU.FSdevAttrs = snapstoragev1.FSdevAttrs{FilesystemTag: fsTag}
 		}
@@ -565,6 +570,7 @@ func (r *VolumeAttachmentReconciler) callCreateDeviceAPI(
 	client pb.StoragePluginServiceClient,
 	volumeAttachment *snapstoragev1.VolumeAttachment,
 	volume *snapstoragev1.Volume,
+	storageParameters map[string]string,
 ) (deviceName string, err error) {
 	volumeID := volume.Spec.VolumeSpecDPU.CSIReference.PVCRef.Name
 
@@ -580,14 +586,6 @@ func (r *VolumeAttachmentReconciler) callCreateDeviceAPI(
 		} else if err == nil {
 			return volumeAttachment.Status.DPU.DeviceName, nil
 		}
-	}
-
-	storageParameters := make(map[string]string)
-	for k, v := range volume.Spec.StorageParameters {
-		storageParameters[k] = v
-	}
-	for k, v := range volume.Spec.StoragePolicyParameters {
-		storageParameters[k] = v
 	}
 
 	// 2. volumeContext
@@ -679,7 +677,7 @@ func (r *VolumeAttachmentReconciler) callDeleteDeviceAPI(
 	return nil
 }
 
-func (r *VolumeAttachmentReconciler) exposeBlockDeviceOnSNAP(snapProvider string, volumeAttachment *snapstoragev1.VolumeAttachment) (int, string, string, error) {
+func (r *VolumeAttachmentReconciler) exposeBlockDeviceOnSNAP(snapProvider string, volumeAttachment *snapstoragev1.VolumeAttachment, storageParameters map[string]string) (int, string, string, error) {
 	client, err := r.createSNAPClient(snapProvider)
 	if err != nil {
 		return 0, "", "", err
@@ -690,11 +688,11 @@ func (r *VolumeAttachmentReconciler) exposeBlockDeviceOnSNAP(snapProvider string
 		}
 	}()
 
-	return client.ExposeBlockDevice(volumeAttachment.Status.DPU, volumeAttachment.Spec)
+	return client.ExposeBlockDevice(volumeAttachment.Status.DPU, volumeAttachment.Spec, storageParameters)
 }
 
 func (r *VolumeAttachmentReconciler) exposeFSDeviceOnSNAP(snapProvider string,
-	volumeAttachment *snapstoragev1.VolumeAttachment) (string, string, error) {
+	volumeAttachment *snapstoragev1.VolumeAttachment, storageParameters map[string]string) (string, string, error) {
 	client, err := r.createSNAPClient(snapProvider)
 	if err != nil {
 		return "", "", err
@@ -705,7 +703,7 @@ func (r *VolumeAttachmentReconciler) exposeFSDeviceOnSNAP(snapProvider string,
 		}
 	}()
 
-	return client.ExposeFSDevice(volumeAttachment.Status.DPU.DeviceName, volumeAttachment.Status.DPU, volumeAttachment.Spec.Parameters)
+	return client.ExposeFSDevice(volumeAttachment.Status.DPU.DeviceName, volumeAttachment.Status.DPU, storageParameters)
 }
 
 func (r *VolumeAttachmentReconciler) detachFromSNAP(snapProvider string, volumeAttachment *snapstoragev1.VolumeAttachment, volumeMode *corev1.PersistentVolumeMode) error {

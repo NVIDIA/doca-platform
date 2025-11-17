@@ -265,7 +265,7 @@ var _ = Describe("VolumeAttachment Controller", func() {
 		// Mock SNAP client calls based on volume mode
 		if volumeMode == corev1.PersistentVolumeBlock {
 			mockSNAPClient.EXPECT().
-				ExposeBlockDevice(gomock.Any(), gomock.Any()).
+				ExposeBlockDevice(gomock.Any(), gomock.Any(), gomock.Any()).
 				Return(1, testPCIAddr, "test-uuid", nil).
 				AnyTimes()
 		} else {
