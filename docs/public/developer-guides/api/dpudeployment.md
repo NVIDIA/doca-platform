@@ -370,18 +370,19 @@ spec:
       serviceConfiguration: "observer"
   # serviceChains defines the `DPUServiceChain` that should be created as part of this `DPUDeployment`.
   serviceChains:
-  - ports:
-    - service:
-        name: producer # The value must match the key in the `spec.services`
-        interface: app-iface # The value must match the `dpuserviceconfiguration.spec.interfaces[].name`
-    - service:
-        name: consumer
-        interface: app-iface
-   #  Notice that the user can also reference other DPUServiceInterfaces that may already exist or are created manually
-   #  by the user by specifying an entry like the one that follows:
-   # - serviceInterface:
-   #     matchLabels:
-   #       svc.dpu.nvidia.com/interface: p0
+    switches:
+    - ports:
+      - service:
+          name: producer # The value must match the key in the `spec.services`
+          interface: app-iface # The value must match the `dpuserviceconfiguration.spec.interfaces[].name`
+      - service:
+          name: consumer
+          interface: app-iface
+     #  Notice that the user can also reference other DPUServiceInterfaces that may already exist or are created manually
+     #  by the user by specifying an entry like the one that follows:
+     # - serviceInterface:
+     #     matchLabels:
+     #       svc.dpu.nvidia.com/interface: p0
 ```
 
 As mentioned in the [Created Child Custom Resources](#created-child-custom-resources)

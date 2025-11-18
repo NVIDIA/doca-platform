@@ -26,8 +26,8 @@ validations:
   - name: minimum
     enforcement: Error
     configuration:
-      # Allow list for known minimum value changes (IPv6 requires minimum MTU of 1280)
       allowList:
+        # Allow list for known minimum and maximum mtu value changes
         - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
           kind: "DPUServiceChain"
           field: ".spec.template.spec.template.spec.switches[*].serviceMTU"
@@ -64,3 +64,12 @@ validations:
           kind: "DPUServiceNAD"
           field: ".spec.serviceMTU"
           error: "maximum constraint added when there was none previously : 9216"
+        # Allow the DPUDeployment.spec.services validation to include at least one service and up to 50
+        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
+          kind: "DPUDeployment"
+          field: ".spec.services"
+          error: "minimum constraint added when there was none previously : 1"
+        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
+          kind: "DPUDeployment"
+          field: ".spec.services"
+          error: "maximum constraint added when there was none previously : 50"

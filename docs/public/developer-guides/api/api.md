@@ -3302,7 +3302,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `name` _string_ | Name is the name of the service as defined in the DPUDeployment Spec |  | MaxLength: 28 <br />MinLength: 1 <br /> |
-| `interface` _string_ | Interface name is the name of the interface as defined in the DPUServiceTemplate |  | MaxLength: 28 <br />MinLength: 1 <br /> |
+| `interface` _string_ | Interface name is the name of the interface as defined in the DPUServiceConfiguration |  | MaxLength: 28 <br />MinLength: 1 <br /> |
 | `ipam` _[IPAM](#ipam)_ | IPAM defines the IPAM configuration that is configured in the Service Function Chain |  |  |
 
 
@@ -3338,7 +3338,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `dpus` _[DPUs](#dpus)_ | DPUs contains the DPU related configuration |  |  |
-| `services` _object (keys:string, values:[DPUDeploymentServiceConfiguration](#dpudeploymentserviceconfiguration))_ | Services contains the DPUDeploymentService related configuration. The key is the deploymentServiceName and the value is its<br />configuration. All underlying objects must specify the same deploymentServiceName in order to be able to be consumed by the<br />DPUDeployment. |  |  |
+| `services` _object (keys:string, values:[DPUDeploymentServiceConfiguration](#dpudeploymentserviceconfiguration))_ | Services contains the DPUDeploymentService related configuration. The key is the deploymentServiceName and the value is its<br />configuration. All underlying objects must specify the same deploymentServiceName in order to be able to be consumed by the<br />DPUDeployment. |  | MaxProperties: 50 <br />MinProperties: 1 <br /> |
 | `serviceChains` _[ServiceChains](#servicechains)_ | ServiceChains contains the configuration related to the DPUServiceChains that the DPUDeployment creates. |  |  |
 | `revisionHistoryLimit` _integer_ | The maximum number of revisions that can be retained during upgrades.<br />Defaults to 10. | 10 |  |
 
