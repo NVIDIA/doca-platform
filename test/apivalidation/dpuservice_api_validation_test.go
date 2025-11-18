@@ -17,6 +17,8 @@ limitations under the License.
 package apivalidation_test
 
 import (
+	"fmt"
+
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
@@ -337,6 +339,38 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 			dpuDeployment.Spec.ServiceChains.Switches[0].Ports[0].Service.InterfaceName = utilrand.String(29)
 			Expect(testClient.Create(ctx, dpuDeployment)).ToNot(Succeed())
 		})
+		DescribeTable("Validates creation of DPUDeployment with various spec.services configurations", func(services map[string]dpuservicev1.DPUDeploymentServiceConfiguration, expectError bool) {
+			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.Services = services
+			err := testClient.Create(ctx, dpuDeployment)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+			Entry("spec.services is nil", nil, true),
+			Entry("spec.services is empty", make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration), true),
+			Entry("spec.services has one service", map[string]dpuservicev1.DPUDeploymentServiceConfiguration{"service-1": {ServiceTemplate: "service-1", ServiceConfiguration: "service-1"}}, false),
+			Entry("spec.services has 50 services", func() map[string]dpuservicev1.DPUDeploymentServiceConfiguration {
+				o := make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration)
+
+				for i := range 50 {
+					serviceName := fmt.Sprintf("service-%d", i)
+					o[serviceName] = dpuservicev1.DPUDeploymentServiceConfiguration{ServiceTemplate: serviceName, ServiceConfiguration: serviceName}
+				}
+				return o
+			}(), false),
+			Entry("spec.services has 51 services", func() map[string]dpuservicev1.DPUDeploymentServiceConfiguration {
+				o := make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration)
+
+				for i := range 51 {
+					serviceName := fmt.Sprintf("service-%d", i)
+					o[serviceName] = dpuservicev1.DPUDeploymentServiceConfiguration{ServiceTemplate: serviceName, ServiceConfiguration: serviceName}
+				}
+				return o
+			}(), true),
+		)
 	})
 })
 
