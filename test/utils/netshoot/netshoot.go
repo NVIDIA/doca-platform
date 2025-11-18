@@ -123,7 +123,8 @@ type IBWriteBWResult struct {
 const (
 	networkAnnotationKey = "k8s.v1.cni.cncf.io/networks"
 	netshootImage        = "mirror.gcr.io/nicolaka/netshoot:v0.13"
-	ExecTimeout          = 2 * time.Minute
+	// Defines the timeout for the EXEC command to complete
+	DefaultExecTimeout = 2 * time.Minute
 )
 
 var (
@@ -208,7 +209,7 @@ func CreateNadsFromConfig(ctx context.Context, client client.Client, configs []*
 	}
 }
 
-func RunTrafficTest(restClient *rest.RESTClient, restConfig *rest.Config, hostNamespace string, podName1, podName2, pod2IP string) {
+func RunTrafficTest(restClient **rest.RESTClient, restConfig **rest.Config, hostNamespace string, podName1, podName2, pod2IP string) {
 	startIperf3Server(restClient, restConfig, hostNamespace, podName2)
 	defer stopIperf3Server(restClient, restConfig, hostNamespace, podName2)
 
@@ -219,7 +220,7 @@ func RunTrafficTest(restClient *rest.RESTClient, restConfig *rest.Config, hostNa
 	analyzeIperfResults(reverseNetshootOutput, true)
 }
 
-func RunRDMATrafficTest(restClient *rest.RESTClient, restConfig *rest.Config, hostNamespace string, podName1, podName2, pod2IP string) {
+func RunRDMATrafficTest(restClient **rest.RESTClient, restConfig **rest.Config, hostNamespace string, podName1, podName2, pod2IP string) {
 	startRDMAServer(restClient, restConfig, hostNamespace, podName2)
 	defer stopRDMAServer(restClient, restConfig, hostNamespace, podName2)
 
@@ -322,38 +323,38 @@ func GetPodIP(ctx context.Context, testClient client.Client, namespace, podName 
 	return pod.Status.PodIP
 }
 
-func startIperf3Server(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string) {
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-s", "-D"}, 30*time.Second, DefaultErrorParser)
+func startIperf3Server(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string) {
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-s", "-D"}, 30*time.Second, DefaultExecTimeout, DefaultErrorParser)
 }
 
-func stopIperf3Server(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string) {
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "iperf3"}, 30*time.Second, DefaultErrorParser)
+func stopIperf3Server(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string) {
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "iperf3"}, 30*time.Second, DefaultExecTimeout, DefaultErrorParser)
 }
 
-func startRDMAServer(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string) {
+func startRDMAServer(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string) {
 	// This complex command is needed so that we can run ib_write_bw in background. ib_write_bw doesn't have a flag to
 	// keep the process running after the first client has finished the test.
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"bash", "-c", "nohup bash -c 'while true; do ib_write_bw; done' >/dev/null 2>&1 < /dev/null & exit"}, 30*time.Second, DefaultErrorParser)
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"bash", "-c", "nohup bash -c 'while true; do ib_write_bw; done' >/dev/null 2>&1 < /dev/null & exit"}, 30*time.Second, 5*time.Second, DefaultErrorParser)
 }
 
-func stopRDMAServer(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string) {
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "bash"}, 30*time.Second, DefaultErrorParser)
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "ib_write_bw"}, 30*time.Second, DefaultErrorParser)
+func stopRDMAServer(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string) {
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "bash"}, 30*time.Second, 5*time.Second, DefaultErrorParser)
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "ib_write_bw"}, 30*time.Second, 5*time.Second, DefaultErrorParser)
 }
 
-func runRDMAClient(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string, serverIP string) string {
+func runRDMAClient(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string, serverIP string) string {
 	fileName := fmt.Sprintf("ib_write_bw-result-%s", utilrand.String(6))
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"ib_write_bw", serverIP, "--out_json", fmt.Sprintf("--out_json_file=%s", fileName)}, 30*time.Second, DefaultErrorParser)
-	output := execCommandEventually(restClient, restConfig, namespace, podName, []string{"cat", fileName}, 30*time.Second, DefaultErrorParser)
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"ib_write_bw", serverIP, "--out_json", fmt.Sprintf("--out_json_file=%s", fileName)}, 30*time.Second, 5*time.Second, DefaultErrorParser)
+	output := execCommandEventually(restClient, restConfig, namespace, podName, []string{"cat", fileName}, 30*time.Second, 5*time.Second, DefaultErrorParser)
 	return output
 }
 
-func runIperf3Client(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string, iperf3ServerIP string) string {
-	return execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-J"}, 500*time.Second, IperfErrorParser)
+func runIperf3Client(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string, iperf3ServerIP string) string {
+	return execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-J"}, 500*time.Second, DefaultExecTimeout, IperfErrorParser)
 }
 
-func runIperf3ClientReverse(restClient *rest.RESTClient, restConfig *rest.Config, namespace string, podName string, iperf3ServerIP string) string {
-	return execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-R", "-J"}, 500*time.Second, IperfErrorParser)
+func runIperf3ClientReverse(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string, iperf3ServerIP string) string {
+	return execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-R", "-J"}, 500*time.Second, DefaultExecTimeout, IperfErrorParser)
 }
 
 func analyzeIperfResults(output string, reverse bool) {
@@ -391,8 +392,9 @@ func analyzeIBWriteBWResult(output string) {
 }
 
 // execCommandEventually executes a command on a pod repeatedly until it succeeds or the timeout is reached
-func execCommandEventually(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, timeout time.Duration, errorParser ErrorParserFunc) string {
-	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' (timeout: %v)\n", command, podName, namespace, timeout)
+// The execTimeout parameter specifies how long each individual command execution can take
+func execCommandEventually(restClient **rest.RESTClient, config **rest.Config, namespace string, podName string, command []string, timeout time.Duration, execTimeout time.Duration, errorParser ErrorParserFunc) string {
+	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' (timeout: %v, exec timeout: %v)\n", command, podName, namespace, timeout, execTimeout)
 
 	var output string
 	var attemptCount int
@@ -400,7 +402,10 @@ func execCommandEventually(restClient *rest.RESTClient, config *rest.Config, nam
 
 	Eventually(func(g Gomega) {
 		attemptCount++
-		output, err = executeCommandOnce(restClient, config, namespace, podName, command, errorParser)
+		// We pass the value of the pointer and not the pointer to the pointer to avoid race conditions with pointers
+		// being updated while execution happens. Assuming this function is wrapped in an Eventually, in case of an
+		// error, the next run should pass the up to date pointer and work as expected.
+		output, err = executeCommandOnce(*restClient, *config, namespace, podName, command, execTimeout, errorParser)
 		if err != nil {
 			fmt.Printf("Attempt %d failed, retrying in 5 seconds...\n", attemptCount)
 		}
@@ -411,18 +416,19 @@ func execCommandEventually(restClient *rest.RESTClient, config *rest.Config, nam
 }
 
 // execCommandFailConsistently executes a command on a pod repeatedly, expecting it to fail, until it unexpectly succeeds or the timeout is reached
-func execCommandFailConsistently(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, expectFailure error, timeout time.Duration, errorParser ErrorParserFunc) {
-	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' (timeout: %v) - expecting failure\n", command, podName, namespace, timeout)
+// The execTimeout parameter specifies how long each individual command execution can take
+func execCommandFailConsistently(restClient **rest.RESTClient, config **rest.Config, namespace string, podName string, command []string, expectFailure error, timeout time.Duration, execTimeout time.Duration, errorParser ErrorParserFunc) {
+	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' (timeout: %v, exec timeout: %v) - expecting failure\n", command, podName, namespace, timeout, execTimeout)
 
 	Consistently(func(g Gomega) {
-		_, err := executeCommandOnce(restClient, config, namespace, podName, command, errorParser)
+		_, err := executeCommandOnce(*restClient, *config, namespace, podName, command, execTimeout, errorParser)
 		g.Expect(err).To(HaveOccurred(), "command %v should consistently fail", command)
 		Expect(errors.Is(err, expectFailure)).To(BeTrue(), "command %v should fail with %v, but failed with %v", command, expectFailure, err)
 	}, timeout, 5*time.Second).Should(Succeed())
 }
 
-// executeCommandOnce executes a command on a pod once and returns the output and error
-func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, errorParser ErrorParserFunc) (string, error) {
+// executeCommandOnce executes a command on a pod once and returns the output and error.
+func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, execTimeout time.Duration, errorParser ErrorParserFunc) (string, error) {
 	req := restClient.Post().
 		Resource("pods").
 		Name(podName).
@@ -442,7 +448,7 @@ func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namesp
 
 	var stdout, stderr bytes.Buffer
 
-	ctx, cancel := context.WithTimeout(context.Background(), ExecTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), execTimeout)
 	defer cancel()
 
 	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
@@ -461,11 +467,11 @@ func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namesp
 }
 
 // AssertPingSuccess asserts that ping between pods succeeds
-func AssertPingSuccess(restClient *rest.RESTClient, config *rest.Config, namespace, fromPod, toPodIP string) {
-	execCommandEventually(restClient, config, namespace, fromPod, []string{"ping", "-c", "2", toPodIP}, 30*time.Second, DefaultErrorParser)
+func AssertPingSuccess(restClient **rest.RESTClient, config **rest.Config, namespace, fromPod, toPodIP string) {
+	execCommandEventually(restClient, config, namespace, fromPod, []string{"ping", "-c", "2", toPodIP}, 30*time.Second, DefaultExecTimeout, DefaultErrorParser)
 }
 
 // AssertPingFailure asserts that ping between pods fails with ErrExecFailed error
-func AssertPingFailure(restClient *rest.RESTClient, config *rest.Config, namespace, fromPod, toPodIP string) {
-	execCommandFailConsistently(restClient, config, namespace, fromPod, []string{"ping", "-c", "2", toPodIP}, ErrExecFailed, 30*time.Second, DefaultErrorParser)
+func AssertPingFailure(restClient **rest.RESTClient, config **rest.Config, namespace, fromPod, toPodIP string) {
+	execCommandFailConsistently(restClient, config, namespace, fromPod, []string{"ping", "-c", "2", toPodIP}, ErrExecFailed, 30*time.Second, DefaultExecTimeout, DefaultErrorParser)
 }
