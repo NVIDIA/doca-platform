@@ -1111,6 +1111,7 @@ docker-create-manifest-for-ovn-kubernetes:
 .PHONY: docker-build-hostdriver
 docker-build-hostdriver: ## Build docker image for DMS and hostnetwork.
 	docker buildx build \
+		--pull \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
