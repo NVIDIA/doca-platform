@@ -113,6 +113,8 @@ type DPUDeploymentSpec struct {
 	// configuration. All underlying objects must specify the same deploymentServiceName in order to be able to be consumed by the
 	// DPUDeployment.
 	// +kubebuilder:validation:XValidation:rule="self.all(key, key.size()<=28)", message="service names can't be bigger than 28 chars"
+	// +kubebuilder:validation:MinProperties=1
+	// +kubebuilder:validation:MaxProperties=50
 	// +required
 	Services map[string]DPUDeploymentServiceConfiguration `json:"services"`
 
@@ -267,7 +269,7 @@ type DPUDeploymentService struct {
 	// +kubebuilder:validation:MaxLength=28
 	// +required
 	Name string `json:"name"`
-	// Interface name is the name of the interface as defined in the DPUServiceTemplate
+	// Interface name is the name of the interface as defined in the DPUServiceConfiguration
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=28
 	// +required
