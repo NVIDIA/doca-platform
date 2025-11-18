@@ -211,7 +211,10 @@ func VerifyDPUPodToPodRDMATraffic(ctx context.Context, input *systemTestInput) {
 	Expect(podIP2).ToNot(BeEmpty())
 
 	By("Running RDMA traffic test between the pods in the dpucluster")
-	netshoot.RunRDMATrafficTest(dpuClusterRestClient, dpuClusterRestConfig, input.namespace, pod1.Name, pod2.Name, podIP2)
+	// We must pass pointer of a pointer here because the dpuClusterRestClient and dpuClusterRestConfig are updated in
+	// a goroutine in case they break and we need to ensure that the underlying function always picks up the up to date
+	// pointer.
+	netshoot.RunRDMATrafficTest(&dpuClusterRestClient, &dpuClusterRestConfig, input.namespace, pod1.Name, pod2.Name, podIP2)
 }
 
 func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput) {
