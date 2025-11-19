@@ -1272,10 +1272,13 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 		g.Expect(err).To(HaveOccurred())
 
 		// Check that both DPU errors are included in the error message
-		g.Expect(err.Error()).To(ContainSubstring("DPU dpu-error-1: parse requested version: invalid version invalid-version-1: Invalid Semantic Version"))
-		g.Expect(err.Error()).To(ContainSubstring("DPU dpu-error-2: parse requested version: invalid version invalid-version-2: Invalid Semantic Version"))
-		g.Expect(err.Error()).To(ContainSubstring("DPU State"))
-		g.Expect(err.Error()).NotTo(ContainSubstring("DPF version validation:"))
+
+		// Use case-insensitive matching since semver error message format may vary between semver versions
+		errMsg := strings.ToLower(err.Error())
+		g.Expect(errMsg).To(ContainSubstring("dpu dpu-error-1: parse requested version: invalid version invalid-version-1: invalid semantic version"))
+		g.Expect(errMsg).To(ContainSubstring("dpu dpu-error-2: parse requested version: invalid version invalid-version-2: invalid semantic version"))
+		g.Expect(errMsg).To(ContainSubstring("dpu state"))
+		g.Expect(errMsg).NotTo(ContainSubstring("dpf version validation:"))
 
 		// Clean up the DPUs
 		g.Expect(testClient.Delete(ctx, dpu1)).To(Succeed())
