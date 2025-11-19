@@ -9,8 +9,10 @@ ARG gcflags
 ARG ldflags
 ARG KUBECTL_VERSION
 ARG OVN_VERSION
+ARG FULL_COMMIT
 
 WORKDIR /workspace
+ENV FULL_COMMIT=${FULL_COMMIT}
 RUN apt-get update && apt-get install -y -qq make git && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*

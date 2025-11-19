@@ -1010,6 +1010,7 @@ docker-build-dpf-system-for-%: generate-manifests-release-defaults
 		--build-arg base_image=$(BASE_IMAGE) \
 		--build-arg ldflags=$(GO_LDFLAGS) \
 		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg FULL_COMMIT=$(FULL_COMMIT) \
 		--build-arg TAG=$(TAG) \
 		-f Dockerfile.dpf-system \
 		. \
@@ -1086,6 +1087,7 @@ docker-build-ovn-kubernetes-for-%: $(OVNKUBERNETES_DIR)
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg ldflags=$(GO_LDFLAGS) \
 		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg FULL_COMMIT=$(FULL_COMMIT) \
 		--build-arg ovn_kubernetes_dir=$(subst $(CURDIR)/,,$(OVNKUBERNETES_DIR)) \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
@@ -1124,6 +1126,7 @@ docker-build-hostdriver: ## Build docker image for DMS and hostnetwork.
 		--build-arg hostdriver_base_image=$(HOSTDRIVER_BASE_IMAGE) \
 		--build-arg ldflags=$(GO_LDFLAGS) \
 		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg FULL_COMMIT=$(FULL_COMMIT) \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		-t $(HOSTDRIVER_IMAGE):$(TAG) \
@@ -1227,6 +1230,7 @@ docker-build-storage-system-for-%:
 		--build-arg storage_snap_csi_driver_go_ldflags=$(STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS) \
 		--build-arg nvidia_external_attacher_go_ldflags=$(NVIDIA_EXTERNAL_ATTACHER_GO_LDFLAGS) \
 		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg FULL_COMMIT=$(FULL_COMMIT) \
 		-f Dockerfile.storage-system \
 		. \
 		-t $(STORAGE_SYSTEM_IMAGE):$(TAG)-$*
@@ -1264,6 +1268,7 @@ docker-build-storage-host-for-%:
 		--build-arg ldflags=$(GO_LDFLAGS) \
 		--build-arg storage_snap_csi_driver_go_ldflags=$(STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS) \
 		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg FULL_COMMIT=$(FULL_COMMIT) \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		-f Dockerfile.storage-host \
@@ -1320,6 +1325,7 @@ docker-build-cni-installer: ## Build docker image for the CNI installer
 		--build-arg base_image=$(BASE_IMAGE) \
 		--build-arg ldflags=$(GO_LDFLAGS) \
 		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg FULL_COMMIT=$(FULL_COMMIT) \
 		-f Dockerfile.cni-installer \
 		. \
 		-t $(CNIINSTALLER_IMAGE):$(TAG)

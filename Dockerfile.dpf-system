@@ -28,12 +28,14 @@ ARG gcflags
 ARG ldflags
 ARG TARGETARCH
 ARG TAG
+ARG FULL_COMMIT
 
 ENV GO_LDFLAGS=\"${ldflags}\"
 ENV GO_GCFLAGS=\"${gcflags}\"
 ENV ARCH=${TARGETARCH}
 # The TAG variable is necessary for the dpfctl versioning.
 ENV TAG=${TAG}
+ENV FULL_COMMIT=${FULL_COMMIT}
 
 # Copy the source code from the dependency image
 COPY --from=dependency /workspace .
