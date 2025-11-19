@@ -28,7 +28,7 @@ func SDNBeforeSuite() {
 }
 
 //nolint:dupl
-var _ = Describe("DPF System tests - SDN", Labels{dpfSystemLabel, sdnLabel}, Ordered, func() {
+var _ = Describe("DPF System tests - SDN", SpecPriority(SDNTestPriority), Labels{dpfSystemLabel, sdnLabel}, Ordered, func() {
 
 	BeforeEach(func() {
 		for _, label := range CurrentSpecReport().Labels() {

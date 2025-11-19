@@ -183,7 +183,7 @@ func AnnotateAndLabelNodes(ctx context.Context, c client.Client, useExternalNode
 }
 
 //nolint:dupl
-var _ = Describe("DPF System tests - Core", Labels{dpfSystemLabel}, func() {
+var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labels{dpfSystemLabel}, func() {
 
 	BeforeEach(func() {
 		if !input.hasDpuNodes() {
