@@ -23,12 +23,14 @@ ARG ldflags
 ARG storage_snap_csi_driver_go_ldflags
 ARG TARGETARCH
 ARG nvidia_external_attacher_go_ldflags
+ARG FULL_COMMIT
 
 ENV STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS=\"${storage_snap_csi_driver_go_ldflags}\"
 ENV GO_LDFLAGS=\"${ldflags}\"
 ENV GO_GCFLAGS=\"${gcflags}\"
 ENV ARCH=${TARGETARCH}
 ENV NVIDIA_EXTERNAL_ATTACHER_GO_LDFLAGS=\"${nvidia_external_attacher_go_ldflags}\"
+ENV FULL_COMMIT=${FULL_COMMIT}
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
