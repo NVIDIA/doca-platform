@@ -39,6 +39,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// Test priorities are defined below. these are used for specific test specs to ensure they are run in the correct order.
+// for tests which do not specify a priority, ginkgo will will assign a default priority of 0.
+// test specs with a higher priority will run first.
+// for more information, see: https://onsi.github.io/ginkgo/#prioritizing-specs
+// in most cases, assigning a specific test priority for a test should not be needed.
+const (
+	// CoreTestPriority is the test priority for the "DPF System tests - Core" test suite.
+	CoreTestPriority = 101
+	// SDNTestPriority is the test priority for the "DPF System tests - SDN" test suite.
+	SDNTestPriority = 100
+)
+
 var (
 	dpuClusterClient       client.Client
 	dpuClusterRestConfig   *rest.Config
