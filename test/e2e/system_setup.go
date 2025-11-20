@@ -537,8 +537,17 @@ func VerifyClusterPods(ctx context.Context, client client.Client, podSubstrToVer
 				tracker.By(containerKey, "Verifying container %s with image %s", containerKey, containerStatus.Image)
 				g.Expect(containerStatus.ImageID).ToNot(BeEmpty())
 			}
-
+			// ensure pod is not terminating
+			g.Expect(pod.DeletionTimestamp).To(BeNil())
+			// ensure pod is running
 			g.Expect(pod.Status.Phase).To(Equal(corev1.PodRunning))
+			// ensure pod is ready
+			g.Expect(pod.Status.Conditions).To(ContainElement(
+				And(
+					HaveField("Type", Equal(corev1.PodReady)),
+					HaveField("Status", Equal(corev1.ConditionTrue)),
+				),
+			))
 		}
 
 		// Verify all expected pods were found
