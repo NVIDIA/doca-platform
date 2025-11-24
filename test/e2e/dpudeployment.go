@@ -29,6 +29,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/metrics"
 	argov1 "github.com/nvidia/doca-platform/third_party/api/argocd/api/application/v1alpha1"
 
@@ -54,7 +55,7 @@ func ValidateDPUDeploymentCreation(ctx context.Context, input *systemTestInput) 
 
 	By("creating the dpudeployment")
 	dpuDeployment := generateDPUDeployment(input, "")
-	dpuDeployment.SetLabels(afterEachCleanupLabels)
+	dpuDeployment.SetLabels(testutils.AfterEachCleanupLabels)
 	Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
 
 	By("checking that the underlying objects are created")
@@ -67,7 +68,7 @@ func ValidateDPUDeploymentMetrics(ctx context.Context, input *systemTestInput) {
 	By("create DPUDeployment for metrics")
 	createDeploymentDependencies(ctx, input, "metrics")
 	dpuDeployment := generateDPUDeployment(input, "metrics")
-	dpuDeployment.SetLabels(afterEachCleanupLabels)
+	dpuDeployment.SetLabels(testutils.AfterEachCleanupLabels)
 	Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
 
 	By("verify DPUDeployment and DPUServiceInterface metrics are in KSM")
@@ -300,6 +301,7 @@ func VerifyDeploymentUnderlyingObjectsCreated(ctx context.Context, g Gomega, tes
 func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInput) {
 	// TODO: Delete DPUSet not owned by DPUDeployment
 	By("delete DPUs and DPUSets and ensure they are deleted for a clean test condition")
+
 	Eventually(func(g Gomega) {
 		dpuSetList := &provisioningv1.DPUSetList{}
 
@@ -320,7 +322,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 
 	By("create DPUServiceIPAM to be used by dpuDeployment")
 	dpuServiceIPAM := input.ipPoolDPUServiceIPAM.DeepCopy()
-	dpuServiceIPAM.SetLabels(afterAllCleanupLabels)
+	dpuServiceIPAM.SetLabels(testutils.AfterAllCleanupLabels)
 	dpuServiceIPAM.SetName("dpudeployment-ipam-pool1")
 	dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
 	// Remove selectors so it applies to all nodes/clusters
@@ -345,20 +347,20 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 	Expect(input.client.Create(ctx, dpuServiceConfiguration2)).To(Succeed())
 
 	inClusterDPUServiceTemplate := input.dpuServiceTemplate.DeepCopy()
-	inClusterDPUServiceTemplate.SetLabels(afterAllCleanupLabels)
+	inClusterDPUServiceTemplate.SetLabels(testutils.AfterAllCleanupLabels)
 	inClusterDPUServiceTemplate.SetName("dpudeployment-example-in-cluster-servicetemplate")
 	inClusterDPUServiceTemplate.Spec.DeploymentServiceName = "example-in-cluster"
 	Expect(input.client.Create(ctx, inClusterDPUServiceTemplate)).To(Succeed())
 
 	inClusterDPUServiceConfiguration := input.dpuServiceConfiguration.DeepCopy()
-	inClusterDPUServiceConfiguration.SetLabels(afterAllCleanupLabels)
+	inClusterDPUServiceConfiguration.SetLabels(testutils.AfterAllCleanupLabels)
 	inClusterDPUServiceConfiguration.SetName("dpudeployment-example-in-cluster-serviceconfiguration")
 	inClusterDPUServiceConfiguration.Spec.Interfaces = nil
 	inClusterDPUServiceConfiguration.Spec.DeploymentServiceName = "example-in-cluster"
 	inClusterDPUServiceConfiguration.Spec.ServiceConfiguration.DeployInCluster = ptr.To(true)
 	Expect(input.client.Create(ctx, inClusterDPUServiceConfiguration)).To(Succeed())
 
-	dpuDeployment := generateDPUObj("dpf-dpudeployment", input.dpuDeployment.DeepCopy().Namespace, input.dpuDeployment.DeepCopy(), afterAllCleanupLabels)
+	dpuDeployment := testutils.GenerateDPUObj("dpf-dpudeployment", input.dpuDeployment.DeepCopy().Namespace, input.dpuDeployment.DeepCopy(), testutils.AfterAllCleanupLabels)
 	dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
 		MatchLabels: map[string]string{"feature.node.kubernetes.io/dpu-enabled": "true"},
 	}
@@ -1019,7 +1021,7 @@ func generateDPUServiceTemplate(input *systemTestInput, nameDiff string) *dpuser
 		nameDiff = "-" + nameDiff
 	}
 	dpuServiceTemplate := input.dpuServiceTemplate.DeepCopy()
-	dpuServiceTemplate.SetLabels(afterAllCleanupLabels)
+	dpuServiceTemplate.SetLabels(testutils.AfterAllCleanupLabels)
 	dpuServiceTemplate.SetName(dpuServiceTemplate.GetName() + nameDiff)
 	dpuServiceTemplate.Spec.DeploymentServiceName += nameDiff
 	return dpuServiceTemplate
@@ -1044,7 +1046,7 @@ func generateServiceConfiguration(input *systemTestInput, nameDiff string) *dpus
 		nameDiff = "-" + nameDiff
 	}
 	dpuServiceConfiguration := input.dpuServiceConfiguration.DeepCopy()
-	dpuServiceConfiguration.SetLabels(afterAllCleanupLabels)
+	dpuServiceConfiguration.SetLabels(testutils.AfterAllCleanupLabels)
 	dpuServiceConfiguration.SetName(dpuServiceConfiguration.GetName() + nameDiff)
 	dpuServiceConfiguration.Spec.DeploymentServiceName += nameDiff
 	return dpuServiceConfiguration
@@ -1055,7 +1057,7 @@ func generateDPUDeployment(input *systemTestInput, nameDiff string) *dpuservicev
 		nameDiff = "-" + nameDiff
 	}
 	dpuDeployment := input.dpuDeployment.DeepCopy()
-	dpuDeployment.SetLabels(afterAllCleanupLabels)
+	dpuDeployment.SetLabels(testutils.AfterAllCleanupLabels)
 	dpuDeployment.SetName(dpuDeployment.GetName() + nameDiff)
 	currentSpecService := dpuDeployment.Spec.Services
 

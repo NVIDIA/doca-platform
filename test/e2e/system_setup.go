@@ -31,6 +31,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/dpfctl"
 	operatorutils "github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/collector"
 	"github.com/nvidia/doca-platform/test/utils/tunnel"
 
@@ -93,6 +94,7 @@ type systemTestInput struct {
 	dpuServiceConfiguration       *dpuservicev1.DPUServiceConfiguration
 	dpuServiceTemplate            *dpuservicev1.DPUServiceTemplate
 	dpuServiceIPAMTemplate        *dpuservicev1.DPUServiceIPAM
+	dpuServiceNAD                 *dpuservicev1.DPUServiceNAD
 	cidrDPUServiceIPAM            *dpuservicev1.DPUServiceIPAM
 	ipPoolDPUServiceIPAM          *dpuservicev1.DPUServiceIPAM
 	dpuServiceCredentialRequest   *dpuservicev1.DPUServiceCredentialRequest
@@ -133,6 +135,11 @@ func (t *systemTestInput) applySDNConfig(conf config) {
 	ipam := unstructuredFromFile(conf.DPUServiceIPAMTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ipam.Object, dpuServiceIPAMTemplate)).To(Succeed())
 	t.dpuServiceIPAMTemplate = dpuServiceIPAMTemplate
+
+	dpuServiceNAD := &dpuservicev1.DPUServiceNAD{}
+	nad := unstructuredFromFile(conf.DPUServiceNADPath)
+	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(nad.Object, dpuServiceNAD)).To(Succeed())
+	t.dpuServiceNAD = dpuServiceNAD
 
 	dpuServiceChainTemplate := &dpuservicev1.DPUServiceChain{}
 	chainTemplate := unstructuredFromFile(conf.DPUServiceChainTemplatePath)
@@ -292,7 +299,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		pvc := input.ProvisioningControllerPVC.DeepCopy()
 		pvc.SetName(input.operatorConfig.Spec.ProvisioningController.BFBPersistentVolumeClaimName)
 		pvc.SetNamespace(input.systemNamespace)
-		pvc.SetLabels(afterAllCleanupLabels)
+		pvc.SetLabels(testutils.AfterAllCleanupLabels)
 		Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, pvc))).NotTo(HaveOccurred())
 	}
 
@@ -302,7 +309,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      secretName,
 				Namespace: input.systemNamespace,
-				Labels:    afterAllCleanupLabels,
+				Labels:    testutils.AfterAllCleanupLabels,
 			},
 		}
 		Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, secret))).ToNot(HaveOccurred())
@@ -374,7 +381,7 @@ func ProvisionDPUCluster(ctx context.Context, input ProvisionDPUClustersInput) {
 
 	By("create prerequisites objects for DPUClusters")
 	for _, obj := range input.dpuClusterPrerequisites {
-		obj.SetLabels(afterAllCleanupLabels)
+		obj.SetLabels(testutils.AfterAllCleanupLabels)
 		// We need to check if object already exists before creating. client.IgnoreAlreadyExists does not work in this case as the error will be "port is already allocated"
 		existing := obj.DeepCopyObject().(client.Object)
 		err := input.client.Get(ctx, types.NamespacedName{
@@ -392,7 +399,7 @@ func ProvisionDPUCluster(ctx context.Context, input ProvisionDPUClustersInput) {
 	}
 
 	By("create DPUCluster")
-	input.dpuCluster.SetLabels(afterAllCleanupLabels)
+	input.dpuCluster.SetLabels(testutils.AfterAllCleanupLabels)
 	By(fmt.Sprintf("Creating DPU Cluster %s/%s", input.dpuCluster.GetNamespace(), input.dpuCluster.GetName()))
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, input.dpuCluster))).NotTo(HaveOccurred())
 
@@ -412,7 +419,7 @@ func ProvisionDPUCluster(ctx context.Context, input ProvisionDPUClustersInput) {
 	Eventually(func(g Gomega) {
 		By("creating the BFB")
 		bfb := input.bfb.DeepCopy()
-		bfb.SetLabels(afterAllCleanupLabels)
+		bfb.SetLabels(testutils.AfterAllCleanupLabels)
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, bfb))).NotTo(HaveOccurred())
 	}).WithTimeout(10 * time.Second).Should(Succeed())
 
@@ -423,7 +430,7 @@ func ProvisionDPUCluster(ctx context.Context, input ProvisionDPUClustersInput) {
 		}
 		By("Creating the DPUFlavor")
 		dpuFlavor := input.dpuFlavor.DeepCopy()
-		dpuFlavor.SetLabels(afterAllCleanupLabels)
+		dpuFlavor.SetLabels(testutils.AfterAllCleanupLabels)
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuFlavor))).NotTo(HaveOccurred())
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 }
@@ -435,7 +442,7 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 		By("Creating the DPUSet")
 		dpuset := input.dpuSet.DeepCopy()
 		// TODO: Test the cleanup of the node related to the DPU.
-		dpuset.SetLabels(afterAllCleanupLabels)
+		dpuset.SetLabels(testutils.AfterAllCleanupLabels)
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuset))).NotTo(HaveOccurred())
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 
@@ -641,7 +648,7 @@ func unstructuredFromFile(path string) *unstructured.Unstructured {
 	Expect(err).ToNot(HaveOccurred())
 	obj := &unstructured.Unstructured{}
 	Expect(yaml.Unmarshal(data, obj)).To(Succeed())
-	obj.SetLabels(afterAllCleanupLabels)
+	obj.SetLabels(testutils.AfterAllCleanupLabels)
 	return obj
 }
 

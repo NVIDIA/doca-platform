@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -125,6 +126,8 @@ const (
 	netshootImage        = "mirror.gcr.io/nicolaka/netshoot:v0.13"
 	// Defines the timeout for the EXEC command to complete
 	DefaultExecTimeout = 2 * time.Minute
+
+	pingTotalHeaderSize = 20 + 8 // IP Header + ICMP Header
 )
 
 var (
@@ -176,6 +179,24 @@ func IperfErrorParser(stdout, stderr string) string {
 	}
 
 	return errorOutput
+}
+
+// MTUErrorParserGenerator creates an error parser that extracts MTU error messages from the output.
+// The returned parser returns the MTU error message if it exists in the output, otherwise an empty string.
+func MTUErrorParserGenerator(expectedMTU int) ErrorParserFunc {
+	expectedMTUStr := fmt.Sprintf("mtu=%d", expectedMTU)
+	return func(stdout, stderr string) string {
+		// Check if the MTU error exists in the output (stdout or stderr)
+		// Return the error output containing the MTU if found
+		if strings.Contains(stderr, expectedMTUStr) {
+			return stderr
+		}
+		if strings.Contains(stdout, expectedMTUStr) {
+			return stdout
+		}
+		// MTU error not found - return empty string
+		return ""
+	}
 }
 
 func CreateAndWaitForPods(ctx context.Context, client client.Client, configs []*TestPodConfig) {
@@ -405,7 +426,7 @@ func execCommandEventually(restClient **rest.RESTClient, config **rest.Config, n
 		// We pass the value of the pointer and not the pointer to the pointer to avoid race conditions with pointers
 		// being updated while execution happens. Assuming this function is wrapped in an Eventually, in case of an
 		// error, the next run should pass the up to date pointer and work as expected.
-		output, err = executeCommandOnce(*restClient, *config, namespace, podName, command, execTimeout, errorParser)
+		output, err = executeCommandOnce(*restClient, *config, namespace, podName, command, errorParser)
 		if err != nil {
 			fmt.Printf("Attempt %d failed, retrying in 5 seconds...\n", attemptCount)
 		}
@@ -416,19 +437,19 @@ func execCommandEventually(restClient **rest.RESTClient, config **rest.Config, n
 }
 
 // execCommandFailConsistently executes a command on a pod repeatedly, expecting it to fail, until it unexpectly succeeds or the timeout is reached
-// The execTimeout parameter specifies how long each individual command execution can take
-func execCommandFailConsistently(restClient **rest.RESTClient, config **rest.Config, namespace string, podName string, command []string, expectFailure error, timeout time.Duration, execTimeout time.Duration, errorParser ErrorParserFunc) {
-	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' (timeout: %v, exec timeout: %v) - expecting failure\n", command, podName, namespace, timeout, execTimeout)
+func execCommandFailConsistently(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, expectFailure error, timeout time.Duration, errorParser ErrorParserFunc) {
+	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' (timeout: %v) - expecting failure\n", command, podName, namespace, timeout)
 
 	Consistently(func(g Gomega) {
-		_, err := executeCommandOnce(*restClient, *config, namespace, podName, command, execTimeout, errorParser)
+		_, err := executeCommandOnce(restClient, config, namespace, podName, command, errorParser)
 		g.Expect(err).To(HaveOccurred(), "command %v should consistently fail", command)
-		Expect(errors.Is(err, expectFailure)).To(BeTrue(), "command %v should fail with %v, but failed with %v", command, expectFailure, err)
+		g.Expect(errors.Is(err, expectFailure)).To(BeTrue(), "command %v should fail with %v, but failed with %v", command, expectFailure, err)
 	}, timeout, 5*time.Second).Should(Succeed())
 }
 
 // executeCommandOnce executes a command on a pod once and returns the output and error.
-func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, execTimeout time.Duration, errorParser ErrorParserFunc) (string, error) {
+func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, errorParser ErrorParserFunc) (string, error) {
+	execTimeout := DefaultExecTimeout
 	req := restClient.Post().
 		Resource("pods").
 		Name(podName).
@@ -459,7 +480,13 @@ func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namesp
 	stderrStr := stderr.String()
 
 	if err != nil {
-		fmt.Print(errorParser(stdoutStr, stderrStr))
+		parserOutput := errorParser(stdoutStr, stderrStr)
+		if parserOutput != "" {
+			// Parser found something (e.g., MTU error) - include it in the output
+			fmt.Print(parserOutput)
+			return fmt.Sprintf("%v (stderr: %s, stdout: %s)", err, stderrStr, stdoutStr), ErrExecFailed
+		}
+		// Parser didn't find anything (e.g., connection error) - return without parser output
 		return fmt.Sprintf("%v (stderr: %s, stdout: %s)", err, stderrStr, stdoutStr), ErrExecFailed
 	}
 
@@ -473,5 +500,53 @@ func AssertPingSuccess(restClient **rest.RESTClient, config **rest.Config, names
 
 // AssertPingFailure asserts that ping between pods fails with ErrExecFailed error
 func AssertPingFailure(restClient **rest.RESTClient, config **rest.Config, namespace, fromPod, toPodIP string) {
-	execCommandFailConsistently(restClient, config, namespace, fromPod, []string{"ping", "-c", "2", toPodIP}, ErrExecFailed, 30*time.Second, DefaultExecTimeout, DefaultErrorParser)
+	execCommandFailConsistently(*restClient, *config, namespace, fromPod, []string{"ping", "-c", "2", toPodIP}, ErrExecFailed, 30*time.Second, DefaultErrorParser)
+}
+
+// AssertPingSuccessWithMTU asserts that ping between pods succeeds with the specified MTU
+func AssertPingSuccessWithMTU(restClient **rest.RESTClient, config **rest.Config, namespace, fromPod, toPodIP string, mtu int) {
+	mtu = calculatePacketSize(mtu)
+	execCommandEventually(restClient, config, namespace, fromPod, []string{"ping", "-M", "do", "-s", strconv.Itoa(mtu), "-c", "2", toPodIP}, 30*time.Second, DefaultExecTimeout, DefaultErrorParser)
+}
+
+// AssertPingFailureWithMTU asserts that ping between pods fails with the specified MTU (MTU too large)
+// and verifies that the MTU value in the error response matches the expected MTU
+func AssertPingFailureWithMTU(restClient **rest.RESTClient, config **rest.Config, namespace, fromPod, toPodIP string, mtu, expectedNetworkMTU int) {
+	mtu = calculatePacketSize(mtu)
+	mtuErrorParser := MTUErrorParserGenerator(expectedNetworkMTU)
+	expectedMTUStr := fmt.Sprintf("mtu=%d", expectedNetworkMTU)
+	command := []string{"ping", "-M", "do", "-s", strconv.Itoa(mtu), "-c", "2", toPodIP}
+
+	// Use Eventually to wait for the MTU error to appear, ignoring transient connection errors
+	// The parser returns non-empty string only when MTU error is found, empty string otherwise
+	// This will naturally retry on connection errors until the pod is reachable, then verify MTU error
+	Eventually(func(g Gomega) {
+		// Dereference pointers to get current client/config (may be updated if port forward breaks)
+		output, err := executeCommandOnce(*restClient, *config, namespace, fromPod, command, mtuErrorParser)
+		// Only succeed if we got an error AND the output contains the expected MTU string
+		// This handles both connection errors (will retry) and actual ping failures (will verify MTU)
+		if err == nil {
+			// Command succeeded but we expect it to fail - retry
+			return
+		}
+		// Check if output contains the MTU error - if not, retry (might be connection error or wrong error)
+		if !strings.Contains(output, expectedMTUStr) {
+			// Not the error we're looking for - retry (could be connection error or transient issue)
+			return
+		}
+		// We have the MTU error - verify it's the right type of error
+		g.Expect(errors.Is(err, ErrExecFailed)).To(BeTrue(), "ping should fail with exec error")
+		g.Expect(output).To(ContainSubstring(expectedMTUStr), "Expected ping failure to indicate MTU=%d in error message", expectedNetworkMTU)
+	}, 5*time.Minute, 5*time.Second).Should(Succeed())
+}
+
+// calculatePacketSize gets the ping MTU for the given MTU
+// Validation is needed because the ping command will fail if the MTU is less than the total header size (20 bytes for IP header + 8 bytes for ICMP header)
+// Since there is a minimum packet size of the header size, we add 1 to the MTU to make it valid.
+func calculatePacketSize(mtu int) int {
+	if mtu < pingTotalHeaderSize {
+		fmt.Printf("Warning: Requested MTU (%d) is smaller than the minimal header size (%d). Using minimum allowed size 1.\n", mtu, pingTotalHeaderSize)
+		return 1
+	}
+	return mtu - pingTotalHeaderSize
 }

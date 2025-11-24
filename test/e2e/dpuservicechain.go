@@ -21,6 +21,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/metrics"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -30,19 +31,19 @@ import (
 )
 
 func ValidateDPUServiceInterfaceCreation(ctx context.Context, input *systemTestInput) {
+	testDPUServiceInterfaceName := "pf0-vf2"
 	dpuServiceInterfaceNamespace := "test-service-interface"
-	dpuServiceInterfaceName := "pf0-vf2"
 
 	By("create test namespace")
 	createTestNamespace(ctx, input.client, dpuServiceInterfaceNamespace)
 
 	By("create DPUServiceInterface")
-	dpuServiceInterface := generateDPUObj(dpuServiceInterfaceName, dpuServiceInterfaceNamespace, input.dpuServiceInterface.DeepCopy())
+	dpuServiceInterface := utils.GenerateDPUObj(testDPUServiceInterfaceName, dpuServiceInterfaceNamespace, input.dpuServiceInterface.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
 
 	By("verify ServiceInterfaceSet is created in DPF clusters")
 	Eventually(func(g Gomega) {
-		scs := &dpuservicev1.ServiceInterfaceSet{ObjectMeta: metav1.ObjectMeta{Name: dpuServiceInterfaceName, Namespace: dpuServiceInterfaceNamespace}}
+		scs := &dpuservicev1.ServiceInterfaceSet{ObjectMeta: metav1.ObjectMeta{Name: testDPUServiceInterfaceName, Namespace: dpuServiceInterfaceNamespace}}
 		g.Expect(dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(scs), scs)).NotTo(HaveOccurred())
 	}, time.Second*300, time.Millisecond*250).Should(Succeed())
 }
@@ -54,7 +55,7 @@ func ValidateDPUServiceChainCreation(ctx context.Context, input *systemTestInput
 	createTestNamespace(ctx, input.client, dpuServiceChainNamespace)
 
 	By("create DPUServiceChain")
-	dpuServiceChain := generateDPUObj(dpuServiceChainName, dpuServiceChainNamespace, input.dpuServiceChain.DeepCopy())
+	dpuServiceChain := utils.GenerateDPUObj(dpuServiceChainName, dpuServiceChainNamespace, input.dpuServiceChain.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceChain)).To(Succeed())
 
 	By("verify ServiceChainSet is created in DPF clusters")
@@ -74,9 +75,9 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *systemTestInput)
 	createTestNamespace(ctx, input.client, dpuServiceInterfaceNamespace)
 
 	By("create DPUServiceInterface and DPUServiceChain")
-	dpuServiceInterface := generateDPUObj(dpuServiceInterfaceName, dpuServiceInterfaceNamespace, input.dpuServiceInterface.DeepCopy())
+	dpuServiceInterface := utils.GenerateDPUObj(dpuServiceInterfaceName, dpuServiceInterfaceNamespace, input.dpuServiceInterface.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
-	dpuServiceChain := generateDPUObj(dpuServiceChainName, dpuServiceInterfaceNamespace, input.dpuServiceChain.DeepCopy())
+	dpuServiceChain := utils.GenerateDPUObj(dpuServiceChainName, dpuServiceInterfaceNamespace, input.dpuServiceChain.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceChain)).To(Succeed())
 
 	By("verify DPUServiceChain and DPUServiceInterface metrics in KSM")
@@ -104,9 +105,9 @@ func ValidateDPUServiceChainDeletion(ctx context.Context, input *systemTestInput
 	createTestNamespace(ctx, input.client, dpuServiceInterfaceNamespace)
 
 	By("create DPUServiceInterface and DPUServiceChain")
-	dpuServiceInterface := generateDPUObj(dpuServiceInterfaceName, dpuServiceInterfaceNamespace, input.dpuServiceInterface.DeepCopy())
+	dpuServiceInterface := utils.GenerateDPUObj(dpuServiceInterfaceName, dpuServiceInterfaceNamespace, input.dpuServiceInterface.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
-	dpuServiceChain := generateDPUObj(dpuServiceChainName, dpuServiceInterfaceNamespace, input.dpuServiceChain.DeepCopy())
+	dpuServiceChain := utils.GenerateDPUObj(dpuServiceChainName, dpuServiceInterfaceNamespace, input.dpuServiceChain.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceChain)).To(Succeed())
 
 	dsi := &dpuservicev1.DPUServiceInterface{}

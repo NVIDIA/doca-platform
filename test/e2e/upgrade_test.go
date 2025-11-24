@@ -29,6 +29,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -78,7 +79,7 @@ var _ = Describe("DPF Upgrade tests", Labels{dpfUpgradeTestLabel}, func() {
 			Expect(input.client.Create(ctx, dpuServiceConfiguration2)).To(Succeed())
 
 			dpuServiceIPAM := input.ipPoolDPUServiceIPAM.DeepCopy()
-			dpuServiceIPAM.SetLabels(afterAllCleanupLabels)
+			dpuServiceIPAM.SetLabels(testutils.AfterAllCleanupLabels)
 			dpuServiceIPAM.SetName("dpudeployment-ipam-pool1")
 			dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
 			// Remove selectors so it applies to all nodes/clusters
@@ -292,7 +293,7 @@ func collectGenerations(configMapName string) {
 	configMap := &corev1.ConfigMap{}
 	configMap.SetName(configMapName)
 	configMap.SetNamespace(dpfOperatorSystemNamespace)
-	configMap.SetLabels(afterAllCleanupLabels)
+	configMap.SetLabels(testutils.AfterAllCleanupLabels)
 	configMap.Data = map[string]string{
 		"generations.json": string(genData),
 	}

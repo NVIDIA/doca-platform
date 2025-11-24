@@ -25,6 +25,7 @@ import (
 	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -43,7 +44,7 @@ func SetInput() {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      configName,
 			Namespace: dpfOperatorSystemNamespace,
-			Labels:    afterAllCleanupLabels,
+			Labels:    testutils.AfterAllCleanupLabels,
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
@@ -120,7 +121,7 @@ func createNGCImagePullSecret(ctx context.Context, testClient client.Client) {
 	dockerConfigJSON, err := json.Marshal(dockerConfig)
 	Expect(err).ToNot(HaveOccurred())
 
-	labels := maps.Clone(afterAllCleanupLabels)
+	labels := maps.Clone(testutils.AfterAllCleanupLabels)
 	labels["dpu.nvidia.com/image-pull-secret"] = ""
 
 	// Create the Secret object
