@@ -368,7 +368,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 func ProvisionDPUCluster(ctx context.Context, input ProvisionDPUClustersInput) {
 	// TODO: Pass this in as config instead of as a global.
 	if input.bfbImageURL != "" {
-		By("override BFB URL with the value from the env BFB_IMAGE_URL")
+		By(fmt.Sprintf("override BFB URL with env variable BFB_IMAGE_URL=%s", input.bfbImageURL))
 		input.bfb.Spec.URL = input.bfbImageURL
 	}
 
