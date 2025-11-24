@@ -151,6 +151,8 @@ type ServiceDef struct {
 	// +required
 	Network string `json:"network"`
 	// The interface name
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=15
 	// +required
 	InterfaceName string `json:"interfaceName"`
 	// VirtualNetwork is the VirtualNetwork name in the same namespace
