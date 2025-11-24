@@ -47,6 +47,44 @@ var _ = Describe("dpuservice API Validation", func() {
 	})
 
 	Context("ServiceInterface", func() {
+		Context("ServiceInterface of type Service", func() {
+			Context("validate InterfaceName length", func() {
+				var si *dpuservicev1.ServiceInterface
+
+				BeforeEach(func() {
+					si = &dpuservicev1.ServiceInterface{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "test",
+							Namespace: testNs.Name,
+						},
+						Spec: dpuservicev1.ServiceInterfaceSpec{
+							InterfaceType: dpuservicev1.InterfaceTypeService,
+							Service: &dpuservicev1.ServiceDef{
+								ServiceID:     "test",
+								Network:       "test",
+								InterfaceName: "test",
+							},
+						},
+					}
+				})
+
+				It("should not allow empty InterfaceName", func() {
+					si.Spec.Service.InterfaceName = ""
+					Expect(testClient.Create(ctx, si)).ToNot(Succeed())
+				})
+
+				It("should not allow InterfaceName to be too long", func() {
+					si.Spec.Service.InterfaceName = utilrand.String(16)
+					Expect(testClient.Create(ctx, si)).ToNot(Succeed())
+				})
+
+				It("should allow InterfaceName to be the maximum length", func() {
+					si.Spec.Service.InterfaceName = utilrand.String(15)
+					Expect(testClient.Create(ctx, si)).To(Succeed())
+					cleanupObjs = append(cleanupObjs, si)
+				})
+			})
+		})
 		Context("validate ServiceInterface VirtualNetwork immutability", func() {
 			Context("validate ServiceInterface VirtualNetwork immutability - VF", func() {
 				var si *dpuservicev1.ServiceInterface
@@ -264,10 +302,20 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 			dpuServiceConfiguration.Spec.DeploymentServiceName = utilrand.String(29)
 			Expect(testClient.Create(ctx, dpuServiceConfiguration)).ToNot(Succeed())
 		})
-		It("should not create the DPUServiceConfiguration with deploymentServiceName exceeding the maximum length", func() {
+		It("should allow creation of DPUServiceConfiguration with deploymentServiceName at maximum length", func() {
 			dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
-			dpuServiceConfiguration.Spec.Interfaces[0].Name = utilrand.String(29)
+			dpuServiceConfiguration.Spec.DeploymentServiceName = utilrand.String(28)
+			Expect(testClient.Create(ctx, dpuServiceConfiguration)).To(Succeed())
+		})
+		It("should not create the DPUServiceConfiguration with Interface Name exceeding the maximum length", func() {
+			dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
+			dpuServiceConfiguration.Spec.Interfaces[0].Name = utilrand.String(16)
 			Expect(testClient.Create(ctx, dpuServiceConfiguration)).ToNot(Succeed())
+		})
+		It("should allow creation of DPUServiceConfiguration with Interface Name at maximum length", func() {
+			dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
+			dpuServiceConfiguration.Spec.Interfaces[0].Name = utilrand.String(15)
+			Expect(testClient.Create(ctx, dpuServiceConfiguration)).To(Succeed())
 		})
 	})
 	Context("When checking the DPUDeployment API validations", func() {
@@ -336,8 +384,13 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 		})
 		It("should not create the DPUDeployment if spec.serviceChains references service that has interfaceName that exceeds the maximum length", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
-			dpuDeployment.Spec.ServiceChains.Switches[0].Ports[0].Service.InterfaceName = utilrand.String(29)
+			dpuDeployment.Spec.ServiceChains.Switches[0].Ports[0].Service.InterfaceName = utilrand.String(16)
 			Expect(testClient.Create(ctx, dpuDeployment)).ToNot(Succeed())
+		})
+		It("should create the DPUDeployment if spec.serviceChains references service that has interfaceName at maximum length", func() {
+			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.ServiceChains.Switches[0].Ports[0].Service.InterfaceName = utilrand.String(15)
+			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 		})
 		DescribeTable("Validates creation of DPUDeployment with various spec.services configurations", func(services map[string]dpuservicev1.DPUDeploymentServiceConfiguration, expectError bool) {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
