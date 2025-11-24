@@ -251,7 +251,7 @@ spec:
                                   interface:
                                     description: Interface name is the name of the
                                       interface as defined in the DPUServiceConfiguration
-                                    maxLength: 28
+                                    maxLength: 15
                                     minLength: 1
                                     type: string
                                   ipam:
