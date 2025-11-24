@@ -80,7 +80,7 @@ type DPUServiceConfigurationSpec struct {
 type ServiceInterfaceTemplate struct {
 	// Name is the name of the interface
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=28
+	// +kubebuilder:validation:MaxLength=15
 	// +required
 	Name string `json:"name"`
 	// Network is the Network Attachment Definition in the form of "namespace/name"

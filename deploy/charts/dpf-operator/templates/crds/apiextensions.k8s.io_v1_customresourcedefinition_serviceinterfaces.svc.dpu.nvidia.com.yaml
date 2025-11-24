@@ -115,6 +115,8 @@ spec:
                 properties:
                   interfaceName:
                     description: The interface name
+                    maxLength: 15
+                    minLength: 1
                     type: string
                   network:
                     description: |-

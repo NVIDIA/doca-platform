@@ -271,7 +271,7 @@ type DPUDeploymentService struct {
 	Name string `json:"name"`
 	// Interface name is the name of the interface as defined in the DPUServiceConfiguration
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=28
+	// +kubebuilder:validation:MaxLength=15
 	// +required
 	InterfaceName string `json:"interface"`
 	// IPAM defines the IPAM configuration that is configured in the Service Function Chain

@@ -139,6 +139,7 @@ var _ = Describe("DPUServiceInterface Controller", func() {
 			serviceInterface := getDPUServiceInterface(dsiResourceName, testNS.Name, &metav1.LabelSelector{})
 			serviceInterface.Spec.Template.Spec.Template.Spec.InterfaceType = dpuservicev1.InterfaceTypeService
 			serviceInterface.Spec.Template.Spec.Template.Spec.Service = &dpuservicev1.ServiceDef{
+				InterfaceName:  "virt_interface",
 				VirtualNetwork: ptr.To("test-virtualnetwork"),
 			}
 
@@ -372,6 +373,7 @@ var _ = Describe("DPUServiceInterface Controller", func() {
 			serviceInterface := getDPUServiceInterface(dsiResourceName, testNS.Name, &metav1.LabelSelector{})
 			serviceInterface.Spec.Template.Spec.Template.Spec.InterfaceType = dpuservicev1.InterfaceTypeService
 			serviceInterface.Spec.Template.Spec.Template.Spec.Service = &dpuservicev1.ServiceDef{
+				InterfaceName:  "virt_interface",
 				VirtualNetwork: ptr.To("test-virtualnetwork"),
 			}
 

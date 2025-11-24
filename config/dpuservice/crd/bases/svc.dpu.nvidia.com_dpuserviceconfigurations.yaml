@@ -63,7 +63,7 @@ spec:
                   properties:
                     name:
                       description: Name is the name of the interface
-                      maxLength: 28
+                      maxLength: 15
                       minLength: 1
                       type: string
                     network:
