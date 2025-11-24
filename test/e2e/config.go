@@ -44,6 +44,7 @@ type config struct {
 	IPPoolDPUServiceIPAMPath          string   `json:"ipPoolDPUServiceIPAM"`
 	CIDRPoolDPUServiceIPAMPath        string   `json:"cidrPoolDPUServiceIPAM"`
 	DPUServiceIPAMTemplatePath        string   `json:"dpuServiceIPAMTemplate"`
+	DPUServiceNADPath                 string   `json:"dpuServiceNAD"`
 	DPUServicePath                    string   `json:"dpuService"`
 	DPUServiceHBNPath                 string   `json:"dpuServiceHBN"`
 	DPUServiceOVNCentralPath          string   `json:"dpuServiceOVNCentral"`

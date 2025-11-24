@@ -27,6 +27,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/dummydpuservice"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -44,7 +45,7 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) 
 	dpuService := input.dpuService.DeepCopy()
 	dpuService.Name = "dummydpuservice"
 	dpuService.Namespace = dpfOperatorSystemNamespace
-	dpuService.SetLabels(afterEachCleanupLabels)
+	dpuService.SetLabels(testutils.AfterEachCleanupLabels)
 	dpuService.Spec.HelmChart.Source = dpuservicev1.ApplicationSource{
 		Chart:   "dummydpuservice-chart",
 		Version: tag,

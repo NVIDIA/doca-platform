@@ -23,6 +23,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/dpuservice"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
 
@@ -59,7 +60,7 @@ func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *systemTestIn
 	createTestNamespace(ctx, input.client, namespace)
 
 	By("Copy image pull secret to namespace " + namespace)
-	CopySecretToNamespace(ctx, input.client, dpfPullSecretName, dpfOperatorSystemNamespace, namespace, afterEachCleanupLabels)
+	CopySecretToNamespace(ctx, input.client, dpfPullSecretName, dpfOperatorSystemNamespace, namespace, utils.AfterEachCleanupLabels)
 
 	By("Create DPUServiceNAD")
 	dpuServiceNAD := constructDPUServiceNAD(dpuServiceNADName, namespace, mtu)
@@ -107,7 +108,7 @@ func constructDPUServiceNAD(name, namespace string, mtu int) *dpuservicev1.DPUSe
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels:    afterEachCleanupLabels,
+			Labels:    utils.AfterEachCleanupLabels,
 		},
 		Spec: dpuservicev1.DPUServiceNADSpec{
 			ResourceType: "sf",
@@ -124,7 +125,7 @@ func constructDPUServiceInterface(name, namespace, serviceName string, network s
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels:    afterEachCleanupLabels,
+			Labels:    utils.AfterEachCleanupLabels,
 		},
 	}
 	dpuServiceInterface.Spec.Template.Spec.Template.ObjectMeta.Labels = serviceInterfaceLabels
@@ -143,7 +144,7 @@ func constructDPUServiceChain(name, namespace string, mtu int, serviceInterfaceL
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels:    afterEachCleanupLabels,
+			Labels:    utils.AfterEachCleanupLabels,
 		},
 	}
 	dpuServiceChain.Spec.Template.Spec.Template.Spec.Switches = []dpuservicev1.Switch{
@@ -167,7 +168,7 @@ func constructDummyDPUServiceObject(serviceName, namespace, interfaceName string
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceName,
 			Namespace: namespace,
-			Labels:    afterEachCleanupLabels,
+			Labels:    utils.AfterEachCleanupLabels,
 		},
 	}
 
@@ -205,6 +206,7 @@ func VerifyDPUPodToPodRDMATraffic(ctx context.Context, input *systemTestInput) {
 
 	By("Getting the pods in the dpu cluster")
 	pod1, pod2 := get2DPUServicePods(ctx, input.namespace, "dummydpuservice-rdma")
+	// Validate that IPs are available for both pods	getPodIPForInterface(pod1, "app_rdma_if")
 	podIP1 := getPodIPForInterface(pod1, "app_rdma_if")
 	podIP2 := getPodIPForInterface(pod2, "app_rdma_if")
 	Expect(podIP1).ToNot(BeEmpty())
@@ -249,7 +251,7 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 	createAndWaitForInterfaces(ctx, input.client, input.dpuServiceInterfaceTemplate, interfaceConfigs)
 
 	By("Create the chain between the workload pod and p0")
-	fabricChain := generateDPUObj("pod-to-fabric", input.namespace, input.dpuServiceChainTemplate.DeepCopy())
+	fabricChain := utils.GenerateDPUObj("pod-to-fabric", input.namespace, input.dpuServiceChainTemplate.DeepCopy())
 	fabricChain.Spec.Template.Spec.Template.Spec.Switches = []dpuservicev1.Switch{
 		{
 			Ports: []dpuservicev1.Port{
@@ -284,7 +286,7 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 			},
 		},
 	}
-	dpuServiceIPAM := generateDPUObj("mybrsfc-rdma", input.namespace, &dpuServiceIPAMTemplate)
+	dpuServiceIPAM := utils.GenerateDPUObj("mybrsfc-rdma", input.namespace, &dpuServiceIPAMTemplate)
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("Create DPUServiceNAD")
@@ -296,7 +298,7 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 			ChainedCNIs:  []dpuservicev1.CNIPlugin{{Type: ptr.To("rdma")}},
 		},
 	}
-	dpuServiceNAD := generateDPUObj("mybrsfc-rdma", input.namespace, &dpuServiceNADTemplate)
+	dpuServiceNAD := utils.GenerateDPUObj("mybrsfc-rdma", input.namespace, &dpuServiceNADTemplate)
 	Expect(input.client.Create(ctx, dpuServiceNAD)).To(Succeed())
 
 	By("Create and wait for dummydpuservice DPUService")
@@ -310,7 +312,7 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 
 // createDummyDPUServiceForRDMA creates a DPUService using the dummydpuservice and configures it for RDMA testing
 func createDummyDPUServiceForRDMA(ctx context.Context, testClient client.Client, namespace string, dpuService *dpuservicev1.DPUService) {
-	dummyDPUService := generateDPUObj("dummydpuservice-rdma", namespace, dpuService.DeepCopy())
+	dummyDPUService := utils.GenerateDPUObj("dummydpuservice-rdma", namespace, dpuService.DeepCopy())
 
 	dummyDPUService.Spec.HelmChart.Source = dpuservicev1.ApplicationSource{
 		Chart:   "dummydpuservice-chart",
@@ -333,7 +335,7 @@ func createDummyDPUServiceForRDMA(ctx context.Context, testClient client.Client,
 }
 
 // getPodIPForInterface extracts IP from the k8s.v1.cni.cncf.io/networks-status annotation for the given Pod for the
-// given interfaceName. It expects that only one IP is assigned to this interface.
+// given interfaceName. It expects that only one IP is assigned to this interface and fails the test if not found.
 func getPodIPForInterface(pod corev1.Pod, interfaceName string) string {
 	networksStatusAnnotation, exists := pod.Annotations["k8s.v1.cni.cncf.io/networks-status"]
 	Expect(exists).To(BeTrue())
