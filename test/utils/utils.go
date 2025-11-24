@@ -50,6 +50,29 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+// Cleanup labels used across e2e tests
+var (
+	AfterAllCleanupLabels  = map[string]string{"dpf-operator-e2e-test-cleanup": "true"}
+	AfterEachCleanupLabels = map[string]string{"between-tests-cleanup": "true"}
+)
+
+// GenerateDPUObj sets the name, namespace, and labels on a given client.Object.
+// Optionally, customLabels can be provided to override the default cleanup labels.
+// AfterAllCleanupLabels are always merged into the final label set.
+func GenerateDPUObj[T client.Object](name, ns string, obj T, customLabels ...map[string]string) T {
+	obj.SetName(name)
+	obj.SetNamespace(ns)
+	labels := AfterEachCleanupLabels
+	if len(customLabels) > 0 {
+		labels = customLabels[0]
+	}
+	for k, v := range AfterAllCleanupLabels {
+		labels[k] = v
+	}
+	obj.SetLabels(labels)
+	return obj
+}
+
 // CleanupAndWait deletes an object and waits for it to be removed before exiting.
 func CleanupAndWait(ctx context.Context, c client.Client, objs ...client.Object) error {
 	return cleanupAndWait(ctx, c, false, objs...)

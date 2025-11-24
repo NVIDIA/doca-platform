@@ -29,7 +29,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
-	"github.com/nvidia/doca-platform/test/utils"
+	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/metrics"
 	argov1 "github.com/nvidia/doca-platform/third_party/api/argocd/api/application/v1alpha1"
 	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
@@ -84,14 +84,14 @@ func getEnvVariables() {
 	}
 	if url, found := os.LookupEnv("BFB_IMAGE_URL"); found {
 		var err error
-		bfbImageURL, err = utils.ResolveBFBImageURL(url)
+		bfbImageURL, err = testutils.ResolveBFBImageURL(url)
 		if err != nil {
 			panic(err)
 		}
 	}
 	if url, found := os.LookupEnv("HBN_IMAGE_URL"); found {
 		var err error
-		hbnImageURL, err = utils.ResolveHBNImageURL(url)
+		hbnImageURL, err = testutils.ResolveHBNImageURL(url)
 		if err != nil {
 			panic(err)
 		}
@@ -209,8 +209,8 @@ var _ = BeforeSuite(func() {
 		return
 	}
 	if !skipCleanup {
-		Expect(utils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(afterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
-		Expect(utils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(afterAllCleanupLabels), resourcesToDelete...)).To(Succeed())
+		Expect(testutils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(testutils.AfterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
+		Expect(testutils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(testutils.AfterAllCleanupLabels), resourcesToDelete...)).To(Succeed())
 	}
 
 	// Label filter examples supported:
@@ -281,7 +281,7 @@ func reportAfterEach(spec SpecReport) {
 	// Cleanup objects for a spec that ran. Ignore Skipped or Pending specs.
 	if !spec.State.Is(types.SpecStateSkipped) && !spec.State.Is(types.SpecStatePending) {
 		By("Cleaning up objects created during the test")
-		Expect(utils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(afterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
+		Expect(testutils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(testutils.AfterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
 	}
 }
 
@@ -308,6 +308,6 @@ var _ = ReportAfterSuite("My Suite", func(report Report) {
 		return
 	}
 	By("cleaning up objects created during the test suite execution")
-	Expect(utils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(afterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
-	Expect(utils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(afterAllCleanupLabels), resourcesToDelete...)).To(Succeed())
+	Expect(testutils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(testutils.AfterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
+	Expect(testutils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(testutils.AfterAllCleanupLabels), resourcesToDelete...)).To(Succeed())
 })

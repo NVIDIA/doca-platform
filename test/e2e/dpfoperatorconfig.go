@@ -693,14 +693,14 @@ func ValidateDPFOperatorConfigCleanupPrerequisites(ctx context.Context, input *s
 
 	By("create test namespace")
 	testNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: dpuServiceInterfaceNamespace}}
-	testNS.SetLabels(afterAllCleanupLabels)
+	testNS.SetLabels(testutils.AfterAllCleanupLabels)
 	Expect(input.client.Create(ctx, testNS)).To(Succeed())
 
 	By("create DPUServiceInterface")
 	dpuServiceInterface := input.dpuServiceInterface.DeepCopy()
 	dpuServiceInterface.SetName(dpuServiceInterfaceName)
 	dpuServiceInterface.SetNamespace(dpuServiceInterfaceNamespace)
-	dpuServiceInterface.SetLabels(afterAllCleanupLabels)
+	dpuServiceInterface.SetLabels(testutils.AfterAllCleanupLabels)
 	dpuServiceInterface.Spec.Template.Spec.NodeSelector = nil
 	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
 

@@ -26,6 +26,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
+	"github.com/nvidia/doca-platform/test/utils"
 	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
 
 	netattdefv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
@@ -52,13 +53,11 @@ const (
 )
 
 var (
-	dpuClusterClient       client.Client
-	dpuClusterRestConfig   *rest.Config
-	dpuClusterRestClient   *rest.RESTClient
-	hostClusterRESTClient  *rest.RESTClient
-	metricsURI             string
-	afterAllCleanupLabels  = map[string]string{"dpf-operator-e2e-test-cleanup": "true"}
-	afterEachCleanupLabels = map[string]string{"between-tests-cleanup": "true"}
+	dpuClusterClient      client.Client
+	dpuClusterRestConfig  *rest.Config
+	dpuClusterRestClient  *rest.RESTClient
+	hostClusterRESTClient *rest.RESTClient
+	metricsURI            string
 	// helmRegistry holds the Helm registry in which the artifacts used in e2e are pushed
 	helmRegistry = ""
 	// tag holds the tag which the artifacts used in e2e are using
@@ -186,29 +185,11 @@ func (b *ByTracker) By(key string, format string, args ...interface{}) {
 	}
 }
 
-// generateDPUObj sets the name, namespace, and labels on a given client.Object.
-// Optionally, customLabels can be provided to override the default cleanup labels.
-// afterAllCleanupLabels are always merged into the final label set.
-func generateDPUObj[T client.Object](name, ns string, obj T, customLabels ...map[string]string) T {
-	obj.SetName(name)
-	obj.SetNamespace(ns)
-	cleanupLabels := afterEachCleanupLabels
-	if len(customLabels) > 0 {
-		cleanupLabels = customLabels[0]
-	}
-	for k, v := range afterAllCleanupLabels {
-		cleanupLabels[k] = v
-	}
-	obj.SetLabels(cleanupLabels)
-	return obj
-}
-
 func createTestNamespace(ctx context.Context, testClient client.Client, namespace string) {
 	testNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
-	cleanupLabels := afterEachCleanupLabels
-	for k, v := range afterAllCleanupLabels {
-		cleanupLabels[k] = v
-	}
+	cleanupLabels := make(map[string]string)
+	maps.Copy(cleanupLabels, utils.AfterEachCleanupLabels)
+	maps.Copy(cleanupLabels, utils.AfterAllCleanupLabels)
 	testNS.SetLabels(cleanupLabels)
 	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, testNS))).To(Succeed())
 }

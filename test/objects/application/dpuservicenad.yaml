@@ -1,0 +1,13 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: test-sfc-nad
+  namespace: dpf-operator-system
+  labels:
+    svc.dpu.nvidia.com/pool: subnet-pool1
+spec:
+  resourceType: sf
+  bridge: br-sfc
+  serviceMTU: 1500
+  ipam: true
+

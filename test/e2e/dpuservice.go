@@ -56,12 +56,12 @@ func ValidateDPUServiceCreationAndMirroring(ctx context.Context, input *systemTe
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, testNSImagePullSecret))).ToNot(HaveOccurred())
 
 	By("create a DPUServiceInterface")
-	dpuServiceInterface := generateDPUObj(dpuServiceInterfaceName, dpuServiceNamespace, input.dpuServiceInterface.DeepCopy())
+	dpuServiceInterface := utils.GenerateDPUObj(dpuServiceInterfaceName, dpuServiceNamespace, input.dpuServiceInterface.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
 
 	By("create a DPUService to be deployed on the DPUCluster")
 	// Create DPUCluster DPUService and check it's correctly reconciled.
-	dpuService := generateDPUObj(dpuServiceName, dpuServiceNamespace, input.dpuService.DeepCopy())
+	dpuService := utils.GenerateDPUObj(dpuServiceName, dpuServiceNamespace, input.dpuService.DeepCopy())
 	dpuService.Spec.Interfaces = []string{dpuServiceInterfaceName}
 	dpuService.Spec.ServiceID = ptr.To("my-service")
 	Expect(input.client.Create(ctx, dpuService)).To(Succeed())
@@ -69,7 +69,7 @@ func ValidateDPUServiceCreationAndMirroring(ctx context.Context, input *systemTe
 	By("create a DPUService to be deployed on the host cluster")
 	// Create a host DPUService and check it's correctly reconciled
 	// Read the DPUService from file and create it.
-	hostDPUService := generateDPUObj(hostDPUServiceName, dpuServiceNamespace, input.dpuService.DeepCopy())
+	hostDPUService := utils.GenerateDPUObj(hostDPUServiceName, dpuServiceNamespace, input.dpuService.DeepCopy())
 	hostDPUService.Spec.DeployInCluster = ptr.To(true)
 	Expect(input.client.Create(ctx, hostDPUService)).To(Succeed())
 
@@ -84,7 +84,7 @@ func ValidateDPUServiceCreationAndMirroring(ctx context.Context, input *systemTe
 func ValidateDPUServiceMetrics(ctx context.Context, input *systemTestInput) {
 	By("create namespace and  DPUService")
 	createTestNamespace(ctx, input.client, dpuServiceNamespace)
-	dpuService := generateDPUObj("dpu-01-metrics", dpuServiceNamespace, input.dpuService.DeepCopy())
+	dpuService := utils.GenerateDPUObj("dpu-01-metrics", dpuServiceNamespace, input.dpuService.DeepCopy())
 	Expect(input.client.Create(ctx, dpuService)).To(Succeed())
 
 	By("verify DPUService metrics in KSM")
@@ -210,7 +210,7 @@ func ValidateImagePullSecretsSync(ctx context.Context, input *systemTestInput) {
 
 func ValidateDPUServiceTemplateCreationNoAnnotations(ctx context.Context, input *systemTestInput) {
 	By("creating the DPUServiceTemplate")
-	dpuServiceTemplate := generateDPUObj(
+	dpuServiceTemplate := utils.GenerateDPUObj(
 		"dpuservice-without-annotations-metrics",
 		input.dpuServiceTemplate.DeepCopy().Namespace,
 		input.dpuServiceTemplate.DeepCopy())
