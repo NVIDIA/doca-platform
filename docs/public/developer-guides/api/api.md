@@ -3302,7 +3302,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `name` _string_ | Name is the name of the service as defined in the DPUDeployment Spec |  | MaxLength: 28 <br />MinLength: 1 <br /> |
-| `interface` _string_ | Interface name is the name of the interface as defined in the DPUServiceConfiguration |  | MaxLength: 28 <br />MinLength: 1 <br /> |
+| `interface` _string_ | Interface name is the name of the interface as defined in the DPUServiceConfiguration |  | MaxLength: 15 <br />MinLength: 1 <br /> |
 | `ipam` _[IPAM](#ipam)_ | IPAM defines the IPAM configuration that is configured in the Service Function Chain |  |  |
 
 
@@ -4512,7 +4512,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `serviceID` _string_ | ServiceID is the DPU Service Identifier |  |  |
 | `network` _string_ | Network is the Network Attachment Definition in the form of "namespace/name"<br />or just "name" if the namespace is the same as the ServiceInterface. |  |  |
-| `interfaceName` _string_ | The interface name |  |  |
+| `interfaceName` _string_ | The interface name |  | MaxLength: 15 <br />MinLength: 1 <br /> |
 | `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  |  |
 
 
@@ -4736,7 +4736,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name is the name of the interface |  | MaxLength: 28 <br />MinLength: 1 <br /> |
+| `name` _string_ | Name is the name of the interface |  | MaxLength: 15 <br />MinLength: 1 <br /> |
 | `network` _string_ | Network is the Network Attachment Definition in the form of "namespace/name"<br />or just "name" if the namespace is the same as the namespace the pod is running. |  |  |
 | `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  |  |
 
