@@ -20,7 +20,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/nvidia/doca-platform/test/utils"
+	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/dpuservice"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
 
@@ -72,7 +72,7 @@ func WaitForOVNKHBNDeploymentReady(ctx context.Context, input *systemTestInput) 
 }
 
 func CleanupAfterEachOVNKHBN(ctx context.Context, input *systemTestInput) {
-	Expect(utils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(afterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
+	Expect(testutils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(testutils.AfterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
 }
 
 func getPodDifferentNodeConfigs(ctx context.Context, input *systemTestInput, namespace string) (netshoot.TestPodConfig, netshoot.TestPodConfig) {

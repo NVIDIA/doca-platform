@@ -22,6 +22,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/metrics"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 
@@ -44,7 +45,7 @@ func ValidateDPUServiceIPAMCreationInvalid(ctx context.Context, input *systemTes
 		},
 	}
 	dpuServiceIPAM.SetGroupVersionKind(dpuservicev1.DPUServiceIPAMGroupVersionKind)
-	dpuServiceIPAM.SetLabels(afterEachCleanupLabels)
+	dpuServiceIPAM.SetLabels(testutils.AfterEachCleanupLabels)
 	err := input.client.Create(ctx, dpuServiceIPAM)
 	Expect(err).To(HaveOccurred())
 	fmt.Printf("Error creating the DPUServiceIPAM CR: %v\n", err)
@@ -55,7 +56,7 @@ func ValidateDPUServiceIPAMCreationInvalid(ctx context.Context, input *systemTes
 func ValidateDPUServiceIPAMCreationSubnetSplit(ctx context.Context, input *systemTestInput) {
 	dpuServiceIPAMWithIPPoolName := "switched-application"
 	By("creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := generateDPUObj(dpuServiceIPAMWithIPPoolName, dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
+	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithIPPoolName, dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("checking that NVIPAM IPPool CR is created in the DPU clusters")
@@ -73,7 +74,7 @@ func ValidateDPUServiceIPAMCreationSubnetSplit(ctx context.Context, input *syste
 
 func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *systemTestInput) {
 	By("creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := generateDPUObj("switched-application-metrics", dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
+	dpuServiceIPAM := testutils.GenerateDPUObj("switched-application-metrics", dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("verify DPUServiceIPAM metrics in KSM")
@@ -94,7 +95,7 @@ func ValidateDPUServiceIPAMMetricsDeletion(ctx context.Context, input *systemTes
 	}
 
 	By("creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := generateDPUObj(dpuServiceIPAMWithIPPoolName, dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
+	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithIPPoolName, dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("deleting the DPUServiceIPAM")
@@ -115,7 +116,7 @@ func ValidateDPUServiceIPAMMetricsDeletion(ctx context.Context, input *systemTes
 func ValidateDPUServiceIPAMCreationCidrSplit(ctx context.Context, input *systemTestInput) {
 	dpuServiceIPAMWithCIDRPoolName := "routed-application"
 	By("creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := generateDPUObj(dpuServiceIPAMWithCIDRPoolName, dpuServiceIPAMNamespace, input.cidrDPUServiceIPAM.DeepCopy())
+	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithCIDRPoolName, dpuServiceIPAMNamespace, input.cidrDPUServiceIPAM.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("checking that NVIPAM CIDRPool CR is created in the DPU clusters")
@@ -138,7 +139,7 @@ func ValidateDPUServiceIPAMDeletionCidrSplit(ctx context.Context, input *systemT
 	dpuServiceIPAMWithCIDRPoolName := "routed-application-delete"
 
 	By("creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := generateDPUObj(dpuServiceIPAMWithCIDRPoolName, dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
+	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithCIDRPoolName, dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("deleting the DPUServiceIPAM")
