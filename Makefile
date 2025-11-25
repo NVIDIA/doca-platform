@@ -576,7 +576,15 @@ test-deploy-helmfile: helmfile helm helm-diff helm-git ## Deploy helm dependenci
 		--helm-bin "$(HELM)"
 
 ARTIFACTS_DIR ?= $(CURDIR)/artifacts
+$(ARTIFACTS_DIR):
+	@mkdir -p $(ARTIFACTS_DIR)
+
 ARTIFACTS_SUBDIR ?=
+DOCKER_BUILD_LOGGING ?= false
+
+# Pattern target to save docker build logs
+# Usage: make save-docker-build-logs BUILD_TARGET_IMAGE_NAME=dpf-system-arm64 BUILD_TARGET_IMAGE_TAG=v0.1.0
+.PHONY: save-docker-build-logs
 
 E2E_TEST_DEFAULTS ?= -v -ginkgo.v -ginkgo.fail-fast -ginkgo.timeout=2h
 E2E_TEST_ARGS ?= -ginkgo.label-filter="DPFSystem && !SDN && !DPFVPCOVN" -e2e.config=./config-quick.yaml
@@ -995,9 +1003,9 @@ PACKAGE_SOURCES ?= true
 .PHONY: docker-build-dpf-system # Build a multi-arch image for DPF System. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-dpf-system: $(addprefix docker-build-dpf-system-for-,$(DPF_SYSTEM_ARCH))
 
-docker-build-dpf-system-for-%: generate-manifests-release-defaults
+docker-build-dpf-system-for-%: generate-manifests-release-defaults $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
-	docker buildx build \
+	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
@@ -1005,6 +1013,7 @@ docker-build-dpf-system-for-%: generate-manifests-release-defaults
 		--label=org.opencontainers.image.version=$(TAG) \
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
+		--progress=plain \
 		--platform=linux/$* \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(BASE_IMAGE) \
@@ -1032,9 +1041,9 @@ docker-create-manifest-for-dpf-system:
 	docker manifest create --amend $(DPF_SYSTEM_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(DPF_SYSTEM_IMAGE):$(TAG))
 
 .PHONY: docker-build-ipallocator
-docker-build-ipallocator: ## Build docker image for the IP Allocator
+docker-build-ipallocator: $(ARTIFACTS_DIR) ## Build docker image for the IP Allocator
 	# Base image can't be distroless because of the readiness probe that is using cat which doesn't exist in distroless
-	docker buildx build \
+	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
@@ -1043,20 +1052,20 @@ docker-build-ipallocator: ## Build docker image for the IP Allocator
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
 		--platform=linux/$(ARCH) \
+		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(ALPINE_IMAGE) \
 		--build-arg ldflags=$(GO_LDFLAGS) \
 		--build-arg gcflags=$(GO_GCFLAGS) \
 		--build-arg package=./cmd/ipallocator \
-		  -f Dockerfile \
+		-f Dockerfile \
 		. \
 		-t $(IPALLOCATOR_IMAGE):$(TAG)
 
 .PHONY: docker-build-ovs-cni
-docker-build-ovs-cni: $(OVS_CNI_DIR) ## Builds the OVS CNI image
-	cd $(OVS_CNI_DIR) && \
-	$(OVS_CNI_DIR)/hack/get_version.sh > .version && \
-	docker buildx build \
+docker-build-ovs-cni: $(OVS_CNI_DIR) $(ARTIFACTS_DIR) ## Builds the OVS CNI image
+	$(OVS_CNI_DIR)/hack/get_version.sh > $(OVS_CNI_DIR)/.version && \
+	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
@@ -1064,18 +1073,19 @@ docker-build-ovs-cni: $(OVS_CNI_DIR) ## Builds the OVS CNI image
 		--label=org.opencontainers.image.version=$(TAG) \
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
+		--progress=plain \
 		--build-arg goarch=$(DPU_ARCH) \
 		--platform linux/${DPU_ARCH} \
-		-f ./cmd/Dockerfile \
+		-f $(OVS_CNI_DIR)/cmd/Dockerfile \
 		-t $(OVS_CNI_IMAGE):${TAG} \
-		.
+		$(OVS_CNI_DIR)
 
 .PHONY: docker-build-ovn-kubernetes # Build a multi-arch image for DPF System. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-ovn-kubernetes: $(addprefix docker-build-ovn-kubernetes-for-,$(DPF_SYSTEM_ARCH))
 
-docker-build-ovn-kubernetes-for-%: $(OVNKUBERNETES_DIR)
+docker-build-ovn-kubernetes-for-%: $(OVNKUBERNETES_DIR) $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
-	docker buildx build \
+	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
@@ -1084,6 +1094,7 @@ docker-build-ovn-kubernetes-for-%: $(OVNKUBERNETES_DIR)
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
 		--platform=linux/$* \
+		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg ldflags=$(GO_LDFLAGS) \
 		--build-arg gcflags=$(GO_GCFLAGS) \
@@ -1111,8 +1122,8 @@ docker-create-manifest-for-ovn-kubernetes:
 	docker manifest create --amend $(OVNKUBERNETES_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(OVNKUBERNETES_IMAGE):$(TAG))
 
 .PHONY: docker-build-hostdriver
-docker-build-hostdriver: ## Build docker image for DMS and hostnetwork.
-	docker buildx build \
+docker-build-hostdriver: $(ARTIFACTS_DIR) ## Build docker image for DMS and hostnetwork.
+	$(CURDIR)/hack/scripts/docker-build.sh \
 		--pull \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
@@ -1122,6 +1133,7 @@ docker-build-hostdriver: ## Build docker image for DMS and hostnetwork.
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
 		--platform linux/${HOST_ARCH} \
+		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg hostdriver_base_image=$(HOSTDRIVER_BASE_IMAGE) \
 		--build-arg ldflags=$(GO_LDFLAGS) \
@@ -1134,8 +1146,8 @@ docker-build-hostdriver: ## Build docker image for DMS and hostnetwork.
 		.
 
 .PHONY: docker-build-dummydpuservice
-docker-build-dummydpuservice: ## Build docker images for the dummydpuservice
-	docker buildx build \
+docker-build-dummydpuservice: $(ARTIFACTS_DIR) ## Build docker images for the dummydpuservice
+	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
@@ -1144,6 +1156,7 @@ docker-build-dummydpuservice: ## Build docker images for the dummydpuservice
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
 		--platform=linux/$(DPU_ARCH) \
+		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(BASE_IMAGE) \
 		--build-arg ldflags=$(GO_LDFLAGS) \
@@ -1156,9 +1169,9 @@ docker-build-dummydpuservice: ## Build docker images for the dummydpuservice
 .PHONY: docker-build-netutils # Build a multi-arch image for netutils. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-netutils: $(addprefix docker-build-netutils-for-,$(DPF_SYSTEM_ARCH))
 
-docker-build-netutils-for-%:
+docker-build-netutils-for-%: $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
-	docker buildx build \
+	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
@@ -1167,13 +1180,14 @@ docker-build-netutils-for-%:
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
 		--platform=linux/$* \
+		--progress=plain \
 		-f Dockerfile.netutils \
 		. \
 		-t $(NETUTILS_IMAGE):$(TAG)-$*
 
 .PHONY: docker-build-mock-dms
-docker-build-mock-dms: ## Build docker images for the mock-dms
-	docker buildx build \
+docker-build-mock-dms: $(ARTIFACTS_DIR) ## Build docker images for the mock-dms
+	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
@@ -1182,6 +1196,7 @@ docker-build-mock-dms: ## Build docker images for the mock-dms
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
 		--platform=linux/$(ARCH) \
+		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(BASE_IMAGE) \
 		--build-arg ldflags=$(GO_LDFLAGS) \
@@ -1191,8 +1206,8 @@ docker-build-mock-dms: ## Build docker images for the mock-dms
 		-t $(MOCK_DMS_IMAGE):$(TAG)
 
 .PHONY: docker-build-ovn-kubernetes-resource-injector
-docker-build-ovn-kubernetes-resource-injector: ## Build docker image for the OVN Kubernetes Resource Injector
-	docker buildx build \
+docker-build-ovn-kubernetes-resource-injector: $(ARTIFACTS_DIR) ## Build docker image for the OVN Kubernetes Resource Injector
+	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
@@ -1201,6 +1216,7 @@ docker-build-ovn-kubernetes-resource-injector: ## Build docker image for the OVN
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
 		--platform=linux/$(ARCH) \
+		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(BASE_IMAGE) \
 		--build-arg ldflags=$(GO_LDFLAGS) \
@@ -1213,9 +1229,9 @@ docker-build-ovn-kubernetes-resource-injector: ## Build docker image for the OVN
 .PHONY: docker-build-storage-system # Build a multi-arch image for DPF storage system. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-storage-system: $(addprefix docker-build-storage-system-for-,$(DPF_SYSTEM_ARCH))
 
-docker-build-storage-system-for-%:
+docker-build-storage-system-for-%: $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
-	docker buildx build \
+	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
@@ -1224,6 +1240,7 @@ docker-build-storage-system-for-%:
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
 		--platform=linux/$* \
+		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(BASE_IMAGE) \
 		--build-arg ldflags=$(GO_LDFLAGS) \
@@ -1253,9 +1270,9 @@ docker-create-manifest-for-storage-system:
 .PHONY: docker-build-storage-host # Build a multi-arch image for storage-host. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-storage-host: $(addprefix docker-build-storage-host-for-,$(DPF_SYSTEM_ARCH))
 
-docker-build-storage-host-for-%:
+docker-build-storage-host-for-%: $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
-	docker buildx build \
+	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
@@ -1264,6 +1281,7 @@ docker-build-storage-host-for-%:
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
 		--platform=linux/$* \
+		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg ldflags=$(GO_LDFLAGS) \
 		--build-arg storage_snap_csi_driver_go_ldflags=$(STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS) \
@@ -1293,9 +1311,9 @@ docker-create-manifest-for-storage-host:
 .PHONY: docker-build-bfb-registry # Build a multi-arch image for BFB Registry. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-bfb-registry: $(addprefix docker-build-bfb-registry-for-,$(HOST_ARCH))
 
-docker-build-bfb-registry-for-%:
+docker-build-bfb-registry-for-%: $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
-	docker buildx build \
+	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
@@ -1306,13 +1324,14 @@ docker-build-bfb-registry-for-%:
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		--provenance=false \
 		--platform=linux/$* \
+		--progress=plain \
 		-f Dockerfile.bfb-registry \
 		. \
 		-t $(BFB_REGISTRY_IMAGE):$(TAG)-$*
 
 .PHONY: docker-build-cni-installer
-docker-build-cni-installer: ## Build docker image for the CNI installer
-	docker buildx build \
+docker-build-cni-installer: $(ARTIFACTS_DIR) ## Build docker image for the CNI installer
+	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
@@ -1321,6 +1340,7 @@ docker-build-cni-installer: ## Build docker image for the CNI installer
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
 		--platform=linux/$(DPU_ARCH) \
+		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(BASE_IMAGE) \
 		--build-arg ldflags=$(GO_LDFLAGS) \
