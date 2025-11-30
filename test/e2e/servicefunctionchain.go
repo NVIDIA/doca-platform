@@ -261,13 +261,14 @@ func testPingBetweenPods(ctx context.Context, namespace string, mtu int, cfg *mt
 	pod1Node2IP := getPodIPForInterface(*pod1Node2, cfg.ipInterface)
 	pod2Node1IP := getPodIPForInterface(*pod2Node1, cfg.ipInterface)
 
-	// Test successful ping with valid MTU
-	By(fmt.Sprintf("Testing ping from %s (%s) to %s (%s) with MTU %d on the same node", pod1Node1.Name, pod1Node1IP, pod2Node1.Name, pod2Node1IP, mtu))
-	netshoot.AssertPingSuccessWithMTU(&dpuClusterRestClient, &dpuClusterRestConfig, namespace, pod1Node1.Name, pod2Node1IP, mtu)
-
-	// Test failed ping with MTU too large
 	By(fmt.Sprintf("Testing ping fails from %s (%s) to %s (%s) with MTU %d on the same node", pod1Node1.Name, pod1Node1IP, pod2Node1.Name, pod2Node1IP, mtu+1))
 	netshoot.AssertPingFailureWithMTU(&dpuClusterRestClient, &dpuClusterRestConfig, namespace, pod1Node1.Name, pod2Node1IP, mtu+1, mtu)
+
+	By(fmt.Sprintf("Testing ping fails from %s (%s) to %s (%s) with MTU %d on different nodes", pod1Node1.Name, pod1Node1IP, pod1Node2.Name, pod1Node2IP, mtu+1))
+	netshoot.AssertPingFailureWithMTU(&dpuClusterRestClient, &dpuClusterRestConfig, namespace, pod1Node1.Name, pod1Node2IP, mtu+1, mtu)
+
+	By(fmt.Sprintf("Testing ping from %s (%s) to %s (%s) with MTU %d on the same node", pod1Node1.Name, pod1Node1IP, pod2Node1.Name, pod2Node1IP, mtu))
+	netshoot.AssertPingSuccessWithMTU(&dpuClusterRestClient, &dpuClusterRestConfig, namespace, pod1Node1.Name, pod2Node1IP, mtu)
 
 	By(fmt.Sprintf("Testing ping from %s (%s) to %s (%s) with MTU %d on different nodes", pod1Node1.Name, pod1Node1IP, pod1Node2.Name, pod1Node2IP, mtu))
 	netshoot.AssertPingSuccessWithMTU(&dpuClusterRestClient, &dpuClusterRestConfig, namespace, pod1Node1.Name, pod1Node2IP, mtu)
@@ -275,8 +276,6 @@ func testPingBetweenPods(ctx context.Context, namespace string, mtu int, cfg *mt
 	By(fmt.Sprintf("Testing ping from %s (%s) to %s (%s) with MTU %d on different nodes", pod1Node2.Name, pod1Node2IP, pod1Node1.Name, pod1Node1IP, mtu))
 	netshoot.AssertPingSuccessWithMTU(&dpuClusterRestClient, &dpuClusterRestConfig, namespace, pod1Node2.Name, pod1Node1IP, mtu)
 
-	By(fmt.Sprintf("Testing ping fails from %s (%s) to %s (%s) with MTU %d on different nodes", pod1Node1.Name, pod1Node1IP, pod1Node2.Name, pod1Node2IP, mtu+1))
-	netshoot.AssertPingFailureWithMTU(&dpuClusterRestClient, &dpuClusterRestConfig, namespace, pod1Node1.Name, pod1Node2IP, mtu+1, mtu)
 }
 
 func getPlainChainTestPodConfigs(ctx context.Context, input *systemTestInput, namespace string, vfIndex int) (netshoot.TestPodConfig, netshoot.TestPodConfig) {

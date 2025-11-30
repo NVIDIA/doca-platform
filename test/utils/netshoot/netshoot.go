@@ -506,7 +506,16 @@ func AssertPingFailure(restClient **rest.RESTClient, config **rest.Config, names
 // AssertPingSuccessWithMTU asserts that ping between pods succeeds with the specified MTU
 func AssertPingSuccessWithMTU(restClient **rest.RESTClient, config **rest.Config, namespace, fromPod, toPodIP string, mtu int) {
 	mtu = calculatePacketSize(mtu)
-	execCommandEventually(restClient, config, namespace, fromPod, []string{"ping", "-M", "do", "-s", strconv.Itoa(mtu), "-c", "2", toPodIP}, 30*time.Second, DefaultExecTimeout, DefaultErrorParser)
+	command := []string{"ping", "-M", "do", "-s", strconv.Itoa(mtu), "-c", "2", toPodIP}
+
+	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' with MTU %d\n", command, fromPod, namespace, mtu)
+
+	// Use Eventually to handle transient client recreation during port forwarding
+	Eventually(func(g Gomega) {
+		// Dereference pointers to get current client/config (may be updated if port forward breaks)
+		output, err := executeCommandOnce(*restClient, *config, namespace, fromPod, command, DefaultErrorParser)
+		g.Expect(err).NotTo(HaveOccurred(), "ping command should succeed, output: %s", output)
+	}, 1*time.Minute, 5*time.Second).Should(Succeed())
 }
 
 // AssertPingFailureWithMTU asserts that ping between pods fails with the specified MTU (MTU too large)
@@ -517,7 +526,7 @@ func AssertPingFailureWithMTU(restClient **rest.RESTClient, config **rest.Config
 	expectedMTUStr := fmt.Sprintf("mtu=%d", expectedNetworkMTU)
 	command := []string{"ping", "-M", "do", "-s", strconv.Itoa(mtu), "-c", "2", toPodIP}
 
-	// Use Eventually to wait for the MTU error to appear, ignoring transient connection errors
+	// Use Eventually to wait for the MTU error to appear, ignoring transient connection errors and client recreation
 	// The parser returns non-empty string only when MTU error is found, empty string otherwise
 	// This will naturally retry on connection errors until the pod is reachable, then verify MTU error
 	Eventually(func(g Gomega) {
