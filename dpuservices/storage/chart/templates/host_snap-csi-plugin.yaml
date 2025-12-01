@@ -242,6 +242,7 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.host.snapCsiPlugin.node.podSecurityContext | nindent 8 }}
+      hostNetwork: {{ .Values.host.snapCsiPlugin.node.hostNetwork }}
       containers:
         - name: plugin
           command:
@@ -271,7 +272,7 @@ spec:
           resources:
             {{- toYaml .Values.host.snapCsiPlugin.node.plugin.resources | nindent 12 }}
           ports:
-            - containerPort: 9808
+            - containerPort: {{ .Values.host.snapCsiPlugin.node.config.livenessProbePort }}
               name: healthz
               protocol: TCP
           livenessProbe:
@@ -304,6 +305,7 @@ spec:
             - --csi-address=/csi/csi.sock
             - --probe-timeout=3s
             - --v=2
+            - --health-port={{ .Values.host.snapCsiPlugin.node.config.livenessProbePort }}
           imagePullPolicy: {{ .Values.host.snapCsiPlugin.node.livenessProbe.imagePullPolicy }}
           volumeMounts:
             - name: socket-dir

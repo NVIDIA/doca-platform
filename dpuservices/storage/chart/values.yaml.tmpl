@@ -130,6 +130,8 @@ host:
       # affinity to add to the Pod spec
       affinity: {}
     node:
+      # use hostNetwork for the plugin pod
+      hostNetwork: false
       config:
         # pci device ID of the snap controller device
         snapControllerDeviceId: "6001"
@@ -145,6 +147,8 @@ host:
         virtiofsFSTypeName: "virtiofs"
         # controls if virtio-pci driver should be loaded or not during initialization of the plugin, has meaning only for virtiofs emulation mode
         virtiofsLoadDriver: true
+        # port for the liveness probe, you may need to change it when pod is running with hostNetwork: true
+        livenessProbePort: 29808
       # imagePullSecrets to add to the controller Pod spec,
       # if not set use .Values.imagePullSecrets
       imagePullSecrets: []
