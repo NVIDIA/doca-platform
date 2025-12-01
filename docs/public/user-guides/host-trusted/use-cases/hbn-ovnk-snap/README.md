@@ -1133,7 +1133,8 @@ spec:
                       - matchExpressions:
                           - key: "node-role.kubernetes.io/control-plane"
                             operator: Exists
-
+            node:
+              hostNetwork: true
 ```
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuservicetemplate_snap-csi-plugin.yaml)
