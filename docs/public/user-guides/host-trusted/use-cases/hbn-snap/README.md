@@ -1152,7 +1152,7 @@ spec:
   helmChart:
     source:
       repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
-      version: v0.2.0
+      version: v0.3.0
       chart: spdk-csi-controller
 ```
 
@@ -1256,7 +1256,7 @@ spec:
   helmChart:
     source:
       repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
-      version: v0.2.0
+      version: v0.3.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -1275,8 +1275,6 @@ spec:
   dpus:
     bfb: bf-bundle-$TAG
     flavor: hbn-snap-nvme-$TAG
-    nodeEffect:
-      noEffect: true
     dpuSets:
     - nameSuffix: "dpuset1"
       dpuAnnotations:
@@ -1993,7 +1991,7 @@ spec:
   helmChart:
     source:
       repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
-      version: v0.1.0
+      version: v0.2.0
       chart: nfs-csi-controller
 ```
 
@@ -2066,7 +2064,7 @@ spec:
   helmChart:
     source:
       repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
-      version: v0.1.0
+      version: v0.2.0
       chart: nfs-csi-controller
 ```
 </details>
@@ -2225,8 +2223,6 @@ spec:
   dpus:
     bfb: bf-bundle-$TAG
     flavor: hbn-snap-virtiofs-$TAG
-    nodeEffect:
-      noEffect: true
     dpuSets:
     - nameSuffix: "dpuset1"
       dpuAnnotations:
