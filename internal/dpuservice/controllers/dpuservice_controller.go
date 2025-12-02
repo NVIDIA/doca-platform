@@ -715,8 +715,14 @@ func (r *DPUServiceReconciler) summary(ctx context.Context, dpuService *dpuservi
 		unreadyApplications = append(unreadyApplications, message)
 	}
 
+	// For standard services, we expect the number of applications to equal the number of DPUClusters, whereas for in-cluster
+	// we expect a single application targeting the host cluster
+	hasExpectedApplications := len(applicationList.Items) == len(dpuClusterConfigs)
+	if dpuService.ShouldDeployInCluster() {
+		hasExpectedApplications = len(applicationList.Items) == 1
+	}
 	// Update condition and requeue if there are any errors, or if there are fewer applications than we have clusters.
-	if len(unreadyApplications) > 0 || len(applicationList.Items) != len(dpuClusterConfigs) {
+	if len(unreadyApplications) > 0 || !hasExpectedApplications {
 		message := conditions.ReadyConditionMessage("The following applications are not ready", unreadyApplications)
 		conditions.AddFalse(
 			dpuService,
