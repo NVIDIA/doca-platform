@@ -775,7 +775,7 @@ func (r *DPUServiceReconciler) reconcileImagePullSecrets(ctx context.Context, dp
 			continue
 		}
 		for _, secret := range secretsToPatch {
-			if err := dpuClusterClient.Patch(ctx, secret, client.Apply, applyPatchOptions...); err != nil {
+			if err := dpuClusterClient.Patch(ctx, secret.DeepCopy(), client.Apply, applyPatchOptions...); err != nil {
 				errs = append(errs, err)
 			}
 		}
