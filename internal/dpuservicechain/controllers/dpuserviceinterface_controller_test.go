@@ -469,11 +469,32 @@ var _ = Describe("DPUServiceInterface Controller", func() {
 			))
 		})
 
-		// TODO: Fix that test when we implement status for ServiceInterfaceSet
-		It("DPUServiceInterface has all conditions with Success Reason at end of successful reconciliation loop and underlying object ready", Pending, func() {
+		It("DPUServiceInterface has all conditions with Success Reason at end of successful reconciliation loop and underlying object ready", func() {
 			By("Creating a DPUServiceInterface")
 			dpuServiceInterface = createDPUServiceInterface(ctx, "interface", testNS.Name, &metav1.LabelSelector{})
-			// TODO: Patch InterfaceSet with status
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceInterface)
+
+			By("Patching ServiceInterfaceSet status to ready")
+			sis := &dpuservicev1.ServiceInterfaceSet{}
+			Eventually(func(g Gomega) {
+				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{
+					Name:      dpuServiceInterface.Name,
+					Namespace: dpuServiceInterface.Namespace,
+				}, sis)).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			sis.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(conditions.TypeReady),
+					Status:             metav1.ConditionTrue,
+					Reason:             string(conditions.ReasonSuccess),
+					LastTransitionTime: metav1.NewTime(time.Now()),
+					ObservedGeneration: sis.Generation,
+				},
+			}
+			sis.SetGroupVersionKind(dpuservicev1.ServiceInterfaceSetGroupVersionKind)
+			sis.SetManagedFields(nil)
+			Expect(dpuClusterClient.Status().Patch(ctx, sis, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
 
 			Eventually(func(g Gomega) []metav1.Condition {
 				ev := &informer.Event{}

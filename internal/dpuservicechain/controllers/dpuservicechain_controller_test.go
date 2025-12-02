@@ -161,7 +161,7 @@ var _ = Describe("DPUServiceChain Controller", func() {
 			Consistently(func(g Gomega) {
 				scs := &dpuservicev1.ServiceChainSet{ObjectMeta: metav1.ObjectMeta{Name: dscResourceName, Namespace: testNS.Name}}
 				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(scs), scs)).To(HaveOccurred())
-			}, timeout*5, interval).Should(Succeed())
+			}, timeout, interval).Should(Succeed())
 		})
 		It("should successfully detect update on the ServiceChainSet", func() {
 			By("Create DPUServiceChain")
@@ -357,9 +357,28 @@ var _ = Describe("DPUServiceChain Controller", func() {
 				),
 			))
 		})
-		// TODO: Fix that test when we implement status for ServiceChainSet
-		It("DPUServiceChain has all conditions with Success Reason at end of successful reconciliation loop and underlying object ready", Pending, func() {
-			// TODO: Patch ServiceChainSet with status
+		It("DPUServiceChain has all conditions with Success Reason at end of successful reconciliation loop and underlying object ready", func() {
+			By("Patching ServiceChainSet status to ready")
+			scs := &dpuservicev1.ServiceChainSet{}
+			Eventually(func(g Gomega) {
+				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{
+					Name:      dpuServiceChain.Name,
+					Namespace: dpuServiceChain.Namespace,
+				}, scs)).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			scs.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(conditions.TypeReady),
+					Status:             metav1.ConditionTrue,
+					Reason:             string(conditions.ReasonSuccess),
+					LastTransitionTime: metav1.NewTime(time.Now()),
+					ObservedGeneration: scs.Generation,
+				},
+			}
+			scs.SetGroupVersionKind(dpuservicev1.ServiceChainSetGroupVersionKind)
+			scs.SetManagedFields(nil)
+			Expect(dpuClusterClient.Status().Patch(ctx, scs, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
 
 			Eventually(func(g Gomega) []metav1.Condition {
 				ev := &informer.Event{}
