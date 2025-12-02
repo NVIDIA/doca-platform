@@ -470,6 +470,152 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "pool-1"}, gotIPPool)).To(Succeed())
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
+		It("should reconcile NVIPAM IPPool in DPU cluster when ipv4Subnet is set and name override annotation is set", func() {
+			By("Creating DPUServiceIPAM with ipv4Subnet and name override annotation")
+			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
+			dpuServiceIPAM.Name = "pool-1"
+			dpuServiceIPAM.Annotations = map[string]string{
+				dpuservicev1.DPUServiceIPAMChildObjectNameOverrideAnnotationKey: "custom-pool-name",
+			}
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+				Subnet:         "192.168.0.0/20",
+				Gateway:        "192.168.0.1",
+				PerNodeIPCount: 256,
+			}
+			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
+
+			By("Verifying IPPool is created with the overridden name")
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.IPPool{}
+				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "custom-pool-name"}, got)).To(Succeed())
+				g.Expect(got.Spec.Subnet).To(Equal("192.168.0.0/20"))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying IPPool with default name does not exist")
+			Consistently(func(g Gomega) {
+				got := &nvipamv1.IPPool{}
+				err := dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "pool-1"}, got)
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).WithTimeout(3 * time.Second).Should(Succeed())
+		})
+		It("should create new NVIPAM IPPool and remove leftover IPPool when name override annotation is set", func() {
+			By("Creating DPUServiceIPAM with ipv4Subnet without name override annotation")
+			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
+			dpuServiceIPAM.Name = "pool-1"
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+				Subnet:         "192.168.0.0/20",
+				Gateway:        "192.168.0.1",
+				PerNodeIPCount: 256,
+			}
+			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
+
+			By("Verifying IPPool is created with default name")
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.IPPool{}
+				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "pool-1"}, got)).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Updating DPUServiceIPAM to add name override annotation")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), dpuServiceIPAM)).To(Succeed())
+				if dpuServiceIPAM.Annotations == nil {
+					dpuServiceIPAM.Annotations = make(map[string]string)
+				}
+				dpuServiceIPAM.Annotations[dpuservicev1.DPUServiceIPAMChildObjectNameOverrideAnnotationKey] = "new-pool-name"
+				dpuServiceIPAM.SetManagedFields(nil)
+				dpuServiceIPAM.SetGroupVersionKind(dpuservicev1.DPUServiceIPAMGroupVersionKind)
+				g.Expect(testClient.Patch(ctx, dpuServiceIPAM, client.Apply, client.FieldOwner("test"))).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying new IPPool is created with overridden name")
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.IPPool{}
+				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "new-pool-name"}, got)).To(Succeed())
+				g.Expect(got.Spec.Subnet).To(Equal("192.168.0.0/20"))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying old IPPool with default name is deleted")
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.IPPool{}
+				err := dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "pool-1"}, got)
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+		It("should reconcile NVIPAM CIDRPool in DPU cluster when ipv4Network is set and name override annotation is set", func() {
+			By("Creating DPUServiceIPAM with ipv4Network and name override annotation")
+			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
+			dpuServiceIPAM.Name = "pool-1"
+			dpuServiceIPAM.Annotations = map[string]string{
+				dpuservicev1.DPUServiceIPAMChildObjectNameOverrideAnnotationKey: "custom-cidrpool-name",
+			}
+			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+				Network:      "192.168.0.0/20",
+				GatewayIndex: ptr.To[int32](1),
+				PrefixSize:   24,
+			}
+			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
+
+			By("Verifying CIDRPool is created with the overridden name")
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.CIDRPool{}
+				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "custom-cidrpool-name"}, got)).To(Succeed())
+				g.Expect(got.Spec.CIDR).To(Equal("192.168.0.0/20"))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying CIDRPool with default name does not exist")
+			Consistently(func(g Gomega) {
+				got := &nvipamv1.CIDRPool{}
+				err := dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "pool-1"}, got)
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).WithTimeout(3 * time.Second).Should(Succeed())
+		})
+		It("should create new NVIPAM CIDRPool and remove leftover CIDRPool when name override annotation is set", func() {
+			By("Creating DPUServiceIPAM with ipv4Network without name override annotation")
+			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
+			dpuServiceIPAM.Name = "pool-1"
+			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+				Network:      "192.168.0.0/20",
+				GatewayIndex: ptr.To[int32](1),
+				PrefixSize:   24,
+			}
+			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
+
+			By("Verifying CIDRPool is created with default name")
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.CIDRPool{}
+				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "pool-1"}, got)).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Updating DPUServiceIPAM to add name override annotation")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), dpuServiceIPAM)).To(Succeed())
+				if dpuServiceIPAM.Annotations == nil {
+					dpuServiceIPAM.Annotations = make(map[string]string)
+				}
+				dpuServiceIPAM.Annotations[dpuservicev1.DPUServiceIPAMChildObjectNameOverrideAnnotationKey] = "new-cidrpool-name"
+				dpuServiceIPAM.SetManagedFields(nil)
+				dpuServiceIPAM.SetGroupVersionKind(dpuservicev1.DPUServiceIPAMGroupVersionKind)
+				g.Expect(testClient.Patch(ctx, dpuServiceIPAM, client.Apply, client.FieldOwner("test"))).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying new CIDRPool is created with overridden name")
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.CIDRPool{}
+				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "new-cidrpool-name"}, got)).To(Succeed())
+				g.Expect(got.Spec.CIDR).To(Equal("192.168.0.0/20"))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying old CIDRPool with default name is deleted")
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.CIDRPool{}
+				err := dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "pool-1"}, got)
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
 	})
 	Context("When checking the status transitions", func() {
 		var (
