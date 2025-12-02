@@ -27,6 +27,10 @@ import (
 const (
 	DPUServiceIPAMFinalizer = "svc.dpu.nvidia.com/dpuserviceipam"
 	DPUServiceIPAMKind      = "DPUServiceIPAM"
+	// DPUServiceIPAMChildObjectNameOverrideAnnotationKey is the annotation key that controls the name of the object
+	// the DPUServiceIPAM controller will create in the respective DPUCluster.
+	// This is an experimental annotation and may be removed without notice in the future.
+	DPUServiceIPAMChildObjectNameOverrideAnnotationKey = "svc.dpu.nvidia.com/dpuserviceipam-child-object-name-override"
 )
 
 var DPUServiceIPAMGroupVersionKind = GroupVersion.WithKind(DPUServiceIPAMKind)
