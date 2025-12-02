@@ -154,6 +154,10 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 // Given bfbFile is /bfb/file.bfb and bfcfgFile is /bfb/bfcfg/file.cfg,
 // it returns /bfb/??file.bfb,bfcfg/file.cfg?/bfb-to-install
 func concatBFBAndBFCFGPath(bfbRegistry string, bfbFile string, bfcfgFile string) string {
+	schemes := []string{"http://", "https://"}
+	for _, prefix := range schemes {
+		bfbRegistry = strings.TrimPrefix(bfbRegistry, prefix)
+	}
 	bfCfg := strings.TrimPrefix(bfcfgFile, "/"+cutil.BFBBaseDir+"/")
 	return filepath.Join(bfbRegistry, cutil.BFBBaseDir, fmt.Sprintf("??%s,%s?", filepath.Base(bfbFile), bfCfg), "bfb-to-install")
 }

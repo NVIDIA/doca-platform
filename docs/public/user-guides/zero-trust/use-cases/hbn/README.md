@@ -247,10 +247,11 @@ spec:
   provisioningController:
     bfbPVCName: "bfb-pvc"
     dmsTimeout: 900
+    registry:
+      # Set this to the IP of one of your control plane nodes + 8080 port
+      address: "http://$TARGETCLUSTER_API_SERVER_HOST:8080"
     installInterface:
       installViaRedfish:
-        # Set this to the IP of one of your control plane nodes + 8080 port
-        bfbRegistryAddress: "$TARGETCLUSTER_API_SERVER_HOST:8080"
         skipDPUNodeDiscovery: false
   kamajiClusterManager:
     disable: false
