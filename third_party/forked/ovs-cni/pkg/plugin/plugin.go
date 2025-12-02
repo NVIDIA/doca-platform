@@ -23,7 +23,6 @@ import (
 	"net"
 	"runtime"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/containernetworking/cni/pkg/skel"
@@ -363,13 +362,13 @@ func CmdAdd(args *skel.CmdArgs) error {
 	}
 	defer contNetns.Close()
 
-	// (vremmas): There is a bug in multus where the device id is not always set in the cni args. This can happen when
+	// ensure deviceID is set, since in DPF we use either SFs or VFs but not veth.
+	// in addition, there is a bug in multus where the device id is not always set in the cni args. This can happen when
 	// the pod requests a resource but the kubelet doesn't return the pod resource itself. Multus should have failed,
 	// but it doesn't. To avoid creating a multus fork, we do this hack here.
 	// See relevant buggy code: https://github.com/k8snetworkplumbingwg/multus-cni/blob/41013e7580396629a02213019baad1d0c84a6a2c/pkg/k8sclient/k8sclient.go#L291-L315
-	// HBN requires interface with _if suffix and can't work with _sf anymore, that's why the extra condition
-	if (strings.HasSuffix(args.IfName, "_sf") || strings.HasSuffix(args.IfName, "_if")) && netconf.DeviceID == "" {
-		return fmt.Errorf("interface is SF but deviceID is not set.")
+	if netconf.DeviceID == "" {
+		return fmt.Errorf("deviceID is not set")
 	}
 
 	// userspace driver does not create a network interface for the VF on the host
