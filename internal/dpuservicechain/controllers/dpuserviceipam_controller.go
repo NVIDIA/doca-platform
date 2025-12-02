@@ -315,29 +315,35 @@ func deleteDPUServiceOwnedPoolsOfType(ctx context.Context, c client.Client, dpuS
 // reconcileIPPoolMode reconciles NVIPAM IPPool object and removes any leftover CIDRPool
 func reconcileIPPoolMode(ctx context.Context, c client.Client, dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) error {
 	pool := generateIPPool(dpuServiceIPAM)
-	if err := c.Patch(ctx, pool, client.Apply, client.ForceOwnership, client.FieldOwner(dpuServiceIPAMControllerName)); err != nil {
-		return fmt.Errorf("error while patching %s %s: %w", pool.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(pool), err)
-	}
-
-	// Delete any leftover CIDRPool in case the configuration has changed from specifying `.Spec.IPV4Network` to
-	// specifying `.Spec.IPV4Subnet`.
-	if err := deleteDPUServiceOwnedPoolsOfType(ctx, c, dpuServiceIPAM, nvipamv1.CIDRPoolKind); err != nil {
-		return fmt.Errorf("error while removing potential leftover NVIPAM CRs: %w", err)
-	}
-
-	return nil
+	return reconcilePoolMode(ctx, c, dpuServiceIPAM, pool, nvipamv1.CIDRPoolKind)
 }
 
 // reconcileCIDRPoolMode reconciles NVIPAM CIDRPool object and removes any leftover IPPool
 func reconcileCIDRPoolMode(ctx context.Context, c client.Client, dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) error {
 	pool := generateCIDRPool(dpuServiceIPAM)
+	return reconcilePoolMode(ctx, c, dpuServiceIPAM, pool, nvipamv1.IPPoolKind)
+}
+
+// reconcilePoolMode is a generic helper that reconciles a pool object and removes leftover pools of a different type
+func reconcilePoolMode(ctx context.Context, c client.Client, dpuServiceIPAM *dpuservicev1.DPUServiceIPAM, pool client.Object, leftoverPoolKind string) error {
+	// Delete leftover pool with the default name that might exist from a previous reconcile and override the name on
+	// the generated pool so that it can be patched with the new name.
+	if overridenPoolName, ok := dpuServiceIPAM.Annotations[dpuservicev1.DPUServiceIPAMChildObjectNameOverrideAnnotationKey]; ok {
+		// Cleanup only if the pool name is different than what the name the user asked for
+		if pool.GetName() != overridenPoolName {
+			if err := c.Delete(ctx, pool); client.IgnoreNotFound(err) != nil {
+				return fmt.Errorf("error while deleting %s %s: %w", pool.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(pool), err)
+			}
+		}
+		pool.SetName(overridenPoolName)
+	}
+
 	if err := c.Patch(ctx, pool, client.Apply, client.ForceOwnership, client.FieldOwner(dpuServiceIPAMControllerName)); err != nil {
 		return fmt.Errorf("error while patching %s %s: %w", pool.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(pool), err)
 	}
 
-	// Delete any leftover IPPool in case the configuration has changed from specifying `.Spec.IPV4Subnet` to
-	// specifying `.Spec.IPV4Network`.
-	if err := deleteDPUServiceOwnedPoolsOfType(ctx, c, dpuServiceIPAM, nvipamv1.IPPoolKind); err != nil {
+	// Delete any leftover pools of a different type in case the configuration has changed.
+	if err := deleteDPUServiceOwnedPoolsOfType(ctx, c, dpuServiceIPAM, leftoverPoolKind); err != nil {
 		return fmt.Errorf("error while removing potential leftover NVIPAM CRs: %w", err)
 	}
 
