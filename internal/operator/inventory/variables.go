@@ -24,6 +24,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 )
 
 func newDefaultVariables(defaults *release.Defaults) Variables {
@@ -91,6 +92,10 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			SecureFlowDeletionTimeout: 0 * time.Second,
 		},
 		Resources: map[string]corev1.ResourceRequirements{},
+		Replicas: map[operatorv1.ComponentName]*int32{
+			operatorv1.ProvisioningControllerName: ptr.To[int32](2),
+			operatorv1.KamajiClusterManagerName:   ptr.To[int32](2),
+		},
 	}
 }
 
@@ -118,6 +123,7 @@ type Variables struct {
 	KubernetesAPIServerVIP           *string
 	KubernetesAPIServerPort          *int
 	Resources                        map[string]corev1.ResourceRequirements
+	Replicas                         map[operatorv1.ComponentName]*int32
 }
 
 type DPFProvisioningVariables struct {
@@ -130,6 +136,7 @@ type DPFProvisioningVariables struct {
 	MultiDPUOperationsSyncWaitTime time.Duration
 	MaxUnavailableDPUNodes         *int32
 	Registry                       *operatorv1.RegistryConfiguration
+	Replicas                       *int32
 }
 
 type SFCControllerVariables struct {
@@ -240,6 +247,7 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		MaxDPUParallelInstallations:  config.Spec.ProvisioningController.MaxDPUParallelInstallations,
 		MaxUnavailableDPUNodes:       config.Spec.ProvisioningController.MaxUnavailableDPUNodes,
 		Registry:                     config.Spec.ProvisioningController.Registry,
+		Replicas:                     config.Spec.ProvisioningController.Replicas,
 	}
 	if config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime != nil {
 		variables.DPFProvisioningController.MultiDPUOperationsSyncWaitTime = config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime.Duration
@@ -314,6 +322,12 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 	if config.Spec.DPUServiceController != nil && config.Spec.DPUServiceController.DisableDPUReadyTaints != nil {
 		variables.DisableDPUReadyTaints = *config.Spec.DPUServiceController.DisableDPUReadyTaints
 	}
+
+	// Extract replicas for cluster managers
+	if config.Spec.KamajiClusterManager != nil && config.Spec.KamajiClusterManager.Replicas != nil {
+		variables.Replicas[operatorv1.KamajiClusterManagerName] = config.Spec.KamajiClusterManager.Replicas
+	}
+
 	return variables
 }
 
