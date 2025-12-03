@@ -25,6 +25,15 @@ spec:
         app.kubernetes.io/part-of: dpu-detector
         dpu.nvidia.com/component: dpu-detector
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
+              - key: node-role.kubernetes.io/master
+                operator: DoesNotExist
       containers:
       - command:
         - /dpu-detector
