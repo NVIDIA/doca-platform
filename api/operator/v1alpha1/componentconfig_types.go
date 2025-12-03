@@ -32,7 +32,8 @@ type DefaultOverridesConfiguration struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type ProvisioningControllerConfiguration struct {
-	BaseComponentConfig `json:",inline"`
+	BaseComponentConfig  `json:",inline"`
+	BaseControllerConfig `json:",inline"`
 
 	// Image overrides the container image used by the Provisioning controller.
 	//
@@ -205,7 +206,8 @@ type RegistryConfiguration struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type DPUServiceControllerConfiguration struct {
-	BaseComponentConfig `json:",inline"`
+	BaseComponentConfig  `json:",inline"`
+	BaseControllerConfig `json:",inline"`
 
 	// Image overrides the container image used by the DPUService controller.
 	//
@@ -301,7 +303,8 @@ func (c *DPUDetectorConfiguration) GetResources() map[ContainerName]*corev1.Reso
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type KamajiClusterManagerConfiguration struct {
-	BaseComponentConfig `json:",inline"`
+	BaseComponentConfig  `json:",inline"`
+	BaseControllerConfig `json:",inline"`
 
 	// Image overrides the container image used by the Kamaji Cluster Manager.
 	//
@@ -346,7 +349,8 @@ func (c *KamajiClusterManagerConfiguration) GetResources() map[ContainerName]*co
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type StaticClusterManagerConfiguration struct {
-	BaseComponentConfig `json:",inline"`
+	BaseComponentConfig  `json:",inline"`
+	BaseControllerConfig `json:",inline"`
 
 	// Image overrides the container image used by the Static Cluster Manager.
 	//
@@ -392,6 +396,7 @@ func (c *StaticClusterManagerConfiguration) GetResources() map[ContainerName]*co
 
 type ServiceSetControllerConfiguration struct {
 	BaseComponentConfig       `json:",inline"`
+	BaseControllerConfig      `json:",inline"`
 	HelmComponentConfig       `json:",inline"`
 	InClusterDeploymentConfig `json:",inline"`
 
