@@ -12,6 +12,15 @@ spec:
     metadata:
       labels:
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
+              - key: node-role.kubernetes.io/master
+                operator: DoesNotExist
       securityContext:
         ## Note: This is required as the NFD features file is in /etc/kubernetes
         ## TODO: This should be changed to a normal user-writable directory
