@@ -381,3 +381,17 @@ func ArgsForDaemonSetContainerEdit(containerName string, args []string) Structur
 		return nil
 	}
 }
+
+// ReplicasEditForDeployment sets the number of replicas for a Deployment
+func ReplicasEditForDeployment(replicas *int32) StructuredEdit {
+	return func(obj client.Object) error {
+		deployment, ok := obj.(*appsv1.Deployment)
+		if !ok {
+			return fmt.Errorf("unexpected object %s. expected Deployment", obj.GetObjectKind().GroupVersionKind())
+		}
+		if replicas != nil {
+			deployment.Spec.Replicas = replicas
+		}
+		return nil
+	}
+}

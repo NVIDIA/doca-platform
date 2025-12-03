@@ -1,4 +1,6 @@
 # Kamaji configuration
+# Number of Kamaji controller replicas for High Availability
+replicas: 2
 resources: null
 affinity:
   nodeAffinity:

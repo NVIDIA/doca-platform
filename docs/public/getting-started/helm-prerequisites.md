@@ -254,6 +254,8 @@ operator:
 [embedmd]:#(../../../deploy/helmfiles/values/kamaji.yaml)
 ```yaml
 # Kamaji configuration
+# Number of Kamaji controller replicas for High Availability
+replicas: 2
 resources: null
 affinity:
   nodeAffinity:
@@ -326,7 +328,7 @@ cfssl:
 
 </details>
 
-<details markdown="1"><summary>local-path-provosioner</summary>
+<details markdown="1"><summary>local-path-provisioner</summary>
 
 [embedmd]:#(../../../deploy/helmfiles/values/local-path-provisioner.yaml)
 ```yaml

@@ -146,6 +146,17 @@ func (b *BaseComponentConfig) Disabled() bool {
 	return b.Disable != nil && *b.Disable
 }
 
+// BaseControllerConfig provides common configuration fields that can be embedded
+// by all controller configurations to reduce code duplication.
+type BaseControllerConfig struct {
+	// Replicas is the number of replicas for the controller deployment.
+	// This is used for High Availability. Leader election is enabled by default.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3
+	// +optional
+	Replicas *int32 `json:"replicas,omitempty"`
+}
+
 // HelmComponentConfigurable is the shared config for helm components.
 //
 // +kubebuilder:object:generate=false

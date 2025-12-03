@@ -284,6 +284,14 @@ spec:
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
+                  replicas:
+                    description: |-
+                      Replicas is the number of replicas for the controller deployment.
+                      This is used for High Availability. Leader election is enabled by default.
+                    format: int32
+                    maximum: 3
+                    minimum: 1
+                    type: integer
                 type: object
                 x-kubernetes-validations:
                 - message: only either 'image' (deprecated) or 'controller.image'
@@ -480,6 +488,14 @@ spec:
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
+                  replicas:
+                    description: |-
+                      Replicas is the number of replicas for the controller deployment.
+                      This is used for High Availability. Leader election is enabled by default.
+                    format: int32
+                    maximum: 3
+                    minimum: 1
+                    type: integer
                 type: object
                 x-kubernetes-validations:
                 - message: only either 'image' (deprecated) or 'controller.image'
@@ -1085,6 +1101,14 @@ spec:
                         minimum: 1
                         type: integer
                     type: object
+                  replicas:
+                    description: |-
+                      Replicas is the number of replicas for the controller deployment.
+                      This is used for High Availability. Leader election is enabled by default.
+                    format: int32
+                    maximum: 3
+                    minimum: 1
+                    type: integer
                 required:
                 - bfbPVCName
                 type: object
@@ -1176,6 +1200,14 @@ spec:
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
+                  replicas:
+                    description: |-
+                      Replicas is the number of replicas for the controller deployment.
+                      This is used for High Availability. Leader election is enabled by default.
+                    format: int32
+                    maximum: 3
+                    minimum: 1
+                    type: integer
                 type: object
                 x-kubernetes-validations:
                 - message: only either 'image' (deprecated) or 'controller.image'
@@ -1438,6 +1470,14 @@ spec:
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
+                  replicas:
+                    description: |-
+                      Replicas is the number of replicas for the controller deployment.
+                      This is used for High Availability. Leader election is enabled by default.
+                    format: int32
+                    maximum: 3
+                    minimum: 1
+                    type: integer
                 type: object
                 x-kubernetes-validations:
                 - message: only either 'image' (deprecated) or 'controller.image'
