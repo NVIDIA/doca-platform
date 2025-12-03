@@ -221,6 +221,8 @@ spec:
 
 * `spec.provisioningController.dmsTimeout`: Timeout in seconds for DMS (DPU Management Service) operations.
 
+* `spec.provisioningController.replicas`: Number of provisioning-controller pods for high availability.
+
 * `spec.provisioningController.multiDPUOperationsSyncWaitTime`: Wait time for synchronizing operations across multiple DPUs.
     Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration.
 
@@ -244,6 +246,7 @@ spec:
     maxDPUParallelInstallations: 25  # Limit concurrent provisioning to 25 DPUs
     maxUnavailableDPUNodes: 5
     dmsTimeout: 600
+    replicas: 2
     multiDPUOperationsSyncWaitTime: 30s
     customCASecretName: my-ca-secret
     registry:

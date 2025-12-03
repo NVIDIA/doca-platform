@@ -52,6 +52,11 @@ func newClusterManagerObjects(component operatorv1.ComponentName, data []byte) *
 			}
 		}
 
+		// Apply replicas if specified
+		if replicas, exists := vars.Replicas[component]; exists && replicas != nil {
+			edits = edits.AddForKindS(DeploymentKind, ReplicasEditForDeployment(replicas))
+		}
+
 		return edits.Apply(objs)
 	}
 	return m

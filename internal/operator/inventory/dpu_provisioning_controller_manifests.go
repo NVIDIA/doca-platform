@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -218,6 +219,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setMaxUnavailableDPUNodes,
 			p.setResources,
 			p.setBFBRegistryAddress,
+			p.setReplicas,
 		}
 		for _, mod := range mods {
 			if err := mod(deployment, vars); err != nil {
@@ -551,6 +553,16 @@ func (p *provisioningControllerObjects) setMaxUnavailableDPUNodes(deploy *appsv1
 		return nil
 	}
 	return setFlags(c, fmt.Sprintf("--max-unavailable-dpu-nodes=%d", *vars.DPFProvisioningController.MaxUnavailableDPUNodes))
+}
+
+func (p *provisioningControllerObjects) setReplicas(deploy *appsv1.Deployment, vars Variables) error {
+	// Default to 2 replicas if not specified
+	replicas := ptr.To[int32](2)
+	if vars.DPFProvisioningController.Replicas != nil {
+		replicas = vars.DPFProvisioningController.Replicas
+	}
+	deploy.Spec.Replicas = replicas
+	return nil
 }
 
 // IsReadyForUpgrade reports the readiness of the provisioning controller objects. It returns an error when the number of Replicas in
