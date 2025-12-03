@@ -381,12 +381,14 @@ func ValidateDPFOperatorMaxDPUParallelInstallations(ctx context.Context, input *
 
 	By("getting the current provisioning controller pod UID")
 	var originalPodUID types.UID
+	var originalPodCount int
 	Eventually(func(g Gomega) {
 		pods := corev1.PodList{}
 		g.Expect(input.client.List(ctx, &pods,
 			client.MatchingLabels{operatorv1.DPFComponentLabelKey: "dpf-provisioning-controller-manager"})).To(Succeed())
-		g.Expect(pods.Items).To(HaveLen(1))
+		g.Expect(pods.Items).ToNot(BeEmpty())
 		originalPodUID = pods.Items[0].UID
+		originalPodCount = len(pods.Items)
 	}).WithTimeout(120 * time.Second).Should(Succeed())
 
 	By("modifying the DPFOperatorConfig to set MaxDPUParallelInstallations")
@@ -398,7 +400,7 @@ func ValidateDPFOperatorMaxDPUParallelInstallations(ctx context.Context, input *
 		pods := corev1.PodList{}
 		g.Expect(input.client.List(ctx, &pods,
 			client.MatchingLabels{operatorv1.DPFComponentLabelKey: "dpf-provisioning-controller-manager"})).To(Succeed())
-		g.Expect(pods.Items).To(HaveLen(1))
+		g.Expect(pods.Items).To(HaveLen(originalPodCount))
 		newPodUID = pods.Items[0].UID
 		g.Expect(newPodUID).ToNot(Equal(originalPodUID))
 	}).WithTimeout(120 * time.Second).Should(Succeed())
@@ -416,7 +418,7 @@ func ValidateDPFOperatorMaxDPUParallelInstallations(ctx context.Context, input *
 		pods := corev1.PodList{}
 		g.Expect(input.client.List(ctx, &pods,
 			client.MatchingLabels{operatorv1.DPFComponentLabelKey: "dpf-provisioning-controller-manager"})).To(Succeed())
-		g.Expect(pods.Items).To(HaveLen(1))
+		g.Expect(pods.Items).To(HaveLen(originalPodCount))
 		g.Expect(pods.Items[0].UID).ToNot(Equal(newPodUID))
 	}).WithTimeout(120 * time.Second).Should(Succeed())
 }
@@ -547,11 +549,12 @@ func ValidateDPFOperatorKubernetesAPIServerVIPAndPort(ctx context.Context, input
 			// TODO: Check if we can align the operatorv1.ProvisioningControllerName with that label in the manifests
 			// all the way
 			client.MatchingLabels{operatorv1.DPFComponentLabelKey: "dpf-provisioning-controller-manager"})).To(Succeed())
-		g.Expect(pods.Items).To(HaveLen(1))
-		pod := pods.Items[0]
-		g.Expect(pod.Spec.Containers).To(HaveLen(1))
-		g.Expect(pod.Spec.Containers[0].Args).To(ContainElement("--dms-pod-envs=KUBERNETES_SERVICE_HOST=192.168.1.1,KUBERNETES_SERVICE_PORT=1111"))
-	}).WithTimeout(120 * time.Second).Should(Succeed())
+		g.Expect(pods.Items).ToNot(BeEmpty())
+		for _, pod := range pods.Items {
+			g.Expect(pod.Spec.Containers).To(HaveLen(1))
+			g.Expect(pod.Spec.Containers[0].Args).To(ContainElement("--dms-pod-envs=KUBERNETES_SERVICE_HOST=192.168.1.1,KUBERNETES_SERVICE_PORT=1111"))
+		}
+	}).WithTimeout(120 * time.Second).WithPolling(10 * time.Second).Should(Succeed())
 
 	By("Triggering recreation DMS Pod")
 	triggerDMSRecreation(ctx, input.client)
@@ -593,7 +596,7 @@ func ValidateDPFOperatorKubernetesAPIServerVIPAndPort(ctx context.Context, input
 		g.Expect(input.client.List(ctx, &pods,
 			// TODO: Check if we can align the operatorv1.ProvisioningControllerName with that label all the way
 			client.MatchingLabels{operatorv1.DPFComponentLabelKey: "dpf-provisioning-controller-manager"})).To(Succeed())
-		g.Expect(pods.Items).To(HaveLen(1))
+		g.Expect(pods.Items).ToNot(BeEmpty())
 		pod := pods.Items[0]
 		g.Expect(pod.Spec.Containers).To(HaveLen(1))
 		g.Expect(pod.Spec.Containers[0].Args).ToNot(ContainElement("--dms-pod-envs=KUBERNETES_SERVICE_HOST=192.168.1.1,KUBERNETES_SERVICE_PORT=1111"))

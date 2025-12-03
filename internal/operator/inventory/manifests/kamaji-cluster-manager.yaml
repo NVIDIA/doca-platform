@@ -167,7 +167,7 @@ metadata:
   name: kamaji-cm-controller-manager
   namespace: dpf-operator-system
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/part-of: kamaji-cluster-manager
