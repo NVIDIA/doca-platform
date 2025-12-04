@@ -332,6 +332,16 @@ cfssl:
 
 [embedmd]:#(../../../deploy/helmfiles/values/local-path-provisioner.yaml)
 ```yaml
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/master"
+              operator: Exists
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/control-plane"
+              operator: Exists
 tolerations:
   - operator: Exists
     effect: NoSchedule
