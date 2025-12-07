@@ -765,7 +765,7 @@ DPU_ARCH = arm64
 BASE_IMAGE = nvcr.io/nvidia/doca/dpf_containers:1.0.2-ubuntu22.04-distroless
 ALPINE_IMAGE = alpine:3.19
 # Base image for hostdriver (DOCA full runtime host image)
-HOSTDRIVER_BASE_IMAGE ?= nvcr.io/nvidia/doca/doca:3.1.0-full-rt-host
+HOSTDRIVER_BASE_IMAGE ?= nvcr.io/nvidia/doca/doca:3.2.0-full-rt-ubuntu24.04-host
 
 .PHONY: binaries
 binaries: $(addprefix binary-,$(BUILD_TARGETS)) ## Build all binaries
