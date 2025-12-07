@@ -72,6 +72,8 @@ var (
 	collectResources = true
 	// externalTest path used to run external tests scripts
 	externalTest string
+	// enableSOSReports to enable collecting SOS reports after an e2e test run failure.
+	enableSOSReports = false
 )
 
 func getEnvVariables() {
@@ -122,6 +124,13 @@ func getEnvVariables() {
 		netutilsImage = img
 	} else {
 		panic("NETUTILS_IMAGE env variable must be set")
+	}
+	if v, found := os.LookupEnv("ENABLE_SOS_REPORTS"); found {
+		var err error
+		enableSOSReports, err = strconv.ParseBool(v)
+		if err != nil {
+			panic(fmt.Errorf("string must be a bool: %v", err))
+		}
 	}
 }
 
@@ -272,6 +281,14 @@ func reportAfterEach(spec SpecReport) {
 		if err != nil {
 			// Don't fail the test if the log collector fails - just print the errors.
 			GinkgoLogr.Error(err, "failed to collect resources and logs for the clusters")
+		}
+
+		// Collect SOS reports if enabled
+		if enableSOSReports {
+			err := collectSOSReports(ctx, collectInput, dpuClusterClient, dpuClusterRestConfig)
+			if err != nil {
+				GinkgoLogr.Error(err, "Failed to collect SOS reports")
+			}
 		}
 	}
 	if skipCleanup {
