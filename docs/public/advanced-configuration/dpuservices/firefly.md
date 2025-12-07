@@ -137,9 +137,9 @@ spec:
     source:
       chart: doca-firefly
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.1.7
+      version: 1.1.8
     values:
-      containerImage: nvcr.io/nvidia/doca/doca_firefly:1.7.3-doca3.1.0
+      containerImage: nvcr.io/nvidia/doca/doca_firefly:1.7.4-doca3.2.0
       hostNetwork: false
       enableTXPortTimestampOffloading: true
       monitorState: 0.0.0.0
@@ -195,9 +195,9 @@ spec:
     source:
       chart: doca-firefly
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.1.7
+      version: 1.1.8
     values:
-      containerImage: nvcr.io/nvidia/doca/doca_firefly:1.7.3-doca3.1.0-host
+      containerImage: nvcr.io/nvidia/doca/doca_firefly:1.7.4-doca3.2.0-host
       hostNetwork: false
       monitorClientPhc2sysInterface: eth0
       monitorClientType: phc2sys
