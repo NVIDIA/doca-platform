@@ -28,8 +28,8 @@ KIND_KUBERNETES_VERSION="${KIND_KUBERNETES_VERSION:-"v1.32.8"}"
 ADD_CONTROL_PLANE_TAINTS="${ADD_CONTROL_PLANE_TAINTS:-"false"}"
 DPUCLUSTER_NODE_PORT="32443"
 KIND_CONFIG_FILE="/tmp/kind-config-${CLUSTER_NAME}.yaml"
-# Registry mirror configuration (comma-separated list of endpoints)
-# Example: "https://registry-1.docker.io,https://mirror.gcr.io"
+# Registry mirror configuration (comma-separated list of host:target-endpoint)
+# Example: "docker.io:https://registry-1.docker.io,gcr.io:https://mirror.gcr.io"
 REGISTRY_MIRRORS="${REGISTRY_MIRRORS:-""}"
 
 echo "Setting up Kind cluster..."
@@ -40,57 +40,15 @@ if $KIND_BIN get clusters | grep -q "^${CLUSTER_NAME}$"; then
 	exit 0
 fi
 
-# Create containerd configuration with registry mirrors if specified
-CONTAINERD_CONFIG_PATCH=""
-if [[ -n "$REGISTRY_MIRRORS" ]]; then
-	echo "Configuring registry mirrors: $REGISTRY_MIRRORS"
-
-	# Start building the containerd config patch
-	CONTAINERD_CONFIG_PATCH=$(
-		cat << EOF
-containerdConfigPatches:
-- |-
-  [plugins."io.containerd.grpc.v1.cri".registry]
-    config_path = "/etc/containerd/certs.d"
-EOF
-	)
-
-	# Add registry mirrors configuration
-	IFS=',' read -ra MIRROR_ARRAY <<< "$REGISTRY_MIRRORS"
-	for MIRROR in "${MIRROR_ARRAY[@]}"; do
-		# Extract the hostname from the URL
-		MIRROR_HOST=$(echo "$MIRROR" | sed -e 's|^[^/]*//||' -e 's|/.*$||')
-		MIRROR_URL=$(echo "$MIRROR" | sed -e 's|/*$||') # Remove trailing slashes
-
-		CONTAINERD_CONFIG_PATCH+=$(
-			cat << EOF
-
-  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."$MIRROR_HOST"]
-    endpoint = ["$MIRROR_URL"]
-EOF
-		)
-	done
-
-	# Add Docker Hub mirror configuration if not explicitly specified
-	if ! [[ "$REGISTRY_MIRRORS" == *"docker.io"* ]]; then
-		CONTAINERD_CONFIG_PATCH+=$(
-			cat << EOF
-
-  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
-    endpoint = ["https://registry-1.docker.io"]
-EOF
-		)
-	fi
-
-	echo "Registry mirror configuration created"
-fi
-
 # Create Kind config file
 cat > ${KIND_CONFIG_FILE} << EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: ${CLUSTER_NAME}
-$CONTAINERD_CONFIG_PATCH
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    config_path = "/etc/containerd/certs.d"
 nodes:
 - role: control-plane
   kubeadmConfigPatches:
@@ -108,6 +66,34 @@ EOF
 
 # Create the cluster
 $KIND_BIN create cluster --config=${KIND_CONFIG_FILE}
+
+function docker_exec() {
+	docker exec "${CLUSTER_NAME}-control-plane" bash -c "$*"
+}
+
+# Configure registry mirrors if specified
+if [[ -n "$REGISTRY_MIRRORS" ]]; then
+	echo "Configuring registry mirrors: $REGISTRY_MIRRORS"
+
+	IFS=',' read -ra MIRROR_ENTRIES <<< "$REGISTRY_MIRRORS"
+	for MIRROR in "${MIRROR_ENTRIES[@]}"; do
+		HOST="${MIRROR%%:*}"
+		MIRROR_URL="${MIRROR#*:}"
+		echo "Setting up registry mirror for: Host: $HOST, Endpoint: $MIRROR_URL"
+
+		docker_exec mkdir -p "/etc/containerd/certs.d/$HOST"
+		docker_exec "cat >> /etc/containerd/certs.d/$HOST/hosts.toml << EOF
+[host.\"$MIRROR_URL\"]
+  capabilities = [\"pull\", \"resolve\"]
+EOF"
+
+	done
+
+	# restart containerd to apply the new mirror configuration
+	docker_exec systemctl restart containerd
+
+	echo "Registry mirror configuration created"
+fi
 
 # Set control-plane and master taint if requested
 if [[ "$ADD_CONTROL_PLANE_TAINTS" == "true" ]]; then
