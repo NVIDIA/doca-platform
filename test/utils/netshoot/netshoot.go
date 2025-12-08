@@ -355,17 +355,25 @@ func stopIperf3Server(restClient **rest.RESTClient, restConfig **rest.Config, na
 func startRDMAServer(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string) {
 	// This complex command is needed so that we can run ib_write_bw in background. ib_write_bw doesn't have a flag to
 	// keep the process running after the first client has finished the test.
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"bash", "-c", "nohup bash -c 'while true; do ib_write_bw; done' >/dev/null 2>&1 < /dev/null & exit"}, 30*time.Second, 5*time.Second, DefaultErrorParser)
+	// The timeout here needs to be higher than 30 because in case the client used is tunneled, and is broken, it has an
+	// internal timeout of 30s to re-create itself.
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"bash", "-c", "nohup bash -c 'while true; do ib_write_bw; done' >/dev/null 2>&1 < /dev/null & exit"}, 120*time.Second, 5*time.Second, DefaultErrorParser)
 }
 
 func stopRDMAServer(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string) {
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "bash"}, 30*time.Second, 5*time.Second, DefaultErrorParser)
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "ib_write_bw"}, 30*time.Second, 5*time.Second, DefaultErrorParser)
+	// The timeout here needs to be higher than 30 because in case the client used is tunneled, and is broken, it has an
+	// internal timeout of 30s to re-create itself.
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "bash"}, 120*time.Second, 5*time.Second, DefaultErrorParser)
+	// The timeout here needs to be higher than 30 because in case the client used is tunneled, and is broken, it has an
+	// internal timeout of 30s to re-create itself.
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "ib_write_bw"}, 120*time.Second, 5*time.Second, DefaultErrorParser)
 }
 
 func runRDMAClient(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string, serverIP string) string {
 	fileName := fmt.Sprintf("ib_write_bw-result-%s", utilrand.String(6))
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"ib_write_bw", serverIP, "--out_json", fmt.Sprintf("--out_json_file=%s", fileName)}, 30*time.Second, 5*time.Second, DefaultErrorParser)
+	// The timeout here needs to be higher than 30 because in case the client used is tunneled, and is broken, it has an
+	// internal timeout of 30s to re-create itself.
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"ib_write_bw", serverIP, "--out_json", fmt.Sprintf("--out_json_file=%s", fileName)}, 120*time.Second, 5*time.Second, DefaultErrorParser)
 	output := execCommandEventually(restClient, restConfig, namespace, podName, []string{"cat", fileName}, 30*time.Second, 5*time.Second, DefaultErrorParser)
 	return output
 }
