@@ -319,4 +319,31 @@ spec:
 			Expect(k8sClient.Update(ctx, obj2)).To(HaveOccurred())
 		})
 	})
+
+	// Unit tests - direct webhook method calls
+	Context("webhook unit tests", func() {
+		ctx := context.Background()
+
+		It("ValidateDelete should return nil", func() {
+			webhook := &DPUDevice{}
+			warnings, err := webhook.ValidateDelete(ctx, &provisioningv1.DPUDevice{})
+			Expect(warnings).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		// Tests for type assertion error handling (!ok branches)
+		It("ValidateCreate should return error for invalid object type", func() {
+			webhook := &DPUDevice{}
+			_, err := webhook.ValidateCreate(ctx, &provisioningv1.DPU{}) // Wrong type
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid object type"))
+		})
+
+		It("ValidateUpdate should return error for invalid object type", func() {
+			webhook := &DPUDevice{}
+			_, err := webhook.ValidateUpdate(ctx, &provisioningv1.DPUDevice{}, &provisioningv1.DPU{}) // Wrong newObj type
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid object type"))
+		})
+	})
 })

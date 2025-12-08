@@ -681,4 +681,140 @@ spec:
 				true),
 		)
 	})
+
+	// Unit tests - direct webhook method calls
+	Context("webhook unit tests", func() {
+		ctx := context.Background()
+
+		It("ValidateDelete should return nil", func() {
+			webhook := &DPUFlavor{}
+			warnings, err := webhook.ValidateDelete(ctx, &provisioningv1.DPUFlavor{ObjectMeta: metav1.ObjectMeta{Name: "non-existent-flavor", Namespace: "default"}})
+			Expect(warnings).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		// Tests for validateDPUInstallInterface
+		It("validateDPUInstallInterface should return nil for InstallViaMock with any dpuMode", func() {
+			installInterface := string(provisioningv1.InstallViaMock)
+			webhook := &DPUFlavor{DPUInstallInterface: &installInterface}
+			dpuFlavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					DpuMode: provisioningv1.DpuMode,
+				},
+			}
+			warnings, err := webhook.ValidateCreate(ctx, dpuFlavor)
+			Expect(warnings).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("validateDPUInstallInterface should return nil for InstallViaMock with zero-trust mode", func() {
+			installInterface := string(provisioningv1.InstallViaMock)
+			webhook := &DPUFlavor{DPUInstallInterface: &installInterface}
+			dpuFlavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					DpuMode: provisioningv1.ZeroTrustMode,
+				},
+			}
+			warnings, err := webhook.ValidateCreate(ctx, dpuFlavor)
+			Expect(warnings).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("validateDPUInstallInterface should return nil for InstallViaGNOI with dpu mode", func() {
+			installInterface := string(provisioningv1.InstallViaGNOI)
+			webhook := &DPUFlavor{DPUInstallInterface: &installInterface}
+			dpuFlavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					DpuMode: provisioningv1.DpuMode,
+				},
+			}
+			warnings, err := webhook.ValidateCreate(ctx, dpuFlavor)
+			Expect(warnings).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("validateDPUInstallInterface should return error for InstallViaGNOI with zero-trust mode", func() {
+			installInterface := string(provisioningv1.InstallViaGNOI)
+			webhook := &DPUFlavor{DPUInstallInterface: &installInterface}
+			dpuFlavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					DpuMode: provisioningv1.ZeroTrustMode,
+				},
+			}
+			_, err := webhook.ValidateCreate(ctx, dpuFlavor)
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("validateDPUInstallInterface should return nil for InstallViaRedFish with dpu mode", func() {
+			installInterface := string(provisioningv1.InstallViaRedFish)
+			webhook := &DPUFlavor{DPUInstallInterface: &installInterface}
+			dpuFlavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					DpuMode: provisioningv1.DpuMode,
+				},
+			}
+			warnings, err := webhook.ValidateCreate(ctx, dpuFlavor)
+			Expect(warnings).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("validateDPUInstallInterface should return nil for InstallViaRedFish with zero-trust mode", func() {
+			installInterface := string(provisioningv1.InstallViaRedFish)
+			webhook := &DPUFlavor{DPUInstallInterface: &installInterface}
+			dpuFlavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					DpuMode: provisioningv1.ZeroTrustMode,
+				},
+			}
+			warnings, err := webhook.ValidateCreate(ctx, dpuFlavor)
+			Expect(warnings).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("validateDPUInstallInterface should return error for invalid install interface", func() {
+			installInterface := "invalid-interface"
+			webhook := &DPUFlavor{DPUInstallInterface: &installInterface}
+			dpuFlavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					DpuMode: provisioningv1.DpuMode,
+				},
+			}
+			_, err := webhook.ValidateCreate(ctx, dpuFlavor)
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("validateDPUInstallInterface should skip validation when DPUInstallInterface is nil", func() {
+			webhook := &DPUFlavor{DPUInstallInterface: nil}
+			dpuFlavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					DpuMode: provisioningv1.ZeroTrustMode,
+				},
+			}
+			warnings, err := webhook.ValidateCreate(ctx, dpuFlavor)
+			Expect(warnings).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		// Tests for type assertion error handling (!ok branches)
+		It("ValidateCreate should return error for invalid object type", func() {
+			webhook := &DPUFlavor{}
+			_, err := webhook.ValidateCreate(ctx, &provisioningv1.DPU{}) // Wrong type
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid object type"))
+		})
+
+		It("ValidateUpdate should return error for invalid object type", func() {
+			webhook := &DPUFlavor{}
+			_, err := webhook.ValidateUpdate(ctx, &provisioningv1.DPUFlavor{}, &provisioningv1.DPU{}) // Wrong newObj type
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid object type"))
+		})
+
+		It("ValidateDelete should return error for invalid object type", func() {
+			webhook := &DPUFlavor{}
+			_, err := webhook.ValidateDelete(ctx, &provisioningv1.DPU{}) // Wrong type
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid object type"))
+		})
+	})
 })
