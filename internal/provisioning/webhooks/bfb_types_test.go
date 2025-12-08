@@ -355,4 +355,38 @@ var _ = Describe("BFB", func() {
 			Expect(apierrors.IsInvalid(err) || apierrors.IsForbidden(err)).To(BeTrue())
 		})
 	})
+
+	// Unit tests - direct webhook method calls
+	Context("webhook unit tests", func() {
+		ctx := context.Background()
+
+		It("ValidateDelete should return nil when no DPUSet references BFB", func() {
+			webhook := &BFB{}
+			warnings, err := webhook.ValidateDelete(ctx, &provisioningv1.BFB{ObjectMeta: metav1.ObjectMeta{Name: "non-existent-bfb", Namespace: "default"}})
+			Expect(warnings).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		// Tests for type assertion error handling (!ok branches)
+		It("ValidateCreate should return error for invalid object type", func() {
+			webhook := &BFB{}
+			_, err := webhook.ValidateCreate(ctx, &provisioningv1.DPU{}) // Wrong type
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid object type"))
+		})
+
+		It("ValidateUpdate should return error for invalid object type", func() {
+			webhook := &BFB{}
+			_, err := webhook.ValidateUpdate(ctx, &provisioningv1.BFB{}, &provisioningv1.DPU{}) // Wrong newObj type
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid new object type"))
+		})
+
+		It("ValidateDelete should return error for invalid object type", func() {
+			webhook := &BFB{}
+			_, err := webhook.ValidateDelete(ctx, &provisioningv1.DPU{}) // Wrong type
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid object type"))
+		})
+	})
 })
