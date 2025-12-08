@@ -17,9 +17,8 @@ limitations under the License.
 package release
 
 const (
-	// V2570 is the version of DPF v25.7.0.
-	// TODO: delete this version with the next release v25.10 and add a new one for v25.10.
-	V2570 = "v25.7.0"
+	// LastReleasedDPFGAVersion is the latest release version of DPF.
+	LastReleasedDPFGAVersion = "v25.10.0"
 	// DPFVersionLabelKey is the DPF version label key used for label resources.
 	DPFVersionLabelKey = "operator.dpu.nvidia.com/dpf-version"
 )

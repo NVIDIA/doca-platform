@@ -1187,7 +1187,6 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 	})
 
 	t.Run("formats multiple validation errors correctly", func(t *testing.T) {
-		oldVersion := "v25.7.0" // This will trigger upgrade validation and DPU validation errors
 		config := &operatorv1.DPFOperatorConfig{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "config-multiple-errors",
@@ -1199,7 +1198,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				},
 			},
 			Status: operatorv1.DPFOperatorConfigStatus{
-				Version:            &oldVersion,
+				Version:            ptr.To(release.LastReleasedDPFGAVersion),
 				ObservedGeneration: 1,
 			},
 		}
@@ -1356,7 +1355,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 		}).WithTimeout(10 * time.Second).WithPolling(time.Second).Should(Succeed())
 
 		patcher = patch.NewSerialPatcher(config, testClient)
-		config.Status.Version = ptr.To("v25.7.0")
+		config.Status.Version = ptr.To(release.LastReleasedDPFGAVersion)
 		g.Expect(patcher.Patch(ctx, config, patch.WithFieldOwner("test"))).To(Succeed())
 
 		g.Eventually(func(g Gomega) {
