@@ -263,7 +263,7 @@ type Firmware struct {
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].status`
-// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="phase of the cluster"
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="phase of the dpu"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // DPU is the Schema for the dpus API
