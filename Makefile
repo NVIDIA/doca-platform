@@ -40,7 +40,7 @@ export REGISTRY ?= example.com
 export UPSTREAM_REGISTRY ?= $(REGISTRY)
 
 # The latest stable tag is used in various places to refer to the latest stable release of DPF.
-LATEST_STABLE_TAG = v25.7.0
+LATEST_STABLE_TAG = v25.10.0-rc.5
 
 # If V is set to 1 the output will be verbose.
 Q = $(if $(filter 1,$V),,@)

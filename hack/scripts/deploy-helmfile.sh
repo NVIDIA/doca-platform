@@ -18,11 +18,10 @@ set -euo pipefail
 
 # Default values
 HELMFILE_FILE=""
-HELM_CHART_OCI=""
 HELM_CHART_VERSION=""
 HELM_CHART_NAME="dpf-operator"
 HELM_REPO_URL=""
-HELM_REPO_NAME=""
+CHART_NAME=""
 HELMFILE_BIN="helmfile"
 HELM_BIN="helm"
 ENVIRONMENT=""
@@ -36,12 +35,16 @@ Usage: $0 [OPTIONS]
 Deploy helm dependencies using helmfile. Supports local files, OCI registries, and traditional Helm repositories.
 
 OPTIONS:
-    -f, --file FILE           Path to helmfile (required for local and OCI deployments)
-    -r, --registry REGISTRY   OCI registry URL (e.g., oci://harbor.example.com/chart)
-    -v, --version VERSION     Chart version to pull from registry
-    -n, --name NAME           Chart name (default: dpf-operator)
-    --repo-url URL            Traditional Helm repository URL
-    --repo-name NAME          Repository name for traditional Helm repo (default: chart-repo)
+    -f, --file FILE           Path to helmfile (required for local and remote deployments)
+    --repo-url URL            Repository URL (supports both OCI and HTTPS)
+                              Examples:
+                              - OCI: oci://harbor.example.com/my-chart
+                              - HTTPS: https://charts.example.com
+    --chart-name NAME         Chart name (required for HTTPS repos, optional for OCI)
+                              - For OCI: used if not included in repo-url
+                              - For HTTPS: the chart name to pull from the repository
+    -v, --version VERSION     Chart version to pull from repository
+    -n, --name NAME           Chart name for extraction (default: dpf-operator)
     --environment NAME        Defines the environment for the deployment (e.g., shared-fs)
     --selector SELECTOR       Selector for filtering resources (e.g., "app=grafana" or "app!=prometheus")
     --helmfile-bin PATH       Path to helmfile binary (default: helmfile)
@@ -52,14 +55,14 @@ EXAMPLES:
     # Deploy from local file
     $0 -f deploy/helmfiles/prereqs.yaml
 
-    # Deploy from OCI registry
-    $0 -r "oci://harbor.example.com/chart" -v "v1.0.0" -f "prereqs.yaml"
+    # Deploy from OCI registry (chart in URL)
+    $0 --repo-url "oci://harbor.example.com/my-chart" -v "v1.0.0" -f "prereqs.yaml"
 
-    # Deploy from OCI registry with custom chart name
-    $0 -r "oci://harbor.example.com/chart" -v "v1.0.0" -n "my-chart" -f "prereqs.yaml"
+    # Deploy from OCI registry (chart as separate param)
+    $0 --repo-url "oci://harbor.example.com" --chart-name "my-chart" -v "v1.0.0" -f "prereqs.yaml"
 
-    # Deploy from traditional Helm repository
-    $0 --repo-url "https://charts.example.com" --repo-name "my-repo" -f "prereqs.yaml"
+    # Deploy from HTTPS Helm repository
+    $0 --repo-url "https://charts.example.com" --chart-name "dpf-operator" -v "v1.0.0" -f "prereqs.yaml"
 EOF
 }
 
@@ -70,8 +73,12 @@ while [[ $# -gt 0 ]]; do
 		HELMFILE_FILE="$2"
 		shift 2
 		;;
-	-r | --registry)
-		HELM_CHART_OCI="$2"
+	--repo-url)
+		HELM_REPO_URL="$2"
+		shift 2
+		;;
+	--chart-name)
+		CHART_NAME="$2"
 		shift 2
 		;;
 	-v | --version)
@@ -80,14 +87,6 @@ while [[ $# -gt 0 ]]; do
 		;;
 	-n | --name)
 		HELM_CHART_NAME="$2"
-		shift 2
-		;;
-	--repo-url)
-		HELM_REPO_URL="$2"
-		shift 2
-		;;
-	--repo-name)
-		HELM_REPO_NAME="$2"
 		shift 2
 		;;
 	--environment)
@@ -118,28 +117,34 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
-# Set default repo name if not provided
-if [[ -n "$HELM_REPO_URL" && -z "$HELM_REPO_NAME" ]]; then
-	echo "Error: --repo-name is required when using --repo-url"
-	usage
-	exit 1
+# Detect repository type (OCI or HTTPS)
+REPO_TYPE=""
+if [[ -n "$HELM_REPO_URL" ]]; then
+	if [[ "$HELM_REPO_URL" =~ ^oci:// ]]; then
+		REPO_TYPE="oci"
+	elif [[ "$HELM_REPO_URL" =~ ^https?:// ]]; then
+		REPO_TYPE="https"
+	else
+		echo "Error: --repo-url must start with 'oci://' or 'https://' (got: $HELM_REPO_URL)"
+		usage
+		exit 1
+	fi
+
+	# If -n is not explicitly set, derive extraction name from chart name or URL
+	if [[ "$HELM_CHART_NAME" == "dpf-operator" ]]; then
+		if [[ -n "$CHART_NAME" ]]; then
+			# Use the chart name
+			HELM_CHART_NAME="$CHART_NAME"
+		elif [[ "$REPO_TYPE" == "oci" ]]; then
+			# Extract chart name from OCI URL
+			HELM_CHART_NAME=$(basename "$HELM_REPO_URL")
+		fi
+	fi
 fi
 
 # Validate required parameters
-if [[ -z "$HELM_CHART_OCI" && -z "$HELMFILE_FILE" && -z "$HELM_REPO_URL" ]]; then
-	echo "Error: Either --registry, --file, or --repo-url must be specified"
-	usage
-	exit 1
-fi
-
-if [[ -n "$HELM_CHART_OCI" && -z "$HELM_CHART_VERSION" ]]; then
-	echo "Error: --version is required when using --registry"
-	usage
-	exit 1
-fi
-
-if [[ -n "$HELM_CHART_OCI" && -z "$HELMFILE_FILE" ]]; then
-	echo "Error: --file is required when using --registry"
+if [[ -z "$HELMFILE_FILE" && -z "$HELM_REPO_URL" ]]; then
+	echo "Error: Either --file (for local) or --repo-url (for remote) must be specified"
 	usage
 	exit 1
 fi
@@ -156,10 +161,21 @@ if [[ -n "$HELM_REPO_URL" && -z "$HELMFILE_FILE" ]]; then
 	exit 1
 fi
 
+if [[ "$REPO_TYPE" == "https" && -z "$CHART_NAME" ]]; then
+	echo "Error: --chart-name is required when using HTTPS repository"
+	usage
+	exit 1
+fi
+
 # Function to deploy from OCI registry
 deploy_from_oci() {
-	echo "Deploying from OCI registry: $HELM_CHART_OCI"
-	deploy_from_chart "$HELM_CHART_OCI"
+	local ociUrl="$HELM_REPO_URL"
+	# Append chart name if provided
+	if [[ -n "$CHART_NAME" ]]; then
+		ociUrl="${HELM_REPO_URL}/${CHART_NAME}"
+	fi
+	echo "Deploying from OCI registry: $ociUrl"
+	deploy_from_chart "$ociUrl"
 }
 
 # Function to deploy from local file
@@ -179,15 +195,23 @@ deploy_from_local() {
 deploy_from_repo() {
 	echo "Deploying from Helm repository: $HELM_REPO_URL"
 
+	# Derive repo name from URL by removing protocol and sanitizing
+	# Example: https://helm.ngc.nvidia.com/nvidia/doca -> helm-ngc-nvidia-com-nvidia-doca
+	local repoName=$(echo "$HELM_REPO_URL" | sed -e 's|^https\?://||' -e 's|[^a-zA-Z0-9]|-|g' -e 's|^-*||' -e 's|-*$||')
+
 	# Add the repository (force add if it already exists)
-	echo "Adding Helm repository: $HELM_REPO_NAME"
-	"$HELM_BIN" repo add "$HELM_REPO_NAME" "$HELM_REPO_URL" --force-update
+	echo "Adding Helm repository: $repoName"
+	"$HELM_BIN" repo add "$repoName" "$HELM_REPO_URL" --force-update
 
 	# Update repositories
 	echo "Updating Helm repositories"
 	"$HELM_BIN" repo update
 
-	deploy_from_chart "$HELM_REPO_NAME/$HELM_CHART_NAME"
+	# Pull the chart using the repo name and chart name
+	deploy_from_chart "$repoName/$CHART_NAME"
+
+	# Clean up: remove the temporary repository
+	"$HELM_BIN" repo remove "$repoName" 2> /dev/null || true
 }
 
 # Generic function to deploy from chart (OCI or Helm repository)
@@ -251,9 +275,9 @@ deploy_helmfile() {
 }
 
 # Main execution
-if [[ -n "$HELM_CHART_OCI" ]]; then
+if [[ "$REPO_TYPE" == "oci" ]]; then
 	deploy_from_oci
-elif [[ -n "$HELM_REPO_URL" ]]; then
+elif [[ "$REPO_TYPE" == "https" ]]; then
 	deploy_from_repo
 else
 	deploy_from_local

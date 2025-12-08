@@ -529,7 +529,7 @@ var _ = Describe("DPUNode Controller", func() {
 
 			It("DPUNode: Validate the DPUNode condition are set correctly for non-k8s upgrade", func() {
 				dpuNode := createDPUNode("test-dpunode-15", operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace)
-				dpuNode.Labels[release.DPFVersionLabelKey] = release.V2570
+				dpuNode.Labels[release.DPFVersionLabelKey] = release.LastReleasedDPFGAVersion
 				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
 
 				Eventually(func(g Gomega) []metav1.Condition {

@@ -397,9 +397,6 @@ func dpuServiceInClusterEdit(deployInCluster bool) StructuredEdit {
 
 // IsReadyForUpgrade returns an error if the DPUService does not have a Ready status condition and the version is not updated.
 func (f *fromDPUService) IsReadyForUpgrade(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig) error {
-	if utils.IsUpgradeFrom25Dot7(*config.Status.Version) && f.name == operatorv1.CNIInstallerName {
-		return nil
-	}
 	return f.isReady(ctx, c, config.GetNamespace(), false)
 }
 

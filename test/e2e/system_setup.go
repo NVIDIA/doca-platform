@@ -29,7 +29,6 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/dpfctl"
-	operatorutils "github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/collector"
@@ -343,15 +342,10 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		gotDPFOperatorConfig := &operatorv1.DPFOperatorConfig{}
 		g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(input.operatorConfig), gotDPFOperatorConfig)).NotTo(HaveOccurred())
 		g.Expect(gotDPFOperatorConfig.Status.Version).NotTo(BeNil())
-		isUpgradeFrom25Dot7 := operatorutils.IsUpgradeFrom25Dot7(*gotDPFOperatorConfig.Status.Version)
 
 		dpuServices := &dpuservicev1.DPUServiceList{}
 		g.Expect(testClient.List(ctx, dpuServices)).To(Succeed())
-		if isUpgradeFrom25Dot7 {
-			g.Expect(dpuServices.Items).To(HaveLen(8))
-		} else {
-			g.Expect(dpuServices.Items).To(HaveLen(9))
-		}
+		g.Expect(dpuServices.Items).To(HaveLen(9))
 		found := map[string]bool{}
 		for i := range dpuServices.Items {
 			found[dpuServices.Items[i].Name] = true
@@ -365,9 +359,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		g.Expect(found).To(HaveKey(operatorv1.NVIPAMName.String()))
 		g.Expect(found).To(HaveKey(operatorv1.OVSCNIName.String()))
 		g.Expect(found).To(HaveKey(operatorv1.SFCControllerName.String()))
-		if !isUpgradeFrom25Dot7 {
-			g.Expect(found).To(HaveKey(operatorv1.CNIInstallerName.String()))
-		}
+		g.Expect(found).To(HaveKey(operatorv1.CNIInstallerName.String()))
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 }
 
