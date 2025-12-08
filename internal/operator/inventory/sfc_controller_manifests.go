@@ -150,9 +150,7 @@ func (p *sfcControllerObjects) GenerateManifests(vars Variables, options ...Gene
 // ready.
 func (p *sfcControllerObjects) IsReadyForUpgrade(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig) error {
 	var errs []error
-	if !utils.IsUpgradeFrom25Dot7(*config.Status.Version) {
-		errs = append(errs, p.areDPUServiceNADsReady(ctx, c, config.GetNamespace(), false)...)
-	}
+	errs = append(errs, p.areDPUServiceNADsReady(ctx, c, config.GetNamespace(), false)...)
 	errs = append(errs, p.fromDPUService.isReady(ctx, c, config.GetNamespace(), false))
 	return kerrors.NewAggregate(errs)
 }
