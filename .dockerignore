@@ -3,6 +3,10 @@
 # gitlab config
 .gitlab/
 
+# Exclude all .git directories to prevent cache invalidation
+.git/
+**/.git/
+
 # Build artifacts
 bin/
 artifacts/
@@ -22,11 +26,16 @@ artifacts/
 *.log
 *.out
 
-# Don't copy hack directory (except needed tools)
+# Don't copy hack directory (except needed files)
 hack/*
 !hack/tools/tools.mk
 !hack/boilerplate.go.txt
 !hack/repos/ovn-kubernetes/**
+# Exclude generated files that contain TAG and would invalidate cache
+hack/repos/**/values.yaml
+dpuservices/**/values.yaml
+deploy/charts/**/values.yaml
+internal/release/manifests/defaults.yaml
 
 # Other directories not needed for build
 .vscode/

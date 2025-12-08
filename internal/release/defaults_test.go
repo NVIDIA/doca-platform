@@ -17,6 +17,8 @@ limitations under the License.
 package release
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -25,6 +27,13 @@ import (
 
 func TestDefaults_Parse(t *testing.T) {
 	g := NewGomegaWithT(t)
+
+	// Load the generated defaults file for testing
+	defaultsFilePath := filepath.Join("manifests", "defaults.yaml")
+	generatedDefaults, err := os.ReadFile(defaultsFilePath)
+	if err != nil {
+		t.Fatalf("Failed to read defaults file (run 'make generate-manifests-release-defaults'): %v", err)
+	}
 
 	defaultValues := map[string]string{
 		"dmsImage":               "example.com/hostdriver:v0.1.0",
@@ -43,7 +52,7 @@ func TestDefaults_Parse(t *testing.T) {
 	}{
 		{
 			name:    "succeed on the generated yaml",
-			content: defaultsContent,
+			content: generatedDefaults,
 			wantErr: false,
 		},
 		{

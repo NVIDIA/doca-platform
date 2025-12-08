@@ -17,14 +17,32 @@ limitations under the License.
 package release
 
 import (
-	_ "embed"
 	"errors"
+	"os"
 
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/yaml"
 )
 
-//go:embed manifests/defaults.yaml
+const (
+	// defaultsFile is the file path where the DPF defaults are stored at runtime.
+	// Loading defaults from a file instead of embedding improves Docker build cache
+	// efficiency by preventing defaults changes from invalidating binary layers.
+	defaultsFile = "/etc/dpf-defaults.yaml"
+)
+
+// defaultsContent is loaded at runtime from the defaults file
 var defaultsContent []byte
+
+func init() {
+	var err error
+	defaultsContent, err = os.ReadFile(defaultsFile)
+	if err != nil {
+		klog.Warningf("Unable to load defaults file from path %q: %v", defaultsFile, err)
+		// Set empty content if file doesn't exist (e.g., in tests)
+		defaultsContent = []byte{}
+	}
+}
 
 // Defaults structure contains the default artifacts that the operators should deploy
 type Defaults struct {
@@ -66,4 +84,10 @@ func (d *Defaults) Parse() error {
 // NewDefaults creates a new defaults object
 func NewDefaults() *Defaults {
 	return &Defaults{}
+}
+
+// SetDefaultsContentForTesting allows injecting defaults content for testing purposes.
+// This should only be used in tests.
+func SetDefaultsContentForTesting(content []byte) {
+	defaultsContent = content
 }

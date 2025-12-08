@@ -19,7 +19,7 @@ package identity
 import (
 	"context"
 
-	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/common"
+	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -49,7 +49,7 @@ var _ = Describe("Identity Handler", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp).NotTo(BeNil())
 			Expect(resp.Name).To(Equal(config.DefaultPluginName))
-			Expect(resp.VendorVersion).To(Equal(common.VendorVersion))
+			Expect(resp.VendorVersion).To(Equal(release.DPFVersion()))
 		})
 	})
 

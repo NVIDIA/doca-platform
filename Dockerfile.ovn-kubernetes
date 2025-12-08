@@ -9,13 +9,11 @@ ARG gcflags
 ARG ldflags
 ARG KUBECTL_VERSION
 ARG OVN_VERSION
-ARG FULL_COMMIT
 
 WORKDIR /workspace
-ENV FULL_COMMIT=${FULL_COMMIT}
-RUN apt-get update && apt-get install -y -qq make git && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y -qq make
 
 # Download all files (combining RUN commands reduces layers and improves caching)
 RUN curl -fsSL --retry 5 --retry-delay 3 \
@@ -38,22 +36,53 @@ RUN curl -fsSL --retry 5 --retry-delay 3 \
     -o ovn-host_${OVN_VERSION}-1_${TARGETARCH}.deb
 
 ARG ovn_kubernetes_dir
+ARG ovn_kubernetes_git_commit
 COPY ${ovn_kubernetes_dir} ovn-kubernetes
-RUN cd ovn-kubernetes/dist/images && \
+# Patch build script with static git info (avoids needing .git which breaks cache)
+RUN cd ovn-kubernetes/go-controller/hack && \
+    sed -i "s/GIT_COMMIT=.*/GIT_COMMIT=${ovn_kubernetes_git_commit}/" build-go.sh && \
+    sed -i 's/GIT_BRANCH=.*/GIT_BRANCH=HEAD/' build-go.sh
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    cd ovn-kubernetes/dist/images && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make bld
 
-ARG ipallocator_dir
-COPY ./ ./
-COPY go.mod go.mod
-COPY go.sum go.sum
+# Create source code archive excluding .gocache, and test files.
+# Skipping `.gocache` since it contains pre-compiled versions of packages and other build artifacts for speeding up subsequent builds
+RUN mkdir src && \
+    find . -name '*.go' \
+      -not -path "./hack/*" \
+      -not -path "./.gocache/*" \
+      -not -name "*_test.go" \
+      -exec cp --parents {} src/ \; && \
+    tar -czf source-code.tar.gz src
+
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS dpf-builder
+
+ARG TARGETARCH
+ARG gcflags
+ARG ldflags
+ARG KUBECTL_VERSION
+ARG OVN_VERSION
+WORKDIR /workspace
+
+# Copy dependency files first for better layer caching
+COPY go.mod go.sum ./
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
+# Copy source code after dependencies are cached
+# Only copy directories needed for the build to avoid cache busting
+COPY api/ api/
+COPY cmd/ cmd/
+COPY internal/ internal/
+COPY pkg/ pkg/
+
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath \
+    go build -buildvcs=false -trimpath \
     -ldflags="${ldflags}"  \
     -gcflags="${gcflags}" \
     -o ipallocator ./cmd/ipallocator
@@ -61,7 +90,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath \
+    go build -buildvcs=false -trimpath \
     -ldflags="${ldflags}"  \
     -gcflags="${gcflags}" \
     -o dpucniprovisioner ./cmd/dpucniprovisioner
@@ -69,14 +98,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath \
+    go build -buildvcs=false -trimpath \
     -ldflags="${ldflags}"  \
     -gcflags="${gcflags}" \
     -o ovnkubernetesresourceinjector ./cmd/ovnkubernetesresourceinjector
 
 # Create source code archive excluding .gocache, and test files.
 # Skipping `.gocache` since it contains pre-compiled versions of packages and other build artifacts for speeding up subsequent builds
-RUN mkdir src && \
+RUN mkdir -p src && \
     find . -name '*.go' \
       -not -path "./hack/*" \
       -not -path "./.gocache/*" \
@@ -108,23 +137,21 @@ RUN find /etc/apt/sources.list* -type f -exec sed -i \
 # This is necessary to be able to download the sources for all packages later.
 # If some packages are not up to date, `apt-get source` may fail with errors like:
 # Can not find version '0.60ubuntu0.3' of package 'distro-info-data'
-RUN apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
     apt-get upgrade -y -qq && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-RUN dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /initial-dpkg-list.txt
+    dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /initial-dpkg-list.txt
 
-RUN apt-get update && \
+# Install all packages in one layer to avoid repeated apt-get update calls
+# Combine both BASE_PACKAGES and OVN_PACKAGES for optimal caching
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
     apt-get install -y -qq ${BASE_PACKAGES} && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-RUN apt-get update && \
     apt-get install -y -qq --no-install-recommends ${OVN_PACKAGES} && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /after-ovn-dpkg-list.txt
 
-RUN dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /after-ovn-dpkg-list.txt
 # Copy OVN packages from builder stage (downloaded natively, no emulation issues)
 COPY --from=ovnkubernetes-builder /workspace/ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb .
 COPY --from=ovnkubernetes-builder /workspace/ovn-central_${OVN_VERSION}-1_${TARGETARCH}.deb .
@@ -142,9 +169,9 @@ RUN mkdir -p /var/run/openvswitch
 # Built in ../../go_controller, then the binaries are copied here.
 # put things where they are in the pkg
 RUN mkdir -p /usr/libexec/cni/
-COPY --from=ovnkubernetes-builder /workspace/ipallocator /ipallocator
-COPY --from=ovnkubernetes-builder /workspace/dpucniprovisioner /cniprovisioner
-COPY --from=ovnkubernetes-builder /workspace/ovnkubernetesresourceinjector /ovnkubernetesresourceinjector
+COPY --from=dpf-builder /workspace/ipallocator /ipallocator
+COPY --from=dpf-builder /workspace/dpucniprovisioner /cniprovisioner
+COPY --from=dpf-builder /workspace/ovnkubernetesresourceinjector /ovnkubernetesresourceinjector
 COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/ovnkube /usr/bin/
 COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/ovn-kube-util /usr/bin/
 COPY --from=ovnkubernetes-builder /workspace/ovn-kubernetes/go-controller/_output/go/bin/ovndbchecker /usr/bin/
@@ -178,6 +205,7 @@ RUN mkdir -p /src
 WORKDIR /src
 
 # Copy ovn-kubernetes source code from builder stage
+COPY --from=dpf-builder /workspace/source-code.tar.gz dpf-source-code.tar.gz
 COPY --from=ovnkubernetes-builder /workspace/source-code.tar.gz ovn-kubernetes-source-code.tar.gz
 COPY --from=ovnkubernetes-builder /workspace/ovn-${OVN_VERSION}.tar.gz ovn-${OVN_VERSION}.tar.gz
 COPY --from=ovnkubernetes-builder /workspace/kubectl-${KUBECTL_VERSION}.tar.gz kubectl-${KUBECTL_VERSION}.tar.gz
@@ -186,15 +214,15 @@ COPY --from=ovnkubernetes-builder /workspace/kubectl-${KUBECTL_VERSION}.tar.gz k
 # Starting from Ubuntu 24.04 shifted to the new deb822 format for source management.
 # Enable `deb-src` to be able to fetch sources using `apt-get source`
 ARG PACKAGE_SOURCES
-RUN test "${PACKAGE_SOURCES}" = "false" || ( \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    test "${PACKAGE_SOURCES}" = "false" || ( \
       sed -i 's/^# deb-src/deb-src/g' /etc/apt/sources.list /etc/apt/sources.list.d/* && \
       sed -i 's/^Types: deb$/Types: deb deb-src/g' /etc/apt/sources.list.d/*.sources && \
       apt-get update && \
       apt-get source --download-only ${BASE_PACKAGES} ${OVN_PACKAGES} && \
       comm -23 --nocheck-order /after-ovn-dpkg-list.txt /initial-dpkg-list.txt | xargs -r apt-get source --download-only && \
-      apt-get clean && \
       rm -f /initial-dpkg-list.txt /after-ovn-dpkg-list.txt && \
-      rm -rf /var/lib/apt/lists/* && \
       cd / && \
       tar -cf source-code.tar /src && \
       rm -rf /src \

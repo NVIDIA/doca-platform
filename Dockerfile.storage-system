@@ -13,37 +13,48 @@ COPY go.sum go.sum
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
-COPY ./ ./
-
-# Ensure that no additional tools or artifacts are included.
-RUN make clean
+COPY third_party/ third_party/
+COPY api/ api/
+COPY cmd/ cmd/
+COPY test/ test/
+COPY internal/ internal/
+COPY pkg/ pkg/
+# Note: .gitmodules and .git/modules/ NOT copied - they cause cache invalidation
+# The third_party/ directory already contains the submodule contents
+COPY hack/tools/tools.mk hack/tools/tools.mk
+COPY hack/boilerplate.go.txt hack/boilerplate.go.txt
 
 ARG gcflags
 ARG ldflags
-ARG storage_snap_csi_driver_go_ldflags
 ARG TARGETARCH
-ARG nvidia_external_attacher_go_ldflags
-ARG FULL_COMMIT
 
-ENV STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS=\"${storage_snap_csi_driver_go_ldflags}\"
-ENV GO_LDFLAGS=\"${ldflags}\"
-ENV GO_GCFLAGS=\"${gcflags}\"
+ENV GO_LDFLAGS=${ldflags}
+ENV GO_GCFLAGS=${gcflags}
 ENV ARCH=${TARGETARCH}
-ENV NVIDIA_EXTERNAL_ATTACHER_GO_LDFLAGS=\"${nvidia_external_attacher_go_ldflags}\"
-ENV FULL_COMMIT=${FULL_COMMIT}
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=bind,source=Makefile,target=Makefile \
+    --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
     make binaries-storage-system
 
 # Copy the go source code so it can be distributed in the final image.
-RUN go mod vendor
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod vendor
 RUN mkdir src && \
     find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
     -exec cp --parents \{\}  src/ \; && \
     tar -czf source-code.tar.gz src
 
-# 2) Final stage copies artifacts from the builder stage.
+# 2) Version stage creates the version file separately to avoid invalidating builder cache
+FROM ${builder_image} AS version
+ARG TAG
+# Write the DPF version file (separate stage to preserve builder cache when only TAG changes).
+# The command echo is not present in the final image so this stage is needed.
+RUN echo "${TAG}" > /tmp/dpf-version
+
+# 3) Final stage copies artifacts from the builder stage.
 FROM ${base_image}
 ARG TARGETARCH
 
@@ -63,3 +74,6 @@ COPY --chown=${uid} --from=builder /workspace/bin/block-storage-vendor-dpu-plugi
 COPY --chown=${uid} --from=builder /workspace/bin/nfs-storage-vendor-dpu-plugin /nfs-storage-vendor-dpu-plugin
 COPY --chown=${uid} --from=builder /workspace/bin/nvidia-external-attacher /nvidia-external-attacher
 COPY --chown=${uid} --from=builder /workspace/bin/snap-host-controller /snap-host-controller
+
+# Copy the DPF version file from version stage (not builder, to preserve builder cache)
+COPY --chown=root:root --from=version /tmp/dpf-version /etc/dpf-version

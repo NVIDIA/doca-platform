@@ -17,11 +17,29 @@ limitations under the License.
 package inventory
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/nvidia/doca-platform/internal/release"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+func TestMain(m *testing.M) {
+	// Load defaults from the generated build file for testing
+	// This runs once before all tests in this package
+	defaultsFile := filepath.Join("..", "..", "release", "manifests", "defaults.yaml")
+	defaultsContent, err := os.ReadFile(defaultsFile)
+	if err != nil {
+		panic("Failed to read defaults file (run 'make generate-manifests-release-defaults'): " + err.Error())
+	}
+	release.SetDefaultsContentForTesting(defaultsContent)
+
+	// Run all tests
+	os.Exit(m.Run())
+}
 
 func TestInventory(t *testing.T) {
 	RegisterFailHandler(Fail)
