@@ -21,7 +21,7 @@ import (
 	"os"
 
 	"github.com/nvidia/doca-platform/cmd/storage/snap-csi-plugin/options"
-	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/common"
+	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
 	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/manager"
 
@@ -51,7 +51,7 @@ func main() {
 
 // run in the entry point of the app
 func run(opts *options.Options) error {
-	klog.InfoS("start storage plugin", "name", opts.Name, "emulationMode", opts.EmulationMode, "version", common.VendorVersion)
+	klog.InfoS("start storage plugin", "name", opts.Name, "emulationMode", opts.EmulationMode, "version", release.DPFVersion())
 	ctx := ctrl.SetupSignalHandler()
 	net, address, err := options.ParseBindAddress(opts.BindAddress)
 	if err != nil {

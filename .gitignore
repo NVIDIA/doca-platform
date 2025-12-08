@@ -60,3 +60,6 @@ third_party/forked/ovs-cni/.version
 
 # Ignore the rendered helmfiles in the dpf-operator chart
 deploy/charts/dpf-operator/dev/helmfiles/**
+
+# build is the output directory for build artifacts, e.g. our defaults.yaml
+build/

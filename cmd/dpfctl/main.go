@@ -16,11 +16,20 @@ limitations under the License.
 
 package main
 
-import "github.com/nvidia/doca-platform/cmd/dpfctl/cmd"
+import (
+	"github.com/nvidia/doca-platform/cmd/dpfctl/cmd"
+	"github.com/nvidia/doca-platform/internal/release"
+)
 
 // version is set by the Makefile.
 var version = "unknown"
 
 func main() {
+	// If the version is not set, get it from the release package.
+	// During dpfctl release we set the version via go build ldflags.
+	// If it's builtin our controllers, we read it from the /etc/dpf-version file.
+	if version == "unknown" {
+		version = release.DPFVersion()
+	}
 	cmd.Execute(version)
 }

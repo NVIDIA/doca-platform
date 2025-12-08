@@ -19,7 +19,7 @@ package identity
 import (
 	"context"
 
-	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/common"
+	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/config"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -49,7 +49,7 @@ func (h *identity) GetPluginInfo(
 	*csi.GetPluginInfoResponse, error) {
 	return &csi.GetPluginInfoResponse{
 		Name:          h.commonConfig.Name,
-		VendorVersion: common.VendorVersion,
+		VendorVersion: release.DPFVersion(),
 	}, nil
 }
 
