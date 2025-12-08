@@ -27,7 +27,7 @@ include hack/tools/tools.mk
 PROJECT_NAME="DOCA Platform Framework"
 PROJECT_REPO="https://github.com/NVIDIA/doca-platform"
 export DATE="$(shell date --rfc-3339=seconds)"
-export FULL_COMMIT ?= $(shell git rev-parse HEAD)
+export FULL_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 
 # Export is needed here so that the envsubst used in make targets has access to those variables even when they are not
 # explicitly set when calling make.
@@ -330,7 +330,11 @@ RELEASE_FILE = ./internal/release/manifests/defaults.yaml
 
 .PHONY: generate-manifests-release-defaults
 generate-manifests-release-defaults: envsubst ## Generates manifests that contain the default values that should be used by the operators
-	$(ENVSUBST) <  ./internal/release/templates/defaults.yaml.tmpl > $(RELEASE_FILE)
+	mkdir -p ./build
+	$(ENVSUBST) < ./internal/release/templates/defaults.yaml.tmpl > $(RELEASE_FILE)
+	## Copy the generated release defaults to the build directory to be able to copy them during docker build.
+	## This is needed as the internal/release directory is not in the docker build context.
+	cp $(RELEASE_FILE) ./build/defaults.yaml
 
 TEMPLATES_DIR ?= $(PROJECT_DIR)/internal/operator/inventory/templates
 EMBEDDED_MANIFESTS_DIR ?= $(PROJECT_DIR)/internal/operator/inventory/manifests
@@ -440,8 +444,24 @@ generate-docs-helm: helm-docs yq ## Generate helm chart documentation.
 generate-docs-embedmd: embedmd ## Embed additional files into markdown docs.
 	grep -rl --include \*.md -e '\[embedmd\]' docs | xargs $(EMBEDMD) -w
 
+.PHONY: init-external-attacher-submodule
+init-external-attacher-submodule: ## Initialize external-attacher submodule if needed
+	## Initialize git repo as we don't copy .git into our docker build context.
+	@if ! git rev-parse --git-dir >/dev/null 2>&1; then \
+		echo "Not a functional git repo, initializing for submodule..."; \
+		git init; \
+		git config user.email "docker@build.local" && git config user.name "Docker Build"; \
+		git add .; \
+		git commit -m "Initial commit for submodule" &>/dev/null || true; \
+		git submodule update --init --recursive 2>/dev/null || echo "Submodule initialization skipped"; \
+	else \
+		echo "Git repo present, updating submodules..."; \
+		git submodule update --init --recursive; \
+	fi
+
+
 .PHONY: generate-client-for-storage-nvidia-external-attacher
-generate-client-for-storage-nvidia-external-attacher: client-gen lister-gen informer-gen deepcopy-gen # Generate client/lister/informer for sv-volumeattachment
+generate-client-for-storage-nvidia-external-attacher: init-external-attacher-submodule client-gen lister-gen informer-gen deepcopy-gen # Generate client/lister/informer for sv-volumeattachment
 	rm -rf $(NVIDIA_EXTERNAL_ATTACHER_DIR)/api/storage/v1alpha1/zz_generated.deepcopy.go
 	rm -rf $(NVIDIA_EXTERNAL_ATTACHER_DIR)/client
 
@@ -759,17 +779,14 @@ warm-cache: ## Warm the cache for the tests.
 #  - Make CPU/memory profiling with pprof impossible as DWARF symbols are removed
 #  - Significantly reduce ability to get stack traces on crashes
 # Consider removing these flags during development/debugging sessions
-GO_LDFLAGS="-s -w -extldflags '-static' -X github.com/nvidia/doca-platform/internal/release.dpfVersion=$(TAG)"
+GO_LDFLAGS=-s -w -extldflags '-static'
 
 # GO_GCFLAGS:
 #  -trimpath: removes file system paths from the binary
 # Example of -trimpath effect:
 #  Without: /home/user/go/src/example.com/project/cmd/operator/main.go
 #  With:    cmd/operator/main.go
-GO_GCFLAGS="-trimpath"
-
-STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS ?= "$(shell echo $(GO_LDFLAGS)) -X github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/common.VendorVersion=$(TAG)"
-NVIDIA_EXTERNAL_ATTACHER_GO_LDFLAGS ?= "$(shell echo $(GO_LDFLAGS)) -X github.com/kubernetes-csi/external-attacher/cmd/csi-attacher/main.version=$(TAG)"
+GO_GCFLAGS=-trimpath
 
 BUILD_TARGETS ?= $(DPU_ARCH_BUILD_TARGETS)
 DPF_SYSTEM_BUILD_TARGETS ?= operator provisioning dpuservice servicechainset kamaji-cluster-manager static-cluster-manager \
@@ -805,118 +822,111 @@ binaries-storage-host: $(addprefix binary-,$(STORAGE_HOST_BUILD_TARGETS)) ## Bui
 
 .PHONY: binary-operator
 binary-operator: ## Build the operator controller binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/operator github.com/nvidia/doca-platform/cmd/operator
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/operator github.com/nvidia/doca-platform/cmd/operator
 
 .PHONY: binary-provisioning
 binary-provisioning: ## Build the provisioning controller binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/provisioning github.com/nvidia/doca-platform/cmd/provisioning
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/provisioning github.com/nvidia/doca-platform/cmd/provisioning
 
 .PHONY: binary-kamaji-cluster-manager
 binary-kamaji-cluster-manager: ## Build the kamaji-cluster-manager binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/kamaji-cluster-manager github.com/nvidia/doca-platform/cmd/kamaji-cluster-manager
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/kamaji-cluster-manager github.com/nvidia/doca-platform/cmd/kamaji-cluster-manager
 
 .PHONY: binary-static-cluster-manager
 binary-static-cluster-manager: ## Build the static-cluster-manager binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/static-cluster-manager github.com/nvidia/doca-platform/cmd/static-cluster-manager
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/static-cluster-manager github.com/nvidia/doca-platform/cmd/static-cluster-manager
 
 .PHONY: binary-dpuservice
 binary-dpuservice: ## Build the dpuservice controller binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpuservice github.com/nvidia/doca-platform/cmd/dpuservice
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/dpuservice github.com/nvidia/doca-platform/cmd/dpuservice
 
 .PHONY: binary-servicechainset
 binary-servicechainset: ## Build the servicechainset controller binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/servicechainset github.com/nvidia/doca-platform/cmd/servicechainset
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/servicechainset github.com/nvidia/doca-platform/cmd/servicechainset
 
 .PHONY: binary-dpucniprovisioner
 binary-dpucniprovisioner: ## Build the DPU CNI Provisioner binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpucniprovisioner github.com/nvidia/doca-platform/cmd/dpucniprovisioner
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/dpucniprovisioner github.com/nvidia/doca-platform/cmd/dpucniprovisioner
 
 .PHONY: binary-sfc-controller
 binary-sfc-controller: ## Build the Host CNI Provisioner binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/sfc-controller github.com/nvidia/doca-platform/cmd/sfc-controller
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/sfc-controller github.com/nvidia/doca-platform/cmd/sfc-controller
 
 .PHONY: binary-ipallocator
 binary-ipallocator: ## Build the IP allocator binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/ipallocator github.com/nvidia/doca-platform/cmd/ipallocator
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/ipallocator github.com/nvidia/doca-platform/cmd/ipallocator
 
 .PHONY: binary-dpudetector
 binary-dpudetector: ## Build the DPU detector binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpu-detector github.com/nvidia/doca-platform/cmd/dpudetector
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/dpu-detector github.com/nvidia/doca-platform/cmd/dpudetector
 
 .PHONY: binary-dpuagent
 binary-dpuagent: ## Build the DPU agent binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(DPU_ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpuagent github.com/nvidia/doca-platform/cmd/dpuagent
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(DPU_ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/dpuagent github.com/nvidia/doca-platform/cmd/dpuagent
 
 .PHONY: binary-ovn-kubernetes-resource-injector
 binary-ovn-kubernetes-resource-injector: ## Build the OVN Kubernetes Resource Injector.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/ovnkubernetesresourceinjector github.com/nvidia/doca-platform/cmd/ovnkubernetesresourceinjector
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/ovnkubernetesresourceinjector github.com/nvidia/doca-platform/cmd/ovnkubernetesresourceinjector
 
 .PHONY: binary-storage-snap-host-controller
 binary-storage-snap-host-controller: ## Build the snap host controller controller binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/snap-host-controller github.com/nvidia/doca-platform/cmd/storage/snap-host-controller
-
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/snap-host-controller github.com/nvidia/doca-platform/cmd/storage/snap-host-controller
 
 .PHONY: binary-storage-snap-node-driver
 binary-storage-snap-node-driver: ## Build the snap node driver controller binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/snap-node-driver github.com/nvidia/doca-platform/cmd/storage/snap-node-driver
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/snap-node-driver github.com/nvidia/doca-platform/cmd/storage/snap-node-driver
 
 .PHONY: binary-block-storage-vendor-dpu-plugin
 binary-block-storage-vendor-dpu-plugin: ## Build the block storage vendor DPU plugin binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/block-storage-vendor-dpu-plugin github.com/nvidia/doca-platform/cmd/storage/storage-vendor-dpu-plugin/block-storage-vendor-dpu-plugin
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/block-storage-vendor-dpu-plugin github.com/nvidia/doca-platform/cmd/storage/storage-vendor-dpu-plugin/block-storage-vendor-dpu-plugin
 
 .PHONY: binary-fs-storage-vendor-dpu-plugin
 binary-fs-storage-vendor-dpu-plugin: ## Build the AIO filesystem storage vendor DPU plugin binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/fs-storage-vendor-dpu-plugin github.com/nvidia/doca-platform/cmd/storage/storage-vendor-dpu-plugin/fs-storage-vendor-dpu-plugin
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/fs-storage-vendor-dpu-plugin github.com/nvidia/doca-platform/cmd/storage/storage-vendor-dpu-plugin/fs-storage-vendor-dpu-plugin
 
 .PHONY: binary-nfs-storage-vendor-dpu-plugin
 binary-nfs-storage-vendor-dpu-plugin: ## Build the NFS filesystem storage vendor DPU plugin binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/nfs-storage-vendor-dpu-plugin github.com/nvidia/doca-platform/cmd/storage/storage-vendor-dpu-plugin/nfs-storage-vendor-dpu-plugin
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/nfs-storage-vendor-dpu-plugin github.com/nvidia/doca-platform/cmd/storage/storage-vendor-dpu-plugin/nfs-storage-vendor-dpu-plugin
 
 .PHONY: binary-storage-snap-csi-plugin
 binary-storage-snap-csi-plugin: ## Build the snap-csi-plugin binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build \
-		-ldflags=$(STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS) \
-		-gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/snap-csi-plugin github.com/nvidia/doca-platform/cmd/storage/snap-csi-plugin
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/snap-csi-plugin github.com/nvidia/doca-platform/cmd/storage/snap-csi-plugin
 
 .PHONY: binary-storage-nvidia-external-attacher
 binary-storage-nvidia-external-attacher: generate-client-for-storage-nvidia-external-attacher ## Build the nvidia external attacher binary.
-	git submodule update --init --recursive
 	./$(NVIDIA_EXTERNAL_ATTACHER_DIR)/hack/client.sh $(PROJECT_DIR) $(EXTERNAL_ATTACHER_BRANCH)
 	# Needed so that we can capture the source code in the Dockerfile
 	go mod vendor
 
 	# Build nvidia-external-attacher binary
 	cd $(NVIDIA_EXTERNAL_ATTACHER_DIR)/external-attacher && \
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/nvidia-external-attacher github.com/kubernetes-csi/external-attacher/cmd/csi-attacher
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/nvidia-external-attacher github.com/kubernetes-csi/external-attacher/cmd/csi-attacher
 
 .PHONY: binary-dpfctl
 binary-dpfctl: ## Build the dpfctl binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build \
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false \
 		-ldflags="$(shell echo $(GO_LDFLAGS)) -X main.version=$(TAG)" \
-		-gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpfctl github.com/nvidia/doca-platform/cmd/dpfctl
+		-gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/dpfctl github.com/nvidia/doca-platform/cmd/dpfctl
 
 .PHONY: binary-dpfctl-release
-binary-dpfctl-release: ## Build the dpfctl binary for all architectures.
-	$Q mkdir -p $(LOCALBIN)/dpfctl-$(TAG)-release
-
+binary-dpfctl-release:
+	mkdir -p $(LOCALBIN)/dpfctl-$(TAG)-release
 	# Build for linux/amd64
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-		-ldflags="$(shell echo $(GO_LDFLAGS)) -X main.version=$(TAG)" \
-		-gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpfctl-$(TAG)-release/dpfctl-linux-amd64 github.com/nvidia/doca-platform/cmd/dpfctl
-
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -buildvcs=false \
+		-ldflags="$(GO_LDFLAGS) -X main.version=$(TAG)" \
+		-gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/dpfctl-$(TAG)-release/dpfctl-linux-amd64 github.com/nvidia/doca-platform/cmd/dpfctl
 	# Build for linux/arm64
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
-		-ldflags="$(shell echo $(GO_LDFLAGS)) -X main.version=$(TAG)" \
-		-gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpfctl-$(TAG)-release/dpfctl-linux-arm64 github.com/nvidia/doca-platform/cmd/dpfctl
-
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -buildvcs=false \
+		-ldflags="$(GO_LDFLAGS) -X main.version=$(TAG)" \
+		-gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/dpfctl-$(TAG)-release/dpfctl-linux-arm64 github.com/nvidia/doca-platform/cmd/dpfctl
 	# Build for darwin/arm64
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
-		-ldflags="$(shell echo $(GO_LDFLAGS)) -X main.version=$(TAG)" \
-		-gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpfctl-$(TAG)-release/dpfctl-darwin-arm64 github.com/nvidia/doca-platform/cmd/dpfctl
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -buildvcs=false \
+		-ldflags="$(GO_LDFLAGS) -X main.version=$(TAG)" \
+		-gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/dpfctl-$(TAG)-release/dpfctl-darwin-arm64 github.com/nvidia/doca-platform/cmd/dpfctl
 
 .PHONY: binary-cni-installer
 binary-cni-installer: ## Build the CNI installer binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/cni-installer github.com/nvidia/doca-platform/cmd/cniinstaller
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/cni-installer github.com/nvidia/doca-platform/cmd/cniinstaller
 
 .PHONY: install-dpfctl
 install-dpfctl: binary-dpfctl ## Install the dpfctl binary.
@@ -924,9 +934,9 @@ install-dpfctl: binary-dpfctl ## Install the dpfctl binary.
 
 .PHONY: binary-dpfdev
 binary-dpfdev: ## Build the dpfdev CLI tool
-	cd hack/tools/dpfdev && CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build \
-		-ldflags=$(GO_LDFLAGS) \
-		-gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/dpfdev main.go
+	cd hack/tools/dpfdev && CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false \
+		-ldflags="$(GO_LDFLAGS)" \
+		-gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/dpfdev main.go
 
 DOCKER_BUILD_TARGETS=$(HOST_ARCH_DOCKER_BUILD_TARGETS) $(DPU_ARCH_DOCKER_BUILD_TARGETS) $(MULTI_ARCH_DOCKER_BUILD_TARGETS)
 HOST_ARCH_DOCKER_BUILD_TARGETS=hostdriver bfb-registry
@@ -935,10 +945,20 @@ MULTI_ARCH_DOCKER_BUILD_TARGETS= dpf-system ovn-kubernetes storage-system storag
 
 .PHONY: binary-hostagent
 binary-hostagent: ## Build the hostagent binary.
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags=$(GO_LDFLAGS) -gcflags=$(GO_GCFLAGS) -trimpath -o $(LOCALBIN)/hostagent github.com/nvidia/doca-platform/cmd/hostagent
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/hostagent github.com/nvidia/doca-platform/cmd/hostagent
+
+# Setup docker buildx builder with docker-container driver for cache export support
+.PHONY: docker-buildx-setup
+docker-buildx-setup:
+	@if ! docker buildx inspect dpf-builder > /dev/null 2>&1; then \
+		echo "Creating buildx builder 'dpf-builder'..."; \
+		docker buildx create --name dpf-builder --driver docker-container --use --bootstrap > /dev/null; \
+	else \
+		docker buildx use dpf-builder > /dev/null 2>&1 || true; \
+	fi
 
 .PHONY: docker-build-all
-docker-build-all: $(addprefix docker-build-,$(DOCKER_BUILD_TARGETS)) ## Build docker images for all DOCKER_BUILD_TARGETS. Architecture defaults to build system architecture unless overridden or hardcoded.
+docker-build-all: docker-buildx-setup $(addprefix docker-build-,$(DOCKER_BUILD_TARGETS)) ## Build docker images for all DOCKER_BUILD_TARGETS. Architecture defaults to build system architecture unless overridden or hardcoded.
 
 DPF_SYSTEM_IMAGE_NAME ?= dpf-system
 export DPF_SYSTEM_IMAGE ?= $(REGISTRY)/$(DPF_SYSTEM_IMAGE_NAME)
@@ -1004,7 +1024,7 @@ PACKAGE_SOURCES ?= true
 .PHONY: docker-build-dpf-system # Build a multi-arch image for DPF System. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-dpf-system: $(addprefix docker-build-dpf-system-for-,$(DPF_SYSTEM_ARCH))
 
-docker-build-dpf-system-for-%: generate-manifests-release-defaults $(ARTIFACTS_DIR)
+docker-build-dpf-system-for-%: docker-buildx-setup generate-manifests-release-defaults $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
@@ -1018,9 +1038,8 @@ docker-build-dpf-system-for-%: generate-manifests-release-defaults $(ARTIFACTS_D
 		--platform=linux/$* \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(BASE_IMAGE) \
-		--build-arg ldflags=$(GO_LDFLAGS) \
-		--build-arg gcflags=$(GO_GCFLAGS) \
-		--build-arg FULL_COMMIT=$(FULL_COMMIT) \
+		--build-arg ldflags="$(GO_LDFLAGS)" \
+		--build-arg gcflags="$(GO_GCFLAGS)" \
 		--build-arg TAG=$(TAG) \
 		-f Dockerfile.dpf-system \
 		. \
@@ -1042,7 +1061,7 @@ docker-create-manifest-for-dpf-system:
 	docker manifest create --amend $(DPF_SYSTEM_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(DPF_SYSTEM_IMAGE):$(TAG))
 
 .PHONY: docker-build-ipallocator
-docker-build-ipallocator: $(ARTIFACTS_DIR) ## Build docker image for the IP Allocator
+docker-build-ipallocator: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker image for the IP Allocator
 	# Base image can't be distroless because of the readiness probe that is using cat which doesn't exist in distroless
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
@@ -1056,15 +1075,15 @@ docker-build-ipallocator: $(ARTIFACTS_DIR) ## Build docker image for the IP Allo
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(ALPINE_IMAGE) \
-		--build-arg ldflags=$(GO_LDFLAGS) \
-		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg ldflags="$(GO_LDFLAGS)" \
+		--build-arg gcflags="$(GO_GCFLAGS)" \
 		--build-arg package=./cmd/ipallocator \
 		-f Dockerfile \
 		. \
 		-t $(IPALLOCATOR_IMAGE):$(TAG)
 
 .PHONY: docker-build-ovs-cni
-docker-build-ovs-cni: $(OVS_CNI_DIR) $(ARTIFACTS_DIR) ## Builds the OVS CNI image
+docker-build-ovs-cni: docker-buildx-setup $(OVS_CNI_DIR) $(ARTIFACTS_DIR) ## Builds the OVS CNI image
 	$(OVS_CNI_DIR)/hack/get_version.sh > $(OVS_CNI_DIR)/.version && \
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
@@ -1084,7 +1103,7 @@ docker-build-ovs-cni: $(OVS_CNI_DIR) $(ARTIFACTS_DIR) ## Builds the OVS CNI imag
 .PHONY: docker-build-ovn-kubernetes # Build a multi-arch image for DPF System. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-ovn-kubernetes: $(addprefix docker-build-ovn-kubernetes-for-,$(DPF_SYSTEM_ARCH))
 
-docker-build-ovn-kubernetes-for-%: $(OVNKUBERNETES_DIR) $(ARTIFACTS_DIR)
+docker-build-ovn-kubernetes-for-%: docker-buildx-setup $(OVNKUBERNETES_DIR) $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
@@ -1097,10 +1116,10 @@ docker-build-ovn-kubernetes-for-%: $(OVNKUBERNETES_DIR) $(ARTIFACTS_DIR)
 		--platform=linux/$* \
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
-		--build-arg ldflags=$(GO_LDFLAGS) \
-		--build-arg gcflags=$(GO_GCFLAGS) \
-		--build-arg FULL_COMMIT=$(FULL_COMMIT) \
+		--build-arg ldflags="$(GO_LDFLAGS)" \
+		--build-arg gcflags="$(GO_GCFLAGS)" \
 		--build-arg ovn_kubernetes_dir=$(subst $(CURDIR)/,,$(OVNKUBERNETES_DIR)) \
+		--build-arg ovn_kubernetes_git_commit=$(OVNKUBERNETES_REF) \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		-f Dockerfile.ovn-kubernetes \
@@ -1123,9 +1142,8 @@ docker-create-manifest-for-ovn-kubernetes:
 	docker manifest create --amend $(OVNKUBERNETES_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(OVNKUBERNETES_IMAGE):$(TAG))
 
 .PHONY: docker-build-hostdriver
-docker-build-hostdriver: $(ARTIFACTS_DIR) ## Build docker image for DMS and hostnetwork.
+docker-build-hostdriver: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker image for DMS and hostnetwork.
 	$(CURDIR)/hack/scripts/docker-build.sh \
-		--pull \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
@@ -1137,9 +1155,8 @@ docker-build-hostdriver: $(ARTIFACTS_DIR) ## Build docker image for DMS and host
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg hostdriver_base_image=$(HOSTDRIVER_BASE_IMAGE) \
-		--build-arg ldflags=$(GO_LDFLAGS) \
-		--build-arg gcflags=$(GO_GCFLAGS) \
-		--build-arg FULL_COMMIT=$(FULL_COMMIT) \
+		--build-arg ldflags="$(GO_LDFLAGS)" \
+		--build-arg gcflags="$(GO_GCFLAGS)" \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		-t $(HOSTDRIVER_IMAGE):$(TAG) \
@@ -1147,7 +1164,7 @@ docker-build-hostdriver: $(ARTIFACTS_DIR) ## Build docker image for DMS and host
 		.
 
 .PHONY: docker-build-dummydpuservice
-docker-build-dummydpuservice: $(ARTIFACTS_DIR) ## Build docker images for the dummydpuservice
+docker-build-dummydpuservice: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker images for the dummydpuservice
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
@@ -1160,8 +1177,8 @@ docker-build-dummydpuservice: $(ARTIFACTS_DIR) ## Build docker images for the du
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(BASE_IMAGE) \
-		--build-arg ldflags=$(GO_LDFLAGS) \
-		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg ldflags="$(GO_LDFLAGS)" \
+		--build-arg gcflags="$(GO_GCFLAGS)" \
 		--build-arg package=./cmd/dummydpuservice \
 		-f Dockerfile \
 		. \
@@ -1187,7 +1204,7 @@ docker-build-netutils-for-%: $(ARTIFACTS_DIR)
 		-t $(NETUTILS_IMAGE):$(TAG)-$*
 
 .PHONY: docker-build-mock-dms
-docker-build-mock-dms: $(ARTIFACTS_DIR) ## Build docker images for the mock-dms
+docker-build-mock-dms: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker images for the mock-dms
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
@@ -1200,8 +1217,8 @@ docker-build-mock-dms: $(ARTIFACTS_DIR) ## Build docker images for the mock-dms
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(BASE_IMAGE) \
-		--build-arg ldflags=$(GO_LDFLAGS) \
-		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg ldflags="$(GO_LDFLAGS)" \
+		--build-arg gcflags="$(GO_GCFLAGS)" \
 		-f test/mock/dms/Dockerfile \
 		. \
 		-t $(MOCK_DMS_IMAGE):$(TAG)
@@ -1220,8 +1237,8 @@ docker-build-ovn-kubernetes-resource-injector: $(ARTIFACTS_DIR) ## Build docker 
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(BASE_IMAGE) \
-		--build-arg ldflags=$(GO_LDFLAGS) \
-		--build-arg gcflags=$(GO_GCFLAGS) \
+		--build-arg ldflags="$(GO_LDFLAGS)" \
+		--build-arg gcflags="$(GO_GCFLAGS)" \
 		--build-arg package=./cmd/ovnkubernetesresourceinjector \
 		-f Dockerfile \
 		. \
@@ -1230,7 +1247,7 @@ docker-build-ovn-kubernetes-resource-injector: $(ARTIFACTS_DIR) ## Build docker 
 .PHONY: docker-build-storage-system # Build a multi-arch image for DPF storage system. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-storage-system: $(addprefix docker-build-storage-system-for-,$(DPF_SYSTEM_ARCH))
 
-docker-build-storage-system-for-%: $(ARTIFACTS_DIR)
+docker-build-storage-system-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
@@ -1244,11 +1261,9 @@ docker-build-storage-system-for-%: $(ARTIFACTS_DIR)
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(BASE_IMAGE) \
-		--build-arg ldflags=$(GO_LDFLAGS) \
-		--build-arg storage_snap_csi_driver_go_ldflags=$(STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS) \
-		--build-arg nvidia_external_attacher_go_ldflags=$(NVIDIA_EXTERNAL_ATTACHER_GO_LDFLAGS) \
-		--build-arg gcflags=$(GO_GCFLAGS) \
-		--build-arg FULL_COMMIT=$(FULL_COMMIT) \
+		--build-arg ldflags="$(GO_LDFLAGS)" \
+		--build-arg gcflags="$(GO_GCFLAGS)" \
+		--build-arg TAG=$(TAG) \
 		-f Dockerfile.storage-system \
 		. \
 		-t $(STORAGE_SYSTEM_IMAGE):$(TAG)-$*
@@ -1271,7 +1286,7 @@ docker-create-manifest-for-storage-system:
 .PHONY: docker-build-storage-host # Build a multi-arch image for storage-host. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-storage-host: $(addprefix docker-build-storage-host-for-,$(DPF_SYSTEM_ARCH))
 
-docker-build-storage-host-for-%: $(ARTIFACTS_DIR)
+docker-build-storage-host-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
@@ -1284,10 +1299,9 @@ docker-build-storage-host-for-%: $(ARTIFACTS_DIR)
 		--platform=linux/$* \
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
-		--build-arg ldflags=$(GO_LDFLAGS) \
-		--build-arg storage_snap_csi_driver_go_ldflags=$(STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS) \
-		--build-arg gcflags=$(GO_GCFLAGS) \
-		--build-arg FULL_COMMIT=$(FULL_COMMIT) \
+		--build-arg ldflags="$(GO_LDFLAGS)" \
+		--build-arg gcflags="$(GO_GCFLAGS)" \
+		--build-arg TAG=$(TAG) \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		-f Dockerfile.storage-host \
@@ -1312,7 +1326,7 @@ docker-create-manifest-for-storage-host:
 .PHONY: docker-build-bfb-registry # Build a multi-arch image for BFB Registry. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-bfb-registry: $(addprefix docker-build-bfb-registry-for-,$(HOST_ARCH))
 
-docker-build-bfb-registry-for-%: $(ARTIFACTS_DIR)
+docker-build-bfb-registry-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
@@ -1331,7 +1345,7 @@ docker-build-bfb-registry-for-%: $(ARTIFACTS_DIR)
 		-t $(BFB_REGISTRY_IMAGE):$(TAG)-$*
 
 .PHONY: docker-build-cni-installer
-docker-build-cni-installer: $(ARTIFACTS_DIR) ## Build docker image for the CNI installer
+docker-build-cni-installer: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker image for the CNI installer
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
@@ -1344,9 +1358,8 @@ docker-build-cni-installer: $(ARTIFACTS_DIR) ## Build docker image for the CNI i
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(BASE_IMAGE) \
-		--build-arg ldflags=$(GO_LDFLAGS) \
-		--build-arg gcflags=$(GO_GCFLAGS) \
-		--build-arg FULL_COMMIT=$(FULL_COMMIT) \
+		--build-arg ldflags="$(GO_LDFLAGS)" \
+		--build-arg gcflags="$(GO_GCFLAGS)" \
 		-f Dockerfile.cni-installer \
 		. \
 		-t $(CNIINSTALLER_IMAGE):$(TAG)
