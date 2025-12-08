@@ -15,7 +15,9 @@ RUN find /etc/apt/sources.list* -type f -exec sed -i \
       -e "s|http://ports.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
       -e "s|http://security.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" '{}' \;
 
-RUN apt-get update && apt-get install -y -qq ${PACKAGES}
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y -qq ${PACKAGES}
 
 WORKDIR /workspace
 RUN wget https://github.com/alibaba/tengine/archive/refs/tags/${tengine_version}.zip && unzip ${tengine_version}.zip
@@ -32,7 +34,9 @@ WORKDIR /workspace
 ARG PACKAGE_SOURCES
 # First, create a dummy source-code.tar file to avoid copy failures.
 RUN touch /workspace/source-code.tar
-RUN test "${PACKAGE_SOURCES}" = "false" || ( \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    test "${PACKAGE_SOURCES}" = "false" || ( \
       mkdir src && \
       cd src && \
       cp /workspace/${tengine_version}.zip . && \

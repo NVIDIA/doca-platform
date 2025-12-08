@@ -13,33 +13,46 @@ COPY go.sum go.sum
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
-COPY ./ ./
-
-# Ensure that no additional tools or artifacts are included.
-RUN make clean
+COPY third_party/ third_party/
+COPY api/ api/
+COPY cmd/ cmd/
+COPY test/ test/
+COPY internal/ internal/
+COPY pkg/ pkg/
+# Note: .gitmodules and .git/modules/ NOT copied - they cause cache invalidation
+# The third_party/ directory already contains the submodule contents
+COPY hack/tools/tools.mk hack/tools/tools.mk
+COPY hack/boilerplate.go.txt hack/boilerplate.go.txt
 
 ARG gcflags
 ARG ldflags
-ARG storage_snap_csi_driver_go_ldflags
 ARG TARGETARCH
-ARG FULL_COMMIT
 
-ENV STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS=\"${storage_snap_csi_driver_go_ldflags}\"
-ENV GO_LDFLAGS=\"${ldflags}\"
-ENV GO_GCFLAGS=\"${gcflags}\"
+ENV GO_LDFLAGS=${ldflags}
+ENV GO_GCFLAGS=${gcflags}
 ENV ARCH=${TARGETARCH}
-ENV FULL_COMMIT=${FULL_COMMIT}
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=bind,source=Makefile,target=Makefile \
+    --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
     make binaries-storage-host
 
 # Copy the go source code so it can be distributed in the final image.
-RUN go mod vendor
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod vendor
 RUN mkdir src && \
     find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
     -exec cp --parents \{\}  src/ \; && \
     tar -czf source-code.tar.gz src
+
+# Version stage creates the version file separately to avoid invalidating builder cache
+FROM ${builder_image} AS version
+ARG TAG
+# Write the DPF version file (separate stage to preserve builder cache when only TAG changes).
+# The command echo is not present in the final image so this stage is needed.
+RUN echo "${TAG}" > /tmp/dpf-version
 
 FROM nvcr.io/nvidia/doca/doca:3.1.0-base-rt-host
 
@@ -55,20 +68,24 @@ RUN find /etc/apt/sources.list* -type f -exec sed -i \
       -e "s|http://security.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" '{}' \;
 
 # install nfs-common required by the fs-storage-vendor-dpu-plugin
-RUN apt-get update && apt-get install -y -qq --no-install-recommends ${PACKAGES}
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y -qq --no-install-recommends ${PACKAGES}
 
 WORKDIR /
 
 # Move source code to a directory
 ARG PACKAGE_SOURCES
-RUN test "${PACKAGE_SOURCES}" = "false" || ( \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    test "${PACKAGE_SOURCES}" = "false" || ( \
       mkdir /src && \
       cd /src && \
       apt-get update && \
       apt-get source --download-only ${PACKAGES} && \
       cd / && \
       tar -cf pkg-source-code.tar /src && \
-      rm -rf /src && rm -rf /var/lib/apt/lists/* \
+      rm -rf /src \
     )
 
 # Add the source code.
@@ -77,3 +94,6 @@ COPY --from=builder /workspace/source-code.tar.gz /source-code.tar.gz
 # Add the DPF binaries
 COPY --from=builder /workspace/bin/snap-csi-plugin /snap-csi-plugin
 COPY --from=builder /workspace/bin/fs-storage-vendor-dpu-plugin /fs-storage-vendor-dpu-plugin
+
+# Copy the DPF version file from version stage (not builder, to preserve builder cache)
+COPY --chown=root:root --from=version /tmp/dpf-version /etc/dpf-version

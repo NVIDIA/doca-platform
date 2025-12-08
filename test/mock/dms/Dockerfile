@@ -15,8 +15,12 @@ COPY go.sum go.sum
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
-# Copy the go source
-COPY .. ./
+# Copy the go source (specific directories to improve cache efficiency)
+COPY ../api/ api/
+COPY ../cmd/ cmd/
+COPY ../test/ test/
+COPY ../internal/ internal/
+COPY ../pkg/ pkg/
 
 ARG gcflags
 ARG ldflags
