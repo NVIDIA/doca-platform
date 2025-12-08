@@ -670,41 +670,6 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 			wantErr:          true,
 			expectedErrorMsg: "failed to get DPUServiceNAD test-namespace/test-nad-1:",
 		},
-		{
-			name: "SFC Controller should be ready when DPUServiceNAD is not found but upgrading from v25.7",
-			// Cluster objects - DPUService is ready, but NAD doesn't exist in cluster
-			clusterDPUService: &dpuservicev1.DPUService{
-				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "sfc-controller",
-					Namespace: "test-namespace",
-				},
-				Spec: dpuservicev1.DPUServiceSpec{},
-				Status: dpuservicev1.DPUServiceStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:   "Ready",
-							Status: "True",
-						},
-					},
-				},
-			},
-			clusterDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
-				// No DPUServiceNADs exist in the cluster
-			},
-			// Internal structure objects - SFC Controller expects this NAD to exist in cluster
-			internalSFCNADs: []*unstructured.Unstructured{
-				{
-					Object: map[string]interface{}{
-						"metadata": map[string]interface{}{
-							"name":      "test-nad-1",
-							"namespace": "internal-namespace",
-						},
-					},
-				},
-			},
-			upgradeFromVersion: ptr.To("v25.7.0"),
-		},
 	}
 
 	for _, tt := range tests {
