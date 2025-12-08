@@ -27,13 +27,15 @@ import (
 
 const (
 	// minSupportedVersion is the minimum supported DPF version for upgrades.
-	minSupportedVersion = release.V2570
+	minSupportedVersion = "v25.7.0"
 )
 
 // allowSourceVersions is the version we allow upgrades from.
 // This will consist usually only of a single version because we only support upgrades from the previous version.
 // With LTS releases, this may include multiple versions in the future.
-var allowSourceVersions = []string{release.V2570}
+var allowSourceVersions = []string{
+	release.LastReleasedDPFGAVersion,
+}
 
 // parseVersion parses a version string into a semver.Version object.
 // Returns an error if the version string is empty.
@@ -94,11 +96,4 @@ func ValidateDPFVersion(prevVersionStr *string) error {
 
 	return fmt.Errorf("DPF version %s is not compatible with current DPF version %s, only upgrades from %s are supported",
 		*prevVersionStr, release.DPFVersion(), strings.Join(allowSourceVersions, ", "))
-}
-
-// IsUpgradeFrom25Dot7 checks if the given version is an upgrade from 25.7.0.
-// TODO: remove as soon as we have version aware upgrade logic for the pre-upgrade validation.
-func IsUpgradeFrom25Dot7(version string) bool {
-	v := semver.MustParse(release.V2570)
-	return isSameMajorMinor(v, version)
 }
