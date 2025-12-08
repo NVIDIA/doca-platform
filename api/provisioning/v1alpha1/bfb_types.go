@@ -115,6 +115,8 @@ type BFBStatus struct {
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 // +kubebuilder:validation:XValidation:rule="self.metadata.name.size() <= 187", message="name length can't be bigger than 187 chars"
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="phase of the bfb"
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // BFB is the Schema for the bfbs API
 type BFB struct {
