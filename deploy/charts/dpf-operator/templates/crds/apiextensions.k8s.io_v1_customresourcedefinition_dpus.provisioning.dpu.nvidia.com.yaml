@@ -31,7 +31,7 @@ spec:
     - jsonPath: .status.conditions[?(@.type=='Ready')].status
       name: Ready
       type: string
-    - description: phase of the cluster
+    - description: phase of the dpu
       jsonPath: .status.phase
       name: Phase
       type: string
