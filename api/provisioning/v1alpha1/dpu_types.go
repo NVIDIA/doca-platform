@@ -247,6 +247,12 @@ type DPUStatus struct {
 
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// The type of the DPU
+	// +kubebuilder:validation:Enum=Unknown;BlueField2;BlueField3;BlueField4
+	// +kubebuilder:default=Unknown
+	// +optional
+	DPUType DPUType `json:"dpuType,omitempty"`
 }
 
 type Firmware struct {
