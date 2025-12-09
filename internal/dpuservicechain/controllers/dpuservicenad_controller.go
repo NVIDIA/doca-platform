@@ -134,12 +134,18 @@ func (r *DPUServiceNADReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 //nolint:unparam
 func (r *DPUServiceNADReconciler) reconcile(ctx context.Context, DPUServiceNAD *dpuservicev1.DPUServiceNAD) (ctrl.Result, error) {
 	if err := reconcileObjectsInDPUClusters(ctx, r, r.Client, DPUServiceNAD); err != nil {
+		e := &longOperationError{}
 		conditions.AddFalse(
 			DPUServiceNAD,
 			dpuservicev1.ConditionDPUNADObjectReconciled,
 			conditions.ReasonError,
 			conditions.ConditionMessage(fmt.Sprintf("Error occurred: %s", err.Error())),
 		)
+		// We enqueue without exponential backoff if the error is a longOperationError because this
+		// error is returned when we know an operation that was triggered will take time to complete
+		if errors.As(err, &e) {
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
 		return ctrl.Result{}, err
 	}
 	conditions.AddTrue(
@@ -163,7 +169,7 @@ func (r *DPUServiceNADReconciler) reconcileDelete(ctx context.Context, DPUServic
 	log.Info("Reconciling delete")
 
 	if err := reconcileObjectDeletionInDPUClusters(ctx, r, r.Client, DPUServiceNAD); err != nil {
-		e := &shouldRequeueError{}
+		e := &longOperationError{}
 		if errors.As(err, &e) {
 			log.Info(fmt.Sprintf("Requeueing because %s", err.Error()))
 			conditions.AddFalse(
@@ -242,7 +248,7 @@ func (r *DPUServiceNADReconciler) networkAttachmentDefinitionToDPUServiceNad(ctx
 // getObjectsInDPUCluster is the method called by the reconcileObjectDeletionInDPUClusters function which deletes
 // objects in the DPU cluster related to the given parentObject. The implementation should get the created objects
 // in the DPU cluster.
-func (r *DPUServiceNADReconciler) getObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject client.Object) ([]unstructured.Unstructured, error) {
+func (r *DPUServiceNADReconciler) getObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject dpuservicev1.DPUServiceObject) ([]unstructured.Unstructured, error) {
 	nad := &unstructured.Unstructured{}
 	// Set GroupVersionKind
 	nad.SetGroupVersionKind(schema.GroupVersionKind{
@@ -261,7 +267,7 @@ func (r *DPUServiceNADReconciler) getObjectsInDPUCluster(ctx context.Context, c 
 
 // createOrUpdateChild is the method called by the reconcileObjectsInDPUClusters function which applies changes to the
 // DPU clusters on DPUServiceNAD object updates.
-func (r *DPUServiceNADReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject client.Object) error {
+func (r *DPUServiceNADReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject dpuservicev1.DPUServiceObject) error {
 	DPUServiceNAD, ok := dpuObject.(*dpuservicev1.DPUServiceNAD)
 	if !ok {
 		return errors.New("error converting input object to DPUServiceNAD")
@@ -354,7 +360,7 @@ func (r *DPUServiceNADReconciler) createOrUpdateObjectsInDPUCluster(ctx context.
 
 // deleteObjectsInDPUCluster is the method called by the reconcileObjectDeletionInDPUClusters function which deletes
 // objects in the DPU cluster related to the deleted DPUServiceNAD object.
-func (r *DPUServiceNADReconciler) deleteObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject client.Object) error {
+func (r *DPUServiceNADReconciler) deleteObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject dpuservicev1.DPUServiceObject) error {
 	dpuServiceNAD, ok := dpuObject.(*dpuservicev1.DPUServiceNAD)
 	if !ok {
 		return errors.New("error converting input object to DPUServiceNAD")

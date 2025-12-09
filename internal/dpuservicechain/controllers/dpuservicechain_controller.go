@@ -125,12 +125,18 @@ func (r *DPUServiceChainReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 //nolint:unparam
 func (r *DPUServiceChainReconciler) reconcile(ctx context.Context, dpuServiceChain *dpuservicev1.DPUServiceChain) (ctrl.Result, error) {
 	if err := reconcileObjectsInDPUClusters(ctx, r, r.Client, dpuServiceChain); err != nil {
+		e := &longOperationError{}
 		conditions.AddFalse(
 			dpuServiceChain,
 			dpuservicev1.ConditionServiceChainSetReconciled,
 			conditions.ReasonError,
 			conditions.ConditionMessage(fmt.Sprintf("Error occurred: %s", err.Error())),
 		)
+		// We enqueue without exponential backoff if the error is a longOperationError because this
+		// error is returned when we know an operation that was triggered will take time to complete
+		if errors.As(err, &e) {
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
 		return ctrl.Result{}, err
 	}
 	conditions.AddTrue(
@@ -150,7 +156,7 @@ func (r *DPUServiceChainReconciler) reconcileDelete(ctx context.Context, dpuServ
 	log := ctrllog.FromContext(ctx)
 	log.Info("Reconciling delete")
 	if err := reconcileObjectDeletionInDPUClusters(ctx, r, r.Client, dpuServiceChain); err != nil {
-		e := &shouldRequeueError{}
+		e := &longOperationError{}
 		if errors.As(err, &e) {
 			log.Info(fmt.Sprintf("Requeueing because %s", err.Error()))
 			conditions.AddFalse(
@@ -169,7 +175,7 @@ func (r *DPUServiceChainReconciler) reconcileDelete(ctx context.Context, dpuServ
 	return ctrl.Result{}, nil
 }
 
-func (r *DPUServiceChainReconciler) getObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject client.Object) ([]unstructured.Unstructured, error) {
+func (r *DPUServiceChainReconciler) getObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject dpuservicev1.DPUServiceObject) ([]unstructured.Unstructured, error) {
 	scs := &unstructured.Unstructured{}
 	scs.SetGroupVersionKind(dpuservicev1.ServiceChainSetGroupVersionKind)
 	key := client.ObjectKey{Namespace: dpuObject.GetNamespace(), Name: dpuObject.GetName()}
@@ -181,7 +187,7 @@ func (r *DPUServiceChainReconciler) getObjectsInDPUCluster(ctx context.Context, 
 	return []unstructured.Unstructured{*scs}, nil
 }
 
-func (r *DPUServiceChainReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject client.Object) error {
+func (r *DPUServiceChainReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject dpuservicev1.DPUServiceObject) error {
 	dpuServiceChain := dpuObject.(*dpuservicev1.DPUServiceChain)
 	scs := &dpuservicev1.ServiceChainSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -203,7 +209,7 @@ func (r *DPUServiceChainReconciler) createOrUpdateObjectsInDPUCluster(ctx contex
 	return k8sClient.Patch(ctx, scs, client.Apply, client.ForceOwnership, client.FieldOwner(dpuServiceChainControllerName))
 }
 
-func (r *DPUServiceChainReconciler) deleteObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject client.Object) error {
+func (r *DPUServiceChainReconciler) deleteObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject dpuservicev1.DPUServiceObject) error {
 	dpuServiceChain := dpuObject.(*dpuservicev1.DPUServiceChain)
 	scs := &dpuservicev1.ServiceChainSet{
 		ObjectMeta: metav1.ObjectMeta{

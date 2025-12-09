@@ -44,6 +44,7 @@ var DPUServiceNADConditions = []conditions.ConditionType{
 }
 
 var _ conditions.GetSet = &DPUServiceNAD{}
+var _ DPUServiceObject = &DPUServiceNAD{}
 
 func (c *DPUServiceNAD) GetConditions() []metav1.Condition {
 	return c.Status.Conditions
@@ -51,6 +52,11 @@ func (c *DPUServiceNAD) GetConditions() []metav1.Condition {
 
 func (c *DPUServiceNAD) SetConditions(conditions []metav1.Condition) {
 	c.Status.Conditions = conditions
+}
+
+// GetDPUClusterSelector returns the DPUCluster selector of the DPUServiceNAD
+func (c *DPUServiceNAD) GetDPUClusterSelector() *metav1.LabelSelector {
+	return c.Spec.DPUClusterSelector
 }
 
 // GetResourceName returns the resource name associated with the resource type specified in the DPUServiceNAD.
@@ -89,6 +95,9 @@ type CNIPlugin struct {
 type DPUServiceNADSpec struct {
 	// Deprecated: This field is unused and will be removed with v26.1.
 	ObjectMeta `json:"metadata,omitempty"`
+	// DPUClusterSelector determines in which clusters the DPUServiceNAD controller should apply the configuration.
+	// +optional
+	DPUClusterSelector *metav1.LabelSelector `json:"dpuClusterSelector,omitempty"`
 	// ResourceType specifies the type of network resource to allocate for pods using this NAD.
 	// - "vf": Virtual Function (SR-IOV VF) from the DPU's physical ports
 	// - "sf": Scalable Function from the DPU (maps to nvidia.com/bf_sf or nvidia.com/bf_sf_trusted)

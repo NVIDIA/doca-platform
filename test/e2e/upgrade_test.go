@@ -82,9 +82,8 @@ var _ = Describe("DPF Upgrade tests", Labels{dpfUpgradeTestLabel}, func() {
 			dpuServiceIPAM.SetLabels(testutils.AfterAllCleanupLabels)
 			dpuServiceIPAM.SetName("dpudeployment-ipam-pool1")
 			dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
-			// Remove selectors so it applies to all nodes/clusters
+			// Remove selectors so it applies to all nodes
 			dpuServiceIPAM.Spec.NodeSelector = nil
-			dpuServiceIPAM.Spec.ClusterSelector = nil
 			Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 		})
 
