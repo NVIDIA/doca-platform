@@ -121,10 +121,6 @@ func (r *DPUDevice) ValidateDelete(ctx context.Context, obj runtime.Object) (adm
 
 // validateSerialNumberUniqueness checks if the serial number is unique across all DPUDevice resources
 func (r *DPUDevice) validateSerialNumberUniqueness(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) error {
-	if dpuDevice.Spec.SerialNumber == "" {
-		return nil // Empty serial numbers are handled by the required validation
-	}
-
 	// List all DPUDevice resources
 	var dpuDeviceList provisioningv1.DPUDeviceList
 	if err := r.Client.List(ctx, &dpuDeviceList); err != nil {
