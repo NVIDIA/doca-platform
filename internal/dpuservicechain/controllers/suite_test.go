@@ -54,6 +54,12 @@ var (
 	testEnv                    *envtest.Environment
 	ctx, testManagerCancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
 	remoteCache                *dpucluster.RemoteCache
+	// Additional test environments for multi-cluster testing. Whenever possible we should use the main testEnv for DPUClusters
+	// so that we can increase the chance of our controllers working with a single DPUCluster that targets the main cluster (possible use-case).
+	cfg1     *rest.Config
+	cfg2     *rest.Config
+	testEnv1 *envtest.Environment
+	testEnv2 *envtest.Environment
 )
 
 func TestDPUServiceChain(t *testing.T) {
@@ -88,6 +94,35 @@ var _ = BeforeSuite(func() {
 	cfg, err = testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
+
+	By("bootstrapping additional test environments for multi-cluster testing")
+	testEnv1 = &envtest.Environment{
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "..", "deploy", "charts", "dpf-operator", "templates", "crds"),
+			filepath.Join("..", "..", "..", "test", "objects", "crd", "kamaji"),
+			filepath.Join("..", "..", "..", "test", "objects", "crd", "nvipam"),
+			filepath.Join("..", "..", "..", "test", "objects", "crd", "multus")},
+		ErrorIfCRDPathMissing: true,
+		BinaryAssetsDirectory: filepath.Join("..", "..", "..", "hack", "tools", "bin", "k8s",
+			fmt.Sprintf("1.32.0-%s-%s", runtime.GOOS, runtime.GOARCH)),
+	}
+	cfg1, err = testEnv1.Start()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(cfg1).NotTo(BeNil())
+
+	testEnv2 = &envtest.Environment{
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "..", "deploy", "charts", "dpf-operator", "templates", "crds"),
+			filepath.Join("..", "..", "..", "test", "objects", "crd", "kamaji"),
+			filepath.Join("..", "..", "..", "test", "objects", "crd", "nvipam"),
+			filepath.Join("..", "..", "..", "test", "objects", "crd", "multus")},
+		ErrorIfCRDPathMissing: true,
+		BinaryAssetsDirectory: filepath.Join("..", "..", "..", "hack", "tools", "bin", "k8s",
+			fmt.Sprintf("1.32.0-%s-%s", runtime.GOOS, runtime.GOARCH)),
+	}
+	cfg2, err = testEnv2.Start()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(cfg2).NotTo(BeNil())
 
 	Expect(dpuservicev1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(nvipamv1.AddToScheme(scheme.Scheme)).To(Succeed())
@@ -166,4 +201,8 @@ var _ = AfterSuite(func() {
 	}
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
+
+	By("tearing down additional test environments")
+	Expect(testEnv1.Stop()).To(Succeed())
+	Expect(testEnv2.Stop()).To(Succeed())
 })
