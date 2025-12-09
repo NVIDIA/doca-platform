@@ -482,4 +482,219 @@ var _ = Describe("PCI", func() {
 			Expect(result).To(Equal("0001:3c:00"))
 		})
 	})
+
+	Context("PCIHelper.SetNumOfVFs", Label("PCIHelper", "SetNumOfVFs"), func() {
+		It("should return error when sriov_numvfs file does not exist", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.cleanup()
+
+			helper := NewPCIHelper("0000:b1:00.0")
+			err := helper.SetNumOfVFs(4)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to stat sriov_numvfs path"))
+		})
+
+		It("should successfully write number of VFs", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.cleanup()
+
+			// Create sriov_numvfs file
+			numvfsPath := filepath.Join(mock.pciDevicesDir, "0000:b1:00.0", "sriov_numvfs")
+			err := os.WriteFile(numvfsPath, []byte("0"), 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			helper := NewPCIHelper("0000:b1:00.0")
+			err = helper.SetNumOfVFs(4)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify the file was written correctly
+			content, err := os.ReadFile(numvfsPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal("4"))
+		})
+
+		It("should write zero VFs", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.cleanup()
+
+			numvfsPath := filepath.Join(mock.pciDevicesDir, "0000:b1:00.0", "sriov_numvfs")
+			err := os.WriteFile(numvfsPath, []byte("8"), 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			helper := NewPCIHelper("0000:b1:00.0")
+			err = helper.SetNumOfVFs(0)
+			Expect(err).NotTo(HaveOccurred())
+
+			content, err := os.ReadFile(numvfsPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal("0"))
+		})
+	})
+
+	Context("DiscoverDPUs", Label("DiscoverDPUs"), func() {
+		It("should return error when PCI devices directory does not exist", func() {
+			// Create mock to get cleanup() for path restoration, then point to non-existent path
+			mock := createMockSysfs("0000:00:00.0", "0x1234\n", "", nil, "")
+			defer mock.cleanup()
+
+			// Override to non-existent path after mock setup
+			SysPCIDevicesDir = "/nonexistent/path/to/pci/devices"
+
+			_, err := DiscoverDPUs()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to read PCI sys directory"))
+		})
+
+		It("should return empty list when no devices exist", func() {
+			// Create mock with a device, then remove it to get empty directory
+			mock := createMockSysfs("0000:00:00.0", "0x1234\n", "", nil, "")
+			defer mock.cleanup()
+
+			// Remove the device to have an empty PCI devices directory
+			err := os.RemoveAll(filepath.Join(mock.pciDevicesDir, "0000:00:00.0"))
+			Expect(err).NotTo(HaveOccurred())
+
+			devices, err := DiscoverDPUs()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(devices).To(BeEmpty())
+		})
+
+		It("should return empty list when no DPU devices found", func() {
+			mock := createMockSysfs("0000:00:00.0", "0x1234\n", "", nil, "")
+			defer mock.cleanup()
+
+			devices, err := DiscoverDPUs()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(devices).To(BeEmpty())
+		})
+
+		It("should discover a single DPU device", func() {
+			vpdData := createVPDDataWithSerialNumber("MT2334XZ0L")
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", vpdData, "")
+			defer mock.cleanup()
+
+			devices, err := DiscoverDPUs()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(devices).To(HaveLen(1))
+			Expect(devices[0].Address).To(Equal("0000:b1:00"))
+			Expect(devices[0].SerialNumber).To(Equal("MT2334XZ0L"))
+			Expect(devices[0].NumOfPFs).To(Equal(1))
+		})
+
+		It("should aggregate multiple PFs from the same device", func() {
+			// Create first mock for PF0
+			vpdData := createVPDDataWithSerialNumber("MT2334XZ0L")
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", vpdData, "")
+			defer mock.cleanup()
+
+			// Add PF1 to the same mock directory
+			pf1Path := filepath.Join(mock.pciDevicesDir, "0000:b1:00.1")
+			err := os.MkdirAll(pf1Path, 0755)
+			Expect(err).NotTo(HaveOccurred())
+			err = os.WriteFile(filepath.Join(pf1Path, "device"), []byte("0xa2dc\n"), 0644)
+			Expect(err).NotTo(HaveOccurred())
+			err = os.WriteFile(filepath.Join(pf1Path, "vpd"), vpdData, 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			devices, err := DiscoverDPUs()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(devices).To(HaveLen(1))
+			Expect(devices[0].Address).To(Equal("0000:b1:00"))
+			Expect(devices[0].SerialNumber).To(Equal("MT2334XZ0L"))
+			Expect(devices[0].NumOfPFs).To(Equal(2))
+		})
+
+		It("should discover multiple different DPU devices", func() {
+			vpdData1 := createVPDDataWithSerialNumber("MT2334XZ0L")
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", vpdData1, "")
+			defer mock.cleanup()
+
+			// Add a second DPU device with different address
+			vpdData2 := createVPDDataWithSerialNumber("MT9876YZ0K")
+			dev2Path := filepath.Join(mock.pciDevicesDir, "0000:3c:00.0")
+			err := os.MkdirAll(dev2Path, 0755)
+			Expect(err).NotTo(HaveOccurred())
+			err = os.WriteFile(filepath.Join(dev2Path, "device"), []byte("0xa2d6\n"), 0644)
+			Expect(err).NotTo(HaveOccurred())
+			err = os.WriteFile(filepath.Join(dev2Path, "vpd"), vpdData2, 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			devices, err := DiscoverDPUs()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(devices).To(HaveLen(2))
+
+			// Find devices by address since map iteration order is not guaranteed
+			deviceMap := make(map[string]Device)
+			for _, d := range devices {
+				deviceMap[d.Address] = d
+			}
+
+			Expect(deviceMap).To(HaveKey("0000:b1:00"))
+			Expect(deviceMap["0000:b1:00"].SerialNumber).To(Equal("MT2334XZ0L"))
+			Expect(deviceMap["0000:b1:00"].NumOfPFs).To(Equal(1))
+
+			Expect(deviceMap).To(HaveKey("0000:3c:00"))
+			Expect(deviceMap["0000:3c:00"].SerialNumber).To(Equal("MT9876YZ0K"))
+			Expect(deviceMap["0000:3c:00"].NumOfPFs).To(Equal(1))
+		})
+
+		It("should continue when IsDPU check fails for a device", func() {
+			vpdData := createVPDDataWithSerialNumber("MT2334XZ0L")
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", vpdData, "")
+			defer mock.cleanup()
+
+			// Add a device directory without device file (will cause IsDPU to fail)
+			brokenDevPath := filepath.Join(mock.pciDevicesDir, "0000:ff:00.0")
+			err := os.MkdirAll(brokenDevPath, 0755)
+			Expect(err).NotTo(HaveOccurred())
+			// Note: not creating "device" file, so IsDPU will fail
+
+			devices, err := DiscoverDPUs()
+			Expect(err).NotTo(HaveOccurred())
+			// Should still discover the valid device
+			Expect(devices).To(HaveLen(1))
+			Expect(devices[0].Address).To(Equal("0000:b1:00"))
+		})
+
+		It("should continue when SerialNumber read fails for a device", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.cleanup()
+			// Note: vpd file not created, so SerialNumber will fail
+
+			// Add another valid DPU device
+			vpdData := createVPDDataWithSerialNumber("MT9876YZ0K")
+			dev2Path := filepath.Join(mock.pciDevicesDir, "0000:3c:00.0")
+			err := os.MkdirAll(dev2Path, 0755)
+			Expect(err).NotTo(HaveOccurred())
+			err = os.WriteFile(filepath.Join(dev2Path, "device"), []byte("0xa2dc\n"), 0644)
+			Expect(err).NotTo(HaveOccurred())
+			err = os.WriteFile(filepath.Join(dev2Path, "vpd"), vpdData, 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			devices, err := DiscoverDPUs()
+			Expect(err).NotTo(HaveOccurred())
+			// Should only discover the second device (first one has no vpd)
+			Expect(devices).To(HaveLen(1))
+			Expect(devices[0].Address).To(Equal("0000:3c:00"))
+			Expect(devices[0].SerialNumber).To(Equal("MT9876YZ0K"))
+		})
+
+		It("should handle mix of DPU and non-DPU devices", func() {
+			vpdData := createVPDDataWithSerialNumber("MT2334XZ0L")
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", vpdData, "")
+			defer mock.cleanup()
+
+			// Add a non-DPU device
+			nonDpuPath := filepath.Join(mock.pciDevicesDir, "0000:00:1f.0")
+			err := os.MkdirAll(nonDpuPath, 0755)
+			Expect(err).NotTo(HaveOccurred())
+			err = os.WriteFile(filepath.Join(nonDpuPath, "device"), []byte("0x8086\n"), 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			devices, err := DiscoverDPUs()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(devices).To(HaveLen(1))
+			Expect(devices[0].Address).To(Equal("0000:b1:00"))
+		})
+	})
 })
