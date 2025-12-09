@@ -410,6 +410,11 @@ func (in *DPUServiceChainSpec) DeepCopyInto(out *DPUServiceChainSpec) {
 		*out = new(v1.LabelSelector)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.DPUClusterSelector != nil {
+		in, out := &in.DPUClusterSelector, &out.DPUClusterSelector
+		*out = new(v1.LabelSelector)
+		(*in).DeepCopyInto(*out)
+	}
 	in.Template.DeepCopyInto(&out.Template)
 }
 
@@ -798,6 +803,11 @@ func (in *DPUServiceIPAMSpec) DeepCopyInto(out *DPUServiceIPAMSpec) {
 		*out = new(v1.LabelSelector)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.DPUClusterSelector != nil {
+		in, out := &in.DPUClusterSelector, &out.DPUClusterSelector
+		*out = new(v1.LabelSelector)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.NodeSelector != nil {
 		in, out := &in.NodeSelector, &out.NodeSelector
 		*out = new(corev1.NodeSelector)
@@ -901,6 +911,11 @@ func (in *DPUServiceInterfaceSpec) DeepCopyInto(out *DPUServiceInterfaceSpec) {
 	*out = *in
 	if in.ClusterSelector != nil {
 		in, out := &in.ClusterSelector, &out.ClusterSelector
+		*out = new(v1.LabelSelector)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.DPUClusterSelector != nil {
+		in, out := &in.DPUClusterSelector, &out.DPUClusterSelector
 		*out = new(v1.LabelSelector)
 		(*in).DeepCopyInto(*out)
 	}
@@ -1034,6 +1049,11 @@ func (in *DPUServiceNADList) DeepCopyObject() runtime.Object {
 func (in *DPUServiceNADSpec) DeepCopyInto(out *DPUServiceNADSpec) {
 	*out = *in
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	if in.DPUClusterSelector != nil {
+		in, out := &in.DPUClusterSelector, &out.DPUClusterSelector
+		*out = new(v1.LabelSelector)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.ChainedCNIs != nil {
 		in, out := &in.ChainedCNIs, &out.ChainedCNIs
 		*out = make([]CNIPlugin, len(*in))

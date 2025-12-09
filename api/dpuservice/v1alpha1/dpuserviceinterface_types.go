@@ -48,6 +48,7 @@ var (
 )
 
 var _ conditions.GetSet = &DPUServiceInterface{}
+var _ DPUServiceObject = &DPUServiceInterface{}
 
 func (c *DPUServiceInterface) GetConditions() []metav1.Condition {
 	return c.Status.Conditions
@@ -57,11 +58,21 @@ func (c *DPUServiceInterface) SetConditions(conditions []metav1.Condition) {
 	c.Status.Conditions = conditions
 }
 
+// GetDPUClusterSelector returns the DPUCluster selector of the DPUServiceInterface
+func (c *DPUServiceInterface) GetDPUClusterSelector() *metav1.LabelSelector {
+	return c.Spec.DPUClusterSelector
+}
+
 // DPUServiceInterfaceSpec defines the desired state of DPUServiceInterfaceSpec
 type DPUServiceInterfaceSpec struct {
 	// Select the Clusters with specific labels, ServiceInterfaceSet CRs will be created only for these Clusters
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead.
 	// +optional
 	ClusterSelector *metav1.LabelSelector `json:"clusterSelector,omitempty"`
+	// DPUClusterSelector determines in which clusters the DPUServiceInterface controller should apply the configuration.
+	// +optional
+	DPUClusterSelector *metav1.LabelSelector `json:"dpuClusterSelector,omitempty"`
 	// Template describes the ServiceInterfaceSet that will be created for each selected Cluster.
 	Template ServiceInterfaceSetSpecTemplate `json:"template"`
 }

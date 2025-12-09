@@ -16,4 +16,18 @@ limitations under the License.
 
 package v1alpha1
 
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
 const SvcDpuGroupName = "svc.dpu.nvidia.com"
+
+// DPUServiceObject is an interface implemented by common DPUService* related objects enabling common functions in the
+// reconcilers
+// +kubebuilder:object:generate=false
+type DPUServiceObject interface {
+	client.Object
+	// GetDPUClusterSelector returns the DPUCluster selector of the object
+	GetDPUClusterSelector() *metav1.LabelSelector
+}

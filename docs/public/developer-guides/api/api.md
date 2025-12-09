@@ -3474,7 +3474,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Clusters with specific labels, ServiceChainSet CRs will be created only for these Clusters |  |  |
+| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Clusters with specific labels, ServiceChainSet CRs will be created only for these Clusters<br /><br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead. |  |  |
+| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUClusterSelector determines in which clusters the DPUServiceChain controller should apply the configuration. |  |  |
 | `template` _[ServiceChainSetSpecTemplate](#servicechainsetspectemplate)_ | Template describes the ServiceChainSet that will be created for each selected Cluster. |  |  |
 
 
@@ -3722,7 +3723,8 @@ _Appears in:_
 | `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `ipv4Network` _[IPV4Network](#ipv4network)_ | IPV4Network is the configuration related to splitting a network into subnets per node, each with their own gateway. |  |  |
 | `ipv4Subnet` _[IPV4Subnet](#ipv4subnet)_ | IPV4Subnet is the configuration related to splitting a subnet into blocks per node. In this setup, there is a<br />single gateway. |  |  |
-| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | ClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration. |  |  |
+| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | ClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.<br /><br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead. |  |  |
+| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration. |  |  |
 | `nodeSelector` _[NodeSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#nodeselector-v1-core)_ | NodeSelector determines in which DPU nodes the DPUServiceIPAM controller should apply the configuration. |  |  |
 
 
@@ -3794,7 +3796,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Clusters with specific labels, ServiceInterfaceSet CRs will be created only for these Clusters |  |  |
+| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Clusters with specific labels, ServiceInterfaceSet CRs will be created only for these Clusters<br /><br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead. |  |  |
+| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUClusterSelector determines in which clusters the DPUServiceInterface controller should apply the configuration. |  |  |
 | `template` _[ServiceInterfaceSetSpecTemplate](#serviceinterfacesetspectemplate)_ | Template describes the ServiceInterfaceSet that will be created for each selected Cluster. |  |  |
 
 
@@ -3885,6 +3888,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUClusterSelector determines in which clusters the DPUServiceNAD controller should apply the configuration. |  |  |
 | `resourceType` _string_ | ResourceType specifies the type of network resource to allocate for pods using this NAD.<br />- "vf": Virtual Function (SR-IOV VF) from the DPU's physical ports<br />- "sf": Scalable Function from the DPU (maps to nvidia.com/bf_sf or nvidia.com/bf_sf_trusted)<br />- "veth": Virtual Ethernet pair (no device plugin resource required)<br />The resource type determines which SR-IOV device plugin resource will be requested. |  | Enum: [vf sf veth] <br /> |
 | `bridge` _string_ | Bridge specifies the name of the OVS bridge to which the network interface will be connected.<br />This bridge name is used in the CNI configuration for the OVS plugin. |  |  |
 | `serviceMTU` _integer_ | ServiceMTU specifies the MTU size in bytes for the network interface.<br />This value is passed to the OVS CNI plugin and determines the maximum packet size.<br />If there is a DPUServiceChain that references an interface that is part of this network,<br />then the MTU that is defined in the DPUServiceChain takes precedence.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br /> |
@@ -3906,6 +3910,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+
+
 
 
 #### DPUServiceSpec
