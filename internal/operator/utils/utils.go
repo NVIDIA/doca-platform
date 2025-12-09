@@ -18,16 +18,11 @@ package utils
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	apiyaml "k8s.io/apimachinery/pkg/util/yaml"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
 
@@ -84,19 +79,4 @@ func UnstructuredToBytes(objs []*unstructured.Unstructured) ([]byte, error) {
 	out = bytes.TrimSuffix(out, lineSeperator)
 
 	return out, nil
-}
-
-// EnsureNamespace ensures the namespace exists in the cluster by creating it if it does not exist.
-func EnsureNamespace(ctx context.Context, client client.Client, namespace string) error {
-	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: namespace,
-		},
-	}
-	if err := client.Create(ctx, ns); err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			return err
-		}
-	}
-	return nil
 }
