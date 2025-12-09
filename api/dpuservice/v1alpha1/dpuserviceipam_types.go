@@ -50,6 +50,7 @@ var (
 )
 
 var _ conditions.GetSet = &DPUServiceIPAM{}
+var _ DPUServiceObject = &DPUServiceIPAM{}
 
 func (c *DPUServiceIPAM) GetConditions() []metav1.Condition {
 	return c.Status.Conditions
@@ -57,6 +58,11 @@ func (c *DPUServiceIPAM) GetConditions() []metav1.Condition {
 
 func (c *DPUServiceIPAM) SetConditions(conditions []metav1.Condition) {
 	c.Status.Conditions = conditions
+}
+
+// GetDPUClusterSelector returns the DPUCluster selector of the DPUServiceIPAM
+func (c *DPUServiceIPAM) GetDPUClusterSelector() *metav1.LabelSelector {
+	return c.Spec.DPUClusterSelector
 }
 
 // DPUServiceIPAMSpec defines the desired state of DPUServiceIPAM
@@ -69,8 +75,13 @@ type DPUServiceIPAMSpec struct {
 	IPV4Subnet *IPV4Subnet `json:"ipv4Subnet,omitempty"`
 
 	// ClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead.
 	// +optional
 	ClusterSelector *metav1.LabelSelector `json:"clusterSelector,omitempty"`
+	// DPUClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.
+	// +optional
+	DPUClusterSelector *metav1.LabelSelector `json:"dpuClusterSelector,omitempty"`
 	// NodeSelector determines in which DPU nodes the DPUServiceIPAM controller should apply the configuration.
 	NodeSelector *corev1.NodeSelector `json:"nodeSelector,omitempty"`
 }

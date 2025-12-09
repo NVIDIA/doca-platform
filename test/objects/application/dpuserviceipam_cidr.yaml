@@ -16,9 +16,6 @@ spec:
     allocations:
       dpu-node-1: 192.168.1.0/24
       dpu-node-2: 192.168.2.0/24
-  clusterSelector:
-    matchLabels:
-      dpu-cluster-label: "one"
   nodeSelector:
     nodeSelectorTerms:
     - matchExpressions:

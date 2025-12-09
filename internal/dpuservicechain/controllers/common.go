@@ -20,13 +20,17 @@ import (
 	"context"
 	"fmt"
 
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	"github.com/nvidia/doca-platform/internal/operator/utils"
+	operatorutils "github.com/nvidia/doca-platform/internal/operator/utils"
+	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -48,15 +52,15 @@ type objectsInDPUClustersReconciler interface {
 	// getObjectsInDPUCluster is the method called by the reconcileObjectDeletionInDPUClusters function which deletes
 	// objects in the DPU cluster related to the given parentObject. The implementation should get the created objects
 	// in the DPU cluster.
-	getObjectsInDPUCluster(ctx context.Context, dpuClusterClient client.Client, parentObject client.Object) ([]unstructured.Unstructured, error)
+	getObjectsInDPUCluster(ctx context.Context, dpuClusterClient client.Client, parentObject dpuservicev1.DPUServiceObject) ([]unstructured.Unstructured, error)
 	// createOrUpdateObjectsInDPUCluster is the method called by the reconcileObjectsInDPUClusters function which applies changes to
 	// the DPU clusters based on the given parentObject. The implementation should create and update objects in the DPU
 	// cluster.
-	createOrUpdateObjectsInDPUCluster(ctx context.Context, dpuClusterClient client.Client, parentObject client.Object) error
+	createOrUpdateObjectsInDPUCluster(ctx context.Context, dpuClusterClient client.Client, parentObject dpuservicev1.DPUServiceObject) error
 	// deleteObjectsInDPUCluster is the method called by the reconcileObjectDeletionInDPUClusters function which deletes
 	// objects in the DPU cluster related to the given parentObject. The implementation should delete objects in the
 	// DPU cluster.
-	deleteObjectsInDPUCluster(ctx context.Context, dpuClusterClient client.Client, parentObject client.Object) error
+	deleteObjectsInDPUCluster(ctx context.Context, dpuClusterClient client.Client, parentObject dpuservicev1.DPUServiceObject) error
 	// getUnreadyObjects is the method called by reconcileReadinessOfObjectsInDPUClusters function which returns whether
 	// objects in the DPU cluster are ready. The input to the function is a list of objects that exist in a particular
 	// cluster.
@@ -65,13 +69,13 @@ type objectsInDPUClustersReconciler interface {
 	registerKindToWatcher(ctx context.Context, dpuClusterKey types.NamespacedName) error
 }
 
-// shouldRequeueError is an error returned by the functions below that indicates that an event should be requeued. This
-// error is useful when one wants to requeue after a specific amount of time.
-type shouldRequeueError struct {
+// longOperationError is an error returned by the functions below that indicates that an event should be requeued. This
+// error is returned when we know an operation that was triggered will take time to complete.
+type longOperationError struct {
 	err error
 }
 
-func (e *shouldRequeueError) Error() string {
+func (e *longOperationError) Error() string {
 	return e.err.Error()
 }
 
@@ -103,10 +107,10 @@ func watchObjectsInDPUClusters(ctx context.Context, k8sClient client.Client, r o
 func reconcileObjectDeletionInDPUClusters(ctx context.Context,
 	r objectsInDPUClustersReconciler,
 	k8sClient client.Client,
-	dpuServiceObject client.Object,
+	dpuServiceObject dpuservicev1.DPUServiceObject,
 ) error {
 
-	//TODO implement list clusters with label selector
+	// Get the list of all DPUClusters as we need to ensure that no leftover resource across any cluster
 	dpuClusterConfigs, err := dpucluster.GetConfigs(ctx, k8sClient)
 	if err != nil {
 		// TODO: Adjust error handling here to do as much work as possible with clusters we managed to rerieve, report
@@ -115,22 +119,15 @@ func reconcileObjectDeletionInDPUClusters(ctx context.Context,
 	}
 	var existingObjs int
 	for _, dpuClusterConfig := range dpuClusterConfigs {
-		dpuClusterClient, err := dpuClusterConfig.Client(ctx)
+		objs, err := deleteObjectsInDPUCluster(ctx, dpuClusterConfig, r, dpuServiceObject)
 		if err != nil {
-			return err
-		}
-		if err := r.deleteObjectsInDPUCluster(ctx, dpuClusterClient, dpuServiceObject); err != nil && !apierrors.IsNotFound(err) {
-			return err
-		}
-		objs, err := r.getObjectsInDPUCluster(ctx, dpuClusterClient, dpuServiceObject)
-		if err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 		existingObjs += len(objs)
 	}
 
 	if existingObjs > 0 {
-		return &shouldRequeueError{err: fmt.Errorf("%d objects still exist across all DPU clusters", existingObjs)}
+		return &longOperationError{err: fmt.Errorf("%d objects still exist across all DPU clusters", existingObjs)}
 	}
 
 	return nil
@@ -142,30 +139,70 @@ func reconcileObjectDeletionInDPUClusters(ctx context.Context,
 func reconcileObjectsInDPUClusters(ctx context.Context,
 	r objectsInDPUClustersReconciler,
 	k8sClient client.Client,
-	dpuServiceObject client.Object,
+	dpuServiceObject dpuservicev1.DPUServiceObject,
 ) error {
 
-	// Get the list of clusters this DPUServiceObject targets.
-	//TODO implement list clusters with label selector
-	dpuClusterConfigs, err := dpucluster.GetConfigs(ctx, k8sClient)
+	// Get the list of all DPUClusters
+	allDPUClusterConfigs, err := dpucluster.GetConfigs(ctx, k8sClient)
 	if err != nil {
 		// TODO: Adjust error handling here to do as much work as possible with clusters we managed to rerieve, report
 		// error back to the controller logs and update status accordingly
 		return err
 	}
 
-	for _, dpuClusterConfig := range dpuClusterConfigs {
+	// Create a map for all DPUClusters that need to be processed
+	unprocessedDPUClusters := make(map[string]*dpucluster.Config, len(allDPUClusterConfigs))
+	for i, dpuClusterConfig := range allDPUClusterConfigs {
+		unprocessedDPUClusters[client.ObjectKeyFromObject(dpuClusterConfig.Cluster).String()] = allDPUClusterConfigs[i]
+	}
+
+	// Get the list of the DPUClusters the resource is targeting
+	targetDPUClusterConfigs, err := getMatchingDPUClusters(allDPUClusterConfigs, dpuServiceObject.GetDPUClusterSelector())
+	if err != nil {
+		return err
+	}
+
+	// Create and update objects in each targeted cluster
+	for _, dpuClusterConfig := range targetDPUClusterConfigs {
 		dpuClusterClient, err := dpuClusterConfig.Client(ctx)
 		if err != nil {
 			return err
 		}
-		if err := utils.EnsureNamespace(ctx, dpuClusterClient, dpuServiceObject.GetNamespace()); err != nil {
+		if err := operatorutils.EnsureNamespace(ctx, dpuClusterClient, dpuServiceObject.GetNamespace()); err != nil {
 			return err
 		}
 		if err := r.createOrUpdateObjectsInDPUCluster(ctx, dpuClusterClient, dpuServiceObject); err != nil {
 			return err
 		}
+
+		// Remove the cluster from the map to keep only clusters where resources need to be deleted
+		delete(unprocessedDPUClusters, client.ObjectKeyFromObject(dpuClusterConfig.Cluster).String())
 	}
+
+	// Delete leftover resources in clusters that are no longer selected
+	var existingObjsNN []namespacedNameInCluster
+	for _, dpuClusterConfig := range unprocessedDPUClusters {
+		objs, err := deleteObjectsInDPUCluster(ctx, dpuClusterConfig, r, dpuServiceObject)
+		if err != nil {
+			return err
+		}
+		for _, obj := range objs {
+			existingObjsNN = append(existingObjsNN, namespacedNameInCluster{
+				Object:  client.ObjectKeyFromObject(&obj),
+				Cluster: *dpuClusterConfig.Cluster,
+			})
+		}
+	}
+
+	if len(existingObjsNN) > 0 {
+		objMessages := []string{}
+		for _, objNN := range existingObjsNN {
+			objMessages = append(objMessages, objNN.String())
+		}
+		message := conditions.ReadyConditionMessage("Stale objects still exist across non matching DPUClusters", objMessages)
+		return &longOperationError{err: fmt.Errorf("%s", message)}
+	}
+
 	return nil
 }
 
@@ -175,11 +212,10 @@ func reconcileObjectsInDPUClusters(ctx context.Context,
 func reconcileReadinessOfObjectsInDPUClusters(ctx context.Context,
 	r objectsInDPUClustersReconciler,
 	k8sClient client.Client,
-	dpuServiceObject client.Object,
+	dpuServiceObject dpuservicev1.DPUServiceObject,
 ) ([]namespacedNameInCluster, error) {
 
 	// Get the list of clusters this DPUServiceObject targets.
-	//TODO implement list clusters with label selector
 	dpuClusterConfigs, err := dpucluster.GetConfigs(ctx, k8sClient)
 	if err != nil {
 		// TODO: Adjust error handling here to do as much work as possible with clusters we managed to retrieve, report
@@ -187,8 +223,14 @@ func reconcileReadinessOfObjectsInDPUClusters(ctx context.Context,
 		return nil, err
 	}
 
+	// Get the list of the DPUClusters the resource is targeting
+	targetDPUClusterConfigs, err := getMatchingDPUClusters(dpuClusterConfigs, dpuServiceObject.GetDPUClusterSelector())
+	if err != nil {
+		return nil, err
+	}
+
 	unreadyObjsNN := []namespacedNameInCluster{}
-	for _, dpuClusterConfig := range dpuClusterConfigs {
+	for _, dpuClusterConfig := range targetDPUClusterConfigs {
 		dpuClusterClient, err := dpuClusterConfig.Client(ctx)
 		if err != nil {
 			return nil, err
@@ -216,7 +258,7 @@ func updateSummary(ctx context.Context,
 	r objectsInDPUClustersReconciler,
 	k8sClient client.Client,
 	objReadyCondition conditions.ConditionType,
-	dpuServiceObject client.Object,
+	dpuServiceObject dpuservicev1.DPUServiceObject,
 ) error {
 
 	objAsGetSet, ok := dpuServiceObject.(conditions.GetSet)
@@ -256,4 +298,41 @@ func updateSummary(ctx context.Context,
 	}
 
 	return nil
+}
+
+// getMatchingDPUClusters returns a list of DPUCluster Configs that match the given selector
+func getMatchingDPUClusters(dpuClusters []*dpucluster.Config, dpuClusterSelector *metav1.LabelSelector) ([]*dpucluster.Config, error) {
+	if dpuClusterSelector == nil {
+		return dpuClusters, nil
+	}
+
+	matchingClusters := make([]*dpucluster.Config, 0, len(dpuClusters))
+	selector, err := utils.LabelSelectorAsSelector(dpuClusterSelector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse label selector: %w", err)
+	}
+	for i, dpuCluster := range dpuClusters {
+		if !selector.Matches(labels.Set(dpuCluster.Cluster.Labels)) {
+			continue
+		}
+		matchingClusters = append(matchingClusters, dpuClusters[i])
+	}
+	return matchingClusters, nil
+}
+
+// deleteObjectsInDPUCluster deletes objects in the given DPUCluster and returns the amount of objects that still exist
+// in that cluster but should not exist.
+func deleteObjectsInDPUCluster(ctx context.Context, dpuClusterConfig *dpucluster.Config, r objectsInDPUClustersReconciler, dpuServiceObject dpuservicev1.DPUServiceObject) ([]unstructured.Unstructured, error) {
+	dpuClusterClient, err := dpuClusterConfig.Client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.deleteObjectsInDPUCluster(ctx, dpuClusterClient, dpuServiceObject); err != nil && !apierrors.IsNotFound(err) {
+		return nil, err
+	}
+	objs, err := r.getObjectsInDPUCluster(ctx, dpuClusterClient, dpuServiceObject)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return nil, err
+	}
+	return objs, nil
 }
