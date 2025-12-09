@@ -55,10 +55,6 @@ spec:
               cniInstaller:
                 description: CNIInstaller is the configuration for the cni-installer
                 properties:
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
-                    type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
                       set to true.
@@ -371,10 +367,6 @@ spec:
                             type: object
                         type: object
                     type: object
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
-                    type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
                       set to true.
@@ -564,10 +556,6 @@ spec:
                             type: object
                         type: object
                     type: object
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
-                    type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
                       set to true.
@@ -676,10 +664,6 @@ spec:
                             type: object
                         type: object
                     type: object
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
-                    type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
                       set to true.
@@ -886,10 +870,6 @@ spec:
                             type: object
                         type: object
                     type: object
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
-                    type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
                       set to true.
@@ -1179,10 +1159,6 @@ spec:
                             type: object
                         type: object
                     type: object
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
-                    type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
                       set to true.
@@ -1276,10 +1252,6 @@ spec:
                             type: object
                         type: object
                     type: object
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
-                    type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
                       set to true.
@@ -1313,10 +1285,6 @@ spec:
               sriovDevicePlugin:
                 description: SRIOVDevicePlugin is the configuration for the SRIOVDevicePlugin
                 properties:
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
-                    type: boolean
                   deviceplugin:
                     description: |-
                       DevicePlugin contains the configuration for the SRIOV Device Plugin component.

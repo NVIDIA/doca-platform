@@ -79,15 +79,6 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.ServiceSetControllerName: defaults.DPUNetworkingHelmChart,
 			operatorv1.CNIInstallerName:         defaults.DPUNetworkingHelmChart,
 		},
-		DeployInCluster: map[operatorv1.ComponentName]bool{
-			operatorv1.FlannelName:              false,
-			operatorv1.MultusName:               false,
-			operatorv1.SRIOVDevicePluginName:    false,
-			operatorv1.NVIPAMName:               false,
-			operatorv1.OVSCNIName:               false,
-			operatorv1.SFCControllerName:        false,
-			operatorv1.ServiceSetControllerName: true,
-		},
 		SFCController: SFCControllerVariables{
 			SecureFlowDeletionTimeout: 0 * time.Second,
 		},
@@ -119,7 +110,6 @@ type Variables struct {
 	ImagePullSecrets                 []string
 	Images                           map[string]string
 	HelmCharts                       map[operatorv1.ComponentName]string
-	DeployInCluster                  map[operatorv1.ComponentName]bool
 	KubernetesAPIServerVIP           *string
 	KubernetesAPIServerPort          *int
 	Resources                        map[string]corev1.ResourceRequirements
@@ -164,7 +154,6 @@ func extractComponentConfigs(variables Variables, config *operatorv1.DPFOperator
 	disableComponents := variables.DisableSystemComponents
 	images := variables.Images
 	helmCharts := variables.HelmCharts
-	deployInCluster := variables.DeployInCluster
 	resources := variables.Resources
 
 	for _, componentConfig := range config.ComponentConfigs() {
@@ -180,13 +169,6 @@ func extractComponentConfigs(variables Variables, config *operatorv1.DPFOperator
 			helmCharts[componentName] = *helmConfig.GetHelmChart()
 		}
 
-		// Extract DPU service configuration
-		// nolint:staticcheck
-		if dpuServiceConfig, ok := componentConfig.(operatorv1.InClusterDeploymentConfigurable); ok && dpuServiceConfig != nil {
-			if dpuServiceConfig.InClusterDeployment() {
-				deployInCluster[componentName] = true
-			}
-		}
 		extraImageConfigs(componentConfig, images, componentName)
 		extraResourceConfigs(componentConfig, resources, componentName)
 	}
@@ -194,7 +176,6 @@ func extractComponentConfigs(variables Variables, config *operatorv1.DPFOperator
 	variables.DisableSystemComponents = disableComponents
 	variables.Images = images
 	variables.HelmCharts = helmCharts
-	variables.DeployInCluster = deployInCluster
 	return variables
 }
 

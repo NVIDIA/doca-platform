@@ -668,98 +668,6 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 
 	})
 
-	t.Run("deploy system DPUServices to in-cluster", func(t *testing.T) {
-		// Set the image and helm chart for each component deployed by DPF.
-		g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(config), config)).To(Succeed())
-		configCopy := config.DeepCopy()
-
-		// Update the config with
-		config.Spec = operatorv1.DPFOperatorConfigSpec{
-			ImagePullSecrets: initialImagePullSecrets,
-
-			// For objects which are deployed as raw manifests set the image field in configuration.
-			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-				BFBPersistentVolumeClaimName: "foo-pvc",
-			},
-			DPUServiceController: &operatorv1.DPUServiceControllerConfiguration{},
-			KamajiClusterManager: &operatorv1.KamajiClusterManagerConfiguration{
-				BaseComponentConfig: operatorv1.BaseComponentConfig{
-					Disable: ptr.To(false),
-				},
-			},
-			StaticClusterManager: &operatorv1.StaticClusterManagerConfiguration{
-				BaseComponentConfig: operatorv1.BaseComponentConfig{
-					Disable: ptr.To(false),
-				},
-			},
-
-			// For objects which are deployed as DPUServices set the DeployInCluster option.
-			ServiceSetController: &operatorv1.ServiceSetControllerConfiguration{
-				InClusterDeploymentConfig: operatorv1.InClusterDeploymentConfig{
-					DeployInTargetCluster: ptr.To(true)},
-			},
-			Multus: &operatorv1.MultusConfiguration{
-				InClusterDeploymentConfig: operatorv1.InClusterDeploymentConfig{
-					DeployInTargetCluster: ptr.To(true)},
-			},
-			SRIOVDevicePlugin: &operatorv1.SRIOVDevicePluginConfiguration{
-				InClusterDeploymentConfig: operatorv1.InClusterDeploymentConfig{
-					DeployInTargetCluster: ptr.To(true)},
-			},
-			Flannel: &operatorv1.FlannelConfiguration{
-				InClusterDeploymentConfig: operatorv1.InClusterDeploymentConfig{
-					DeployInTargetCluster: ptr.To(true)},
-			},
-			OVSCNI: &operatorv1.OVSCNIConfiguration{
-				InClusterDeploymentConfig: operatorv1.InClusterDeploymentConfig{
-					DeployInTargetCluster: ptr.To(true)},
-			},
-			NVIPAM: &operatorv1.NVIPAMConfiguration{
-				InClusterDeploymentConfig: operatorv1.InClusterDeploymentConfig{
-					DeployInTargetCluster: ptr.To(true)},
-			},
-			SFCController: &operatorv1.SFCControllerConfiguration{
-				InClusterDeploymentConfig: operatorv1.InClusterDeploymentConfig{
-					DeployInTargetCluster: ptr.To(true)},
-			},
-		}
-		g.Expect(testClient.Patch(ctx, config, client.MergeFrom(configCopy))).To(Succeed())
-		g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(config), config)).To(Succeed())
-
-		g.Eventually(func(g Gomega) {
-
-			g.Expect(dpuServiceIsInCluster(
-				waitForDPUService(g, config.Namespace, operatorv1.ServiceSetControllerName, initialImagePullSecrets),
-			)).To(BeTrue())
-
-			g.Expect(dpuServiceIsInCluster(
-				waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, initialImagePullSecrets),
-			)).To(BeTrue())
-
-			g.Expect(dpuServiceIsInCluster(
-				waitForDPUService(g, config.Namespace, operatorv1.SRIOVDevicePluginName, initialImagePullSecrets),
-			)).To(BeTrue())
-
-			g.Expect(dpuServiceIsInCluster(
-				waitForDPUService(g, config.Namespace, operatorv1.FlannelName, initialImagePullSecrets),
-			)).To(BeTrue())
-
-			g.Expect(dpuServiceIsInCluster(
-				waitForDPUService(g, config.Namespace, operatorv1.MultusName, initialImagePullSecrets),
-			)).To(BeTrue())
-
-			g.Expect(dpuServiceIsInCluster(
-				waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, initialImagePullSecrets),
-			)).To(BeTrue())
-
-			g.Expect(dpuServiceIsInCluster(
-				waitForDPUService(g, config.Namespace, operatorv1.NVIPAMName, initialImagePullSecrets),
-			)).To(BeTrue())
-
-		}).WithTimeout(20 * time.Second).Should(Succeed())
-
-	})
-
 	t.Run("Delete system components when they are disabled in the DPFOperatorConfig", func(t *testing.T) {
 		// Patch the DPFOperatorConfig to disable multus deployment.
 		g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(config), config)).To(Succeed())
@@ -797,10 +705,6 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 			g.Expect(apierrors.IsNotFound(testClient.Get(ctx, client.ObjectKeyFromObject(config), config))).To(BeTrue())
 		}).WithTimeout(60 * time.Second).Should(Succeed())
 	})
-}
-
-func dpuServiceIsInCluster(service *dpuservicev1.DPUService) bool {
-	return *service.Spec.DeployInCluster
 }
 
 func dpuServiceReferencesHelmChart(dpuService *dpuservicev1.DPUService, chart string) bool {
