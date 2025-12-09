@@ -26,16 +26,23 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const (
+// Mutable paths for sysfs directories - can be overridden in tests for mocking
+var (
+	// SysPCIDevicesDir is the path to the PCI devices directory in sysfs.
+	// This is a var instead of const to allow mocking in tests.
 	SysPCIDevicesDir = "/sys/bus/pci/devices"
+
+	// SysClassNetDir is the path to the network class directory in sysfs.
+	// This is a var instead of const to allow mocking in tests.
+	SysClassNetDir = "/sys/class/net"
 )
 
-var (
-	knownDPUDeviceID = map[string]struct{}{
-		"0xa2dc": {}, // BlueField-3
-		"0xa2d6": {}, // BlueField-2
-	}
-)
+// knownDPUDeviceID maps PCI device IDs to known DPU types.
+// This should be treated as immutable - do not modify at runtime.
+var knownDPUDeviceID = map[string]struct{}{
+	"0xa2dc": {}, // BlueField-3
+	"0xa2d6": {}, // BlueField-2
+}
 
 type PCIHelper struct {
 	// PCIAddress is the PCI address of the device with optional function number,
@@ -135,7 +142,7 @@ func (h *PCIHelper) GetMTU() (int, error) {
 		return 0, fmt.Errorf("failed to get interface name: %w", err)
 	}
 
-	mtuPath := filepath.Join("/sys/class/net", interfaceName, "mtu")
+	mtuPath := filepath.Join(SysClassNetDir, interfaceName, "mtu")
 	mtuBytes, err := os.ReadFile(mtuPath)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read MTU for interface %s: %w", interfaceName, err)
