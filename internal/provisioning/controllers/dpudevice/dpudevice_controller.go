@@ -430,6 +430,17 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		dpuDevice.Status.PSID = ptr.To(chassisInfo.SerialNumber)
 	}
 
+	switch {
+	case strings.Contains(chassisInfo.Model, "BlueField 2"):
+		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField2
+	case strings.Contains(chassisInfo.Model, "BlueField 3"):
+		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField3
+	case strings.Contains(chassisInfo.Model, "BlueField 4"):
+		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField4
+	default:
+		dpuDevice.Status.DPUType = provisioningv1.DPUTypeUnknown
+	}
+
 	dpuDevice.Status.OPN = ptr.To(chassisInfo.PartNumber)
 
 	resp, pf0, err := client.GetNetworkDeviceFunction("eth0f0")

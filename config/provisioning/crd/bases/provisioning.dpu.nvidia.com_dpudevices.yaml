@@ -203,6 +203,15 @@ spec:
                   - type
                   type: object
                 type: array
+              dpuType:
+                default: Unknown
+                description: DPUType is the type of the DPU.
+                enum:
+                - Unknown
+                - BlueField2
+                - BlueField3
+                - BlueField4
+                type: string
               opn:
                 description: |-
                   OPN is the Ordering Part Number of the device.

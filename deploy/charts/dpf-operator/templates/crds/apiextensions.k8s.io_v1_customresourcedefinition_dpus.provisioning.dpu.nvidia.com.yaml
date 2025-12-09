@@ -317,6 +317,15 @@ spec:
                 - hostAgent
                 - redfish
                 type: string
+              dpuType:
+                default: Unknown
+                description: The type of the DPU
+                enum:
+                - Unknown
+                - BlueField2
+                - BlueField3
+                - BlueField4
+                type: string
               firmware:
                 description: the firmware information of DPU
                 properties:
