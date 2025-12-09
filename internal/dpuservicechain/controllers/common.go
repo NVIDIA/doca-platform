@@ -22,15 +22,12 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	operatorutils "github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -157,7 +154,7 @@ func reconcileObjectsInDPUClusters(ctx context.Context,
 	}
 
 	// Get the list of the DPUClusters the resource is targeting
-	targetDPUClusterConfigs, err := getMatchingDPUClusters(allDPUClusterConfigs, dpuServiceObject.GetDPUClusterSelector())
+	targetDPUClusterConfigs, err := utils.GetMatchingDPUClusters(allDPUClusterConfigs, dpuServiceObject.GetDPUClusterSelector())
 	if err != nil {
 		return err
 	}
@@ -168,7 +165,7 @@ func reconcileObjectsInDPUClusters(ctx context.Context,
 		if err != nil {
 			return err
 		}
-		if err := operatorutils.EnsureNamespace(ctx, dpuClusterClient, dpuServiceObject.GetNamespace()); err != nil {
+		if err := utils.EnsureNamespace(ctx, dpuClusterClient, dpuServiceObject.GetNamespace()); err != nil {
 			return err
 		}
 		if err := r.createOrUpdateObjectsInDPUCluster(ctx, dpuClusterClient, dpuServiceObject); err != nil {
@@ -224,7 +221,7 @@ func reconcileReadinessOfObjectsInDPUClusters(ctx context.Context,
 	}
 
 	// Get the list of the DPUClusters the resource is targeting
-	targetDPUClusterConfigs, err := getMatchingDPUClusters(dpuClusterConfigs, dpuServiceObject.GetDPUClusterSelector())
+	targetDPUClusterConfigs, err := utils.GetMatchingDPUClusters(dpuClusterConfigs, dpuServiceObject.GetDPUClusterSelector())
 	if err != nil {
 		return nil, err
 	}
@@ -298,26 +295,6 @@ func updateSummary(ctx context.Context,
 	}
 
 	return nil
-}
-
-// getMatchingDPUClusters returns a list of DPUCluster Configs that match the given selector
-func getMatchingDPUClusters(dpuClusters []*dpucluster.Config, dpuClusterSelector *metav1.LabelSelector) ([]*dpucluster.Config, error) {
-	if dpuClusterSelector == nil {
-		return dpuClusters, nil
-	}
-
-	matchingClusters := make([]*dpucluster.Config, 0, len(dpuClusters))
-	selector, err := utils.LabelSelectorAsSelector(dpuClusterSelector)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse label selector: %w", err)
-	}
-	for i, dpuCluster := range dpuClusters {
-		if !selector.Matches(labels.Set(dpuCluster.Cluster.Labels)) {
-			continue
-		}
-		matchingClusters = append(matchingClusters, dpuClusters[i])
-	}
-	return matchingClusters, nil
 }
 
 // deleteObjectsInDPUCluster deletes objects in the given DPUCluster and returns the amount of objects that still exist
