@@ -81,6 +81,7 @@ type DPUDeviceSpec struct {
 	// This value is immutable and should not be changed once set.
 	// Example: "MT_0001234567", "MT25066004C7"
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Serial Number is immutable"
+	// +kubebuilder:validation:MinLength=1
 	// +required
 	SerialNumber string `json:"serialNumber,omitempty"`
 
