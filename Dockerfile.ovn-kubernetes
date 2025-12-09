@@ -133,24 +133,15 @@ RUN find /etc/apt/sources.list* -type f -exec sed -i \
       -e "s|http://ports.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
       -e "s|http://security.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" '{}' \;
 
-# Upgrade all packages to latest versions.
-# This is necessary to be able to download the sources for all packages later.
-# If some packages are not up to date, `apt-get source` may fail with errors like:
-# Can not find version '0.60ubuntu0.3' of package 'distro-info-data'
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && \
-    apt-get upgrade -y -qq && \
-    dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /initial-dpkg-list.txt
-
 # Install all packages in one layer to avoid repeated apt-get update calls
 # Combine both BASE_PACKAGES and OVN_PACKAGES for optimal caching
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
+    dpkg -l | awk '/^ii/{print $2}' | sort > /initial-dpkg-list.txt && \
     apt-get install -y -qq ${BASE_PACKAGES} && \
     apt-get install -y -qq --no-install-recommends ${OVN_PACKAGES} && \
-    dpkg -l | awk '/^ii/{print $2"="$3}' | sort > /after-ovn-dpkg-list.txt
+    dpkg -l | awk '/^ii/{print $2}' | sort > /after-ovn-dpkg-list.txt
 
 # Copy OVN packages from builder stage (downloaded natively, no emulation issues)
 COPY --from=ovnkubernetes-builder /workspace/ovn-common_${OVN_VERSION}-1_${TARGETARCH}.deb .
