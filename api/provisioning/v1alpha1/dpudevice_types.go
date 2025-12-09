@@ -189,9 +189,24 @@ type DPUDeviceStatus struct {
 	// +optional
 	PF0MAC *string `json:"pf0Mac,omitempty"`
 
+	// DPUType is the type of the DPU.
+	// +kubebuilder:validation:Enum=Unknown;BlueField2;BlueField3;BlueField4
+	// +kubebuilder:default=Unknown
+	// +optional
+	DPUType DPUType `json:"dpuType,omitempty"`
+
 	// +optional
 	Conditions []metav1.Condition `json:"conditions"`
 }
+
+type DPUType string
+
+const (
+	DPUTypeUnknown    DPUType = "Unknown"
+	DPUTypeBlueField2 DPUType = "BlueField2"
+	DPUTypeBlueField3 DPUType = "BlueField3"
+	DPUTypeBlueField4 DPUType = "BlueField4"
+)
 
 var _ conditions.GetSet = &DPUDevice{}
 

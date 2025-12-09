@@ -70,6 +70,8 @@ func Initializing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, err
 	}
 
+	state.DPUType = dpuDevice.Status.DPUType
+
 	// Check if the DPU OOB bridge is configured for non-RedFish installation.
 	// If not configured, set the condition and return.
 	if dpuNode.Status.DPUInstallInterface != nil && *dpuNode.Status.DPUInstallInterface != string(provisioningv1.InstallViaRedFish) {

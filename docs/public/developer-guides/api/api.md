@@ -1305,6 +1305,7 @@ _Appears in:_
 | `pciAddress` _string_ | PCIAddress is the PCI address of the device in the host system.<br />Example: "0000-03-00", "03-00" |  |  |
 | `pf0Name` _string_ | PF0Name is the name of the PF0 on the device.<br />Example: "eth0" |  |  |
 | `pf0Mac` _string_ | PF0MAC is the MAC address of the PF0 on the device.<br />Example: "00:00:00:00:00:00" |  | Pattern: `^([0-9A-Fa-f]\{2\}[:-])\{5\}([0-9A-Fa-f]\{2\})$` <br /> |
+| `dpuType` _[DPUType](#dputype)_ | DPUType is the type of the DPU. | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  |  |
 
 
@@ -1876,6 +1877,7 @@ _Appears in:_
 | `dpuInstallInterface` _string_ | the name of the interface which will be used to install the bfb image,<br />and communicate with DPU, can be one of hostAgent,redfish |  | Enum: [gNOI hostAgent redfish] <br /> |
 | `postProvisioningNodeEffect` _boolean_ | Indicates that node effect was triggered by post-provisioning label changes |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `dpuType` _[DPUType](#dputype)_ | The type of the DPU | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br /> |
 
 
 #### DPUTemplate
@@ -1912,6 +1914,26 @@ _Appears in:_
 | `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} |  |
 | `cluster` _[ClusterSpec](#clusterspec)_ | Specifies details on the K8S cluster to join |  |  |
 | `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  |  |
+
+
+#### DPUType
+
+_Underlying type:_ _string_
+
+
+
+
+
+_Appears in:_
+- [DPUDeviceStatus](#dpudevicestatus)
+- [DPUStatus](#dpustatus)
+
+| Field | Description |
+| --- | --- |
+| `Unknown` |  |
+| `BlueField2` |  |
+| `BlueField3` |  |
+| `BlueField4` |  |
 
 
 #### DpuModeType
