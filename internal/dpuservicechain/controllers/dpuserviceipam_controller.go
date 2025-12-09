@@ -130,12 +130,18 @@ func (r *DPUServiceIPAMReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 //nolint:unparam
 func (r *DPUServiceIPAMReconciler) reconcile(ctx context.Context, dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) (ctrl.Result, error) {
 	if err := reconcileObjectsInDPUClusters(ctx, r, r.Client, dpuServiceIPAM); err != nil {
+		e := &longOperationError{}
 		conditions.AddFalse(
 			dpuServiceIPAM,
 			dpuservicev1.ConditionDPUIPAMObjectReconciled,
 			conditions.ReasonError,
 			conditions.ConditionMessage(fmt.Sprintf("Error occurred: %s", err.Error())),
 		)
+		// We enqueue without exponential backoff if the error is a longOperationError because this
+		// error is returned when we know an operation that was triggered will take time to complete
+		if errors.As(err, &e) {
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
 		return ctrl.Result{}, err
 	}
 	conditions.AddTrue(
@@ -159,7 +165,7 @@ func (r *DPUServiceIPAMReconciler) reconcileDelete(ctx context.Context, dpuServi
 	log.Info("Reconciling delete")
 
 	if err := reconcileObjectDeletionInDPUClusters(ctx, r, r.Client, dpuServiceIPAM); err != nil {
-		e := &shouldRequeueError{}
+		e := &longOperationError{}
 		if errors.As(err, &e) {
 			log.Info(fmt.Sprintf("Requeueing because %s", err.Error()))
 			conditions.AddFalse(
@@ -181,7 +187,7 @@ func (r *DPUServiceIPAMReconciler) reconcileDelete(ctx context.Context, dpuServi
 // getObjectsInDPUCluster is the method called by the reconcileObjectDeletionInDPUClusters function which deletes
 // objects in the DPU cluster related to the given parentObject. The implementation should get the created objects
 // in the DPU cluster.
-func (r *DPUServiceIPAMReconciler) getObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject client.Object) ([]unstructured.Unstructured, error) {
+func (r *DPUServiceIPAMReconciler) getObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject dpuservicev1.DPUServiceObject) ([]unstructured.Unstructured, error) {
 	pools := []unstructured.Unstructured{}
 	for _, poolListType := range []string{nvipamv1.IPPoolListKind, nvipamv1.CIDRPoolListKind} {
 		p := &unstructured.UnstructuredList{}
@@ -201,7 +207,7 @@ func (r *DPUServiceIPAMReconciler) getObjectsInDPUCluster(ctx context.Context, c
 
 // createOrUpdateChild is the method called by the reconcileObjectsInDPUClusters function which applies changes to the
 // DPU clusters on DPUServiceIPAM object updates.
-func (r *DPUServiceIPAMReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject client.Object) error {
+func (r *DPUServiceIPAMReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject dpuservicev1.DPUServiceObject) error {
 	dpuServiceIPAM, ok := dpuObject.(*dpuservicev1.DPUServiceIPAM)
 	if !ok {
 		return errors.New("error converting input object to DPUServiceIPAM")
@@ -216,7 +222,7 @@ func (r *DPUServiceIPAMReconciler) createOrUpdateObjectsInDPUCluster(ctx context
 
 // deleteObjectsInDPUCluster is the method called by the reconcileObjectDeletionInDPUClusters function which deletes
 // objects in the DPU cluster related to the deleted DPUServiceIPAM object.
-func (r *DPUServiceIPAMReconciler) deleteObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject client.Object) error {
+func (r *DPUServiceIPAMReconciler) deleteObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject dpuservicev1.DPUServiceObject) error {
 	dpuServiceIPAM, ok := dpuObject.(*dpuservicev1.DPUServiceIPAM)
 	if !ok {
 		return errors.New("error converting input object to DPUServiceIPAM")

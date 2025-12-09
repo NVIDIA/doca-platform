@@ -60,7 +60,7 @@ var _ = Describe("DPUServiceNAD Controller", func() {
 		})
 	})
 
-	Context("When checking the behavior on the DPU cluster", func() {
+	Context("When checking the behavior in a single DPU cluster", func() {
 		var (
 			testNS           *corev1.Namespace
 			dpuCluster       provisioningv1.DPUCluster
@@ -427,6 +427,186 @@ var _ = Describe("DPUServiceNAD Controller", func() {
 				g.Expect(dpuClusterClient.List(ctx, got)).To(Succeed())
 				g.Expect(got.Items).To(BeEmpty())
 			}).WithTimeout(60 * time.Second).Should(Succeed())
+		})
+	})
+	Context("When checking the behavior on multiple DPU clusters", func() {
+		var (
+			testNS            *corev1.Namespace
+			dpuCluster1       provisioningv1.DPUCluster
+			dpuCluster2       provisioningv1.DPUCluster
+			dpuCluster1Client client.Client
+			dpuCluster2Client client.Client
+		)
+
+		BeforeEach(func() {
+			testNS = &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: "testns-",
+				},
+			}
+			Expect(testClient.Create(ctx, testNS)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, testNS)
+
+			By("Adding fake kamaji cluster 1 with label dpucluster=cluster1 using testEnv1")
+			dpuCluster1 = testutils.GetTestDPUCluster(testNS.Name, "cluster1")
+			dpuCluster1.Labels = map[string]string{"dpucluster": "cluster1"}
+			kamajiSecret1, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(dpuCluster1, cfg1)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(testClient.Create(ctx, kamajiSecret1)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, kamajiSecret1)
+
+			Expect(testClient.Create(ctx, &dpuCluster1)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, &dpuCluster1)
+			patcher1 := patch.NewSerialPatcher(&dpuCluster1, testClient)
+
+			// mark the cluster as ready so that the remoteCache treats it as ready
+			dpuCluster1.Status.Phase = provisioningv1.PhaseReady
+			Expect(patcher1.Patch(ctx, &dpuCluster1, patch.WithFieldOwner("test"))).To(Succeed())
+
+			dpuCluster1Client, err = dpucluster.NewConfig(testClient, &dpuCluster1).Client(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Adding fake kamaji cluster 2 with label dpucluster=cluster2 using testEnv2")
+			dpuCluster2 = testutils.GetTestDPUCluster(testNS.Name, "cluster2")
+			dpuCluster2.Labels = map[string]string{"dpucluster": "cluster2"}
+			kamajiSecret2, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(dpuCluster2, cfg2)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(testClient.Create(ctx, kamajiSecret2)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, kamajiSecret2)
+
+			Expect(testClient.Create(ctx, &dpuCluster2)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, &dpuCluster2)
+			patcher2 := patch.NewSerialPatcher(&dpuCluster2, testClient)
+
+			// mark the cluster as ready so that the remoteCache treats it as ready
+			dpuCluster2.Status.Phase = provisioningv1.PhaseReady
+			Expect(patcher2.Patch(ctx, &dpuCluster2, patch.WithFieldOwner("test"))).To(Succeed())
+
+			dpuCluster2Client, err = dpucluster.NewConfig(testClient, &dpuCluster2).Client(ctx)
+			Expect(err).ToNot(HaveOccurred())
+		})
+		It("should reconcile resources in all DPU Clusters when DPUClusterSelector is not set", func() {
+			By("Creating DPUServiceNAD without DPUClusterSelector")
+			dpuServiceNAD := getMinimalDPUServiceNAD(testNS.Name)
+			dpuServiceNAD.Name = "no-selector-nad"
+			Expect(testClient.Create(ctx, dpuServiceNAD)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceNAD)
+
+			By("Verifying NetworkAttachmentDefinition is created in cluster1")
+			Eventually(func(g Gomega) {
+				got := &unstructured.Unstructured{}
+				got.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "k8s.cni.cncf.io",
+					Version: "v1",
+					Kind:    "NetworkAttachmentDefinition",
+				})
+				g.Expect(dpuCluster1Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "no-selector-nad"}, got)).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying NetworkAttachmentDefinition is created in cluster2")
+			Eventually(func(g Gomega) {
+				got := &unstructured.Unstructured{}
+				got.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "k8s.cni.cncf.io",
+					Version: "v1",
+					Kind:    "NetworkAttachmentDefinition",
+				})
+				g.Expect(dpuCluster2Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "no-selector-nad"}, got)).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
+		It("should reconcile resources in all matching DPU Clusters", func() {
+			By("Creating DPUServiceNAD with DPUClusterSelector matching dpucluster=cluster1")
+			dpuServiceNAD := getMinimalDPUServiceNAD(testNS.Name)
+			dpuServiceNAD.Name = "multi-cluster-nad"
+			dpuServiceNAD.Spec.DPUClusterSelector = &metav1.LabelSelector{
+				MatchLabels: map[string]string{"dpucluster": "cluster1"},
+			}
+			Expect(testClient.Create(ctx, dpuServiceNAD)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceNAD)
+
+			By("Verifying NetworkAttachmentDefinition is created in cluster1")
+			Eventually(func(g Gomega) {
+				got := &unstructured.Unstructured{}
+				got.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "k8s.cni.cncf.io",
+					Version: "v1",
+					Kind:    "NetworkAttachmentDefinition",
+				})
+				g.Expect(dpuCluster1Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "multi-cluster-nad"}, got)).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying NetworkAttachmentDefinition is NOT created in cluster2")
+			Consistently(func(g Gomega) {
+				got := &unstructured.Unstructured{}
+				got.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "k8s.cni.cncf.io",
+					Version: "v1",
+					Kind:    "NetworkAttachmentDefinition",
+				})
+				err := dpuCluster2Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "multi-cluster-nad"}, got)
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+		})
+
+		It("should remove resources from non matching DPU Clusters", func() {
+			By("Creating DPUServiceNAD without DPUClusterSelector (matches all clusters)")
+			dpuServiceNAD := getMinimalDPUServiceNAD(testNS.Name)
+			dpuServiceNAD.Name = "all-clusters-nad"
+			Expect(testClient.Create(ctx, dpuServiceNAD)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceNAD)
+
+			By("Verifying NetworkAttachmentDefinition is created in both clusters")
+			Eventually(func(g Gomega) {
+				got1 := &unstructured.Unstructured{}
+				got1.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "k8s.cni.cncf.io",
+					Version: "v1",
+					Kind:    "NetworkAttachmentDefinition",
+				})
+				g.Expect(dpuCluster1Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "all-clusters-nad"}, got1)).To(Succeed())
+				got2 := &unstructured.Unstructured{}
+				got2.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "k8s.cni.cncf.io",
+					Version: "v1",
+					Kind:    "NetworkAttachmentDefinition",
+				})
+				g.Expect(dpuCluster2Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "all-clusters-nad"}, got2)).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Updating DPUServiceNAD to only match dpucluster=cluster1")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceNAD), dpuServiceNAD)).To(Succeed())
+				dpuServiceNAD.Spec.DPUClusterSelector = &metav1.LabelSelector{
+					MatchLabels: map[string]string{"dpucluster": "cluster1"},
+				}
+				dpuServiceNAD.SetManagedFields(nil)
+				dpuServiceNAD.SetGroupVersionKind(dpuservicev1.DPUServiceNADGroupVersionKind)
+				g.Expect(testClient.Patch(ctx, dpuServiceNAD, client.Apply, client.FieldOwner("test"))).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying NetworkAttachmentDefinition is still in cluster1")
+			Eventually(func(g Gomega) {
+				got := &unstructured.Unstructured{}
+				got.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "k8s.cni.cncf.io",
+					Version: "v1",
+					Kind:    "NetworkAttachmentDefinition",
+				})
+				g.Expect(dpuCluster1Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "all-clusters-nad"}, got)).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying NetworkAttachmentDefinition is removed from cluster2")
+			Eventually(func(g Gomega) {
+				got := &unstructured.Unstructured{}
+				got.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "k8s.cni.cncf.io",
+					Version: "v1",
+					Kind:    "NetworkAttachmentDefinition",
+				})
+				err := dpuCluster2Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "all-clusters-nad"}, got)
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 	})
 })

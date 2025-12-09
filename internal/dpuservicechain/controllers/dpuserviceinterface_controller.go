@@ -148,12 +148,18 @@ func (r *DPUServiceInterfaceReconciler) reconcile(ctx context.Context, dpuServic
 	conditions.AddTrue(dpuServiceInterface, dpuservicev1.ConditionServiceInterfacePreReqsReady)
 
 	if err := reconcileObjectsInDPUClusters(ctx, r, r.Client, dpuServiceInterface); err != nil {
+		e := &longOperationError{}
 		conditions.AddFalse(
 			dpuServiceInterface,
 			dpuservicev1.ConditionServiceInterfaceSetReconciled,
 			conditions.ReasonError,
 			conditions.ConditionMessage(fmt.Sprintf("Error occurred: %s", err.Error())),
 		)
+		// We enqueue without exponential backoff if the error is a longOperationError because this
+		// error is returned when we know an operation that was triggered will take time to complete
+		if errors.As(err, &e) {
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
 		return ctrl.Result{}, err
 	}
 	conditions.AddTrue(
@@ -254,7 +260,7 @@ func (r *DPUServiceInterfaceReconciler) reconcilePreReqs(ctx context.Context, dp
 	return true, nil
 }
 
-func (r *DPUServiceInterfaceReconciler) getObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject client.Object) ([]unstructured.Unstructured, error) {
+func (r *DPUServiceInterfaceReconciler) getObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject dpuservicev1.DPUServiceObject) ([]unstructured.Unstructured, error) {
 	sis := &unstructured.Unstructured{}
 	sis.SetGroupVersionKind(dpuservicev1.ServiceInterfaceSetGroupVersionKind)
 	key := client.ObjectKey{Namespace: dpuObject.GetNamespace(), Name: dpuObject.GetName()}
@@ -266,7 +272,7 @@ func (r *DPUServiceInterfaceReconciler) getObjectsInDPUCluster(ctx context.Conte
 	return []unstructured.Unstructured{*sis}, nil
 }
 
-func (r *DPUServiceInterfaceReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject client.Object) error {
+func (r *DPUServiceInterfaceReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject dpuservicev1.DPUServiceObject) error {
 	dpuServiceInterface := dpuObject.(*dpuservicev1.DPUServiceInterface)
 	sis := &dpuservicev1.ServiceInterfaceSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -286,7 +292,7 @@ func (r *DPUServiceInterfaceReconciler) reconcileDelete(ctx context.Context, dpu
 	log := ctrllog.FromContext(ctx)
 	log.Info("Reconciling delete")
 	if err := reconcileObjectDeletionInDPUClusters(ctx, r, r.Client, dpuServiceInterface); err != nil {
-		e := &shouldRequeueError{}
+		e := &longOperationError{}
 		if errors.As(err, &e) {
 			log.Info(fmt.Sprintf("Requeueing because %s", err.Error()))
 			conditions.AddFalse(
@@ -305,7 +311,7 @@ func (r *DPUServiceInterfaceReconciler) reconcileDelete(ctx context.Context, dpu
 	return ctrl.Result{}, nil
 }
 
-func (r *DPUServiceInterfaceReconciler) deleteObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject client.Object) error {
+func (r *DPUServiceInterfaceReconciler) deleteObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject dpuservicev1.DPUServiceObject) error {
 	dpuServiceInterface := dpuObject.(*dpuservicev1.DPUServiceInterface)
 	sis := &dpuservicev1.ServiceInterfaceSet{
 		ObjectMeta: metav1.ObjectMeta{
