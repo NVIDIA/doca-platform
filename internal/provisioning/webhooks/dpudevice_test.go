@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/utils/ptr"
@@ -153,7 +154,9 @@ spec:
 			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 			Expect(*objFetched.Spec.BMCIP).To(Equal("4.4.4.4"))
 		})
-		It("create object with invalid Serial Number", func() {
+		It("create object with empty Serial Number should fail MinLength=1 validation", func() {
+			// SerialNumber requires MinLength=1 validation. When using Go struct with omitempty,
+			// the empty string is omitted from JSON, causing CRD 'required' validation to fail.
 			obj := &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "obj-11",
@@ -164,6 +167,26 @@ spec:
 				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(HaveOccurred())
+		})
+		It("create object with empty Serial Number via unstructured should fail MinLength=1 validation", func() {
+			// This test uses unstructured client to bypass Go's omitempty behavior and explicitly send
+			// serialNumber: "" to the API server. This tests the MinLength=1 validation directly
+			// since the field IS present in the request (not omitted).
+			u := &unstructured.Unstructured{}
+			u.SetUnstructuredContent(map[string]interface{}{
+				"apiVersion": "provisioning.dpu.nvidia.com/v1alpha1",
+				"kind":       "DPUDevice",
+				"metadata": map[string]interface{}{
+					"name":      "obj-empty-serial-unstructured",
+					"namespace": "default",
+				},
+				"spec": map[string]interface{}{
+					"serialNumber": "", // Explicitly empty - tests MinLength=1 validation
+				},
+			})
+			err := k8sClient.Create(ctx, u)
+			GinkgoWriter.Printf("Create error: %v\n", err)
+			Expect(err).To(HaveOccurred())
 		})
 		It("create object with invalid PSID", func() {
 			obj := &provisioningv1.DPUDevice{
@@ -344,6 +367,45 @@ spec:
 			_, err := webhook.ValidateUpdate(ctx, &provisioningv1.DPUDevice{}, &provisioningv1.DPU{}) // Wrong newObj type
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("invalid object type"))
+		})
+
+		It("ValidateUpdate should return error for invalid old object type", func() {
+			webhook := &DPUDevice{}
+			_, err := webhook.ValidateUpdate(ctx, &provisioningv1.DPU{}, &provisioningv1.DPUDevice{}) // Wrong oldObj type
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid old object type"))
+		})
+
+		It("ValidateUpdate should check serial number uniqueness", func() {
+			// Create first device with serial number
+			obj1 := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-device-unique-1",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					SerialNumber: "MT25066004U1",
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj1)).NotTo(HaveOccurred())
+			DeferCleanup(k8sClient.Delete, ctx, obj1)
+
+			// Create second device with different serial number
+			obj2 := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-device-unique-2",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					SerialNumber: "MT25066004U2",
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj2)).NotTo(HaveOccurred())
+			DeferCleanup(k8sClient.Delete, ctx, obj2)
+
+			// Try to update second device to have same serial number as first (should fail due to immutability)
+			obj2.Spec.SerialNumber = "MT25066004U1"
+			Expect(k8sClient.Update(ctx, obj2)).To(HaveOccurred())
 		})
 	})
 })
