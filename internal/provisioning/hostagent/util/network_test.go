@@ -18,6 +18,7 @@ package util
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -332,6 +333,110 @@ DHCP = yes
 			Expect(*eth.MTU).To(Equal(int32(9000)))
 			Expect(*eth.DHCP4).To(BeTrue())
 			Expect(*eth.DHCP4Overrides.UseMTU).To(BeFalse())
+		})
+	})
+
+	// Netlink-based function tests - error paths (no root required)
+	Context("GetCurrentMTU", Label("GetCurrentMTU"), func() {
+		It("should return error for non-existent interface", func() {
+			_, err := GetCurrentMTU("nonexistent-iface-12345")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to get link"))
+		})
+	})
+
+	Context("GetBridgeMembers", Label("GetBridgeMembers"), func() {
+		It("should return error for non-existent bridge", func() {
+			_, err := GetBridgeMembers("nonexistent-bridge-12345")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to get bridge"))
+		})
+	})
+
+	Context("SetLinkMTU", Label("SetLinkMTU"), func() {
+		It("should return error for non-existent interface", func() {
+			err := SetLinkMTU("nonexistent-iface-12345", 1500)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to get link"))
+		})
+	})
+
+	Context("AddVFToBridge", Label("AddVFToBridge"), func() {
+		It("should return error for non-existent bridge", func() {
+			err := AddVFToBridge("eth0", "nonexistent-bridge-12345")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to get bridge link"))
+		})
+	})
+
+	Context("RemoveVFFromBridge", Label("RemoveVFFromBridge"), func() {
+		It("should return nil for non-existent VF (graceful handling)", func() {
+			err := RemoveVFFromBridge("nonexistent-vf-12345")
+			// RemoveVFFromBridge returns nil for LinkNotFoundError
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	Context("HasNetplan", Label("HasNetplan"), func() {
+		It("should return boolean based on netplan availability", func() {
+			// Just verify it returns without error
+			result := HasNetplan()
+			// Check if netplan is actually available to validate result
+			_, err := exec.LookPath("netplan")
+			if err != nil {
+				Expect(result).To(BeFalse())
+			} else {
+				Expect(result).To(BeTrue())
+			}
+		})
+	})
+
+	Context("generateNetplanFilePath", Label("generateNetplanFilePath"), func() {
+		It("should return error when serial number cannot be read", func() {
+			pciHelper := NewPCIHelper("9999:99:99.0") // Non-existent device
+			_, err := generateNetplanFilePath(pciHelper)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to get device serial number"))
+		})
+
+		It("should generate correct path with serial number", func() {
+			// Create mock sysfs with VPD data
+			vpdData := createVPDDataWithSerialNumber("MT2334XZ0L")
+			mock := createMockSysfs("0000:b1:00.0", "", "", vpdData, "")
+			defer mock.cleanup()
+
+			pciHelper := NewPCIHelper("0000:b1:00.0")
+			path, err := generateNetplanFilePath(pciHelper)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(path).To(Equal("/etc/netplan/99-dpu-MT2334XZ0L.yaml"))
+		})
+
+		It("should sanitize special characters in serial number", func() {
+			// Create mock with serial number containing special chars
+			vpdData := createVPDDataWithSerialNumber("MT/23:34")
+			mock := createMockSysfs("0000:b1:00.0", "", "", vpdData, "")
+			defer mock.cleanup()
+
+			pciHelper := NewPCIHelper("0000:b1:00.0")
+			path, err := generateNetplanFilePath(pciHelper)
+			Expect(err).NotTo(HaveOccurred())
+			// Special chars should be replaced with dashes
+			Expect(path).To(Equal("/etc/netplan/99-dpu-MT-23-34.yaml"))
+		})
+	})
+
+	Context("EnsureSystemdNetworkdActive", Label("EnsureSystemdNetworkdActive"), func() {
+		It("should check systemd-networkd status without error", func() {
+			// This test just verifies the function runs - result depends on system state
+			err := EnsureSystemdNetworkdActive()
+			// We can't assert on success/failure as it depends on the system
+			// Just ensure it doesn't panic and returns a reasonable error if inactive
+			if err != nil {
+				Expect(err.Error()).To(Or(
+					ContainSubstring("systemd-networkd is not active"),
+					ContainSubstring("failed to check systemd-networkd status"),
+				))
+			}
 		})
 	})
 })
