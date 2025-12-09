@@ -121,6 +121,7 @@ spec:
                   It's used to track the device's lifecycle and for inventory management.
                   This value is immutable and should not be changed once set.
                   Example: "MT_0001234567", "MT25066004C7"
+                minLength: 1
                 type: string
                 x-kubernetes-validations:
                 - message: Serial Number is immutable
