@@ -21,8 +21,10 @@ import (
 	"fmt"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -89,6 +91,8 @@ func LabelSelectorAsSelector(labelSelector *metav1.LabelSelector) (labels.Select
 	return metav1.LabelSelectorAsSelector(labelSelector)
 }
 
+// GetDPFOperatorConfig returns the DPFOperatorConfig object. It returns an error if there is more
+// than one DPFOperatorConfig object or if there is no DPFOperatorConfig object.
 func GetDPFOperatorConfig(ctx context.Context, c client.Client) (*operatorv1.DPFOperatorConfig, error) {
 	dpfOperatorConfigList := operatorv1.DPFOperatorConfigList{}
 	if err := c.List(ctx, &dpfOperatorConfigList); err != nil {
@@ -98,4 +102,40 @@ func GetDPFOperatorConfig(ctx context.Context, c client.Client) (*operatorv1.DPF
 		return nil, fmt.Errorf("exactly one DPFOperatorConfig must exist")
 	}
 	return &dpfOperatorConfigList.Items[0], nil
+}
+
+// GetMatchingDPUClusters returns a list of DPUCluster Configs from the given list that match the given selector.
+// In case no selector is provided, it returns the entire list.
+func GetMatchingDPUClusters(dpuClusters []*dpucluster.Config, clusterSelector *metav1.LabelSelector) ([]*dpucluster.Config, error) {
+	if clusterSelector == nil {
+		return dpuClusters, nil
+	}
+
+	matchingClusters := make([]*dpucluster.Config, 0)
+	selector, err := LabelSelectorAsSelector(clusterSelector)
+	if err != nil {
+		return matchingClusters, fmt.Errorf("failed to parse label selector: %w", err)
+	}
+	for i, dpuCluster := range dpuClusters {
+		if !selector.Matches(labels.Set(dpuCluster.Cluster.Labels)) {
+			continue
+		}
+		matchingClusters = append(matchingClusters, dpuClusters[i])
+	}
+	return matchingClusters, nil
+}
+
+// EnsureNamespace ensures the namespace exists in the cluster by creating it if it does not exist.
+func EnsureNamespace(ctx context.Context, c client.Client, namespace string) error {
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: namespace,
+		},
+	}
+	if err := c.Create(ctx, ns); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+	}
+	return nil
 }
