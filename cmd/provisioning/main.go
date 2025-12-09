@@ -41,13 +41,16 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	provisioningwebhooks "github.com/nvidia/doca-platform/internal/provisioning/webhooks"
+	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/health"
 
 	maintenancev1alpha1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
 	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/selection"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientset "k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -100,12 +103,22 @@ func deleteDMSPods(ctx context.Context, k8sClient client.Client) error {
 
 	namespace := dpfOperatorConfig.Namespace
 
-	// List DMS pods using label selector
+	// List DMS and hostagent pods using label selector
+	requirement, err := labels.NewRequirement(
+		cutil.ProvisioningComponentLabelKey,
+		selection.In,
+		[]string{"dms", "hostagent"},
+	)
+	if err != nil {
+		setupLog.Error(err, "Failed to create label requirement")
+		return err
+	}
+
 	podList := &corev1.PodList{}
 	if err := k8sClient.List(ctx, podList,
 		client.InNamespace(namespace),
-		client.MatchingLabels{
-			cutil.ProvisioningComponentLabelKey: "dms",
+		client.MatchingLabelsSelector{
+			Selector: labels.SelectorFromSet(labels.Set{}).Add(*requirement),
 		},
 	); err != nil {
 		setupLog.Error(err, "Failed to list DMS pods", "namespace", namespace)
@@ -115,6 +128,11 @@ func deleteDMSPods(ctx context.Context, k8sClient client.Client) error {
 	// Delete all DMS pods found
 	deletedCount := 0
 	for _, pod := range podList.Items {
+		version, ok := pod.Labels[release.DPFVersionLabelKey]
+		if ok && version == release.DPFVersion() {
+			continue
+		}
+
 		setupLog.Info("Deleting DMS pod", "pod", pod.Name, "namespace", pod.Namespace)
 		if err := k8sClient.Delete(ctx, &pod); err != nil {
 			setupLog.Error(err, "Failed to delete DMS pod", "pod", pod.Name, "namespace", pod.Namespace)
