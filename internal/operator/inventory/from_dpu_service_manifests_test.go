@@ -77,8 +77,6 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 	disabledTestServiceVars.DisableSystemComponents = map[operatorv1.ComponentName]bool{
 		componentName: true,
 	}
-	deployInClusterVars := newDefaultVariables(defaults)
-	deployInClusterVars.DeployInCluster[componentName] = true
 
 	flannelImageVariables := newDefaultVariables(defaults)
 	flannelImageVariables.Images[operatorv1.FlannelName.String()] = "registry.com/image:v1.1.1,registry.com/image-cni:v1.1.1"
@@ -226,7 +224,6 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
-					DeployInCluster: ptr.To(false),
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "helmchart.com",
@@ -268,7 +265,6 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
-					DeployInCluster: ptr.To(false),
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "helmchart.com",
@@ -292,7 +288,6 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 				},
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				Spec: dpuservicev1.DPUServiceSpec{
-					DeployInCluster: ptr.To(true),
 					HelmChart: dpuservicev1.HelmChart{
 						Values: &runtime.RawExtension{
 							Raw: initialValuesData,
@@ -311,7 +306,6 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
-					DeployInCluster: ptr.To(false),
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "helmchart.com",
@@ -321,48 +315,6 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 						},
 						Values: &runtime.RawExtension{
 							Raw: valuesDataWithImagePullSecrets,
-						},
-					},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "Deploy component in-cluster",
-			in: &dpuservicev1.DPUService{
-				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
-				ObjectMeta: metav1.ObjectMeta{
-					Name: serviceName,
-				},
-				Spec: dpuservicev1.DPUServiceSpec{
-					HelmChart: dpuservicev1.HelmChart{
-						Values: &runtime.RawExtension{
-							Raw: initialValuesData,
-						},
-					},
-				},
-			},
-			vars: deployInClusterVars,
-			want: &dpuservicev1.DPUService{
-				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
-				ObjectMeta: metav1.ObjectMeta{
-					Name: serviceName,
-					Labels: map[string]string{
-						operatorv1.DPFComponentLabelKey: serviceName,
-						release.DPFVersionLabelKey:      release.DPFVersion(),
-					},
-				},
-				Spec: dpuservicev1.DPUServiceSpec{
-					DeployInCluster: ptr.To(true),
-					HelmChart: dpuservicev1.HelmChart{
-						Source: dpuservicev1.ApplicationSource{
-							RepoURL: "helmchart.com",
-							Path:    "",
-							Version: "v1",
-							Chart:   "chart",
-						},
-						Values: &runtime.RawExtension{
-							Raw: initialValuesData,
 						},
 					},
 				},
@@ -395,7 +347,6 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
-					DeployInCluster: ptr.To(false),
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "oci://example.com",
@@ -437,7 +388,6 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
-					DeployInCluster: ptr.To(false),
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "oci://example.com",
@@ -574,7 +524,6 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 							Raw: cniInstallerWithCNIBinDirValuesData,
 						},
 					},
-					DeployInCluster: ptr.To(false),
 				},
 			},
 			wantErr: false,
@@ -618,7 +567,6 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
-					DeployInCluster: ptr.To(false),
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "oci://example.com",

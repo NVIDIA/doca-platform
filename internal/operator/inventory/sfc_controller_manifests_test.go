@@ -101,7 +101,6 @@ spec:
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
-					DeployInCluster: ptr.To(false),
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "oci://example.com",
@@ -204,7 +203,6 @@ spec:
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
-					DeployInCluster: ptr.To(false),
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "oci://some-registry.com",
@@ -304,7 +302,7 @@ spec:
 			}
 
 			// Verify DPUService
-			g.Expect(gotDPUService).To(Equal(tt.wantDPUService))
+			g.Expect(gotDPUService).To(BeComparableTo(tt.wantDPUService))
 
 			// Verify DPUServiceNADs
 			g.Expect(gotDPUServiceNADs).To(HaveLen(len(tt.wantDPUServiceNADs)))

@@ -181,24 +181,6 @@ func (b *HelmComponentConfig) GetHelmChart() *string {
 	return b.HelmChart
 }
 
-// InClusterDeploymentConfigurable is the shared config for DPUService components.
-//
-// Deprecated: this field is not supported and will be removed with v26.1.0.
-//
-// +kubebuilder:object:generate=false
-type InClusterDeploymentConfigurable interface {
-	InClusterDeployment() bool
-}
-
-type InClusterDeploymentConfig struct {
-	// Deprecated: this field is not supported and will be removed with v26.1.0.
-	DeployInTargetCluster *bool `json:"deployInTargetCluster,omitempty"`
-}
-
-func (c *InClusterDeploymentConfig) InClusterDeployment() bool {
-	return c.DeployInTargetCluster != nil && *c.DeployInTargetCluster
-}
-
 // Image is a reference to a container image.
 // +kubebuilder:validation:Pattern= `^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$`
 type Image *string // Validation is the same as the implementation at https://github.com/containers/image/blob/93fa49b0f1fb78470512e0484012ca7ad3c5c804/docker/reference/regexp.go

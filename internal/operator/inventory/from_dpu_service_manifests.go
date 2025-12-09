@@ -148,8 +148,6 @@ func (f *fromDPUService) applyDPUServiceEdits(vars Variables, labelsToAdd map[st
 		}
 	}
 
-	// Add deployInCluster if the value is set to true in the DPFOperatorConfig.
-	edits.AddForKindS(DPUServiceKind, dpuServiceInClusterEdit(vars.DeployInCluster[f.Name()]))
 	// The DPUNetworking helm chart has all components disabled by default. Enable this DPUService in the helm chart values.
 	if _, ok := dpuNetworkingSubCharts[f.Name()]; ok {
 		edits.AddForKindS(DPUServiceKind, dpuServiceAddValueEdit(true, f.Name().String(), "enabled"))
@@ -301,6 +299,7 @@ func serviceSetControllerEdits(vars Variables) ([]StructuredEdit, error) {
 		return nil, err
 	}
 	edits = append(edits,
+		dpuServiceInClusterEdit(true),
 		dpuServiceAddValueEdit(chart.Repo, operatorv1.ServiceSetControllerName.String(), "chart", "repoURL"),
 		dpuServiceAddValueEdit(chart.Chart, operatorv1.ServiceSetControllerName.String(), "chart", "chart"),
 		dpuServiceAddValueEdit(chart.Version, operatorv1.ServiceSetControllerName.String(), "chart", "version"),
