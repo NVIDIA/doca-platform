@@ -395,10 +395,9 @@ func (c *StaticClusterManagerConfiguration) GetResources() map[ContainerName]*co
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type ServiceSetControllerConfiguration struct {
-	BaseComponentConfig       `json:",inline"`
-	BaseControllerConfig      `json:",inline"`
-	HelmComponentConfig       `json:",inline"`
-	InClusterDeploymentConfig `json:",inline"`
+	BaseComponentConfig  `json:",inline"`
+	BaseControllerConfig `json:",inline"`
+	HelmComponentConfig  `json:",inline"`
 
 	// Image overrides the container image used by the ServiceChainSet Controller.
 	//
@@ -450,9 +449,8 @@ type FlannelDaemon struct {
 }
 
 type FlannelConfiguration struct {
-	BaseComponentConfig       `json:",inline"`
-	HelmComponentConfig       `json:",inline"`
-	InClusterDeploymentConfig `json:",inline"`
+	BaseComponentConfig `json:",inline"`
+	HelmComponentConfig `json:",inline"`
 
 	// CNI is the configuration for the Flannel CNI component.
 	// It contains the image for the CNI init container.
@@ -529,9 +527,8 @@ func (c *FlannelConfiguration) GetResources() map[ContainerName]*corev1.Resource
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.cni) || !has(self.cni.image)",message="only either 'image' (deprecated) or 'cni.image' can be set, but not both"
 
 type MultusConfiguration struct {
-	BaseComponentConfig       `json:",inline"`
-	HelmComponentConfig       `json:",inline"`
-	InClusterDeploymentConfig `json:",inline"`
+	BaseComponentConfig `json:",inline"`
+	HelmComponentConfig `json:",inline"`
 
 	// Image overrides the container image used by the Multus Container.
 	//
@@ -576,9 +573,8 @@ func (c *MultusConfiguration) GetResources() map[ContainerName]*corev1.ResourceR
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type NVIPAMConfiguration struct {
-	BaseComponentConfig       `json:",inline"`
-	HelmComponentConfig       `json:",inline"`
-	InClusterDeploymentConfig `json:",inline"`
+	BaseComponentConfig `json:",inline"`
+	HelmComponentConfig `json:",inline"`
 
 	// Image overrides the container image used by the NVIPAM controller.
 	//
@@ -637,9 +633,8 @@ func (c *NVIPAMConfiguration) Name() string {
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.deviceplugin) || !has(self.deviceplugin.image)",message="only either 'image' (deprecated) or 'deviceplugin.image' can be set, but not both"
 
 type SRIOVDevicePluginConfiguration struct {
-	BaseComponentConfig       `json:",inline"`
-	HelmComponentConfig       `json:",inline"`
-	InClusterDeploymentConfig `json:",inline"`
+	BaseComponentConfig `json:",inline"`
+	HelmComponentConfig `json:",inline"`
 
 	// Image overrides the container image used by the SRIOV Device Plugin container.
 	//
@@ -684,9 +679,8 @@ func (c *SRIOVDevicePluginConfiguration) GetResources() map[ContainerName]*corev
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.cni) || !has(self.cni.image)",message="only either 'image' (deprecated) or 'cni.image' can be set, but not both"
 
 type OVSCNIConfiguration struct {
-	BaseComponentConfig       `json:",inline"`
-	HelmComponentConfig       `json:",inline"`
-	InClusterDeploymentConfig `json:",inline"`
+	BaseComponentConfig `json:",inline"`
+	HelmComponentConfig `json:",inline"`
 
 	// Image overrides the container image used by the OVS CNI.
 	//
@@ -731,9 +725,8 @@ func (c *OVSCNIConfiguration) GetResources() map[ContainerName]*corev1.ResourceR
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type SFCControllerConfiguration struct {
-	BaseComponentConfig       `json:",inline"`
-	HelmComponentConfig       `json:",inline"`
-	InClusterDeploymentConfig `json:",inline"`
+	BaseComponentConfig `json:",inline"`
+	HelmComponentConfig `json:",inline"`
 
 	// Image overrides the container image used by the SFC controller.
 	//
@@ -782,9 +775,8 @@ func (c *SFCControllerConfiguration) GetResources() map[ContainerName]*corev1.Re
 }
 
 type CNIInstallerConfiguration struct {
-	BaseComponentConfig       `json:",inline"`
-	HelmComponentConfig       `json:",inline"`
-	InClusterDeploymentConfig `json:",inline"`
+	BaseComponentConfig `json:",inline"`
+	HelmComponentConfig `json:",inline"`
 
 	// Installer contains the configuration for the CNI-Installer component.
 	// It contains the image for the controller and its resource requirements.
