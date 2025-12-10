@@ -420,9 +420,9 @@ The complete `DPUDeployment` configuration is in [DPUDeployment](#dpudeployment)
 The Firefly service includes a special configuration (toleration) that ensures it always runs on the host system. This
 is important because:
 
-1. The service needs to run on the host to properly synchronize the system time
-2. Without proper time synchronization, other system components might not work correctly
-3. The toleration prevents the service from being blocked from running on the host
+1. The service needs to run on the host to properly synchronize the system time.
+2. Without proper time synchronization, other system components might not work correctly.
+3. The toleration prevents the service from being blocked from running on the host.
 
 This configuration is automatically handled in the DPUServiceTemplate and does not require any user configuration.
 
