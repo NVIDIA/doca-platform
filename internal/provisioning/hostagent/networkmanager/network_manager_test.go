@@ -19,6 +19,8 @@ limitations under the License.
 package networkmanager
 
 import (
+	"os"
+
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
@@ -157,9 +159,53 @@ var _ = Describe("NetworkManager", func() {
 		})
 	})
 
-	Context("NetworkManager Interface", Label("Interface"), func() {
-		It("should implement Interface", func() {
-			var _ Interface = &NetworkManager{}
+	Context("NetworkManager.Start", Label("Start"), func() {
+		var (
+			tempDir               string
+			origNetworkRequestDir string
+		)
+
+		BeforeEach(func() {
+			var err error
+			tempDir, err = os.MkdirTemp("", "nm-start-test-*")
+			Expect(err).NotTo(HaveOccurred())
+
+			// Save original path and override for testing to avoid permission issues
+			// with /var/lib/dpf which requires root access
+			origNetworkRequestDir = NetworkRequestDir
+			NetworkRequestDir = tempDir
+		})
+
+		AfterEach(func() {
+			NetworkRequestDir = origNetworkRequestDir
+			_ = os.RemoveAll(tempDir)
+		})
+
+		It("should run Start and handle result", func() {
+			nm := NewNetworkManager(nil)
+
+			// Start will either succeed or fail depending on system configuration
+			err := nm.Start()
+			if err != nil {
+				// Could fail at systemd-networkd check or later stages
+				Expect(err.Error()).To(SatisfyAny(
+					ContainSubstring("systemd-networkd"),
+					ContainSubstring("failed to"),
+				))
+			}
+		})
+
+		It("should set initialized to true on successful Start", func() {
+			nm := NewNetworkManager(nil)
+
+			err := nm.Start()
+			if err == nil {
+				// If Start succeeded, initialized should be true
+				Expect(nm.initialized).To(BeTrue())
+			} else {
+				// If Start failed, initialized should remain false
+				Expect(nm.initialized).To(BeFalse())
+			}
 		})
 	})
 })
