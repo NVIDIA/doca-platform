@@ -35,11 +35,6 @@ var _ = Describe("DPF System tests - OVNK HBN", Labels{ovnkPrimaryLabel, require
 		VerifyClusterPods(ctx, input.client, []string{"kube-multus-ds"})
 	})
 
-	AfterEach(func() {
-		By("cleaning up objects created during the test")
-		CleanupAfterEachOVNKHBN(ctx, input)
-	})
-
 	Context("OVNK HBN", func() {
 		It("verify performance of pod to pod same node", func() {
 			VerifyPerformancePodToPodSameNode(ctx, input)

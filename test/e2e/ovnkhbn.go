@@ -20,13 +20,10 @@ import (
 	"context"
 	"time"
 
-	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/dpuservice"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
 
 	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 func VerifyPerformancePodToPodSameNode(ctx context.Context, input *systemTestInput) {
@@ -69,10 +66,6 @@ func VerifyPerformancePodToPodDifferentNode(ctx context.Context, input *systemTe
 
 func WaitForOVNKHBNDeploymentReady(ctx context.Context, input *systemTestInput) {
 	dpuservice.WaitForDPUDeploymentReady(ctx, input.client, dpfOperatorSystemNamespace, []string{"ovn-hbn"}, 50*time.Minute)
-}
-
-func CleanupAfterEachOVNKHBN(ctx context.Context, input *systemTestInput) {
-	Expect(testutils.CleanupWithLabelAndWait(ctx, input.client, labels.SelectorFromSet(testutils.AfterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
 }
 
 func getPodDifferentNodeConfigs(ctx context.Context, input *systemTestInput, namespace string) (netshoot.TestPodConfig, netshoot.TestPodConfig) {
