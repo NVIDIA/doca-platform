@@ -21,7 +21,7 @@ and moving to the `docs/public/user-guides/zero-trust/use-cases/passthrough` dir
 
 The system is set up as described in the [prerequisites](../../prerequisites/README.md).
 
-### Software prerequisites
+### Software Prerequisites
 
 The following tools must be installed on the machine where the commands contained in this guide run:
 
@@ -29,9 +29,9 @@ The following tools must be installed on the machine where the commands containe
 * helm
 * envsubst
 
-## Installation guide
+## Installation Guide
 
-### 0. Required variables
+### 0. Required Variables
 
 The following variables are required by this guide. A sensible default is provided where it makes sense, but many will
 be specific to the target infrastructure.
@@ -88,7 +88,7 @@ Modify the variables in `manifests/00-env-vars/envvars.env` to fit your environm
 source manifests/00-env-vars/envvars.env
 ```
 
-### 1. DPF Operator installation
+### 1. DPF Operator Installation
 
 #### Create storage required by the DPF Operator
 
@@ -195,7 +195,7 @@ kubectl rollout status deployment --namespace dpf-operator-system dpf-operator-c
 kubectl wait --for=condition=ready --namespace dpf-operator-system pods --all
 ```
 
-### 2. DPF system installation
+### 2. DPF System Installation
 
 This section involves creating the DPF system components and some basic infrastructure required for a functioning
 DPF-enabled cluster.

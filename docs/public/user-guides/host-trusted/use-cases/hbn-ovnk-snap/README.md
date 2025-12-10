@@ -16,18 +16,18 @@ This guide should be run by cloning the repo from [github.com/NVIDIA/doca-platfo
 
 The system is set up as described in the [system prerequisites](../../prerequisites/system.md).  The OVN Kubernetes with HBN and SNAP Block Storage use case has the additional requirements:
 
-### DPU prerequisites
+### DPU Prerequisites
 
 * Bluefield 3 with 32GB of RAM
 
 ### Infrastructure Prerequisites
 
-* A remote SPDK target should be set up to provide persistent storage for SNAP Block Storage.
-* The SPDK target should be reachable from the DPUs.
-* The management interface of the SPDK target should be reachable from the control plane nodes.
-* Make sure to check [Host OS Configuration Section in SNAP service documentation](https://docs.nvidia.com/doca/sdk/snap-4+service+appendixes/index.html#src-4198714790_id-.SNAP4ServiceAppendixesv3.1.0-HostOSConfiguration) to validate the host OS configuration on the worker nodes.
+* A remote SPDK target should be set up to provide persistent storage for SNAP Block Storage
+* The SPDK target should be reachable from the DPUs
+* The management interface of the SPDK target should be reachable from the control plane nodes
+* Make sure to check [Host OS Configuration Section in SNAP service documentation](https://docs.nvidia.com/doca/sdk/snap-4+service+appendixes/index.html#src-4198714790_id-.SNAP4ServiceAppendixesv3.1.0-HostOSConfiguration) to validate the host OS configuration on the worker nodes
 
-### Software prerequisites
+### Software Prerequisites
 
 This guide uses the following tools which must be installed on the machine where the commands contained in this guide run.
 
@@ -35,9 +35,9 @@ This guide uses the following tools which must be installed on the machine where
 * helm
 * envsubst
 
-### Network prerequisites
+### Network Prerequisites
 
-#### Control plane Nodes
+#### Control Plane Nodes
 
 * Open vSwitch (OVS) packages installed - i.e. `openvswitch-switch` for Ubuntu 24.04
 * out-of-band management port should be configured as OVS bridge port with "bridge-uplink" OVS metadata [This addresses a known issue](../../../../release-notes/v25.1.0.md#known-issues-and-limitations).
@@ -50,7 +50,7 @@ This guide uses the following tools which must be installed on the machine where
 * MTU of the port should be statically set to 1500
 * **Note**: These settings can be configured automatically via DPUFlavor `hostNetworkInterfaceConfigs`
 
-### Kubernetes prerequisites
+### Kubernetes Prerequisites
 
 * CNI not installed
 * kube-proxy not installed
@@ -58,7 +58,7 @@ This guide uses the following tools which must be installed on the machine where
 * control plane setup is complete before starting this guide
 * worker nodes are not added until indicated by this guide
 
-#### Control plane Nodes
+#### Control Plane Nodes
 
 * Have the labels:
     * `"k8s.ovn.org/zone-name": $KUBERNETES_NODE_NAME`
@@ -71,7 +71,7 @@ This guide uses the following tools which must be installed on the machine where
 * Have the annotations:
     * `"k8s.ovn.org/remote-zone-migrated": $KUBERNETES_NODE_NAME`
 
-#### Virtual functions
+#### Virtual Functions
 
 A number of virtual functions (VFs) will be created on hosts when provisioning DPUs. Certain of these VFs are marked for specific usage:
 
@@ -79,9 +79,9 @@ A number of virtual functions (VFs) will be created on hosts when provisioning D
 * The second VF (vf1) is used by ovn-kubernetes.
 * The remaining VFs are allocated by SR-IOV Device Plugin. Each pod using OVN Kubernetes in DPU mode as its primary CNI will have one of these VFs injected at Pod creation time. 
 
-## Installation guide
+## Installation Guide
 
-### 0. Required variables
+### 0. Required Variables
 
 The following variables are required by this guide. A sensible default is provided where it makes sense, but many will be specific to the target infrastructure.
 
@@ -160,7 +160,7 @@ Modify the variables in `manifests/00-env-vars/envvars.env` to fit your environm
 source manifests/00-env-vars/envvars.env
 ```
 
-### 1. CNI installation
+### 1. CNI Installation
 
 OVN Kubernetes is used as the primary CNI for the cluster. On worker nodes the primary CNI will be accelerated by offloading work to the DPU. On control plane nodes OVN Kubernetes will run without offloading.
 
@@ -211,7 +211,7 @@ kubectl wait --for=condition=ready nodes --all
 kubectl wait --for=condition=ready --namespace ovn-kubernetes pods --all --timeout=300s
 ```
 
-### 2. DPF Operator installation
+### 2. DPF Operator Installation
 
 
 #### Create storage required by the DPF Operator
@@ -313,7 +313,7 @@ kubectl rollout status deployment --namespace dpf-operator-system dpf-operator-c
 kubectl wait --for=condition=ready --namespace dpf-operator-system pods --all
 ```
 
-### 3. DPF System installation
+### 3. DPF System Installation
 This section involves creating the DPF system components and some basic infrastructure required for a functioning DPF-enabled cluster.
 
 #### Deploy the DPF System components
@@ -388,7 +388,7 @@ kubectl rollout status deployment --namespace dpf-operator-system
 kubectl wait --for=condition=ready --namespace dpu-cplane-tenant1 dpucluster --all
 ```
 
-### 4. Install components to enable accelerated CNI nodes
+### 4. Install Components to Enable Accelerated CNI Nodes
 
 OVN Kubernetes will accelerate traffic by attaching a VF to each pod using the primary CNI. This VF is used to offload flows to the DPU. This section details the components needed to connect pods to the offloaded OVN Kubernetes CNI.
 
@@ -1609,7 +1609,7 @@ kubectl wait --for=condition=ServiceInterfaceSetReconciled --namespace dpf-opera
 kubectl wait --for=condition=ServiceChainSetReconciled --namespace dpf-operator-system dpuservicechain --all
 ```
 
-### 6. Test traffic
+### 6. Test Traffic
 
 #### Add worker nodes to the cluster
 
@@ -1630,9 +1630,7 @@ kubectl apply -f manifests/06-test-traffic
 
 HBN and OVN functionality can be tested by pinging between the pods and services deployed in the default namespace.
 
-TODO: Add specific user commands to test traffic.
-
-### 7. Apply storage configuration
+### 7. Apply Storage Configuration
 
 ```shell
 kubectl apply -f manifests/07-storage-configuration
@@ -1681,7 +1679,7 @@ kubectl wait --for=condition=Ready --namespace dpf-operator-system dpustorageven
 kubectl wait --for=condition=Ready --namespace dpf-operator-system dpustoragepolicies --all
 ```
 
-### 8. Test storage workload
+### 8. Test Storage Workload
 
 This section walks you through deploying a workload that utilizes storage resources provided by the SNAP service.
 

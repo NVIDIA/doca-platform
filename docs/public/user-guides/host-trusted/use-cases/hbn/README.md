@@ -17,7 +17,7 @@ This guide should be run by cloning the repo from [github.com/NVIDIA/doca-platfo
 
 The system is set up as described in the [system prerequisites](../../prerequisites/system.md).  The HBN DPUService has the additional requirements:
 
-### Software prerequisites
+### Software Prerequisites
 
 This guide uses the following tools which must be installed on the machine where the commands contained in this guide run.
 
@@ -25,23 +25,23 @@ This guide uses the following tools which must be installed on the machine where
 * helm
 * envsubst
 
-### Kubernetes prerequisites
+### Kubernetes Prerequisites
 
-* control plane setup is complete before starting this guide
+* Control plane setup is complete before starting this guide
 * CNI installed before starting this guide
-* worker nodes are not added until indicated by this guide
+* Worker nodes are not added until indicated by this guide
 * High-speed ports are used for secondary workload network and not for primary CNI
 
-#### Virtual functions
+#### Virtual Functions
 
 A number of virtual functions (VFs) will be created on hosts when provisioning DPUs. Certain of these VFs are marked for specific usage:
 
 * The first VF (vf0) is used by provisioning components.
 * The remaining VFs are allocated by SR-IOV Device Plugin.
 
-## Installation guide
+## Installation Guide
 
-### 0. Required variables
+### 0. Required Variables
 
 The following variables are required by this guide. A sensible default is provided where it makes sense, but many will be specific to the target infrastructure.
 
@@ -89,7 +89,7 @@ Modify the variables in `manifests/00-env-vars/envvars.env` to fit your environm
 source manifests/00-env-vars/envvars.env
 ```
 
-### 1. DPF Operator installation
+### 1. DPF Operator Installation
 
 #### Create storage required by the DPF Operator
 A number of [environment variables](#0-required-variables) must be set before running this command.
@@ -251,7 +251,7 @@ kubectl rollout status deployment --namespace dpf-operator-system
 kubectl wait --for=condition=ready --namespace dpu-cplane-tenant1 dpucluster --all
 ```
 
-### 3. Enable accelerated interfaces
+### 3. Enable Accelerated Interfaces
 
 Traffic can be routed through HBN on the worker node by mounting the DPU physical interface into a pod.
 
@@ -892,7 +892,7 @@ kubectl wait --for=condition=ServiceInterfaceSetReconciled --namespace dpf-opera
 kubectl wait --for=condition=ServiceChainSetReconciled --namespace dpf-operator-system dpuservicechain --all
 ```
 
-### 5. Test traffic
+### 5. Test Traffic
 
 #### Add worker nodes to the cluster
 
@@ -921,15 +921,13 @@ DPFOperatorConfig/dpfoperatorconfig           dpf-operator-system  Ready: True  
         └─DPUService/doca-hbn-l2xsl           dpf-operator-system  Ready: True   Success    2h   
 ```
 
-#### Deploy test pods 
+#### Deploy Test Pods 
 
 ```shell
 kubectl apply -f manifests/05-test-traffic
 ```
 
 HBN functionality can be tested by pinging between the pods and services deployed in the default namespace.
-
-TODO: Add specific user commands to test traffic.
 
 
 ## Uninstall

@@ -45,7 +45,7 @@ Depending on the storage type you want to deploy, you need to ensure that the fo
 * The NFS service must also be accessible from the DPF control plane nodes to ensure proper operation.
 * Make sure to check [Host OS Configuration Section in SNAP VirtioFS service documentation](https://docs.nvidia.com/doca/sdk/doca+snap+virtio-fs+service+guide/index.html#src-4047362372_safe-id-aWQtLkRPQ0FTTkFQVmlydGlvZnNTZXJ2aWNlR3VpZGV2My4xLjAtQXBwZW5kaXjigJNIb3N0T1NDb25maWd1cmF0aW9uQXBwZW5kaXjigJNIb3N0T1NDb25maWd1cmF0aW9u) to validate the host OS configuration on the worker nodes.
 
-### Software prerequisites
+### Software Prerequisites
 
 The following tools must be installed on the machine where the commands contained in this guide run:
 
@@ -53,12 +53,12 @@ The following tools must be installed on the machine where the commands containe
 * helm
 * envsubst
 
-## Installation guide
+## Installation Guide
 
 This guide assumes that the setup includes only 2 workers with DPUs. If your setup has more than 2 workers, then you
 will need to set additional variables to enable the rest of the DPUs.
 
-### 0. Required variables
+### 0. Required Variables
 
 The following variables are required by this guide. A sensible default is provided where it makes sense, but many will
 be specific to the target infrastructure.
@@ -133,7 +133,7 @@ Modify the variables in `manifests/00-env-vars/envvars.env` to fit your environm
 source manifests/00-env-vars/envvars.env
 ```
 
-### 1. DPF Operator installation
+### 1. DPF Operator Installation
 
 #### Create storage required by the DPF Operator
 
@@ -236,7 +236,7 @@ kubectl wait --for=condition=ready --namespace dpf-operator-system pods --all
 ```
 
 
-### 2. DPF system installation
+### 2. DPF System Installation
 
 This section involves creating the DPF system components and some basic infrastructure required for a functioning
 DPF-enabled cluster.

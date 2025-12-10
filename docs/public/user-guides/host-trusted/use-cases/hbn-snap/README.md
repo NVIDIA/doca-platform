@@ -22,19 +22,19 @@ The HBN with SNAP storage use case has the additional requirements:
 
 ### SNAP Block (NVMe) Prerequisites
 
-* A remote SPDK target should be set up to provide persistent storage for SNAP Block Storage.
-* The SPDK target should be reachable from the DPUs.
-* The management interface of the SPDK target should be reachable from the control plane nodes.
-* Make sure to check [Host OS Configuration Section in SNAP service documentation](https://docs.nvidia.com/doca/sdk/snap-4+service+appendixes/index.html#src-4198714790_id-.SNAP4ServiceAppendixesv3.1.0-HostOSConfiguration) to validate the host OS configuration on the worker nodes.
+* A remote SPDK target should be set up to provide persistent storage for SNAP Block Storage
+* The SPDK target should be reachable from the DPUs
+* The management interface of the SPDK target should be reachable from the control plane nodes
+* Make sure to check [Host OS Configuration Section in SNAP service documentation](https://docs.nvidia.com/doca/sdk/snap-4+service+appendixes/index.html#src-4198714790_id-.SNAP4ServiceAppendixesv3.1.0-HostOSConfiguration) to validate the host OS configuration on the worker nodes
 
 ### SNAP VirtioFS Prerequisites
 
-* An external NFS server is required to provide persistent storage for SNAP VirtioFS.
-* The NFS server must be reachable by both the SNAP DPU service and the nvidia-fs DPU plugin. 
-* The NFS service must also be accessible from the DPF control plane nodes to ensure proper operation.
-* Make sure to check [Host OS Configuration Section in SNAP VirtioFS service documentation](https://docs.nvidia.com/doca/sdk/doca+snap+virtio-fs+service+guide/index.html#src-4047362372_safe-id-aWQtLkRPQ0FTTkFQVmlydGlvZnNTZXJ2aWNlR3VpZGV2My4xLjAtQXBwZW5kaXjigJNIb3N0T1NDb25maWd1cmF0aW9uQXBwZW5kaXjigJNIb3N0T1NDb25maWd1cmF0aW9u) to validate the host OS configuration on the worker nodes.
+* An external NFS server is required to provide persistent storage for SNAP VirtioFS
+* The NFS server must be reachable by both the SNAP DPU service and the nvidia-fs DPU plugin
+* The NFS service must also be accessible from the DPF control plane nodes to ensure proper operation
+* Make sure to check [Host OS Configuration Section in SNAP VirtioFS service documentation](https://docs.nvidia.com/doca/sdk/doca+snap+virtio-fs+service+guide/index.html#src-4047362372_safe-id-aWQtLkRPQ0FTTkFQVmlydGlvZnNTZXJ2aWNlR3VpZGV2My4xLjAtQXBwZW5kaXjigJNIb3N0T1NDb25maWd1cmF0aW9uQXBwZW5kaXjigJNIb3N0T1NDb25maWd1cmF0aW9u) to validate the host OS configuration on the worker nodes
 
-### Software prerequisites
+### Software Prerequisites
 
 This guide uses the following tools which must be installed on the machine where the commands contained in this guide run.
 
@@ -42,23 +42,23 @@ This guide uses the following tools which must be installed on the machine where
 * helm
 * envsubst
 
-### Kubernetes prerequisites
+### Kubernetes Prerequisites
 
 * control plane setup is complete before starting this guide
 * CNI installed before starting this guide
 * worker nodes are not added until indicated by this guide
 * High-speed ports are used for secondary workload network and not for primary CNI
 
-#### Virtual functions
+#### Virtual Functions
 
 A number of virtual functions (VFs) will be created on hosts when provisioning DPUs. Certain of these VFs are marked for specific usage:
 
 * The first VF (vf0) is used by provisioning components.
 * The remaining VFs are allocated by SR-IOV Device Plugin.
 
-## Installation guide
+## Installation Guide
 
-### 0. Required variables
+### 0. Required Variables
 
 The following variables are required by this guide. A sensible default is provided where it makes sense, but many will be specific to the target infrastructure.
 
@@ -110,7 +110,7 @@ Modify the variables in `manifests/00-env-vars/envvars.env` to fit your environm
 source manifests/00-env-vars/envvars.env
 ```
 
-### 1. DPF Operator installation
+### 1. DPF Operator Installation
 
 #### Create storage required by the DPF Operator
 A number of [environment variables](#0-required-variables) must be set before running this command.
@@ -214,7 +214,7 @@ kubectl wait --for=condition=ready --namespace dpf-operator-system pods --all
 ```
 
 
-### 2. DPF system installation
+### 2. DPF System Installation
 This section involves creating the DPF system components and some basic infrastructure required for a functioning DPF-enabled cluster.
 
 #### Deploy the DPF System components
@@ -287,7 +287,7 @@ kubectl rollout status deployment --namespace dpf-operator-system
 kubectl wait --for=condition=ready --namespace dpu-cplane-tenant1 dpucluster --all
 ```
 
-### 3. Install Prerequisites for accelerated network
+### 3. Install Prerequisites for Accelerated Network
 
 #### Install Multus using NVIDIA Network Operator
 
@@ -2324,7 +2324,7 @@ kubectl wait --for=condition=ServiceChainSetReconciled --namespace dpf-operator-
 ```
 
 
-### 5. Add worker nodes and apply network configuration
+### 5. Add Worker Nodes and Apply Network Configuration
 
 At this point workers should be added to the cluster. Each worker node should be configured in line with [the prerequisites](../../prerequisites/system.md).
 As workers are added to the cluster DPUs will be provisioned and DPUServices will begin to be spun up.
