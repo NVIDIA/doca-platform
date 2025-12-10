@@ -53,7 +53,7 @@ graph TD
     G -->|ServiceChain lifecycle|H
 ```
 
-## DPF operator
+## DPF Operator
 
 The DPF Operator has a number of dependencies which can be swapped out during integration in favor of solutions managed by the integrator. Replacing some of these components may require additional modification - i.e. certificate management with a tool other than cert manager may require changes to the deployments.
 
@@ -63,9 +63,9 @@ Today the following are either mentioned in the installation guide or installed 
 * storage provisioning using `NFS` and `local-path` provisioner
 * NVIDIA Network Operator
 * SR-IOV Network Operator
-* NVIDIA Node maintenance operator.
+* NVIDIA Node maintenance operator
 
-## Host networking configuration
+## Host Networking Configuration
 
 DPF relies on each worker node having a specific networking configuration. In this configuration the worker node management interface is plugged into a bridge called `br-dpu`. Virtual functions from the BlueField DPU are added to the same bridge.
 
@@ -108,7 +108,7 @@ style E fill:#ADD8E6,stroke:#FFF,stroke-width:2px
 
 This networking pattern must be implemented when integrating DPF. There is no component in DPF which configures this. For more information on the implementation details see the [host networking prerequisites](../../user-guides/host-trusted/prerequisites/host-network-configuration-prerequisite.md).
 
-## Provisioning system
+## Provisioning System
 
 Manage the lifecycle of the DPU hardware and its Kubernetes orchestration system.
 
@@ -212,7 +212,7 @@ spec:
 This example template contains only one variable and misses many important configuration steps. It is not sufficient to provision a DPU in DPF.
 To understand how to write a custom bf.cfg.template [the default template](https://github.com/NVIDIA/doca-platform/blob/release-v25.1/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template) serves as the best example.
 
-## DPUService system
+## DPUService System
 
 Orchestrate DOCA Services to run on DPUs.
 
@@ -262,7 +262,7 @@ style B fill:#ADD8E6,stroke:#FFF,stroke-width:2px
 ```
 
 
-## DPUServiceChain system
+## DPUServiceChain System
 Orchestrate Service Chains for advanced network flows through DPUs.
 
 ```mermaid

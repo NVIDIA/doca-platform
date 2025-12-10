@@ -17,9 +17,9 @@ outside the cluster by default but sosreport may need to be run for troubleshoot
 purposes.
 
 
-## Generating a sos report with a debug pod 
+## Generating a SOS Report with a Debug Pod 
 
-### Target Host cluster
+### Target Host Cluster
 
 #### Create a secret containing the kubeconfig
 
@@ -225,7 +225,7 @@ spec:
 EOF
 ```
 
-### Retrieve the generated report
+### Retrieve the Generated Report
 
 The final repost archive is available under `/tmp` in the node filesystem.
 

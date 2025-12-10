@@ -7,11 +7,11 @@ who consume these artifacts from registries with authentication and will need to
 
 DPF uses needs to authenticate with registries in the following ways:
 
-* **DPF Operator Installation**: For pulling the operator image.
-* **Helm login**: To install the DPFOperatorConfig helm chart.
-* **DPFOperatorConfig**: contains a field `.spec.imagePullSecrets` which injects secrets into system components.
-* **DPUServices**: To pull DPUService images.
-* **ArgoCD repository Secret**: To enable ArgoCD to pull DPUService helm charts.
+* **DPF Operator Installation**: For pulling the operator image
+* **Helm login**: To install the DPFOperatorConfig helm chart
+* **DPFOperatorConfig**: contains a field `.spec.imagePullSecrets` which injects secrets into system components
+* **DPUServices**: To pull DPUService images
+* **ArgoCD repository Secret**: To enable ArgoCD to pull DPUService helm charts
 
 ## Image pull secrets
 

@@ -159,7 +159,7 @@ spec:
     disableDPUReadyTaints: true
 ```
 
-#### Flannel Configuration options
+#### Flannel Configuration Options
 
 * `spec.flannel.podCIDR`: CIDR range for pod networking when using Flannel CNI.
 
@@ -181,7 +181,7 @@ spec:
     helmChart: "custom-repo/multus:v1.0.0"
 ```
 
-#### SFC Controller Configuration options
+#### SFC Controller Configuration Options
 
 * `spec.sfcController.SecureFlowDeletionTimeout`: Used to control the secure flow deletion feature.
 
@@ -197,7 +197,7 @@ spec:
     SecureFlowDeletionTimeout: 5m
 ```
 
-#### Provisioning Controller Configuration options
+#### Provisioning Controller Configuration Options
 
 * `spec.provisioningController.bfbPVCName`: **(Required)** Name of the PVC containing the BFB (BF Bundle) for provisioning DPUs.
 

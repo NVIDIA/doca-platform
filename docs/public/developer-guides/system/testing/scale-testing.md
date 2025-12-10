@@ -26,7 +26,7 @@ The scale test requires a new component - `mock-dms`. `mock-dms` is a Kubernetes
 * Answers gRPC calls from the DPU controller
 * Creates a Kubernetes node object representing the DPU node
 
-### Testing dimensions
+### Testing Dimensions
 
 The initial scale targets for the test are shown in the table below. Testing will be an iterative process and these targets will be updated on in response to test results.
 
@@ -44,7 +44,7 @@ The initial scale targets for the test are shown in the table below. Testing wil
 | DPUClusters                  | 1            |
 | DPFOperatorConfigs           | 1            |
 
-### Testing targets
+### Testing Targets
 
 The scale tests rely on [DPF metrics](../../../advanced-configuration/observability-guide.md) to assess the performance of the components.
 
@@ -75,7 +75,7 @@ This scale testing approach does not adequately test the following at scale:
 * DMS operations at scale
 
 
-### Running the scale tests
+### Running the Scale Tests
 
 You can set up a scale testing environment locally with the DPF developer environment. This builds and pushes the required images, spins up a new cluster, deploys dpf and mock-dms.
 ```yaml
@@ -101,14 +101,14 @@ k get nodes -A | grep dpu-worker | wc -l
 10
 ```
 
-### Future work
+### Future Work
 
-#### Improving test signal
+#### Improving Test Signal
 
 * choose specific metrics and target values for a given infrastructure
 * iterate on scale dimensions
 
-#### Extending scale test coverage
+#### Extending Scale Test Coverage
 
 * Adding compute to the DPUCluster to test DPUCluster components and DPUCluster control plane
 * Adding compute to the target cluster to test scaling of DPF components in large target clusters

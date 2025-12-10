@@ -14,7 +14,7 @@ Each condition consists of a Reason and a Message that can describe the current 
 
 Note: Not all DPF objects follow this condition standard. Future work should align condition design across all Kubernetes objects.
 
-### Condition type categories
+### Condition Type Categories
 
 DPF has three categories of condition:
 
@@ -31,24 +31,24 @@ the overall status of the controller – only True if ALL conditions are True.
 Reasons can be: Success, Failure, Pending or AwaitingDeletion.
 
 
-### Condition reasons
+### Condition Reasons
 
-* **AwaitingDeletion**: A resource is marked for deletion.
-* **Pending**: If the controller has not completed its initialization.
-* **Error**: Something the system CAN recover from.
-* **Failure**: Terminal state the system CANNOT recover from.
-* **Success**: the overall success reason.
+* **AwaitingDeletion**: A resource is marked for deletion
+* **Pending**: If the controller has not completed its initialization
+* **Error**: Something the system CAN recover from
+* **Failure**: Terminal state the system CANNOT recover from
+* **Success**: the overall success reason
 
 
-### DPUService example
+### DPUService Example
 The DPUService has the following condition types:
 
-* **Ready**: The overall state of the DPU Service Controller reconciliation.
+* **Ready**: The overall state of the DPU Service Controller reconciliation
 * **ApplicationPrereqsReconciled**: Represents the status of the prereqs for an Application, which consists of the ArgoSecrets, AppProjects and ImagePullSecrets
-* **ApplicationsReconciled**: Represents the status of the application deployments for the host and DPU clusters. This means only that the resources are reconciled.
-* **ApplicationsReady**: Represents the status of the application ready state for the host and DPU clusters. If a failure occurs a message is added to the condition with the hint taking a look at the ArgoCD resources.
+* **ApplicationsReconciled**: Represents the status of the application deployments for the host and DPU clusters. This means only that the resources are reconciled
+* **ApplicationsReady**: Represents the status of the application ready state for the host and DPU clusters. If a failure occurs a message is added to the condition with the hint taking a look at the ArgoCD resources
 
-#### Go implementation
+#### Go Implementation
 These types are implemented in go in the DPUService API package. 
 
 [embedmd]:# (../../../../api/dpuservice/v1alpha1/dpuservice_types.go go /\/\/ Condition types/ /}\n\)/)
@@ -84,7 +84,7 @@ var (
 	}
 )
 ```
-#### Kubernetes object conditions
+#### Kubernetes Object Conditions
 
 A ApplicationsReady condition looks like:
 
