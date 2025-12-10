@@ -28,7 +28,7 @@ Utilize  [Netplan](https://netplan.readthedocs.io/en/stable/) to configure the n
 
 The following YAML illustrates the requirements for the Netplan configuration. It ensures the following:
 
-1. No IP, gateway or DNS nameservers is configured on the `oob` interface
+1. No IP, gateway or DNS nameservers is configured on the `oob` interface.
 2. The `oob` interface is connected to the bridge `br-dpu`.
 3. The bridge is always named `br-dpu`. The name of the OOB interface does not matter.
 4. All network connectivity requirements, such as IP, gateway, and nameservers, are configured on br-dpu.
@@ -53,7 +53,7 @@ network:
   version: 2
 ```
 
-In addition to the above configuration, an IP address and other settings are required to make br-dpu work. You can either set them statically or configure them through DHCP
+In addition to the above configuration, an IP address and other settings are required to make br-dpu work. You can either set them statically or configure them through DHCP.
 ### Option 1: Set br-dpu through DHCP
 To let the `br-dpu` get its configuration via DHCP, add `dhcp4: yes` like the following:
 ```yaml
@@ -79,11 +79,11 @@ network:
 ```
 > [!NOTE]
 > Please ensure that the configuration on `br-dpu` matches the configuration on your DHCP server. You may need additional configurations to make the DHCP procedure work. For example:
-> 1. Set `macaddress` to explicitly assign a MAC address to `br-dpu`  
-> 2. Set `dhcp-identifier: mac` to use MAC address as the DHCP client identifier
+> 1. Set `macaddress` to explicitly assign a MAC address to `br-dpu`.
+> 2. Set `dhcp-identifier: mac` to use MAC address as the DHCP client identifier.
 
-### Option 2: Set br-dpu statically
-If DHCP is disabled on br-dpu, you must assign an IP address and a default gateway to `br-dpu`. `nameservers` are optional
+### Option 2: Set br-dpu Statically
+If DHCP is disabled on br-dpu, you must assign an IP address and a default gateway to `br-dpu`. `nameservers` are optional.
 ```yaml
 network:
   ethernets:
@@ -114,7 +114,7 @@ network:
   version: 2
 ```
 > [!NOTE]
-> The metric of the default route must be at least 2
+> The metric of the default route must be at least 2.
 
 
 ## Host Routes and network acceleration

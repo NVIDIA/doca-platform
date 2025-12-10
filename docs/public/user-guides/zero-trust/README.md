@@ -83,6 +83,6 @@ For assistance with zero trust deployments:
 
 Once you've familiarized yourself with the zero trust concept, proceed to:
 
-1. Review the [prerequisites](prerequisites/README.md)
-2. Select an appropriate [use case](use-cases/README.md)
-3. Begin your DPF zero trust deployment
+1. Review the [prerequisites](prerequisites/README.md).
+2. Select an appropriate [use case](use-cases/README.md).
+3. Begin your DPF zero trust deployment.

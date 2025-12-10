@@ -16,11 +16,11 @@ This guide should be run by cloning the repo from [github.com/NVIDIA/doca-platfo
 
 The system is set up as described in the [system prerequisites](../../prerequisites/system.md).  The OVN Kubernetes with HBN case has the additional requirements:
 
-### DPU prerequisites
+### DPU Prerequisites
 
 * Bluefield 3 with 32GB of RAM
 
-### Software prerequisites
+### Software Prerequisites
 
 This guide uses the following tools which must be installed on the machine where the commands contained in this guide run.
 
@@ -28,12 +28,12 @@ This guide uses the following tools which must be installed on the machine where
 * helm
 * envsubst
 
-### Network prerequisites
+### Network Prerequisites
 
-#### Control plane Nodes
+#### Control Plane Nodes
 
 * Open vSwitch (OVS) packages installed - i.e. `openvswitch-switch` for Ubuntu 24.04
-* out-of-band management port should be configured as OVS bridge port with "bridge-uplink" OVS metadata [This addresses a known issue](../../../../release-notes/v25.1.0.md#known-issues-and-limitations).
+* out-of-band management port should be configured as OVS bridge port with "bridge-uplink" OVS metadata [This addresses a known issue](../../../../release-notes/v25.1.0.md#known-issues-and-limitations)
 * DNS stub resolver should be disabled if using systemd resolvd
 
 #### Worker Nodes
@@ -46,12 +46,12 @@ This guide uses the following tools which must be installed on the machine where
 ### Kubernetes prerequisites
 
 * CNI not installed
-* kube-proxy not installed
-* coreDNS should be configured to run only on control plane nodes - e.g. using NodeAffinity. [This addresses a known issue](../../../../release-notes/v25.1.0.md#known-issues-and-limitations).
-* control plane setup is complete before starting this guide
-* worker nodes are not added until indicated by this guide
+* Kube-proxy not installed
+* CoreDNS should be configured to run only on control plane nodes - e.g. using NodeAffinity. [This addresses a known issue](../../../../release-notes/v25.1.0.md#known-issues-and-limitations).
+* Control plane setup is complete before starting this guide
+* Worker nodes are not added until indicated by this guide
 
-#### Control plane Nodes
+#### Control Plane Nodes
 
 * Have the labels:
     * `"k8s.ovn.org/zone-name": $KUBERNETES_NODE_NAME`
@@ -64,17 +64,17 @@ This guide uses the following tools which must be installed on the machine where
 * Have the annotations:
     * `"k8s.ovn.org/remote-zone-migrated": $KUBERNETES_NODE_NAME`
 
-#### Virtual functions
+#### Virtual Functions
 
 A number of virtual functions (VFs) will be created on hosts when provisioning DPUs. Certain of these VFs are marked for specific usage:
 
-* The first VF (vf0) is used by provisioning components.
-* The second VF (vf1) is used by ovn-kubernetes.
-* The remaining VFs are allocated by SR-IOV Device Plugin. Each pod using OVN Kubernetes in DPU mode as its primary CNI will have one of these VFs injected at Pod creation time. 
+* The first VF (vf0) is used by provisioning components
+* The second VF (vf1) is used by ovn-kubernetes
+* The remaining VFs are allocated by SR-IOV Device Plugin. Each pod using OVN Kubernetes in DPU mode as its primary CNI will have one of these VFs injected at Pod creation time
 
-## Installation guide
+## Installation Guide
 
-### 0. Required variables
+### 0. Required Variables
 
 The following variables are required by this guide. A sensible default is provided where it makes sense, but many will be specific to the target infrastructure.
 
@@ -149,7 +149,7 @@ Modify the variables in `manifests/00-env-vars/envvars.env` to fit your environm
 source manifests/00-env-vars/envvars.env
 ```
 
-### 1. CNI installation
+### 1. CNI Installation
 
 OVN Kubernetes is used as the primary CNI for the cluster. On worker nodes the primary CNI will be accelerated by offloading work to the DPU. On control plane nodes OVN Kubernetes will run without offloading.
 
@@ -200,7 +200,7 @@ kubectl wait --for=condition=ready nodes --all
 kubectl wait --for=condition=ready --namespace ovn-kubernetes pods --all --timeout=300s
 ```
 
-### 2. DPF Operator installation
+### 2. DPF Operator Installation
 
 
 #### Create storage required by the DPF Operator
@@ -1106,7 +1106,7 @@ kubectl wait --for=condition=ServiceInterfaceSetReconciled --namespace dpf-opera
 kubectl wait --for=condition=ServiceChainSetReconciled --namespace dpf-operator-system dpuservicechain --all
 ```
 
-### 6. Test traffic
+### 6. Test Traffic
 
 #### Add worker nodes to the cluster
 
@@ -1143,7 +1143,6 @@ kubectl apply -f manifests/06-test-traffic
 
 HBN and OVN functionality can be tested by pinging between the pods and services deployed in the default namespace.
 
-TODO: Add specific user commands to test traffic.
 
 ## Uninstall
 
