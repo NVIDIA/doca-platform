@@ -23,6 +23,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -37,8 +38,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	VFConfigFile      = "/var/lib/dpf/dms/vf-config"
+// Mutable paths - can be overridden in tests for mocking
+var (
+	// VFConfigFile is the path to the VF config file.
+	VFConfigFile = "/var/lib/dpf/dms/vf-config"
+	// NetworkRequestDir is the directory where network request files are stored.
 	NetworkRequestDir = options.HostAgentDir + "/network_req"
 )
 
@@ -62,6 +66,43 @@ func (nr *NetworkRequest) SetDPUObjectMeta(dpu provisioningv1.DPU) {
 	nr.UID = string(dpu.UID)
 }
 
+// parseVFConfig parses VF config file content and returns a partially populated NetworkRequest.
+// This function only handles the file parsing, not the PCI or Kubernetes dependencies.
+func parseVFConfig(reader io.Reader) (*NetworkRequest, error) {
+	nr := &NetworkRequest{}
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid line: %s", line)
+		}
+		value := strings.TrimSpace(parts[1])
+		switch parts[0] {
+		case "serial_number":
+			nr.SerialNumber = value
+		case "device_pci_address":
+			nr.PCIAddress = value
+		case "num_of_vfs":
+			numOfVFs, err := strconv.Atoi(value)
+			if err != nil {
+				return nil, fmt.Errorf("invalid num_of_vfs: %s", value)
+			}
+			nr.NumOfVFs = numOfVFs
+		case "control_plane_mtu":
+			controlPlaneMTU, err := strconv.Atoi(value)
+			if err != nil {
+				return nil, fmt.Errorf("invalid control_plane_mtu: %s", value)
+			}
+			nr.ControlPlaneMTU = controlPlaneMTU
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading VF config: %w", err)
+	}
+	return nr, nil
+}
+
 func ConvertVFConfigToNetworkRequest(c client.Client) error {
 	vfFile, err := os.Open(VFConfigFile)
 	if err != nil {
@@ -75,34 +116,11 @@ func ConvertVFConfigToNetworkRequest(c client.Client) error {
 		_ = vfFile.Close()
 	}()
 
-	nr := &NetworkRequest{}
-	scanner := bufio.NewScanner(vfFile)
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid line: %s", line)
-		}
-		value := strings.TrimSpace(parts[1])
-		switch parts[0] {
-		case "serial_number":
-			nr.SerialNumber = value
-		case "device_pci_address":
-			nr.PCIAddress = value
-		case "num_of_vfs":
-			numOfVFs, err := strconv.Atoi(value)
-			if err != nil {
-				return fmt.Errorf("invalid num_of_vfs: %s", value)
-			}
-			nr.NumOfVFs = numOfVFs
-		case "control_plane_mtu":
-			controlPlaneMTU, err := strconv.Atoi(value)
-			if err != nil {
-				return fmt.Errorf("invalid control_plane_mtu: %s", value)
-			}
-			nr.ControlPlaneMTU = controlPlaneMTU
-		}
+	nr, err := parseVFConfig(vfFile)
+	if err != nil {
+		return err
 	}
+
 	nr.VFName, err = hostutil.NewPCIHelper(nr.PCIAddress).PF(0).VF(0).InterfaceName()
 	if err != nil {
 		if os.IsNotExist(err) {
