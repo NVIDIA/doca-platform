@@ -6,12 +6,12 @@ title: "Zero Trust Advanced Configuration"
 
 This section includes advanced configuration and additional information for the Zero Trust use case.
 
-# DPU Discovery and DPUNode and DPUDevice object creation
+# DPU Discovery and DPUNode and DPUDevice Object Creation
 
 DPF provides two approaches for discovering and creating DPU resources:
 
-1. **Automated Discovery**: Using `DPUDiscovery` to automatically scan for DPUs and create `DPUDevice` and `DPUNode` resources
-2. **Manual Creation**: Manually creating `DPUDevice` and `DPUNode` resources for each DPU
+1. **Automated Discovery**: Using `DPUDiscovery` to automatically scan for DPUs and create `DPUDevice` and `DPUNode` resources.
+2. **Manual Creation**: Manually creating `DPUDevice` and `DPUNode` resources for each DPU.
 
 You can choose either approach based on your deployment requirements. Automated discovery is recommended for larger
 deployments, while manual creation provides more control for smaller or specific configurations.

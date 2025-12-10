@@ -16,9 +16,9 @@ For example, during DPU provisioning you can quickly identify which resources ar
 
 There are 2 ways to run `dpfctl`:
 
-* **Install**: You can download & run `dpfctl` locally on your machine.
+* **Install**: You can download & run `dpfctl` locally on your machine
 * **Execute Inside Kubernetes Pod**: With this way you can ensure that you are using the correct version of `dpfctl` that is
-  compatible with the DPF Operator.
+  compatible with the DPF Operator
 
 ### Install
 
@@ -154,7 +154,7 @@ or
 KUBECONFIG=/path/to/kubeconfig dpfctl describe all
 ```
 
-### Visualizing the output
+### Visualizing the Output
 
 We can customize the output by using flags.
 

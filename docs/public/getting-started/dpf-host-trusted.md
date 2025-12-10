@@ -9,31 +9,31 @@ title: "DPF Host Trusted"
 This guide shows you how to deploy the NVIDIA DPF Operator prepared for the Host Trusted mode, which is designed for
 bare-metal infrastructure with NVIDIA BlueField-3 DPUs.
 
-## Before you begin
+## Before you Begin
 
 To follow this guide, you need the following:
 
-* **A Kubernetes cluster** with administrative access for DPF Operator deployment.
-* **Bare-metal infrastructure** with NVIDIA DPUs.
-* **Network access** to the NVIDIA NGC Catalog for downloading DPF Operator charts and container images.
+* **A Kubernetes cluster** with administrative access for DPF Operator deployment
+* **Bare-metal infrastructure** with NVIDIA DPUs
+* **Network access** to the NVIDIA NGC Catalog for downloading DPF Operator charts and container images
 
 For detailed requirements, ensure your system meets these prerequisites:
 
 * **System Prerequisites**: See
   the [DPF System Prerequisites](../user-guides/host-trusted/prerequisites/system.md) for complete hardware and
-  system requirements.
+  system requirements
 * **Helm Dependencies**: See the [Helm Prerequisites Guide](./helm-prerequisites.md) for required Helm charts that must
-  be installed before the DPF Operator.
+  be installed before the DPF Operator
 * **Network Configuration**: See
   the [Host Network Configuration Prerequisites](../user-guides/host-trusted/prerequisites/host-network-configuration-prerequisite.md)
-  for detailed network setup requirements.
+  for detailed network setup requirements
 
 ## Objectives
 
-* Deploy the DPF Operator to your Kubernetes cluster.
-* Understand Host Trusted mode architecture and security model.
-* Verify successful installation and readiness for DPU provisioning.
-* Set up foundation for DPU acceleration in vanilla Kubernetes environments.
+* Deploy the DPF Operator to your Kubernetes cluster
+* Understand Host Trusted mode architecture and security model
+* Verify successful installation and readiness for DPU provisioning
+* Set up foundation for DPU acceleration in vanilla Kubernetes environments
 
 ## Understanding Host Trusted Mode
 

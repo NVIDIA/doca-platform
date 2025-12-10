@@ -16,7 +16,7 @@ configuration guide first and completed that first. This advanced configuration 
 and provides additional steps to enable secondary cni support.
 
 
-## 1. Upgrade OVN Kubernetes from the helm chart
+## 1. Upgrade OVN Kubernetes from the Helm Chart
 
 Upgrade the OVN Kubernetes CNI components from the helm chart.
 Ensure [environment variables](../../user-guides/host-trusted/use-cases/hbn-ovnk/README.md#0-required-variables)
@@ -118,7 +118,7 @@ kubectl wait --for=condition=ServiceInterfaceSetReconciled --namespace dpf-opera
 kubectl wait --for=condition=ServiceChainSetReconciled --namespace dpf-operator-system dpuservicechain --all
 ```
 
-## 3. Test traffic
+## 3. Test Traffic
 
 If you want to create pods with secondary networks, first create a secondary network NetworkAttachmentDefinition.
 

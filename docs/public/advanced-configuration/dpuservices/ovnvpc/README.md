@@ -13,12 +13,12 @@ The DOCA VPC OVN Service provides accelerated Virtual Private Cloud (VPC) networ
 
 ### Key Features
 
-* **Multi-tenant Network Isolation**: Create isolated VPCs for different tenants with guaranteed network separation.
-* **Virtual Network Management**: Support the creation of virtual networks with DHCP and custom IP addressing.
-* **External Connectivity**: Configurable external routing with NAT/masquerading capabilities.
-* **Hardware Acceleration**: Leverages DPU hardware acceleration for high-performance networking.
-* **Flexible Topology**: Support for complex network topologies with inter-network routing controls.
-* **Kubernetes Integration**: Native Kubernetes resources for declarative VPC management.
+* **Multi-tenant Network Isolation**: Create isolated VPCs for different tenants with guaranteed network separation
+* **Virtual Network Management**: Support the creation of virtual networks with DHCP and custom IP addressing
+* **External Connectivity**: Configurable external routing with NAT/masquerading capabilities
+* **Hardware Acceleration**: Leverages DPU hardware acceleration for high-performance networking
+* **Flexible Topology**: Support for complex network topologies with inter-network routing controls
+* **Kubernetes Integration**: Native Kubernetes resources for declarative VPC management
 
 ## Architecture
 
@@ -66,21 +66,21 @@ graph TB
 
 #### Control Plane Components
 
-* **OVN Central**: Centralized SDN control plane managing OVN northbound and southbound databases.
-* **VPC Controller**: Manages VPC-specific Kubernetes resources and coordinates with OVN Central.
+* **OVN Central**: Centralized SDN control plane managing OVN northbound and southbound databases
+* **VPC Controller**: Manages VPC-specific Kubernetes resources and coordinates with OVN Central
 
 #### DPU Cluster Components
 
-* **OVN Controller**: Local SDN data plane on the DPU, implementing network policies and packet forwarding.
-* **VPC Node**: Handles local VPC networking operations, including IP allocation and interface management.
+* **OVN Controller**: Local SDN data plane on the DPU, implementing network policies and packet forwarding
+* **VPC Node**: Handles local VPC networking operations, including IP allocation and interface management
 
 ### VPC Kubernetes Resources
 
-* **IsolationClass**: Configuration parameters for VPC implementation.
-* **DPUVPC**: A Virtual Private Cloud resource that defines an isolated network environment for a tenant, including DPU node selection and isolation configuration.
-* **DPUVirtualNetwork**: A logical network segment within a VPC.
-* **DPUServiceInterface**: A control plane resource that defines network interface configuration for virtual networks.
-* **ServiceInterface**: Physical and virtual network interfaces managed by the DPU that implement network connectivity.
+* **IsolationClass**: Configuration parameters for VPC implementation
+* **DPUVPC**: A Virtual Private Cloud resource that defines an isolated network environment for a tenant, including DPU node selection and isolation configuration
+* **DPUVirtualNetwork**: A logical network segment within a VPC
+* **DPUServiceInterface**: A control plane resource that defines network interface configuration for virtual networks
+* **ServiceInterface**: Physical and virtual network interfaces managed by the DPU that implement network connectivity
 
 #### DPU Network Configuration
 
@@ -109,10 +109,10 @@ graph TD
   end
 ```
 
-* **OVN Integration Bridge**: The main bridge (OVS) that connects interfaces to OVN and handles OVN flows.
-* **VTEP Network**: The tunnel endpoint interface that enables overlay network connectivity between DPUs.
-* **External Network**: The interface that provides connectivity to external networks outside the VPC.
-* **Physical Network**: The primary network interface (typically p0) that connects the DPU to the physical network infrastructure.
+* **OVN Integration Bridge**: The main bridge (OVS) that connects interfaces to OVN and handles OVN flows
+* **VTEP Network**: The tunnel endpoint interface that enables overlay network connectivity between DPUs
+* **External Network**: The interface that provides connectivity to external networks outside the VPC
+* **Physical Network**: The primary network interface (typically p0) that connects the DPU to the physical network infrastructure
 
 ## API Overview
 
@@ -122,9 +122,9 @@ For the full API definition, refer to [DPF API Documentation](../../../developer
 
 An IsolationClass defines the parameters to be used by the VPC implementation when reconciling a DPUVPC. It specifies:
 
-* **Provisioner**: The VPC provisioner (ovn.vpc.dpu.nvidia.com).
-* **Parameters**: Implementation-specific parameters. In this case, OVN-specific configuration such as database endpoints.
-* **Cluster Scope**: Shared across all VPCs using the same isolation class.
+* **Provisioner**: The VPC provisioner (ovn.vpc.dpu.nvidia.com)
+* **Parameters**: Implementation-specific parameters. In this case, OVN-specific configuration such as database endpoints
+* **Cluster Scope**: Shared across all VPCs using the same isolation class
 
 <details markdown="1"><summary>Reference Example</summary>
 
@@ -158,10 +158,10 @@ spec:
 
 A DPUVPC represents a Virtual Private Cloud isolated network environment for a specific tenant. It defines:
 
-* **Tenant Ownership**: Each VPC belongs to a specific tenant.
-* **Node Selection**: Specifies which DPU nodes participate in the VPC.
-* **Isolation Class**: The isolation mechanism (OVN-based) to use, referenced by name.
-* **Inter-Network Access**: Whether virtual networks within the VPC can communicate.
+* **Tenant Ownership**: Each VPC belongs to a specific tenant
+* **Node Selection**: Specifies which DPU nodes participate in the VPC
+* **Isolation Class**: The isolation mechanism (OVN-based) to use, referenced by name
+* **Inter-Network Access**: Whether virtual networks within the VPC can communicate
 
 <details markdown="1"><summary>Reference Example</summary>
 
@@ -194,10 +194,10 @@ spec:
 
 A DPUVirtualNetwork defines a logical network segment within a VPC and supports:
 
-* **Bridged Networks**: Layer 2 bridged networks with DHCP support.
-* **External Routing**: Optional external connectivity with masquerading.
-* **IP Address Management**: Automated DHCP with configurable subnets and exclusions.
-* **Node Selection**: Selective deployment across DPU nodes.
+* **Bridged Networks**: Layer 2 bridged networks with DHCP support
+* **External Routing**: Optional external connectivity with masquerading
+* **IP Address Management**: Automated DHCP with configurable subnets and exclusions
+* **Node Selection**: Selective deployment across DPU nodes
 
 <details markdown="1"><summary>Reference Example</summary>
 
@@ -468,7 +468,7 @@ spec:
 ```
 </details>
 
-### 3. Two VPCs, each with a single DPUVirtualNetwork and a single DPUServiceInterface targeting separate DPU Nodes
+### 3. Two VPCs, each with a Single DPUVirtualNetwork and a Single DPUServiceInterface Targeting Separate DPU Nodes
 
 This example associates two VPCs with different subsets of nodes. Each VPC has a single DPUVirtualNetwork. Each DPUVirtualNetwork is associated with a single DPUServiceInterface. This example corresponds to a multi-tenant environment where different sets of nodes belong to different tenants (VPCs).
 
@@ -1079,7 +1079,7 @@ spec:
         [{"name": "mybrint-vpc", "namespace": "dpf-operator-system", "interface": "my_sf"}]
 ```
 
-## VPC OVN upgrade guide
+## VPC OVN Upgrade Guide
 
 For zero‑downtime VPC OVN upgrade guide refer to [VPC OVN upgrade guide](vpc-upgrade-guide.md)
 

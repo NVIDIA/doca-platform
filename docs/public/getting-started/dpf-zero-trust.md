@@ -9,13 +9,13 @@ title: "DPF Zero Trust"
 This guide shows you how to deploy the NVIDIA DPF Operator prepared for the Zero Trust mode, which is designed for
 bare-metal infrastructure with NVIDIA BlueField-3 DPUs.
 
-## Before you begin
+## Before you Begin
 
 To follow this guide, you need the following:
 
-* **A Kubernetes cluster** with administrative access for DPF Operator deployment.
-* **Bare-metal infrastructure** with NVIDIA DPUs and BMC access.
-* **Network access** to the NVIDIA NGC Catalog for downloading DPF Operator charts and container images.
+* **A Kubernetes cluster** with administrative access for DPF Operator deployment
+* **Bare-metal infrastructure** with NVIDIA DPUs and BMC access
+* **Network access** to the NVIDIA NGC Catalog for downloading DPF Operator charts and container images
 
 ### Detailed Requirements
 
@@ -28,10 +28,10 @@ For detailed requirements, ensure your system meets these prerequisites:
 
 ## Objectives
 
-* Deploy the DPF Operator to your Kubernetes cluster.
-* Understand Zero Trust mode architecture and security model.
-* Verify successful installation and readiness for DPU provisioning.
-* Set up foundation for secure bare-metal DPU management.
+* Deploy the DPF Operator to your Kubernetes cluster
+* Understand Zero Trust mode architecture and security model
+* Verify successful installation and readiness for DPU provisioning
+* Set up foundation for secure bare-metal DPU management
 
 ## Understanding Zero Trust Mode
 
