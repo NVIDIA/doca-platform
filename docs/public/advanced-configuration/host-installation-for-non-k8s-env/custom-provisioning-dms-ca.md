@@ -13,9 +13,9 @@ and keys, and configure the `DPFOperatorConfig` to use this Secret.
 
 Ensure have the following files ready:
 
-* **Server Certificate**: A PEM-encoded certificate for the server (tls.crt).
-* **Private Key**: A PEM-encoded private key corresponding to the server certificate (tls.key).
-* **CA Certificate**: A PEM-encoded certificate for the custom Certificate Authority (ca.crt).
+* **Server Certificate**: A PEM-encoded certificate for the server (tls.crt)
+* **Private Key**: A PEM-encoded private key corresponding to the server certificate (tls.key)
+* **CA Certificate**: A PEM-encoded certificate for the custom Certificate Authority (ca.crt)
 
 ## Step 2: Create a Kubernetes Secret
 

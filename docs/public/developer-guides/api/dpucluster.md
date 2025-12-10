@@ -9,14 +9,14 @@ by different implementations.
 
 Two implementations are included in this repo:
 
-* Kamaji cluster manager which creates Kamaji TenantControlPlanes to back the DPUCluster.
-* Static cluster manager which transforms an existing Kubernetes control plane into a DPUCluster control plane.
+* Kamaji cluster manager which creates Kamaji TenantControlPlanes to back the DPUCluster
+* Static cluster manager which transforms an existing Kubernetes control plane into a DPUCluster control plane
 
-## DPUCluster usage
+## DPUCluster Usage
 
 A DPUCluster is a user API and the usage will differ depending on the implementation.
 
-#### Using the static cluster manager
+#### Using the Static Cluster Manager
 
 The static cluster manager controller should be enabled first. It is enabled by adding staticClusterManager field in the
 DPUOperatorConfig CR:
@@ -69,7 +69,7 @@ spec:
   kubeconfig: dpu-cluster-1-admin-kubeconfig
 ```
 
-#### Using the Kamaji cluster manager
+#### Using the Kamaji Cluster Manager
 
 The DPUCluster will look like:
 ```yaml
@@ -99,7 +99,7 @@ spec:
         node-role.kubernetes.io/control-plane: ""
 ```
 
-### DPUCluster implementation
+### DPUCluster Implementation
 
 A DPUCluster implementation is a Kubernetes controller which operates on the DPF DPUCluster object. It should:
 
