@@ -18,21 +18,21 @@ and moving to the `docs/public/user-guides/zero-trust/use-cases/vpc` directory.
 
 The system is set up as described in the [prerequisites](../../prerequisites/README.md).
 
-### Software prerequisites
+### Software Prerequisites
 Install the following tools on the machine where you will run the commands in this guide:
 
 * kubectl
 * helm
 * envsubst
 
-### Network prerequisites
+### Network Prerequisites
 
 #### Worker Nodes
 
-* Only a single DPU uplink is used with this deployment (p0).
-* All worker nodes are connected to the same L2 broadcast domain (VLAN) on the high-speed network.
+* Only a single DPU uplink is used with this deployment (p0)
+* All worker nodes are connected to the same L2 broadcast domain (VLAN) on the high-speed network
 
-## Installation guide
+## Installation Guide
 
 Commands in this guide are run in the same directory that contains this readme.
 
@@ -40,9 +40,9 @@ Commands in this guide are run in the same directory that contains this readme.
 > This deployment guide assumes that two subnets are available in the network
 > for use by the VPC service for tunneled and external traffic. It is possible to use a single
 > subnet for both traffic types with minor modifications to the deployment manifests.
-> Refer to [OVN VPC Deployment](#4-ovn-vpc-deployment) for more information.
+> Refer to [OVN VPC Deployment](#4-ovn-vpc-deployment) for more information
 
-### 0. Required variables
+### 0. Required Variables
 
 The following variables are required. Sensible defaults are provided where possible, but many values will be specific to your target infrastructure.
 
@@ -123,7 +123,7 @@ Modify the variables in `manifests/00-env-vars/envvars.env` to fit your environm
 source manifests/00-env-vars/envvars.env
 ```
 
-### 1. DPF Operator installation
+### 1. DPF Operator Installation
 
 #### Create storage required by the DPF Operator
 
@@ -221,7 +221,7 @@ kubectl rollout status deployment --namespace dpf-operator-system dpf-operator-c
 kubectl wait --for=condition=ready --namespace dpf-operator-system pods --all
 ```
 
-### 2. DPF system installation
+### 2. DPF System Installation
 
 This section involves creating the DPF system components and some basic infrastructure required for a functioning
 DPF-enabled cluster.
@@ -430,7 +430,7 @@ spec:
 
 </details>
 
-### 4. OVN VPC deployment
+### 4. OVN VPC Deployment
 
 The OVN VPC service consists of the following components:
 
@@ -840,7 +840,7 @@ DPFOperatorConfig/dpfoperatorconfig    dpf-operator-system  Ready: True   Succes
         └─DPU/worker2-0000-c8-00       dpf-operator-system  Ready: True   DPUReady  2m30s
 ```
 
-### 5. Additional VPC resources deployment
+### 5. Additional VPC Resources Deployment
 
 In this step, you will deploy the `IsolationClass` resource, which will be used by subsequent user-created `DPUVPC` and `DPUVirtualNetwork` resources.
 
@@ -870,7 +870,7 @@ spec:
 
 </details>
 
-### 6. Optional - Test traffic
+### 6. Optional - Test Traffic
 
 At this point, your cluster should be set up and ready with all VPC components.
 
@@ -1184,14 +1184,14 @@ root@node1:~# ping 10.200.0.3
 
 This section covers only the DPF related components and not the prerequisites as these must be managed by the administrator.
 
-### 1. Remove VPC resources from the cluster
+### 1. Remove VPC Resources from the Cluster
 
 ```shell
 cat manifests/06-optional-test-traffic/* | kubectl delete --wait -f -
 cat manifests/05-vpc-resources/* | kubectl delete --wait -f -
 ```
 
-### 2. Remove DPF system and Operator installation
+### 2. Remove DPF System and Operator Installation
 
 ```shell
 kubectl delete -n dpf-operator-system dpfoperatorconfig dpfoperatorconfig --wait

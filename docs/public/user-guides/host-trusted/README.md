@@ -101,6 +101,6 @@ For assistance with Host Trusted deployments:
 
 Once you've familiarized yourself with the Host Trusted concept, proceed to:
 
-1. Review the [prerequisites](prerequisites/README.md)
-2. Select an appropriate [use case](use-cases/README.md)
-3. Begin your DPF Host Trusted deployment
+1. Review the [prerequisites](prerequisites/README.md).
+2. Select an appropriate [use case](use-cases/README.md).
+3. Begin your DPF Host Trusted deployment.
