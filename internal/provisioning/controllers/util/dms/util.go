@@ -323,7 +323,3 @@ func ExecuteDMSDebugCmd(ctx context.Context, conn *grpc.ClientConn, command stri
 
 	return resp.GetNotification()[0].GetUpdate()[0].GetVal().GetStringVal(), nil
 }
-
-func GenerateDMSTaskName(namespace string, name string) string {
-	return fmt.Sprintf("%s/%s", namespace, name)
-}

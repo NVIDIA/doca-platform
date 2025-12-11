@@ -24,6 +24,8 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,6 +43,11 @@ var (
 	cancel     context.CancelFunc
 	testClient client.Client
 )
+
+func TestCapacity(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Capacity Suite")
+}
 
 func TestMain(m *testing.M) {
 	logf.SetLogger(zap.New(zap.WriteTo(os.Stdout), zap.UseDevMode(true)))
