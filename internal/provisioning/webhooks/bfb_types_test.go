@@ -311,6 +311,7 @@ var _ = Describe("BFB", func() {
 				},
 				Spec: provisioningv1.DPUSpec{
 					BFB:           bfbName,
+					DPUFlavor:     "dummy-flavor",
 					DPUDeviceName: "dpudevice-1",
 					SerialNumber:  "test-serial-123",
 				},

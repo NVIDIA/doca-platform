@@ -241,6 +241,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 				DPUNodeName:   nodeName,
 				DPUDeviceName: dpuDeviceName,
 				SerialNumber:  "MT25066004C7",
+				DPUFlavor:     "dpu-flavor",
 				Cluster: provisioningv1.K8sCluster{
 					Name:      dpuCluster.Name,
 					Namespace: dpuCluster.Namespace,
@@ -1110,6 +1111,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					DPUNodeName:   dpuNonExistentLabelWorkerNode.Name,
 					DPUDeviceName: dpuDeviceName,
 					SerialNumber:  "MT25066004C7",
+					DPUFlavor:     "dpu-flavor",
 					Cluster: provisioningv1.K8sCluster{
 						Name:      dpuCluster.Name,
 						Namespace: dpuCluster.Namespace,
@@ -1588,6 +1590,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					DPUNodeName:   nodeName,
 					DPUDeviceName: dpuDeviceName + "2",
 					SerialNumber:  "MT25066004C8",
+					DPUFlavor:     "dpu-flavor",
 					Cluster: provisioningv1.K8sCluster{
 						Name:      dpuCluster.Name,
 						Namespace: dpuCluster.Namespace,
@@ -1757,6 +1760,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					DPUNodeName:   nodeName,
 					DPUDeviceName: dpuDeviceName + "2",
 					SerialNumber:  "MT25066004C8",
+					DPUFlavor:     "dpu-flavor",
 					Cluster: provisioningv1.K8sCluster{
 						Name:      dpuCluster.Name,
 						Namespace: dpuCluster.Namespace,

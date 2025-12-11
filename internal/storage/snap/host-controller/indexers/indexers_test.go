@@ -38,6 +38,7 @@ var _ = Describe("Indexers", func() {
 				SerialNumber:  "MT25066004C7",
 				DPUDeviceName: "test-device",
 				BFB:           "test-bfb",
+				DPUFlavor:     "test-flavor",
 			},
 		}
 		Expect(testClient.Create(ctx, dpu)).To(Succeed())
