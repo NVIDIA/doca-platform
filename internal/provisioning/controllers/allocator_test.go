@@ -137,21 +137,87 @@ var _ = Describe("Allocator", func() {
 				return types.NamespacedName{Name: fetchedDPU.Spec.Cluster.Name, Namespace: fetchedDPU.Spec.Cluster.Namespace}
 			}).WithTimeout(10 * time.Second).Should(Equal(cutil.GetNamespacedName(dc)))
 		})
-		It("allocate the first cluster in alphabetical order", func() {
-			dpu := createDPU("dpu")
-			Expect(k8sClient.Create(context.TODO(), dpu)).To(Succeed())
-			dc1 := createDPUCluster("dc1", 1, true)
+		It("allocate DPU", func() {
+			dpu0 := createDPU("dpu0")
+			Expect(k8sClient.Create(context.TODO(), dpu0)).To(Succeed())
+			dc1 := createDPUCluster("dc1", 20, true)
 			alloc.SaveCluster(dc1)
-			dc2 := createDPUCluster("dc2", 1, true)
-			alloc.SaveCluster(dc2)
-			result, err := alloc.Allocate(ctx, dpu)
+			// allocate the first DPU to dc1
+			result, err := alloc.Allocate(ctx, dpu0)
 			Expect(err).To(Succeed())
 			Expect(result).To(Equal(allocator.AllocateResult{Name: dc1.Name, Namespace: dc1.Namespace}))
 			Eventually(func(g Gomega) types.NamespacedName {
 				fetchedDPU := &provisioningv1.DPU{}
-				g.Expect(k8sClient.Get(ctx, cutil.GetNamespacedName(dpu), fetchedDPU)).To(Succeed())
+				g.Expect(k8sClient.Get(ctx, cutil.GetNamespacedName(dpu0), fetchedDPU)).To(Succeed())
 				return types.NamespacedName{Name: fetchedDPU.Spec.Cluster.Name, Namespace: fetchedDPU.Spec.Cluster.Namespace}
 			}).WithTimeout(10 * time.Second).Should(Equal(cutil.GetNamespacedName(dc1)))
+			Expect(alloc.GetDPUsCount(dc1)).To(Equal(1))
+
+			// create another DPUCluster
+			dc2 := createDPUCluster("dc2", 20, true)
+			alloc.SaveCluster(dc2)
+
+			// create 9 DPUs and allocate them
+			for i := 0; i < 9; i++ {
+				dpu := createDPU(fmt.Sprintf("dpu-%d", i))
+				Expect(k8sClient.Create(context.TODO(), dpu)).To(Succeed())
+				result, err = alloc.Allocate(ctx, dpu)
+				Expect(err).To(Succeed())
+				Expect(result).To(Equal(allocator.AllocateResult{Name: dc1.Name, Namespace: dc1.Namespace}))
+			}
+			// 10 DPUs should be allocated to dc1
+			Expect(alloc.GetDPUsCount(dc1)).To(Equal(10))
+		})
+		It("allocate DPU without DPUClusterSelector, create two DPUClusters before allocating DPUs", func() {
+			dc1 := createDPUCluster("dc1", 20, true)
+			alloc.SaveCluster(dc1)
+			dc2 := createDPUCluster("dc2", 20, true)
+			alloc.SaveCluster(dc2)
+
+			// create 20 DPUs and allocate them
+			for i := 0; i < 20; i++ {
+				dpu := createDPU(fmt.Sprintf("dpu-%d", i))
+				Expect(k8sClient.Create(context.TODO(), dpu)).To(Succeed())
+				_, err := alloc.Allocate(ctx, dpu)
+				Expect(err).To(Succeed())
+			}
+			count1 := alloc.GetDPUsCount(dc1)
+			count2 := alloc.GetDPUsCount(dc2)
+
+			// either dc1 has 20 DPUs and dc2 has 0 DPUs, or dc1 has 0 DPUs and dc2 has 20 DPUs
+			Expect((count1 == 20 && count2 == 0) || (count1 == 0 && count2 == 20)).To(BeTrue())
+		})
+		It("allocate DPU without DPUClusterSelector, fulfill one cluster then allocate DPUs to another cluster", func() {
+			dpu0 := createDPU("dpu0")
+			Expect(k8sClient.Create(context.TODO(), dpu0)).To(Succeed())
+			dc1 := createDPUCluster("dc1", 10, true)
+			alloc.SaveCluster(dc1)
+			// allocate the first DPU to dc1
+			result, err := alloc.Allocate(ctx, dpu0)
+			Expect(err).To(Succeed())
+			Expect(result).To(Equal(allocator.AllocateResult{Name: dc1.Name, Namespace: dc1.Namespace}))
+			Eventually(func(g Gomega) types.NamespacedName {
+				fetchedDPU := &provisioningv1.DPU{}
+				g.Expect(k8sClient.Get(ctx, cutil.GetNamespacedName(dpu0), fetchedDPU)).To(Succeed())
+				return types.NamespacedName{Name: fetchedDPU.Spec.Cluster.Name, Namespace: fetchedDPU.Spec.Cluster.Namespace}
+			}).WithTimeout(10 * time.Second).Should(Equal(cutil.GetNamespacedName(dc1)))
+			Expect(alloc.GetDPUsCount(dc1)).To(Equal(1))
+
+			// create another DPUCluster
+			dc2 := createDPUCluster("dc2", 10, true)
+			alloc.SaveCluster(dc2)
+
+			// create 14 DPUs and allocate them
+			for i := 0; i < 14; i++ {
+				dpu := createDPU(fmt.Sprintf("dpu-%d", i))
+				Expect(k8sClient.Create(context.TODO(), dpu)).To(Succeed())
+				_, err = alloc.Allocate(ctx, dpu)
+				Expect(err).To(Succeed())
+			}
+			// 10 DPUs should be allocated to dc1
+			Expect(alloc.GetDPUsCount(dc1)).To(Equal(10))
+			// 5 DPUs should be allocated to dc2
+			Expect(alloc.GetDPUsCount(dc2)).To(Equal(5))
 		})
 		It("cluster not ready", func() {
 			dpu := createDPU("dpu")
