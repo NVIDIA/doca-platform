@@ -899,6 +899,7 @@ func defaultDPUSet() *provisioningv1.DPUSet {
 		Spec: provisioningv1.DPUSetSpec{
 			DPUTemplate: provisioningv1.DPUTemplate{
 				Spec: provisioningv1.DPUTemplateSpec{
+					DPUFlavor: "test-flavor",
 					BFB: provisioningv1.BFBReference{
 						Name: "test",
 					},
@@ -910,7 +911,7 @@ func defaultDPUSet() *provisioningv1.DPUSet {
 
 func defaultDPU() *provisioningv1.DPU {
 	return &provisioningv1.DPU{
-		ObjectMeta: metav1.ObjectMeta{Name: "orphaned-dpu", Namespace: "default"}, Spec: provisioningv1.DPUSpec{DPUDeviceName: "dpudevice-dpfctl-test", SerialNumber: "MT25066004C7"},
+		ObjectMeta: metav1.ObjectMeta{Name: "orphaned-dpu", Namespace: "default"}, Spec: provisioningv1.DPUSpec{DPUDeviceName: "dpudevice-dpfctl-test", SerialNumber: "MT25066004C7", DPUFlavor: "test-flavor", BFB: "test-bfb"},
 	}
 }
 
@@ -927,6 +928,7 @@ func defaultDPUFromDPUSet() *provisioningv1.DPU {
 		Spec: provisioningv1.DPUSpec{
 			DPUDeviceName: "dpudevice-dpfctl-test",
 			SerialNumber:  "MT25066004C7",
+			DPUFlavor:     "test-flavor",
 		},
 	}
 }
@@ -1103,6 +1105,13 @@ func defaultDPUSetFromDPUDeployment() *provisioningv1.DPUSet {
 				dpuservicev1.ParentDPUDeploymentNameLabel: "default_test",
 			},
 		},
+		Spec: provisioningv1.DPUSetSpec{
+			DPUTemplate: provisioningv1.DPUTemplate{
+				Spec: provisioningv1.DPUTemplateSpec{
+					DPUFlavor: "test-flavor",
+				},
+			},
+		},
 	}
 }
 
@@ -1119,6 +1128,7 @@ func defaultDPUFromDPUSetsFromDPUDeployment() *provisioningv1.DPU {
 		Spec: provisioningv1.DPUSpec{
 			DPUDeviceName: "dpudevice-dpfctl-test",
 			SerialNumber:  "MT25066004C7",
+			DPUFlavor:     "test-flavor",
 		},
 	}
 }
@@ -1569,6 +1579,7 @@ func dpuWithNodeReference() *provisioningv1.DPU {
 			},
 		},
 		Spec: provisioningv1.DPUSpec{
+			DPUFlavor:     "test-flavor",
 			DPUNodeName:   "test-node",
 			DPUDeviceName: "test-device",
 			SerialNumber:  "MT25066004C7",

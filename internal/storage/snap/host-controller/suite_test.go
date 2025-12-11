@@ -239,6 +239,7 @@ func getDPU() *provisioningv1.DPU {
 			DPUNodeName:   "test-node",
 			DPUDeviceName: "test-device",
 			BFB:           "test-bfb",
+			DPUFlavor:     "test-flavor",
 		},
 	}
 }

@@ -118,6 +118,7 @@ type DPUTemplateSpec struct {
 	// +optional
 	Cluster *ClusterSpec `json:"cluster,omitempty"`
 	// DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU.
+	// +kubebuilder:validation:MinLength=1
 	// +required
 	DPUFlavor string `json:"dpuFlavor"`
 }

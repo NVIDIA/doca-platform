@@ -82,6 +82,7 @@ var _ = Describe("DPU", func() {
 			},
 			Spec: provisioningv1.DPUSpec{
 				SerialNumber: DefaultSerialNumberPrefix + utilrand.String(5),
+				DPUFlavor:    "dpu-flavor",
 			},
 			Status: provisioningv1.DPUStatus{},
 		}

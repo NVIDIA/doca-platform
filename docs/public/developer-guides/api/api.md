@@ -1914,7 +1914,7 @@ _Appears in:_
 | `bfb` _[BFBReference](#bfbreference)_ | Specifies a BFB CR |  |  |
 | `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} |  |
 | `cluster` _[ClusterSpec](#clusterspec)_ | Specifies details on the K8S cluster to join |  |  |
-| `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  |  |
+| `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br /> |
 
 
 #### DPUType
