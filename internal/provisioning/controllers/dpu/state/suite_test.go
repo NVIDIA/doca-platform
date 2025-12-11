@@ -148,6 +148,17 @@ func createObject(obj client.Object) {
 	testObjects = append(testObjects, obj)
 }
 
+func dpuFlavorObj(name string) *provisioningv1.DPUFlavor {
+	dpuFlavor := &provisioningv1.DPUFlavor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: testNS.Name,
+		},
+		Spec: provisioningv1.DPUFlavorSpec{},
+	}
+	return dpuFlavor
+}
+
 func dpuObj(name string) *provisioningv1.DPU {
 	dpu := &provisioningv1.DPU{
 		ObjectMeta: metav1.ObjectMeta{
@@ -157,6 +168,7 @@ func dpuObj(name string) *provisioningv1.DPU {
 		},
 		Spec: provisioningv1.DPUSpec{
 			SerialNumber: "MT25066004C" + utilrand.String(5),
+			DPUFlavor:    "dpu-flavor",
 		},
 	}
 	return dpu

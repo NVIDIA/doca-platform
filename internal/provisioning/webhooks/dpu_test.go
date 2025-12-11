@@ -47,7 +47,7 @@ var _ = Describe("DPU", func() {
 				Name:      name,
 				Namespace: "default",
 			},
-			Spec:   provisioningv1.DPUSpec{DPUDeviceName: "dpudevice-1", SerialNumber: "MT25066004C7"},
+			Spec:   provisioningv1.DPUSpec{DPUDeviceName: "dpudevice-1", SerialNumber: "MT25066004C7", DPUFlavor: "dummy-flavor"},
 			Status: provisioningv1.DPUStatus{},
 		}
 	}
@@ -438,6 +438,7 @@ metadata:
 spec:
   dpuDeviceName: "dpudevice-1"
   serialNumber: "MT25066004C7"
+  dpuFlavor: "dpu-flavor"
 `)
 			obj := &provisioningv1.DPU{}
 			err := yaml.UnmarshalStrict(yml, obj)

@@ -23,6 +23,10 @@ validations:
           kind: "DPUSet"
           field: ".spec.dpuTemplate.spec"
           error: "new required fields: [dpuFlavor]"
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPU"
+          field: ".spec"
+          error: "new required fields: [dpuFlavor]"
   - name: minimum
     enforcement: Error
     configuration:

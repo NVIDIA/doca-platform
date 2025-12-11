@@ -29,8 +29,9 @@ import (
 
 var _ = Describe("DPU: pending", func() {
 	var (
-		defaultDPUName = "dpu-pending-test"
-		defaultBFBName = "bfb-pending-test"
+		defaultDPUName       = "dpu-pending-test"
+		defaultBFBName       = "bfb-pending-test"
+		defaultDPUFlavorName = "dpu-flavor-pending-test"
 	)
 
 	Context("successful cases", func() {
@@ -42,8 +43,12 @@ var _ = Describe("DPU: pending", func() {
 			bfb.Status.FileName = "bfb-file.bfb"
 			Expect(k8sClient.Status().Patch(ctx, bfb, patch)).To(Succeed())
 
+			dpuFlavor := dpuFlavorObj(defaultDPUFlavorName)
+			createObject(dpuFlavor)
+
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.BFB = bfb.Name
+			dpu.Spec.DPUFlavor = dpuFlavor.Name
 			dpu.Status.Phase = provisioningv1.DPUPending
 
 			runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
@@ -65,6 +70,11 @@ var _ = Describe("DPU: pending", func() {
 						HaveField("Status", metav1.ConditionTrue),
 						HaveField("Reason", provisioningv1.DPUCondBFBReady.String()),
 					),
+					And(
+						HaveField("Type", provisioningv1.DPUCondDPUFlavorExists.String()),
+						HaveField("Status", metav1.ConditionTrue),
+						HaveField("Reason", provisioningv1.DPUCondDPUFlavorExists.String()),
+					),
 				))
 				Expect(dpuMap.CanProceed(dutil.DPUID("test-dpu"))).To(BeFalse())
 			})
@@ -73,8 +83,12 @@ var _ = Describe("DPU: pending", func() {
 
 	Context("error handling", func() {
 		It("should retry if BFB is not found", func() {
+			dpuFlavor := dpuFlavorObj(defaultDPUFlavorName)
+			createObject(dpuFlavor)
+
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.BFB = "not-existing-bfb"
+			dpu.Spec.DPUFlavor = dpuFlavor.Name
 			dpu.Status.Phase = provisioningv1.DPUPending
 			runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
 				status, err := state.Pending(ctx, dpu,
@@ -98,12 +112,49 @@ var _ = Describe("DPU: pending", func() {
 		})
 	})
 
+	It("should retry if DPUFlavor is not found", func() {
+		bfb := bfbObj(defaultBFBName)
+		createObject(bfb)
+		patch := client.MergeFrom(bfb.DeepCopy())
+		bfb.Status.Phase = provisioningv1.BFBReady
+		bfb.Status.FileName = "bfb-file.bfb"
+		Expect(k8sClient.Status().Patch(ctx, bfb, patch)).To(Succeed())
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.BFB = bfb.Name
+		dpu.Spec.DPUFlavor = "not-existing-dpu-flavor"
+		dpu.Status.Phase = provisioningv1.DPUPending
+		runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
+			status, err := state.Pending(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(installInterface),
+					},
+				},
+			)
+			Expect(err).To(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondDPUFlavorExists.String()),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", "DPUFlavorNotFound"),
+				),
+			))
+		})
+	})
+
 	It("should retry if BFB is not ready", func() {
 		bfb := bfbObj(defaultBFBName)
 		createObject(bfb)
 
+		dpuFlavor := dpuFlavorObj(defaultDPUFlavorName)
+		createObject(dpuFlavor)
+
 		dpu := dpuObj(defaultDPUName)
 		dpu.Spec.BFB = bfb.Name
+		dpu.Spec.DPUFlavor = dpuFlavor.Name
 		dpu.Status.Phase = provisioningv1.DPUPending
 		runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
 			status, err := state.Pending(ctx, dpu,
