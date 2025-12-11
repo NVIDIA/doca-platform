@@ -156,7 +156,7 @@ This will free the user from having to watch the mounted secret files.
 local API Server. If this is not desirable, it is still possible to adapt the `InClusterConfig()`
 logic.
 
-## API Server consideration
+## API Server Consideration
 
 The `DPUServiceCredentialRequest` will request tokens for the provided `ServiceAccount`
 by setting the `Audience` to the API server audience based on the server config.
