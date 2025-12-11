@@ -131,10 +131,6 @@ var (
 	KubeconfigBaseDir = "kubeconfig"
 )
 
-func GenerateBmcFwFilePath(filename string) string {
-	return string(os.PathSeparator) + BFBBaseDir + string(os.PathSeparator) + filename
-}
-
 func GenerateBFCFGFileName(dpuName string, uid string) string {
 	return fmt.Sprintf("%s-%s.%s", dpuName, uid, CFGExtension)
 }
@@ -178,25 +174,6 @@ func GenerateDMSServerSecretName(dpuName string) string {
 
 func GenerateNodeName(dpu *provisioningv1.DPU) string {
 	return dpu.Name
-}
-
-func GetPCIAddrFromDPU(dpu *provisioningv1.DPU, removePrefix bool) (string, error) {
-	// the value of pci address from the node label likes: 0000_4b_00
-	if dpu.Spec.PCIAddress == nil {
-		return "", fmt.Errorf("empty PCI address")
-	}
-	pciAddress := *dpu.Spec.PCIAddress
-	if removePrefix {
-		// remove 0000- prefix
-		underscoreIndex := strings.Index(pciAddress, "-")
-		if underscoreIndex != -1 {
-			pciAddress = pciAddress[underscoreIndex+1:]
-		}
-	}
-	// replace - to :
-	result := strings.ReplaceAll(pciAddress, "-", ":")
-	// 4b:00
-	return result, nil
 }
 
 func IsNodeReady(node *corev1.Node) bool {
@@ -473,14 +450,6 @@ func GetNamespacedName(obj metav1.Object) types.NamespacedName {
 		Namespace: obj.GetNamespace(),
 		Name:      obj.GetName(),
 	}
-}
-
-func IsClusterCreated(conditions []metav1.Condition) bool {
-	cond := meta.FindStatusCondition(conditions, string(provisioningv1.ConditionCreated))
-	if cond == nil {
-		return false
-	}
-	return cond.Status == metav1.ConditionTrue
 }
 
 // NewCondition creates a new metav1.Condition with the given parameters.
