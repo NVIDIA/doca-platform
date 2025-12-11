@@ -81,6 +81,8 @@ func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 	}
 	r.Allocator.SaveCluster(dc)
+	dc.Status.DPUsCount = r.Allocator.GetDPUsCount(dc)
+	logger.V(3).Info(fmt.Sprintf("DPUsCount: %d", dc.Status.DPUsCount))
 
 	if dc.Status.Phase == provisioningv1.PhasePending {
 		dc.Status.Phase = provisioningv1.PhaseCreating
@@ -106,15 +108,23 @@ func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	var errList []error
 	if allTrue {
+		var healthCheckErr error
+		var healthCheckMsg string
+
 		adminClient, err := r.getOrCreateClient(ctx, dc)
 		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to get admin client %w", err)
+			healthCheckErr = err
+			healthCheckMsg = "failed to get admin client"
+		} else if _, err := adminClient.ServerVersion(); err != nil {
+			healthCheckErr = err
+			healthCheckMsg = "health check failed"
 		}
-		if _, err := adminClient.ServerVersion(); err != nil {
-			cond := cutil.NewCondition(string(provisioningv1.ConditionReady), err, "HealthCheckFailed", "")
+
+		if healthCheckErr != nil {
+			cond := cutil.NewCondition(string(provisioningv1.ConditionReady), healthCheckErr, "HealthCheckFailed", "")
 			meta.SetStatusCondition(&dc.Status.Conditions, *cond)
 			dc.Status.Phase = provisioningv1.PhaseNotReady
-			errList = append(errList, fmt.Errorf("health check failed, err: %v", err))
+			errList = append(errList, fmt.Errorf("%s, err: %v", healthCheckMsg, healthCheckErr))
 		} else {
 			logger.Info("Cluster is Ready")
 			cond := cutil.NewCondition(string(provisioningv1.ConditionReady), nil, "HealthCheckPassed", "")

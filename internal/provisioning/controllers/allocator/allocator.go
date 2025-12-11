@@ -19,7 +19,6 @@ package allocator
 import (
 	"context"
 	"fmt"
-	"sort"
 	"sync"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -33,8 +32,6 @@ import (
 
 type AllocateResult = types.NamespacedName
 
-// Allocator allocates DPUCluster for DPUs. This is just a temporary solution for Oct Rel, and we will implement a more
-// complex allocator in a dedicated controller in future releases
 type Allocator interface {
 	// Allocate allocates a DPUCluster for DPU
 	Allocate(context.Context, *provisioningv1.DPU) (AllocateResult, error)
@@ -46,6 +43,8 @@ type Allocator interface {
 	ReleaseDPU(*provisioningv1.DPU)
 	// RemoveCluster removes given DPUCluster from cache
 	RemoveCluster(dc *provisioningv1.DPUCluster)
+	// GetDPUsCount returns the number of assigned DPUs to the given DPUCluster
+	GetDPUsCount(dc *provisioningv1.DPUCluster) int
 }
 
 type allocator struct {
@@ -77,7 +76,7 @@ func (a *allocator) Allocate(ctx context.Context, dpu *provisioningv1.DPU) (resu
 	}
 
 	var ci *ClusterInfo
-	ci, reterr = a.getFeasibleCluster()
+	ci, reterr = a.clusterCache.getFeasibleClusterBinPacking()
 	if reterr != nil {
 		return result, reterr
 	} else if ci == nil || ci.cluster == nil {
@@ -158,21 +157,10 @@ func (a *allocator) RemoveCluster(dc *provisioningv1.DPUCluster) {
 	a.clusterCache.removeCluster(dc)
 }
 
-func (a *allocator) getFeasibleCluster() (*ClusterInfo, error) {
-	// TODO: In Oct Rel, we always use the first cluster in alphabetical order. In future releases,
-	// we shall choose DPUClusters in other ways
-	ci := a.clusterCache.getFirstCluster()
-	if ci == nil || ci.cluster == nil {
-		return nil, fmt.Errorf("no cluster available")
-	}
-
-	cls := ci.cluster
-	if cls.Status.Phase != provisioningv1.PhaseReady {
-		return nil, fmt.Errorf("cluster %s is not ready, phase: %s", cls.Name, cls.Status.Phase)
-	} else if len(ci.dpus) >= cls.Spec.MaxNodes {
-		return nil, fmt.Errorf("cluster %s is full, max node: %d", cutil.GetNamespacedName(cls), cls.Spec.MaxNodes)
-	}
-	return ci, nil
+func (a *allocator) GetDPUsCount(dc *provisioningv1.DPUCluster) int {
+	a.Lock()
+	defer a.Unlock()
+	return a.clusterCache.getDPUsCount(dc)
 }
 
 type ClusterInfo struct {
@@ -180,11 +168,34 @@ type ClusterInfo struct {
 	dpus    map[types.UID]*provisioningv1.DPU
 }
 
-func (ci *ClusterInfo) name() string {
-	if ci == nil || ci.cluster == nil {
-		return ""
+// getFeasibleClusterBinPacking returns the cluster with the highest ratio of assigned DPUs to max nodes
+func (c *ClusterCache) getFeasibleClusterBinPacking() (*ClusterInfo, error) {
+	clusterInfoMap := make(map[types.UID]*ClusterInfo, len(c.clusterInfoMap))
+
+	for _, ci := range c.clusterInfoMap {
+		clusterInfoMap[ci.cluster.UID] = ci
 	}
-	return ci.cluster.Name
+
+	var bestCluster *ClusterInfo
+	var maxRatio = -1.0
+	for _, ci := range clusterInfoMap {
+		if ci.cluster.Status.Phase != provisioningv1.PhaseReady {
+			continue
+		}
+		if len(ci.dpus) >= ci.cluster.Spec.MaxNodes {
+			continue
+		}
+		assignedDPUsCount := len(ci.dpus)
+		ratio := float64(assignedDPUsCount) / float64(ci.cluster.Spec.MaxNodes)
+		if ratio > maxRatio {
+			maxRatio = ratio
+			bestCluster = ci
+		}
+	}
+	if bestCluster != nil {
+		return bestCluster, nil
+	}
+	return nil, fmt.Errorf("no feasible cluster found")
 }
 
 func (ci *ClusterInfo) addAllocated(dpu *provisioningv1.DPU) {
@@ -197,7 +208,6 @@ func (ci *ClusterInfo) addAllocated(dpu *provisioningv1.DPU) {
 // ClusterCache caches DPUClusters and to which DPUs they are allocated.
 type ClusterCache struct {
 	clusterInfoMap map[types.UID]*ClusterInfo
-	orderByName    []*ClusterInfo
 	idxByName      map[types.NamespacedName]*ClusterInfo
 }
 
@@ -240,38 +250,25 @@ func (c *ClusterCache) saveCluster(dc *provisioningv1.DPUCluster) {
 	}
 	c.clusterInfoMap[dc.UID] = ci
 	c.idxByName[cutil.GetNamespacedName(dc)] = ci
-	c.orderByName = append(c.orderByName, ci)
-	sort.Slice(c.orderByName, func(i, j int) bool {
-		return c.orderByName[i].name() < c.orderByName[j].name()
-	})
 }
 
 func (c *ClusterCache) removeCluster(dc *provisioningv1.DPUCluster) {
 	if dc == nil {
 		return
 	}
-	ci, ok := c.clusterInfoMap[dc.UID]
-	if !ok {
-		return
-	}
 
 	delete(c.clusterInfoMap, dc.UID)
-	for i := range c.orderByName {
-		if c.orderByName[i] == ci {
-			c.orderByName = append(c.orderByName[:i], c.orderByName[i+1:]...)
-			return
-		}
-	}
 	delete(c.idxByName, cutil.GetNamespacedName(dc))
-}
-
-func (c *ClusterCache) getFirstCluster() *ClusterInfo {
-	if len(c.orderByName) == 0 {
-		return nil
-	}
-	return c.orderByName[0]
 }
 
 func (c *ClusterCache) getByName(name types.NamespacedName) *ClusterInfo {
 	return c.idxByName[name]
+}
+
+func (c *ClusterCache) getDPUsCount(dc *provisioningv1.DPUCluster) int {
+	ci, ok := c.clusterInfoMap[dc.UID]
+	if !ok {
+		return 0
+	}
+	return len(ci.dpus)
 }
