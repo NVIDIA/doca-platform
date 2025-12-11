@@ -413,6 +413,7 @@ var _ = Describe("DPUNode Controller", func() {
 						DPUNodeName:   "test-dpunode-13",
 						DPUDeviceName: dpuDevice1.Name,
 						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
+						DPUFlavor:     "dpu-flavor",
 					},
 				}
 				dpu2 := &provisioningv1.DPU{
@@ -424,6 +425,7 @@ var _ = Describe("DPUNode Controller", func() {
 						DPUNodeName:   "test-dpunode-13",
 						DPUDeviceName: dpuDevice2.Name,
 						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
+						DPUFlavor:     "dpu-flavor",
 					},
 				}
 
@@ -503,6 +505,7 @@ var _ = Describe("DPUNode Controller", func() {
 						DPUNodeName:   "test-dpunode-14",
 						DPUDeviceName: dpuDevice7.Name,
 						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
+						DPUFlavor:     "dpu-flavor",
 					},
 				}
 
