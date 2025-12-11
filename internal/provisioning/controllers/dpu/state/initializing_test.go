@@ -410,25 +410,6 @@ func (a *allocateFail) ReleaseDPU(*provisioningv1.DPU) {
 func (a *allocateFail) RemoveCluster(*provisioningv1.DPUCluster) {
 }
 
-// type allocateSuccess struct {
-// 	obj client.Object
-// }
-
-// func (a *allocateSuccess) Allocate(ctx context.Context, dpu *provisioningv1.DPU) (allocator.AllocateResult, error) {
-// 	return types.NamespacedName{
-// 		Namespace: a.obj.GetNamespace(),
-// 		Name:      a.obj.GetName(),
-// 	}, nil
-// }
-
-// func (a *allocateSuccess) SaveAssignedDPU(*provisioningv1.DPU) {
-// }
-
-// func (a *allocateSuccess) SaveCluster(*provisioningv1.DPUCluster) {
-// }
-
-// func (a *allocateSuccess) ReleaseDPU(*provisioningv1.DPU) {
-// }
-
-// func (a *allocateSuccess) RemoveCluster(*provisioningv1.DPUCluster) {
-// }
+func (a *allocateFail) GetDPUsCount(*provisioningv1.DPUCluster) int {
+	return 0
+}

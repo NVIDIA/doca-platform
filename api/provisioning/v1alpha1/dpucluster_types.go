@@ -114,6 +114,11 @@ type DPUClusterStatus struct {
 	// +optional
 	Version string `json:"version"`
 
+	// DPUsCount is the number of DPUs assigned to the cluster
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	DPUsCount int `json:"dpusCount"`
+
 	// +optional
 	Conditions []metav1.Condition `json:"conditions"`
 }
@@ -151,7 +156,8 @@ type KeepalivedSpec struct {
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="phase of the cluster"
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="type of the cluster"
 // +kubebuilder:printcolumn:name="MaxNodes",type="integer",JSONPath=".spec.maxNodes",description="max amount of nodes"
-// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".spec.version",description="Kubernetes control-plane version"
+// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.version",description="Kubernetes control-plane version"
+// +kubebuilder:printcolumn:name="DPUsCount",type="integer",JSONPath=".status.dpusCount",description="number of assigned DPUs"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:validation:XValidation:rule="self.metadata.name.size() <= 63", message="name length can't be bigger than 63 chars"
 
