@@ -58,6 +58,24 @@ func Pending(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contro
 	}
 	logger.Info("BFB is ready")
 	state.BFBFile = cutil.GenerateBFBFilePath(bfb.Status.FileName)
+	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondBFBReady, "", ""))
+
+	// Check for the presence of the specified DPUFlavor
+	if dpu.Spec.DPUFlavor == "" {
+		err := fmt.Errorf("DPUFlavor is not specified")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUFlavorExists.String(), err, "DPUFlavorNotSpecified", err.Error()))
+		return *state, err
+	}
+	dpuFlavor := &provisioningv1.DPUFlavor{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUFlavor}, dpuFlavor); err != nil {
+		if apierrors.IsNotFound(err) {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUFlavorExists.String(), err, "DPUFlavorNotFound", err.Error()))
+			return *state, err
+		}
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUFlavorExists.String(), err, "GetDPUFlavorError", err.Error()))
+		return *state, err
+	}
+	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondDPUFlavorExists, "", ""))
 
 	// Check if we can proceed with provisioning
 	if !ctrlCtx.DPUInProvisioningMap.CanProceed(dutil.DPUID(dpu.UID)) {
@@ -67,7 +85,5 @@ func Pending(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contro
 	}
 
 	state.Phase = provisioningv1.DPUNodeEffect
-	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondBFBReady, "", ""))
-
 	return *state, nil
 }

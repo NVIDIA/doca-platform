@@ -212,6 +212,7 @@ spec:
             required:
             - bfb
             - dpuDeviceName
+            - dpuFlavor
             - dpuNodeName
             - serialNumber
             type: object
