@@ -1217,6 +1217,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `phase` _[ClusterPhase](#clusterphase)_ |  | Pending | Enum: [Pending Creating Ready NotReady Failed] <br /> |
 | `version` _string_ | Version is the K8s control-plane version of the cluster |  |  |
+| `dpusCount` _integer_ | DPUsCount is the number of DPUs assigned to the cluster |  | Minimum: 0 <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  |  |
 
 
