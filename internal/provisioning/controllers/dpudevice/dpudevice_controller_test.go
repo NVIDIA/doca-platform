@@ -36,10 +36,10 @@ import (
 
 func TestDPUDeviceController(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "DPUDevice Controller Suite")
+	RunSpecs(t, "DPUDevice Controller Non exported Suite")
 }
 
-var _ = Describe("DPUDeviceController", func() {
+var _ = Describe("DPUDeviceController Non exported", func() {
 	Context("generateCR", func() {
 		var (
 			reconciler *DPUDeviceReconciler
