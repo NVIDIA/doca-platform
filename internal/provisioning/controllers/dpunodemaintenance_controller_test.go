@@ -200,6 +200,35 @@ var _ = Describe("DPUNodeMaintenance", func() {
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: nodeName}, fetchedNodemaintenance)).To(Succeed())
 			}, 10*time.Second).Should(Succeed())
+
+			// NOTE: DPUNodeMaintenance Deletion Pattern
+			// The DPUNodeMaintenance controller requires the Spec.Requestor field to be empty
+			// before it will process deletion and remove the finalizer. This is by design:
+			// - If Requestor is NOT empty, the controller calls reconcile() instead of reconcileDelete()
+			// - Even in reconcileDelete(), it skips removal logic if Requestor is set
+			// - This prevents accidental deletion while requestors are still active
+			By("clearing requestor to trigger deletion")
+			Eventually(func(g Gomega) {
+				fetchedObj := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), fetchedObj)).To(Succeed())
+				orig := fetchedObj.DeepCopy()
+				fetchedObj.Spec.Requestor = []string{}
+				g.Expect(k8sClient.Patch(ctx, fetchedObj, client.MergeFrom(orig))).To(Succeed())
+			}, 10*time.Second).Should(Succeed())
+
+			By("verifying nvidia node maintenance is removed")
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: nodeName}, &nvidiaNodeMaintenancev1.NodeMaintenance{})
+				g.Expect(client.IgnoreNotFound(err)).To(Succeed())
+				g.Expect(err).To(HaveOccurred())
+			}, 10*time.Second).Should(Succeed())
+
+			By("verifying dpunodemaintenance is deleted")
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &provisioningv1.DPUNodeMaintenance{})
+				g.Expect(client.IgnoreNotFound(err)).To(Succeed())
+				g.Expect(err).To(HaveOccurred())
+			}, 10*time.Second).Should(Succeed())
 		})
 
 		It("DPUNodeMaintenance: custom label effect should add label on node obj", func() {
@@ -226,6 +255,36 @@ var _ = Describe("DPUNodeMaintenance", func() {
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: nodeName}, fetchedNode)).To(Succeed())
 				g.Expect(fetchedNode.Labels["test-label"]).To(Equal("test-value"))
+			}, 10*time.Second).Should(Succeed())
+
+			// NOTE: DPUNodeMaintenance Deletion Pattern
+			// The DPUNodeMaintenance controller requires the Spec.Requestor field to be empty
+			// before it will process deletion and remove the finalizer. This is by design:
+			// - If Requestor is NOT empty, the controller calls reconcile() instead of reconcileDelete()
+			// - Even in reconcileDelete(), it skips removal logic if Requestor is set
+			// - This prevents accidental deletion while requestors are still active
+			By("clearing requestor to trigger deletion")
+			Eventually(func(g Gomega) {
+				fetchedObj := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), fetchedObj)).To(Succeed())
+				orig := fetchedObj.DeepCopy()
+				fetchedObj.Spec.Requestor = []string{}
+				g.Expect(k8sClient.Patch(ctx, fetchedObj, client.MergeFrom(orig))).To(Succeed())
+			}, 10*time.Second).Should(Succeed())
+
+			By("verifying label is removed from node")
+			Eventually(func(g Gomega) {
+				fetchedNode := &corev1.Node{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodeName}, fetchedNode)).To(Succeed())
+				_, hasLabel := fetchedNode.Labels["test-label"]
+				g.Expect(hasLabel).To(BeFalse(), "Label should be removed from node")
+			}, 10*time.Second).Should(Succeed())
+
+			By("verifying dpunodemaintenance is deleted")
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &provisioningv1.DPUNodeMaintenance{})
+				g.Expect(client.IgnoreNotFound(err)).To(Succeed())
+				g.Expect(err).To(HaveOccurred())
 			}, 10*time.Second).Should(Succeed())
 		})
 
@@ -261,6 +320,39 @@ var _ = Describe("DPUNodeMaintenance", func() {
 					Value:  "test-value",
 					Effect: corev1.TaintEffectNoSchedule,
 				}))
+			}, 10*time.Second).Should(Succeed())
+
+			// NOTE: DPUNodeMaintenance Deletion Pattern
+			// The DPUNodeMaintenance controller requires the Spec.Requestor field to be empty
+			// before it will process deletion and remove the finalizer. This is by design:
+			// - If Requestor is NOT empty, the controller calls reconcile() instead of reconcileDelete()
+			// - Even in reconcileDelete(), it skips removal logic if Requestor is set
+			// - This prevents accidental deletion while requestors are still active
+			By("clearing requestor to trigger deletion")
+			Eventually(func(g Gomega) {
+				fetchedObj := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), fetchedObj)).To(Succeed())
+				orig := fetchedObj.DeepCopy()
+				fetchedObj.Spec.Requestor = []string{}
+				g.Expect(k8sClient.Patch(ctx, fetchedObj, client.MergeFrom(orig))).To(Succeed())
+			}, 10*time.Second).Should(Succeed())
+
+			By("verifying taint is removed from node")
+			Eventually(func(g Gomega) {
+				fetchedNode := &corev1.Node{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodeName}, fetchedNode)).To(Succeed())
+				g.Expect(fetchedNode.Spec.Taints).NotTo(ContainElement(corev1.Taint{
+					Key:    "test-taint",
+					Value:  "test-value",
+					Effect: corev1.TaintEffectNoSchedule,
+				}))
+			}, 10*time.Second).Should(Succeed())
+
+			By("verifying dpunodemaintenance is deleted")
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &provisioningv1.DPUNodeMaintenance{})
+				g.Expect(client.IgnoreNotFound(err)).To(Succeed())
+				g.Expect(err).To(HaveOccurred())
 			}, 10*time.Second).Should(Succeed())
 		})
 
@@ -318,6 +410,35 @@ data:
 			fetchedJob := &batchv1.Job{}
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: jobName}, fetchedJob)).To(Succeed())
+			}, 10*time.Second).Should(Succeed())
+
+			// NOTE: DPUNodeMaintenance Deletion Pattern
+			// The DPUNodeMaintenance controller requires the Spec.Requestor field to be empty
+			// before it will process deletion and remove the finalizer. This is by design:
+			// - If Requestor is NOT empty, the controller calls reconcile() instead of reconcileDelete()
+			// - Even in reconcileDelete(), it skips removal logic if Requestor is set
+			// - This prevents accidental deletion while requestors are still active
+			By("clearing requestor to trigger deletion")
+			Eventually(func(g Gomega) {
+				fetchedObj := &provisioningv1.DPUNodeMaintenance{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), fetchedObj)).To(Succeed())
+				orig := fetchedObj.DeepCopy()
+				fetchedObj.Spec.Requestor = []string{}
+				g.Expect(k8sClient.Patch(ctx, fetchedObj, client.MergeFrom(orig))).To(Succeed())
+			}, 10*time.Second).Should(Succeed())
+
+			By("verifying custom action job is removed")
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: jobName}, &batchv1.Job{})
+				g.Expect(client.IgnoreNotFound(err)).To(Succeed())
+				g.Expect(err).To(HaveOccurred())
+			}, 10*time.Second).Should(Succeed())
+
+			By("verifying dpunodemaintenance is deleted")
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &provisioningv1.DPUNodeMaintenance{})
+				g.Expect(client.IgnoreNotFound(err)).To(Succeed())
+				g.Expect(err).To(HaveOccurred())
 			}, 10*time.Second).Should(Succeed())
 		})
 
