@@ -77,7 +77,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
 			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Action: provisioningv1.Action{Drain: ptr.To(true)},
+				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
 				UpgradePolicy: provisioningv1.UpgradePolicy{
 					NodeMaintenanceAdditionalRequestors: []string{"test-requestor-1", "test-requestor-2"},
 				},
@@ -600,6 +600,343 @@ var _ = Describe("DPU: Node Effect", func() {
 				"coordination-service",
 				dpu.Name,
 			))
+		})
+	})
+
+	Context("addRequestorAndUpdateForce", func() {
+		var (
+			defaultDPUName  = "dpu-add-requestor-test"
+			defaultNodeName = "node-add-requestor-test"
+		)
+
+		It("should add requestor to existing DPUNodeMaintenance when not already present", func() {
+			node := nodeObj(defaultNodeName)
+			createObject(node)
+
+			dpuNode := dpuNodeObj(node.Name)
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
+			// Create first DPU and trigger NodeEffect to create DPUNodeMaintenance
+			dpu1 := dpuObj(defaultDPUName + "-1")
+			dpu1.Spec.DPUDeviceName = "not-used"
+			dpu1.Spec.DPUNodeName = dpuNode.Name
+			dpu1.Spec.NodeEffect = &provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
+			}
+			dpu1.Status.Phase = provisioningv1.DPUNodeEffect
+
+			By("first DPU creates DPUNodeMaintenance")
+			_, err := state.NodeEffect(ctx, dpu1,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+
+			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu1.Spec.DPUNodeName, dpu1.Spec.NodeEffect)
+			Expect(err).To(Succeed())
+
+			dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Namespace: dpu1.Namespace,
+				Name:      dpunodemaintenanceName,
+			}, dpunodemaintenance)).To(Succeed())
+			Expect(dpunodemaintenance.Spec.Requestor).To(ContainElement(dpu1.Name))
+
+			// Create second DPU with same NodeEffect to add requestor to existing DPUNodeMaintenance
+			dpu2 := dpuObj(defaultDPUName + "-2")
+			dpu2.Spec.DPUDeviceName = "not-used"
+			dpu2.Spec.DPUNodeName = dpuNode.Name
+			dpu2.Spec.NodeEffect = &provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
+			}
+			dpu2.Status.Phase = provisioningv1.DPUNodeEffect
+
+			By("second DPU adds requestor to existing DPUNodeMaintenance")
+			_, err = state.NodeEffect(ctx, dpu2,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Namespace: dpu1.Namespace,
+				Name:      dpunodemaintenanceName,
+			}, dpunodemaintenance)).To(Succeed())
+
+			By("verify both requestors are present")
+			Expect(dpunodemaintenance.Spec.Requestor).To(ContainElements(dpu1.Name, dpu2.Name))
+		})
+
+		It("should not duplicate requestor when already present", func() {
+			node := nodeObj(defaultNodeName)
+			createObject(node)
+
+			dpuNode := dpuNodeObj(node.Name)
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUDeviceName = "not-used"
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
+			}
+			dpu.Status.Phase = provisioningv1.DPUNodeEffect
+
+			By("first call creates DPUNodeMaintenance")
+			_, err := state.NodeEffect(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+
+			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+			Expect(err).To(Succeed())
+
+			dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Namespace: dpu.Namespace,
+				Name:      dpunodemaintenanceName,
+			}, dpunodemaintenance)).To(Succeed())
+			initialRequestorCount := len(dpunodemaintenance.Spec.Requestor)
+
+			By("second call should not duplicate requestor")
+			_, err = state.NodeEffect(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Namespace: dpu.Namespace,
+				Name:      dpunodemaintenanceName,
+			}, dpunodemaintenance)).To(Succeed())
+
+			By("verify requestor count remains the same")
+			Expect(dpunodemaintenance.Spec.Requestor).To(HaveLen(initialRequestorCount))
+		})
+
+		It("should update Force from false to true when DPU Force is true", func() {
+			node := nodeObj(defaultNodeName)
+			createObject(node)
+
+			dpuNode := dpuNodeObj(node.Name)
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
+			// First DPU creates DPUNodeMaintenance with Force=false
+			dpu1 := dpuObj(defaultDPUName + "-1")
+			dpu1.Spec.DPUDeviceName = "not-used"
+			dpu1.Spec.DPUNodeName = dpuNode.Name
+			dpu1.Spec.NodeEffect = &provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
+			}
+			dpu1.Status.Phase = provisioningv1.DPUNodeEffect
+
+			By("first DPU creates DPUNodeMaintenance with Force=false")
+			_, err := state.NodeEffect(ctx, dpu1,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+
+			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu1.Spec.DPUNodeName, dpu1.Spec.NodeEffect)
+			Expect(err).To(Succeed())
+
+			dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Namespace: dpu1.Namespace,
+				Name:      dpunodemaintenanceName,
+			}, dpunodemaintenance)).To(Succeed())
+			Expect(dpunodemaintenance.Spec.NodeEffect.Force).NotTo(BeNil())
+			Expect(*dpunodemaintenance.Spec.NodeEffect.Force).To(BeFalse())
+
+			// Second DPU with Force=true should update DPUNodeMaintenance Force to true
+			dpu2 := dpuObj(defaultDPUName + "-2")
+			dpu2.Spec.DPUDeviceName = "not-used"
+			dpu2.Spec.DPUNodeName = dpuNode.Name
+			dpu2.Spec.NodeEffect = &provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(true)},
+			}
+			dpu2.Status.Phase = provisioningv1.DPUNodeEffect
+
+			By("second DPU with Force=true updates DPUNodeMaintenance")
+			_, err = state.NodeEffect(ctx, dpu2,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Namespace: dpu1.Namespace,
+				Name:      dpunodemaintenanceName,
+			}, dpunodemaintenance)).To(Succeed())
+
+			By("verify Force is now true")
+			Expect(dpunodemaintenance.Spec.NodeEffect.Force).NotTo(BeNil())
+			Expect(*dpunodemaintenance.Spec.NodeEffect.Force).To(BeTrue())
+		})
+
+		It("should add additional requestors and remove duplicates when adding to existing", func() {
+			node := nodeObj(defaultNodeName)
+			createObject(node)
+
+			dpuNode := dpuNodeObj(node.Name)
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
+			// First DPU creates DPUNodeMaintenance
+			dpu1 := dpuObj(defaultDPUName + "-1")
+			dpu1.Spec.DPUDeviceName = "not-used"
+			dpu1.Spec.DPUNodeName = dpuNode.Name
+			dpu1.Spec.NodeEffect = &provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					NodeMaintenanceAdditionalRequestors: []string{"service-a"},
+				},
+			}
+			dpu1.Status.Phase = provisioningv1.DPUNodeEffect
+
+			By("first DPU creates DPUNodeMaintenance")
+			_, err := state.NodeEffect(ctx, dpu1,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+
+			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu1.Spec.DPUNodeName, dpu1.Spec.NodeEffect)
+			Expect(err).To(Succeed())
+
+			// Second DPU adds requestors including a duplicate
+			dpu2 := dpuObj(defaultDPUName + "-2")
+			dpu2.Spec.DPUDeviceName = "not-used"
+			dpu2.Spec.DPUNodeName = dpuNode.Name
+			dpu2.Spec.NodeEffect = &provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					NodeMaintenanceAdditionalRequestors: []string{
+						"service-a", // duplicate with first DPU
+						"service-b",
+					},
+				},
+			}
+			dpu2.Status.Phase = provisioningv1.DPUNodeEffect
+
+			By("second DPU adds requestors to existing DPUNodeMaintenance")
+			_, err = state.NodeEffect(ctx, dpu2,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+
+			dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Namespace: dpu1.Namespace,
+				Name:      dpunodemaintenanceName,
+			}, dpunodemaintenance)).To(Succeed())
+
+			By("verify requestors contain all DPUs and additional requestors without duplicates")
+			Expect(dpunodemaintenance.Spec.Requestor).To(ContainElements(dpu1.Name, dpu2.Name, "service-a", "service-b"))
+			// Count occurrences of service-a to verify no duplicates
+			serviceACount := 0
+			for _, r := range dpunodemaintenance.Spec.Requestor {
+				if r == "service-a" {
+					serviceACount++
+				}
+			}
+			Expect(serviceACount).To(Equal(1))
+		})
+
+		It("should set annotation for last applied additional requestors", func() {
+			node := nodeObj(defaultNodeName)
+			createObject(node)
+
+			dpuNode := dpuNodeObj(node.Name)
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUDeviceName = "not-used"
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
+				UpgradePolicy: provisioningv1.UpgradePolicy{
+					NodeMaintenanceAdditionalRequestors: []string{
+						"service-a",
+						"service-b",
+					},
+				},
+			}
+			dpu.Status.Phase = provisioningv1.DPUNodeEffect
+
+			By("creating DPUNodeMaintenance")
+			_, err := state.NodeEffect(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+
+			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+			Expect(err).To(Succeed())
+
+			dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Namespace: dpu.Namespace,
+				Name:      dpunodemaintenanceName,
+			}, dpunodemaintenance)).To(Succeed())
+
+			By("verify annotation is set with additional requestors")
+			annotationKey := cutil.GenerateLastAppliedAdditionalRequestorsOnDPUAnnotationKey(dpu.Name)
+			Expect(dpunodemaintenance.Annotations).To(HaveKey(annotationKey))
+			Expect(dpunodemaintenance.Annotations[annotationKey]).To(ContainSubstring("service-a"))
+			Expect(dpunodemaintenance.Annotations[annotationKey]).To(ContainSubstring("service-b"))
 		})
 	})
 })
