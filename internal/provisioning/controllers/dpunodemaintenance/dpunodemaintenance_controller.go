@@ -600,7 +600,11 @@ func handleNodeEffectRemoval(ctx context.Context, k8sClient client.Client, dpuno
 	case provisioningv1.NodeEffectCustomLabel:
 		return removeNodeEffectCustomLabel(ctx, k8sClient, node, nodeEffect)
 	case provisioningv1.NodeEffectCustomAction:
-		return removeNodeEffectCustomAction(ctx, k8sClient, dpunodemaintenance.Name, dpunodemaintenance.Namespace)
+		jobName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpunodemaintenance.Spec.DPUNodeName, nodeEffect)
+		if err != nil {
+			return err
+		}
+		return removeNodeEffectCustomAction(ctx, k8sClient, jobName, dpunodemaintenance.Namespace)
 	case provisioningv1.NodeEffectHold:
 		// no need to remove hold effect
 		return nil
@@ -676,7 +680,8 @@ func removeNodeEffectCustomAction(ctx context.Context, k8sClient client.Client, 
 	}
 	job := &batchv1.Job{}
 	if err := k8sClient.Get(ctx, nn, job); err == nil {
-		if err := k8sClient.Delete(ctx, job); err != nil {
+		// PropagationPolicy ensures cascading deletion of child pods when job is deleted
+		if err := k8sClient.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
 			return fmt.Errorf("failed to delete custom action job %s: %w", customJobName, err)
 		}
 	} else if !apierrors.IsNotFound(err) {
