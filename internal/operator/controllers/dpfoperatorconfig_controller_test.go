@@ -26,6 +26,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/conditions"
@@ -494,13 +495,13 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 		verifyPVC(g, deployment, "foo-pvc")
 
 		// Check the system components deployed as DPUServices are created as expected.
-		waitForDPUService(g, config.Namespace, operatorv1.ServiceSetControllerName, initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.MultusName, initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.SRIOVDevicePluginName, initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.FlannelName, initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMName, initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.ServiceSetControllerName, operatorv1.ServiceChainSetCRDsName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.MultusName, operatorv1.MultusName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.SRIOVDevicePluginName, operatorv1.SRIOVDevicePluginName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.FlannelName, operatorv1.FlannelName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMName, operatorv1.NVIPAMName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, operatorv1.OVSCNIName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, operatorv1.SFCControllerName.String(), initialImagePullSecrets)
 
 		// Check that DPUServiceNADs are deployed
 		waitForDPUServiceNAD(g, config.Namespace, "mybrsfc")
@@ -630,37 +631,37 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 			)).To(BeTrue())
 
 			g.Expect(dpuServiceReferencesHelmChart(
-				waitForDPUService(g, config.Namespace, operatorv1.ServiceSetControllerName, initialImagePullSecrets),
+				waitForDPUService(g, config.Namespace, operatorv1.ServiceSetControllerName, operatorv1.ServiceChainSetCRDsName.String(), initialImagePullSecrets),
 				fmt.Sprintf(helmTemplate, operatorv1.ServiceSetControllerName),
 			)).To(BeTrue())
 
 			g.Expect(dpuServiceReferencesHelmChart(
-				waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, initialImagePullSecrets),
+				waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, operatorv1.OVSCNIName.String(), initialImagePullSecrets),
 				fmt.Sprintf(helmTemplate, operatorv1.OVSCNIName),
 			)).To(BeTrue())
 
 			g.Expect(dpuServiceReferencesHelmChart(
-				waitForDPUService(g, config.Namespace, operatorv1.SRIOVDevicePluginName, initialImagePullSecrets),
+				waitForDPUService(g, config.Namespace, operatorv1.SRIOVDevicePluginName, operatorv1.SRIOVDevicePluginName.String(), initialImagePullSecrets),
 				fmt.Sprintf(helmTemplate, operatorv1.SRIOVDevicePluginName),
 			)).To(BeTrue())
 
 			g.Expect(dpuServiceReferencesHelmChart(
-				waitForDPUService(g, config.Namespace, operatorv1.FlannelName, initialImagePullSecrets),
+				waitForDPUService(g, config.Namespace, operatorv1.FlannelName, operatorv1.FlannelName.String(), initialImagePullSecrets),
 				fmt.Sprintf(helmTemplate, operatorv1.FlannelName),
 			)).To(BeTrue())
 
 			g.Expect(dpuServiceReferencesHelmChart(
-				waitForDPUService(g, config.Namespace, operatorv1.MultusName, initialImagePullSecrets),
+				waitForDPUService(g, config.Namespace, operatorv1.MultusName, operatorv1.MultusName.String(), initialImagePullSecrets),
 				fmt.Sprintf(helmTemplate, operatorv1.MultusName),
 			)).To(BeTrue())
 
 			g.Expect(dpuServiceReferencesHelmChart(
-				waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, initialImagePullSecrets),
+				waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, operatorv1.SFCControllerName.String(), initialImagePullSecrets),
 				fmt.Sprintf(helmTemplate, operatorv1.SFCControllerName),
 			)).To(BeTrue())
 
 			g.Expect(dpuServiceReferencesHelmChart(
-				waitForDPUService(g, config.Namespace, operatorv1.NVIPAMName, initialImagePullSecrets),
+				waitForDPUService(g, config.Namespace, operatorv1.NVIPAMName, operatorv1.NVIPAMName.String(), initialImagePullSecrets),
 				fmt.Sprintf(helmTemplate, operatorv1.NVIPAMName),
 			)).To(BeTrue())
 
@@ -682,13 +683,13 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 		waitForDeployment(g, config.Namespace, "dpf-provisioning-controller-manager")
 
 		// Check the system components deployed as DPUServices are created as expected.
-		waitForDPUService(g, config.Namespace, operatorv1.ServiceSetControllerName, initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.SRIOVDevicePluginName, initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.FlannelName, initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMName, initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.CNIInstallerName, initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.ServiceSetControllerName, operatorv1.ServiceChainSetCRDsName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.SRIOVDevicePluginName, operatorv1.SRIOVDevicePluginName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.FlannelName, operatorv1.FlannelName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMName, operatorv1.NVIPAMName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, operatorv1.OVSCNIName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, operatorv1.SFCControllerName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.CNIInstallerName, operatorv1.CNIInstallerName.String(), initialImagePullSecrets)
 		g.Eventually(func(g Gomega) {
 			dpuservices := &dpuservicev1.DPUServiceList{}
 			g.Expect(testClient.List(ctx, dpuservices)).To(Succeed())
@@ -699,6 +700,90 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 	})
+	t.Run("Delete Operator config", func(t *testing.T) {
+		g.Expect(testClient.Delete(ctx, config)).To(Succeed())
+		g.Eventually(func(g Gomega) {
+			g.Expect(apierrors.IsNotFound(testClient.Get(ctx, client.ObjectKeyFromObject(config), config))).To(BeTrue())
+		}).WithTimeout(60 * time.Second).Should(Succeed())
+	})
+}
+
+func TestDPFOperatorConfigReconciler_ReconcileWithTwoDPUClusters(t *testing.T) {
+	g := NewWithT(t)
+	testNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "testns-"}}
+	// Create the namespace for the test.
+	g.Expect(testClient.Create(ctx, testNS)).To(Succeed())
+
+	initialImagePullSecrets := []string{"secret-one", "secret-two"}
+	// Create the DPF ImagePullSecrets
+	for _, imagePullSecret := range initialImagePullSecrets {
+		g.Expect(testClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: imagePullSecret, Namespace: testNS.Name}})).To(Succeed())
+	}
+
+	// Create two DPUClusters
+	dpuCluster1 := testutils.GetTestDPUCluster(testNS.Name, "cluster-1")
+	kamajiSecret1, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(dpuCluster1, cfg)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(testClient.Create(ctx, kamajiSecret1)).To(Succeed())
+	g.Expect(testClient.Create(ctx, &dpuCluster1)).To(Succeed())
+	// Mark DPUCluster1 as Ready
+	dpuCluster1.Status.Phase = provisioningv1.PhaseReady
+	g.Expect(testClient.Status().Update(ctx, &dpuCluster1)).To(Succeed())
+
+	dpuCluster2 := testutils.GetTestDPUCluster(testNS.Name, "cluster-2")
+	kamajiSecret2, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(dpuCluster2, cfg)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(testClient.Create(ctx, kamajiSecret2)).To(Succeed())
+	g.Expect(testClient.Create(ctx, &dpuCluster2)).To(Succeed())
+	// Mark DPUCluster2 as Ready
+	dpuCluster2.Status.Phase = provisioningv1.PhaseReady
+	g.Expect(testClient.Status().Update(ctx, &dpuCluster2)).To(Succeed())
+
+	config := &operatorv1.DPFOperatorConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "config",
+			Namespace: testNS.Name,
+		},
+		Spec: operatorv1.DPFOperatorConfigSpec{
+			ImagePullSecrets: initialImagePullSecrets,
+			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+				BFBPersistentVolumeClaimName: "foo-pvc",
+			},
+		},
+	}
+
+	g.Expect(testClient.Create(ctx, config)).To(Succeed())
+
+	t.Run("Reconcile Secrets and system components", func(t *testing.T) {
+		// Expect the DPUService and Provisioning controller managers to be deployed.
+		waitForDeployment(g, config.Namespace, "dpuservice-controller-manager")
+		waitForDeployment(g, config.Namespace, "dpf-provisioning-controller-manager")
+
+		// Check the system components deployed as DPUServices are created as expected.
+		// For ServiceChainSetController with 2 DPU clusters, we should have:
+		// - 1 RBAC/CRDs DPUService
+		// - 2 per-cluster DPUServices
+		// Verify the RBAC/CRDs DPUService exists
+		waitForDPUService(g, config.Namespace, operatorv1.ServiceSetControllerName, operatorv1.ServiceChainSetCRDsName.String(), initialImagePullSecrets)
+
+		// Compute per-cluster DPUService names using the digest function
+		hash1 := digest.Short(digest.FromObjects(dpuCluster1.Name, dpuCluster1.Namespace), 10)
+		perClusterServiceSetControllerDPUServiceName1 := fmt.Sprintf("%s-%s", operatorv1.ServiceSetControllerName.String(), hash1)
+		waitForDPUService(g, config.Namespace, operatorv1.ServiceSetControllerName, perClusterServiceSetControllerDPUServiceName1, initialImagePullSecrets)
+
+		hash2 := digest.Short(digest.FromObjects(dpuCluster2.Name, dpuCluster2.Namespace), 10)
+		perClusterServiceSetControllerDPUServiceName2 := fmt.Sprintf("%s-%s", operatorv1.ServiceSetControllerName.String(), hash2)
+		waitForDPUService(g, config.Namespace, operatorv1.ServiceSetControllerName, perClusterServiceSetControllerDPUServiceName2, initialImagePullSecrets)
+
+		// Check other system DPUServices
+		waitForDPUService(g, config.Namespace, operatorv1.MultusName, operatorv1.MultusName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.SRIOVDevicePluginName, operatorv1.SRIOVDevicePluginName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.FlannelName, operatorv1.FlannelName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMName, operatorv1.NVIPAMName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, operatorv1.OVSCNIName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, operatorv1.SFCControllerName.String(), initialImagePullSecrets)
+	})
+
 	t.Run("Delete Operator config", func(t *testing.T) {
 		g.Expect(testClient.Delete(ctx, config)).To(Succeed())
 		g.Eventually(func(g Gomega) {
@@ -721,18 +806,18 @@ func firstContainerHasImageWithName(deployment *appsv1.Deployment, imageName str
 	return deployment.Spec.Template.Spec.Containers[0].Image == imageName
 }
 
-func waitForDPUService(g Gomega, ns string, name operatorv1.ComponentName, imagePullSecrets []string) *dpuservicev1.DPUService {
+func waitForDPUService(g Gomega, ns string, componentName operatorv1.ComponentName, dpuServiceName string, imagePullSecrets []string) *dpuservicev1.DPUService {
 	dpuservice := &dpuservicev1.DPUService{}
 	g.Eventually(func(g Gomega) {
 		g.Expect(testClient.Get(ctx, client.ObjectKey{
 			Namespace: ns,
-			Name:      name.String(),
+			Name:      dpuServiceName,
 		}, dpuservice)).To(Succeed())
 		var result map[string]interface{}
 		g.Expect(json.Unmarshal(dpuservice.Spec.HelmChart.Values.Raw, &result)).To(Succeed())
 
-		// Each system DPUService should have specific values under values.$SERVICE_NAME
-		serviceValues, ok := result[name.String()].(map[string]interface{})
+		// Each system DPUService should have specific values under values.$COMPONENT_NAME
+		serviceValues, ok := result[componentName.String()].(map[string]interface{})
 		g.Expect(ok).To(BeTrue())
 		g.Expect(serviceValues).To(HaveKey("imagePullSecrets"))
 		secrets, ok := serviceValues["imagePullSecrets"].([]interface{})
@@ -1203,13 +1288,10 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 					},
 				},
 				// Enable one system component to test dynamic validation
-				ServiceSetController: &operatorv1.ServiceSetControllerConfiguration{
-					BaseComponentConfig: operatorv1.BaseComponentConfig{
-						Disable: ptr.To(false),
-					},
-				},
-				// Disable other system components to avoid complexity
 				Multus: &operatorv1.MultusConfiguration{
+					BaseComponentConfig: operatorv1.BaseComponentConfig{Disable: ptr.To(false)}},
+				// Disable other system components to avoid complexity
+				ServiceSetController: &operatorv1.ServiceSetControllerConfiguration{
 					BaseComponentConfig: operatorv1.BaseComponentConfig{Disable: ptr.To(true)}},
 				SRIOVDevicePlugin: &operatorv1.SRIOVDevicePluginConfiguration{
 					BaseComponentConfig: operatorv1.BaseComponentConfig{Disable: ptr.To(true)}},
@@ -1241,7 +1323,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 		g.Expect(patcher.Patch(ctx, config, patch.WithFieldOwner("test"))).To(Succeed())
 
 		dpuService := &dpuservicev1.DPUService{}
-		dpuService.SetName(operatorv1.ServiceSetControllerName.String())
+		dpuService.SetName(operatorv1.MultusName.String())
 		dpuService.SetNamespace(testNS.Name)
 		g.Eventually(func(g Gomega) {
 			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuService), dpuService)).To(Succeed())

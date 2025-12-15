@@ -97,3 +97,10 @@ func ValidateDPFVersion(prevVersionStr *string) error {
 	return fmt.Errorf("DPF version %s is not compatible with current DPF version %s, only upgrades from %s are supported",
 		*prevVersionStr, release.DPFVersion(), strings.Join(allowSourceVersions, ", "))
 }
+
+// IsUpgradeFromLastReleasedGA checks if the given version is an upgrade from the last released GA.
+// TODO: remove as soon as we have version aware upgrade logic for the pre-upgrade validation.
+func IsUpgradeFromLastReleasedGA(version string) bool {
+	v := semver.MustParse(release.LastReleasedDPFGAVersion)
+	return isSameMajorMinor(v, version)
+}

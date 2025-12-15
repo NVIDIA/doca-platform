@@ -1,3 +1,8 @@
+# This variable controls whether the manifests that are required in the DPUCluster should be deployed or not
+deployDPUManifests: false
+# This variable controls whether the manifests that are required in the host cluster should be deployed or not
+deployHostManifests: false
+
 controllerManager:
   manager:
     args:
@@ -20,48 +25,11 @@ controllerManager:
         memory: 64Mi
   replicas: 1
   serviceAccount:
+    name: null
     annotations: {}
 imagePullSecrets: []
-kubernetesClusterDomain: cluster.local
-forDPUCluster: false
-chart:
-  repoURL: ""
-  chart: ""
-  version: ""
-volumes:
-  - name: tokenfile
-    projected:
-      sources:
-        - secret:
-            name: servicechainset-controller-manager-credentials
-            items:
-              - key: TOKEN_FILE
-                path: token
-        - secret:
-            name: servicechainset-controller-manager-credentials
-            items:
-              - key: KUBERNETES_CA_DATA
-                path: ca.crt
-env:
-  - name: POD_NAMESPACE
-    valueFrom:
-      fieldRef:
-        apiVersion: v1
-        fieldPath: metadata.namespace
-  - name: KUBERNETES_SERVICE_HOST
-    valueFrom:
-      secretKeyRef:
-        name: servicechainset-controller-manager-credentials
-        key: KUBERNETES_SERVICE_HOST
-  - name: KUBERNETES_SERVICE_PORT
-    valueFrom:
-      secretKeyRef:
-        name: servicechainset-controller-manager-credentials
-        key: KUBERNETES_SERVICE_PORT
-volumeMounts:
-    - name: tokenfile
-      mountPath: "/var/run/secrets/kubernetes.io/serviceaccount"
-      readOnly: true
-dpucluster:
-  name: ""
-  namespace: ""
+volumes: []
+env: []
+volumeMounts: []
+rbac:
+  serviceAccounts: []

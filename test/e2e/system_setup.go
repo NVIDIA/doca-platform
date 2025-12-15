@@ -29,6 +29,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/dpfctl"
+	operatorutils "github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/collector"
@@ -342,10 +343,16 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		gotDPFOperatorConfig := &operatorv1.DPFOperatorConfig{}
 		g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(input.operatorConfig), gotDPFOperatorConfig)).NotTo(HaveOccurred())
 		g.Expect(gotDPFOperatorConfig.Status.Version).NotTo(BeNil())
+		isUpgradeFromLastReleasedGA := operatorutils.IsUpgradeFromLastReleasedGA(*gotDPFOperatorConfig.Status.Version)
 
 		dpuServices := &dpuservicev1.DPUServiceList{}
 		g.Expect(testClient.List(ctx, dpuServices)).To(Succeed())
-		g.Expect(dpuServices.Items).To(HaveLen(9))
+		if isUpgradeFromLastReleasedGA {
+			g.Expect(dpuServices.Items).To(HaveLen(9))
+		} else {
+			g.Expect(dpuServices.Items).To(HaveLen(8))
+		}
+
 		found := map[string]bool{}
 		for i := range dpuServices.Items {
 			found[dpuServices.Items[i].Name] = true
@@ -354,7 +361,11 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		// Expect each of the following to have been created by the operator.
 		g.Expect(found).To(HaveKey(operatorv1.MultusName.String()))
 		g.Expect(found).To(HaveKey(operatorv1.SRIOVDevicePluginName.String()))
-		g.Expect(found).To(HaveKey(operatorv1.ServiceSetControllerName.String()))
+		if isUpgradeFromLastReleasedGA {
+			g.Expect(found).To(HaveKey(operatorv1.ServiceSetControllerName.String()))
+		} else {
+			g.Expect(found).To(HaveKey(operatorv1.ServiceChainSetCRDsName.String()))
+		}
 		g.Expect(found).To(HaveKey(operatorv1.FlannelName.String()))
 		g.Expect(found).To(HaveKey(operatorv1.NVIPAMName.String()))
 		g.Expect(found).To(HaveKey(operatorv1.OVSCNIName.String()))
@@ -443,7 +454,7 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 		serviceSetDeployment := &appsv1.Deployment{}
 		g.Expect(input.client.Get(ctx, client.ObjectKey{
 			Namespace: dpfOperatorSystemNamespace,
-			Name:      "servicechainset-controller-manager"},
+			Name:      fmt.Sprintf("in-cluster-%s", getServiceChainSetControllerDPUServiceName(input.dpuCluster.Name, input.dpuCluster.Namespace))},
 			serviceSetDeployment)).To(Succeed())
 		g.Expect(serviceSetDeployment.Status.ReadyReplicas).To(Equal(*serviceSetDeployment.Spec.Replicas))
 	}).WithTimeout(600 * time.Second).Should(Succeed())

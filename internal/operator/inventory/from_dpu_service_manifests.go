@@ -34,6 +34,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -218,10 +219,6 @@ func pullSecretValueFromStrings(names ...string) []interface{} {
 
 func additionalValuesForComponent(name operatorv1.ComponentName, vars Variables) ([]StructuredEdit, error) {
 	switch name {
-	// The ServiceSet controller is deployed in the target cluster but operates against the DPUCluster.
-	// It deploys an additional DPUService which requires the helm chart details to be set.
-	case operatorv1.ServiceSetControllerName:
-		return serviceSetControllerEdits(vars)
 	case operatorv1.MultusName:
 		return multusEdits(vars)
 	case operatorv1.OVSCNIName:
@@ -282,29 +279,111 @@ func multusEdits(vars Variables) ([]StructuredEdit, error) {
 	}, nil
 }
 
-func serviceSetControllerEdits(vars Variables) ([]StructuredEdit, error) {
+func serviceSetControllerEdits(secretName string, serviceAccountName string) []StructuredEdit {
 	edits := []StructuredEdit{}
-	if len(vars.DPUClusters) > 1 {
-		return nil, fmt.Errorf("servicechainset controller does not handle multiple DPUClusters")
+
+	// Create the projected volume configuration for the tokenfile
+	tokenfileVolume := []corev1.Volume{
+		{
+			Name: "tokenfile",
+			VolumeSource: corev1.VolumeSource{
+				Projected: &corev1.ProjectedVolumeSource{
+					Sources: []corev1.VolumeProjection{
+						{
+							Secret: &corev1.SecretProjection{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: secretName,
+								},
+								Items: []corev1.KeyToPath{
+									{
+										Key:  "TOKEN_FILE",
+										Path: "token",
+									},
+								},
+							},
+						},
+						{
+							Secret: &corev1.SecretProjection{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: secretName,
+								},
+								Items: []corev1.KeyToPath{
+									{
+										Key:  "KUBERNETES_CA_DATA",
+										Path: "ca.crt",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
-	// Set the Name and Namespace of the DPUCluster for the DPUServiceCredentialRequest.
-	for _, cluster := range vars.DPUClusters {
-		edits = append(edits,
-			dpuServiceAddValueEdit(cluster.Cluster.Name, operatorv1.ServiceSetControllerName.String(), "dpucluster", "name"),
-			dpuServiceAddValueEdit(cluster.Cluster.Namespace, operatorv1.ServiceSetControllerName.String(), "dpucluster", "namespace"),
-		)
+
+	// Create the environment variable configuration for Kubernetes API access
+	envVars := []corev1.EnvVar{
+		{
+			Name: "KUBERNETES_SERVICE_HOST",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: secretName,
+					},
+					Key: "KUBERNETES_SERVICE_HOST",
+				},
+			},
+		},
+		{
+			Name: "KUBERNETES_SERVICE_PORT",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: secretName,
+					},
+					Key: "KUBERNETES_SERVICE_PORT",
+				},
+			},
+		},
 	}
-	chart, err := ParseHelmChartString(vars.HelmCharts[operatorv1.ServiceSetControllerName])
-	if err != nil {
-		return nil, err
+
+	// Create the volume mounts configuration for the tokenfile
+	volumeMounts := []corev1.VolumeMount{
+		{
+			Name:      "tokenfile",
+			MountPath: "/var/run/secrets/kubernetes.io/serviceaccount",
+			ReadOnly:  true,
+		},
 	}
+
 	edits = append(edits,
 		dpuServiceInClusterEdit(true),
-		dpuServiceAddValueEdit(chart.Repo, operatorv1.ServiceSetControllerName.String(), "chart", "repoURL"),
-		dpuServiceAddValueEdit(chart.Chart, operatorv1.ServiceSetControllerName.String(), "chart", "chart"),
-		dpuServiceAddValueEdit(chart.Version, operatorv1.ServiceSetControllerName.String(), "chart", "version"),
+		dpuServiceAddValueEdit(serviceAccountName, operatorv1.ServiceSetControllerName.String(), "controllerManager", "serviceAccount", "name"),
+		dpuServiceAddValueEdit(true, operatorv1.ServiceSetControllerName.String(), "deployHostManifests"),
+		dpuServiceAddValueEdit(tokenfileVolume, operatorv1.ServiceSetControllerName.String(), "volumes"),
+		dpuServiceAddValueEdit(envVars, operatorv1.ServiceSetControllerName.String(), "env"),
+		dpuServiceAddValueEdit(volumeMounts, operatorv1.ServiceSetControllerName.String(), "volumeMounts"),
 	)
-	return edits, nil
+	return edits
+}
+
+func serviceSetControllerRBACAndCRDEdits(serviceAccounts []types.NamespacedName) []StructuredEdit {
+	// Convert []types.NamespacedName to []interface{} with lowercase keys for Helm chart compatibility
+	serviceAccountList := make([]interface{}, 0, len(serviceAccounts))
+	for _, sa := range serviceAccounts {
+		serviceAccountList = append(serviceAccountList, map[string]interface{}{
+			"name":      sa.Name,
+			"namespace": sa.Namespace,
+		})
+	}
+
+	edits := []StructuredEdit{}
+	edits = append(edits,
+		dpuServiceAddValueEdit(true, operatorv1.ServiceSetControllerName.String(), "deployDPUManifests"),
+		dpuServiceAddValueEdit(serviceAccountList, operatorv1.ServiceSetControllerName.String(), "rbac", "serviceAccounts"),
+		dpuServiceInClusterEdit(false),
+	)
+	return edits
 }
 
 func flannelEdits(vars Variables) ([]StructuredEdit, error) {

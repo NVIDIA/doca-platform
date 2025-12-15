@@ -27,6 +27,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	testutils "github.com/nvidia/doca-platform/test/utils"
@@ -238,6 +239,7 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 			deployments := appsv1.DeploymentList{}
 			g.Expect(c.List(ctx, &deployments,
 				client.MatchingLabels{argoCDInstanceLabel: nameForCluster})).To(Succeed())
+			g.Expect(deployments.Items).To(HaveLen(1))
 			deployment := deployments.Items[0]
 			for _, container := range deployment.Spec.Template.Spec.Containers {
 				g.Expect(container.Image).To(ContainSubstring(dummyRegistryName))
@@ -247,7 +249,11 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 
 		// Verify overrides for inCluster DPUServices
 		for name := range inClusterDeploymentDPUServices {
-			deployValidation(input.client, "in-cluster", name.String())
+			n := name.String()
+			if name == operatorv1.ServiceSetControllerName {
+				n = getServiceChainSetControllerDPUServiceName(input.dpuCluster.Name, input.dpuCluster.Namespace)
+			}
+			deployValidation(input.client, "in-cluster", n)
 		}
 		// Verify overrides in the DPUClusters
 		for name := range deploymentDPUservices {
@@ -767,4 +773,9 @@ func DeleteDPFOperatorConfig(ctx context.Context, testClient client.Client) {
 		g.Expect(testClient.List(ctx, dpuList)).To(Succeed())
 		g.Expect(dpuList.Items).To(BeEmpty())
 	}).WithTimeout(30 * time.Second).Should(Succeed())
+}
+
+// getServiceChainSetControllerDPUServiceName returns the ServiceChainSetController DPUService name per cluster
+func getServiceChainSetControllerDPUServiceName(clusterName string, clusterNamespace string) string {
+	return fmt.Sprintf("%s-%s", operatorv1.ServiceSetControllerName, digest.Short(digest.FromObjects(clusterName, clusterNamespace), 10))
 }
