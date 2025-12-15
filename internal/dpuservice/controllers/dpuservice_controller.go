@@ -271,14 +271,8 @@ func (r *DPUServiceReconciler) reconcileDeleteApplications(ctx context.Context, 
 		}
 
 		// unpause the application if it is paused so that it can be deleted.
-		if isSkipReconcileAnnotationSet(&app) {
-			app.Annotations[annotationKeyAppSkipReconcile] = "false"
-			if err := r.Client.Update(ctx, &app); err != nil {
-				// Tolerate if the application is not found and already deleted.
-				if !apierrors.IsNotFound(err) {
-					return ctrl.Result{}, err
-				}
-			}
+		if err := r.unpauseApplication(ctx, &app); err != nil {
+			return ctrl.Result{}, err
 		}
 	}
 
@@ -432,21 +426,17 @@ func (r *DPUServiceReconciler) updateDPUServiceDaemonSetResources(serviceDaemonS
 func (r *DPUServiceReconciler) reconcile(ctx context.Context, dpuService *dpuservicev1.DPUService) error {
 	log := ctrllog.FromContext(ctx)
 
-	// Get the list of clusters this DPUService targets.
-	// TODO: Add some way to check if the clusters are healthy. Reconciler should retry clusters if they're unready.
+	// Get the list of all DPUClusters. We don't select specific clusters here because we need to reconcile
+	// common resources used by multiple DPUServices across all clusters.
 	dpuClusterConfigs, err := dpucluster.GetConfigs(ctx, r.Client)
 	if err != nil {
 		return err
 	}
 
-	dpfOperatorConfigList := operatorv1.DPFOperatorConfigList{}
-	if err := r.Client.List(ctx, &dpfOperatorConfigList, &client.ListOptions{}); err != nil {
-		return fmt.Errorf("list DPFOperatorConfigs: %w", err)
+	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, r.Client)
+	if err != nil {
+		return err
 	}
-	if len(dpfOperatorConfigList.Items) == 0 || len(dpfOperatorConfigList.Items) > 1 {
-		return fmt.Errorf("exactly one DPFOperatorConfig necessary")
-	}
-	dpfOperatorConfig := &dpfOperatorConfigList.Items[0]
 
 	// Return early if the dpuService is paused.
 	if dpuService.IsPaused() {
@@ -492,6 +482,7 @@ func (r *DPUServiceReconciler) reconcile(ctx context.Context, dpuService *dpuser
 	}
 	conditions.AddTrue(dpuService, dpuservicev1.ConditionDPUServiceInterfaceReconciled)
 
+	// We apply the application prereqs to all clusters regardless of the selector.
 	if err := r.reconcileApplicationPrereqs(ctx, dpuService, dpuClusterConfigs, dpfOperatorConfig); err != nil {
 		message := fmt.Sprintf("Unable to reconcile application prereq for %s", err.Error())
 		conditions.AddFalse(
@@ -517,6 +508,7 @@ func (r *DPUServiceReconciler) reconcile(ctx context.Context, dpuService *dpuser
 	}
 	conditions.AddTrue(dpuService, dpuservicev1.ConditionApplicationsReconciled)
 
+	// TODO: refactor this to support multi DPUCluster
 	if err = r.reconcileConfigPorts(ctx, dpuService, dpuClusterConfigs); err != nil {
 		message := fmt.Sprintf("Unable to reconcile Config Ports: %v", err)
 		conditions.AddFalse(
@@ -536,6 +528,7 @@ func (r *DPUServiceReconciler) reconcileApplicationPrereqs(ctx context.Context, 
 	// Ensure the DPUService namespace exists in target clusters.
 	project := getProjectName(dpuService)
 	// TODO: think about how to cleanup the namespace in the DPU.
+	// TODO: This can be cluster specific, consider adjusting this to target specific clusters
 	if err := r.ensureNamespaces(ctx, dpuClusterConfigs, project, dpuService.GetNamespace()); err != nil {
 		return fmt.Errorf("cluster namespaces: %v", err)
 	}
@@ -551,6 +544,8 @@ func (r *DPUServiceReconciler) reconcileApplicationPrereqs(ctx context.Context, 
 	}
 
 	// Reconcile the ImagePullSecrets.
+	// TODO: Move this functionality to a different controller to make it more generic.
+	// TODO: This can be cluster specific, consider adjusting this to target specific clusters
 	if err := r.reconcileImagePullSecrets(ctx, dpuClusterConfigs, dpuService); err != nil {
 		return fmt.Errorf("ImagePullSecrets: %v", err)
 	}
@@ -842,15 +837,56 @@ func (r *DPUServiceReconciler) reconcileAppProject(ctx context.Context, dpuClust
 
 func (r *DPUServiceReconciler) reconcileApplication(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpfOperatorConfigNamespace, serviceID string) error {
 	project := getProjectName(dpuService)
-	if project == dpuAppProjectName {
-		for _, dpuClusterConfig := range dpuClusterConfigs {
-			if err := r.ensureApplication(ctx, dpuService, serviceDaemonSet, dpuClusterConfig.Cluster.Name, dpfOperatorConfigNamespace, serviceID); err != nil {
-				return err
-			}
-		}
-	} else {
+	if project != dpuAppProjectName {
 		return r.ensureApplication(ctx, dpuService, serviceDaemonSet, "in-cluster", dpfOperatorConfigNamespace, serviceID)
 	}
+	return r.reconcileStandardApplications(ctx, dpuClusterConfigs, dpuService, serviceDaemonSet, dpfOperatorConfigNamespace, serviceID)
+}
+
+// reconcileStandardApplications reconciles ArgoCD Applications across DPU clusters.
+// It creates/updates applications in clusters that match the DPUService's cluster selector,
+// and deletes applications from clusters that no longer match.
+func (r *DPUServiceReconciler) reconcileStandardApplications(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpfOperatorConfigNamespace, serviceID string) error {
+	// Create a map for all DPUClusters that need to be processed
+	unprocessedDPUClusters := make(map[string]*dpucluster.Config)
+	for i, dpuClusterConfig := range dpuClusterConfigs {
+		unprocessedDPUClusters[client.ObjectKeyFromObject(dpuClusterConfig.Cluster).String()] = dpuClusterConfigs[i]
+	}
+
+	// Get the list of the DPUClusters the DPUService is targeting
+	targetDPUClusterConfigs, err := utils.GetMatchingDPUClusters(dpuClusterConfigs, dpuService.Spec.DPUClusterSelector)
+	if err != nil {
+		return err
+	}
+
+	// Create and update applications in each targeted cluster
+	for _, dpuClusterConfig := range targetDPUClusterConfigs {
+		if err := r.ensureApplication(ctx, dpuService, serviceDaemonSet, dpuClusterConfig.Cluster.Name, dpfOperatorConfigNamespace, serviceID); err != nil {
+			return fmt.Errorf("ensure application for DPUCluster %s: %w", dpuClusterConfig.ClusterNamespaceName(), err)
+		}
+
+		// Remove the cluster from the map to keep only clusters where applications need to be deleted
+		delete(unprocessedDPUClusters, client.ObjectKeyFromObject(dpuClusterConfig.Cluster).String())
+	}
+
+	// Delete leftover applications in clusters that are no longer selected
+	var staleApplications []string
+	for _, dpuClusterConfig := range unprocessedDPUClusters {
+		isAppDeleted, err := r.deleteApplication(ctx, dpuService, dpuClusterConfig.Cluster.Name, dpfOperatorConfigNamespace)
+		if err != nil {
+			return fmt.Errorf("deleting application for DPUCluster %s: %w", dpuClusterConfig.ClusterNamespaceName(), err)
+		}
+		if !isAppDeleted {
+			appName := argocd.GetApplicationName(dpuClusterConfig.Cluster.Name, dpuService.Name)
+			staleApplications = append(staleApplications, fmt.Sprintf("%s/%s", dpfOperatorConfigNamespace, appName))
+		}
+	}
+
+	if len(staleApplications) > 0 {
+		message := conditions.ReadyConditionMessage("Stale applications still exist for non matching DPUClusters", staleApplications)
+		return fmt.Errorf("%s", message)
+	}
+
 	return nil
 }
 
@@ -891,6 +927,43 @@ func (r *DPUServiceReconciler) ensureApplication(ctx context.Context, dpuService
 	return nil
 }
 
+// deleteApplication deletes an Application for a specific cluster and returns true if it was deleted, false if it still exists.
+func (r *DPUServiceReconciler) deleteApplication(ctx context.Context, dpuService *dpuservicev1.DPUService, clusterName, dpfOperatorConfigNamespace string) (bool, error) {
+	namespacedName := types.NamespacedName{Namespace: dpfOperatorConfigNamespace, Name: argocd.GetApplicationName(clusterName, dpuService.Name)}
+	application := &argov1.Application{}
+	// Get the application and exit early if it is already deleted
+	if err := r.Client.Get(ctx, namespacedName, application); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}
+
+	// Delete the application and exit early if it is already deleted
+	if err := r.Client.Delete(ctx, application); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}
+
+	// Unpause the application if it is paused so that it can be deleted
+	if err := r.unpauseApplication(ctx, application); err != nil {
+		return false, err
+	}
+
+	// Check if the application still exists (might be in deletion)
+	if err := r.Client.Get(ctx, namespacedName, application); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}
+
+	// Application still exists
+	return false, nil
+}
+
 func (r *DPUServiceReconciler) pauseApplication(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, dpuService *dpuservicev1.DPUService, dpfOperatorConfigNamespace string) error {
 	project := getProjectName(dpuService)
 	if project == dpuAppProjectName {
@@ -908,7 +981,7 @@ func (r *DPUServiceReconciler) pauseApplication(ctx context.Context, dpuClusterC
 }
 
 func (r *DPUServiceReconciler) skipApplicationReconcile(ctx context.Context, dpfOperatorConfigNamespace string, clustername, name string) error {
-	namespacedName := types.NamespacedName{Namespace: dpfOperatorConfigNamespace, Name: fmt.Sprintf("%v-%v", clustername, name)}
+	namespacedName := types.NamespacedName{Namespace: dpfOperatorConfigNamespace, Name: argocd.GetApplicationName(clustername, name)}
 	gotArgoApplication := &argov1.Application{}
 	if err := r.Client.Get(ctx, namespacedName, gotArgoApplication); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -1701,6 +1774,24 @@ func getRandomKVPair[T any](m map[string]T) (string, T) {
 
 func isSkipReconcileAnnotationSet(app *argov1.Application) bool {
 	return app.Annotations != nil && app.Annotations[annotationKeyAppSkipReconcile] == strconv.FormatBool(true)
+}
+
+// unpauseApplication unpauses an ArgoCD Application by removing the skip-reconcile annotation.
+// Returns nil if the application is successfully unpaused or if it's not found (already deleted).
+func (r *DPUServiceReconciler) unpauseApplication(ctx context.Context, app *argov1.Application) error {
+	if !isSkipReconcileAnnotationSet(app) {
+		return nil
+	}
+
+	if app.Annotations == nil {
+		app.Annotations = make(map[string]string)
+	}
+	app.Annotations[annotationKeyAppSkipReconcile] = "false"
+
+	if err := r.Client.Update(ctx, app); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("unpause ArgoCD application: %w", err)
+	}
+	return nil
 }
 
 // WatchNodes sets up a watcher for corev1.Node objects in the DPU clusters.

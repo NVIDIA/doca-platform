@@ -218,6 +218,43 @@ var _ = Describe("dpuservice API Validation", func() {
 	})
 })
 
+var _ = Describe("API Validations for DPUService", func() {
+	var testNS *corev1.Namespace
+	BeforeEach(func() {
+		By("Creating the namespaces")
+		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "testns-"}}
+		Expect(testClient.Create(ctx, testNS)).To(Succeed())
+		DeferCleanup(testClient.Delete, ctx, testNS)
+	})
+	Context("When checking the DPUService API validations", func() {
+		DescribeTable("Validates dpuClusterSelector and deployInCluster mutual exclusivity", func(deployInCluster *bool, hasDPUClusterSelector bool, expectError bool) {
+			dpuService := getMinimalDPUService(testNS.Name)
+			dpuService.Spec.DeployInCluster = deployInCluster
+			if hasDPUClusterSelector {
+				dpuService.Spec.DPUClusterSelector = &metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"cluster": "test",
+					},
+				}
+			}
+
+			err := testClient.Create(ctx, dpuService)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+			Entry("valid config - without specifying deployInCluster and with dpuClusterSelector", nil, true, false),
+			Entry("valid config - without specifying deployInCluster and without dpuClusterSelector", nil, false, false),
+			Entry("valid config - with deployInCluster=false and with dpuClusterSelector", ptr.To(false), true, false),
+			Entry("valid config - with deployInCluster=false and without dpuClusterSelector", ptr.To(false), false, false),
+			Entry("valid config - with deployInCluster=true and without dpuClusterSelector", ptr.To(true), false, false),
+			Entry("invalid config - with deployInCluster=true and with dpuClusterSelector", ptr.To(true), true, true),
+		)
+	})
+})
+
 var _ = Describe("API Validations for DPUDeployment related objects", func() {
 	var testNS *corev1.Namespace
 	BeforeEach(func() {
@@ -553,6 +590,24 @@ func getMinimalDPUServiceConfigurationWithoutUpgradePolicy(namespace string) *dp
 				{
 					Name:    "someinterface",
 					Network: "somenad",
+				},
+			},
+		},
+	}
+}
+
+func getMinimalDPUService(namespace string) *dpuservicev1.DPUService {
+	return &dpuservicev1.DPUService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-dpuservice",
+			Namespace: namespace,
+		},
+		Spec: dpuservicev1.DPUServiceSpec{
+			HelmChart: dpuservicev1.HelmChart{
+				Source: dpuservicev1.ApplicationSource{
+					RepoURL: "oci://example.com",
+					Chart:   "test-chart",
+					Version: "v1.0.0",
 				},
 			},
 		},
