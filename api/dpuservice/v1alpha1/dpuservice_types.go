@@ -118,7 +118,12 @@ type DPUService struct {
 // DPUServiceSpec defines the desired state of DPUService
 // +kubebuilder:validation:XValidation:rule="(has(self.interfaces) && has(self.serviceID)) || (!has(self.interfaces) && !has(self.serviceID)) || has(self.serviceID)", message="serviceID must be provided when interfaces are provided"
 // +kubebuilder:validation:XValidation:rule="!(has(self.deployInCluster) && self.deployInCluster && has(self.configPorts))", message="configPorts cannot be set when deployInCluster is true"
+// +kubebuilder:validation:XValidation:rule="!(has(self.deployInCluster) && self.deployInCluster && has(self.dpuClusterSelector))", message="dpuClusterSelector cannot be set when deployInCluster is true"
 type DPUServiceSpec struct {
+	// Select the Clusters with specific labels, Applications will be created only for these Clusters
+	// +optional
+	DPUClusterSelector *metav1.LabelSelector `json:"dpuClusterSelector,omitempty"`
+
 	// HelmChart reflects the Helm related configuration
 	// +required
 	HelmChart HelmChart `json:"helmChart"`
