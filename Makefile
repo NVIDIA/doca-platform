@@ -301,6 +301,11 @@ generate-manifests-servicechainset: controller-gen kustomize envsubst ## Generat
 	output:rbac:dir=deploy/charts/dpu-networking/charts/servicechainset-controller/templates;
 	find config/dpuservice/crd/bases/ -type f -not -name '*_dpu*' -exec cp {} deploy/charts/dpu-networking/charts/servicechainset-controller/templates/crds/ \;
 
+	# Make the role.yaml compatible with the chart design so that multiple charts can be deployed and the manifest is skipped in specific cases.
+	sed -i 's/name: servicechainset-controller-manager/name: {{ include "servicechain.fullname" . }}/g' deploy/charts/dpu-networking/charts/servicechainset-controller/templates/role.yaml
+	sed -i '1i{{ if .Values.deployDPUManifests }}' deploy/charts/dpu-networking/charts/servicechainset-controller/templates/role.yaml
+	echo '{{- end }}' >> deploy/charts/dpu-networking/charts/servicechainset-controller/templates/role.yaml
+
 .PHONY: generate-manifests-storage
 generate-manifests-storage: controller-gen kustomize embedmd yq ## Generate CRDs for SNAP storage in DPU cluster
 	$(MAKE) clean-generated-yaml SRC_DIRS="./config/storage/crd/bases"

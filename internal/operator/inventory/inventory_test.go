@@ -47,28 +47,32 @@ func TestManifests_Parse_Generate_All(t *testing.T) {
 			inventory: New().setDPUService(dpuServiceControllerObjects{data: nil}),
 			wantErr:   true,
 		},
-		// ServiceFunctionChainSetObjects
+		// serviceChainSetControllerObjects
 		{
 			name: "fail if ServiceFunctionChainSet data is nil",
-			inventory: New().setServiceFunctionChainSet(fromDPUService{
-				name: operatorv1.ServiceSetControllerName,
+			inventory: New().setServiceFunctionChainSet(serviceChainSetControllerObjects{
 				data: nil,
 			}),
 			wantErr: true,
 		},
 		{
 			name: "fail if ServiceFunctionChainSet data has an unexpected object",
-			inventory: New().setServiceFunctionChainSet(fromDPUService{
-				name: operatorv1.ServiceSetControllerName,
+			inventory: New().setServiceFunctionChainSet(serviceChainSetControllerObjects{
 				data: addUnexpectedKindToObjects(g, serviceChainSetData),
 			}),
 			wantErr: true,
 		},
 		{
 			name: "fail if ServiceFunctionChainSet is missing the DPUService",
-			inventory: New().setServiceFunctionChainSet(fromDPUService{
-				name: operatorv1.ServiceSetControllerName,
+			inventory: New().setServiceFunctionChainSet(serviceChainSetControllerObjects{
 				data: removeKindFromObjects(g, "DPUService", serviceChainSetData),
+			}),
+			wantErr: true,
+		},
+		{
+			name: "fail if ServiceFunctionChainSet is missing the DPUServiceCredentialRequest",
+			inventory: New().setServiceFunctionChainSet(serviceChainSetControllerObjects{
+				data: removeKindFromObjects(g, "DPUServiceCredentialRequest", serviceChainSetData),
 			}),
 			wantErr: true,
 		},
