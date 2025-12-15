@@ -324,9 +324,6 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "dpuset1",
-					DPUSelector: map[string]string{
-						"dpukey1": "dpuvalue1",
-					},
 					DPUAnnotations: map[string]string{
 						"dpu.nvidia.com": "not allowed",
 					},
@@ -423,6 +420,77 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 				}
 				return o
 			}(), true),
+		)
+		DescribeTable("Validates mutual exclusivity of deprecated and new selector fields", func(dpuSet dpuservicev1.DPUSet, expectError bool) {
+			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{dpuSet}
+			err := testClient.Create(ctx, dpuDeployment)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+			Entry("both nodeSelector and dpuNodeSelector are specified",
+				dpuservicev1.DPUSet{
+					NameSuffix: "dpuset1",
+					NodeSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"nodekey1": "nodevalue1",
+						},
+					},
+					DPUNodeSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"nodekey2": "nodevalue2",
+						},
+					},
+				}, true),
+			Entry("only nodeSelector is specified",
+				dpuservicev1.DPUSet{
+					NameSuffix: "dpuset1",
+					NodeSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"nodekey1": "nodevalue1",
+						},
+					},
+				}, false),
+			Entry("only dpuNodeSelector is specified",
+				dpuservicev1.DPUSet{
+					NameSuffix: "dpuset1",
+					DPUNodeSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"nodekey1": "nodevalue1",
+						},
+					},
+				}, false),
+			Entry("both dpuSelector and dpuDeviceSelector are specified",
+				dpuservicev1.DPUSet{
+					NameSuffix: "dpuset1",
+					DPUSelector: map[string]string{
+						"dpukey1": "dpuvalue1",
+					},
+					DPUDeviceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"dpukey2": "dpuvalue2",
+						},
+					},
+				}, true),
+			Entry("only dpuSelector is specified",
+				dpuservicev1.DPUSet{
+					NameSuffix: "dpuset1",
+					DPUSelector: map[string]string{
+						"dpukey1": "dpuvalue1",
+					},
+				}, false),
+			Entry("only dpuDeviceSelector is specified",
+				dpuservicev1.DPUSet{
+					NameSuffix: "dpuset1",
+					DPUDeviceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"dpukey1": "dpuvalue1",
+						},
+					},
+				}, false),
 		)
 	})
 })

@@ -115,11 +115,14 @@ spec:
 
 ## Cluster Configuration
 
-The `spec.dpuTemplate.spec.cluster` section in the DPUSet allows you to specify configuration for the Kubernetes cluster that the DPU will join.
+The `spec.dpuTemplate.spec.cluster` section in the DPUSet allows you to specify configuration for the Kubernetes cluster
+that the DPU will join.
 
 ### nodeLabels
 
-The `spec.cluster.nodeLabels` field specifies custom labels to add to the Kubernetes node when the DPU joins the cluster. This is a map of string key-value pairs. The system automatically adds the following labels in addition to any custom labels you specify:
+The `spec.cluster.nodeLabels` field specifies custom labels to add to the Kubernetes node when the DPU joins the cluster.
+This is a map of string key-value pairs. The system automatically adds the following labels in addition to any custom
+labels you specify:
 - `provisioning.dpu.nvidia.com/host` - The hostname of the host machine
 - `operator.dpu.nvidia.com/dpf-version` - The DPF version used
 
@@ -139,7 +142,7 @@ spec:
 ## DPU Selection
 
 The DPUSet provides two complementary mechanisms for selecting which DPUs should be managed: `dpuNodeSelector` and
-`dpuSelector`.
+`dpuDeviceSelector`.
 
 ### dpuNodeSelector
 
@@ -168,12 +171,13 @@ spec:
           - staging
 ```
 
-### dpuSelector
+### dpuDeviceSelector
 
-The `dpuSelector` field is used to further filter DPUDevices based on their labels. This is applied after the
+The `dpuDeviceSelector` field is used to further filter DPUDevices based on their labels. This is applied after the
 `dpuNodeSelector` and allows you to select specific DPUDevices on the selected DPUNodes.
 
-The `dpuSelector` uses a simple map of label key-value pairs, where all specified labels must match (AND logic).
+The `dpuDeviceSelector` uses the standard Kubernetes LabelSelector format, which supports both `matchLabels` and
+`matchExpressions`.
 
 For example, to select only specific DPU models or configurations:
 
@@ -182,8 +186,26 @@ spec:
   dpuNodeSelector:
     matchLabels:
       feature.node.kubernetes.io/dpu-enabled: "true"
-  dpuSelector:
-    provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:1a:00.0"
+  dpuDeviceSelector:
+    matchLabels:
+      provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:1a:00.0"
+```
+
+Or using match expressions for more complex selection:
+
+```yaml
+spec:
+  dpuNodeSelector:
+    matchExpressions:
+    - key: feature.node.kubernetes.io/dpu-enabled
+      operator: Exists
+  dpuDeviceSelector:
+    matchExpressions:
+    - key: provisioning.dpu.nvidia.com/dpudevice-num-of-pfs
+      operator: In
+      values:
+        - "2"
+        - "4"
 ```
 
 In Host Trusted model, the automatically created DPUDevice objects have the following labels:

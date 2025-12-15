@@ -360,6 +360,9 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 	Expect(input.client.Create(ctx, inClusterDPUServiceConfiguration)).To(Succeed())
 
 	dpuDeployment := testutils.GenerateDPUObj("dpf-dpudeployment", input.dpuDeployment.DeepCopy().Namespace, input.dpuDeployment.DeepCopy(), testutils.AfterAllCleanupLabels)
+	// Intentionally using deprecated field, e2e tests will be updated once we have removed the deprecated field. Unit
+	// tests cover the new field, e2e tests cover the old field since there is no more unit test coverage for the deprecated field.
+	//nolint:staticcheck
 	dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
 		MatchLabels: map[string]string{"feature.node.kubernetes.io/dpu-enabled": "true"},
 	}
@@ -537,6 +540,9 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx context.Context, input
 	var drainedHostNode *corev1.Node
 	Eventually(func(g Gomega) {
 		gotHostNodeList := &corev1.NodeList{}
+		// Intentionally using deprecated field, e2e tests will be updated once we have removed the deprecated field. Unit
+		// tests cover the new field, e2e tests cover the old field since there is no more unit test coverage for the deprecated field.
+		//nolint:staticcheck
 		labelSelectorForNodes, err := utils.LabelSelectorAsSelector(dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(input.client.List(ctx, gotHostNodeList, client.MatchingLabelsSelector{Selector: labelSelectorForNodes})).To(Succeed())
@@ -860,6 +866,9 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade(ctx context.Context, 
 	var drainedHostNode *corev1.Node
 	Eventually(func(g Gomega) {
 		gotHostNodeList := &corev1.NodeList{}
+		// Intentionally using deprecated field, e2e tests will be updated once we have removed the deprecated field. Unit
+		// tests cover the new field, e2e tests cover the old field since there is no more unit test coverage for the deprecated field.
+		//nolint:staticcheck
 		labelSelectorForNodes, err := utils.LabelSelectorAsSelector(dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(input.client.List(ctx, gotHostNodeList, client.MatchingLabelsSelector{Selector: labelSelectorForNodes})).To(Succeed())
@@ -1120,6 +1129,9 @@ type DPUDeploymentNodesInfo struct {
 // getTargetNodesAndDPUNodeNames gets target nodes and DPU node names based on DPUDeployment selector
 func getTargetNodesAndDPUNodeNames(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment) DPUDeploymentNodesInfo {
 	targetNodes := make(map[string]corev1.Node)
+	// Intentionally using deprecated field, e2e tests will be updated once we have removed the deprecated field. Unit
+	// tests cover the new field, e2e tests cover the old field since there is no more unit test coverage for the deprecated field.
+	//nolint:staticcheck
 	nodeSelector := dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector
 	Expect(nodeSelector).ToNot(BeNil())
 
