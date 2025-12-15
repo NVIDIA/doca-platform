@@ -3918,6 +3918,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Clusters with specific labels, Applications will be created only for these Clusters |  |  |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart reflects the Helm related configuration |  |  |
 | `serviceID` _string_ | ServiceID is the ID of the service that the DPUService is associated with. |  |  |
 | `serviceDaemonSet` _[ServiceDaemonSetValues](#servicedaemonsetvalues)_ | ServiceDaemonSet specifies the configuration for the ServiceDaemonSet. |  |  |
