@@ -1307,6 +1307,16 @@ func (in *DPUSet) DeepCopyInto(out *DPUSet) {
 			(*out)[key] = val
 		}
 	}
+	if in.DPUNodeSelector != nil {
+		in, out := &in.DPUNodeSelector, &out.DPUNodeSelector
+		*out = new(v1.LabelSelector)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.DPUDeviceSelector != nil {
+		in, out := &in.DPUDeviceSelector, &out.DPUDeviceSelector
+		*out = new(v1.LabelSelector)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.DPUAnnotations != nil {
 		in, out := &in.DPUAnnotations, &out.DPUAnnotations
 		*out = make(map[string]string, len(*in))

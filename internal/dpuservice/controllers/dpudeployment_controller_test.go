@@ -241,13 +241,15 @@ var _ = Describe("DPUDeployment Controller", func() {
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "dpuset1",
-					NodeSelector: &metav1.LabelSelector{
+					DPUNodeSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"nodekey1": "nodevalue1",
 						},
 					},
-					DPUSelector: map[string]string{
-						"dpukey1": "dpuvalue1",
+					DPUDeviceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"dpukey1": "dpuvalue1",
+						},
 					},
 					DPUAnnotations: map[string]string{
 						"annotationkey1": "annotationvalue1",
@@ -371,13 +373,15 @@ var _ = Describe("DPUDeployment Controller", func() {
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "dpuset1",
-					NodeSelector: &metav1.LabelSelector{
+					DPUNodeSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"nodekey1": "nodevalue1",
 						},
 					},
-					DPUSelector: map[string]string{
-						"dpukey1": "dpuvalue1",
+					DPUDeviceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"dpukey1": "dpuvalue1",
+						},
 					},
 					DPUAnnotations: map[string]string{
 						"annotationkey1": "annotationvalue1",
@@ -545,13 +549,15 @@ var _ = Describe("DPUDeployment Controller", func() {
 			dpusets := []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "dpuset1",
-					NodeSelector: &metav1.LabelSelector{
+					DPUNodeSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"nodekey1": "nodevalue1",
 						},
 					},
-					DPUSelector: map[string]string{
-						"dpukey1": "dpuvalue1",
+					DPUDeviceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"dpukey1": "dpuvalue1",
+						},
 					},
 					DPUAnnotations: map[string]string{
 						"annotationkey1": "annotationvalue1",
@@ -1201,13 +1207,15 @@ var _ = Describe("DPUDeployment Controller", func() {
 				initialDPUSetSettings = []dpuservicev1.DPUSet{
 					{
 						NameSuffix: "dpuset1",
-						NodeSelector: &metav1.LabelSelector{
+						DPUNodeSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
 								"nodekey1": "nodevalue1",
 							},
 						},
-						DPUSelector: map[string]string{
-							"dpukey1": "dpuvalue1",
+						DPUDeviceSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"dpukey1": "dpuvalue1",
+							},
 						},
 						DPUAnnotations: map[string]string{
 							"annotationkey1": "annotationvalue1",
@@ -1215,13 +1223,15 @@ var _ = Describe("DPUDeployment Controller", func() {
 					},
 					{
 						NameSuffix: "dpuset2",
-						NodeSelector: &metav1.LabelSelector{
+						DPUNodeSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
 								"nodekey2": "nodevalue2",
 							},
 						},
-						DPUSelector: map[string]string{
-							"dpukey2": "dpuvalue2",
+						DPUDeviceSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"dpukey2": "dpuvalue2",
+							},
 						},
 						DPUAnnotations: map[string]string{
 							"annotationkey2": "annotationvalue2",
@@ -1236,8 +1246,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 								"nodekey1": "nodevalue1",
 							},
 						},
-						DPUSelector: map[string]string{
-							"dpukey1": "dpuvalue1",
+						DPUDeviceSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"dpukey1": "dpuvalue1",
+							},
 						},
 						Strategy: &provisioningv1.DPUSetStrategy{
 							Type: provisioningv1.RollingUpdateStrategyType,
@@ -1269,8 +1281,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 								"nodekey2": "nodevalue2",
 							},
 						},
-						DPUSelector: map[string]string{
-							"dpukey2": "dpuvalue2",
+						DPUDeviceSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"dpukey2": "dpuvalue2",
+							},
 						},
 						Strategy: &provisioningv1.DPUSetStrategy{
 							Type: provisioningv1.RollingUpdateStrategyType,
@@ -2504,13 +2518,15 @@ var _ = Describe("DPUDeployment Controller", func() {
 				dpuDeployment.Spec.DPUs.DPUSets[1].DPUAnnotations["newkey"] = "newvalue"
 				dpuDeployment.Spec.DPUs.DPUSets = append(dpuDeployment.Spec.DPUs.DPUSets, dpuservicev1.DPUSet{
 					NameSuffix: "dpuset3",
-					NodeSelector: &metav1.LabelSelector{
+					DPUNodeSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"nodekey3": "nodevalue3",
 						},
 					},
-					DPUSelector: map[string]string{
-						"dpukey3": "dpuvalue3",
+					DPUDeviceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"dpukey3": "dpuvalue3",
+						},
 					},
 					DPUAnnotations: map[string]string{
 						"annotationkey3": "annotationvalue3",
@@ -2553,8 +2569,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 								"nodekey3": "nodevalue3",
 							},
 						},
-						DPUSelector: map[string]string{
-							"dpukey3": "dpuvalue3",
+						DPUDeviceSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"dpukey3": "dpuvalue3",
+							},
 						},
 						Strategy: &provisioningv1.DPUSetStrategy{
 							Type: provisioningv1.RollingUpdateStrategyType,
@@ -3059,7 +3077,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 					{
 						NameSuffix: "dpuset1",
-						NodeSelector: &metav1.LabelSelector{
+						DPUNodeSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
 								"nodekey1": "nodevalue1",
 							},
@@ -5020,7 +5038,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					},
 					{
 						NameSuffix: "dpuset2",
-						NodeSelector: &metav1.LabelSelector{
+						DPUNodeSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
 								"nodekey2": "nodevalue2",
 							},
@@ -5883,7 +5901,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 					{
 						NameSuffix: "dpuset1",
-						NodeSelector: &metav1.LabelSelector{
+						DPUNodeSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
 								"nodekey1": "nodevalue1",
 							},
@@ -6585,7 +6603,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 					{
 						NameSuffix: "dpuset1",
-						NodeSelector: &metav1.LabelSelector{
+						DPUNodeSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
 								"nodekey1": "nodevalue1",
 							},
@@ -6593,7 +6611,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					},
 					{
 						NameSuffix: "dpuset2",
-						NodeSelector: &metav1.LabelSelector{
+						DPUNodeSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
 								"nodekey2": "nodevalue2",
 							},
@@ -7355,7 +7373,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 					{
 						NameSuffix: "dpuset1",
-						NodeSelector: &metav1.LabelSelector{
+						DPUNodeSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
 								"nodekey1": "nodevalue1",
 							},
@@ -8565,13 +8583,15 @@ var _ = Describe("DPUDeployment Controller", func() {
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "dpuset1",
-					NodeSelector: &metav1.LabelSelector{
+					DPUNodeSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"nodekey1": "nodevalue1",
 						},
 					},
-					DPUSelector: map[string]string{
-						"dpukey1": "dpuvalue1",
+					DPUDeviceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"dpukey1": "dpuvalue1",
+						},
 					},
 					DPUAnnotations: map[string]string{
 						"annotationkey1": "annotationvalue1",

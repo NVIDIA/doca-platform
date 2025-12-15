@@ -380,8 +380,8 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dpuNodeSelector:
-  matchLabels:
-    e2e.servers/dk: "true"
+    matchLabels:
+      e2e.servers/dk: "true"
   strategy:
   rollingUpdate:
     maxUnavailable: "10%"

@@ -185,6 +185,8 @@ type DPUs struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!(has(self.dpuAnnotations) && (self.dpuAnnotations.exists(key, key.contains('dpu.nvidia.com/') || key.endsWith('dpu.nvidia.com')))) ", message="should not contain dpu.nvidia.com/ and should not end with dpu.nvidia.com"
+// +kubebuilder:validation:XValidation:rule="!(has(self.nodeSelector) && has(self.dpuNodeSelector))", message="only one of nodeSelector or dpuNodeSelector can be specified"
+// +kubebuilder:validation:XValidation:rule="!(has(self.dpuSelector) && has(self.dpuDeviceSelector))", message="only one of dpuSelector or dpuDeviceSelector can be specified"
 
 // DPUSet contains configuration for the DPUSet to be created by the DPUDeployment
 type DPUSet struct {
@@ -195,12 +197,24 @@ type DPUSet struct {
 	NameSuffix string `json:"nameSuffix,omitempty"`
 
 	// NodeSelector defines the nodes that the DPUSet should target
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUNodeSelector instead.
 	// +optional
 	NodeSelector *metav1.LabelSelector `json:"nodeSelector,omitempty"`
 
 	// DPUSelector defines the DPUs that the DPUSet should target
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUDeviceSelector instead.
 	// +optional
 	DPUSelector map[string]string `json:"dpuSelector,omitempty"`
+
+	// DPUNodeSelector defines the selector for DPUNodes that the DPUSet should target and should create a DPU for.
+	// +optional
+	DPUNodeSelector *metav1.LabelSelector `json:"dpuNodeSelector,omitempty"`
+
+	// DPUDeviceSelector defines the selector for DPUDevices that the DPUSet should target and should create a DPU for.
+	// +optional
+	DPUDeviceSelector *metav1.LabelSelector `json:"dpuDeviceSelector,omitempty"`
 
 	// DPUAnnotations is the annotations to be added to the DPU object created by the DPUSet.
 	// +optional

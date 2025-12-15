@@ -691,7 +691,7 @@ spec:
     flavor: hbn-ovnk-snap-nvme-$TAG
     dpuSets:
     - nameSuffix: "dpuset1"
-      nodeSelector:
+      dpuNodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
   services:

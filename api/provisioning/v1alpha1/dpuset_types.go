@@ -243,6 +243,8 @@ func (n *NodeEffect) IsNoEffect() bool {
 	return *n.NoEffect
 }
 
+// +kubebuilder:validation:XValidation:rule="!(has(self.dpuSelector) && has(self.dpuDeviceSelector))", message="only one of dpuSelector or dpuDeviceSelector can be specified"
+
 // DPUSetSpec defines the desired state of DPUSet
 type DPUSetSpec struct {
 	// The rolling update strategy to use to updating existing DPUs with new ones.
@@ -254,8 +256,14 @@ type DPUSetSpec struct {
 	DPUNodeSelector *metav1.LabelSelector `json:"dpuNodeSelector,omitempty"`
 
 	// Select the DPU with specific labels
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUDeviceSelector instead.
 	// +optional
 	DPUSelector map[string]string `json:"dpuSelector,omitempty"`
+
+	// DPUDeviceSelector defines the selector for DPUDevices that the DPUSet should target and should create a DPU for.
+	// +optional
+	DPUDeviceSelector *metav1.LabelSelector `json:"dpuDeviceSelector,omitempty"`
 
 	// Object that describes the DPU that will be created if insufficient replicas are detected
 	// +required

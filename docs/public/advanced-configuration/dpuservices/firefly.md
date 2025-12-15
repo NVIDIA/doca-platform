@@ -359,7 +359,7 @@ spec:
     bfb: bf-bundle
     dpuSets:
       - nameSuffix: dpuset1
-        nodeSelector:
+        dpuNodeSelector:
           matchLabels:
             feature.node.kubernetes.io/dpu-enabled: "true"
     flavor: dpf-provisioning-firefly

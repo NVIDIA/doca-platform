@@ -475,7 +475,7 @@ spec:
       noEffect: true
     dpuSets:
     - nameSuffix: "dpuset1"
-      nodeSelector:
+      dpuNodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
   services:
@@ -1173,7 +1173,7 @@ spec:
       noEffect: true
     dpuSets:
     - nameSuffix: "dpuset1"
-      nodeSelector:
+      dpuNodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
   services:

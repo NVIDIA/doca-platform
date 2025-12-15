@@ -128,9 +128,14 @@ func (r *DPUDeploymentNodeReconciler) DPUDeploymentToNode(ctx context.Context, o
 func getDPUDeploymentMatchingNodeNames(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment) ([]string, error) {
 	var matchingNodes []string
 	for _, dpuSet := range dpuDeployment.Spec.DPUs.DPUSets {
-		labelSelector, err := utils.LabelSelectorAsSelector(dpuSet.NodeSelector)
+		nodeSelector := dpuSet.DPUNodeSelector
+		if nodeSelector == nil {
+			//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
+			nodeSelector = dpuSet.NodeSelector
+		}
+		labelSelector, err := utils.LabelSelectorAsSelector(nodeSelector)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse label selector from nodeSelector found in dpudeployment.spec.dpus.dpusets: %w", err)
+			return nil, fmt.Errorf("failed to parse label selector from dpuNodeSelector or nodeSelector found in dpudeployment.spec.dpus.dpusets: %w", err)
 		}
 
 		dpuNodeList := &provisioningv1.DPUNodeList{}
