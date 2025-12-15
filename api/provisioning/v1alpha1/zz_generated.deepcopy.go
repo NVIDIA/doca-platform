@@ -1227,6 +1227,11 @@ func (in *DPUSetSpec) DeepCopyInto(out *DPUSetSpec) {
 			(*out)[key] = val
 		}
 	}
+	if in.DPUDeviceSelector != nil {
+		in, out := &in.DPUDeviceSelector, &out.DPUDeviceSelector
+		*out = new(v1.LabelSelector)
+		(*in).DeepCopyInto(*out)
+	}
 	in.DPUTemplate.DeepCopyInto(&out.DPUTemplate)
 }
 

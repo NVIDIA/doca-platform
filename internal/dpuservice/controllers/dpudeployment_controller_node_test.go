@@ -506,7 +506,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "test-dpuset",
-					NodeSelector: &metav1.LabelSelector{
+					DPUNodeSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"node-type": "target",
 						},
@@ -810,7 +810,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "test-dpuset",
-					NodeSelector: &metav1.LabelSelector{
+					DPUNodeSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"node-type": "target",
 							"region":    "us-west",
@@ -882,7 +882,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "test-dpuset",
-					NodeSelector: &metav1.LabelSelector{
+					DPUNodeSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"node-type": "target",
 						},

@@ -5,9 +5,9 @@ title: "Host Trusted Multi-DPU support OVN-Kubernetes and HBN Services"
 > [!NOTE] **Tech Preview**: This feature is currently in technical preview and may be subject to changes in 
 > future releases.
 
-This guide describes how to use the `dpuSelector` to target particular DPUs. This approach supports multiple DPUs and
-distributes OVN-Kubernetes, HBN, BlueMan and DTS services across them, providing more granular control over which DPUs
-run specific services and allowing for better resource allocation, service isolation, and  multi-DPU scalability.
+This guide describes how to use the `dpuDeviceSelector` to target particular DPUs. This approach supports multiple DPUs
+and distributes OVN-Kubernetes, HBN, BlueMan and DTS services across them, providing more granular control over which
+DPUs run specific services and allowing for better resource allocation, service isolation, and  multi-DPU scalability.
 
 [TOC]
 
@@ -39,13 +39,13 @@ This configuration ensures that:
 - When the resource injector adds VF requests to pods, the SR-IOV Device Plugin allocates VFs only from that DPU
 - The OVN-Kubernetes DPU component can properly add VF representors to OVS on the same DPU
 
-### Using dpuSelector for Multi-DPU Deployments
+### Using dpuDeviceSelector for Multi-DPU Deployments
 
 The [OVN Kubernetes with Host Based Networking](../user-guides/host-trusted/use-cases/hbn-ovnk/README.md) guide 
-uses only `nodeSelector` to target nodes with DPUs, which deploys all services (OVN-Kubernetes, HBN, DTS, Blueman) to 
+uses only `dpuNodeSelector` to target nodes with DPUs, which deploys all services (OVN-Kubernetes, HBN, DTS, Blueman) to 
 all DPUs on those nodes. This creates conflicts when multiple DPUs are present.
 
-The `dpuSelector` approach solves this problem by enabling precise DPU targeting. It allows you to:
+The `dpuDeviceSelector` approach solves this problem by enabling precise DPU targeting. It allows you to:
 
 1. **Run OVN-Kubernetes and HBN together on a single DPU** (critical requirement - they are integrated through service chains)
 2. Deploy other services (e.g., DTS, Blueman) on different DPUs to distribute workload
@@ -98,11 +98,12 @@ run on all DPUs on those nodes.
 ```yaml
 dpuSets:
 - nameSuffix: "dpuset1"
-  nodeSelector:
+  dpuNodeSelector:
     matchLabels:
       feature.node.kubernetes.io/dpu-enabled: "true"
-  dpuSelector:
-    provisioning.dpu.nvidia.com/dpudevice-pf0-name: ens1f0np0
+  dpuDeviceSelector:
+    matchLabels:
+      provisioning.dpu.nvidia.com/dpudevice-pf0-name: ens1f0np0
 ```
 
 This targets specific DPUs based on their device characteristics, allowing for more precise service placement and
@@ -110,7 +111,7 @@ multi-DPU distribution.
 
 ## DPUDevice Labels
 
-DPUDevices are automatically labeled with device-specific information that can be used in `dpuSelector`. The available 
+DPUDevices are automatically labeled with device-specific information that can be used in `dpuDeviceSelector`. The available 
 labels include:
 
 - `provisioning.dpu.nvidia.com/dpudevice-name`: The name of the DPUDevice
@@ -127,10 +128,10 @@ In the examples below, we use the following interface names to demonstrate multi
 - `ens2f0np0`: Example name for the first port of DPU 2 (for Blueman/DTS services)
 
 Replace these with the actual interface names from your DPU devices. You can extend this pattern to support additional
-DPUs by creating more DPUDeployments with different dpuSelector values. Remember that OVN-Kubernetes should only run on 
+DPUs by creating more DPUDeployments with different dpuDeviceSelector values. Remember that OVN-Kubernetes should only run on 
 one DPU per host.
 
-## Example: Multi-DPU Deployment with dpuSelector
+## Example: Multi-DPU Deployment with dpuDeviceSelector
 
 This section shows how to modify the existing DPUDeployment from the [OVN Kubernetes with Host Based 
 Networking](../user-guides/host-trusted/use-cases/hbn-ovnk/README.md) guide and create an additional one for 
@@ -139,7 +140,7 @@ multi-DPU support.
 ### Step 1: Modify the Existing DPUDeployment for OVN and HBN Services
 
 **Instead of creating a new DPUDeployment, modify the existing one from the OVN-Kubernetes HBN guide.** Simply 
-add a `dpuSelector` to the existing `ovn-hbn` DPUDeployment:
+add a `dpuDeviceSelector` to the existing `ovn-hbn` DPUDeployment:
 
 > [!NOTE] We removed the serviceChains section for simplicity. You should keep the serviceChains section if you have
 > defined any service chains in your original DPUDeployment.
@@ -158,11 +159,12 @@ spec:
     flavor: hbn-ovn
     dpuSets:
       - nameSuffix: "dpuset1"
-        nodeSelector:
+        dpuNodeSelector:
           matchLabels:
             feature.node.kubernetes.io/dpu-enabled: "true"
-        dpuSelector:
-          provisioning.dpu.nvidia.com/dpudevice-pf0-name: ens1f0np0
+        dpuDeviceSelector:
+          matchLabels:
+            provisioning.dpu.nvidia.com/dpudevice-pf0-name: ens1f0np0
   services:
     ovn:
       serviceTemplate: ovn
@@ -177,7 +179,7 @@ spec:
 ### Step 2: Create Additional DPUDeployment for Blueman and DTS Services
 
 Create a **new, additional** DPUDeployment for Blueman and DTS services that targets the second DPU. This new
-DPUDeployment must use a different `dpuSelector` to target the second DPU's PF0 interface.
+DPUDeployment must use a different `dpuDeviceSelector` to target the second DPU's PF0 interface.
 
 #### Creating a Separate DPUFlavor
 
@@ -239,11 +241,12 @@ spec:
     flavor: hbn-ovn-other-services
     dpuSets:
       - nameSuffix: "dpuset1"
-        nodeSelector:
+        dpuNodeSelector:
           matchLabels:
             feature.node.kubernetes.io/dpu-enabled: "true"
-        dpuSelector:
-          provisioning.dpu.nvidia.com/dpudevice-pf0-name: ens2f0np0
+        dpuDeviceSelector:
+          matchLabels:
+            provisioning.dpu.nvidia.com/dpudevice-pf0-name: ens2f0np0
   services:
     dts:
       serviceTemplate: dts
@@ -261,7 +264,7 @@ Create the modified DPUDeployment files based on the examples above.
 
 ### 2. Modify the Existing DPUDeployment
 
-Update the existing `ovn-hbn` DPUDeployment to use `dpuSelector` instead of `nodeSelector`:
+Update the existing `ovn-hbn` DPUDeployment to use `dpuDeviceSelector` along with `dpuNodeSelector`:
 
 ```bash
 # Apply the modified DPUDeployment (replace the existing one)

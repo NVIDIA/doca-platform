@@ -293,15 +293,25 @@ func (r *DPUSetReconciler) getDPUDeviceMap(ctx context.Context, dpuSet *provisio
 		return nil, fmt.Errorf("failed to list DPUNodes: %w", err)
 	}
 
-	// 2. Construct the selector from dpuSelector if it is specified
+	// 2. Construct the selector from dpuDeviceSelector (or deprecated dpuSelector) if it is specified
 	deviceSelector := labels.Everything()
-	for key, value := range dpuSet.Spec.DPUSelector {
-		req, err := labels.NewRequirement(key, selection.Equals, []string{value})
+	// Prefer the new field, but fall back to deprecated field for backward compatibility
+	if dpuSet.Spec.DPUDeviceSelector != nil {
+		var err error
+		deviceSelector, err = metav1.LabelSelectorAsSelector(dpuSet.Spec.DPUDeviceSelector)
 		if err != nil {
-			return nil, fmt.Errorf("invalid requirement for key %s: %w", key, err)
+			return nil, fmt.Errorf("invalid dpuDeviceSelector: %w", err)
 		}
-		// Add the requirement to the selector
-		deviceSelector = deviceSelector.Add(*req)
+	} else {
+		//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
+		for key, value := range dpuSet.Spec.DPUSelector {
+			req, err := labels.NewRequirement(key, selection.Equals, []string{value})
+			if err != nil {
+				return nil, fmt.Errorf("invalid requirement for key %s: %w", key, err)
+			}
+			// Add the requirement to the selector
+			deviceSelector = deviceSelector.Add(*req)
+		}
 	}
 
 	// 3. List DPUDevices based on the constructed label selector

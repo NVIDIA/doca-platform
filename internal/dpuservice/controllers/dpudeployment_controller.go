@@ -750,8 +750,6 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 			},
 		},
 		Spec: provisioningv1.DPUSetSpec{
-			DPUNodeSelector: dpuSetSettings.NodeSelector,
-			DPUSelector:     dpuSetSettings.DPUSelector,
 			Strategy: &provisioningv1.DPUSetStrategy{
 				// TODO: Update to OnDelete when this is implemented
 				Type: provisioningv1.RollingUpdateStrategyType,
@@ -766,6 +764,23 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 				},
 			},
 		},
+	}
+
+	// Set DPUNodeSelector and DPUDeviceSelector accordingly preferring the new field over the deprecated one
+	dpuSet.Spec.DPUNodeSelector = dpuSetSettings.DPUNodeSelector
+	if dpuSet.Spec.DPUNodeSelector == nil {
+		//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
+		dpuSet.Spec.DPUNodeSelector = dpuSetSettings.NodeSelector
+	}
+
+	dpuSet.Spec.DPUDeviceSelector = dpuSetSettings.DPUDeviceSelector
+	//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
+	if dpuSet.Spec.DPUDeviceSelector == nil && dpuSetSettings.DPUSelector != nil && len(dpuSetSettings.DPUSelector) > 0 {
+		// Convert deprecated map[string]string to *metav1.LabelSelector
+		//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
+		dpuSet.Spec.DPUDeviceSelector = &metav1.LabelSelector{
+			MatchLabels: dpuSetSettings.DPUSelector,
+		}
 	}
 
 	if dpuDeployment.Spec.DPUs.NodeEffect != nil {

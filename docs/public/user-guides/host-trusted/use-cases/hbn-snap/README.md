@@ -1279,7 +1279,7 @@ spec:
     - nameSuffix: "dpuset1"
       dpuAnnotations:
         storage.nvidia.com/preferred-dpu: "true"
-      nodeSelector:
+      dpuNodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
   services:
@@ -2227,7 +2227,7 @@ spec:
     - nameSuffix: "dpuset1"
       dpuAnnotations:
         storage.nvidia.com/preferred-dpu: "true"
-      nodeSelector:
+      dpuNodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
   services:

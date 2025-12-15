@@ -343,19 +343,21 @@ spec:
     # the DPUs that have the specified PCI address.
     dpuSets:
     - nameSuffix: "dpuset1"
-      nodeSelector:
+      dpuNodeSelector:
         matchLabels:
           datacenter.nvidia.com/rack: "b-100"
-      dpuSelector:
-        provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:0e:00.0"
+      dpuDeviceSelector:
+        matchLabels:
+          provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:0e:00.0"
     - nameSuffix: "dpuset2"
-      nodeSelector:
+      dpuNodeSelector:
         matchLabels:
           datacenter.nvidia.com/rack: "b-101"
-      dpuSelector:
-        provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:1a:00.0"
+      dpuDeviceSelector:
+        matchLabels:
+          provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:1a:00.0"
   # services reflects the `DPUServices` that should be deployed on those DPUs. For in-cluster `DPUServices` like the
-  # observer, the pods will be deployed on the host cluster and target the nodes that the DPUSet nodeSelectors target.
+  # observer, the pods will be deployed on the host cluster and target the nodes that the DPUSet dpuNodeSelectors target.
   # The key of this map is the service name and the value is referencing the respective `DPUServiceTemplate` and
   # `DPUServiceConfiguration` for each service.
   services:
@@ -429,17 +431,19 @@ spec:
     flavor: "producer-consumer"
     dpuSets:
     - nameSuffix: "dpuset1"
-      nodeSelector:
+      dpuNodeSelector:
         matchLabels:
           datacenter.nvidia.com/rack: "b-100"
-      dpuSelector:
-        provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:0e:00.0"
+      dpuDeviceSelector:
+        matchLabels:
+          provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:0e:00.0"
     - nameSuffix: "dpuset2"
-      nodeSelector:
+      dpuNodeSelector:
         matchLabels:
           datacenter.nvidia.com/rack: "b-101"
-      dpuSelector:
-        provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:1a:00.0"
+      dpuDeviceSelector:
+        matchLabels:
+          provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:1a:00.0"
     nodeEffect:
       taint:
         key: "dpu"
@@ -462,10 +466,9 @@ The following fields are available in the `spec.dpus`:
   by the `DPUDeployment`.
     * `nameSuffix`: A suffix to be added to the `DPUSet` name. This is a required
       field, as the `DPUSet` name must be unique and identifiable.
-    * `nodeSelector`: The selector of the DPUNodes to which the DPUs are attached
-      to. See more in [DPU Selection](./dpuset.md#dpu-selection). Note that this
-      field maps to the DPUSet field `dpuNodeSelector`.
-    * `dpuSelector`: The selector of the DPUDevices that are to be targeted. In
+    * `dpuNodeSelector`: The selector of the DPUNodes to which the DPUs are attached
+      to. See more in [DPU Selection](./dpuset.md#dpu-selection).
+    * `dpuDeviceSelector`: The selector of the DPUDevices that are to be targeted. In
       this example, the DPUs are selected based on their PCI address. See more in
       [DPU Selection](./dpuset.md#dpu-selection).
     * `dpuAnnotations`: The annotation to be applied on the DPU objects that are
@@ -589,7 +592,8 @@ At the moment, the following fields are available:
 
 ##### Template Delimiters
 
-By default, the system uses the standard Go template delimiters `{{` and `}}`. However, you can customize these delimiters using the `svc.dpu.nvidia.com/template-delimiter` annotation on your DPUServiceConfiguration:
+By default, the system uses the standard Go template delimiters `{{` and `}}`. However, you can customize these delimiters
+using the `svc.dpu.nvidia.com/template-delimiter` annotation on your DPUServiceConfiguration:
 
 ```yaml
 apiVersion: svc.dpu.nvidia.com/v1alpha1

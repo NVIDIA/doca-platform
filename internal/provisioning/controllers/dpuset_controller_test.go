@@ -333,8 +333,10 @@ var _ = Describe("DPUSet", func() {
 		It("DPUSet: should create single DPU - with dpuSelector", func() {
 			By("creating dpuset with dpuSelector")
 			obj := createDPUSet("obj-dpuset")
-			obj.Spec.DPUSelector = map[string]string{
-				cutil.DPUDevicePCIAddressLabel: DefaultPCIAddress,
+			obj.Spec.DPUDeviceSelector = &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					cutil.DPUDevicePCIAddressLabel: DefaultPCIAddress,
+				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(func() {
@@ -364,8 +366,10 @@ var _ = Describe("DPUSet", func() {
 			obj.Spec.DPUNodeSelector = &metav1.LabelSelector{
 				MatchLabels: map[string]string{"strong-node": "true"},
 			}
-			obj.Spec.DPUSelector = map[string]string{
-				cutil.DPUDevicePCIAddressLabel: DefaultPCIAddress,
+			obj.Spec.DPUDeviceSelector = &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					cutil.DPUDevicePCIAddressLabel: DefaultPCIAddress,
+				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(func() {
