@@ -97,10 +97,14 @@ func newObjectNodeSelectorWithOwner(key, value string, owner types.NamespacedNam
 func newInClusterNodeSelectorFromDPUSetSelector(versionKey string, versionValue string, dpuSets []dpuservicev1.DPUSet) *corev1.NodeSelector {
 	nodeSelectorTerms := []corev1.NodeSelectorTerm{}
 	for _, dpuSet := range dpuSets {
-		nodeSelector := dpuSet.NodeSelector
+		nodeSelector := dpuSet.DPUNodeSelector
+		if nodeSelector == nil {
+			//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
+			nodeSelector = dpuSet.NodeSelector
+		}
 
-		// If we can't find any nodeSelector in the DPUSets, it means that it targets all DPUNodes, therefore we return
-		// a nodeSelector that matches all nodes that have the correct DPUService version label.
+		// If we can't find any dpuNodeSelector or nodeSelector in the DPUSets, it means that it targets all DPUNodes,
+		// therefore we return a nodeSelector that matches all nodes that have the correct DPUService version label.
 		// TODO: Check for race conditions, what happens if a user has a DPUDeployment applied and:
 		// * Reduces the nodes that the DPUDeployment should handle
 		// * Increases the nodes that the DPUDeployment should handle
