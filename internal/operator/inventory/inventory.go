@@ -124,10 +124,7 @@ func New() *SystemComponents {
 			data:            provisioningControllerData,
 			bfbRegistryData: bfbRegistryData,
 		},
-		ServiceFunctionChainSet: &fromDPUService{
-			name: operatorv1.ServiceSetControllerName,
-			data: serviceChainSetData,
-		},
+		ServiceFunctionChainSet: newServiceChainSetControllerObjects(serviceChainSetData),
 		Multus: &fromDPUService{
 			name: operatorv1.MultusName,
 			data: multusData,
@@ -264,7 +261,7 @@ func (s *SystemComponents) setSRIOVDevicePlugin(input fromDPUService) *SystemCom
 	return s
 }
 
-func (s *SystemComponents) setServiceFunctionChainSet(input fromDPUService) *SystemComponents {
+func (s *SystemComponents) setServiceFunctionChainSet(input serviceChainSetControllerObjects) *SystemComponents {
 	s.ServiceFunctionChainSet = &input
 	return s
 }

@@ -1,9 +1,9 @@
-{{ if not .Values.forDPUCluster }}
+{{ if .Values.deployHostManifests }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: servicechainset-controller-manager
+  name: {{ include "servicechain.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/component: manager
@@ -35,16 +35,27 @@ spec:
             - matchExpressions:
               - key: node-role.kubernetes.io/control-plane
                 operator: Exists
+      {{- with .Values.volumes }}
       volumes:
-        {{- toYaml .Values.volumes | nindent 8 }}
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
       containers:
       - args: {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}
         command:
         - /servicechainset
+        {{- with .Values.volumeMounts }}
         volumeMounts:
-          {{- toYaml .Values.volumeMounts | nindent 10 }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
         env:
-          {{ toYaml .Values.env | nindent 10 }}
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        {{- with .Values.env }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
         image: {{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag
           | default .Chart.AppVersion }}
         livenessProbe:
@@ -67,13 +78,13 @@ spec:
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
       securityContext:
         runAsNonRoot: true
-      serviceAccountName: servicechainset-controller-manager
+      serviceAccountName: {{ include "servicechain.serviceAccountName" . }}
       terminationGracePeriodSeconds: 10
       tolerations:
-        - operator: Exists
-          effect: NoSchedule
-          key: node-role.kubernetes.io/control-plane
-        - operator: Exists
-          effect: NoSchedule
-          key: node-role.kubernetes.io/master
+      - operator: Exists
+        effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+      - operator: Exists
+        effect: NoSchedule
+        key: node-role.kubernetes.io/master
 {{ end }}

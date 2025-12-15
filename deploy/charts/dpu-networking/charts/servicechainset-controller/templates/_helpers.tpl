@@ -55,9 +55,5 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Create the name of the service account to use
 */}}
 {{- define "servicechain.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "servicechain.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
-{{- end }}
+{{- required "A service account name (.Values.controllerManager.serviceAccount.name) is required" .Values.controllerManager.serviceAccount.name }}
 {{- end }}

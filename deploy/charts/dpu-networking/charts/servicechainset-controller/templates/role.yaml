@@ -1,8 +1,9 @@
+{{ if .Values.deployDPUManifests }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: servicechainset-controller-manager
+  name: {{ include "servicechain.fullname" . }}
 rules:
 - apiGroups:
   - ""
@@ -97,3 +98,4 @@ rules:
   - get
   - patch
   - update
+{{- end }}
