@@ -675,11 +675,12 @@ spec:
     flavor: ovnk-$TAG
     dpuSets:
     - nameSuffix: "dpuset1"
-      nodeSelector:
+      dpuNodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
-      dpuSelector:
-        provisioning.dpu.nvidia.com/dpudevice-pf0-name: $DPU_P0
+      dpuDeviceSelector:
+        matchLabels:
+          provisioning.dpu.nvidia.com/dpudevice-pf0-name: $DPU_P0
   services:
     ovn:
       serviceTemplate: ovn
