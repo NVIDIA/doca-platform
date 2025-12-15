@@ -33,6 +33,11 @@ import (
 
 const ArgoApplicationFinalizer = "resources-finalizer.argocd.argoproj.io"
 
+// GetApplicationName returns the name of an ArgoCD Application for a given cluster and DPUService.
+func GetApplicationName(clusterName, dpuServiceName string) string {
+	return fmt.Sprintf("%v-%v", clusterName, dpuServiceName)
+}
+
 func NewAppProject(namespace, name string, clusters []types.NamespacedName) *argov1.AppProject {
 	project := argov1.AppProject{
 		TypeMeta: metav1.TypeMeta{
@@ -87,8 +92,8 @@ func NewApplication(namespace, projectName string, dpuService *dpuservicev1.DPUS
 			APIVersion: fmt.Sprintf("%v/%v", argoapplication.Group, argoapplication.Version),
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			// TODO: Revisit this naming.
-			Name:      fmt.Sprintf("%v-%v", clusterName, dpuService.Name),
+			// TODO: Revisit this naming to include the namespace of the cluster
+			Name:      GetApplicationName(clusterName, dpuService.Name),
 			Namespace: namespace,
 			// TODO: Consider adding labels for the Application.
 			Labels: map[string]string{
