@@ -36,14 +36,14 @@ Depending on the storage type you want to deploy, you need to ensure that the fo
 * An remote SPDK target should be set up to provide persistent storage for SNAP Block Storage.
 * The SPDK target should be reachable from the DPUs.
 * The management interface of the SPDK target should be reachable from the control plane nodes.
-* Make sure to check [Host OS Configuration Section in SNAP service documentation](https://docs.nvidia.com/doca/sdk/snap-4+service+appendixes/index.html#src-4198714790_id-.SNAP4ServiceAppendixesv3.1.0-HostOSConfiguration) to validate the host OS configuration on the worker nodes.
+* Make sure to check [Host OS Configuration Section in SNAP service documentation](https://docs.nvidia.com/doca/sdk/snap-4-service-appendixes/index.html#src-4464939880_id-.SNAP4ServiceAppendixesv3.2.0LC-HostOSConfiguration) to validate the host OS configuration on the worker nodes.
 
 ### SNAP VirtioFS Prerequisites
 
 * An external NFS server is required to provide persistent storage for SNAP VirtioFS.
 * The NFS server must be reachable by both the SNAP DPU service and the nvidia-fs DPU plugin. 
 * The NFS service must also be accessible from the DPF control plane nodes to ensure proper operation.
-* Make sure to check [Host OS Configuration Section in SNAP VirtioFS service documentation](https://docs.nvidia.com/doca/sdk/doca+snap+virtio-fs+service+guide/index.html#src-4047362372_safe-id-aWQtLkRPQ0FTTkFQVmlydGlvZnNTZXJ2aWNlR3VpZGV2My4xLjAtQXBwZW5kaXjigJNIb3N0T1NDb25maWd1cmF0aW9uQXBwZW5kaXjigJNIb3N0T1NDb25maWd1cmF0aW9u) to validate the host OS configuration on the worker nodes.
+* Make sure to check [Host OS Configuration Section in SNAP VirtioFS service documentation](https://docs.nvidia.com/doca/sdk/doca-snap-virtio-fs-service-guide/index.html#src-4413882927_safe-id-aWQtLkRPQ0FTTkFQVmlydGlvZnNTZXJ2aWNlR3VpZGV2My4yLjBMQy1BcHBlbmRpeOKAk0hvc3RPU0NvbmZpZ3VyYXRpb25BcHBlbmRpeOKAk0hvc3RPU0NvbmZpZ3VyYXRpb24) to validate the host OS configuration on the worker nodes.
 
 ### Software Prerequisites
 
@@ -104,7 +104,7 @@ export REGISTRY=https://helm.ngc.nvidia.com/nvidia/doca
 export TAG=v25.10.0
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
-export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.1.0-76_25.07_ubuntu-22.04_prod.bfb"
+export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb"
 
 ## IP_RANGE_START and IP_RANGE_END
 ## These define the IP range for DPU discovery via Redfish/BMC interfaces
@@ -251,7 +251,7 @@ cat manifests/02-dpf-system-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will create the following objects:
-<details markdown="1"><summary>DPF Operator to install the DPF System components</summary>
+<details markdown="1"><summary>DPFOperatorConfig to install the DPF System components</summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/operatorconfig.yaml)
 ```yaml
@@ -334,6 +334,8 @@ Verify the DPF System with:
 kubectl rollout status deployment --namespace dpf-operator-system dpf-provisioning-controller-manager dpuservice-controller-manager
 ## Ensure all other deployments in the DPF Operator system are Available.
 kubectl rollout status deployment --namespace dpf-operator-system
+## Ensure bfb registry daemonset is available
+kubectl rollout status daemonset --namespace dpf-operator-system bfb-registry
 ## Ensure the DPUCluster is ready for nodes to join.
 kubectl wait --for=condition=ready --namespace dpu-cplane-tenant1 dpucluster --all
 ```
@@ -764,12 +766,12 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: 1.0.3
+      version: 1.0.5
       chart: doca-hbn
     values:
       image:
         repository: $HBN_NGC_IMAGE_URL
-        tag: 3.1.0-doca3.1.0
+        tag: 3.2.1-doca3.2.1
       resources:
         memory: 6Gi
         nvidia.com/bf_sf: 5
@@ -2081,12 +2083,12 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: 1.0.3
+      version: 1.0.5
       chart: doca-hbn
     values:
       image:
         repository: $HBN_NGC_IMAGE_URL
-        tag: 3.1.0-doca3.1.0
+        tag: 3.2.1-doca3.2.1
       resources:
         memory: 6Gi
         nvidia.com/bf_sf: 5
