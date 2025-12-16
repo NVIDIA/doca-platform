@@ -25,7 +25,7 @@ The system is set up as described in the [system prerequisites](../../prerequisi
 * A remote SPDK target should be set up to provide persistent storage for SNAP Block Storage
 * The SPDK target should be reachable from the DPUs
 * The management interface of the SPDK target should be reachable from the control plane nodes
-* Make sure to check [Host OS Configuration Section in SNAP service documentation](https://docs.nvidia.com/doca/sdk/snap-4+service+appendixes/index.html#src-4198714790_id-.SNAP4ServiceAppendixesv3.1.0-HostOSConfiguration) to validate the host OS configuration on the worker nodes
+* Make sure to check [Host OS Configuration Section in SNAP service documentation](https://docs.nvidia.com/doca/sdk/snap-4-service-appendixes/index.html#src-4464939880_id-.SNAP4ServiceAppendixesv3.2.0LC-HostOSConfiguration) to validate the host OS configuration on the worker nodes
 
 ### Software Prerequisites
 
@@ -147,10 +147,10 @@ export SERVICE_CIDR=10.233.0.0/18
 export REGISTRY=https://helm.ngc.nvidia.com/nvidia/doca
 
 ## The DPF TAG is the version of the DPF components which will be deployed in this guide.
-export TAG=v25.7.0
+export TAG=v25.10.0
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
-export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.1.0-76_25.07_ubuntu-22.04_prod.bfb"
+export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb"
 ```
 </details>
 
@@ -324,7 +324,7 @@ cat manifests/03-dpf-system-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will create the following objects:
-<details markdown="1"><summary>DPF Operator to install the DPF System components</summary>
+<details markdown="1"><summary>DPFOperatorConfig to install the DPF System components</summary>
 
 [embedmd]:#(manifests/03-dpf-system-installation/operatorconfig.yaml)
 ```yaml
@@ -966,12 +966,12 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: 1.0.3
+      version: 1.0.5
       chart: doca-hbn
     values:
       image:
         repository: $HBN_NGC_IMAGE_URL
-        tag: 3.1.0-doca3.1.0
+        tag: 3.2.1-doca3.2.1
       resources:
         memory: 6Gi
         nvidia.com/bf_sf: 4

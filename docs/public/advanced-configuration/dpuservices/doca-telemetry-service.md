@@ -116,7 +116,7 @@ The following subsections explain each user option groups
 
 ### Providers:
 
-Available data providers are listed here: [DTS providers](https://docs.nvidia.com/doca/sdk/doca+telemetry+service+guide/index.html#src-3879575060_id-.DOCATelemetryServiceGuidev3.1.0-Providers).
+Available data providers are listed here: [DTS providers](https://docs.nvidia.com/doca/sdk/doca-telemetry-service-guide/index.html#src-4420192989_id-.DOCATelemetryServiceGuidev3.2.0LC-Providers).
 
 Note: some of the providers are supported only on host and not on DPU.
 
@@ -143,7 +143,7 @@ To set the these options in DPUService.yaml specify them in `key: value` pairs u
 
 For instance, DPU service exposes essential general options:
 
-* [Sampling interval options](https://docs.nvidia.com/doca/sdk/doca+telemetry+service+guide/index.html#src-3879575060_id-.DOCATelemetryServiceGuidev3.1.0-SamplingInterval):
+* [Sampling interval options](https://docs.nvidia.com/doca/sdk/doca-telemetry-service-guide/index.html#src-4420192989_id-.DOCATelemetryServiceGuidev3.2.0LC-SamplingInterval):
   * `update: 1000` to set the sample interval in milliseconds.
   * `sync-time-limit: 10000` buffer rotation time limit in seconds.
 

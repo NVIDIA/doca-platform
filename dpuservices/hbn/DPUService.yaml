@@ -19,7 +19,7 @@ spec:
   helmChart:
     source:
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.0.1
+      version: 1.0.5
       chart: doca-hbn
     values:
       resources:

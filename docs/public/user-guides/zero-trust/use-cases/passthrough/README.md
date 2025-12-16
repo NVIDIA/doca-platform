@@ -63,10 +63,10 @@ export NFS_SERVER_IP=
 export REGISTRY=https://helm.ngc.nvidia.com/nvidia/doca
 
 ## The DPF TAG is the version of the DPF components which will be deployed in this guide.
-export TAG=v25.7.0
+export TAG=v25.10.0
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
-export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.1.0-76_25.07_ubuntu-22.04_prod.bfb"
+export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb"
 
 ## IP_RANGE_START and IP_RANGE_END
 ## These define the IP range for DPU discovery via Redfish/BMC interfaces
@@ -210,7 +210,7 @@ cat manifests/02-dpf-system-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will create the following objects:
-<details markdown="1"><summary>DPF Operator to install the DPF System components</summary>
+<details markdown="1"><summary>DPFOperatorConfig to install the DPF System components</summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/operatorconfig.yaml)
 ```yaml
@@ -293,6 +293,8 @@ Verify the DPF System with:
 kubectl rollout status deployment --namespace dpf-operator-system dpf-provisioning-controller-manager dpuservice-controller-manager
 ## Ensure all other deployments in the DPF Operator system are Available.
 kubectl rollout status deployment --namespace dpf-operator-system
+## Ensure bfb registry daemonset is available
+kubectl rollout status daemonset --namespace dpf-operator-system bfb-registry
 ## Ensure the DPUCluster is ready for nodes to join.
 kubectl wait --for=condition=ready --namespace dpu-cplane-tenant1 dpucluster --all
 ```
@@ -586,7 +588,7 @@ DPFOperatorConfig/dpfoperatorconfig             dpf-operator-system  Ready: True
 │ └─4 DPUServiceInterfaces...                   dpf-operator-system  Ready: True  Success        78m    See p0, p1, pf0hpf, pf1hpf
 └─DPUSets
   └─DPUSet/passthrough                          dpf-operator-system
-    ├─BFB/bf-bundle                             dpf-operator-system  Ready: True  Ready          78m    File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
+    ├─BFB/bf-bundle                             dpf-operator-system  Ready: True  Ready          78m    File: bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb, DOCA: 3.2.1
     └─DPUs
       ├─DPU/dpu-node-mt2402xz0f6v-mt2402xz0f6v  dpf-operator-system
       │             └─Ready                                          False        OS Installing  1s
@@ -624,7 +626,7 @@ DPFOperatorConfig/dpfoperatorconfig             dpf-operator-system
 │ └─4 DPUServiceInterfaces...                   dpf-operator-system  Ready: True  Success                             34m    See p0, p1, pf0hpf, pf1hpf
 └─DPUSets
   └─DPUSet/passthrough                          dpf-operator-system
-    ├─BFB/bf-bundle                             dpf-operator-system  Ready: True  Ready                               34m    File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
+    ├─BFB/bf-bundle                             dpf-operator-system  Ready: True  Ready                               34m    File: bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb, DOCA: 3.2.1
     └─DPUs
       ├─DPU/dpu-node-mt2402xz0f6v-mt2402xz0f6v  dpf-operator-system
       │             ├─Rebooted                                       False        WaitingForManualPowerCycleOrReboot  12m
@@ -660,7 +662,7 @@ DPFOperatorConfig/dpfoperatorconfig  dpf-operator-system  Ready: True  Success  
 │ └─4 DPUServiceInterfaces...        dpf-operator-system  Ready: True  Success   54m    See p0, p1, pf0hpf, pf1hpf
 └─DPUSets
   └─DPUSet/passthrough               dpf-operator-system
-    ├─BFB/bf-bundle                  dpf-operator-system  Ready: True  Ready     54m    File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
+    ├─BFB/bf-bundle                  dpf-operator-system  Ready: True  Ready     54m    File: bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb, DOCA: 3.2.1
     └─DPUs
       └─2 DPUs...                    dpf-operator-system  Ready: True  DPUReady  2m33s  See dpu-node-mt2402xz0f6v-mt2402xz0f6v, dpu-node-mt2404xz0c98-mt2404xz0c98
 ```

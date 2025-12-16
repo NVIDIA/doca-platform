@@ -97,7 +97,7 @@ type NVConfig struct {
 	Parameters []string `json:"parameters,omitempty"`
 	// HostPowerCycleRequired indicates if the host needs to be power cycled after applying the configuration.
 	//
-	// Deprecated: This field is unused and deprecated. It will be removed with the release v26.1.0.
+	// Deprecated: This field is unused and deprecated. It will be removed with the release v26.4.0.
 	// +optional
 	HostPowerCycleRequired *bool `json:"hostPowerCycleRequired,omitempty"`
 }
