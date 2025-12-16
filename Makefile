@@ -947,9 +947,9 @@ binary-dpfdev: ## Build the dpfdev CLI tool
 		-gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/dpfdev main.go
 
 DOCKER_BUILD_TARGETS=$(HOST_ARCH_DOCKER_BUILD_TARGETS) $(DPU_ARCH_DOCKER_BUILD_TARGETS) $(MULTI_ARCH_DOCKER_BUILD_TARGETS)
-HOST_ARCH_DOCKER_BUILD_TARGETS=hostdriver bfb-registry
+HOST_ARCH_DOCKER_BUILD_TARGETS=hostdriver
 DPU_ARCH_DOCKER_BUILD_TARGETS=$(DPU_ARCH_BUILD_TARGETS) ovs-cni cni-installer
-MULTI_ARCH_DOCKER_BUILD_TARGETS= dpf-system ovn-kubernetes storage-system storage-host
+MULTI_ARCH_DOCKER_BUILD_TARGETS= dpf-system ovn-kubernetes storage-system storage-host bfb-registry
 
 .PHONY: binary-hostagent
 binary-hostagent: ## Build the hostagent binary.
@@ -1334,7 +1334,7 @@ docker-create-manifest-for-storage-host:
 	docker manifest create --amend $(STORAGE_HOST_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(STORAGE_HOST_IMAGE):$(TAG))
 
 .PHONY: docker-build-bfb-registry # Build a multi-arch image for BFB Registry. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
-docker-build-bfb-registry: $(addprefix docker-build-bfb-registry-for-,$(HOST_ARCH))
+docker-build-bfb-registry: $(addprefix docker-build-bfb-registry-for-,$(DPF_SYSTEM_ARCH))
 
 docker-build-bfb-registry-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
@@ -1375,7 +1375,7 @@ docker-build-cni-installer: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker
 		-t $(CNIINSTALLER_IMAGE):$(TAG)
 
 .PHONY: docker-push-bfb-registry # Push a multi-arch image for BFB Registry using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
-docker-push-bfb-registry: $(addprefix docker-push-bfb-registry-for-,$(HOST_ARCH))
+docker-push-bfb-registry: $(addprefix docker-push-bfb-registry-for-,$(DPF_SYSTEM_ARCH))
 	docker manifest push --purge $(BFB_REGISTRY_IMAGE):$(TAG)
 
 docker-push-bfb-registry-for-%:
