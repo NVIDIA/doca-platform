@@ -1,0 +1,5 @@
+FROM scratch
+
+ARG BFB_FILENAME
+
+COPY --from=artifacts ${BFB_FILENAME} /bfb/
