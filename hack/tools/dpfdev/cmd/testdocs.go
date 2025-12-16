@@ -38,6 +38,7 @@ var (
 	verbose         bool
 	junitOutput     string
 	printScript     bool
+	filterTags      []string
 )
 
 // commandRunner defines the interface for executing commands
@@ -176,6 +177,7 @@ func init() {
 	testdocsCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show output for all commands")
 	testdocsCmd.Flags().StringVarP(&junitOutput, "junit", "x", "", "Path to output JUnit XML report file")
 	testdocsCmd.Flags().BoolVar(&printScript, "print-script", false, "Print all commands as a script without executing them")
+	testdocsCmd.Flags().StringSliceVar(&filterTags, "tags", []string{}, "Execute code blocks with specified tags (e.g., 'oci', 'http', 'dev'). Blocks without tags always execute")
 
 	// Mark file flag as required
 	_ = testdocsCmd.MarkFlagRequired("file")
@@ -227,41 +229,101 @@ func extractCommands(content string) []commandInfo {
 
 // codeBlock represents a code block found in markdown
 type codeBlock struct {
-	Content    string // The content of the code block
-	LineNumber int    // The line number where the code block starts
+	Content    string   // The content of the code block
+	LineNumber int      // The line number where the code block starts
+	Tags       []string // Custom tags for the code block (e.g., "oci", "http", "no-exec")
+}
+
+// shouldSkipBlock determines if a code block should be skipped based on the
+// header line and configured tags filter.
+// Parses tags from header (e.g., "```bash oci dev" -> ["oci", "dev"]) and returns:
+//   - false if block has no tags (untagged blocks always execute)
+//   - false if block has tags AND at least one matches allowedTags
+//   - true otherwise (skip the block)
+func shouldSkipBlock(headerLine string, allowedTags []string) (bool, []string) {
+	// Extract tags from header line
+	parts := strings.Fields(headerLine)
+	var blockTags []string
+	if len(parts) > 1 {
+		// First part is the language (e.g., "```bash"), rest are tags
+		blockTags = parts[1:]
+	}
+
+	// Blocks without tags always execute (don't skip)
+	if len(blockTags) == 0 {
+		return false, nil
+	}
+
+	// If no filter is specified, skip tagged blocks
+	if len(allowedTags) == 0 {
+		return true, blockTags
+	}
+
+	// Check if any block tag matches any allowed tag
+	for _, blockTag := range blockTags {
+		for _, allowedTag := range allowedTags {
+			if blockTag == allowedTag {
+				return false, blockTags // Don't skip - tag matches
+			}
+		}
+	}
+
+	return true, blockTags // Skip - no matching tags
 }
 
 // extractCodeBlocks finds all bash/shell code blocks in markdown content
-// and returns them along with their starting line numbers
+// and returns them along with their starting line numbers.
+// It filters blocks based on their tags and the allowCustomBlocks configuration.
 func extractCodeBlocks(content string) []codeBlock {
 	var codeBlocks []codeBlock
 
 	lines := strings.Split(content, "\n")
-	inCodeBlock := false
-	currentBlock := codeBlock{}
-	blockContent := []string{}
+	var (
+		inCodeBlock  bool
+		currentBlock codeBlock
+		blockContent []string
+		skipBlock    bool
+	)
 
 	for i, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
 
 		if !inCodeBlock {
 			// Check if we're entering a code block
-			if trimmedLine == "```bash" ||
-				trimmedLine == "```shell" ||
-				trimmedLine == "```sh" {
+			if strings.HasPrefix(trimmedLine, "```bash") ||
+				strings.HasPrefix(trimmedLine, "```shell") ||
+				strings.HasPrefix(trimmedLine, "```sh") {
+
 				inCodeBlock = true
-				currentBlock.LineNumber = i + 2 // +1 for 0-index to 1-index, +1 to skip the opening ```
 				blockContent = []string{}
+
+				// Determine if block should be skipped and extract tags
+				var blockTags []string
+				skipBlock, blockTags = shouldSkipBlock(trimmedLine, filterTags)
+
+				currentBlock = codeBlock{
+					LineNumber: i + 2, // +1 for 0-index to 1-index, +1 to skip the opening ```
+					Tags:       blockTags,
+				}
 			}
 		} else {
 			// Check if we're exiting a code block
 			if trimmedLine == "```" {
 				inCodeBlock = false
-				currentBlock.Content = strings.Join(blockContent, "\n")
-				codeBlocks = append(codeBlocks, currentBlock)
+
+				// Only add the block if it should be included
+				if !skipBlock {
+					currentBlock.Content = strings.Join(blockContent, "\n")
+					codeBlocks = append(codeBlocks, currentBlock)
+				}
+
+				// Reset for next block
+				skipBlock = false
 			} else {
-				// Add line to current block
-				blockContent = append(blockContent, line)
+				// Add line to current block (only if not skipping)
+				if !skipBlock {
+					blockContent = append(blockContent, line)
+				}
 			}
 		}
 	}

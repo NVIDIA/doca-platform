@@ -21,6 +21,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestProcessMarkdownFile(t *testing.T) {
@@ -91,36 +93,157 @@ func TestExtractCommandsFromFile(t *testing.T) {
 		t.Fatalf("Failed to read test file: %v", err)
 	}
 
-	// Extract commands
-	commands := extractCommands(string(content))
+	g := NewWithT(t)
 
-	// Verify some expected commands are present
-	expectedCommands := map[string]bool{
-		`echo "Hello World"`: true,
-		`ls -la`:             true,
-		`export TEST_VAR="Hello from environment"`: true,
-		`echo $TEST_VAR`:                    true,
-		`: ${TEST_VAR:?env not set}`:        true,
-		`invalid-command-that-doesnt-exist`: true,
-		`echo "Testing multiple commands"`:  true,
-		`pwd`:                               true,
-		`whoami`:                            true,
-		`echo "Command in the middle"`:      true,
-		`echo "This is a bash block"`:       true,
-		`echo "This is a shell block"`:      true,
-		`echo "This is a sh block"`:         true,
-	}
+	t.Run("no filter - extract all untagged commands only", func(t *testing.T) {
+		filterTags = []string{}
+		commands := extractCommands(string(content))
 
-	// Check if all expected commands are found
-	for _, cmd := range commands {
-		if _, ok := expectedCommands[cmd.command]; !ok {
-			t.Errorf("unexpected command in output: %v", cmd.command)
+		// Should include all untagged commands
+		mustInclude := map[string]bool{
+			`echo "Hello World"`: true,
+			`ls -la`:             true,
+			`export TEST_VAR="Hello from environment"`: true,
+			`echo $TEST_VAR`:                    true,
+			`: ${TEST_VAR:?env not set}`:        true,
+			`invalid-command-that-doesnt-exist`: true,
+			`echo "Testing multiple commands"`:  true,
+			`pwd`:                               true,
+			`whoami`:                            true,
+			`echo "Command in the middle"`:      true,
+			`echo "This is a bash block"`:       true,
+			`echo "This is a shell block"`:      true,
+			`echo "This is a sh block"`:         true,
+			`echo "always executes"`:            true,
 		}
-		delete(expectedCommands, cmd.command)
+
+		// Should NOT include tagged commands
+		mustNotInclude := map[string]bool{
+			`echo "only with oci tag"`:     true,
+			`echo "only with http tag"`:    true,
+			`echo "with dev or test tags"`: true,
+		}
+
+		for _, cmd := range commands {
+			delete(mustInclude, cmd.command)
+			if _, shouldBeExcluded := mustNotInclude[cmd.command]; shouldBeExcluded {
+				t.Errorf("command should be excluded without filter: %v", cmd.command)
+			}
+		}
+
+		if len(mustInclude) > 0 {
+			t.Errorf("Some expected commands were not found: %v", mustInclude)
+		}
+	})
+
+	t.Run("with oci filter - includes untagged and oci-tagged, excludes others", func(t *testing.T) {
+		filterTags = []string{"oci"}
+		commands := extractCommands(string(content))
+
+		// Should include untagged commands
+		mustInclude := map[string]bool{
+			`echo "always executes"`:   true,
+			`echo "only with oci tag"`: true,
+		}
+
+		// Should NOT include other tagged commands
+		mustNotInclude := map[string]bool{
+			`echo "only with http tag"`:    true,
+			`echo "with dev or test tags"`: true,
+		}
+
+		for _, cmd := range commands {
+			delete(mustInclude, cmd.command)
+			if _, shouldBeExcluded := mustNotInclude[cmd.command]; shouldBeExcluded {
+				t.Errorf("command should be excluded with oci filter: %v", cmd.command)
+			}
+		}
+
+		g.Expect(mustInclude).To(BeEmpty(), "should include untagged and oci-tagged commands")
+	})
+}
+
+func TestShouldSkipBlock(t *testing.T) {
+	g := NewWithT(t)
+
+	tests := []struct {
+		name         string
+		headerLine   string
+		allowedTags  []string
+		expectSkip   bool
+		expectedTags []string
+	}{
+		{
+			name:         "untagged block no filter",
+			headerLine:   "```bash",
+			allowedTags:  []string{},
+			expectSkip:   false,
+			expectedTags: nil,
+		},
+		{
+			name:         "untagged block with filter",
+			headerLine:   "```shell",
+			allowedTags:  []string{"oci"},
+			expectSkip:   false,
+			expectedTags: nil,
+		},
+		{
+			name:         "tagged block no filter - skip",
+			headerLine:   "```bash oci",
+			allowedTags:  []string{},
+			expectSkip:   true,
+			expectedTags: []string{"oci"},
+		},
+		{
+			name:         "tagged block matching filter - don't skip",
+			headerLine:   "```shell oci",
+			allowedTags:  []string{"oci"},
+			expectSkip:   false,
+			expectedTags: []string{"oci"},
+		},
+		{
+			name:         "tagged block non-matching filter - skip",
+			headerLine:   "```bash oci",
+			allowedTags:  []string{"http"},
+			expectSkip:   true,
+			expectedTags: []string{"oci"},
+		},
+		{
+			name:         "multiple tags one matches - don't skip",
+			headerLine:   "```bash oci dev",
+			allowedTags:  []string{"oci"},
+			expectSkip:   false,
+			expectedTags: []string{"oci", "dev"},
+		},
+		{
+			name:         "multiple tags other matches - don't skip",
+			headerLine:   "```shell oci dev",
+			allowedTags:  []string{"dev"},
+			expectSkip:   false,
+			expectedTags: []string{"oci", "dev"},
+		},
+		{
+			name:         "multiple tags none match - skip",
+			headerLine:   "```bash oci dev",
+			allowedTags:  []string{"http", "prod"},
+			expectSkip:   true,
+			expectedTags: []string{"oci", "dev"},
+		},
+		{
+			name:         "multiple allowed tags with match - don't skip",
+			headerLine:   "```shell oci",
+			allowedTags:  []string{"http", "oci"},
+			expectSkip:   false,
+			expectedTags: []string{"oci"},
+		},
 	}
 
-	if len(expectedCommands) > 0 {
-		t.Errorf("Some expected commands were not found: %v", expectedCommands)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			skip, tags := shouldSkipBlock(tt.headerLine, tt.allowedTags)
+			g.Expect(skip).To(Equal(tt.expectSkip))
+			g.Expect(tags).To(Equal(tt.expectedTags))
+		})
 	}
 }
 
