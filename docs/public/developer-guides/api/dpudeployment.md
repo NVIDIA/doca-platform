@@ -997,7 +997,7 @@ DPFOperatorConfig/dpfoperatorconfig    dpf-operator-system  Ready: True  Success
     │ └─DPUServiceChain/vpc-ovn-trsq6  dpf-operator-system  Ready: True  Success   28h
     ├─DPUSets
     │ └─DPUSet/vpc-ovn-dpuset1         dpf-operator-system
-    │   ├─BFB/bf-bundle                dpf-operator-system  Ready: True  Ready     3d23h  File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
+    │   ├─BFB/bf-bundle                dpf-operator-system  Ready: True  Ready     3d23h  File: bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb, DOCA: 3.2.1
     │   └─DPUs
     │     └─4 DPUs...                  dpf-operator-system  Ready: True  DPUReady  3d22h  See dpu-node-mt2310xz03lr-mt2310xz03lr, dpu-node-mt2310xz03m2-mt2310xz03m2,
     │                                                                                     dpu-node-mt2425601x13-mt2425601x13, dpu-node-mt2425601xqy-mt2425601xqy

@@ -13,7 +13,7 @@ The DOCA VPC OVN Service provides accelerated Virtual Private Cloud (VPC) networ
 
 ### Key Features
 
-* **Multi-tenant Network Isolation**: Create isolated VPCs for different tenants with guaranteed network separation
+* **Multi-tenant Network Isolation**: Create isolated VPCs for different tenants with guaranteed network separationSingle VPC with a single DPUVirtualNetwork and a DPUServiceInterface targeting all DPU Nodes
 * **Virtual Network Management**: Support the creation of virtual networks with DHCP and custom IP addressing
 * **External Connectivity**: Configurable external routing with NAT/masquerading capabilities
 * **Hardware Acceleration**: Leverages DPU hardware acceleration for high-performance networking
@@ -278,18 +278,18 @@ Please follow the [OVN VPC deployment guide](../../../user-guides/zero-trust/use
 ## OVN VPC Network Features
 
 1. **Intra-VPC Communication**:
-   * Traffic between virtual networks within the same VPC is controlled by the `spec.interNetworkAccess` setting in DPUVPC.
-   * When enabled, routing is handled by OVN logical routers.
-   * When disabled, networks are completely isolated.
+     * Traffic between virtual networks within the same VPC is controlled by the `spec.interNetworkAccess` setting in DPUVPC.
+     * When enabled, routing is handled by OVN logical routers.
+     * When disabled, networks are completely isolated.
 
 2. **External Connectivity**:
-   * Virtual networks with `spec.externallyRouted: true` can reach external networks.
-   * Outbound traffic is masqueraded by default unless `spec.masquerade: false`.
+     * Virtual networks with `spec.externallyRouted: true` can reach external networks.
+     * Outbound traffic is masqueraded by default unless `spec.masquerade: false`.
 
 3. **DHCP Services**:
-   * Each virtual network with `spec.bridgedNetwork.ipam.ipv4.dhcp: true` gets an OVN DHCP server.
-   * The first IP in the subnet becomes the gateway.
-   * IP exclusions are supported for static assignments.
+     * Each virtual network with `spec.bridgedNetwork.ipam.ipv4.dhcp: true` gets an OVN DHCP server.
+     * The first IP in the subnet becomes the gateway.
+     * IP exclusions are supported for static assignments.
 
 ## VPC Network Topology Examples
 
@@ -305,6 +305,7 @@ After applying each example, check the [status of the resources](#resource-statu
 This basic example allows hosts to communicate with each other (E/W) and to communicate with the external network behind NAT in an isolated manner (e.g., in case the network infrastructure is shared with additional nodes).
 
 The topology consists of:
+
 1. A DPUVPC: `testvpc`
 2. A DPUVirtualNetwork: `testnet1`
 3. A DPUServiceInterface of type `VF` targeting VF ID `2`: `testnet1-vf2`
@@ -366,6 +367,7 @@ spec:
 This example associates different DPU nodes with different DPUVirtualNetworks within the same VPC.
 
 The topology consists of:
+
 1. A DPUVPC: `testvpc`
 2. Two DPUVirtualNetworks: `testnet1`, `testnet2`
 3. Two DPUServiceInterfaces targeting different DPU nodes by label: `testnet1-vf2`, `testnet2-vf2`
@@ -473,6 +475,7 @@ spec:
 This example associates two VPCs with different subsets of nodes. Each VPC has a single DPUVirtualNetwork. Each DPUVirtualNetwork is associated with a single DPUServiceInterface. This example corresponds to a multi-tenant environment where different sets of nodes belong to different tenants (VPCs).
 
 The topology consists of:
+
 1. Two DPUVPCs: `redvpc`, `bluevpc`
 2. Two DPUVirtualNetworks: `rednet`, `bluenet`
 3. Two DPUServiceInterfaces: `rednet-vf2`, `bluenet-vf2`
@@ -837,8 +840,8 @@ DPFOperatorConfig/dpfoperatorconfig                      dpf-operator-system
 
 #### Problems
 
-- ServiceInterfaces attached to different VirtualNetworks within the same VPC cannot reach each other.
-- ServiceInterfaces trying to reach the external network do not use the VPC interface.
+* ServiceInterfaces attached to different VirtualNetworks within the same VPC cannot reach each other.
+* ServiceInterfaces trying to reach the external network do not use the VPC interface.
 
 In both cases traffic egresses via the primary cluster network instead of the VPC gateway.
 
@@ -856,24 +859,24 @@ Prefer the VPC default route. The VPC route cannot set a metric and defaults to 
 
 Connect to the worker and check default routes:
 
-  ```sh
-  ip route show
+```sh
+ip route show
 
-  default via 10.100.0.1 dev enp202s0f0np0 # VPC related interface
-  default via 10.0.110.254 dev eno1 proto static metric 100 # The host's cluster network interface
-  10.0.110.0/24 dev eno1 proto kernel scope link src 10.0.110.31
-  10.100.0.0/16 dev enp202s0f0np0 proto kernel scope link src 10.100.0.2
-  ```
+default via 10.100.0.1 dev enp202s0f0np0 # VPC related interface
+default via 10.0.110.254 dev eno1 proto static metric 100 # The host's cluster network interface
+10.0.110.0/24 dev eno1 proto kernel scope link src 10.0.110.31
+10.100.0.0/16 dev enp202s0f0np0 proto kernel scope link src 10.100.0.2
+```
 
-  Ensure the VPC default route has default metric value 0 and the primary default route has a higher metric (e.g., 100).
+Ensure the VPC default route has default metric value 0 and the primary default route has a higher metric (e.g., 100).
 
 #### Verify
 
 Verify you have the VPC default route with higher priority as described in the Fix.
 
-  * ServiceInterfaces on different VirtualNetworks within the same VPC can reach each other.
-  * ServiceInterfaces targeting the external network use the VPC interface as their default route.
-  * Traffic uses the VPC gateway (e.g., traceroute shows the VPC gateway as the first hop).
+* ServiceInterfaces on different VirtualNetworks within the same VPC can reach each other.
+* ServiceInterfaces targeting the external network use the VPC interface as their default route.
+* Traffic uses the VPC gateway (e.g., traceroute shows the VPC gateway as the first hop).
 
 ### Common Issues
 
