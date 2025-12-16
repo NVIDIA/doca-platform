@@ -19,6 +19,8 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -65,8 +67,16 @@ func collectSOSReports(ctx context.Context, input collectResourcesInput, dpuClie
 		return err
 	}
 
-	runOnClusterNodes(ctx, input.testClient, &wg, "host", hostKubeconfigData)
-	runOnClusterNodes(ctx, dpuClient, &wg, "dpu", dpuKubeconfigData)
+	// Get NFS details for sosreport output
+	nfsServer, nfsPath, err := getNFSDetails("/workspace")
+	if err != nil {
+		GinkgoLogr.Error(err, "Failed to get NFS details, skipping SOS report collection")
+		return err
+	}
+	By(fmt.Sprintf("Using NFS server %s with path %s for SOS output", nfsServer, nfsPath))
+
+	runOnClusterNodes(ctx, input.testClient, &wg, "host", hostKubeconfigData, nfsServer, nfsPath)
+	runOnClusterNodes(ctx, dpuClient, &wg, "dpu", dpuKubeconfigData, nfsServer, nfsPath)
 
 	// Wait for all jobs to finish (with a timeout)
 	done := make(chan struct{})
@@ -85,12 +95,15 @@ func collectSOSReports(ctx context.Context, input collectResourcesInput, dpuClie
 }
 
 // runSOSJob creates and monitors a Kubernetes Job to run sos report on a specific node.
-func runSOSJob(ctx context.Context, c client.Client, nodeName string, kubeconfigData []byte) {
+// Output is written to NFS at nfsServer:nfsPath.
+func runSOSJob(ctx context.Context, c client.Client, nodeName string, kubeconfigData []byte, nfsServer, nfsPath string) {
 	jobName := fmt.Sprintf("sos-report-job-%s", nodeName)
 	namespace := "default"
 	secretName := "admin-config"
 	caseID := fmt.Sprintf("dpf-%s", time.Now().Format("150405"))
-	By(fmt.Sprintf("Running SOS report Job on node %s with caseID %s", nodeName, caseID))
+	nfsOutputDir := "/sos-output"
+
+	By(fmt.Sprintf("Running SOS report Job on node %s with caseID %s (NFS output: %s:%s)", nodeName, caseID, nfsServer, nfsPath))
 
 	// Ensure admin-config secret exists for the pod to mount
 	if err := createKubeconfigSecret(ctx, c, namespace, secretName, kubeconfigData); err != nil {
@@ -98,7 +111,7 @@ func runSOSJob(ctx context.Context, c client.Client, nodeName string, kubeconfig
 		return
 	}
 
-	// Define Job, sos report will be written to the /tmp directory in the node filesystem.
+	// Define Job with NFS volume for output
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
@@ -128,6 +141,7 @@ func runSOSJob(ctx context.Context, c client.Client, nodeName string, kubeconfig
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Env: []corev1.EnvVar{
 								{Name: "CASE_ID", Value: caseID},
+								{Name: "OUTPUT_DIR", Value: nfsOutputDir},
 							},
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: ptr.To(true),
@@ -142,7 +156,7 @@ func runSOSJob(ctx context.Context, c client.Client, nodeName string, kubeconfig
 								{MountPath: "/etc/machine-id", Name: "machineid"},
 								{MountPath: "/boot", Name: "boot"},
 								{MountPath: "/usr/lib/modules/", Name: "modules"},
-								{MountPath: "/tmp", Name: "tmp"}, // Mount host /tmp to container /tmp
+								{MountPath: nfsOutputDir, Name: "nfs-output"},
 							},
 						},
 					},
@@ -155,7 +169,10 @@ func runSOSJob(ctx context.Context, c client.Client, nodeName string, kubeconfig
 						{Name: "adminconf", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: secretName}}},
 						{Name: "localtime", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/etc/localtime"}}},
 						{Name: "machineid", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/etc/machine-id"}}},
-						{Name: "tmp", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/tmp"}}},
+						{Name: "nfs-output", VolumeSource: corev1.VolumeSource{NFS: &corev1.NFSVolumeSource{
+							Server: nfsServer,
+							Path:   nfsPath,
+						}}},
 					},
 				},
 			},
@@ -176,8 +193,31 @@ func runSOSJob(ctx context.Context, c client.Client, nodeName string, kubeconfig
 	if err != nil {
 		GinkgoLogr.Error(err, "SOS Job failed or timed out", "node", nodeName, "timeout", sosJobTimeout)
 	} else {
-		By(fmt.Sprintf("SOS Job completed successfully on node %s", nodeName))
+		By(fmt.Sprintf("SOS Job completed successfully on node %s, output written to NFS at %s", nodeName, nfsPath))
 	}
+}
+
+// getNFSDetails extracts the NFS server and path from a local mount point.
+func getNFSDetails(mountPoint string) (server, path string, err error) {
+	cmd := exec.Command("df", "--output=source", mountPoint)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to run df command: %w", err)
+	}
+
+	// Parse output: first line is header, second line is the source (e.g., "server:/path")
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) < 2 {
+		return "", "", fmt.Errorf("unexpected df output: %s", string(output))
+	}
+
+	source := strings.TrimSpace(lines[1])
+	parts := strings.SplitN(source, ":", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid NFS source format: %s", source)
+	}
+
+	return parts[0], parts[1], nil
 }
 
 func waitJobComplete(ctx context.Context, c client.Client, job *batchv1.Job, timeout time.Duration) error {
@@ -282,14 +322,14 @@ func createKubeconfigDataFromConfig(config *rest.Config) ([]byte, error) {
 	return data, nil
 }
 
-func runOnClusterNodes(ctx context.Context, c client.Client, wg *sync.WaitGroup, clusterName string, kubeconfigData []byte) {
+func runOnClusterNodes(ctx context.Context, c client.Client, wg *sync.WaitGroup, clusterName string, kubeconfigData []byte, nfsServer, nfsPath string) {
 	nodes := &corev1.NodeList{}
 	if err := c.List(ctx, nodes); err == nil {
 		for _, node := range nodes.Items {
 			wg.Add(1)
 			go func(n string) {
 				defer wg.Done()
-				runSOSJob(ctx, c, n, kubeconfigData)
+				runSOSJob(ctx, c, n, kubeconfigData, nfsServer, nfsPath)
 			}(node.Name)
 		}
 	} else {
