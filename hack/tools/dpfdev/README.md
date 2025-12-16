@@ -84,6 +84,56 @@ Test markdown documentation by executing bash or shell commands in code blocks.
 dpfdev test docs --file <path-to-markdown>
 ```
 
+##### Custom Code Block Tags
+
+You can tag code blocks with custom identifiers to selectively execute them. This is useful for testing different scenarios (e.g., OCI vs HTTP registries, dev vs production, etc.).
+
+**Tagging Code Blocks:**
+
+Add space-separated tags after the language identifier (e.g., \`\`\`shell oci\`\`\`). Multiple tags can be specified, and blocks are included if ANY tag matches the filter.
+
+<details>
+<summary>Example Markdown with Tagged Code Blocks</summary>
+
+````markdown
+```shell oci
+# This block only runs with --tags oci
+helm upgrade --install -n dpf-operator-system dpf-operator $REGISTRY/dpf-operator --version=$TAG
+```
+
+```shell http
+# This block only runs with --tags http
+helm repo add --force-update dpf-repository ${REGISTRY}
+helm repo update
+helm upgrade --install -n dpf-operator-system dpf-operator dpf-repository/dpf-operator --version=$TAG
+```
+
+```shell no-exec
+# This block is skipped unless you explicitly enable it with --tags no-exec
+# Useful for examples that shouldn't run by default
+rm -rf /
+```
+
+```shell
+# This block always runs (no tags = always executes)
+echo "Hello World"
+```
+````
+
+</details>
+
+```bash
+# Run only blocks tagged with 'oci' (plus all untagged blocks)
+dpfdev test docs --file <path-to-markdown> --tags oci
+```
+
+**Block Execution Rules:**
+
+1. **Untagged blocks** (e.g., \`\`\`shell\`\`\`) always execute regardless of filters
+2. **Tagged blocks** (e.g., \`\`\`shell oci\`\`\`) only execute if at least one tag matches `--tags`
+3. When `--tags` is **not specified**: only untagged blocks execute
+4. Multiple tags in `--tags` act as OR logic: any match includes the block
+
 You can see more information about the tool with:
 
 ```bash

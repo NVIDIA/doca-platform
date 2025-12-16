@@ -70,3 +70,22 @@ echo "This is a shell block"
 ```sh
 echo "This is a sh block"
 ```
+
+## Test Case 8: Tagged Code Blocks
+This section demonstrates tagged code blocks for selective execution.
+
+```shell
+echo "always executes"
+```
+
+```shell oci
+echo "only with oci tag"
+```
+
+```shell http
+echo "only with http tag"
+```
+
+```bash dev test
+echo "with dev or test tags"
+```
