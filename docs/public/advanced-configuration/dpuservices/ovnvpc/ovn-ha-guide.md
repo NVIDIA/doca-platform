@@ -15,7 +15,7 @@ Use `$HELM_REGISTRY_REPO_URL` and `TAG` to specify the Helm chart registry and y
 ## Usually this is the NVIDIA Helm NGC registry. For development purposes, this can be set to a different repository.
 export HELM_REGISTRY_REPO_URL=https://helm.ngc.nvidia.com/nvidia/doca
 ## The DPF TAG is the version of the OVN components which will be deployed in this guide.
-export TAG=v25.7.0
+export TAG=v25.10.0
 ```
 
 ### 1. Deploy ovn-central DPUService

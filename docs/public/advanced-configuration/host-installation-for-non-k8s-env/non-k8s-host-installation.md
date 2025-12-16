@@ -59,7 +59,7 @@ Run the following commands on worker host.
 
 ```bash
 # Set DOCA repository URL
-export DOCA_URL="https://linux.mellanox.com/public/repo/doca/3.1.0/ubuntu24.04/x86_64/"
+export DOCA_URL="https://linux.mellanox.com/public/repo/doca/3.2.1/ubuntu24.04/x86_64/"
 
 # Add NVIDIA Mellanox GPG key
 curl https://linux.mellanox.com/public/repo/doca/GPG-KEY-Mellanox.pub | sudo gpg --dearmor > /etc/apt/trusted.gpg.d/GPG-KEY-Mellanox.pub
