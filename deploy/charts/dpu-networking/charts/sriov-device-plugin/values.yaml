@@ -8,7 +8,7 @@ kubeSriovDevicePlugin:
       privileged: true
     image:
       repository: ghcr.io/k8snetworkplumbingwg/sriov-network-device-plugin
-      tag: v3.6.2
+      tag: v3.11.0
     imagePullPolicy: IfNotPresent
     resources:
       limits:
@@ -32,7 +32,8 @@ sriovdpConfig:
                 "vendors": ["15b3"],
                 "pfNames": ["p0#1-100"],
                 "isRdma": true,
-                "auxTypes": ["sf"]
+                "auxTypes": ["sf"],
+                "needVhostNet": true
             }]
         }, 
         {
@@ -42,7 +43,8 @@ sriovdpConfig:
             "selectors": [{
                 "vendors": ["15b3"],
                 "pfNames": ["p0#101-110"],
-                "auxTypes": ["sf"]
+                "auxTypes": ["sf"],
+                "needVhostNet": true
             }]
         },
         {
@@ -52,7 +54,8 @@ sriovdpConfig:
             "selectors": [{
                 "vendors": ["15b3"],
                 "pfNames": ["p0", "p1"],
-                "isRdma": true
+                "isRdma": true,
+                "needVhostNet": true
             }]
         }]
     }
