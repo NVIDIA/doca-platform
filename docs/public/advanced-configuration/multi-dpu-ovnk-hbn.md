@@ -63,6 +63,7 @@ DPUDeployment for multi-DPU support instead of using the original single-DPU app
 > **SR-IOV Device Plugin and OVN-Kubernetes Configuration Requirements**:  
 > In multi-DPU setups, you must ensure that both the SR-IOV device plugin and OVN-Kubernetes are correctly configured to
 > use the appropriate DPU P0 interface.
+>
 > * Set the `DPU_P0` environment variable to the name of the P0 interface on the DPU where OVN-Kubernetes will run.
 > * Set the `DPU_P0_VF1` environment variable to the name of the VF1 interface on the same DPU.
 
