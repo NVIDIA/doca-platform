@@ -22,25 +22,39 @@ import (
 
 func ProvisioningBeforeSuite() {
 	By("Setting Provisioning configs for the test")
+	// No additional config needed - input.applyConfig(*conf) already called in SetInput()
 }
 
 //nolint:dupl
 var _ = Describe("DPF System tests - Provisioning", Labels{provisioningLabel}, Ordered, func() {
 	BeforeAll(func() {
-		By("Placeholder for the provisioning BeforeAll tests condition check/action")
-	})
-
-	BeforeEach(func() {
-		By("Placeholder for the provisioning BeforeEach test condition check/action")
-	})
-	AfterEach(func() {
-		By("Placeholder for the provisioning AfterEach test condition check/action/cleanup")
+		BeforeProvisioning(ctx, input)
 	})
 
 	AfterAll(func() {
-		By("Placeholder for the provisioning AfterAll tests condition check/action")
+		By("Cleaning up test suite resources")
+		if skipCleanup {
+			By("Skip cleanup")
+			return
+		}
 	})
 
-	Context("Placeholder for the Provisioning tests", Labels{requiresNodesLabel}, func() {
+	It("Create DPU cluster and BFB", func() {
+		CreateProvisioningDPUCluster(ctx, input)
+	})
+
+	It("Create DPUSet and provision DPUs", func() {
+		CreateProvisioningDPUSet(ctx, input)
+	})
+
+	It("Verify provisioning is complete", func() {
+		VerifyProvisioning(ctx, input)
+	})
+
+	It("Delete all provisioning resources", func() {
+		if skipCleanup {
+			Skip("Skipping deprovisioning tests because skipCleanup is enabled")
+		}
+		DeleteProvisioning(ctx, input)
 	})
 })
