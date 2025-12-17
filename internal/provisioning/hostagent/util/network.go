@@ -92,6 +92,26 @@ func SetLinkMTU(linkName string, mtu int) error {
 	return nil
 }
 
+func CreateBridgeIfNotExists(bridgeName string) (netlink.Link, error) {
+	bridge, err := netlink.LinkByName(bridgeName)
+	if err == nil {
+		return bridge, nil
+	}
+
+	if _, ok := err.(netlink.LinkNotFoundError); !ok {
+		return nil, fmt.Errorf("failed to get bridge: %w", err)
+	}
+
+	if err := netlink.LinkAdd(&netlink.Bridge{
+		LinkAttrs: netlink.LinkAttrs{
+			Name: bridgeName,
+		},
+	}); err != nil {
+		return nil, fmt.Errorf("failed to create bridge: %w", err)
+	}
+	return netlink.LinkByName(bridgeName)
+}
+
 func RemoveVFFromBridge(vfName string) error {
 	vf, err := netlink.LinkByName(vfName)
 	if err != nil {
