@@ -25,6 +25,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/utils/predicates"
@@ -391,6 +392,7 @@ func (r *DPUServiceNADReconciler) getUnreadyObjects(objects []unstructured.Unstr
 func (r *DPUServiceNADReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&dpuservicev1.DPUServiceNAD{}).
+		Watches(&provisioningv1.DPUCluster{}, handler.EnqueueRequestsFromMapFunc(r.dpuClusterToDPUServiceNAD)).
 		Named(dpuServiceNADControllerName).
 		Build(r)
 
@@ -400,4 +402,18 @@ func (r *DPUServiceNADReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	r.controller = c
 	return nil
+}
+
+// dpuClusterToDPUServiceNAD ensures all DPUServiceNADs are updated each time there is an update to a DPUCluster.
+func (r *DPUServiceNADReconciler) dpuClusterToDPUServiceNAD(ctx context.Context, o client.Object) []ctrl.Request {
+	result := []ctrl.Request{}
+	dpuServiceNADList := &dpuservicev1.DPUServiceNADList{}
+	if err := r.Client.List(ctx, dpuServiceNADList); err != nil {
+		return nil
+	}
+	for _, m := range dpuServiceNADList.Items {
+		name := client.ObjectKey{Namespace: m.Namespace, Name: m.Name}
+		result = append(result, ctrl.Request{NamespacedName: name})
+	}
+	return result
 }
