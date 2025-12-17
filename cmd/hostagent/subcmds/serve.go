@@ -19,6 +19,7 @@ limitations under the License.
 package subcmds
 
 import (
+	"fmt"
 	"os"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -28,6 +29,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/networkmanager"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/nodemanager"
+	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/service"
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
@@ -68,6 +70,10 @@ var serveCmd = &cobra.Command{
 
 		if err := networkmanager.ConvertVFConfigToNetworkRequest(unCachedClient); err != nil {
 			klog.Fatalf("failed to convert VF config to network request: %v", err)
+		}
+
+		if err := service.NewInstallationService(unCachedClient, fmt.Sprintf("%s:%d", service.DefaultServiceIP, service.DefaultServicePort)).Start(true); err != nil {
+			klog.Fatalf("failed to start installation service: %v", err)
 		}
 
 		mgr, err := ctrl.NewManager(clientCfg, ctrl.Options{

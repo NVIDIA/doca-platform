@@ -96,6 +96,12 @@ const (
 	DPUCondError                 DPUConditionType = "Error"
 )
 
+type DPUInfoConditionType string
+
+const (
+	ReadyForReboot DPUInfoConditionType = "ReadyForReboot"
+)
+
 type DPUConditionMessage string
 
 const (
@@ -253,6 +259,10 @@ type DPUStatus struct {
 	// +kubebuilder:default=Unknown
 	// +optional
 	DPUType DPUType `json:"dpuType,omitempty"`
+
+	// DPUInfo contains the information reported from inside the DPU
+	// +optional
+	DPUInfo *DPUInfo `json:"dpuInfo,omitempty"`
 }
 
 type Firmware struct {
@@ -262,6 +272,16 @@ type Firmware struct {
 	NIC string `json:"nic,omitempty"`
 	// UEFI is the used UEFI firmware version
 	UEFI string `json:"uefi,omitempty"`
+}
+
+type DPUInfo struct {
+	// HostRebootRequired indicates whether the host requires a reboot after the DPU is installed
+	// +optional
+	HostRebootRequired *bool `json:"hostRebootRequired,omitempty"`
+
+	// Conditions contains the conditions reported from inside the DPU
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
