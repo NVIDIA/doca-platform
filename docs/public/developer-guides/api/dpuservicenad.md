@@ -80,20 +80,13 @@ spec:
 When you use a DPUServiceNAD with a DPUServiceInterface in a DPUService, the system automatically injects the appropriate
 resources based on the resource type:
 
-1. For `sf` (service function) type:
-
-   - If we have the `dpuservicenad.svc.dpu.nvidia.com/use-trusted-sfs` annotation in DPUServiceNAD, then we inject the
-        trusted_sf `nvidia.com/bf_sf_trusted` resource.
-
-   - If the above annotation is not present, we inject the default sf `nvidia.com/bf_sf` resource.
-
-2. For `vf` (virtual function) type:
-
-   - Injects `nvidia.com/bf_vf` resource
-
-3. For `veth` type:
-
-   - No resource injection
+* **1.** For `sf` (service function) type:
+    * If we have the `dpuservicenad.svc.dpu.nvidia.com/use-trusted-sfs` annotation in DPUServiceNAD, then we inject the trusted_sf `nvidia.com/bf_sf_trusted` resource.
+    * If the above annotation is not present, we inject the default sf `nvidia.com/bf_sf` resource.
+* **2.** For `vf` (virtual function) type:
+    * Injects `nvidia.com/bf_vf` resource
+* **3.** For `veth` type:
+    * No resource injection
 
 Example of an ArgoApplication(which is created from the DPUService which is using the NAD):
 

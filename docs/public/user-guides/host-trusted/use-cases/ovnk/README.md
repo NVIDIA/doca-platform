@@ -144,10 +144,10 @@ export SERVICE_CIDR=10.233.0.0/18
 export REGISTRY=https://helm.ngc.nvidia.com/nvidia/doca
 
 ## The DPF TAG is the version of the DPF components which will be deployed in this guide.
-export TAG=v25.7.0
+export TAG=v25.10.0
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
-export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.1.0-76_25.07_ubuntu-22.04_prod.bfb"
+export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb"
 ```
 </details>
 
@@ -320,7 +320,7 @@ cat manifests/03-dpf-system-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will create the following objects:
-<details markdown="1"><summary>DPF Operator to install the DPF System components</summary>
+<details markdown="1"><summary>DPFOperatorConfig to install the DPF System components</summary>
 
 [embedmd]:#(manifests/03-dpf-system-installation/operatorconfig.yaml)
 ```yaml
@@ -931,7 +931,7 @@ DPFOperatorConfig/dpfoperatorconfig         dpf-operator-system  Ready: True   S
     │ └─DPUServiceChain/ovn-wkdhz           dpf-operator-system  Ready: True   Success       2h
     ├─DPUSets
     │ └─DPUSet/hbn-only-dpuset1             dpf-operator-system
-    │   ├─BFB/bf-bundle                     dpf-operator-system    Ready: True   Ready       2h     File: bf-bundle-3.1.0-53_25.07_ubuntu-22.04_prod.bfb, DOCA: 3.1.0
+    │   ├─BFB/bf-bundle                     dpf-operator-system    Ready: True   Ready       2h     File: bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb, DOCA: 3.2.1
     │   └─DPUs
     │     └─2 DPUs...                       dpf-operator-system    Ready: True   DPUReady    2h     See dpu-node-mt2310xz03lr-mt2310xz03lr, dpu-node-mt2310xz03m2-mt2310xz03m2
     └─Services

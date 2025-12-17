@@ -110,10 +110,10 @@ export EXTERNAL_CIDR=30.30.0.0/16
 export EXTERNAL_GATEWAY=30.30.0.1
 
 ## The DPF TAG is the version of the DPF components which will be deployed in this guide.
-export TAG=v25.7.0
+export TAG=v25.10.0
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
-export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.1.0-76_25.07_ubuntu-22.04_prod.bfb"
+export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb"
 ```
 </details>
 
@@ -234,7 +234,7 @@ cat manifests/02-dpf-system-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will create the following objects:
-<details markdown="1"><summary>DPF Operator to install the DPF System components</summary>
+<details markdown="1"><summary>DPFOperatorConfig to install the DPF System components</summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/operatorconfig.yaml)
 ```yaml
@@ -316,6 +316,8 @@ Verify the DPF System with:
 kubectl rollout status deployment --namespace dpf-operator-system dpf-provisioning-controller-manager dpuservice-controller-manager
 ## Ensure all other deployments in the DPF Operator system are Available.
 kubectl rollout status deployment --namespace dpf-operator-system
+## Ensure bfb registry daemonset is available
+kubectl rollout status daemonset --namespace dpf-operator-system bfb-registry
 ## Ensure the DPUCluster is ready for nodes to join.
 kubectl wait --for=condition=ready --namespace dpu-cplane-tenant1 dpucluster --all
 ```
@@ -835,7 +837,7 @@ DPFOperatorConfig/dpfoperatorconfig    dpf-operator-system  Ready: True   Succes
     │ └─4 DPUServices...               dpf-operator-system  Ready: True   Success   55m    See ovn-central-fdjg9, ovn-controller-bj85w, vpc-ovn-controller-f8qgn, vpc-ovn-node-7bhd8
     └─DPUSets
       └─DPUSet/vpc-ovn-dpuset1         dpf-operator-system
-        ├─BFB/bf-bundle                dpf-operator-system  Ready: True   Ready     58m    File: bf-bundle-3.0.0-135_25.04_ubuntu-22.04_prod.bfb, DOCA: 2.11.0
+        ├─BFB/bf-bundle                dpf-operator-system  Ready: True   Ready     58m    File: bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb, DOCA: 3.2.1
         ├─DPU/worker1-0000-c8-00       dpf-operator-system  Ready: True   DPUReady  2m13s
         └─DPU/worker2-0000-c8-00       dpf-operator-system  Ready: True   DPUReady  2m30s
 ```
@@ -882,6 +884,7 @@ In this section we will demonstrate how to connect a host to VPC in two ways.
 #### 1. Using Host PFs
 
 In this step, we will deploy the following VPC objects:
+
 * One `DPUVPC` named `myvpc`
 * One `DPUVirtualNetwork` named `pfnet` in `myvpc` VPC
 * One `DPUServiceInterface` of type `PF`, referencing `pfnet` virtual network. 
@@ -994,6 +997,7 @@ root@node1:~# ping 10.100.0.3
 #### 2. Using Host PFs and VFs
 
 In this step, we will deploy the following VPC objects:
+
 * One `DPUVPC` named `myvpc`
 * One `DPUVirtualNetwork` named `pfnet` in `myvpc` VPC
 * One `DPUVirtualNetwork` named `vfnet` in `myvpc` VPC
