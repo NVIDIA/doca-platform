@@ -24,6 +24,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/utils/predicates"
@@ -440,6 +441,7 @@ func getPoolLabels(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) map[string]strin
 func (r *DPUServiceIPAMReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&dpuservicev1.DPUServiceIPAM{}).
+		Watches(&provisioningv1.DPUCluster{}, handler.EnqueueRequestsFromMapFunc(r.dpuClusterToDPUServiceIPAM)).
 		Build(r)
 
 	if err != nil {
@@ -448,4 +450,18 @@ func (r *DPUServiceIPAMReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	r.controller = c
 	return nil
+}
+
+// dpuClusterToDPUServiceIPAM ensures all DPUServiceIPAMs are updated each time there is an update to a DPUCluster.
+func (r *DPUServiceIPAMReconciler) dpuClusterToDPUServiceIPAM(ctx context.Context, o client.Object) []ctrl.Request {
+	result := []ctrl.Request{}
+	dpuServiceIPAMList := &dpuservicev1.DPUServiceIPAMList{}
+	if err := r.Client.List(ctx, dpuServiceIPAMList); err != nil {
+		return nil
+	}
+	for _, m := range dpuServiceIPAMList.Items {
+		name := client.ObjectKey{Namespace: m.Namespace, Name: m.Name}
+		result = append(result, ctrl.Request{NamespacedName: name})
+	}
+	return result
 }
