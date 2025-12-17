@@ -81,8 +81,8 @@ func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 	}
 	r.Allocator.SaveCluster(dc)
-	dc.Status.DPUsCount = r.Allocator.GetDPUsCount(dc)
-	logger.V(3).Info(fmt.Sprintf("DPUsCount: %d", dc.Status.DPUsCount))
+	dc.Status.NodesCount = r.Allocator.GetDPUsCount(dc)
+	logger.V(3).Info(fmt.Sprintf("NodesCount: %d", dc.Status.NodesCount))
 
 	if dc.Status.Phase == provisioningv1.PhasePending {
 		dc.Status.Phase = provisioningv1.PhaseCreating
