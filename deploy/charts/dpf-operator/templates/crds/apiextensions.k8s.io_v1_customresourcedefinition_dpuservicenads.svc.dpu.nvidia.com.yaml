@@ -87,7 +87,7 @@ spec:
                 type: boolean
               metadata:
                 description: 'Deprecated: This field is unused and will be removed
-                  with v26.1.'
+                  with v26.4.0.'
                 properties:
                   annotations:
                     additionalProperties:

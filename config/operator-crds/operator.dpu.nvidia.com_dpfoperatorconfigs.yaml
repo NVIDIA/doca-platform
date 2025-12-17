@@ -55,7 +55,7 @@ spec:
                 properties:
                   deployInTargetCluster:
                     description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
+                      be removed with v26.4.0.'
                     type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
@@ -363,7 +363,7 @@ spec:
                     type: object
                   deployInTargetCluster:
                     description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
+                      be removed with v26.4.0.'
                     type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
@@ -548,7 +548,7 @@ spec:
                     type: object
                   deployInTargetCluster:
                     description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
+                      be removed with v26.4.0.'
                     type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
@@ -660,7 +660,7 @@ spec:
                     type: object
                   deployInTargetCluster:
                     description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
+                      be removed with v26.4.0.'
                     type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
@@ -870,7 +870,7 @@ spec:
                     type: object
                   deployInTargetCluster:
                     description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
+                      be removed with v26.4.0.'
                     type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
@@ -1155,7 +1155,7 @@ spec:
                     type: object
                   deployInTargetCluster:
                     description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
+                      be removed with v26.4.0.'
                     type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
@@ -1244,7 +1244,7 @@ spec:
                     type: object
                   deployInTargetCluster:
                     description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
+                      be removed with v26.4.0.'
                     type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
@@ -1281,7 +1281,7 @@ spec:
                 properties:
                   deployInTargetCluster:
                     description: 'Deprecated: this field is not supported and will
-                      be removed with v26.1.0.'
+                      be removed with v26.4.0.'
                     type: boolean
                   deviceplugin:
                     description: |-

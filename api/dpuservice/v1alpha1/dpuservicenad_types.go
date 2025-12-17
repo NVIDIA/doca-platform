@@ -87,7 +87,7 @@ type CNIPlugin struct {
 
 // DPUServiceNADSpec defines the desired state of DPUServiceNAD.
 type DPUServiceNADSpec struct {
-	// Deprecated: This field is unused and will be removed with v26.1.
+	// Deprecated: This field is unused and will be removed with v26.4.0.
 	ObjectMeta `json:"metadata,omitempty"`
 	// ResourceType specifies the type of network resource to allocate for pods using this NAD.
 	// - "vf": Virtual Function (SR-IOV VF) from the DPU's physical ports

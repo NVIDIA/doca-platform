@@ -172,7 +172,7 @@ func (b *HelmComponentConfig) GetHelmChart() *string {
 
 // InClusterDeploymentConfigurable is the shared config for DPUService components.
 //
-// Deprecated: this field is not supported and will be removed with v26.1.0.
+// Deprecated: this field is not supported and will be removed with v26.4.0.
 //
 // +kubebuilder:object:generate=false
 type InClusterDeploymentConfigurable interface {
@@ -180,7 +180,7 @@ type InClusterDeploymentConfigurable interface {
 }
 
 type InClusterDeploymentConfig struct {
-	// Deprecated: this field is not supported and will be removed with v26.1.0.
+	// Deprecated: this field is not supported and will be removed with v26.4.0.
 	DeployInTargetCluster *bool `json:"deployInTargetCluster,omitempty"`
 }
 
