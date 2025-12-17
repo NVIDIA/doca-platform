@@ -93,7 +93,7 @@ type CNIPlugin struct {
 
 // DPUServiceNADSpec defines the desired state of DPUServiceNAD.
 type DPUServiceNADSpec struct {
-	// Deprecated: This field is unused and will be removed with v26.1.
+	// Deprecated: This field is unused and will be removed with v26.4.0.
 	ObjectMeta `json:"metadata,omitempty"`
 	// DPUClusterSelector determines in which clusters the DPUServiceNAD controller should apply the configuration.
 	// +optional
