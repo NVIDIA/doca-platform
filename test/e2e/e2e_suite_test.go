@@ -222,38 +222,51 @@ var _ = BeforeSuite(func() {
 		Expect(testutils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(testutils.AfterAllCleanupLabels), resourcesToDelete...)).To(Succeed())
 	}
 
+	labelFilter := GinkgoLabelFilter()
+
 	// Label filter examples supported:
 	//(dpfSystemLabel) -> all test with dpfSystemLabel running. SDN, SNAP included
 	//(scaleLabel) -> Only scaleLabel tests running
 	//(dpfSystemLabel && !sdnLabel) -> test with dpfSystemLabel, excluding sdnLabel running
 	//(dpfSystemLabel && sdnLabel) -> only SDN tests running
 	//(externalTestLabel) -> only prepares DPF environment and involves tests with externalTestLabel
-	By(fmt.Sprintf("Run BeforeSuite based on label selector: %v ", GinkgoLabelFilter()))
+	//(provisioningLabel) -> only provisioning tests, operator deployed but no pre-provisioning
+	By(fmt.Sprintf("Run BeforeSuite based on label selector: %v ", labelFilter))
+
 	if !skipProvisioning() {
 		SystemSetupBeforeSuite()
 		By("Pre-provisioning DPU cluster setup")
+		// TODO: can be replaced with functions calls from provisioning_test.go
+		// BeforeProvisioning(ctx, input)
+		// CreateProvisioningDPUCluster(ctx, input)
+		// CreateProvisioningDPUSet(ctx, input)
 		ProvisionDPUCluster(ctx, getProvisionDPUClustersInput())
 		ProvisionDPUSet(ctx, getProvisionDPUClustersInput())
 	}
+
 	// Apply the ProvisioningBeforeSuite setup if directly specified provisioningLabel
-	if Label(provisioningLabel).MatchesLabelFilter(GinkgoLabelFilter()) && !strings.Contains(GinkgoLabelFilter(), "!"+provisioningLabel) {
+	// !skipProvisioning() branch should not be executed in provisioning-only tests
+	if strings.Contains(labelFilter, provisioningLabel) && !strings.Contains(labelFilter, "!"+provisioningLabel) {
+		// SystemSetupBeforeSuite must run first to deploy the DPF operator and system components
+		// Provisioning tests need the operator running but will provision DPUs from scratch (no pre-provisioning)
+		SystemSetupBeforeSuite()
 		ProvisioningBeforeSuite()
 	}
 	// Apply the OVNKHBNBeforeSuite setup if directly specified OVNKPrimaryLabel
-	if Label(ovnkPrimaryLabel).MatchesLabelFilter(GinkgoLabelFilter()) {
+	if Label(ovnkPrimaryLabel).MatchesLabelFilter(labelFilter) {
 		OVNKHBNBeforeSuite()
 	}
 	// Apply the SDNBeforeSuite setup if not directly specified !SDN
-	if !strings.Contains(GinkgoLabelFilter(), "!"+sdnLabel) {
+	if !strings.Contains(labelFilter, "!"+sdnLabel) {
 		SDNBeforeSuite()
 	}
 	// Apply the SNAPBeforeSuite setup if not directly specified !SNAP
-	if !strings.Contains(GinkgoLabelFilter(), "!"+snapLabel) {
+	if !strings.Contains(labelFilter, "!"+snapLabel) {
 		SNAPBeforeSuite()
 	}
 
 	// Apply the VPCOVNBeforeSuite BeforeSuite setup
-	if !strings.Contains(GinkgoLabelFilter(), "!"+dpfVPCTestLabel) {
+	if !strings.Contains(labelFilter, "!"+dpfVPCTestLabel) {
 		VPCOVNBeforeSuite()
 	}
 })
