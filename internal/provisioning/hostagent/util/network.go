@@ -22,11 +22,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
+	"github.com/nvidia/doca-platform/pkg/utils/netplanhelper"
+
 	"github.com/vishvananda/netlink"
-	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 )
@@ -121,27 +121,6 @@ func RemoveVFFromBridge(vfName string) error {
 		return fmt.Errorf("failed to get VF link: %w", err)
 	}
 	return netlink.LinkSetNoMaster(vf)
-}
-
-// NetplanConfig represents the netplan configuration structure
-type NetplanConfig struct {
-	Network NetplanNetwork `yaml:"network"`
-}
-
-type NetplanNetwork struct {
-	Version   int                        `yaml:"version"`
-	Ethernets map[string]NetplanEthernet `yaml:"ethernets,omitempty"`
-	Bridges   map[string]NetplanEthernet `yaml:"bridges,omitempty"`
-}
-
-type NetplanEthernet struct {
-	DHCP4          *bool           `yaml:"dhcp4,omitempty"`
-	MTU            *int32          `yaml:"mtu,omitempty"`
-	DHCP4Overrides *DHCP4Overrides `yaml:"dhcp4-overrides,omitempty"`
-}
-
-type DHCP4Overrides struct {
-	UseMTU *bool `yaml:"use-mtu,omitempty"`
 }
 
 // GetCurrentMTU returns the current MTU of the specified interface
@@ -355,13 +334,13 @@ func ConfigureNetplan(pciAddress string, portConfigs []PortConfig, controlPlaneM
 func configurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
 	pciHelper := NewPCIHelper(pciAddress)
 	needApply := false
-	config := NetplanConfig{
-		Network: NetplanNetwork{
+	config := netplanhelper.NetplanConfig{
+		Network: netplanhelper.NetplanNetwork{
 			Version: 2,
 		},
 	}
 
-	ethernets := make(map[string]NetplanEthernet)
+	ethernets := make(map[string]netplanhelper.NetplanEthernet)
 	// Configure each port based on the provided configurations
 	for _, portConfig := range portConfigs {
 		// Skip if no configuration needed
@@ -375,11 +354,11 @@ func configurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
 			return false, fmt.Errorf("failed to get PF%d interface name: %w", portConfig.PortNumber, err)
 		}
 
-		ethernet := NetplanEthernet{}
+		ethernet := netplanhelper.NetplanEthernet{}
 		// Check MTU and only configure if different from current state
 		if portConfig.MTU != nil {
 			ethernet.MTU = portConfig.MTU
-			ethernet.DHCP4Overrides = &DHCP4Overrides{UseMTU: ptr.To(false)}
+			ethernet.DHCP4Overrides = &netplanhelper.DHCP4Overrides{UseMTU: ptr.To(false)}
 			currentMTU, err := GetCurrentMTU(interfaceName)
 			if err != nil {
 				return false, fmt.Errorf("failed to get current MTU for %s: %w", interfaceName, err)
@@ -414,33 +393,11 @@ func configurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("failed to generate netplan file path: %w", err)
 	}
-	if err = writeNetplanFile(netplanFilePath, &config); err != nil {
+	if err = config.WriteToFile(netplanFilePath); err != nil {
 		return false, fmt.Errorf("failed to write netplan file: %w", err)
 	}
 
 	return needApply, nil
-}
-
-// writeNetplanFile writes the netplan configuration to a file
-func writeNetplanFile(filePath string, config *NetplanConfig) error {
-	// Ensure directory exists
-	dir := filepath.Dir(filePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create netplan directory: %w", err)
-	}
-
-	// Marshal to YAML
-	data, err := yaml.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("failed to marshal netplan config: %w", err)
-	}
-
-	// Write file with correct permissions (netplan requires 0600)
-	if err := os.WriteFile(filePath, data, 0600); err != nil {
-		return fmt.Errorf("failed to write netplan file: %w", err)
-	}
-
-	return nil
 }
 
 // applyNetplan applies the netplan configuration
@@ -522,20 +479,20 @@ func writeBridgeMTUConfig(controlPlaneMTU int) error {
 	}
 
 	mtu := int32(controlPlaneMTU)
-	config := NetplanConfig{
-		Network: NetplanNetwork{
+	config := netplanhelper.NetplanConfig{
+		Network: netplanhelper.NetplanNetwork{
 			Version:   2,
-			Bridges:   map[string]NetplanEthernet{BridgeName: {MTU: &mtu}},
-			Ethernets: make(map[string]NetplanEthernet, len(memberNames)),
+			Bridges:   map[string]netplanhelper.NetplanEthernet{BridgeName: {MTU: &mtu}},
+			Ethernets: make(map[string]netplanhelper.NetplanEthernet, len(memberNames)),
 		},
 	}
 
 	// Configure MTU for all bridge member interfaces
 	for _, memberName := range memberNames {
-		config.Network.Ethernets[memberName] = NetplanEthernet{MTU: &mtu}
+		config.Network.Ethernets[memberName] = netplanhelper.NetplanEthernet{MTU: &mtu}
 	}
 
-	return writeNetplanFile(BridgeMTUNetplanFile, &config)
+	return config.WriteToFile(BridgeMTUNetplanFile)
 }
 
 // EnsureSystemdNetworkdActive validates that systemd-networkd is currently active and available
