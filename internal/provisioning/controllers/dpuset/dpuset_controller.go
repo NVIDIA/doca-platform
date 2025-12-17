@@ -30,6 +30,7 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	"github.com/nvidia/doca-platform/internal/release"
+	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -146,6 +147,11 @@ func (r *DPUSetReconciler) reconcileDelete(ctx context.Context, dpuSet *provisio
 func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DPUSet) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
+	dpuClusterList := &provisioningv1.DPUClusterList{}
+	if err := r.List(ctx, dpuClusterList); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to list DPUClusters %w", err)
+	}
+
 	if dpuSet.GetLabels() == nil {
 		dpuSet.SetLabels(make(map[string]string))
 	}
@@ -200,9 +206,11 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 	if dpuSet.Spec.Strategy != nil {
 		switch dpuSet.Spec.Strategy.Type {
 		case provisioningv1.OnDeleteStrategyType:
-			// do nothing, waiting for user delete DPU object manually.
+			if err := r.onDelete(ctx, dpuSet, dpuMap, dpuClusterList.Items); err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to on delete DPUs %w", err)
+			}
 		case provisioningv1.RollingUpdateStrategyType:
-			if err := r.rolloutRolling(ctx, dpuSet, dpuMap, len(dpuDeviceMap)); err != nil {
+			if err := r.rolloutRolling(ctx, dpuSet, dpuMap, len(dpuDeviceMap), dpuClusterList.Items); err != nil {
 				return ctrl.Result{}, fmt.Errorf("failed to rollout DPU %w", err)
 			}
 		}
@@ -234,6 +242,8 @@ func (r *DPUSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.resourceToDPUSetReq)).
 		Watches(&provisioningv1.DPUFlavor{},
 			handler.EnqueueRequestsFromMapFunc(r.flavorToDPUSetReq)).
+		Watches(&provisioningv1.DPUCluster{},
+			handler.EnqueueRequestsFromMapFunc(r.resourceToDPUSetReq)).
 		Complete(r)
 }
 
@@ -400,14 +410,18 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 			BFB:           dpuSet.Spec.DPUTemplate.Spec.BFB.Name,
 			NodeEffect:    dpuSet.Spec.DPUTemplate.Spec.NodeEffect,
 			Cluster: provisioningv1.K8sCluster{
-				NodeLabels: clusterNodeLabels,
+				ClusterSpec: provisioningv1.ClusterSpec{
+					NodeLabels: clusterNodeLabels,
+				},
 			},
 			DPUFlavor:    dpuSet.Spec.DPUTemplate.Spec.DPUFlavor,
 			SerialNumber: dpuDevice.Spec.SerialNumber,
 			PCIAddress:   dpuDevice.Status.PCIAddress,
-			// TODO(klausm): deprecated field, it'll be removed later.
-			// BMCIP:        "",
 		},
+	}
+
+	if dpuSet.Spec.DPUTemplate.Spec.Cluster != nil && dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector != nil {
+		dpu.Spec.Cluster.Selector = dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector.DeepCopy()
 	}
 
 	// do we really need this?
@@ -438,8 +452,22 @@ func (r *DPUSetReconciler) updatePCIAddress(ctx context.Context, dpu *provisioni
 	return patcher.Patch(ctx, dpu)
 }
 
+func (r *DPUSetReconciler) onDelete(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuMap map[string]provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster) error {
+	if dpuSet.Spec.DPUTemplate.Spec.Cluster == nil {
+		return nil
+	}
+	for _, dpu := range dpuMap {
+		if !matchDPUClusterSelector(dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector, dpu.Spec.Cluster, dpuClusters) {
+			if err := r.Delete(ctx, &dpu); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provisioningv1.DPUSet,
-	dpuMap map[string]provisioningv1.DPU, total int) error {
+	dpuMap map[string]provisioningv1.DPU, total int, dpuClusters []provisioningv1.DPUCluster) error {
 	//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
 	scaledValue, err := intstr.GetScaledValueFromIntOrPercent(intstr.ValueOrDefault(
 		dpuSet.Spec.Strategy.RollingUpdate.MaxUnavailable, intstr.FromInt(0)), total, true)
@@ -463,7 +491,7 @@ func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provision
 	}
 
 	for _, dpu := range dpuMap {
-		if disrupted := r.needDisruptDPU(*dpuSet, dpu); !disrupted {
+		if disrupted := r.needDisruptDPU(*dpuSet, dpu, dpuClusters); !disrupted {
 			continue
 		}
 
@@ -494,11 +522,15 @@ func isUnavailable(dpu *provisioningv1.DPU) bool {
 
 // TODO: check more informations
 // needDisruptDPU is used to check if the DPU needs to be disrupted.
-func (r *DPUSetReconciler) needDisruptDPU(dpuSet provisioningv1.DPUSet, dpu provisioningv1.DPU) bool {
-	if (dpu.Spec.BFB != dpuSet.Spec.DPUTemplate.Spec.BFB.Name) || (dpu.Spec.DPUFlavor != dpuSet.Spec.DPUTemplate.Spec.DPUFlavor) {
+func (r *DPUSetReconciler) needDisruptDPU(dpuSet provisioningv1.DPUSet, dpu provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster) bool {
+
+	if dpu.Spec.BFB != dpuSet.Spec.DPUTemplate.Spec.BFB.Name ||
+		dpu.Spec.DPUFlavor != dpuSet.Spec.DPUTemplate.Spec.DPUFlavor {
 		return true
 	}
-
+	if dpuSet.Spec.DPUTemplate.Spec.Cluster != nil && !matchDPUClusterSelector(dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector, dpu.Spec.Cluster, dpuClusters) {
+		return true
+	}
 	return false
 }
 
@@ -807,4 +839,27 @@ func updateNodeEffectApplyOnLabelChange(ctx context.Context, dpuSet *provisionin
 func calculateDPUTemplateSpecDigest(spec *provisioningv1.DPUTemplateSpec) string {
 	config := spec.DeepCopy()
 	return digest.Short(digest.FromObjects(config), 10)
+}
+
+// matchDPUClusterSelector checks if the DPU cluster selector updated and matches the current cluster.
+func matchDPUClusterSelector(selectorFromDPUSet *metav1.LabelSelector, dpuK8sCluster provisioningv1.K8sCluster, clusterList []provisioningv1.DPUCluster) bool {
+	// if the DPU is not assigned to a cluster, we consider it as a match.
+	if dpuK8sCluster.Name == "" || dpuK8sCluster.Namespace == "" {
+		return true
+	}
+
+	// we consider it as a match if the selector remains unchanged and the match is made with the currently assigned cluster.
+	if reflect.DeepEqual(selectorFromDPUSet, dpuK8sCluster.Selector) {
+		if selector, err := utils.LabelSelectorAsSelector(selectorFromDPUSet); err == nil {
+			for _, cluster := range clusterList {
+				if selector.Matches(labels.Set(cluster.Labels)) {
+					if dpuK8sCluster.Name == cluster.Name && dpuK8sCluster.Namespace == cluster.Namespace {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	return false
 }

@@ -137,9 +137,8 @@ type K8sCluster struct {
 	// +kubebuilder:validation:XValidation:rule="self==oldSelf", message="Value is immutable"
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
-	// NodeLabels define the labels that will be added to the nodes.
-	// +optional
-	NodeLabels map[string]string `json:"nodeLabels,omitempty"`
+
+	ClusterSpec `json:",inline"`
 }
 
 // DPUSpec defines the desired state of DPU

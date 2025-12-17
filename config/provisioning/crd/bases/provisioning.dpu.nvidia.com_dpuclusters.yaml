@@ -36,8 +36,8 @@ spec:
       name: Version
       type: string
     - description: number of assigned DPUs
-      jsonPath: .status.dpusCount
-      name: DPUsCount
+      jsonPath: .status.nodesCount
+      name: NodesCount
       type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -186,8 +186,8 @@ spec:
                   - type
                   type: object
                 type: array
-              dpusCount:
-                description: DPUsCount is the number of DPUs assigned to the cluster
+              nodesCount:
+                description: NodesCount is the number of DPUs assigned to the cluster
                 minimum: 0
                 type: integer
               phase:
