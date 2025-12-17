@@ -210,3 +210,23 @@ In the above example, traffic will flow from uplink port p0 to example DPU servi
 will go to eth2 iface(eth1->eth2 is handled by the service itself and not by the chain) and then to uplink port pf0hpf
 on the host.
 
+# Additional fields
+
+## DPUClusterSelector
+
+The `spec.dpuClusterSelector` field is used to select which DPU clusters the
+chain configuration is applied to. It uses standard Kubernetes label selector
+syntax (`matchLabels` and `matchExpressions`) to match against `DPUCluster`
+labels. If not specified, the configuration is applied to all DPU clusters.
+
+Both `DPUServiceChain` and `DPUServiceInterface` support `dpuClusterSelector`,
+allowing control over which clusters receive specific interface configurations.
+
+Example:
+
+```yaml
+spec:
+  dpuClusterSelector:
+    matchLabels:
+      environment: production
+```

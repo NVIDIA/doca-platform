@@ -119,6 +119,30 @@ The following fields are used to specify the DaemonSet configuration:
 
 For more information on how to write a Helm chart for a `DPUService`, see the [DPUService Development Guide](../services/dpuservice-development.md).
 
+### DPUClusterSelector
+
+The `spec.dpuClusterSelector` field is used to select which DPU clusters the
+service is deployed to. It uses standard Kubernetes label selector syntax
+(`matchLabels` and `matchExpressions`) to match against `DPUCluster` labels. If
+not specified, the service is deployed to all DPU clusters.
+
+> [!WARNING]
+> `dpuClusterSelector` cannot be set when `deployInCluster` is
+> `true`. When deploying to the host cluster, cluster selection is not applicable.
+
+Example:
+
+```yaml
+spec:
+  dpuClusterSelector:
+    matchExpressions:
+      - key: region
+        operator: In
+        values:
+          - us-west-1
+          - us-west-2
+```
+
 ### Deploy a DPUService in the Host Cluster
 
 It is possible to deploy a `DPUService` in the host cluster, i.e. the cluster where

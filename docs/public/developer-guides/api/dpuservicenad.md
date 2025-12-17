@@ -53,6 +53,26 @@ it to all the DPU Clusters. Users can choose their preferred resource (sf, vf, o
 It is mandatory for OVS bridge to exist beforehand, our controllers do not create the ovs bridge. This CRD allows users
 to choose their own OVS bridge along with their preferred MTU/resource type for their workload's secondary interface.
 
+#### DPUClusterSelector
+
+The `spec.dpuClusterSelector` field is used to select which DPU clusters the
+NAD configuration is applied to. It uses standard Kubernetes label selector
+syntax (`matchLabels` and `matchExpressions`) to match against `DPUCluster`
+labels. If not specified, the NAD is applied to all DPU clusters.
+
+Example:
+
+```yaml
+spec:
+  dpuClusterSelector:
+    matchExpressions:
+      - key: region
+        operator: In
+        values:
+          - us-west
+          - us-east
+```
+
 ### Using DPUServiceNAD with DPUServiceInterface
 
 To use your DPUServiceNAD in a DPUServiceInterface:
