@@ -1063,10 +1063,12 @@ _Appears in:_
 
 _Appears in:_
 - [DPUTemplateSpec](#dputemplatespec)
+- [K8sCluster](#k8scluster)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `nodeLabels` _object (keys:string, values:string)_ | NodeLabels specifies the labels to be added to the node. |  |  |
+| `selector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Selector defines the selector of the DPUClusters the produced DPUs should join |  |  |
 
 
 
@@ -1217,7 +1219,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `phase` _[ClusterPhase](#clusterphase)_ |  | Pending | Enum: [Pending Creating Ready NotReady Failed] <br /> |
 | `version` _string_ | Version is the K8s control-plane version of the cluster |  |  |
-| `dpusCount` _integer_ | DPUsCount is the number of DPUs assigned to the cluster |  | Minimum: 0 <br /> |
+| `nodesCount` _integer_ | NodesCount is the number of DPUs assigned to the cluster |  | Minimum: 0 <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  |  |
 
 
@@ -2063,7 +2065,8 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `name` _string_ | Name is the name of the DPUs Kubernetes cluster |  |  |
 | `namespace` _string_ | Namespace is the tenants namespace name where the Kubernetes cluster will be deployed |  |  |
-| `nodeLabels` _object (keys:string, values:string)_ | NodeLabels define the labels that will be added to the nodes. |  |  |
+| `nodeLabels` _object (keys:string, values:string)_ | NodeLabels specifies the labels to be added to the node. |  |  |
+| `selector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Selector defines the selector of the DPUClusters the produced DPUs should join |  |  |
 
 
 #### KeepalivedSpec

@@ -23,8 +23,11 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/utils"
 
 	"github.com/fluxcd/pkg/runtime/patch"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -76,7 +79,7 @@ func (a *allocator) Allocate(ctx context.Context, dpu *provisioningv1.DPU) (resu
 	}
 
 	var ci *ClusterInfo
-	ci, reterr = a.clusterCache.getFeasibleClusterBinPacking()
+	ci, reterr = a.clusterCache.getFeasibleClusterBinPacking(dpu.Spec.Cluster.Selector)
 	if reterr != nil {
 		return result, reterr
 	} else if ci == nil || ci.cluster == nil {
@@ -169,11 +172,17 @@ type ClusterInfo struct {
 }
 
 // getFeasibleClusterBinPacking returns the cluster with the highest ratio of assigned DPUs to max nodes
-func (c *ClusterCache) getFeasibleClusterBinPacking() (*ClusterInfo, error) {
+func (c *ClusterCache) getFeasibleClusterBinPacking(labelSelector *metav1.LabelSelector) (*ClusterInfo, error) {
 	clusterInfoMap := make(map[types.UID]*ClusterInfo, len(c.clusterInfoMap))
+	selector, err := utils.LabelSelectorAsSelector(labelSelector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse label selector: %w", err)
+	}
 
 	for _, ci := range c.clusterInfoMap {
-		clusterInfoMap[ci.cluster.UID] = ci
+		if selector.Matches(labels.Set(ci.cluster.Labels)) {
+			clusterInfoMap[ci.cluster.UID] = ci
+		}
 	}
 
 	var bestCluster *ClusterInfo
