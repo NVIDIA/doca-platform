@@ -137,12 +137,6 @@ spec:
                             applies. If not specified, the configuration applies to
                             all.
                           type: string
-                        hostPowerCycleRequired:
-                          description: |-
-                            HostPowerCycleRequired indicates if the host needs to be power cycled after applying the configuration.
-
-                            Deprecated: This field is unused and deprecated. It will be removed with the release v26.4.0.
-                          type: boolean
                         parameters:
                           description: Parameters are the parameters to be set for
                             the device.
@@ -171,12 +165,6 @@ spec:
                       description: Device is the device to which the configuration
                         applies. If not specified, the configuration applies to all.
                       type: string
-                    hostPowerCycleRequired:
-                      description: |-
-                        HostPowerCycleRequired indicates if the host needs to be power cycled after applying the configuration.
-
-                        Deprecated: This field is unused and deprecated. It will be removed with the release v26.4.0.
-                      type: boolean
                     parameters:
                       description: Parameters are the parameters to be set for the
                         device.
