@@ -32,6 +32,7 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	"github.com/nvidia/doca-platform/pkg/utils/bashhelper"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -301,7 +302,7 @@ func (r *Handler) persistDPUBootID(dpus []provisioningv1.DPU, skip bool) error {
 func (r *Handler) runPowerCycleCmd(cmd string) (stdout, stderr bytes.Buffer, err error) {
 	f := r.runPowerCycleCmdFunc
 	if f == nil {
-		f = hostutil.RunBash
+		f = bashhelper.Run
 	}
 	return f(cmd)
 }
@@ -309,7 +310,7 @@ func (r *Handler) runPowerCycleCmd(cmd string) (stdout, stderr bytes.Buffer, err
 func (r *Handler) runShutdownARMCmd(cmd string) (stdout, stderr bytes.Buffer, err error) {
 	f := r.runShutdownARMFunc
 	if f == nil {
-		f = hostutil.RunBash
+		f = bashhelper.Run
 	}
 	return f(cmd)
 }
@@ -317,7 +318,7 @@ func (r *Handler) runShutdownARMCmd(cmd string) (stdout, stderr bytes.Buffer, er
 func (r *Handler) runRebootHost(cmd string) (stdout, stderr bytes.Buffer, err error) {
 	f := r.runRebootHostFunc
 	if f == nil {
-		f = hostutil.RunBash
+		f = bashhelper.Run
 	}
 	return f(cmd)
 }
@@ -328,7 +329,7 @@ func (r *Handler) rshimNameByPCI(PCIAddress string) (string, error) {
 	cmd := "ls /dev | egrep 'rshim.*[0-9]+' | while read line ; do echo $(" +
 		"echo 'DISPLAY_LEVEL 1' > /dev/$line/misc && " +
 		"cat /dev/$line/misc | grep " + PCIAddress + " | xargs -r echo $line | awk 'END {print $1}') ; done | tr -d '[:space:]'"
-	out, stderr, err := hostutil.RunBash(cmd)
+	out, stderr, err := bashhelper.Run(cmd)
 	if err != nil || len(stderr.String()) > 0 || len(out.String()) == 0 {
 		return "", fmt.Errorf("can't find rshim address on device: %v, stderr: %v, error: %v", PCIAddress, stderr, err)
 	}
@@ -337,7 +338,7 @@ func (r *Handler) rshimNameByPCI(PCIAddress string) (string, error) {
 
 func (r *Handler) isDPUOff(rshim string) (bool, string, error) {
 	cmd := fmt.Sprintf("echo 'DISPLAY_LEVEL 2' > /dev/%s/misc && cat /dev/%s/misc", rshim, rshim)
-	stdout, stderr, err := hostutil.RunBash(cmd)
+	stdout, stderr, err := bashhelper.Run(cmd)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to run command: %v, stderr: %v, error: %v", cmd, stderr, err)
 	}
