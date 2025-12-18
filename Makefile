@@ -698,8 +698,6 @@ release-build: generate ## Build helm and container images for release.
 	$(MAKE) $(addprefix docker-build-,$(MULTI_ARCH_DOCKER_BUILD_TARGETS))
 	# Build arm64 images which will run on DPUs.
 	$(MAKE) ARCH=$(DPU_ARCH) $(addprefix docker-build-,$(DPU_ARCH_DOCKER_BUILD_TARGETS))
-	# Build amd64 images which will run on x86 hosts.
-	$(MAKE) ARCH=$(HOST_ARCH) $(addprefix docker-build-,$(HOST_ARCH_DOCKER_BUILD_TARGETS))
 
 	# Package the helm charts.
 	$(MAKE) helm-package-all
@@ -946,10 +944,9 @@ binary-dpfdev: ## Build the dpfdev CLI tool
 		-ldflags="$(GO_LDFLAGS)" \
 		-gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/dpfdev main.go
 
-DOCKER_BUILD_TARGETS=$(HOST_ARCH_DOCKER_BUILD_TARGETS) $(DPU_ARCH_DOCKER_BUILD_TARGETS) $(MULTI_ARCH_DOCKER_BUILD_TARGETS)
-HOST_ARCH_DOCKER_BUILD_TARGETS=hostdriver
+DOCKER_BUILD_TARGETS=$(DPU_ARCH_DOCKER_BUILD_TARGETS) $(MULTI_ARCH_DOCKER_BUILD_TARGETS)
 DPU_ARCH_DOCKER_BUILD_TARGETS=$(DPU_ARCH_BUILD_TARGETS) ovs-cni cni-installer
-MULTI_ARCH_DOCKER_BUILD_TARGETS= dpf-system ovn-kubernetes storage-system storage-host bfb-registry
+MULTI_ARCH_DOCKER_BUILD_TARGETS= dpf-system ovn-kubernetes hostdriver storage-system storage-host bfb-registry
 
 .PHONY: binary-hostagent
 binary-hostagent: ## Build the hostagent binary.
@@ -1151,9 +1148,13 @@ docker-create-manifest-for-ovn-kubernetes:
 	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
 	docker manifest create --amend $(OVNKUBERNETES_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(OVNKUBERNETES_IMAGE):$(TAG))
 
-.PHONY: docker-build-hostdriver
-docker-build-hostdriver: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker image for DMS and hostnetwork.
+.PHONY: docker-build-hostdriver # Build a multi-arch image for hostdriver. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
+docker-build-hostdriver: $(addprefix docker-build-hostdriver-for-,$(DPF_SYSTEM_ARCH))
+
+docker-build-hostdriver-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
+	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
+		--pull \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
@@ -1161,7 +1162,7 @@ docker-build-hostdriver: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker im
 		--label=org.opencontainers.image.version=$(TAG) \
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
-		--platform linux/${HOST_ARCH} \
+		--platform=linux/$* \
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg hostdriver_base_image=$(HOSTDRIVER_BASE_IMAGE) \
@@ -1169,7 +1170,7 @@ docker-build-hostdriver: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker im
 		--build-arg gcflags="$(GO_GCFLAGS)" \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
-		-t $(HOSTDRIVER_IMAGE):$(TAG) \
+		-t $(HOSTDRIVER_IMAGE):$(TAG)-$* \
 		-f Dockerfile.hostdriver \
 		.
 
@@ -1423,9 +1424,20 @@ docker-push-dpf-system: ## This is a no-op to allow using DOCKER_BUILD_TARGETS.
 docker-push-ovs-cni: ## Push the docker image for ovs-cni
 	docker push $(OVS_CNI_IMAGE):$(TAG)
 
-.PHONY: docker-push-hostdriver
-docker-push-hostdriver: ## Push the docker image for DMS and hostnetwork.
+.PHONY: docker-push-hostdriver # Push a multi-arch image for hostdriver using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
+docker-push-hostdriver: $(addprefix docker-push-hostdriver-for-,$(DPF_SYSTEM_ARCH))
+	docker manifest push --purge $(HOSTDRIVER_IMAGE):$(TAG)
+
+docker-push-hostdriver-for-%:
+	# Tag and push the arch-specific image with the single arch-agnostic tag.
+	docker tag $(HOSTDRIVER_IMAGE):$(TAG)-$* $(HOSTDRIVER_IMAGE):$(TAG)
 	docker push $(HOSTDRIVER_IMAGE):$(TAG)
+	# This must be called in a separate target to ensure the shell command is called in the correct order.
+	$(MAKE) docker-create-manifest-for-hostdriver
+
+docker-create-manifest-for-hostdriver:
+	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
+	docker manifest create --amend $(HOSTDRIVER_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(HOSTDRIVER_IMAGE):$(TAG))
 
 .PHONY: docker-push-dpucniprovisioner
 docker-push-dpucniprovisioner: ## Push the docker image for DPU CNI Provisioner.
