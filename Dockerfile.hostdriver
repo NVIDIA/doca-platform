@@ -108,7 +108,9 @@ WORKDIR /
 
 RUN echo "dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager.Reboot boolean:false" > /usr/sbin/reboot && chmod +x /usr/sbin/reboot
 
-RUN curl -LO https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin
+RUN curl -LO https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl && \
+    chmod +x kubectl && \
+    mv kubectl /usr/local/bin
 
 COPY --from=builder /workspace/bin/ .
 
