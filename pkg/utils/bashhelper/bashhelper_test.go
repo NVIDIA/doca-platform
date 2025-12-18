@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package bashhelper
 
 import (
 	. "github.com/onsi/ginkgo/v2"
@@ -24,28 +24,28 @@ import (
 var _ = Describe("Cmd", func() {
 	Context("RunBash", Label("RunBash"), func() {
 		It("should execute command and return stdout", func() {
-			stdout, stderr, err := RunBash("echo hello")
+			stdout, stderr, err := Run("echo hello")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stdout.String()).To(Equal("hello\n"))
 			Expect(stderr.String()).To(BeEmpty())
 		})
 
 		It("should capture stderr output", func() {
-			stdout, stderr, err := RunBash("echo error >&2")
+			stdout, stderr, err := Run("echo error >&2")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stdout.String()).To(BeEmpty())
 			Expect(stderr.String()).To(Equal("error\n"))
 		})
 
 		It("should capture both stdout and stderr", func() {
-			stdout, stderr, err := RunBash("echo out && echo err >&2")
+			stdout, stderr, err := Run("echo out && echo err >&2")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stdout.String()).To(Equal("out\n"))
 			Expect(stderr.String()).To(Equal("err\n"))
 		})
 
 		It("should return error for failed command", func() {
-			stdout, stderr, err := RunBash("exit 1")
+			stdout, stderr, err := Run("exit 1")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to run command"))
 			Expect(stdout.String()).To(BeEmpty())
@@ -53,27 +53,27 @@ var _ = Describe("Cmd", func() {
 		})
 
 		It("should return error for non-existent command", func() {
-			_, _, err := RunBash("nonexistent_command_12345")
+			_, _, err := Run("nonexistent_command_12345")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to run command"))
 		})
 
 		It("should handle command with arguments", func() {
-			stdout, stderr, err := RunBash("echo -n test")
+			stdout, stderr, err := Run("echo -n test")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stdout.String()).To(Equal("test"))
 			Expect(stderr.String()).To(BeEmpty())
 		})
 
 		It("should handle command with pipes", func() {
-			stdout, stderr, err := RunBash("echo 'hello world' | grep hello")
+			stdout, stderr, err := Run("echo 'hello world' | grep hello")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stdout.String()).To(Equal("hello world\n"))
 			Expect(stderr.String()).To(BeEmpty())
 		})
 
 		It("should return error and capture stderr for failing command with output", func() {
-			stdout, stderr, err := RunBash("echo fail_output >&2; exit 2")
+			stdout, stderr, err := Run("echo fail_output >&2; exit 2")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to run command"))
 			Expect(stdout.String()).To(BeEmpty())
@@ -81,21 +81,21 @@ var _ = Describe("Cmd", func() {
 		})
 
 		It("should handle empty command string", func() {
-			stdout, stderr, err := RunBash("")
+			stdout, stderr, err := Run("")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stdout.String()).To(BeEmpty())
 			Expect(stderr.String()).To(BeEmpty())
 		})
 
 		It("should handle multiline output", func() {
-			stdout, stderr, err := RunBash("echo 'line1'; echo 'line2'; echo 'line3'")
+			stdout, stderr, err := Run("echo 'line1'; echo 'line2'; echo 'line3'")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stdout.String()).To(Equal("line1\nline2\nline3\n"))
 			Expect(stderr.String()).To(BeEmpty())
 		})
 
 		It("should handle command with environment variable expansion", func() {
-			stdout, stderr, err := RunBash("export TEST_VAR=testvalue && echo $TEST_VAR")
+			stdout, stderr, err := Run("export TEST_VAR=testvalue && echo $TEST_VAR")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stdout.String()).To(Equal("testvalue\n"))
 			Expect(stderr.String()).To(BeEmpty())

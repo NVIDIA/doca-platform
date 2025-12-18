@@ -32,6 +32,7 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/release"
+	"github.com/nvidia/doca-platform/pkg/utils/filesystemhelper"
 
 	"github.com/vishvananda/netlink"
 	corev1 "k8s.io/api/core/v1"
@@ -344,7 +345,7 @@ func (n *NodeManager) rebootOccurred() (RebootResult, error) {
 		if err := os.MkdirAll(filepath.Dir(LatestRebootIDFile), 0755); err != nil {
 			return firstRun, err
 		}
-		if err := hostutil.AtomicWrite(LatestRebootIDFile, currentRebootID, 0644); err != nil {
+		if err := filesystemhelper.AtomicWrite(LatestRebootIDFile, currentRebootID, 0644); err != nil {
 			return firstRun, err
 		}
 		return firstRun, nil
