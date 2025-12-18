@@ -18,8 +18,10 @@ package netplanhelper
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
+
+	"github.com/nvidia/doca-platform/pkg/utils/bashhelper"
+	"github.com/nvidia/doca-platform/pkg/utils/filesystemhelper"
 
 	"gopkg.in/yaml.v3"
 )
@@ -48,7 +50,7 @@ type NetplanConfig struct {
 func (n NetplanConfig) WriteToFile(filePath string) error {
 	// Ensure directory exists
 	dir := filepath.Dir(filePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := filesystemhelper.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create netplan directory: %w", err)
 	}
 
@@ -59,8 +61,16 @@ func (n NetplanConfig) WriteToFile(filePath string) error {
 	}
 
 	// Write file with correct permissions (netplan requires 0600)
-	if err := os.WriteFile(filePath, data, 0600); err != nil {
+	if err := filesystemhelper.AtomicWrite(filePath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write netplan file: %w", err)
+	}
+	return nil
+}
+
+func Apply() error {
+	stdout, stderr, err := bashhelper.Run("netplan apply")
+	if err != nil {
+		return fmt.Errorf("failed to run netplan apply. stdout: %s, stderr: %s, err: %w", stdout.String(), stderr.String(), err)
 	}
 	return nil
 }

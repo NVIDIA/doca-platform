@@ -51,6 +51,7 @@ type TestFileSystem interface {
 	Stat(name string) (os.FileInfo, error)
 	ReadFile(name string) ([]byte, error)
 	WriteFile(name string, data []byte, perm os.FileMode) error
+	AtomicWrite(name string, data []byte, perm os.FileMode) error
 	Open(name string) (*os.File, error)
 	MkdirAll(path string, perm os.FileMode) error
 	ReadDir(name string) ([]os.DirEntry, error)
@@ -146,6 +147,14 @@ func (m *mockFS) ReadDir(name string) ([]os.DirEntry, error) {
 		}
 	}
 	return entries, nil
+}
+
+func (m *mockFS) AtomicWrite(name string, data []byte, perm os.FileMode) error {
+	if m.writeErr != nil {
+		return m.writeErr
+	}
+	m.files[name] = data
+	return nil
 }
 
 type mockFileInfo struct {

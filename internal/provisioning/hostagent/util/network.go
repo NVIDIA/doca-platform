@@ -322,8 +322,9 @@ func ConfigureNetplan(pciAddress string, portConfigs []PortConfig, controlPlaneM
 
 	// Apply netplan configuration if either PF or bridge changes are needed
 	if pfNeedsApply || bridgeNeedsApply {
-		if err = applyNetplan(); err != nil {
-			return fmt.Errorf("failed to apply netplan configuration: %w", err)
+		klog.Infof("Executing 'netplan apply'")
+		if err = netplanhelper.Apply(); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -398,16 +399,6 @@ func configurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
 	}
 
 	return needApply, nil
-}
-
-// applyNetplan applies the netplan configuration
-func applyNetplan() error {
-	klog.Infof("Executing 'netplan apply'")
-	cmd := exec.Command("netplan", "apply")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("netplan apply failed: %w, output: %s", err, string(output))
-	}
-	return nil
 }
 
 // HasNetplan checks if netplan is available on the system
