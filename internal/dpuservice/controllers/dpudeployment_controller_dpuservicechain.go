@@ -71,11 +71,13 @@ func reconcileDPUServiceChain(ctx context.Context,
 	}
 
 	if dpuDeployment.Spec.ServiceChains != nil {
+		dpuClusterSelector := getAggregatedDPUClusterSelector(dpuDeployment)
 		versionDigest := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
 		newRevision := generateDPUServiceChain(client.ObjectKeyFromObject(dpuDeployment),
 			owner,
 			versionDigest,
 			dpuDeployment.Spec.ServiceChains.Switches,
+			dpuClusterSelector,
 		)
 
 		currentRevision, oldRevisions := getCurrentAndStaleDPUServiceChains(versionDigest, existingDPUServiceChains)
@@ -269,7 +271,7 @@ func getLabelSelectorDPUServiceChainVersionValue(labelSelector *metav1.LabelSele
 }
 
 // generateDPUServiceChain generates a DPUServiceChain according to the DPUDeployment.
-func generateDPUServiceChain(dpuDeploymentNamespacedName types.NamespacedName, owner *metav1.OwnerReference, versionDigest string, switches []dpuservicev1.DPUDeploymentSwitch) *dpuservicev1.DPUServiceChain {
+func generateDPUServiceChain(dpuDeploymentNamespacedName types.NamespacedName, owner *metav1.OwnerReference, versionDigest string, switches []dpuservicev1.DPUDeploymentSwitch, dpuClusterSelector *metav1.LabelSelector) *dpuservicev1.DPUServiceChain {
 	sw := make([]dpuservicev1.Switch, 0, len(switches))
 
 	for _, s := range switches {
@@ -290,7 +292,7 @@ func generateDPUServiceChain(dpuDeploymentNamespacedName types.NamespacedName, o
 			},
 		},
 		Spec: dpuservicev1.DPUServiceChainSpec{
-			// TODO: Derive and add cluster selector
+			DPUClusterSelector: dpuClusterSelector,
 			Template: dpuservicev1.ServiceChainSetSpecTemplate{
 				Spec: dpuservicev1.ServiceChainSetSpec{
 					Template: dpuservicev1.ServiceChainSpecTemplate{

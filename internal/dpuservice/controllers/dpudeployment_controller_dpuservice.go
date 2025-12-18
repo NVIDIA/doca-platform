@@ -96,6 +96,7 @@ func reconcileDPUServices(
 
 	patchedDPUServices := make(map[string]*dpuservicev1.DPUService, len(existingDPUServices.Items))
 	var errs []error
+	dpuClusterSelector := getAggregatedDPUClusterSelector(dpuDeployment)
 	// Create or update DPUServices to match what is defined in the DPUDeployment.
 	for _, serviceName := range sortedServices {
 		serviceConfig := dependencies.DPUServiceConfigurations[serviceName]
@@ -121,6 +122,7 @@ func reconcileDPUServices(
 			serviceTemplate,
 			interfaceNameByServiceName[serviceName],
 			versionDigest,
+			dpuClusterSelector,
 		)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to generate DPUService %s: %w", serviceName, err))
@@ -436,6 +438,7 @@ func generateDPUService(dpuDeploymentNamespacedName types.NamespacedName,
 	serviceTemplate *dpuservicev1.DPUServiceTemplate,
 	interfaces map[string]string,
 	versionDigest string,
+	dpuClusterSelector *metav1.LabelSelector,
 ) (*dpuservicev1.DPUService, error) {
 
 	var serviceConfigValues, serviceTemplateValues map[string]interface{}
@@ -488,6 +491,10 @@ func generateDPUService(dpuDeploymentNamespacedName types.NamespacedName,
 
 	if serviceConfig.Spec.ServiceConfiguration.ConfigPorts != nil {
 		dpuService.Spec.ConfigPorts = serviceConfig.Spec.ServiceConfiguration.ConfigPorts
+	}
+
+	if !serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster() {
+		dpuService.Spec.DPUClusterSelector = dpuClusterSelector
 	}
 
 	dpuService.SetOwnerReferences([]metav1.OwnerReference{*owner})
