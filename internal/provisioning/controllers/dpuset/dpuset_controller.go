@@ -57,9 +57,14 @@ const (
 	DPUSetControllerName = "dpuset"
 )
 
+type DPUSetOptions struct {
+	DPUInstallInterface string
+}
+
 // DPUSetReconciler reconciles a DPUSet object
 type DPUSetReconciler struct {
 	client.Client
+	Options  DPUSetOptions
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 }
@@ -105,6 +110,18 @@ func (r *DPUSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ c
 	return r.Handle(ctx, dpuSet)
 }
 
+func (r *DPUSetReconciler) validateDPUSet(dpuSet *provisioningv1.DPUSet) error {
+	if r.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
+		if dpuSet.Spec.DPUTemplate.Spec.NodeEffect != nil &&
+			(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.IsCustomLabel() || dpuSet.Spec.DPUTemplate.Spec.NodeEffect.IsTaint() || dpuSet.Spec.DPUTemplate.Spec.NodeEffect.IsDrain()) {
+			message := fmt.Sprintf("NodeEffect is not allowed to be %s when using RedFish Install Interface", dpuSet.Spec.DPUTemplate.Spec.NodeEffect.String())
+			conditions.AddFalse(dpuSet, provisioningv1.ConditionDPUSetReconciled, conditions.ReasonError, conditions.ConditionMessage(message))
+			return fmt.Errorf("invalid NodeEffect: %s", message)
+		}
+	}
+	return nil
+}
+
 func (r *DPUSetReconciler) reconcileDelete(ctx context.Context, dpuSet *provisioningv1.DPUSet) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconcile Delete DPUSet")
@@ -146,6 +163,10 @@ func (r *DPUSetReconciler) reconcileDelete(ctx context.Context, dpuSet *provisio
 
 func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DPUSet) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
+
+	if err := r.validateDPUSet(dpuSet); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to validate DPUSet %w", err)
+	}
 
 	dpuClusterList := &provisioningv1.DPUClusterList{}
 	if err := r.List(ctx, dpuClusterList); err != nil {
