@@ -41,9 +41,16 @@ const (
 	NodeEffectUnknown      = "Unknown"
 )
 
+const (
+	// ConditionDPUSetReconciled is the condition type that indicates that the
+	// DPUSet is reconciled.
+	ConditionDPUSetReconciled conditions.ConditionType = "DPUSetPrereqsReconciled"
+)
+
 var (
 	DPUSetConditions = []conditions.ConditionType{
 		conditions.TypeReady,
+		ConditionDPUSetReconciled,
 	}
 )
 

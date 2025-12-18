@@ -313,7 +313,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&dpuset.DPUSetReconciler{
-		Client:   mgr.GetClient(),
+		Client: mgr.GetClient(),
+		Options: dpuset.DPUSetOptions{
+			DPUInstallInterface: dpuInstallInterface,
+		},
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor(dpuset.DPUSetControllerName),
 	}).SetupWithManager(mgr); err != nil {
