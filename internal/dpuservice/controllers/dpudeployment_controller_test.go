@@ -789,6 +789,237 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}(), nil, true),
 			)
 		})
+		Context("Get Aggregated DPUClusterSelector", func() {
+			DescribeTable("Validate",
+				func(dpuSets []dpuservicev1.DPUSet, expectedSelector *metav1.LabelSelector) {
+					dpuDeployment := &dpuservicev1.DPUDeployment{
+						Spec: dpuservicev1.DPUDeploymentSpec{
+							DPUs: dpuservicev1.DPUs{
+								DPUSets: dpuSets,
+							},
+						},
+					}
+
+					result := getAggregatedDPUClusterSelector(dpuDeployment)
+
+					if expectedSelector == nil {
+						Expect(result).To(BeNil())
+						return
+					}
+
+					Expect(result).ToNot(BeNil())
+					Expect(result).To(BeComparableTo(expectedSelector))
+				},
+				Entry("nil DPUSets", nil, nil),
+				Entry("empty DPUSets", []dpuservicev1.DPUSet{}, nil),
+				Entry("any DPUSet has nil selector",
+					[]dpuservicev1.DPUSet{
+						{
+							NameSuffix: "set1",
+							DPUClusterSelector: map[string]string{
+								"region": "us-west",
+							},
+						},
+						{
+							NameSuffix:         "set2",
+							DPUClusterSelector: nil,
+						},
+					},
+					nil,
+				),
+				Entry("any DPUSet has empty selector",
+					[]dpuservicev1.DPUSet{
+						{
+							NameSuffix: "set1",
+							DPUClusterSelector: map[string]string{
+								"region": "us-west",
+							},
+						},
+						{
+							NameSuffix:         "set2",
+							DPUClusterSelector: map[string]string{},
+						},
+					},
+					nil,
+				),
+				Entry("single DPUSet with multiple labels",
+					[]dpuservicev1.DPUSet{
+						{
+							NameSuffix: "set1",
+							DPUClusterSelector: map[string]string{
+								"region": "us-west",
+								"env":    "prod",
+							},
+						},
+					},
+					&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "env",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"prod"},
+							},
+							{
+								Key:      "region",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"us-west"},
+							},
+						},
+					},
+				),
+				Entry("aggregate values for same key across multiple DPUSets",
+					[]dpuservicev1.DPUSet{
+						{
+							NameSuffix: "set1",
+							DPUClusterSelector: map[string]string{
+								"region": "us-west",
+							},
+						},
+						{
+							NameSuffix: "set2",
+							DPUClusterSelector: map[string]string{
+								"region": "us-east",
+							},
+						},
+						{
+							NameSuffix: "set3",
+							DPUClusterSelector: map[string]string{
+								"region": "eu-west",
+							},
+						},
+					},
+					&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "region",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"eu-west", "us-east", "us-west"},
+							},
+						},
+					},
+				),
+				Entry("deduplicate values for same key",
+					[]dpuservicev1.DPUSet{
+						{
+							NameSuffix: "set1",
+							DPUClusterSelector: map[string]string{
+								"region": "us-west",
+								"env":    "prod",
+							},
+						},
+						{
+							NameSuffix: "set2",
+							DPUClusterSelector: map[string]string{
+								"region": "us-west", // Duplicate
+								"env":    "dev",
+							},
+						},
+					},
+					&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "env",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"dev", "prod"},
+							},
+							{
+								Key:      "region",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"us-west"},
+							},
+						},
+					},
+				),
+				// TODO: This is problematic as it will create objects in clusters where we should potentially don't create, consider
+				// a different implementation.
+				Entry("create superset with different key combinations",
+					[]dpuservicev1.DPUSet{
+						{
+							NameSuffix: "set1",
+							DPUClusterSelector: map[string]string{
+								"region": "us-west",
+								"env":    "prod",
+							},
+						},
+						{
+							NameSuffix: "set2",
+							DPUClusterSelector: map[string]string{
+								"region": "us-east",
+								"env":    "dev",
+							},
+						},
+						{
+							NameSuffix: "set3",
+							DPUClusterSelector: map[string]string{
+								"region": "eu-west",
+								"tier":   "frontend",
+							},
+						},
+					},
+					&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "env",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"dev", "prod"},
+							},
+							{
+								Key:      "region",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"eu-west", "us-east", "us-west"},
+							},
+							{
+								Key:      "tier",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"frontend"},
+							},
+						},
+					},
+				),
+			)
+			It("produces idempotent results", func() {
+				dpuDeployment := &dpuservicev1.DPUDeployment{
+					Spec: dpuservicev1.DPUDeploymentSpec{
+						DPUs: dpuservicev1.DPUs{
+							DPUSets: []dpuservicev1.DPUSet{
+								{
+									NameSuffix: "set1",
+									DPUClusterSelector: map[string]string{
+										"region": "us-west",
+										"env":    "prod",
+										"tier":   "frontend",
+									},
+								},
+								{
+									NameSuffix: "set2",
+									DPUClusterSelector: map[string]string{
+										"region": "us-east",
+										"env":    "dev",
+									},
+								},
+								{
+									NameSuffix: "set3",
+									DPUClusterSelector: map[string]string{
+										"region": "eu-west",
+										"tier":   "backend",
+									},
+								},
+							},
+						},
+					},
+				}
+
+				results := make([]*metav1.LabelSelector, 10)
+				for i := 0; i < 10; i++ {
+					results[i] = getAggregatedDPUClusterSelector(dpuDeployment)
+				}
+
+				for i := 1; i < len(results); i++ {
+					// Equal is used instead of BeComparableTo to avoid the issue of the order of the match expressions.
+					Expect(results[i]).To(Equal(results[0]), "all iterations should produce the same result")
+				}
+			})
+		})
 		Context("When checking getDependencies()", func() {
 			It("should return the correct object", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
@@ -1236,6 +1467,9 @@ var _ = Describe("DPUDeployment Controller", func() {
 						DPUAnnotations: map[string]string{
 							"annotationkey2": "annotationvalue2",
 						},
+						DPUClusterSelector: map[string]string{
+							"clusterkey1": "clustervalue1",
+						},
 					},
 				}
 
@@ -1307,6 +1541,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 										ApplyOnLabelChange: ptr.To(false),
 									},
 								},
+								Cluster: &provisioningv1.ClusterSpec{
+									Selector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"clusterkey1": "clustervalue1",
+										},
+									},
+								},
 							},
 						},
 					},
@@ -1370,12 +1611,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
 				for i := range expectedDPUSetSpecs {
-					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
-						NodeLabels: map[string]string{
-							"svc.dpu.nvidia.com/dpuservicechain-version":        dpuServiceChain.Name,
-							"svc.dpu.nvidia.com/dpuservice-someservice-version": dpuService.Name,
-							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
-						},
+					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
+						"svc.dpu.nvidia.com/dpuservicechain-version":        dpuServiceChain.Name,
+						"svc.dpu.nvidia.com/dpuservice-someservice-version": dpuService.Name,
+						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
 					}
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
 						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
@@ -1430,12 +1672,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
 				for i := range expectedDPUSetSpecs {
-					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
-						NodeLabels: map[string]string{
-							"svc.dpu.nvidia.com/dpuservicechain-version":        dpuServiceChain.Name,
-							"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
-							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
-						},
+					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
+						"svc.dpu.nvidia.com/dpuservicechain-version":        dpuServiceChain.Name,
+						"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
+						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
 					}
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
 						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
@@ -1508,12 +1751,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
 				for i := range expectedDPUSetSpecs {
-					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
-						NodeLabels: map[string]string{
-							"svc.dpu.nvidia.com/dpuservicechain-version":        dpuServiceChain.Name,
-							"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
-							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
-						},
+					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
+						"svc.dpu.nvidia.com/dpuservicechain-version":        dpuServiceChain.Name,
+						"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
+						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
 					}
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
 						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
@@ -1642,12 +1886,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
 				for i := range expectedDPUSetSpecs {
-					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
-						NodeLabels: map[string]string{
-							"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
-							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
-							"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
-						},
+					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
+						"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
+						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
+						"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
 					}
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
 						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUServiceChain.Name),
@@ -1742,12 +1987,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
 				for i := range expectedDPUSetSpecs {
-					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
-						NodeLabels: map[string]string{
-							"svc.dpu.nvidia.com/dpuservice-someservice-version": gotInitialDPUService.Name,
-							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
-							"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
-						},
+					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
+						"svc.dpu.nvidia.com/dpuservice-someservice-version": gotInitialDPUService.Name,
+						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
+						"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
 					}
 
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
@@ -1802,12 +2048,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				Expect(gotDPUService).ToNot(Equal(gotInitialDPUService))
 				for i := range expectedDPUSetSpecs {
-					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
-						NodeLabels: map[string]string{
-							"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
-							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
-							"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
-						},
+					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
+						"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
+						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
+						"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
 					}
 
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
@@ -1975,12 +2222,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
 				for i := range expectedDPUSetSpecs {
-					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
-						NodeLabels: map[string]string{
-							"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
-							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
-							"svc.dpu.nvidia.com/dpuservicechain-version":        gotInitialDPUServiceChain.Name,
-						},
+					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
+						"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
+						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
+						"svc.dpu.nvidia.com/dpuservicechain-version":        gotInitialDPUServiceChain.Name,
 					}
 
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
@@ -2084,12 +2332,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				Expect(gotDPUServiceChain).ToNot(Equal(gotInitialDPUServiceChain))
 				for i := range expectedDPUSetSpecs {
-					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
-						NodeLabels: map[string]string{
-							"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
-							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
-							"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
-						},
+					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
+						"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
+						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
+						"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
 					}
 
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
@@ -2256,12 +2505,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
 				for i := range expectedDPUSetSpecs {
-					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
-						NodeLabels: map[string]string{
-							"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
-							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
-							"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
-						},
+					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
+						"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
+						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
+						"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
 					}
 
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
@@ -2403,12 +2653,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
 				for i := range expectedDPUSetSpecs {
-					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
-						NodeLabels: map[string]string{
-							"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
-							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
-							"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
-						},
+					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
+						"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
+						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
+						"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
 					}
 
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
@@ -2489,12 +2740,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
 				for i := range expectedDPUSetSpecs {
-					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
-						NodeLabels: map[string]string{
-							"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
-							dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
-							"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
-						},
+					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
+						"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
+						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
+						"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
 					}
 
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
@@ -2755,6 +3007,134 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 					genExpectedDPUServiceInterfaceSpecs := func(dpuserviceName, networkName, ifName string, virtualNetworkName *string) dpuservicev1.DPUServiceInterfaceSpec {
 						return dpuservicev1.DPUServiceInterfaceSpec{
+							Template: dpuservicev1.ServiceInterfaceSetSpecTemplate{
+								Spec: dpuservicev1.ServiceInterfaceSetSpec{
+									NodeSelector: &metav1.LabelSelector{
+										MatchExpressions: []metav1.LabelSelectorRequirement{
+											{
+												Key:      "svc.dpu.nvidia.com/dpuservice-someservice-version",
+												Operator: metav1.LabelSelectorOpIn,
+												Values:   []string{dpuserviceName},
+											},
+											{
+												Key:      dpuservicev1.ParentDPUDeploymentNameLabel,
+												Operator: metav1.LabelSelectorOpIn,
+												Values:   []string{fmt.Sprintf("%s_%s", testNS.Name, dpuDeployment.Name)},
+											},
+										},
+									},
+									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
+										ObjectMeta: dpuservicev1.ObjectMeta{
+											Labels: map[string]string{
+												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												ServiceInterfaceInterfaceNameLabel: ifName,
+											},
+										},
+										Spec: dpuservicev1.ServiceInterfaceSpec{
+											InterfaceType: dpuservicev1.InterfaceTypeService,
+											Service: &dpuservicev1.ServiceDef{
+												ServiceID:      "dpudeployment_dpudeployment_someservice",
+												Network:        networkName,
+												InterfaceName:  ifName,
+												VirtualNetwork: virtualNetworkName,
+											},
+										},
+									},
+								},
+							},
+						}
+					}
+					g.Expect(specs).To(ConsistOf([]dpuservicev1.DPUServiceInterfaceSpec{
+						genExpectedDPUServiceInterfaceSpecs(gotDPUService.Name, "nad1", "some_interface", nil),
+						genExpectedDPUServiceInterfaceSpecs(gotDPUService.Name, "nad2", "otherinterface", nil),
+						genExpectedDPUServiceInterfaceSpecs(gotDPUService.Name, "nad3", "virt_interface", ptr.To("vnet1")),
+					}))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+			})
+			It("should create the correct DPUServiceInterfaces when DPUDeployment specifies multiple DPUSets", func() {
+				By("Creating the dependencies")
+				dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
+				dpuServiceConfiguration.Spec.Interfaces = []dpuservicev1.ServiceInterfaceTemplate{
+					{
+						Name:    "some_interface",
+						Network: "nad1",
+					},
+					{
+						Name:    "otherinterface",
+						Network: "nad2",
+					},
+					{
+						Name:           "virt_interface",
+						Network:        "nad3",
+						VirtualNetwork: ptr.To("vnet1"),
+					},
+				}
+				Expect(testClient.Create(ctx, dpuServiceConfiguration)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceConfiguration)
+
+				dpuServiceTemplate := createMinimalDPUServiceTemplateWithStatus(testNS.Name)
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceTemplate)
+
+				By("Creating the DPUDeployment with multiple DPUSets")
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
+					{
+						NameSuffix: "set1",
+						DPUClusterSelector: map[string]string{
+							"region": "us-west",
+						},
+					},
+					{
+						NameSuffix: "set2",
+						DPUClusterSelector: map[string]string{
+							"region": "us-east",
+						},
+					},
+				}
+				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+
+				versionDigest := calculateDPUServiceVersionDigest(dpuServiceConfiguration, dpuServiceTemplate)
+				By("checking that correct DPUServiceInterfaces are created")
+				Eventually(func(g Gomega) {
+					gotDPUServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
+					g.Expect(testClient.List(ctx, gotDPUServiceInterfaceList)).To(Succeed())
+					g.Expect(gotDPUServiceInterfaceList.Items).To(HaveLen(3))
+
+					By("checking the object metadata")
+					for _, dpuServiceInterface := range gotDPUServiceInterfaceList.Items {
+						g.Expect(dpuServiceInterface.Labels).To(HaveLen(1))
+						g.Expect(dpuServiceInterface.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
+						g.Expect(dpuServiceInterface.Annotations).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpuservice-version", versionDigest))
+						g.Expect(dpuServiceInterface.OwnerReferences).To(ContainElement(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
+					}
+
+					By("retrieving the DPUService")
+					var gotDPUService *dpuservicev1.DPUService
+					Eventually(func(g Gomega) {
+						dpuServiceList := getDPUServiceList()
+						g.Expect(dpuServiceList.Items).To(HaveLen(1))
+						gotDPUService = &dpuServiceList.Items[0]
+						g.Expect(gotDPUService).ToNot(BeNil())
+					}).WithTimeout(30 * time.Second).Should(Succeed())
+
+					By("checking the specs")
+					specs := make([]dpuservicev1.DPUServiceInterfaceSpec, 0, len(gotDPUServiceInterfaceList.Items))
+					for _, dpuServiceInterface := range gotDPUServiceInterfaceList.Items {
+						specs = append(specs, dpuServiceInterface.Spec)
+					}
+
+					genExpectedDPUServiceInterfaceSpecs := func(dpuserviceName, networkName, ifName string, virtualNetworkName *string) dpuservicev1.DPUServiceInterfaceSpec {
+						return dpuservicev1.DPUServiceInterfaceSpec{
+							DPUClusterSelector: &metav1.LabelSelector{
+								MatchExpressions: []metav1.LabelSelectorRequirement{
+									{
+										Key:      "region",
+										Operator: metav1.LabelSelectorOpIn,
+										Values:   []string{"us-east", "us-west"},
+									},
+								},
+							},
 							Template: dpuservicev1.ServiceInterfaceSetSpecTemplate{
 								Spec: dpuservicev1.ServiceInterfaceSetSpec{
 									NodeSelector: &metav1.LabelSelector{
@@ -4400,6 +4780,95 @@ var _ = Describe("DPUDeployment Controller", func() {
 					}))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 			})
+			It("should not create new DPUServiceInterfaces, when service is disruptive, on update of the .spec.dpuClusterSelector in the DPUDeployment", func() {
+				By("Creating the dependencies")
+				dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
+				dpuServiceConfiguration.Spec.Interfaces = []dpuservicev1.ServiceInterfaceTemplate{
+					{
+						Name:    "someinterface",
+						Network: "nad1",
+					},
+				}
+				Expect(testClient.Create(ctx, dpuServiceConfiguration)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceConfiguration)
+
+				dpuServiceTemplate := createMinimalDPUServiceTemplateWithStatus(testNS.Name)
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceTemplate)
+
+				versionDigest := calculateDPUServiceVersionDigest(dpuServiceConfiguration, dpuServiceTemplate)
+
+				By("Creating the DPUDeployment with initial DPUClusterSelector")
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
+					{
+						NameSuffix: "set1",
+						DPUClusterSelector: map[string]string{
+							"region": "us-west",
+						},
+					},
+				}
+				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+
+				By("waiting for the initial DPUServiceInterface to be applied")
+				var initialDPUServiceInterfaceUID types.UID
+				Eventually(func(g Gomega) {
+					gotDPUServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
+					g.Expect(testClient.List(ctx, gotDPUServiceInterfaceList)).To(Succeed())
+					g.Expect(gotDPUServiceInterfaceList.Items).To(HaveLen(1))
+					initialDPUServiceInterfaceUID = gotDPUServiceInterfaceList.Items[0].UID
+					g.Expect(gotDPUServiceInterfaceList.Items[0].Annotations).To(HaveKeyWithValue(dpuServiceVersionAnnotationKey, versionDigest))
+					g.Expect(gotDPUServiceInterfaceList.Items[0].Spec.DPUClusterSelector).To(BeComparableTo(&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "region",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"us-west"},
+							},
+						},
+					}))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				By("modifying the DPUClusterSelector in the DPUDeployment by updating DPUSets")
+				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
+				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
+					{
+						NameSuffix: "set1",
+						DPUClusterSelector: map[string]string{
+							"region": "us-west",
+						},
+					},
+					{
+						NameSuffix: "set2",
+						DPUClusterSelector: map[string]string{
+							"region": "us-east",
+						},
+					},
+				}
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner("test"))).To(Succeed())
+
+				By("checking that the DPUServiceInterface is NOT recreated but updated in place")
+				Eventually(func(g Gomega) {
+					gotDPUServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
+					g.Expect(testClient.List(ctx, gotDPUServiceInterfaceList)).To(Succeed())
+					g.Expect(gotDPUServiceInterfaceList.Items).To(HaveLen(1))
+
+					dpuServiceInterface := gotDPUServiceInterfaceList.Items[0]
+					g.Expect(dpuServiceInterface.UID).To(Equal(initialDPUServiceInterfaceUID))
+					g.Expect(dpuServiceInterface.Annotations).To(HaveKeyWithValue(dpuServiceVersionAnnotationKey, versionDigest))
+
+					By("verifying the DPUClusterSelector is updated with aggregated values")
+					g.Expect(dpuServiceInterface.Spec.DPUClusterSelector).To(BeComparableTo(&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "region",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"us-east", "us-west"},
+							},
+						},
+					}))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+			})
 			It("should delete DPUServiceInterfaces that are no longer part of the DPUServiceConfiguration", func() {
 				By("Creating the dependencies")
 				dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
@@ -5035,9 +5504,15 @@ var _ = Describe("DPUDeployment Controller", func() {
 				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 					{
 						NameSuffix: "dpuset1",
+						DPUClusterSelector: map[string]string{
+							"region": "us-west",
+						},
 					},
 					{
 						NameSuffix: "dpuset2",
+						DPUClusterSelector: map[string]string{
+							"region": "us-east",
+						},
 						DPUNodeSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
 								"nodekey2": "nodevalue2",
@@ -5123,6 +5598,15 @@ var _ = Describe("DPUDeployment Controller", func() {
 							DeployInCluster: ptr.To(true),
 						},
 						{
+							DPUClusterSelector: &metav1.LabelSelector{
+								MatchExpressions: []metav1.LabelSelectorRequirement{
+									{
+										Key:      "region",
+										Operator: metav1.LabelSelectorOpIn,
+										Values:   []string{"us-east", "us-west"},
+									},
+								},
+							},
 							HelmChart: dpuservicev1.HelmChart{
 								Source: dpuservicev1.ApplicationSource{
 									RepoURL: "oci://someurl/repo",
@@ -6291,6 +6775,91 @@ var _ = Describe("DPUDeployment Controller", func() {
 					}))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 			})
+			It("should not create a new DPUService, when service is disruptive, on update of the .spec.dpuClusterSelector in the DPUDeployment", func() {
+				By("Creating the dependencies")
+				versionDigest1, _ := createReconcileDPUServicesDisruptiveDependencies(testNS.Name)
+
+				By("Creating the DPUDeployment with initial DPUClusterSelector")
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.Services = make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration)
+				dpuDeployment.Spec.Services["service-1"] = dpuservicev1.DPUDeploymentServiceConfiguration{
+					ServiceTemplate:      "service-1",
+					ServiceConfiguration: "service-1",
+				}
+				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
+					{
+						NameSuffix: "set1",
+						DPUClusterSelector: map[string]string{
+							"region": "us-west",
+						},
+					},
+				}
+				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+
+				By("waiting for the initial DPUService to be applied")
+				var initialDPUServiceUID types.UID
+				Eventually(func(g Gomega) {
+					gotDPUServiceList := &dpuservicev1.DPUServiceList{}
+					g.Expect(testClient.List(ctx, gotDPUServiceList, &client.ListOptions{
+						Namespace: testNS.Name,
+					})).To(Succeed())
+					g.Expect(gotDPUServiceList.Items).To(HaveLen(1))
+					initialDPUServiceUID = gotDPUServiceList.Items[0].UID
+					g.Expect(gotDPUServiceList.Items[0].Annotations).To(HaveKeyWithValue(dpuServiceVersionAnnotationKey, versionDigest1))
+					g.Expect(gotDPUServiceList.Items[0].Spec.DPUClusterSelector).To(BeComparableTo(&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "region",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"us-west"},
+							},
+						},
+					}))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				By("modifying the DPUClusterSelector in the DPUDeployment by updating DPUSets")
+				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
+				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
+					{
+						NameSuffix: "set1",
+						DPUClusterSelector: map[string]string{
+							"region": "us-west",
+						},
+					},
+					{
+						NameSuffix: "set2",
+						DPUClusterSelector: map[string]string{
+							"region": "us-east",
+						},
+					},
+				}
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner("test"))).To(Succeed())
+
+				By("checking that the DPUService is NOT recreated but updated in place")
+				Eventually(func(g Gomega) {
+					gotDPUServiceList := &dpuservicev1.DPUServiceList{}
+					g.Expect(testClient.List(ctx, gotDPUServiceList, &client.ListOptions{
+						Namespace: testNS.Name,
+					})).To(Succeed())
+					g.Expect(gotDPUServiceList.Items).To(HaveLen(1))
+
+					dpuService := gotDPUServiceList.Items[0]
+					g.Expect(dpuService.UID).To(Equal(initialDPUServiceUID))
+					g.Expect(dpuService.Annotations).To(HaveKeyWithValue(dpuServiceVersionAnnotationKey, versionDigest1))
+
+					By("verifying the DPUClusterSelector is updated with aggregated values")
+					g.Expect(dpuService.Spec.DPUClusterSelector).To(BeComparableTo(&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "region",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"us-east", "us-west"},
+							},
+						},
+					}))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+			})
 			It("should delete DPUServices that are no longer part of the DPUDeployment", func() {
 				By("Creating the dependencies")
 				_, versionDigest2 := createReconcileDPUServicesNonDisruptiveDependencies(testNS.Name)
@@ -7125,7 +7694,6 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 					By("checking the spec")
 					g.Expect(gotDPUServiceChain.Spec).To(BeComparableTo(dpuservicev1.DPUServiceChainSpec{
-						// TODO: Derive and add cluster selector
 						Template: dpuservicev1.ServiceChainSetSpecTemplate{
 							Spec: dpuservicev1.ServiceChainSetSpec{
 								NodeSelector: &metav1.LabelSelector{
@@ -7210,6 +7778,189 @@ var _ = Describe("DPUDeployment Controller", func() {
 					))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 			})
+
+			It("should create the correct DPUServiceChain when DPUDeployment specifies multiple DPUSets", func() {
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
+					{
+						NameSuffix: "set1",
+						DPUClusterSelector: map[string]string{
+							"region": "us-west",
+						},
+					},
+					{
+						NameSuffix: "set2",
+						DPUClusterSelector: map[string]string{
+							"region": "us-east",
+						},
+					},
+				}
+				dpuDeployment.Spec.ServiceChains = &dpuservicev1.ServiceChains{
+					Switches: []dpuservicev1.DPUDeploymentSwitch{
+						{
+							Ports: []dpuservicev1.DPUDeploymentPort{
+								{
+									Service: &dpuservicev1.DPUDeploymentService{
+										InterfaceName: "someinterface",
+										Name:          "somedpuservice",
+									},
+								},
+								{
+									Service: &dpuservicev1.DPUDeploymentService{
+										InterfaceName: "someinterface2",
+										Name:          "somedpuservice2",
+										IPAM: &dpuservicev1.IPAM{
+											MatchLabels: map[string]string{
+												"ipamkey1": "ipamvalue1",
+											},
+										},
+									},
+								},
+							},
+						},
+						{
+							Ports: []dpuservicev1.DPUDeploymentPort{
+								{
+									Service: &dpuservicev1.DPUDeploymentService{
+										InterfaceName: "otherinterface",
+										Name:          "someotherservice",
+									},
+								},
+							},
+							ServiceMTU: ptr.To(3000),
+						},
+						{
+							Ports: []dpuservicev1.DPUDeploymentPort{
+								{
+									ServiceInterface: &dpuservicev1.ServiceIfc{
+										MatchLabels: map[string]string{
+											"key": "value",
+										},
+										IPAM: &dpuservicev1.IPAM{
+											MatchLabels: map[string]string{
+												"ipamkey2": "ipamvalue2",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+				chainDigest := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
+
+				By("checking that correct DPUServiceChain is created")
+				Eventually(func(g Gomega) {
+					gotDPUServiceChainList := &dpuservicev1.DPUServiceChainList{}
+					g.Expect(testClient.List(ctx, gotDPUServiceChainList)).To(Succeed())
+					g.Expect(gotDPUServiceChainList.Items).To(HaveLen(1))
+
+					By("checking the object metadata")
+					gotDPUServiceChain := gotDPUServiceChainList.Items[0]
+
+					g.Expect(gotDPUServiceChain.Labels).To(HaveLen(1))
+					g.Expect(gotDPUServiceChain.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
+					g.Expect(gotDPUServiceChain.Annotations).To(HaveKeyWithValue(dpuServiceChainVersionLabelAnnotationKey, chainDigest))
+					g.Expect(gotDPUServiceChain.OwnerReferences).To(ConsistOf(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
+
+					By("checking the spec")
+					g.Expect(gotDPUServiceChain.Spec).To(BeComparableTo(dpuservicev1.DPUServiceChainSpec{
+						DPUClusterSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "region",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{"us-east", "us-west"},
+								},
+							},
+						},
+						Template: dpuservicev1.ServiceChainSetSpecTemplate{
+							Spec: dpuservicev1.ServiceChainSetSpec{
+								NodeSelector: &metav1.LabelSelector{
+									MatchExpressions: []metav1.LabelSelectorRequirement{
+										{
+											Key:      dpuServiceChainVersionLabelAnnotationKey,
+											Operator: metav1.LabelSelectorOpIn,
+											Values:   []string{gotDPUServiceChain.Name},
+										},
+										{
+											Key:      "svc.dpu.nvidia.com/owned-by-dpudeployment",
+											Operator: metav1.LabelSelectorOpIn,
+											Values:   []string{fmt.Sprintf("%s_dpudeployment", testNS.Name)},
+										},
+									},
+								},
+								Template: dpuservicev1.ServiceChainSpecTemplate{
+									Spec: dpuservicev1.ServiceChainSpec{
+										Switches: []dpuservicev1.Switch{
+											{
+												ServiceMTU: ptr.To(1500),
+												Ports: []dpuservicev1.Port{
+													{
+														ServiceInterface: dpuservicev1.ServiceIfc{
+															MatchLabels: map[string]string{
+																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_somedpuservice",
+																ServiceInterfaceInterfaceNameLabel: "someinterface",
+															},
+														},
+													},
+													{
+														ServiceInterface: dpuservicev1.ServiceIfc{
+															MatchLabels: map[string]string{
+																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_somedpuservice2",
+																ServiceInterfaceInterfaceNameLabel: "someinterface2",
+															},
+															IPAM: &dpuservicev1.IPAM{
+																MatchLabels: map[string]string{
+																	"ipamkey1": "ipamvalue1",
+																},
+															},
+														},
+													},
+												},
+											},
+											{
+												ServiceMTU: ptr.To(3000),
+												Ports: []dpuservicev1.Port{
+													{
+														ServiceInterface: dpuservicev1.ServiceIfc{
+															MatchLabels: map[string]string{
+																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someotherservice",
+																ServiceInterfaceInterfaceNameLabel: "otherinterface",
+															},
+														},
+													},
+												},
+											},
+											{
+												ServiceMTU: ptr.To(1500),
+												Ports: []dpuservicev1.Port{
+													{
+														ServiceInterface: dpuservicev1.ServiceIfc{
+															MatchLabels: map[string]string{
+																"key": "value",
+															},
+															IPAM: &dpuservicev1.IPAM{
+																MatchLabels: map[string]string{
+																	"ipamkey2": "ipamvalue2",
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+			})
+
 			It("should not create the DPUServiceChain if none specified", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
@@ -7625,6 +8376,81 @@ var _ = Describe("DPUDeployment Controller", func() {
 						},
 					},
 					))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+			})
+			It("should not create new DPUServiceChain, when chain is disruptive, on update of the .spec.dpuClusterSelector in the DPUDeployment", func() {
+				By("Creating the DPUDeployment with initial DPUClusterSelector")
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
+				dpuDeployment.Spec.ServiceChains.UpgradePolicy.ApplyNodeEffect = ptr.To(true)
+				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
+					{
+						NameSuffix: "set1",
+						DPUClusterSelector: map[string]string{
+							"region": "us-west",
+						},
+					},
+				}
+				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+
+				chainDigest := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
+
+				By("waiting for the initial DPUServiceChain to be applied")
+				var initialDPUServiceChainUID types.UID
+				Eventually(func(g Gomega) {
+					gotDPUServiceChainList := getDPUServiceChainList()
+					g.Expect(gotDPUServiceChainList.Items).To(HaveLen(1))
+					initialDPUServiceChainUID = gotDPUServiceChainList.Items[0].UID
+					g.Expect(gotDPUServiceChainList.Items[0].Annotations).To(HaveKeyWithValue(dpuServiceChainVersionLabelAnnotationKey, chainDigest))
+					g.Expect(gotDPUServiceChainList.Items[0].Spec.DPUClusterSelector).To(BeComparableTo(&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "region",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"us-west"},
+							},
+						},
+					}))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				By("modifying the DPUClusterSelector in the DPUDeployment by updating DPUSets")
+				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
+				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
+					{
+						NameSuffix: "set1",
+						DPUClusterSelector: map[string]string{
+							"region": "us-west",
+						},
+					},
+					{
+						NameSuffix: "set2",
+						DPUClusterSelector: map[string]string{
+							"region": "us-east",
+						},
+					},
+				}
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner("test"))).To(Succeed())
+
+				By("checking that the DPUServiceChain is NOT recreated but updated in place")
+				Eventually(func(g Gomega) {
+					gotDPUServiceChainList := getDPUServiceChainList()
+					g.Expect(gotDPUServiceChainList.Items).To(HaveLen(1))
+
+					dpuServiceChain := gotDPUServiceChainList.Items[0]
+					g.Expect(dpuServiceChain.UID).To(Equal(initialDPUServiceChainUID))
+					g.Expect(dpuServiceChain.Annotations).To(HaveKeyWithValue(dpuServiceChainVersionLabelAnnotationKey, chainDigest))
+
+					By("verifying the DPUClusterSelector is updated with aggregated values")
+					g.Expect(dpuServiceChain.Spec.DPUClusterSelector).To(BeComparableTo(&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "region",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"us-east", "us-west"},
+							},
+						},
+					}))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 			})
 			It("should update the disruptive DPUServiceChain to non-diruptive", func() {

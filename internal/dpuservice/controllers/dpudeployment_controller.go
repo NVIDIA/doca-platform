@@ -751,7 +751,6 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 		},
 		Spec: provisioningv1.DPUSetSpec{
 			Strategy: &provisioningv1.DPUSetStrategy{
-				// TODO: Update to OnDelete when this is implemented
 				Type: provisioningv1.RollingUpdateStrategyType,
 			},
 			DPUTemplate: provisioningv1.DPUTemplate{
@@ -817,6 +816,13 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 
 	dpuSet.Spec.DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
 		NodeLabels: nodeLabels,
+	}
+
+	// Set the DPUClusterSelector if it is set
+	if dpuSetSettings.DPUClusterSelector != nil {
+		dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector = &metav1.LabelSelector{
+			MatchLabels: dpuSetSettings.DPUClusterSelector,
+		}
 	}
 
 	dpuSet.SetOwnerReferences([]metav1.OwnerReference{*owner})
@@ -1194,4 +1200,59 @@ func deleteElementOrNil[S ~[]E, E any](s S, i, j int) S {
 		s = slices.Delete(s, i, j)
 	}
 	return s
+}
+
+// getAggregatedDPUClusterSelector aggregates all DPUClusterSelectors from all DPUSet related settings
+// found in the DPUDeployment and combines them with OR logic. This is used as a DPUClusterSelector
+// for the DPUService* objects the DPUDeployment creates.
+//
+// The aggregation works as follows:
+// - If any DPUSet has a nil/empty selector, returns nil (DPUService* objects match all clusters)
+// - For each label key, aggregates all values from all DPUSets into an IN expression
+// - Creates a LabelSelector that matches clusters targeted by ANY DPUSet
+//
+// Limitation: When DPUSets have different key combinations (e.g., set1={region:us-west,env:prod},
+// set2={region:us-east,env:dev}), this creates a superset that matches ANY combination of the values.
+func getAggregatedDPUClusterSelector(dpuDeployment *dpuservicev1.DPUDeployment) *metav1.LabelSelector {
+	if len(dpuDeployment.Spec.DPUs.DPUSets) == 0 {
+		return nil
+	}
+
+	// Map from key to slice of values for that key across all DPUSets
+	keyToValues := make(map[string][]string)
+
+	// Collect all DPUClusterSelectors from all DPUSets
+	for _, dpuSet := range dpuDeployment.Spec.DPUs.DPUSets {
+		// If any DPUSet has a nil/empty selector, services should match all clusters
+		if len(dpuSet.DPUClusterSelector) == 0 {
+			return nil
+		}
+
+		// Collect all label key-value pairs from this DPUSet
+		for key, value := range dpuSet.DPUClusterSelector {
+			keyToValues[key] = append(keyToValues[key], value)
+		}
+	}
+
+	// Convert aggregated values into MatchExpressions with IN operator
+	allMatchExpressions := make([]metav1.LabelSelectorRequirement, 0, len(keyToValues))
+	for key, values := range keyToValues {
+		// Deduplicate and sort for deterministic output
+		uniqueValues := slices.Compact(slices.Sorted(slices.Values(values)))
+
+		allMatchExpressions = append(allMatchExpressions, metav1.LabelSelectorRequirement{
+			Key:      key,
+			Operator: metav1.LabelSelectorOpIn,
+			Values:   uniqueValues,
+		})
+	}
+
+	// Sort expressions by key for deterministic output
+	slices.SortFunc(allMatchExpressions, func(a, b metav1.LabelSelectorRequirement) int {
+		return strings.Compare(a.Key, b.Key)
+	})
+
+	return &metav1.LabelSelector{
+		MatchExpressions: allMatchExpressions,
+	}
 }

@@ -4065,6 +4065,7 @@ _Appears in:_
 | `dpuSelector` _object (keys:string, values:string)_ | DPUSelector defines the DPUs that the DPUSet should target<br /><br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUDeviceSelector instead. |  |  |
 | `dpuNodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUNodeSelector defines the selector for DPUNodes that the DPUSet should target and should create a DPU for. |  |  |
 | `dpuDeviceSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUDeviceSelector defines the selector for DPUDevices that the DPUSet should target and should create a DPU for. |  |  |
+| `dpuClusterSelector` _object (keys:string, values:string)_ | DPUClusterSelector defines the selector for DPUClusters that the DPUs created by the DPUSets created by the<br />DPUDeployment should join<br />TODO(4797319): The current implementation has some flaws. Consider using a metav1.LabelSelector instead, this will<br />require multiple DPUServices, DPUServiceInterfaces, and DPUServiceChains to be created so that we can mathematically<br />cover the union of all the selectors across all the DPUSets. |  |  |
 | `dpuAnnotations` _object (keys:string, values:string)_ | DPUAnnotations is the annotations to be added to the DPU object created by the DPUSet. |  | MaxProperties: 50 <br /> |
 
 

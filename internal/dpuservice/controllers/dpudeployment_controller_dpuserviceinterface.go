@@ -98,6 +98,7 @@ func reconcileDPUServiceInterfaces(
 	}
 
 	var errs []error
+	dpuClusterSelector := getAggregatedDPUClusterSelector(dpuDeployment)
 	// Create or update DPUServiceInterfaces to match what is defined in the DPUDeployment.
 	for serviceName := range dpuDeployment.Spec.Services {
 		serviceConfig := dependencies.DPUServiceConfigurations[serviceName]
@@ -127,6 +128,7 @@ func reconcileDPUServiceInterfaces(
 				// We use the version digest of the DPUService in order to ensure that both the DPUService and
 				// DPUServiceInterface changes are synced.
 				versionDigest,
+				dpuClusterSelector,
 			)
 
 			// filter the existing DPUServiceInterfaces by name and extract the most current one, if any
@@ -344,6 +346,7 @@ func generateDPUServiceInterface(name string,
 	dpuServiceName string,
 	serviceInterface dpuservicev1.ServiceInterfaceTemplate,
 	dpuServiceVersionDigest string,
+	dpuClusterSelector *metav1.LabelSelector,
 ) *dpuservicev1.DPUServiceInterface {
 	dpuServiceInterface := &dpuservicev1.DPUServiceInterface{
 		ObjectMeta: metav1.ObjectMeta{
@@ -359,6 +362,7 @@ func generateDPUServiceInterface(name string,
 			},
 		},
 		Spec: dpuservicev1.DPUServiceInterfaceSpec{
+			DPUClusterSelector: dpuClusterSelector,
 			Template: dpuservicev1.ServiceInterfaceSetSpecTemplate{
 				Spec: dpuservicev1.ServiceInterfaceSetSpec{
 					Template: dpuservicev1.ServiceInterfaceSpecTemplate{

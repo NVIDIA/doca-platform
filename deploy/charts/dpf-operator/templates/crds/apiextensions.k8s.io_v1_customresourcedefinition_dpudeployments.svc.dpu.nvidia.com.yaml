@@ -76,6 +76,15 @@ spec:
                             to the DPU object created by the DPUSet.
                           maxProperties: 50
                           type: object
+                        dpuClusterSelector:
+                          additionalProperties:
+                            type: string
+                          description: |-
+                            DPUClusterSelector defines the selector for DPUClusters that the DPUs created by the DPUSets created by the
+                            DPUDeployment should join
+                            require multiple DPUServices, DPUServiceInterfaces, and DPUServiceChains to be created so that we can mathematically
+                            cover the union of all the selectors across all the DPUSets.
+                          type: object
                         dpuDeviceSelector:
                           description: DPUDeviceSelector defines the selector for
                             DPUDevices that the DPUSet should target and should create

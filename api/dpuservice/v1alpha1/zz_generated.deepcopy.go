@@ -1322,6 +1322,13 @@ func (in *DPUSet) DeepCopyInto(out *DPUSet) {
 		*out = new(v1.LabelSelector)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.DPUClusterSelector != nil {
+		in, out := &in.DPUClusterSelector, &out.DPUClusterSelector
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	if in.DPUAnnotations != nil {
 		in, out := &in.DPUAnnotations, &out.DPUAnnotations
 		*out = make(map[string]string, len(*in))
