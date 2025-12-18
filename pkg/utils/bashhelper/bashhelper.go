@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package bashhelper
 
 import (
 	"bytes"
@@ -22,7 +22,7 @@ import (
 	"os/exec"
 )
 
-func RunBash(cmdStr string) (stdout, stderr bytes.Buffer, err error) {
+func Run(cmdStr string) (stdout, stderr bytes.Buffer, err error) {
 	cmd := exec.Command("bash", "-c", cmdStr)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
