@@ -617,7 +617,7 @@ E2E_TEST_ARGS ?= -ginkgo.label-filter="DPFSystem && !SDN && !DPFVPCOVN" -e2e.con
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e ## Run the e2e tests against a Kind k8s instance that is spun up.
 test-e2e: stern ## Run e2e tests
-	STERN=$(STERN) ARTIFACTS=$(ARTIFACTS_DIR)/$(ARTIFACTS_SUBDIR) $(CURDIR)/hack/scripts/stern-log-collector.sh \
+	STERN=$(STERN) ARTIFACTS=$(ARTIFACTS_DIR)/$(ARTIFACTS_SUBDIR) $(CURDIR)/hack/scripts/log-collector.sh \
 	  go test -timeout 0 ./test/e2e/ $(E2E_TEST_DEFAULTS) $(E2E_TEST_ARGS)
 
 ##@ validate commit
