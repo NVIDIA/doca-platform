@@ -216,6 +216,14 @@ type DPUSet struct {
 	// +optional
 	DPUDeviceSelector *metav1.LabelSelector `json:"dpuDeviceSelector,omitempty"`
 
+	// DPUClusterSelector defines the selector for DPUClusters that the DPUs created by the DPUSets created by the
+	// DPUDeployment should join
+	// TODO(4797319): The current implementation has some flaws. Consider using a metav1.LabelSelector instead, this will
+	// require multiple DPUServices, DPUServiceInterfaces, and DPUServiceChains to be created so that we can mathematically
+	// cover the union of all the selectors across all the DPUSets.
+	// +optional
+	DPUClusterSelector map[string]string `json:"dpuClusterSelector,omitempty"`
+
 	// DPUAnnotations is the annotations to be added to the DPU object created by the DPUSet.
 	// +optional
 	// +kubebuilder:validation:MaxProperties=50

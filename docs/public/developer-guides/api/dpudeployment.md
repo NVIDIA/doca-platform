@@ -340,7 +340,8 @@ spec:
     flavor: "producer-consumer"
     # dpuSets enables the user to select the DPUs this `DPUDeployment` should deploy to. It's a list so that the user
     # can be as flexible as possible. In this example, we theoretical target Hosts in 2 different racks, and we target
-    # the DPUs that have the specified PCI address.
+    # the DPUs that have the specified PCI address. In addition, those DPUs will join different DPUClusters, based on
+    # each individual selector found in those entries.
     dpuSets:
     - nameSuffix: "dpuset1"
       dpuNodeSelector:
@@ -349,6 +350,8 @@ spec:
       dpuDeviceSelector:
         matchLabels:
           provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:0e:00.0"
+      dpuClusterSelector:
+        region: "us-west"
     - nameSuffix: "dpuset2"
       dpuNodeSelector:
         matchLabels:
@@ -356,6 +359,8 @@ spec:
       dpuDeviceSelector:
         matchLabels:
           provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:1a:00.0"
+      dpuClusterSelector:
+        region: "us-east"
   # services reflects the `DPUServices` that should be deployed on those DPUs. For in-cluster `DPUServices` like the
   # observer, the pods will be deployed on the host cluster and target the nodes that the DPUSet dpuNodeSelectors target.
   # The key of this map is the service name and the value is referencing the respective `DPUServiceTemplate` and
@@ -437,6 +442,8 @@ spec:
       dpuDeviceSelector:
         matchLabels:
           provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:0e:00.0"
+      dpuClusterSelector:
+        region: "us-west"
     - nameSuffix: "dpuset2"
       dpuNodeSelector:
         matchLabels:
@@ -444,6 +451,8 @@ spec:
       dpuDeviceSelector:
         matchLabels:
           provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:1a:00.0"
+      dpuClusterSelector:
+        region: "us-east"
     nodeEffect:
       taint:
         key: "dpu"
@@ -473,6 +482,22 @@ The following fields are available in the `spec.dpus`:
       [DPU Selection](./dpuset.md#dpu-selection).
     * `dpuAnnotations`: The annotation to be applied on the DPU objects that are
       created by the `DPUDeployment`.
+    * `dpuClusterSelector`: A map of labels that controls which DPU clusters the
+      DPUs should join. For services, the controller aggregates selectors from all
+      DPUSets with OR logic and applies them to the `DPUService`, `DPUServiceInterface`,
+      and `DPUServiceChain` objects created by the `DPUDeployment`.
+
+      **Limitation**: When DPUSets use different key combinations (e.g. `{region: us-west, env: prod}`
+      and `{region: us-east, env: dev}`), the aggregation creates a superset that
+      matches all value combinations. For example, the aggregated selector would
+      also match `{region: us-west, env: dev}` and `{region: us-east, env: prod}`,
+      which may not be intended.
+
+      To avoid this behavior, use a single consistent label key across all DPUSets
+      (e.g. `cluster: "west-prod"`).
+
+      If any DPUSet has a nil or empty `dpuClusterSelector`, the services will
+      target all DPU clusters.
 * `nodeEffect`: The effect to be applied on the nodes to which the DPUs are attached.
   In this example, a `NoSchedule` taint is applied to the nodes.
 
