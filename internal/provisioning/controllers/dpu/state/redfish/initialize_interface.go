@@ -71,7 +71,9 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 		err = fmt.Errorf("failed to check capacity: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondInterfaceInitialized), err, "FailedToCheckCapacity", err.Error()))
 		return *state, err
-	} else if result == dutil.CapacityUnknown {
+	}
+	switch result {
+	case dutil.CapacityUnknown:
 		// send a warning in the condition message, but continue the flow
 		state.Phase = provisioningv1.DPUConfigFWParameters
 		cond := cutil.NewCondition(
@@ -79,12 +81,21 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 			fmt.Sprintf("WARNING: unable to check DPU CPU/Memory capacity, the DPUFlavor may be unfit for the DPU, err: %v", err))
 		cutil.SetDPUCondition(state, cond)
 		return *state, err
-	} else if result == dutil.CapacityInsufficient {
+	case dutil.CapacityInsufficient:
 		err = fmt.Errorf("not enough resources for the given DPUFlavor")
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondInterfaceInitialized), err, "FailedToCheckResources", err.Error()))
 		state.Phase = provisioningv1.DPUError
 		return *state, nil
+	case dutil.CapacityRebootRequired:
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUConditionHostPowerCycle), nil, "", "Host power cycle required to transition from NicMode to DpuMode"))
+		state.Phase = provisioningv1.DPURebooting
+		return *state, nil
+	case dutil.CapacitySatisfied:
+		if state.DPUMode == provisioningv1.NicMode {
+			state.DPUMode = provisioningv1.DpuMode
+		}
 	}
+
 	state.Phase = provisioningv1.DPUConfigFWParameters
 	cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondInterfaceInitialized), nil, "", ""))
 	return *state, nil
@@ -115,6 +126,33 @@ func checkCapacity(ctx context.Context, dpu *provisioningv1.DPU, device *provisi
 	if err != nil {
 		return dutil.CapacityUnknown, err
 	}
+
+	// check capacity by description
+	resp, desc, err := tlsClient.GetProductDescription()
+	if err != nil || resp == nil || resp.StatusCode() != http.StatusOK || desc == nil || desc.Mode == "" {
+		err = fmt.Errorf("failed to get description, err: %v, resp: %+v, desc: %+v", err, resp, desc)
+		return dutil.CapacityUnknown, err
+	}
+
+	// Check for NicMode first, before checking capacity
+	// If DPU is in NicMode, we need to set it to DpuMode and reboot before checking capacity
+	if dpu.Status.DPUMode == provisioningv1.NicMode {
+
+		if desc.Mode == rfclient.DpuMode {
+			log.Info(fmt.Sprintf("DPU %s successfully set to DpuMode", device.BMCAddress()))
+		} else {
+			log.Info(fmt.Sprintf("DPU %s is in NicMode. Setting DPU mode to DpuMode", device.BMCAddress()))
+			_, err = tlsClient.SetDpuMode(provisioningv1.DpuMode)
+			if err != nil {
+				log.Error(err, fmt.Sprintf("Failed to set DPU mode to DpuMode for DPU %s", device.BMCAddress()))
+				return dutil.CapacityUnknown, err
+			}
+			log.Info(fmt.Sprintf("DPU %s is in NicMode. Set DPU mode to DpuMode, requires host power cycle", device.BMCAddress()))
+			// Transition from a NIC mode to a DPU mode requires a host power cycle to take effect.
+			return dutil.CapacityRebootRequired, nil
+		}
+	}
+
 	check := func(data string, parseFunc func(string) *dutil.BlueFieldSpecs) dutil.CapacityResult {
 		bfSpecs := parseFunc(data)
 		if bfSpecs == nil {
@@ -132,13 +170,6 @@ func checkCapacity(ctx context.Context, dpu *provisioningv1.DPU, device *provisi
 	}
 	if result := check(pn.PartNumber, dutil.LookUpPartNumber); result != dutil.CapacityUnknown {
 		return result, nil
-	}
-
-	// check capacity by description
-	resp, desc, err := tlsClient.GetProductDescription()
-	if err != nil || resp.StatusCode() != http.StatusOK {
-		err = fmt.Errorf("failed to get description, status code: %s, err: %v", resp.Status(), err)
-		return dutil.CapacityUnknown, err
 	}
 
 	return check(desc.Description, dutil.ParseDescription), nil

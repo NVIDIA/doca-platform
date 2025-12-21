@@ -195,6 +195,12 @@ type DPUDeviceStatus struct {
 	// +optional
 	DPUType DPUType `json:"dpuType,omitempty"`
 
+	// DPUMode is the mode of the DPU.
+	// +kubebuilder:validation:Enum=dpu;nic
+	// +kubebuilder:default=dpu
+	// +optional
+	DPUMode DpuModeType `json:"dpuMode,omitempty"`
+
 	// +optional
 	Conditions []metav1.Condition `json:"conditions"`
 }

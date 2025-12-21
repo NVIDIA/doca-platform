@@ -62,7 +62,7 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 	}
 
 	_, cond := cutil.GetDPUCondition(state, provisioningv1.DPUCondInterfaceInitialized.String())
-	if cond == nil || cond.Status != metav1.ConditionTrue {
+	if (dpu.Status.DPUMode != provisioningv1.NicMode) && (cond == nil || cond.Status != metav1.ConditionTrue) {
 		err := fmt.Errorf("trying to reboot the host before %s", provisioningv1.DPUCondOSInstalled.String())
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "InvalidState", err.Error()))
 		return *state, err
@@ -96,8 +96,16 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 			state.Phase = provisioningv1.DPUHostNetworkConfiguration
 			logger.Info(fmt.Sprintf("DPU %s moves to Host Network Configuration phase", dpu.Name))
 			if ctrlCtx.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
+
+				if dpu.Status.DPUMode == provisioningv1.NicMode {
+					state.Phase = provisioningv1.DPUInitializeInterface
+					logger.Info(fmt.Sprintf("DPU %s moves to Initialize Interface phase", dpu.Name))
+					return *state, nil
+				}
+
 				state.Phase = provisioningv1.DPUClusterConfig
 				logger.Info(fmt.Sprintf("DPU %s moves to DPU Cluster Configuration phase", dpu.Name))
+
 			}
 		}
 		return *state, nil

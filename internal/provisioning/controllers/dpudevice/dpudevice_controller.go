@@ -409,6 +409,19 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		return err
 	}
 
+	resp, productDescription, err := client.GetProductDescription()
+	if err != nil {
+		log.Error(err, "Failed to get product description", "address", bmcAddress, "response", resp)
+		return err
+	}
+
+	switch productDescription.Mode {
+	case rfclient.NicMode:
+		dpuDevice.Status.DPUMode = provisioningv1.NicMode
+	default:
+		dpuDevice.Status.DPUMode = provisioningv1.DpuMode
+	}
+
 	resp, chassisInfo, err := client.GetChassis()
 	if err != nil {
 		log.Error(err, "Failed to get chassis info", "address", bmcAddress, "response", resp)

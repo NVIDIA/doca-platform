@@ -148,6 +148,7 @@ type MessageExtendedInfo struct {
 // ProductSpecInfo contains the product specification information responded by RedFish API
 type ProductSpecInfo struct {
 	Description string
+	Mode        NicModeType
 }
 
 type SystemInfo struct {
