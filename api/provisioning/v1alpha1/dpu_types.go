@@ -87,6 +87,7 @@ const (
 	DPUCondBFBTransferred        DPUConditionType = "BFBTransferred"
 	DPUCondOSInstalled           DPUConditionType = "OSInstalled"
 	DPUCondCheckedHostRebootNeed DPUConditionType = "CheckedHostRebootNeed"
+	DPUConditionHostPowerCycle   DPUConditionType = "HostPowerCycle"
 	DPUCondRebooted              DPUConditionType = "Rebooted"
 	DPUCondHostNetworkReady      DPUConditionType = "HostNetworkReady"
 	DPUCondDPUClusterReady       DPUConditionType = "DPUClusterReady"
@@ -263,6 +264,12 @@ type DPUStatus struct {
 	// DPUInfo contains the information reported from inside the DPU
 	// +optional
 	DPUInfo *DPUInfo `json:"dpuInfo,omitempty"`
+
+	// The mode of the DPU
+	// +kubebuilder:validation:Enum=dpu;nic
+	// +kubebuilder:default=dpu
+	// +optional
+	DPUMode DpuModeType `json:"dpuMode,omitempty"`
 }
 
 type Firmware struct {
