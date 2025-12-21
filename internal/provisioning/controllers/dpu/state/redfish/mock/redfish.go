@@ -39,6 +39,7 @@ type RedfishMockServer struct {
 	server     *httptest.Server
 	bmcVersion string
 	password   string
+	dpuMode    string // Current DPU mode: "NicMode" or "DpuMode"
 }
 
 // NewRedfishMockServer creates a new mock Redfish server
@@ -46,6 +47,7 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mock := &RedfishMockServer{
 		bmcVersion: bmcVersion,
 		password:   password,
+		dpuMode:    "DpuMode", // Default to DpuMode
 	}
 
 	mux := http.NewServeMux()
@@ -70,6 +72,12 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 
 	// NetworkDeviceFunctions
 	mux.HandleFunc("/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/eth0f0", mock.handleGetNetworkDeviceFunction)
+
+	// BIOS endpoints
+	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Bios", mock.handleGetBios)
+	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Bios/Settings", mock.handleSetBiosSettings)
+	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/Mode.Set", mock.handleSetMode)
+	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Oem/Nvidia", mock.handleGetProductDescription)
 
 	mock.server = httptest.NewUnstartedServer(mux)
 	return mock
@@ -295,6 +303,96 @@ func (r *RedfishMockServer) handleGetNetworkDeviceFunction(w http.ResponseWriter
 		},
 	}
 	json.NewEncoder(w).Encode(response) //nolint: errcheck
+}
+
+func (r *RedfishMockServer) handleGetProductDescription(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	response := map[string]interface{}{
+		"@odata.id":   "/redfish/v1/Systems/Bluefield/Oem/Nvidia",
+		"@odata.type": "#NvidiaComputerSystem.v1_0_0.NvidiaComputerSystem",
+		"Id":          "NvidiaComputerSystem",
+		"Name":        "Nvidia Computer System",
+		"Mode":        r.dpuMode,
+	}
+	writeJSONResponse(w, response)
+}
+
+func (r *RedfishMockServer) handleGetBios(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	response := map[string]interface{}{
+		"@odata.context": "/redfish/v1/$metadata#Bios.Bios",
+		"@odata.id":      "/redfish/v1/Systems/Bluefield/Bios",
+		"@odata.type":    "#Bios.v1_2_0.Bios",
+		"Id":             "Bios",
+		"Name":           "BIOS Configuration",
+		"Attributes": map[string]interface{}{
+			"NicMode":            r.dpuMode,
+			"HostPrivilegeLevel": "Privileged",
+		},
+	}
+
+	writeJSONResponse(w, response)
+}
+
+func (r *RedfishMockServer) handleSetBiosSettings(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPatch {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	response := map[string]interface{}{
+		"@odata.id": "/redfish/v1/Systems/Bluefield/Bios/Settings",
+	}
+	writeJSONResponse(w, response)
+}
+
+func (r *RedfishMockServer) handleSetMode(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if mode, ok := body["Mode"].(string); ok {
+		r.dpuMode = mode
+	}
+
+	w.WriteHeader(http.StatusOK)
+	response := map[string]interface{}{
+		"@odata.id": "/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/Mode.Set",
+	}
+	writeJSONResponse(w, response)
+}
+
+// SetNicMode sets the current NIC mode for the mock server
+func (r *RedfishMockServer) SetNicMode(mode string) {
+	r.dpuMode = mode
+}
+
+// GetNicMode returns the current NIC mode
+func (r *RedfishMockServer) GetNicMode() string {
+	return r.dpuMode
+}
+
+// GetCertificate returns the server's TLS certificate in PEM format
+func (r *RedfishMockServer) GetCertificate() []byte {
+	if r.server == nil || r.server.Certificate() == nil {
+		return nil
+	}
+	return r.server.Certificate().Raw
 }
 
 // CreateMockRedfishServer creates and starts a mock Redfish server for testing
