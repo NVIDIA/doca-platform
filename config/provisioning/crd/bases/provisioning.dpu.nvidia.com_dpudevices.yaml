@@ -203,6 +203,18 @@ spec:
                   - type
                   type: object
                 type: array
+              dpuMode:
+                allOf:
+                - enum:
+                  - dpu
+                  - zero-trust
+                  - nic
+                - enum:
+                  - dpu
+                  - nic
+                default: dpu
+                description: DPUMode is the mode of the DPU.
+                type: string
               dpuType:
                 default: Unknown
                 description: DPUType is the type of the DPU.
