@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package filesystemhelper
+package util
 
 import (
 	"os"
@@ -24,7 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("FilesystemHelper", func() {
+var _ = Describe("File", func() {
 	var tempDir string
 
 	BeforeEach(func() {

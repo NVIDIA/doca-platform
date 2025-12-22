@@ -39,7 +39,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nvidia/doca-platform/pkg/utils/filesystemhelper"
 	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 
 	"github.com/BurntSushi/toml"
@@ -54,6 +53,28 @@ const (
 	p1PCIAddress = "0000:03:00.1"
 )
 
+// FileSystem abstracts file and OS operations for testability.
+type FileSystem interface {
+	Stat(name string) (os.FileInfo, error)
+	ReadFile(name string) ([]byte, error)
+	WriteFile(name string, data []byte, perm os.FileMode) error
+	Open(name string) (*os.File, error)
+	MkdirAll(path string, perm os.FileMode) error
+	ReadDir(name string) ([]os.DirEntry, error)
+}
+
+// OSFileSystem is the default implementation of FileSystem using the os package.
+type OSFileSystem struct{}
+
+func (OSFileSystem) Stat(name string) (os.FileInfo, error) { return os.Stat(name) }
+func (OSFileSystem) ReadFile(name string) ([]byte, error)  { return os.ReadFile(name) }
+func (OSFileSystem) WriteFile(name string, data []byte, perm os.FileMode) error {
+	return os.WriteFile(name, data, perm)
+}
+func (OSFileSystem) Open(name string) (*os.File, error)           { return os.Open(name) }
+func (OSFileSystem) MkdirAll(path string, perm os.FileMode) error { return os.MkdirAll(path, perm) }
+func (OSFileSystem) ReadDir(name string) ([]os.DirEntry, error)   { return os.ReadDir(name) }
+
 // getEnv returns the value of the environment variable or fallback if not set.
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
@@ -64,7 +85,7 @@ func getEnv(key, fallback string) string {
 
 // VFMAC manages virtual function (VF) MAC addresses.
 type VFMAC struct {
-	fs         filesystemhelper.FileSystem
+	fs         FileSystem
 	configDir  string
 	configFile string
 	uplinks    []string
@@ -72,9 +93,9 @@ type VFMAC struct {
 }
 
 // NewVFMAC creates a new VFMAC instance with the given configuration.
-func NewVFMAC(fs filesystemhelper.FileSystem, networkhelper networkhelper.NetworkHelper, configDir, configFile string) (*VFMAC, error) {
+func NewVFMAC(fs FileSystem, networkhelper networkhelper.NetworkHelper, configDir, configFile string) (*VFMAC, error) {
 	if fs == nil {
-		fs = filesystemhelper.DefaultFileSystem
+		fs = OSFileSystem{}
 	}
 	if configDir == "" {
 		configDir = getEnv("VFMAC_CONFIG_DIR", "/etc/mellanox")

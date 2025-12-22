@@ -28,7 +28,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
-	"github.com/nvidia/doca-platform/pkg/utils/bashhelper"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -140,17 +139,17 @@ func (h *Handler) download(ctx context.Context, filename string, dst string) err
 func (h *Handler) installBFB(ctx context.Context, pciAddress, bfbFile, bfcfgFile string) error {
 	logger := log.FromContext(ctx)
 	cmd := fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure os install --address 127.0.0.1:9339 --target %s --pkg %s --version %s", pciAddress, bfbFile, filepath.Base(bfbFile))
-	if _, stderr, err := bashhelper.Run(cmd); err != nil {
+	if _, stderr, err := hostutil.RunBash(cmd); err != nil {
 		return fmt.Errorf("failed to run cmd: %s, err: %w, stderr: %s", cmd, err, stderr.String())
 	}
 
 	cmd = fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure os install --address 127.0.0.1:9339 --target %s --pkg %s --version %s", pciAddress, bfcfgFile, filepath.Base(bfcfgFile))
-	if _, stderr, err := bashhelper.Run(cmd); err != nil {
+	if _, stderr, err := hostutil.RunBash(cmd); err != nil {
 		return fmt.Errorf("failed to run cmd: %s, err: %w, stderr: %s", cmd, err, stderr.String())
 	}
 
 	cmd = fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure os activate --address 127.0.0.1:9339 --target %s --version \"%s;%s\" --no-reboot", pciAddress, filepath.Base(bfbFile), filepath.Base(bfcfgFile))
-	if _, stderr, err := bashhelper.Run(cmd); err != nil {
+	if _, stderr, err := hostutil.RunBash(cmd); err != nil {
 		return fmt.Errorf("failed to run cmd: %s, err: %w, stderr: %s", cmd, err, stderr.String())
 	}
 
@@ -163,7 +162,7 @@ func (h *Handler) installBFB(ctx context.Context, pciAddress, bfbFile, bfcfgFile
 			return fmt.Errorf("context done")
 		case <-ticker.C:
 			cmd = fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure system reboot-status --address 127.0.0.1:9339 --target %s --subcomponent \"CPU\"", pciAddress)
-			_, stderr, err := bashhelper.Run(cmd)
+			_, stderr, err := hostutil.RunBash(cmd)
 			if err != nil {
 				return fmt.Errorf("failed to run cmd: %s, err: %w, stderr: %s", cmd, err, stderr.String())
 			}
