@@ -474,6 +474,7 @@ func (r *DPUSetReconciler) updatePCIAddress(ctx context.Context, dpu *provisioni
 }
 
 func (r *DPUSetReconciler) onDelete(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuMap map[string]provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster) error {
+	logger := log.FromContext(ctx)
 	if dpuSet.Spec.DPUTemplate.Spec.Cluster == nil {
 		return nil
 	}
@@ -482,6 +483,9 @@ func (r *DPUSetReconciler) onDelete(ctx context.Context, dpuSet *provisioningv1.
 			if err := r.Delete(ctx, &dpu); err != nil {
 				return err
 			}
+			msg := fmt.Sprintf("Deleted DPU: (%s/%s) for DPUNode %s", dpu.Namespace, dpu.Name, dpu.Spec.DPUNodeName)
+			logger.Info(msg)
+			r.Recorder.Eventf(dpuSet, corev1.EventTypeNormal, events.EventSuccessfulDeleteDPUReason, msg)
 		}
 	}
 	return nil
@@ -869,18 +873,14 @@ func matchDPUClusterSelector(selectorFromDPUSet *metav1.LabelSelector, dpuK8sClu
 		return true
 	}
 
-	// we consider it as a match if the selector remains unchanged and the match is made with the currently assigned cluster.
-	if reflect.DeepEqual(selectorFromDPUSet, dpuK8sCluster.Selector) {
-		if selector, err := utils.LabelSelectorAsSelector(selectorFromDPUSet); err == nil {
-			for _, cluster := range clusterList {
-				if selector.Matches(labels.Set(cluster.Labels)) {
-					if dpuK8sCluster.Name == cluster.Name && dpuK8sCluster.Namespace == cluster.Namespace {
-						return true
-					}
+	if selector, err := utils.LabelSelectorAsSelector(selectorFromDPUSet); err == nil {
+		for _, cluster := range clusterList {
+			if selector.Matches(labels.Set(cluster.Labels)) {
+				if dpuK8sCluster.Name == cluster.Name && dpuK8sCluster.Namespace == cluster.Namespace {
+					return true
 				}
 			}
 		}
 	}
-
 	return false
 }
