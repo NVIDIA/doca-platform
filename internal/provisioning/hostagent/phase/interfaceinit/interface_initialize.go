@@ -25,7 +25,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
-	"github.com/nvidia/doca-platform/pkg/utils/bashhelper"
 
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -81,7 +80,7 @@ func (h *Handler) canSatisfy(ctx context.Context, dpu *provisioningv1.DPU) (duti
 		return dutil.CapacityUnknown, fmt.Errorf("device not found")
 	}
 	cmd := fmt.Sprintf("flint -d %s query full", filepath.Base(hostutil.NewPCIHelper(dev.Address).PF(0).Path()))
-	stdout, stderr, err := bashhelper.Run(cmd)
+	stdout, stderr, err := hostutil.RunBash(cmd)
 	if err != nil {
 		return dutil.CapacityUnknown, fmt.Errorf("failed to query DPU, cmd: %s, err: %v, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
 	}
