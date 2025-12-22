@@ -689,7 +689,7 @@ spec:
 		It("ValidateDelete should return nil", func() {
 			webhook := &DPUFlavor{}
 			warnings, err := webhook.ValidateDelete(ctx, &provisioningv1.DPUFlavor{ObjectMeta: metav1.ObjectMeta{Name: "non-existent-flavor", Namespace: "default"}})
-			Expect(warnings).To(BeNil())
+			Expect(warnings).To(BeEmpty()) // Empty slice, not nil
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -703,7 +703,7 @@ spec:
 				},
 			}
 			warnings, err := webhook.ValidateCreate(ctx, dpuFlavor)
-			Expect(warnings).To(BeNil())
+			Expect(warnings).To(BeEmpty()) // Empty slice, not nil
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -716,7 +716,7 @@ spec:
 				},
 			}
 			warnings, err := webhook.ValidateCreate(ctx, dpuFlavor)
-			Expect(warnings).To(BeNil())
+			Expect(warnings).To(BeEmpty()) // Empty slice, not nil
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -729,7 +729,7 @@ spec:
 				},
 			}
 			warnings, err := webhook.ValidateCreate(ctx, dpuFlavor)
-			Expect(warnings).To(BeNil())
+			Expect(warnings).To(BeEmpty()) // Empty slice, not nil
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -754,7 +754,7 @@ spec:
 				},
 			}
 			warnings, err := webhook.ValidateCreate(ctx, dpuFlavor)
-			Expect(warnings).To(BeNil())
+			Expect(warnings).To(BeEmpty()) // Empty slice, not nil
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -767,7 +767,7 @@ spec:
 				},
 			}
 			warnings, err := webhook.ValidateCreate(ctx, dpuFlavor)
-			Expect(warnings).To(BeNil())
+			Expect(warnings).To(BeEmpty()) // Empty slice, not nil
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -791,7 +791,7 @@ spec:
 				},
 			}
 			warnings, err := webhook.ValidateCreate(ctx, dpuFlavor)
-			Expect(warnings).To(BeNil())
+			Expect(warnings).To(BeEmpty()) // Empty slice, not nil
 			Expect(err).ToNot(HaveOccurred())
 		})
 

@@ -56,9 +56,15 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 
 | Field | Type | Description |
 |-------|------|--------------|
-| `device` | *string | Target device (use `"*"` for all devices) |
-| `parameters` | []string | Firmware parameters to set |
+| `device` | *string | Target device: `"*"` (all devices), `"p0"`/`"P0"` (port 0), or `"p1"`/`"P1"` (port 1). Case-insensitive. |
+| `parameters` | []string | Firmware parameters in `KEY=VALUE` format. 1-32 params, max 200 chars each. |
 | `hostPowerCycleRequired` | *bool | Whether host power cycle is needed after applying config(Deprecated) |
+
+**Validation Constraints:**
+- Maximum of 3 nvconfig entries per DPUFlavor (one per device: `*`, `p0`/`P0`, `p1`/`P1`)
+- Wildcard device (`"*"`) must be the sole entry when specified (no mixing with port-specific entries)
+- Device identifiers must be unique with case-insensitive matching (e.g., `p0` and `P0` are duplicates)
+- Parameters: 1-32 entries per device, each formatted as `KEY=VALUE` with no spaces allowed
 
 #### IB Mode to Ethernet Mode Configuration
 
@@ -77,6 +83,18 @@ nvconfig:
     parameters:
       - LINK_TYPE_P1=ETH
       - LINK_TYPE_P2=ETH
+```
+
+**Device-specific configuration (per-port):**
+```yaml
+nvconfig:
+  - device: 'p0'
+    parameters:
+      - LINK_TYPE_P1=ETH
+      - NUM_OF_VFS=8
+  - device: 'p1'
+    parameters:
+      - LINK_TYPE_P1=IB
 ```
 
 ### DPUFlavorOVS
@@ -256,3 +274,4 @@ spec:
 3. **Testing**: Test DPUFlavor configurations in development environments before production deployment
 4. **Documentation**: Document custom configurations and their purposes for team understanding
 5. **IB Mode Conversion**: For DPUs initially in InfiniBand (IB) mode, always include `LINK_TYPE_P1=2` in nvconfig parameters to convert to Ethernet mode. For dual port DPUs, also add `LINK_TYPE_P2=2`
+6. **NVConfig**: Use wildcard (`device: '*'`) for uniform configuration across all devices. Use device-specific entries only when per-device configuration is required
