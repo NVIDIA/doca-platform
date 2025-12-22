@@ -38,8 +38,16 @@ type DPUFlavorSpec struct {
 	// Sysctl contains the sysctl configuration for the DPUFlavor.
 	// +optional
 	Sysctl DPUFLavorSysctl `json:"sysctl,omitempty"`
-	// NVConfig contains the global DPU-wide configuration (firmware settings, global device parameters).
-	// This applies to the DPU device and should not overlap with per-interface NVConfig settings.
+	// NVConfig contains the device-specific configuration (firmware settings, device parameters).
+	// Each entry specifies a device (wildcard '*', or port identifiers 'p0'/'P0'/'p1'/'P1') and its parameters.
+	// If device is '*' or unspecified (defaults to '*'), it applies to all devices and must be the only entry.
+	// Each device (including unspecified as '*') must be unique across all nvconfig entries (case-insensitive).
+	// Validation enforces: device enum values, parameter format (KEY=VALUE), case-insensitive uniqueness, and size limits.
+	// +kubebuilder:validation:MaxItems=3
+	// +kubebuilder:validation:XValidation:rule="size(self) == 0 || !self.exists(x, has(x.device) && x.device == '*') || size(self) == 1",message="when device is '*', it must be the only nvconfig entry"
+	// +kubebuilder:validation:XValidation:rule="size(self) == 0 || !self.exists(x, !has(x.device)) || size(self) == 1",message="when device is unspecified (defaults to '*'), it must be the only nvconfig entry"
+	// +kubebuilder:validation:XValidation:rule="self.all(p1, self.exists_one(p2, (has(p1.device) ? p1.device.lowerAscii() : '*') == (has(p2.device) ? p2.device.lowerAscii() : '*')))",message="each nvconfig.device (including unspecified as '*') must be unique (case-insensitive)"
+	// +listType=atomic
 	// +optional
 	NVConfig []NVConfig `json:"nvconfig,omitempty"`
 	// OVS contains the OVS configuration for the DPUFlavor.
@@ -90,9 +98,16 @@ type DPUFLavorSysctl struct {
 
 type NVConfig struct {
 	// Device is the device to which the configuration applies. If not specified, the configuration applies to all.
+	// Supported values: "*" (wildcard for all devices), "p0"/"P0" (port 0), "p1"/"P1" (port 1). Case-insensitive.
+	// +kubebuilder:validation:Enum={"*","p0","p1","P0","P1"}
 	// +optional
 	Device *string `json:"device,omitempty"`
 	// Parameters are the parameters to be set for the device.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:Pattern=`^[^=\s]+=[^\s]*$`
+	// +kubebuilder:validation:items:MaxLength=200
+	// +listType=atomic
 	// +optional
 	Parameters []string `json:"parameters,omitempty"`
 }

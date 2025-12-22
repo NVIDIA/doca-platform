@@ -68,7 +68,7 @@ type BFCFGData struct {
 	DPUHostName                string
 	BFGCFGParams               []string
 	UbuntuPassword             string
-	NVConfigParams             string
+	NVConfigParams             []NVConfigEntry
 	Sysctl                     []string
 	ConfigFiles                []BFCFGWriteFile
 	OVSRawScript               string
@@ -85,6 +85,11 @@ type BFCFGData struct {
 	// The interface name for all the PFs.
 	PFs     []string
 	DpuMode string
+}
+
+type NVConfigEntry struct {
+	Device     string // Device identifier: "*" (wildcard for all), "p0"/"P0" (port 0), "p1"/"P1" (port 1)
+	Parameters string // Space-joined parameters
 }
 
 type BFCFGWriteFile struct {
@@ -170,10 +175,20 @@ func Generate(flavor *provisioningv1.DPUFlavor, dpuName, joinCmd string, additio
 	config.ContainerdRegistryEndpoint = flavor.Spec.ContainerdConfig.RegistryEndpoint
 
 	config.BFGCFGParams, config.UbuntuPassword = bfcfgParams(flavor)
-	// currently, there can be at most one nvconfig, and that nvconfig applies to all devices on a host
-	if len(flavor.Spec.NVConfig) > 0 {
-		config.NVConfigParams = strings.Join(flavor.Spec.NVConfig[0].Parameters, " ")
+
+	// Process all nvconfig entries for device-specific configurations
+	config.NVConfigParams = make([]NVConfigEntry, 0, len(flavor.Spec.NVConfig))
+	for _, nvcfg := range flavor.Spec.NVConfig {
+		device := "*"
+		if nvcfg.Device != nil {
+			device = strings.TrimSpace(*nvcfg.Device)
+		}
+		config.NVConfigParams = append(config.NVConfigParams, NVConfigEntry{
+			Device:     device,
+			Parameters: strings.Join(nvcfg.Parameters, " "),
+		})
 	}
+
 	config.Sysctl = flavor.Spec.Sysctl.Parameters
 	for _, f := range flavor.Spec.ConfigFiles {
 		config.ConfigFiles = append(config.ConfigFiles, BFCFGWriteFile{

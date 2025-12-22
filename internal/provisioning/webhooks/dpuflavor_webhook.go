@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dpfutils "github.com/nvidia/doca-platform/internal/utils"
@@ -83,7 +82,9 @@ func (r *DPUFlavor) ValidateCreate(ctx context.Context, obj runtime.Object) (adm
 		}
 	}
 
-	return nil, validateNVConfig(dpuFlavor)
+	// NVConfig validation is fully handled by CEL in the CRD schema
+
+	return admission.Warnings{}, nil
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
@@ -157,20 +158,6 @@ func validateHostNetworkInterfaceConfigs(flavor *provisioningv1.DPUFlavor) error
 		}
 	}
 
-	return nil
-}
-
-func validateNVConfig(flavor *provisioningv1.DPUFlavor) error {
-	if len(flavor.Spec.NVConfig) == 0 {
-		return nil
-	} else if len(flavor.Spec.NVConfig) > 1 {
-		return fmt.Errorf("there must be at most one element in nvconfig, and the element applies to all devices on a host")
-	}
-	nvcfg := flavor.Spec.NVConfig[0]
-	// TODO: support regex device?
-	if nvcfg.Device != nil && strings.TrimSpace(*nvcfg.Device) != "*" {
-		return fmt.Errorf("nvconfig[*].device must be \"*\"")
-	}
 	return nil
 }
 
