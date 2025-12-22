@@ -14,16 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package netplanhelper
+package util
 
 import (
-	"testing"
-
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"bytes"
+	"fmt"
+	"os/exec"
 )
 
-func TestUtil(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Netplan Helper Suite")
+func RunBash(cmdStr string) (stdout, stderr bytes.Buffer, err error) {
+	cmd := exec.Command("bash", "-c", cmdStr)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	if err != nil {
+		return stdout, stderr, fmt.Errorf("failed to run command: %w", err)
+	}
+	return stdout, stderr, nil
 }
