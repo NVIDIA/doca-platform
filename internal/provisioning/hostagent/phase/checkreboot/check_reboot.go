@@ -23,7 +23,6 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
-	"github.com/nvidia/doca-platform/pkg/utils/bashhelper"
 
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -71,7 +70,7 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 
 func needReboot(pciAddress string) (bool, error) {
 	command := fmt.Sprintf("mlxreg -d %s.0 --get --reg_name MFRL|grep pci_rescan_required|grep -o '0x[0-9a-fA-F]\\+'", pciAddress)
-	stdout, stderr, err := bashhelper.Run(command)
+	stdout, stderr, err := hostutil.RunBash(command)
 	if err != nil {
 		return false, fmt.Errorf("cmd: %s, stdout: %s, stderr: %s", command, stdout.String(), stderr.String())
 	}
@@ -79,14 +78,14 @@ func needReboot(pciAddress string) (bool, error) {
 		return true, nil
 	}
 	command = fmt.Sprintf("flint -d %s.0 q |grep 'FW Version'|awk -F ': *' '{print $2}'", pciAddress)
-	stdout, stderr, err = bashhelper.Run(command)
+	stdout, stderr, err = hostutil.RunBash(command)
 	if err != nil {
 		return false, fmt.Errorf("cmd: %s, stdout: %s, stderr: %s", command, stdout.String(), stderr.String())
 	}
 	curVer := stdout.String()
 
 	command = fmt.Sprintf("flint -d %s.0 q |grep 'FW Version(Running)'|awk -F ': *' '{print $2}'", pciAddress)
-	stdout, stderr, err = bashhelper.Run(command)
+	stdout, stderr, err = hostutil.RunBash(command)
 	if err != nil {
 		return false, fmt.Errorf("cmd: %s, stdout: %s, stderr: %s", command, stdout.String(), stderr.String())
 	}
@@ -97,7 +96,7 @@ func needReboot(pciAddress string) (bool, error) {
 
 	resetLevel3 := false
 	command = fmt.Sprintf("mlxfwreset -d %s.0 q|grep '3: Driver restart and PCI reset'|grep -oE 'Supported|Not supported|Not Supported'", pciAddress)
-	stdout, stderr, err = bashhelper.Run(command)
+	stdout, stderr, err = hostutil.RunBash(command)
 	if err != nil {
 		return false, fmt.Errorf("cmd: %s, stdout: %s, stderr: %s", command, stdout.String(), stderr.String())
 	}
@@ -108,7 +107,7 @@ func needReboot(pciAddress string) (bool, error) {
 
 	syncLevel1 := false
 	command = fmt.Sprintf("mlxfwreset -d %s.0 q|grep '1: Driver is the owner'|grep -oE 'Supported|Not supported|Not Supported'", pciAddress)
-	stdout, stderr, err = bashhelper.Run(command)
+	stdout, stderr, err = hostutil.RunBash(command)
 	if err != nil {
 		return false, fmt.Errorf("cmd: %s, stdout: %s, stderr: %s", command, stdout.String(), stderr.String())
 	}
@@ -121,7 +120,7 @@ func needReboot(pciAddress string) (bool, error) {
 		return true, nil
 	}
 	command = fmt.Sprintf("mlxfwreset -d %s.0 -y -l 3 --sync 1 r", pciAddress)
-	stdout, stderr, err = bashhelper.Run(command)
+	stdout, stderr, err = hostutil.RunBash(command)
 	if err != nil {
 		return false, fmt.Errorf("cmd: %s, stdout: %s, stderr: %s", command, stdout.String(), stderr.String())
 	}
