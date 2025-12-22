@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -332,6 +333,98 @@ var _ = Describe("Util", func() {
 				},
 			}
 			Expect(IsDPUNodeReady(dpuNode)).To(BeTrue())
+		})
+	})
+
+	Context("GetBFBCondition", func() {
+		It("should return -1, nil when condition not found", func() {
+			testCases := []struct {
+				name   string
+				status *provisioningv1.BFBStatus
+			}{
+				{"nil status", nil},
+				{"nil conditions", &provisioningv1.BFBStatus{Conditions: nil}},
+				{"empty conditions", &provisioningv1.BFBStatus{Conditions: []metav1.Condition{}}},
+				{"different condition", &provisioningv1.BFBStatus{Conditions: []metav1.Condition{{Type: "other"}}}},
+			}
+			for _, tc := range testCases {
+				idx, cond := GetBFBCondition(tc.status, "test-condition")
+				Expect(idx).To(Equal(-1), tc.name)
+				Expect(cond).To(BeNil(), tc.name)
+			}
+		})
+
+		It("should return index and condition when found", func() {
+			status := &provisioningv1.BFBStatus{
+				Conditions: []metav1.Condition{
+					{Type: "first-condition"},
+					{Type: "test-condition", Status: metav1.ConditionTrue, Reason: "TestReason"},
+				},
+			}
+			idx, cond := GetBFBCondition(status, "test-condition")
+			Expect(idx).To(Equal(1))
+			Expect(cond.Type).To(Equal("test-condition"))
+			Expect(cond.Reason).To(Equal("TestReason"))
+		})
+	})
+
+	Context("BFBCondition", func() {
+		It("should create condition with correct type and reason", func() {
+			cond := BFBCondition(conditions.TypeReady, "", "msg")
+			Expect(cond.Type).To(Equal("Ready"))
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Reason).To(Equal("Ready"))
+
+			cond = BFBCondition(provisioningv1.BFBCondDeleting, "CustomReason", "")
+			Expect(cond.Type).To(Equal("Deleting"))
+			Expect(cond.Reason).To(Equal("CustomReason"))
+		})
+	})
+
+	Context("SetBFBCondition", func() {
+		It("should add new condition and return true", func() {
+			status := &provisioningv1.BFBStatus{}
+			changed := SetBFBCondition(status, &metav1.Condition{Type: "Ready", Status: metav1.ConditionTrue})
+			Expect(changed).To(BeTrue())
+			Expect(status.Conditions).To(HaveLen(1))
+		})
+
+		It("should update condition and handle LastTransitionTime correctly", func() {
+			oldTime := metav1.Now()
+			status := &provisioningv1.BFBStatus{
+				Conditions: []metav1.Condition{{
+					Type: "Ready", Status: metav1.ConditionFalse, Reason: "NotReady", LastTransitionTime: oldTime,
+				}},
+			}
+
+			// Status change should update LastTransitionTime
+			SetBFBCondition(status, &metav1.Condition{Type: "Ready", Status: metav1.ConditionTrue, Reason: "BFBReady"})
+			Expect(status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
+			Expect(status.Conditions[0].LastTransitionTime.After(oldTime.Time)).To(BeTrue())
+
+			// Message change with same status should preserve LastTransitionTime
+			updatedTime := status.Conditions[0].LastTransitionTime
+			changed := SetBFBCondition(status, &metav1.Condition{Type: "Ready", Status: metav1.ConditionTrue, Reason: "BFBReady", Message: "new msg"})
+			Expect(changed).To(BeTrue())
+			Expect(status.Conditions[0].LastTransitionTime).To(Equal(updatedTime))
+
+			// No change should return false
+			changed = SetBFBCondition(status, &metav1.Condition{Type: "Ready", Status: metav1.ConditionTrue, Reason: "BFBReady", Message: "new msg"})
+			Expect(changed).To(BeFalse())
+		})
+	})
+
+	Context("BFBStatus with ObservedGeneration", func() {
+		It("should handle observedGeneration alongside conditions", func() {
+			status := &provisioningv1.BFBStatus{ObservedGeneration: 1}
+			SetBFBCondition(status, &metav1.Condition{Type: "Ready", Status: metav1.ConditionTrue})
+
+			Expect(status.ObservedGeneration).To(Equal(int64(1)))
+			Expect(status.Conditions).To(HaveLen(1))
+
+			// Update generation and verify independence from conditions
+			status.ObservedGeneration = 5
+			Expect(status.Conditions[0].Type).To(Equal("Ready"))
 		})
 	})
 
