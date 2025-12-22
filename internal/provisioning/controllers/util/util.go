@@ -26,6 +26,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -372,6 +373,64 @@ func SetDPUCondition(status *provisioningv1.DPUStatus, condition *metav1.Conditi
 	condition.LastTransitionTime = metav1.Now()
 	// Try to find this condition.
 	conditionIndex, oldCondition := GetDPUCondition(status, condition.Type)
+
+	if oldCondition == nil {
+		// We are adding new condition.
+		status.Conditions = append(status.Conditions, *condition)
+		return true
+	}
+	// We are updating an existing condition, so we need to check if it has changed.
+	if condition.Status == oldCondition.Status {
+		condition.LastTransitionTime = oldCondition.LastTransitionTime
+	}
+
+	isEqual := condition.Status == oldCondition.Status &&
+		condition.Reason == oldCondition.Reason &&
+		condition.Message == oldCondition.Message &&
+		condition.LastTransitionTime.Equal(&oldCondition.LastTransitionTime)
+
+	status.Conditions[conditionIndex] = *condition
+	// Return true if one of the fields have changed.
+	return !isEqual
+}
+
+// GetBFBCondition returns the condition and index for the given condition type
+func GetBFBCondition(status *provisioningv1.BFBStatus, conditionType string) (int, *metav1.Condition) {
+	if status == nil {
+		return -1, nil
+	}
+	conditions := status.Conditions
+	if conditions == nil {
+		return -1, nil
+	}
+	for i := range conditions {
+		if conditions[i].Type == conditionType {
+			return i, &conditions[i]
+		}
+	}
+	return -1, nil
+}
+
+// BFBCondition creates a success condition for BFB
+func BFBCondition(condType conditions.ConditionType, reason, message string) *metav1.Condition {
+	cond := &metav1.Condition{
+		Type:    string(condType),
+		Status:  metav1.ConditionTrue,
+		Message: message,
+	}
+	if reason != "" {
+		cond.Reason = reason
+	} else {
+		cond.Reason = string(condType)
+	}
+	return cond
+}
+
+// SetBFBCondition sets or updates the condition in BFBStatus
+func SetBFBCondition(status *provisioningv1.BFBStatus, condition *metav1.Condition) bool {
+	condition.LastTransitionTime = metav1.Now()
+	// Try to find this condition.
+	conditionIndex, oldCondition := GetBFBCondition(status, condition.Type)
 
 	if oldCondition == nil {
 		// We are adding new condition.
