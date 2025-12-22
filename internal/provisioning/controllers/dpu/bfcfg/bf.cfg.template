@@ -28,10 +28,24 @@ bfb_post_install() {
     echo "reset NVConfig on dev ${dev} to defaults"
     mlxconfig -d ${dev} -y reset
   done
+  
+  # Apply device-specific nvconfig configurations
+  {{- range .NVConfigParams}}
+  {{- if eq .Device "*"}}
+  # Apply to all devices
   for dev in /dev/mst/*; do
     echo "set NVConfig on dev ${dev}"
-    mlxconfig -d ${dev} -y set {{.NVConfigParams}}
+    mlxconfig -d ${dev} -y set {{.Parameters}}
   done
+  {{- else}}
+  # Apply to specific device: {{.Device}}
+  # TODO: Device mapping needs to be implemented in DPUAgent to translate
+  # symbolic device identifiers (p0/P0/p1/P1) to actual device paths
+  # (e.g., /dev/mst/mt4129_pciconf0 or PCI addresses like 0000:b1:00.0)
+  echo "set NVConfig on dev {{.Device}}"
+  mlxconfig -d {{.Device}} -y set {{.Parameters}}
+  {{- end}}
+  {{- end}}
 {{end}}
 
   # set DPU mode

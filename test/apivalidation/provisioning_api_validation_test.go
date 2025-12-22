@@ -17,12 +17,15 @@ limitations under the License.
 package apivalidation_test
 
 import (
+	"fmt"
+
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 var _ = Describe("Provisioning API Validation", func() {
@@ -77,7 +80,153 @@ var _ = Describe("Provisioning API Validation", func() {
 				provisioningv1.DPUSetSpec{}, false),
 		)
 	})
+
+	Context("When checking the DPUFlavor API validations", func() {
+		Context("NVConfig validation", func() {
+			// ✅ Valid Configurations
+			Context("Valid Configurations", func() {
+				It("should accept multiple port devices (p0 + p1)", func() {
+					obj := getMinimalDPUFlavor(testNs.Name)
+					p0 := "p0"
+					p1 := "P1" // Test case-insensitive - uppercase is valid
+					obj.Spec.NVConfig = []provisioningv1.NVConfig{
+						{Device: &p0, Parameters: []string{"LINK_TYPE_P1=ETH", "NUM_OF_VFS=8"}},
+						{Device: &p1, Parameters: []string{"LINK_TYPE_P1=IB"}},
+					}
+					Expect(testClient.Create(ctx, obj)).To(Succeed())
+				})
+
+				It("should accept wildcard/unspecified device", func() {
+					obj := getMinimalDPUFlavor(testNs.Name)
+					obj.Spec.NVConfig = []provisioningv1.NVConfig{
+						{Parameters: []string{"SRIOV_EN=1"}}, // Nil device = wildcard
+					}
+					Expect(testClient.Create(ctx, obj)).To(Succeed())
+				})
+
+				It("should accept empty parameter value", func() {
+					obj := getMinimalDPUFlavor(testNs.Name)
+					dev := "p0"
+					obj.Spec.NVConfig = []provisioningv1.NVConfig{
+						{Device: &dev, Parameters: []string{"FLAG="}}, // Empty value OK
+					}
+					Expect(testClient.Create(ctx, obj)).To(Succeed())
+				})
+			})
+
+			// ❌ Invalid Configurations
+			Context("Invalid Configurations", func() {
+				DescribeTable("should reject invalid device enum values",
+					func(name string, nvconfig []provisioningv1.NVConfig) {
+						obj := getMinimalDPUFlavor(testNs.Name)
+						obj.Name = name
+						obj.Spec.NVConfig = nvconfig
+						err := testClient.Create(ctx, obj)
+						Expect(err).To(HaveOccurred())
+						Expect(err.Error()).To(Or(
+							ContainSubstring("Unsupported value"),
+							ContainSubstring("enum"),
+						))
+					},
+					Entry("invalid PCI address (no longer supported)", "cel-invalid-pci", []provisioningv1.NVConfig{
+						{Device: ptr.To("0000:b1:00.0"), Parameters: []string{"KEY=VAL"}},
+					}),
+					Entry("invalid MST path (no longer supported)", "cel-invalid-mst", []provisioningv1.NVConfig{
+						{Device: ptr.To("/dev/mst/mt4129_pciconf0"), Parameters: []string{"KEY=VAL"}},
+					}),
+					Entry("invalid port identifier (p2)", "cel-invalid-port", []provisioningv1.NVConfig{
+						{Device: ptr.To("p2"), Parameters: []string{"KEY=VAL"}},
+					}),
+				)
+
+				It("should reject wildcard mixed with specific devices", func() {
+					obj := getMinimalDPUFlavor(testNs.Name)
+					obj.Name = "cel-wildcard-exclusivity"
+					obj.Spec.NVConfig = []provisioningv1.NVConfig{
+						{Device: ptr.To("*"), Parameters: []string{"GLOBAL=1"}},
+						{Device: ptr.To("p0"), Parameters: []string{"SPECIFIC=1"}},
+					}
+					err := testClient.Create(ctx, obj)
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("must be the only"))
+				})
+
+				DescribeTable("should reject duplicate devices",
+					func(name string, nvconfig []provisioningv1.NVConfig) {
+						obj := getMinimalDPUFlavor(testNs.Name)
+						obj.Name = name
+						obj.Spec.NVConfig = nvconfig
+						err := testClient.Create(ctx, obj)
+						Expect(err).To(HaveOccurred())
+						Expect(err.Error()).To(ContainSubstring("must be unique"))
+					},
+					Entry("duplicate port p0 (case-insensitive)", "cel-dup-p0", []provisioningv1.NVConfig{
+						{Device: ptr.To("p0"), Parameters: []string{"PARAM1=A"}},
+						{Device: ptr.To("P0"), Parameters: []string{"PARAM2=B"}}, // Should be rejected (same as p0)
+					}),
+					Entry("duplicate wildcard (nil + explicit)", "cel-dup-wildcard", []provisioningv1.NVConfig{
+						{Parameters: []string{"PARAM1=A"}},                      // nil = *
+						{Device: ptr.To("*"), Parameters: []string{"PARAM2=B"}}, // explicit *
+					}),
+				)
+
+				DescribeTable("should reject invalid parameter formats",
+					func(name string, nvconfig []provisioningv1.NVConfig) {
+						obj := getMinimalDPUFlavor(testNs.Name)
+						obj.Name = name
+						obj.Spec.NVConfig = nvconfig
+						err := testClient.Create(ctx, obj)
+						Expect(err).To(HaveOccurred())
+						Expect(err.Error()).To(Or(
+							ContainSubstring("pattern"),
+							ContainSubstring("should match"),
+						))
+					},
+					Entry("missing equals", "cel-no-equals", []provisioningv1.NVConfig{
+						{Device: ptr.To("p0"), Parameters: []string{"INVALID"}},
+					}),
+					Entry("empty key", "cel-empty-key", []provisioningv1.NVConfig{
+						{Device: ptr.To("p0"), Parameters: []string{"=value"}},
+					}),
+					Entry("spaces in parameter", "cel-spaces", []provisioningv1.NVConfig{
+						{Device: ptr.To("p1"), Parameters: []string{"KEY = VALUE"}},
+					}),
+				)
+
+				// Note: MaxItems=3 constraint matches the maximum possible unique enum values
+				// (*, p0, p1). With uniqueness validation, this is the theoretical maximum.
+
+				It("should reject too many parameters (MaxItems=32)", func() {
+					obj := getMinimalDPUFlavor(testNs.Name)
+					obj.Name = "cel-maxitems-params"
+					params := make([]string, 33)
+					for i := 0; i < 33; i++ {
+						params[i] = fmt.Sprintf("PARAM%d=value", i)
+					}
+					obj.Spec.NVConfig = []provisioningv1.NVConfig{
+						{Device: ptr.To("p0"), Parameters: params},
+					}
+					err := testClient.Create(ctx, obj)
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(Or(
+						ContainSubstring("maxItems"),
+						ContainSubstring("Too many"), // Capital T!
+					))
+				})
+			})
+		})
+	})
 })
+
+func getMinimalDPUFlavor(namespace string) *provisioningv1.DPUFlavor {
+	return &provisioningv1.DPUFlavor{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "dpuflavor-test-",
+			Namespace:    namespace,
+		},
+		Spec: provisioningv1.DPUFlavorSpec{},
+	}
+}
 
 func getMinimalDPUSet(namespace string) *provisioningv1.DPUSet {
 	return &provisioningv1.DPUSet{
