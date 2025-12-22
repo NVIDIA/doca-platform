@@ -1504,7 +1504,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `grub` _[DPUFlavorGrub](#dpuflavorgrub)_ | Grub contains the grub configuration for the DPUFlavor. |  |  |
 | `sysctl` _[DPUFLavorSysctl](#dpuflavorsysctl)_ | Sysctl contains the sysctl configuration for the DPUFlavor. |  |  |
-| `nvconfig` _[NVConfig](#nvconfig) array_ | NVConfig contains the global DPU-wide configuration (firmware settings, global device parameters).<br />This applies to the DPU device and should not overlap with per-interface NVConfig settings. |  |  |
+| `nvconfig` _[NVConfig](#nvconfig) array_ | NVConfig contains the device-specific configuration (firmware settings, device parameters).<br />Each entry specifies a device (wildcard '*', or port identifiers 'p0'/'P0'/'p1'/'P1') and its parameters.<br />If device is '*' or unspecified (defaults to '*'), it applies to all devices and must be the only entry.<br />Each device (including unspecified as '*') must be unique across all nvconfig entries (case-insensitive).<br />Validation enforces: device enum values, parameter format (KEY=VALUE), case-insensitive uniqueness, and size limits. |  | MaxItems: 3 <br /> |
 | `ovs` _[DPUFlavorOVS](#dpuflavorovs)_ | OVS contains the OVS configuration for the DPUFlavor. |  |  |
 | `bfcfgParameters` _string array_ | BFCfgParameters are the parameters to be set in the bf.cfg file. |  |  |
 | `configFiles` _[ConfigFile](#configfile) array_ | ConfigFiles are the files to be written on the DPU. |  |  |
@@ -2127,8 +2127,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `device` _string_ | Device is the device to which the configuration applies. If not specified, the configuration applies to all. |  |  |
-| `parameters` _string array_ | Parameters are the parameters to be set for the device. |  |  |
+| `device` _string_ | Device is the device to which the configuration applies. If not specified, the configuration applies to all.<br />Supported values: "*" (wildcard for all devices), "p0"/"P0" (port 0), "p1"/"P1" (port 1). Case-insensitive. |  | Enum: [* p0 p1 P0 P1] <br /> |
+| `parameters` _string array_ | Parameters are the parameters to be set for the device. |  | MaxItems: 32 <br />MinItems: 1 <br /> |
 
 
 #### NetworkInterfaceConfig

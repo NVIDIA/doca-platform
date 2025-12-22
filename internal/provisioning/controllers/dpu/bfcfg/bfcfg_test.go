@@ -267,5 +267,58 @@ var (
 				Expect(string(got)).Should(ContainSubstring("pre_bmc_components_update"))
 			})
 		})
+
+		Describe("multi-nvconfig support", func() {
+			It("should generate bf.cfg with multiple device-specific nvconfig entries", func() {
+				flavor := &provisioningv1.DPUFlavor{}
+				Expect(yaml.Unmarshal([]byte(DPUFlavorHBNOVN), flavor)).To(Succeed())
+
+				dev0 := "p0"
+				dev1 := "p1"
+				flavor.Spec.NVConfig = []provisioningv1.NVConfig{
+					{
+						Device:     &dev0,
+						Parameters: []string{"LINK_TYPE_P1=ETH", "NUM_OF_VFS=8"},
+					},
+					{
+						Device:     &dev1,
+						Parameters: []string{"LINK_TYPE_P1=IB", "NUM_OF_VFS=16"},
+					},
+				}
+
+				got, err := Generate(flavor, "test-dpu", "kubeadm join", false, "", string(provisioningv1.InstallViaGNOI), 1500, 2)
+				Expect(err).NotTo(HaveOccurred())
+
+				output := string(got)
+				Expect(output).To(ContainSubstring("reset NVConfig on dev ${dev} to defaults"))
+				// Device identifiers (p0, p1) will be translated by bf.cfg script logic
+				Expect(output).To(ContainSubstring("mlxconfig -d p0 -y set LINK_TYPE_P1=ETH NUM_OF_VFS=8"))
+				Expect(output).To(ContainSubstring("mlxconfig -d p1 -y set LINK_TYPE_P1=IB NUM_OF_VFS=16"))
+			})
+
+			DescribeTable("should generate bf.cfg applying to all devices (wildcard behavior)",
+				func(devicePtr *string) {
+					flavor := &provisioningv1.DPUFlavor{}
+					Expect(yaml.Unmarshal([]byte(DPUFlavorHBNOVN), flavor)).To(Succeed())
+
+					flavor.Spec.NVConfig = []provisioningv1.NVConfig{
+						{
+							Device:     devicePtr,
+							Parameters: []string{"SRIOV_EN=1", "NUM_OF_VFS=32"},
+						},
+					}
+
+					got, err := Generate(flavor, "test-dpu", "kubeadm join", false, "", string(provisioningv1.InstallViaGNOI), 1500, 2)
+					Expect(err).NotTo(HaveOccurred())
+
+					output := string(got)
+					// Both explicit "*" and nil should produce loop over all devices
+					Expect(output).To(ContainSubstring("for dev in /dev/mst/*; do"))
+					Expect(output).To(ContainSubstring("mlxconfig -d ${dev} -y set SRIOV_EN=1 NUM_OF_VFS=32"))
+				},
+				Entry("explicit wildcard '*'", func() *string { s := "*"; return &s }()),
+				Entry("unspecified device (nil, normalized to '*')", (*string)(nil)),
+			)
+		})
 	})
 )
