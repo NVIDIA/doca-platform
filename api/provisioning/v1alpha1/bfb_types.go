@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/nvidia/doca-platform/pkg/conditions"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -48,6 +50,19 @@ const (
 	BFBDeleting BFBPhase = "Deleting"
 	// Error happens during BFB downloading
 	BFBError BFBPhase = "Error"
+)
+
+const (
+	// BFBCondDeleting indicates the deletion status of the BFB
+	BFBCondDeleting conditions.ConditionType = "Deleting"
+)
+
+var (
+	// BFBConditions are conditions that can be set on a BFB object.
+	BFBConditions = []conditions.ConditionType{
+		conditions.TypeReady,
+		BFBCondDeleting,
+	}
 )
 
 // BFBSpec defines the content of the BFB
@@ -108,6 +123,11 @@ type BFBStatus struct {
 	// Holds detailed version information for each component within the BFB
 	// +optional
 	Versions BFBVersions `json:"versions,omitempty"`
+	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// Conditions represent the latest available observations of BFB state
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -137,6 +157,19 @@ type BFBList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []BFB `json:"items"`
+}
+
+// Implement conditions.GetSet interface
+var _ conditions.GetSet = &BFB{}
+
+// GetConditions returns the conditions of the BFB
+func (b *BFB) GetConditions() []metav1.Condition {
+	return b.Status.Conditions
+}
+
+// SetConditions sets the conditions of the BFB
+func (b *BFB) SetConditions(conditions []metav1.Condition) {
+	b.Status.Conditions = conditions
 }
 
 func init() {

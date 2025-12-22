@@ -993,6 +993,8 @@ _Appears in:_
 | `fileName` _string_ | Filename is the name of the file where the BFB can be accessed on its volume.<br />This is the same as `.spec.Filename` if set. |  |  |
 | `phase` _[BFBPhase](#bfbphase)_ | The current state of BFB. | Initializing | Enum: [Initializing Downloading Ready Deleting Error] <br /> |
 | `versions` _[BFBVersions](#bfbversions)_ | BFB versions - BSP, DOCA, UEFI and ATF<br />Holds detailed version information for each component within the BFB |  |  |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represent the latest available observations of BFB state |  |  |
 
 
 #### BFBVersions
