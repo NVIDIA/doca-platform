@@ -24,9 +24,12 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/bfb/state"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 
+	"github.com/fluxcd/pkg/runtime/patch"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,7 +53,7 @@ type BFBReconciler struct {
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=bfbs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=bfbs/finalizers,verbs=update
 
-func (r *BFBReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *BFBReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconcile")
 
@@ -62,12 +65,21 @@ func (r *BFBReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, fmt.Errorf("failed to get BFB %w", err)
 	}
 
-	// Add finalizer if not set.
+	patcher := patch.NewSerialPatcher(bfb, r.Client)
+	defer func() {
+		logger.Info("Patching")
+		if err := patcher.Patch(ctx, bfb,
+			patch.WithFieldOwner(BFBControllerName),
+			patch.WithStatusObservedGeneration{},
+			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(provisioningv1.BFBConditions)},
+		); err != nil {
+			reterr = kerrors.NewAggregate([]error{reterr, err})
+		}
+	}()
+
+	// Add finalizer if not set and BFB is not currently deleting.
 	if !controllerutil.ContainsFinalizer(bfb, provisioningv1.BFBFinalizer) && bfb.DeletionTimestamp.IsZero() {
 		controllerutil.AddFinalizer(bfb, provisioningv1.BFBFinalizer)
-		if err := r.Client.Update(ctx, bfb); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to add BFB finalizer %w", err)
-		}
 		return ctrl.Result{}, nil
 	}
 
@@ -80,9 +92,8 @@ func (r *BFBReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	if !reflect.DeepEqual(bfb.Status, nextState) {
 		logger.Info("Update BFB status", "current phase", bfb.Status.Phase, "next phase", nextState.Phase)
 		bfb.Status = nextState
-		if err := r.Client.Status().Update(ctx, bfb); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to update BFB %w", err)
-		}
+		// Patcher will handle the status update in deferred call
+		return ctrl.Result{}, nil
 	} else if nextState.Phase != provisioningv1.BFBError {
 		// requeue if bfb is not in error state
 		// TODO: move the state checking in state machine

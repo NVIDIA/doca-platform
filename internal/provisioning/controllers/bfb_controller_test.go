@@ -497,5 +497,28 @@ var _ = Describe("BFB", func() {
 			obj.Spec.URL = bfbServerURL + BFB512KBPath
 			Expect(k8sClient.Create(ctx, obj)).To(HaveOccurred())
 		})
+
+		It("BFB: patcher should set observedGeneration and handle finalizer", func() {
+			By("creating the BFB")
+			fileName := DefaultBFBFileNamePrefix + utilrand.String(8) + ".bfb"
+			obj := createObj("obj-bfb-patcher-test")
+			obj.Spec.URL = bfbServerURL + BFB512KBPath
+			obj.Spec.FileName = ptr.To(fileName)
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+			DeferCleanup(k8sClient.Delete, ctx, obj)
+
+			objFetched := &provisioningv1.BFB{}
+
+			By("verifying patcher sets observedGeneration, adds finalizer, and updates status")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(objFetched.Finalizers).To(ContainElement(provisioningv1.BFBFinalizer),
+					"patcher should add finalizer")
+				g.Expect(objFetched.Status.ObservedGeneration).To(Equal(objFetched.Generation),
+					"patcher should set observedGeneration to match generation")
+				g.Expect(objFetched.Status.Phase).NotTo(BeEmpty(),
+					"patcher should update status")
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
 	})
 })
