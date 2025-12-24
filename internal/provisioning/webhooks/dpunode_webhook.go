@@ -21,10 +21,13 @@ import (
 	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -71,7 +74,7 @@ func (r *DPUNode) ValidateCreate(ctx context.Context, obj runtime.Object) (admis
 	}
 
 	if len(errs) != 0 {
-		return nil, apierrors.NewInvalid(schema.GroupKind{Group: "provisioning.dpu.nvidia.com", Kind: "DPUNode"},
+		return nil, apierrors.NewInvalid(schema.GroupKind{Group: cutil.ProvisioningGroupName, Kind: "DPUNode"},
 			dpuNode.Name,
 			errs)
 	}
@@ -105,12 +108,71 @@ func (r *DPUNode) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Obj
 	}
 
 	if len(errs) != 0 {
-		return nil, apierrors.NewInvalid(schema.GroupKind{Group: "provisioning.dpu.nvidia.com", Kind: "DPUNode"},
+		return nil, apierrors.NewInvalid(schema.GroupKind{Group: cutil.ProvisioningGroupName, Kind: "DPUNode"},
+			dpuNode.Name,
+			errs)
+	}
+
+	if errs = r.validateUpdateNodeRebootMethod(ctx, oldDpuNode, dpuNode); len(errs) != 0 {
+		return nil, apierrors.NewInvalid(schema.GroupKind{Group: cutil.ProvisioningGroupName, Kind: "DPUNode"},
 			dpuNode.Name,
 			errs)
 	}
 
 	return nil, nil
+}
+
+func (r *DPUNode) validateUpdateNodeRebootMethod(ctx context.Context, oldDpuNode *provisioningv1.DPUNode, dpuNode *provisioningv1.DPUNode) field.ErrorList {
+	errs := field.ErrorList{}
+	specPath := field.NewPath("spec")
+	dpuRebootMethodPath := specPath.Child("nodeRebootMethod")
+	if oldDpuNode.Spec.NodeRebootMethod == nil && dpuNode.Spec.NodeRebootMethod == nil {
+		return nil
+	}
+
+	if oldDpuNode.Spec.NodeRebootMethod != nil && dpuNode.Spec.NodeRebootMethod != nil && *oldDpuNode.Spec.NodeRebootMethod == *dpuNode.Spec.NodeRebootMethod {
+		return nil
+	}
+
+	// Build label selector to find DPUs with matching DPUDeviceName labels
+	if len(dpuNode.Spec.DPUs) == 0 {
+		return nil
+	}
+	dpuDeviceNames := []string{}
+	for _, dpu := range dpuNode.Spec.DPUs {
+		dpuDeviceNames = append(dpuDeviceNames, dpu.Name)
+	}
+
+	// Create a requirement that matches any of the DPU device names using In operator
+	selector := labels.NewSelector()
+	if len(dpuDeviceNames) > 0 {
+		req, err := labels.NewRequirement(cutil.DPUDeviceNameLabel, selection.In, dpuDeviceNames)
+		if err != nil {
+			errs = append(errs, field.InternalError(dpuRebootMethodPath, err))
+			return errs
+		}
+		selector = selector.Add(*req)
+	}
+
+	dpuList := &provisioningv1.DPUList{}
+	if err := r.Client.List(ctx, dpuList,
+		client.InNamespace(dpuNode.Namespace),
+		client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		errs = append(errs, field.InternalError(dpuRebootMethodPath, err))
+		return errs
+	}
+
+	for _, dpu := range dpuList.Items {
+		if dpu.Status.Phase != provisioningv1.DPUReady {
+			errs = append(errs, field.Invalid(dpuRebootMethodPath, dpuNode.Spec.NodeRebootMethod, fmt.Sprintf("Node Reboot Method is not allowed to be updated when DPU %s is not ready", dpu.Name)))
+		}
+	}
+
+	if len(errs) != 0 {
+		return errs
+	}
+
+	return nil
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
