@@ -42,6 +42,13 @@ The following NVIDIA BlueField 3 DPU models are recommended for DPF:
 * [B3220](https://docs.nvidia.com/networking/display/bf3dpu/specifications#src-2449222537_Specifications-B3220DPUsSpecifications)
 * [B3210](https://docs.nvidia.com/networking/display/bf3dpu/specifications#src-2449222537_Specifications-B3210DPUsSpecifications)
 
+## BlueField DPU Requirements
+
+| Component      | Minimum Version | Notes                                                                                                |
+|----------------|-----------------|------------------------------------------------------------------------------------------------------|
+| DPU Firmware   | 32.38.1002      | Required for DPU provisioning and management                                                         |
+| MFT (Mellanox Firmware Tools) | 4.33.0-169 | Host-side tools required for DPU configuration and firmware management. Download from [NVIDIA Network Adapter Firmware Tools](https://network.nvidia.com/products/adapter-software/firmware-tools/) |
+
 ## Tested Operating Systems and Kubernetes Versions
 
 NVIDIA DPF has been validated in the following scenarios:
