@@ -138,8 +138,6 @@ write_files:
               dhcp4: false
               dhcp6: false
               link-local: []
-              link:
-                down: true
               optional: true
             tmfifo_net0:
               addresses:
