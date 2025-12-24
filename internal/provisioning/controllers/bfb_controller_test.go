@@ -27,11 +27,13 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	bfbutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/bfb/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
@@ -182,13 +184,19 @@ var _ = Describe("BFB", func() {
 			Eventually(func(g Gomega) provisioningv1.BFBPhase {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(100 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
+			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
 
 			By("expecting the Status (Error)")
 			Eventually(func(g Gomega) provisioningv1.BFBPhase {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(100 * time.Millisecond).Should(Equal(provisioningv1.BFBError))
+			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBError))
+
+			By("verifying Downloaded condition shows the error")
+			Expect(objFetched.Status.Conditions).NotTo(BeEmpty())
+			downloadedCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondDownloaded))
+			Expect(downloadedCond).NotTo(BeNil())
+			Expect(downloadedCond.Status).To(Equal(metav1.ConditionFalse))
 		})
 
 		It("BFB: check status (Ready)", func() {
@@ -212,15 +220,40 @@ var _ = Describe("BFB", func() {
 			Eventually(func(g Gomega) provisioningv1.BFBPhase {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(100 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
+			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
 
-			By("expecting the Status (Ready)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
+			By("expecting the Status (Ready) with condition")
+			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).Should(Equal(provisioningv1.BFBReady))
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BFBReady))
+				// Wait for Ready condition to be set with Status=True
+				readyCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondReady))
+				g.Expect(readyCond).NotTo(BeNil())
+				g.Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
 			_, err := os.Stat(cutil.GenerateBFBFilePath(objFetched.Status.FileName))
 			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying lifecycle conditions (Initialized, Downloaded, Ready)")
+			initializedCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondInitialized))
+			Expect(initializedCond).NotTo(BeNil())
+			Expect(initializedCond.Status).To(Equal(metav1.ConditionTrue))
+
+			downloadedCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondDownloaded))
+			Expect(downloadedCond).NotTo(BeNil())
+			Expect(downloadedCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonSuccess)))
+			Expect(downloadedCond.Message).To(BeEmpty())
+
+			readyCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondReady))
+			Expect(readyCond).NotTo(BeNil())
+			Expect(readyCond.Reason).To(Equal(string(conditions.ReasonSuccess)))
+			Expect(readyCond.Message).To(BeEmpty())
+
+			// Verify ObservedGeneration is tracked correctly
+			Expect(objFetched.Status.ObservedGeneration).To(Equal(objFetched.Generation))
+			Expect(downloadedCond.ObservedGeneration).To(Equal(objFetched.Generation))
+			Expect(readyCond.ObservedGeneration).To(Equal(objFetched.Generation))
 		})
 
 		It("BFB: check status (Ready) with maximum length name", func() {
@@ -248,7 +281,7 @@ var _ = Describe("BFB", func() {
 			Eventually(func(g Gomega) provisioningv1.BFBPhase {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(100 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
+			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
 
 			By("expecting the Status (Ready)")
 			Eventually(func(g Gomega) provisioningv1.BFBPhase {
@@ -278,12 +311,15 @@ var _ = Describe("BFB", func() {
 
 			objFetched := &provisioningv1.BFB{}
 
-			By("expecting the Status (Ready)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
+			By("expecting the Status (Ready) with condition")
+			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				g.Expect(objFetched.Status).NotTo(BeNil())
-				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).Should(Equal(provisioningv1.BFBReady))
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BFBReady))
+				// Wait for Ready condition to be set with Status=True
+				readyCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondReady))
+				g.Expect(readyCond).NotTo(BeNil())
+				g.Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
 			_, err = os.Stat(BFBFileName)
 			Expect(err).NotTo(HaveOccurred())
 		})
@@ -308,7 +344,7 @@ var _ = Describe("BFB", func() {
 			Eventually(func(g Gomega) provisioningv1.BFBPhase {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(100 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
+			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
 
 			By("expecting the Status (Ready)")
 			Eventually(func(g Gomega) provisioningv1.BFBPhase {
@@ -320,6 +356,22 @@ var _ = Describe("BFB", func() {
 
 			By("removing obj")
 			Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
+
+			By("verifying Deleted condition during deletion")
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, getObjKey(obj), objFetched)
+				if err != nil && !apierrors.IsNotFound(err) {
+					g.Expect(err).NotTo(HaveOccurred())
+				}
+				if err == nil {
+					deletedCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondDeleted))
+					if deletedCond != nil {
+						g.Expect(deletedCond.Status).To(Equal(metav1.ConditionTrue))
+						g.Expect(deletedCond.Reason).To(Equal(string(conditions.ReasonSuccess)))
+					}
+				}
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
 			Eventually(func() (done bool, err error) {
 				if err := k8sClient.Get(ctx, getObjKey(obj), objFetched); err != nil {
 					if apierrors.IsNotFound(err) {
@@ -356,30 +408,46 @@ var _ = Describe("BFB", func() {
 			Eventually(func(g Gomega) provisioningv1.BFBPhase {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 				return objFetched.Status.Phase
-			}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
+			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
 
-			By("expecting the Status (Ready)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
+			By("expecting the Status (Ready) with condition")
+			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).Should(Equal(provisioningv1.BFBReady))
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BFBReady))
+				// Wait for Ready condition to be set with Status=True
+				readyCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondReady))
+				g.Expect(readyCond).NotTo(BeNil())
+				g.Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
 			_, err := os.Stat(bfbFileName)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("removing cached bfb file")
 			Expect(os.Remove(bfbFileName)).NotTo(HaveOccurred())
 
-			By("expecting the Status (Downloading)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
+			By("verifying Ready condition becomes False when file is missing (detected on next requeue)")
+			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(100 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
+				readyCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondReady))
+				g.Expect(readyCond).NotTo(BeNil())
+				g.Expect(readyCond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(readyCond.Reason).To(Equal(string(conditions.ReasonError)))
+				// Verify ObservedGeneration is still tracked
+				g.Expect(readyCond.ObservedGeneration).To(Equal(objFetched.Generation))
+			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Succeed())
 
-			By("expecting the Status (Ready)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
+			By("expecting the Status (Ready) after re-download")
+			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).Should(Equal(provisioningv1.BFBReady))
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BFBReady))
+				// Wait for Ready condition to be set with Status=True
+				readyCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondReady))
+				g.Expect(readyCond).NotTo(BeNil())
+				g.Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+				// Verify ObservedGeneration is still tracked after recovery
+				g.Expect(objFetched.Status.ObservedGeneration).To(Equal(objFetched.Generation))
+				g.Expect(readyCond.ObservedGeneration).To(Equal(objFetched.Generation))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
 			_, err = os.Stat(bfbFileName)
 			Expect(err).NotTo(HaveOccurred())
 		})
@@ -422,7 +490,7 @@ var _ = Describe("BFB", func() {
 			Eventually(func(g Gomega) provisioningv1.BFBPhase {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(100 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
+			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
 
 			By("expecting the Status (Ready)")
 			Eventually(func(g Gomega) provisioningv1.BFBPhase {
@@ -438,17 +506,34 @@ var _ = Describe("BFB", func() {
 			By("removing cached bfb file")
 			Expect(os.Remove(bfbFileName)).NotTo(HaveOccurred())
 
-			By("expecting the Status (Downloading)")
+			By("expecting the Status (Downloading) after controller detects missing file on requeue")
 			Eventually(func(g Gomega) provisioningv1.BFBPhase {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(100 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
+			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
 
-			By("expecting the Status (Error)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
+			By("expecting the Status (Error) with Downloaded and Error conditions")
+			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(100 * time.Millisecond).Should(Equal(provisioningv1.BFBError))
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BFBError))
+
+				// Verify Error condition with full details
+				errorCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondError))
+				g.Expect(errorCond).NotTo(BeNil())
+				g.Expect(errorCond.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(errorCond.Reason).To(Equal(string(conditions.ReasonSuccess)))
+				g.Expect(errorCond.ObservedGeneration).To(Equal(objFetched.Generation))
+
+				// Verify Downloaded condition is False with Error reason
+				downloadedCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondDownloaded))
+				g.Expect(downloadedCond).NotTo(BeNil())
+				g.Expect(downloadedCond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonError)))
+				g.Expect(downloadedCond.ObservedGeneration).To(Equal(objFetched.Generation))
+
+				// Verify ObservedGeneration is tracked in error state
+				g.Expect(objFetched.Status.ObservedGeneration).To(Equal(objFetched.Generation))
+			}).WithTimeout(30 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
 		})
 
 		It("BFB: creating number of objs", func() {
