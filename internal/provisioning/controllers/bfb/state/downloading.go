@@ -29,6 +29,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/events"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
@@ -41,8 +42,7 @@ type bfbDownloadingState struct {
 	recorder record.EventRecorder
 }
 
-func (st *bfbDownloadingState) Handle(ctx context.Context, _ client.Client) (provisioningv1.BFBStatus, error) {
-	state := st.bfb.Status.DeepCopy()
+func (st *bfbDownloadingState) Handle(ctx context.Context, _ client.Client) error {
 	bfbTaskName := cutil.GenerateBFBTaskName(*st.bfb)
 
 	if isDeleting(st.bfb) {
@@ -52,23 +52,27 @@ func (st *bfbDownloadingState) Handle(ctx context.Context, _ client.Client) (pro
 			butil.DownloadingTaskMap.Delete(bfbTaskName)
 			butil.DownloadingTaskMap.Delete(bfbTaskName + "cancel")
 		}
-		state.Phase = provisioningv1.BFBDeleting
-		return *state, nil
+		st.bfb.Status.Phase = provisioningv1.BFBDeleting
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
+			conditions.ReasonAwaitingDeletion, "BFB is being deleted")
+		return nil
 	}
 
 	exist, err := IsBFBExist(st.bfb.Status.FileName)
 	if err != nil {
-		state.Phase = provisioningv1.BFBError
+		st.bfb.Status.Phase = provisioningv1.BFBError
 		msg := fmt.Sprintf("Download BFB: (%s/%s) failed with error :%s", st.bfb.Namespace, st.bfb.Name, err.Error())
 		st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, msg)
-		return *state, err
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
+			conditions.ReasonError, conditions.ConditionMessage(err.Error()))
+		return err
 	}
 
 	if bfbDownloader, ok := butil.DownloadingTaskMap.Load(bfbTaskName); ok {
 		// Wait for downloading task completion
 		result := bfbDownloader.(*future.Future)
 		if result.GetState() != future.Ready {
-			return *state, nil
+			return nil
 		}
 		// Remove downloading task context
 		butil.DownloadingTaskMap.Delete(bfbTaskName)
@@ -76,13 +80,17 @@ func (st *bfbDownloadingState) Handle(ctx context.Context, _ client.Client) (pro
 		// Check task result
 		if _, err := result.GetResult(); err != nil {
 			if errors.Is(err, context.Canceled) {
-				state.Phase = provisioningv1.BFBDeleting
-				return *state, nil
+				st.bfb.Status.Phase = provisioningv1.BFBDeleting
+				conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
+					conditions.ReasonAwaitingDeletion, "BFB download canceled, deletion in progress")
+				return nil
 			} else {
 				msg := fmt.Sprintf("Download BFB: (%s/%s) failed with error :%s", st.bfb.Namespace, st.bfb.Name, err.Error())
 				st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, msg)
-				state.Phase = provisioningv1.BFBError
-				return *state, err
+				st.bfb.Status.Phase = provisioningv1.BFBError
+				conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
+					conditions.ReasonError, conditions.ConditionMessage(err.Error()))
+				return err
 			}
 		}
 	} else if !exist {
@@ -100,7 +108,7 @@ func (st *bfbDownloadingState) Handle(ctx context.Context, _ client.Client) (pro
 		butil.DownloadingTaskMap.Store(bfbTaskName+"cancel", cancel)
 		// Start the download with the new context
 		downloadBFB(taskCtx, bfbTask)
-		return *state, nil
+		return nil
 	}
 	// There is no related downloading task and BFB file exists in cache.
 	// Get the BFB version.
@@ -108,15 +116,18 @@ func (st *bfbDownloadingState) Handle(ctx context.Context, _ client.Client) (pro
 	if err != nil {
 		msg := fmt.Sprintf("Retrieving BFB version: (%s/%s) failed with error :%s", st.bfb.Namespace, st.bfb.Name, err.Error())
 		st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, msg)
-		return *state, err
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
+			conditions.ReasonError, conditions.ConditionMessage(err.Error()))
+		return err
 	}
-	state.Versions = *versions
+	st.bfb.Status.Versions = *versions
 
-	state.Phase = provisioningv1.BFBReady
+	st.bfb.Status.Phase = provisioningv1.BFBReady
 	msg := fmt.Sprintf("Download BFB: (%s/%s) successful", st.bfb.Namespace, st.bfb.Name)
 	st.recorder.Eventf(st.bfb, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, msg)
+	conditions.AddTrue(st.bfb, provisioningv1.BFBCondDownloaded)
 
-	return *state, nil
+	return nil
 }
 
 func downloadBFB(ctx context.Context, bfbTask butil.BFBTask) {
