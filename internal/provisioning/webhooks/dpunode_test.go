@@ -539,14 +539,11 @@ spec:
 			Expect(k8sClient.Create(ctx, obj2)).To(HaveOccurred())
 		})
 		It("update DPUNode without changing DPUs should succeed", func() {
-			// Create DPUNode with DPU
 			obj := createObj("obj-31")
 			obj.Spec.DPUs = []provisioningv1.DPURef{
 				{Name: "dpu-device-7"},
 			}
 			Expect(k8sClient.Create(ctx, obj)).NotTo(HaveOccurred())
-
-			// Update DPUNode without changing DPUs
 			obj.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
 				External: &provisioningv1.External{},
 			}
@@ -585,6 +582,484 @@ spec:
 			_, err := webhook.ValidateUpdate(ctx, &provisioningv1.DPU{}, &provisioningv1.DPUNode{}) // Wrong oldObj type
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("invalid old object type"))
+		})
+	})
+
+	// Tests for nodeRebootMethod validation with DPU status checks
+	Context("nodeRebootMethod validation with DPU status", func() {
+		ctx := context.Background()
+
+		It("should allow nodeRebootMethod update when all DPUs are Ready", func() {
+			// Create DPU object
+			dpuObj := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-device-ready-1",
+					Namespace: "default",
+					Labels: map[string]string{
+						"provisioning.dpu.nvidia.com/dpudevice-name": "dpu-device-ready-1",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName:   "node-ready-test",
+					DPUDeviceName: "dpu-device-ready-1",
+					BFB:           "test-bfb",
+					SerialNumber:  "MT_READY001",
+					DPUFlavor:     "test-flavor",
+				},
+			}
+			err := k8sClient.Create(ctx, dpuObj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Set DPU status to Ready
+			dpuObj.Status.Phase = provisioningv1.DPUReady
+			err = k8sClient.Status().Update(ctx, dpuObj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Create DPUNode with the DPU
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "node-ready-test",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUNodeSpec{
+					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+						HostAgent: &provisioningv1.HostAgent{},
+					},
+					DPUs: []provisioningv1.DPURef{
+						{Name: "dpu-device-ready-1"},
+					},
+				},
+			}
+			err = k8sClient.Create(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Update nodeRebootMethod - should succeed because DPU is Ready
+			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				External: &provisioningv1.External{},
+			}
+			err = k8sClient.Update(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should reject nodeRebootMethod update when DPU is not Ready", func() {
+			// Create DPU object
+			dpuObj := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-device-not-ready-1",
+					Namespace: "default",
+					Labels: map[string]string{
+						"provisioning.dpu.nvidia.com/dpudevice-name": "dpu-device-not-ready-1",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName:   "node-not-ready-test",
+					DPUDeviceName: "dpu-device-not-ready-1",
+					BFB:           "test-bfb",
+					SerialNumber:  "MT_NOTREADY001",
+					DPUFlavor:     "test-flavor",
+				},
+			}
+			err := k8sClient.Create(ctx, dpuObj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Set DPU status to Initializing (not Ready)
+			dpuObj.Status.Phase = provisioningv1.DPUInitializing
+			err = k8sClient.Status().Update(ctx, dpuObj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Create DPUNode with the DPU
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "node-not-ready-test",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUNodeSpec{
+					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+						HostAgent: &provisioningv1.HostAgent{},
+					},
+					DPUs: []provisioningv1.DPURef{
+						{Name: "dpu-device-not-ready-1"},
+					},
+				},
+			}
+			err = k8sClient.Create(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Update nodeRebootMethod - should fail because DPU is not Ready
+			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				External: &provisioningv1.External{},
+			}
+			err = k8sClient.Update(ctx, dpuNode)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+			Expect(err.Error()).To(ContainSubstring("Node Reboot Method is not allowed to be updated when DPU dpu-device-not-ready-1 is not ready"))
+		})
+
+		It("should reject nodeRebootMethod update when multiple DPUs are not Ready", func() {
+			// Create first DPU object
+			dpu1Obj := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-device-multi-1",
+					Namespace: "default",
+					Labels: map[string]string{
+						"provisioning.dpu.nvidia.com/dpudevice-name": "dpu-device-multi-1",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName:   "node-multi-test",
+					DPUDeviceName: "dpu-device-multi-1",
+					BFB:           "test-bfb",
+					SerialNumber:  "MT_MULTI001",
+					DPUFlavor:     "test-flavor",
+				},
+			}
+			err := k8sClient.Create(ctx, dpu1Obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Set first DPU status to OSInstalling (not Ready)
+			dpu1Obj.Status.Phase = provisioningv1.DPUOSInstalling
+			err = k8sClient.Status().Update(ctx, dpu1Obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Create second DPU object
+			dpu2Obj := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-device-multi-2",
+					Namespace: "default",
+					Labels: map[string]string{
+						"provisioning.dpu.nvidia.com/dpudevice-name": "dpu-device-multi-2",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName:   "node-multi-test",
+					DPUDeviceName: "dpu-device-multi-2",
+					BFB:           "test-bfb",
+					SerialNumber:  "MT_MULTI002",
+					DPUFlavor:     "test-flavor",
+				},
+			}
+			err = k8sClient.Create(ctx, dpu2Obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Set second DPU status to Error (not Ready)
+			dpu2Obj.Status.Phase = provisioningv1.DPUError
+			err = k8sClient.Status().Update(ctx, dpu2Obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Create DPUNode with multiple DPUs
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "node-multi-test",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUNodeSpec{
+					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+						HostAgent: &provisioningv1.HostAgent{},
+					},
+					DPUs: []provisioningv1.DPURef{
+						{Name: "dpu-device-multi-1"},
+						{Name: "dpu-device-multi-2"},
+					},
+				},
+			}
+			err = k8sClient.Create(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Update nodeRebootMethod - should fail because both DPUs are not Ready
+			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				External: &provisioningv1.External{},
+			}
+			err = k8sClient.Update(ctx, dpuNode)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+			Expect(err.Error()).To(ContainSubstring("Node Reboot Method is not allowed to be updated when DPU dpu-device-multi-1 is not ready"))
+			Expect(err.Error()).To(ContainSubstring("Node Reboot Method is not allowed to be updated when DPU dpu-device-multi-2 is not ready"))
+		})
+
+		It("should allow nodeRebootMethod update when some DPUs are Ready and some are not, but only if all are Ready", func() {
+			// Create first DPU object
+			dpu1Obj := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-device-mixed-1",
+					Namespace: "default",
+					Labels: map[string]string{
+						"provisioning.dpu.nvidia.com/dpudevice-name": "dpu-device-mixed-1",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName:   "node-mixed-test",
+					DPUDeviceName: "dpu-device-mixed-1",
+					BFB:           "test-bfb",
+					SerialNumber:  "MT_MIXED001",
+					DPUFlavor:     "test-flavor",
+				},
+			}
+			err := k8sClient.Create(ctx, dpu1Obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Set first DPU status to Ready
+			dpu1Obj.Status.Phase = provisioningv1.DPUReady
+			err = k8sClient.Status().Update(ctx, dpu1Obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Create second DPU object
+			dpu2Obj := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-device-mixed-2",
+					Namespace: "default",
+					Labels: map[string]string{
+						"provisioning.dpu.nvidia.com/dpudevice-name": "dpu-device-mixed-2",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName:   "node-mixed-test",
+					DPUDeviceName: "dpu-device-mixed-2",
+					BFB:           "test-bfb",
+					SerialNumber:  "MT_MIXED002",
+					DPUFlavor:     "test-flavor",
+				},
+			}
+			err = k8sClient.Create(ctx, dpu2Obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Set second DPU status to Pending (not Ready)
+			dpu2Obj.Status.Phase = provisioningv1.DPUPending
+			err = k8sClient.Status().Update(ctx, dpu2Obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Create DPUNode with mixed DPUs
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "node-mixed-test",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUNodeSpec{
+					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+						HostAgent: &provisioningv1.HostAgent{},
+					},
+					DPUs: []provisioningv1.DPURef{
+						{Name: "dpu-device-mixed-1"},
+						{Name: "dpu-device-mixed-2"},
+					},
+				},
+			}
+			err = k8sClient.Create(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Update nodeRebootMethod - should fail because one DPU is not Ready
+			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				External: &provisioningv1.External{},
+			}
+			err = k8sClient.Update(ctx, dpuNode)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+		})
+
+		It("should allow update when nodeRebootMethod is not changed, even if DPU is not Ready", func() {
+			// Create DPU object
+			dpuObj := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-device-unchanged-1",
+					Namespace: "default",
+					Labels: map[string]string{
+						"provisioning.dpu.nvidia.com/dpudevice-name": "dpu-device-unchanged-1",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName:   "node-unchanged-test",
+					DPUDeviceName: "dpu-device-unchanged-1",
+					BFB:           "test-bfb",
+					SerialNumber:  "MT_UNCHANGED001",
+					DPUFlavor:     "test-flavor",
+				},
+			}
+			err := k8sClient.Create(ctx, dpuObj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Set DPU status to Initializing (not Ready)
+			dpuObj.Status.Phase = provisioningv1.DPUInitializing
+			err = k8sClient.Status().Update(ctx, dpuObj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Create DPUNode with the DPU
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "node-unchanged-test",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUNodeSpec{
+					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+						HostAgent: &provisioningv1.HostAgent{},
+					},
+					DPUs: []provisioningv1.DPURef{
+						{Name: "dpu-device-unchanged-1"},
+					},
+				},
+			}
+			err = k8sClient.Create(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Update DPUNode without changing nodeRebootMethod - should succeed
+			// even though DPU is not Ready, because we don't check status
+			// when nodeRebootMethod hasn't changed
+			dpuNode.Spec.DPUs = []provisioningv1.DPURef{
+				{Name: "dpu-device-unchanged-1"},
+			}
+			err = k8sClient.Update(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should update NodeRebootMethod when DPU can not be found", func() {
+			// Create DPUNode with the DPU
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-not-found-test",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUNodeSpec{
+					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+						HostAgent: &provisioningv1.HostAgent{},
+					},
+					DPUs: []provisioningv1.DPURef{
+						{Name: "dpu-not-found-1"},
+					},
+				},
+			}
+			err := k8sClient.Create(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Update nodeRebootMethod - should succeed because DPU is Ready
+			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				External: &provisioningv1.External{},
+			}
+			err = k8sClient.Update(ctx, dpuNode)
+			Expect(err).To(Succeed())
+		})
+		It("should update NodeRebootMethod when part of DPUs can not be found", func() {
+			// Create DPU object
+			dpuObj := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "part-of-dpu-found-2",
+					Namespace: "default",
+					Labels: map[string]string{
+						"provisioning.dpu.nvidia.com/dpudevice-name": "part-of-dpu-found-2",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName:   "node-unchanged-test",
+					DPUDeviceName: "dpu-device-unchanged-1",
+					BFB:           "test-bfb",
+					SerialNumber:  "MT_UNCHANGED001",
+					DPUFlavor:     "test-flavor",
+				},
+			}
+			err := k8sClient.Create(ctx, dpuObj)
+			Expect(err).NotTo(HaveOccurred())
+			// Set DPU status to Initializing (Ready)
+			dpuObj.Status.Phase = provisioningv1.DPUReady
+			err = k8sClient.Status().Update(ctx, dpuObj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Create DPUNode with the DPU
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-not-found-test2",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUNodeSpec{
+					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+						HostAgent: &provisioningv1.HostAgent{},
+					},
+					DPUs: []provisioningv1.DPURef{
+						{Name: "part-of-dpu-not-found-1"},
+						{Name: "part-of-dpu-found-2"},
+					},
+				},
+			}
+			err = k8sClient.Create(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Update nodeRebootMethod - should succeed because DPU is Ready
+			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				External: &provisioningv1.External{},
+			}
+			err = k8sClient.Update(ctx, dpuNode)
+			Expect(err).To(Succeed())
+		})
+
+		It("should allow nodeRebootMethod update to nil", func() {
+			// Create DPU object
+			dpuObj := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "update-to-nil-device-1",
+					Namespace: "default",
+					Labels: map[string]string{
+						"provisioning.dpu.nvidia.com/dpudevice-name": "update-to-nil-device-1",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName:   "node-ready-test",
+					DPUDeviceName: "update-to-nil-device-1",
+					BFB:           "test-bfb",
+					SerialNumber:  "MT_READY001",
+					DPUFlavor:     "test-flavor",
+				},
+			}
+			err := k8sClient.Create(ctx, dpuObj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Set DPU status to Ready
+			dpuObj.Status.Phase = provisioningv1.DPUReady
+			err = k8sClient.Status().Update(ctx, dpuObj)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Create DPUNode with the DPU
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "node-update-to-nil-device-1",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUNodeSpec{
+					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+						HostAgent: &provisioningv1.HostAgent{},
+					},
+					DPUs: []provisioningv1.DPURef{
+						{Name: "update-to-nil-device-1"},
+					},
+				},
+			}
+			err = k8sClient.Create(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Update nodeRebootMethod - should succeed because DPU is Ready
+			dpuNode.Spec.NodeRebootMethod = nil
+
+			err = k8sClient.Update(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("skip nodeRebootMethod update when both old and new are nil", func() {
+			// Create DPUNode with the DPU
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "node-skip-update-device-1",
+					Namespace: "default",
+				},
+				Spec: provisioningv1.DPUNodeSpec{
+					NodeRebootMethod: nil,
+					DPUs: []provisioningv1.DPURef{
+						{Name: "skip-update-device-1"},
+					},
+				},
+			}
+			err := k8sClient.Create(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Update nodeRebootMethod - should succeed because DPU is Ready
+			dpuNode.Spec.NodeRebootMethod = nil
+
+			err = k8sClient.Update(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 })
