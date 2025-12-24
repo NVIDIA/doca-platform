@@ -33,4 +33,6 @@ const (
 	EventFailedDownloadBFBReason = "FailedDownload"
 	// EventSuccessfulDownloadBFBReason indicates that BFB is successfully downloaded.
 	EventSuccessfulDownloadBFBReason = "SuccessfulDownload"
+	// EventBFBFileNotFoundReason indicates that BFB file was not found in cache.
+	EventBFBFileNotFoundReason = "BFBFileNotFound"
 )

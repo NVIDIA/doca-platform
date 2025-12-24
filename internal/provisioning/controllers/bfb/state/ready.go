@@ -18,31 +18,44 @@ package state
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/events"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type bfbReadyState struct {
-	bfb *provisioningv1.BFB
+	bfb      *provisioningv1.BFB
+	recorder record.EventRecorder
 }
 
-func (st *bfbReadyState) Handle(context.Context, client.Client) (provisioningv1.BFBStatus, error) {
-	state := st.bfb.Status.DeepCopy()
+func (st *bfbReadyState) Handle(context.Context, client.Client) error {
 	if isDeleting(st.bfb) {
-		state.Phase = provisioningv1.BFBDeleting
-		return *state, nil
+		st.bfb.Status.Phase = provisioningv1.BFBDeleting
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondReady,
+			conditions.ReasonAwaitingDeletion, "BFB is being deleted")
+		return nil
 	}
 
 	if exist, err := checkingBFBFile(*st.bfb); !exist {
-		state.Phase = provisioningv1.BFBDownloading
-		return *state, err
+		st.bfb.Status.Phase = provisioningv1.BFBDownloading
+		msg := fmt.Sprintf("BFB file %s not found, triggering re-download", st.bfb.Status.FileName)
+		st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventBFBFileNotFoundReason, msg)
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondReady,
+			conditions.ReasonError,
+			conditions.ConditionMessage(fmt.Sprintf("BFB file %s not found", st.bfb.Status.FileName)))
+		return err
 	}
 
-	return *state, nil
+	conditions.AddTrue(st.bfb, provisioningv1.BFBCondReady)
+	return nil
 }
 
 // check whether BFB file exist

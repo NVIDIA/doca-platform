@@ -19,7 +19,6 @@ package bfb
 import (
 	"context"
 	"fmt"
-	"reflect"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/bfb/state"
@@ -84,23 +83,16 @@ func (r *BFBReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	}
 
 	currentState := state.GetBFBState(bfb, r.Recorder)
-	nextState, err := currentState.Handle(ctx, r.Client)
-	if err != nil {
+	if err := currentState.Handle(ctx, r.Client); err != nil {
 		logger.Error(err, "BFB state handle error", "phase", bfb.Status.Phase)
+		// Return error immediately to trigger exponential backoff
+		return ctrl.Result{}, err
 	}
 
-	if !reflect.DeepEqual(bfb.Status, nextState) {
-		logger.Info("Update BFB status", "current phase", bfb.Status.Phase, "next phase", nextState.Phase)
-		bfb.Status = nextState
-		// Patcher will handle the status update in deferred call
-		return ctrl.Result{}, nil
-	} else if nextState.Phase != provisioningv1.BFBError {
-		// requeue if bfb is not in error state
-		// TODO: move the state checking in state machine
-		logger.Info(fmt.Sprintf("Requeue in %s", cutil.RequeueInterval), "current phase", bfb.Status.Phase)
-		return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
-	}
-	return ctrl.Result{}, nil
+	// Status modified in-place by state handlers
+	// Always requeue to monitor state, even in Error phase to avoid getting stuck
+	logger.Info(fmt.Sprintf("Requeue in %s", cutil.RequeueInterval), "current phase", bfb.Status.Phase)
+	return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

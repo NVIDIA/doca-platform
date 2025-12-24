@@ -53,15 +53,26 @@ const (
 )
 
 const (
-	// BFBCondDeleting indicates the deletion status of the BFB
-	BFBCondDeleting conditions.ConditionType = "Deleting"
+	// BFBCondInitialized indicates the BFB has been initialized
+	BFBCondInitialized conditions.ConditionType = "Initialized"
+	// BFBCondDownloaded indicates the BFB has been downloaded
+	BFBCondDownloaded conditions.ConditionType = "Downloaded"
+	// BFBCondReady indicates the BFB is ready for use
+	BFBCondReady conditions.ConditionType = conditions.TypeReady
+	// BFBCondError indicates the BFB is in error state
+	BFBCondError conditions.ConditionType = "Error"
+	// BFBCondDeleted indicates the BFB has been deleted
+	BFBCondDeleted conditions.ConditionType = "Deleted"
 )
 
 var (
 	// BFBConditions are conditions that can be set on a BFB object.
 	BFBConditions = []conditions.ConditionType{
-		conditions.TypeReady,
-		BFBCondDeleting,
+		BFBCondInitialized,
+		BFBCondDownloaded,
+		BFBCondReady,
+		BFBCondError,
+		BFBCondDeleted,
 	}
 )
 
