@@ -21,6 +21,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/bfb/util"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -29,18 +30,21 @@ type bfbInitializingState struct {
 	bfb *provisioningv1.BFB
 }
 
-func (st *bfbInitializingState) Handle(context.Context, client.Client) (provisioningv1.BFBStatus, error) {
-	state := st.bfb.Status.DeepCopy()
+func (st *bfbInitializingState) Handle(context.Context, client.Client) error {
 	if isDeleting(st.bfb) {
-		state.Phase = provisioningv1.BFBDeleting
-		return *state, nil
+		st.bfb.Status.Phase = provisioningv1.BFBDeleting
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondInitialized,
+			conditions.ReasonAwaitingDeletion, "BFB is being deleted")
+		return nil
 	}
 
 	if st.bfb.Spec.FileName != nil {
-		state.FileName = *st.bfb.Spec.FileName
+		st.bfb.Status.FileName = *st.bfb.Spec.FileName
 	} else {
-		state.FileName = util.DefaultBFBFilename(st.bfb)
+		st.bfb.Status.FileName = util.DefaultBFBFilename(st.bfb)
 	}
-	state.Phase = provisioningv1.BFBDownloading
-	return *state, nil
+
+	conditions.AddTrue(st.bfb, provisioningv1.BFBCondInitialized)
+	st.bfb.Status.Phase = provisioningv1.BFBDownloading
+	return nil
 }

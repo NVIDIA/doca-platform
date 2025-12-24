@@ -24,6 +24,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/events"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
@@ -36,15 +37,15 @@ type bfbDeletingState struct {
 	recorder record.EventRecorder
 }
 
-func (st *bfbDeletingState) Handle(ctx context.Context, client client.Client) (provisioningv1.BFBStatus, error) {
-	state := st.bfb.Status.DeepCopy()
-
+func (st *bfbDeletingState) Handle(ctx context.Context, client client.Client) error {
 	bfbFile := cutil.GenerateBFBFilePath(st.bfb.Status.FileName)
 	err := os.Remove(bfbFile)
 	if err != nil && !os.IsNotExist(err) {
 		msg := fmt.Sprintf("Deleting BFB: (%s/%s) failed", st.bfb.Namespace, st.bfb.Name)
 		st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventFailedDeleteBFBReason, msg)
-		return *state, err
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDeleted,
+			conditions.ReasonError, conditions.ConditionMessage(err.Error()))
+		return err
 	}
 
 	tempFileName := cutil.GenerateBFBTMPFilePath(string(st.bfb.UID))
@@ -52,13 +53,18 @@ func (st *bfbDeletingState) Handle(ctx context.Context, client client.Client) (p
 	if err != nil && !os.IsNotExist(err) {
 		msg := fmt.Sprintf("Deleting BFB temp file: (%s/%s) failed", st.bfb.Namespace, st.bfb.Name)
 		st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventFailedDeleteBFBReason, msg)
-		return *state, err
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDeleted,
+			conditions.ReasonError, conditions.ConditionMessage(err.Error()))
+		return err
 	}
+
+	// Set success condition before removing finalizer
+	conditions.AddTrue(st.bfb, provisioningv1.BFBCondDeleted)
 
 	controllerutil.RemoveFinalizer(st.bfb, provisioningv1.BFBFinalizer)
 	if err := client.Update(ctx, st.bfb); err != nil {
-		return *state, err
+		return err
 	}
 
-	return *state, nil
+	return nil
 }

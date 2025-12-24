@@ -20,6 +20,7 @@ import (
 	"context"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -28,11 +29,13 @@ type bfbErrorState struct {
 	bfb *provisioningv1.BFB
 }
 
-func (st *bfbErrorState) Handle(context.Context, client.Client) (provisioningv1.BFBStatus, error) {
-	state := st.bfb.Status.DeepCopy()
+func (st *bfbErrorState) Handle(context.Context, client.Client) error {
 	if isDeleting(st.bfb) {
-		state.Phase = provisioningv1.BFBDeleting
-		return *state, nil
+		st.bfb.Status.Phase = provisioningv1.BFBDeleting
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondError,
+			conditions.ReasonAwaitingDeletion, "BFB is being deleted")
+		return nil
 	}
-	return *state, nil
+	conditions.AddTrue(st.bfb, provisioningv1.BFBCondError)
+	return nil
 }

@@ -26,7 +26,7 @@ import (
 )
 
 type State interface {
-	Handle(ctx context.Context, client client.Client) (provisioningv1.BFBStatus, error)
+	Handle(ctx context.Context, client client.Client) error
 }
 
 func GetBFBState(bfb *provisioningv1.BFB, recorder record.EventRecorder) State {
@@ -43,6 +43,7 @@ func GetBFBState(bfb *provisioningv1.BFB, recorder record.EventRecorder) State {
 	case provisioningv1.BFBReady:
 		return &bfbReadyState{
 			bfb,
+			recorder,
 		}
 	case provisioningv1.BFBDeleting:
 		return &bfbDeletingState{
