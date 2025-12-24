@@ -1312,6 +1312,7 @@ _Appears in:_
 | `pciAddress` _string_ | PCIAddress is the PCI address of the device in the host system.<br />Example: "0000-03-00", "03-00" |  |  |
 | `pf0Name` _string_ | PF0Name is the name of the PF0 on the device.<br />Example: "eth0" |  |  |
 | `pf0Mac` _string_ | PF0MAC is the MAC address of the PF0 on the device.<br />Example: "00:00:00:00:00:00" |  | Pattern: `^([0-9A-Fa-f]\{2\}[:-])\{5\}([0-9A-Fa-f]\{2\})$` <br /> |
+| `dpuMode` _[DpuModeType](#dpumodetype)_ | DPUMode is the mode of the DPU. | dpu | Enum: [dpu nic] <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  |  |
 
 
@@ -1513,7 +1514,7 @@ _Appears in:_
 | `containerdConfig` _[ContainerdConfig](#containerdconfig)_ | ContainerdConfig contains the configuration for containerd. |  |  |
 | `dpuResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | DPUResources indicates the minimum amount of resources needed for a BFB with that flavor to be installed on a<br />DPU. Using this field, the controller can understand if that flavor can be installed on a particular DPU. It<br />should be set to the total amount of resources the system needs + the resources that should be made available for<br />DPUServices to consume. |  |  |
 | `systemReservedResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are<br />not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and<br />SystemReservedResources. This field must not be specified if dpuResources are not specified. |  |  |
-| `dpuMode` _[DpuModeType](#dpumodetype)_ | Specifies the DPU Mode type: one of dpu,zero-trust | dpu | Enum: [dpu zero-trust] <br /> |
+| `dpuMode` _[DpuModeType](#dpumodetype)_ | Specifies the DPU Mode type: one of dpu,zero-trust | dpu | Enum: [dpu zero-trust nic] <br /> |
 | `hostNetworkInterfaceConfigs` _[NetworkInterfaceConfig](#networkinterfaceconfig) array_ | HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces. |  |  |
 
 
@@ -1883,6 +1884,7 @@ _Appears in:_
 | `dpuInstallInterface` _string_ | the name of the interface which will be used to install the bfb image,<br />and communicate with DPU, can be one of hostAgent,redfish |  | Enum: [gNOI hostAgent redfish] <br /> |
 | `postProvisioningNodeEffect` _boolean_ | Indicates that node effect was triggered by post-provisioning label changes |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `dpuMode` _[DpuModeType](#dpumodetype)_ | The mode of the DPU | dpu | Enum: [dpu nic] <br /> |
 
 
 #### DPUTemplate
@@ -1928,15 +1930,18 @@ _Underlying type:_ _string_
 DpuModeType defines the mode of the DPU
 
 _Validation:_
-- Enum: [dpu zero-trust]
+- Enum: [dpu zero-trust nic]
 
 _Appears in:_
+- [DPUDeviceStatus](#dpudevicestatus)
 - [DPUFlavorSpec](#dpuflavorspec)
+- [DPUStatus](#dpustatus)
 
 | Field | Description |
 | --- | --- |
 | `dpu` |  |
 | `zero-trust` |  |
+| `nic` |  |
 
 
 #### External

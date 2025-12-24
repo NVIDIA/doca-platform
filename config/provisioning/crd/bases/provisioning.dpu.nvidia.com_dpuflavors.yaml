@@ -83,6 +83,7 @@ spec:
                 enum:
                 - dpu
                 - zero-trust
+                - nic
                 type: string
               dpuResources:
                 additionalProperties:

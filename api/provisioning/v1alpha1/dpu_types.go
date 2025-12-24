@@ -86,6 +86,7 @@ const (
 	DPUCondBFBTransferred        DPUConditionType = "BFBTransferred"
 	DPUCondOSInstalled           DPUConditionType = "OSInstalled"
 	DPUCondCheckedHostRebootNeed DPUConditionType = "CheckedHostRebootNeed"
+	DPUConditionHostPowerCycle   DPUConditionType = "HostPowerCycle"
 	DPUCondRebooted              DPUConditionType = "Rebooted"
 	DPUCondHostNetworkReady      DPUConditionType = "HostNetworkReady"
 	DPUCondDPUClusterReady       DPUConditionType = "DPUClusterReady"
@@ -247,6 +248,12 @@ type DPUStatus struct {
 
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// The mode of the DPU
+	// +kubebuilder:validation:Enum=dpu;nic
+	// +kubebuilder:default=dpu
+	// +optional
+	DPUMode DpuModeType `json:"dpuMode,omitempty"`
 }
 
 type Firmware struct {

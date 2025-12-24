@@ -317,6 +317,18 @@ spec:
                 - hostAgent
                 - redfish
                 type: string
+              dpuMode:
+                allOf:
+                - enum:
+                  - dpu
+                  - zero-trust
+                  - nic
+                - enum:
+                  - dpu
+                  - nic
+                default: dpu
+                description: The mode of the DPU
+                type: string
               firmware:
                 description: the firmware information of DPU
                 properties:

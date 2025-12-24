@@ -202,6 +202,18 @@ spec:
                   - type
                   type: object
                 type: array
+              dpuMode:
+                allOf:
+                - enum:
+                  - dpu
+                  - zero-trust
+                  - nic
+                - enum:
+                  - dpu
+                  - nic
+                default: dpu
+                description: DPUMode is the mode of the DPU.
+                type: string
               opn:
                 description: |-
                   OPN is the Ordering Part Number of the device.

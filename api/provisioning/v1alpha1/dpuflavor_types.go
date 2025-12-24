@@ -109,12 +109,13 @@ type DPUFlavorOVS struct {
 }
 
 // DpuModeType defines the mode of the DPU
-// +kubebuilder:validation:Enum=dpu;zero-trust
+// +kubebuilder:validation:Enum=dpu;zero-trust;nic
 type DpuModeType string
 
 const (
 	DpuMode       DpuModeType = "dpu"
 	ZeroTrustMode DpuModeType = "zero-trust"
+	NicMode       DpuModeType = "nic"
 )
 
 // DPUFlavorFileOp defines the operation to be performed on the file
