@@ -479,4 +479,151 @@ var _ = Describe("BFB", func() {
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 	})
+
+	Context("Deletion with References", func() {
+		It("BFB: should block deletion when DPUSet references it", func() {
+			fileName := fmt.Sprintf("%s%s.bfb", DefaultBFBFileNamePrefix, utilrand.String(5))
+			obj := createObj("bfb-dpuset-ref")
+			obj.Spec.URL = bfbServerURL + BFB512KBPath
+			obj.Spec.FileName = ptr.To(fileName)
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+			DeferCleanup(func() {
+				bfbFile := cutil.GenerateBFBFilePath(fileName)
+				_ = os.Remove(bfbFile)
+			})
+
+			objFetched := &provisioningv1.BFB{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BFBReady))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("creating DPUSet that references BFB")
+			dpuSet := &provisioningv1.DPUSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpuset-" + utilrand.String(5),
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUSetSpec{
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							BFB:       provisioningv1.BFBReference{Name: obj.Name},
+							DPUFlavor: "dummy-flavor",
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, dpuSet)).To(Succeed())
+
+			By("verifying BFB deletion is blocked")
+			Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				cond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondDeleted))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal(string(conditions.ReasonPending)))
+				g.Expect(cond.Message).To(ContainSubstring(dpuSet.Name))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("deleting DPUSet and waiting for it to be gone")
+			Expect(k8sClient.Delete(ctx, dpuSet)).To(Succeed())
+			Eventually(func() bool {
+				return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      dpuSet.Name,
+					Namespace: dpuSet.Namespace,
+				}, &provisioningv1.DPUSet{}))
+			}).WithTimeout(30*time.Second).Should(BeTrue(), "DPUSet should be deleted")
+
+			By("verifying BFB is deleted after DPUSet is removed")
+			Eventually(func() bool {
+				return apierrors.IsNotFound(k8sClient.Get(ctx, getObjKey(obj), objFetched))
+			}).WithTimeout(60*time.Second).WithPolling(1*time.Second).Should(BeTrue(), "BFB should be deleted after DPUSet is removed")
+		})
+
+		It("BFB: should block deletion when DPU references it", func() {
+			fileName := fmt.Sprintf("%s%s.bfb", DefaultBFBFileNamePrefix, utilrand.String(5))
+			obj := createObj("bfb-dpu-ref")
+			obj.Spec.URL = bfbServerURL + BFB512KBPath
+			obj.Spec.FileName = ptr.To(fileName)
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+			DeferCleanup(func() {
+				bfbFile := cutil.GenerateBFBFilePath(fileName)
+				_ = os.Remove(bfbFile)
+			})
+
+			objFetched := &provisioningv1.BFB{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BFBReady))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("creating DPU in different namespace (should NOT block deletion)")
+			otherNS := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "other-" + utilrand.String(5),
+				},
+			}
+			Expect(k8sClient.Create(ctx, otherNS)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(k8sClient.Delete(ctx, otherNS)).To(Succeed())
+			})
+
+			otherDPU := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "other-dpu-" + utilrand.String(5),
+					Namespace: otherNS.Name,
+				},
+				Spec: provisioningv1.DPUSpec{
+					BFB:           obj.Name, // Same BFB name, different namespace
+					DPUFlavor:     "dummy-flavor",
+					SerialNumber:  "SN-" + utilrand.String(5),
+					DPUDeviceName: "device-" + utilrand.String(5),
+					DPUNodeName:   "node-" + utilrand.String(5),
+				},
+			}
+			Expect(k8sClient.Create(ctx, otherDPU)).To(Succeed())
+
+			By("creating DPU in same namespace that references BFB")
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpu-" + utilrand.String(5),
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUSpec{
+					BFB:           obj.Name,
+					DPUFlavor:     "dummy-flavor",
+					SerialNumber:  "SN-" + utilrand.String(5),
+					DPUDeviceName: "device-" + utilrand.String(5),
+					DPUNodeName:   "node-" + utilrand.String(5),
+				},
+			}
+			Expect(k8sClient.Create(ctx, dpu)).To(Succeed())
+
+			By("verifying BFB deletion is blocked by same-namespace DPU")
+			Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				cond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondDeleted))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal(string(conditions.ReasonPending)))
+				g.Expect(cond.Message).To(ContainSubstring(dpu.Name))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("deleting same-namespace DPU and waiting for it to be gone")
+			Expect(k8sClient.Delete(ctx, dpu)).To(Succeed())
+			Eventually(func() bool {
+				return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      dpu.Name,
+					Namespace: dpu.Namespace,
+				}, &provisioningv1.DPU{}))
+			}).WithTimeout(30*time.Second).Should(BeTrue(), "DPU should be deleted")
+
+			By("verifying BFB is deleted despite DPU in different namespace")
+			Eventually(func() bool {
+				return apierrors.IsNotFound(k8sClient.Get(ctx, getObjKey(obj), objFetched))
+			}).WithTimeout(60*time.Second).WithPolling(1*time.Second).Should(BeTrue(), "BFB should be deleted (other namespace DPU should not block)")
+		})
+	})
 })

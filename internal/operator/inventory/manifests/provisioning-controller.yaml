@@ -688,7 +688,6 @@ webhooks:
     operations:
     - CREATE
     - UPDATE
-    - DELETE
     resources:
     - bfbs
   sideEffects: None
