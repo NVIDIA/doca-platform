@@ -21,6 +21,8 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	dpucluster "github.com/nvidia/doca-platform/pkg/dpucluster"
+	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -33,17 +35,96 @@ import (
 
 var _ = Describe("DPU: Node Effect Removal", func() {
 	var (
-		defaultDPUName  = "dpu-node-effect-removal-test"
-		defaultNodeName = "node-node-effect-removal-test"
+		defaultDPUName        = "dpu-node-effect-removal-test"
+		defaultNodeName       = "node-node-effect-removal-test"
+		defaultDPUNodeName    = "dpu-node-node-effect-removal-test"
+		defaultDPUDeviceName  = "dpu-device-node-effect-removal-test"
+		defaultDPUClusterName = "dpu-cluster-node-effect-removal-test"
+		strTrue               = "true"
+
+		// Common objects created in BeforeEach
+		dpuDevice        *provisioningv1.DPUDevice
+		dpuNode          *provisioningv1.DPUNode
+		dpuCluster       *provisioningv1.DPUCluster
+		dpuClusterClient client.Client
 	)
+
+	BeforeEach(func() {
+		By("prepare DPUDevice CR")
+		dpuDevice = dpuDeviceObj(defaultDPUDeviceName)
+		createObject(dpuDevice)
+
+		By("prepare DPUNode CR")
+		dpuNode = dpuNodeObj(defaultDPUNodeName)
+		dpuNode.Finalizers = []string{provisioningv1.DPUNodeFinalizer}
+		dpuNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = strTrue
+		dpuNode.Spec.DPUs = []provisioningv1.DPURef{
+			{
+				Name: dpuDevice.Name,
+			},
+		}
+		createObject(dpuNode)
+		patch := client.MergeFrom(dpuNode.DeepCopy())
+		dpuNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaGNOI))
+		Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
+		By("prepare the DPUCluster")
+		dpuCluster = dpuClusterObj(defaultDPUClusterName, "kamaji")
+		kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(*dpuCluster, cfg)
+		Expect(err).ToNot(HaveOccurred())
+		createObject(kamajiSecret)
+		createObject(dpuCluster)
+		dpuClusterClient, err = dpucluster.NewConfig(k8sClient, dpuCluster).Client(ctx)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	// Helper function to create a basic DPU with common configuration
+	createBasicDPU := func(nodeLabels map[string]string, nodeEffect *provisioningv1.NodeEffect) *provisioningv1.DPU {
+		dpu := dpuObj(defaultDPUName)
+		dpu.Name = defaultDPUName
+		dpu.Spec.PCIAddress = ptr.To("0000-00-00")
+		dpu.Spec.DPUNodeName = dpuNode.Name
+		dpu.Spec.DPUDeviceName = dpuDevice.Name
+		dpu.Spec.Cluster.Namespace = dpuCluster.Namespace
+		dpu.Spec.Cluster.Name = dpuCluster.Name
+		dpu.Spec.Cluster.NodeLabels = nodeLabels
+		dpu.Spec.NodeEffect = nodeEffect
+		dpu.Status.Phase = provisioningv1.DPUNodeEffectRemoval
+		dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaGNOI))
+		return dpu
+	}
+
+	// Helper function to create a node in the DPUCluster
+	createNodeInDPUCluster := func(dpu *provisioningv1.DPU, annotations map[string]string, addresses []corev1.NodeAddress) *corev1.Node {
+		nodeInDPUCluster := &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        dpu.Name,
+				Annotations: annotations,
+			},
+			Status: corev1.NodeStatus{
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
+				Addresses: addresses,
+			},
+		}
+		Expect(dpuClusterClient.Create(ctx, nodeInDPUCluster)).To(Succeed())
+		DeferCleanup(testutils.CleanupAndWait, ctx, dpuClusterClient, nodeInDPUCluster)
+		return nodeInDPUCluster
+	}
 
 	Context("NodeEffectRemoval", func() {
 		It("should transition to DPUReady when NoEffect is set", func() {
-			dpu := dpuObj(defaultDPUName)
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Action: provisioningv1.Action{NoEffect: ptr.To(true)},
-			}
-			dpu.Status.Phase = provisioningv1.DPUNodeEffectRemoval
+			dpu := createBasicDPU(
+				nil,
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+			)
+
+			By("creating a Node in the DPUCluster")
+			createNodeInDPUCluster(dpu, nil, nil)
 
 			status, err := state.NodeEffectRemoval(ctx, dpu,
 				&dutil.ControllerContext{
@@ -61,14 +142,17 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		})
 
 		It("should transition to DPUDeleting when DeletionTimestamp is set", func() {
-			dpu := dpuObj(defaultDPUName)
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Action: provisioningv1.Action{Drain: ptr.To(true)},
-			}
-			dpu.Status.Phase = provisioningv1.DPUNodeEffectRemoval
+			dpu := createBasicDPU(
+				nil,
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+			)
+
 			// Simulate deletion by setting a non-zero deletion timestamp
 			now := metav1.Now()
 			dpu.DeletionTimestamp = &now
+
+			By("creating a Node in the DPUCluster")
+			createNodeInDPUCluster(dpu, nil, nil)
 
 			status, err := state.NodeEffectRemoval(ctx, dpu,
 				&dutil.ControllerContext{
@@ -80,21 +164,13 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		})
 
 		It("should transition to DPUReady when DPUNodeMaintenance does not exist", func() {
-			node := nodeObj(defaultNodeName)
-			createObject(node)
+			dpu := createBasicDPU(
+				nil,
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+			)
 
-			dpuNode := dpuNodeObj(node.Name)
-			createObject(dpuNode)
-			patch := client.MergeFrom(dpuNode.DeepCopy())
-			dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
-			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
-
-			dpu := dpuObj(defaultDPUName)
-			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Action: provisioningv1.Action{Drain: ptr.To(true)},
-			}
-			dpu.Status.Phase = provisioningv1.DPUNodeEffectRemoval
+			By("creating a Node in the DPUCluster")
+			createNodeInDPUCluster(dpu, nil, nil)
 
 			status, err := state.NodeEffectRemoval(ctx, dpu,
 				&dutil.ControllerContext{
@@ -112,25 +188,13 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		})
 
 		It("should remove requestor from DPUNodeMaintenance and wait for deletion", func() {
-			node := nodeObj(defaultNodeName)
-			createObject(node)
+			dpu := createBasicDPU(
+				nil,
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+			)
 
-			dpuNode := dpuNodeObj(node.Name)
-			createObject(dpuNode)
-			patch := client.MergeFrom(dpuNode.DeepCopy())
-			dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
-			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
-
-			dpu := dpuObj(defaultDPUName)
-			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
-			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Action: provisioningv1.Action{Drain: ptr.To(true)},
-			}
-			createObject(dpu)
-			patch = client.MergeFrom(dpu.DeepCopy())
-			dpu.Status.Phase = provisioningv1.DPUNodeEffectRemoval
-			Expect(k8sClient.Status().Patch(ctx, dpu, patch)).To(Succeed())
+			By("creating a Node in the DPUCluster")
+			createNodeInDPUCluster(dpu, nil, nil)
 
 			// Create DPUNodeMaintenance with the DPU as a requestor
 			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
@@ -176,27 +240,13 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		})
 
 		It("should transition to Ready when DPUNodeMaintenance is deleted after removing last requestor", func() {
-			node := nodeObj(defaultNodeName)
-			createObject(node)
+			dpu := createBasicDPU(
+				nil,
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{CustomLabel: map[string]string{"test-label": "test-value"}}},
+			)
 
-			dpuNode := dpuNodeObj(node.Name)
-			createObject(dpuNode)
-			patch := client.MergeFrom(dpuNode.DeepCopy())
-			dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
-			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
-
-			dpu := dpuObj(defaultDPUName)
-			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
-			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
-				Action: provisioningv1.Action{
-					CustomLabel: map[string]string{"test-label": "test-value"},
-				},
-			}
-			createObject(dpu)
-			patch = client.MergeFrom(dpu.DeepCopy())
-			dpu.Status.Phase = provisioningv1.DPUNodeEffectRemoval
-			Expect(k8sClient.Status().Patch(ctx, dpu, patch)).To(Succeed())
+			By("creating a Node in the DPUCluster")
+			createNodeInDPUCluster(dpu, nil, nil)
 
 			// Create DPUNodeMaintenance with only the DPU as a requestor
 			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
@@ -437,6 +487,34 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 				Name:      dpunodemaintenanceName,
 			}, updatedMaintenance)).To(Succeed())
 			Expect(updatedMaintenance.Spec.Requestor).To(BeEmpty())
+		})
+	})
+
+	Context("Label Change Scenarios", func() {
+		It("DPU: Ready: should handle nil ApplyOnLabelChange gracefully", func() {
+			dpu := createBasicDPU(
+				map[string]string{"new": "label"},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+			)
+
+			By("creating a Node in the DPUCluster")
+			createNodeInDPUCluster(dpu,
+				map[string]string{cutil.LastAppliedLabelsOnDPUKey: `{"old":"label"}`},
+				nil,
+			)
+
+			runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
+				status, err := state.NodeEffectRemoval(ctx, dpu,
+					&dutil.ControllerContext{
+						Client: k8sClient,
+						Options: dutil.DPUOptions{
+							DPUInstallInterface: string(installInterface),
+						},
+					},
+				)
+				Expect(err).To(Succeed())
+				Expect(status.Phase).To(Equal(provisioningv1.DPUClusterConfig))
+			})
 		})
 	})
 })
