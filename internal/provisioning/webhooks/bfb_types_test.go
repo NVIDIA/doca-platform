@@ -295,75 +295,15 @@ var _ = Describe("BFB", func() {
 			err = k8sClient.Delete(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 		})
-
-		It("should block deletion of BFB referenced by a DPU", func() {
-			bfbName := "bfb-referenced-by-dpu"
-			obj := createObj(bfbName)
-			obj.Spec.URL = DefaultURL
-			err := k8sClient.Create(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(k8sClient.Delete, ctx, obj)
-
-			dpu := &provisioningv1.DPU{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "dpu-1",
-					Namespace: "default",
-				},
-				Spec: provisioningv1.DPUSpec{
-					BFB:           bfbName,
-					DPUFlavor:     "dummy-flavor",
-					DPUDeviceName: "dpudevice-1",
-					SerialNumber:  "test-serial-123",
-				},
-			}
-			err = k8sClient.Create(ctx, dpu)
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(k8sClient.Delete, ctx, dpu)
-
-			err = k8sClient.Delete(ctx, obj)
-			Expect(apierrors.IsInvalid(err) || apierrors.IsForbidden(err)).To(BeTrue())
-		})
-
-		It("should block deletion of BFB referenced by a DPUSet", func() {
-			bfbName := "bfb-referenced-by-dpuset"
-			obj := createObj(bfbName)
-			obj.Spec.URL = DefaultURL
-			err := k8sClient.Create(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(k8sClient.Delete, ctx, obj)
-
-			dpuSet := &provisioningv1.DPUSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "dpuset-1",
-					Namespace: "default",
-				},
-				Spec: provisioningv1.DPUSetSpec{
-					DPUTemplate: provisioningv1.DPUTemplate{
-						Spec: provisioningv1.DPUTemplateSpec{
-							BFB: provisioningv1.BFBReference{
-								Name: bfbName,
-							},
-							DPUFlavor: "dummy-flavor",
-						},
-					},
-				},
-			}
-			err = k8sClient.Create(ctx, dpuSet)
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(k8sClient.Delete, ctx, dpuSet)
-
-			err = k8sClient.Delete(ctx, obj)
-			Expect(apierrors.IsInvalid(err) || apierrors.IsForbidden(err)).To(BeTrue())
-		})
 	})
 
 	// Unit tests - direct webhook method calls
 	Context("webhook unit tests", func() {
 		ctx := context.Background()
 
-		It("ValidateDelete should return nil when no DPUSet references BFB", func() {
+		It("ValidateDelete should return nil (deletion validation moved to controller)", func() {
 			webhook := &BFB{}
-			warnings, err := webhook.ValidateDelete(ctx, &provisioningv1.BFB{ObjectMeta: metav1.ObjectMeta{Name: "non-existent-bfb", Namespace: "default"}})
+			warnings, err := webhook.ValidateDelete(ctx, &provisioningv1.BFB{ObjectMeta: metav1.ObjectMeta{Name: "test-bfb", Namespace: "default"}})
 			Expect(warnings).To(BeNil())
 			Expect(err).ToNot(HaveOccurred())
 		})
@@ -381,13 +321,6 @@ var _ = Describe("BFB", func() {
 			_, err := webhook.ValidateUpdate(ctx, &provisioningv1.BFB{}, &provisioningv1.DPU{}) // Wrong newObj type
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("invalid new object type"))
-		})
-
-		It("ValidateDelete should return error for invalid object type", func() {
-			webhook := &BFB{}
-			_, err := webhook.ValidateDelete(ctx, &provisioningv1.DPU{}) // Wrong type
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("invalid object type"))
 		})
 	})
 })
