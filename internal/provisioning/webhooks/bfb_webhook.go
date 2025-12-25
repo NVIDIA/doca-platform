@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-// +kubebuilder:webhook:path=/validate-provisioning-dpu-nvidia-com-v1alpha1-bfb,mutating=false,failurePolicy=fail,sideEffects=None,groups=provisioning.dpu.nvidia.com,resources=bfbs,verbs=create;update;delete,versions=v1alpha1,name=vbfb.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-provisioning-dpu-nvidia-com-v1alpha1-bfb,mutating=false,failurePolicy=fail,sideEffects=None,groups=provisioning.dpu.nvidia.com,resources=bfbs,verbs=create;update,versions=v1alpha1,name=vbfb.kb.io,admissionReviewVersions=v1
 
 // BFB implements a webhook for the BFB object.
 type BFB struct{}
@@ -100,39 +100,7 @@ func (r *BFB) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object)
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (r *BFB) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	bfb, ok := obj.(*provisioningv1.BFB)
-	if !ok {
-		return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("invalid object type expected BFB got %s", obj.GetObjectKind().GroupVersionKind().String()))
-	}
-
-	bfblog.V(4).Info("validate delete", "name", bfb.Name)
-
-	dpusetList := &provisioningv1.DPUSetList{}
-	if err := bfbMgr.GetClient().List(context.TODO(), dpusetList); err != nil {
-		return nil, fmt.Errorf("list DPUSets failed, err: %v", err)
-	}
-	var ref []string
-	for _, ds := range dpusetList.Items {
-		if ds.Spec.DPUTemplate.Spec.BFB.Name == bfb.Name {
-			ref = append(ref, ds.Name)
-		}
-	}
-	if len(ref) > 0 {
-		return nil, fmt.Errorf("being referred to by DPUSet(s) %s, you must delete the DPUSet(s) first", ref)
-	}
-
-	dpuList := &provisioningv1.DPUList{}
-	if err := bfbMgr.GetClient().List(context.TODO(), dpuList); err != nil {
-		return nil, fmt.Errorf("list DPUs failed, err: %v", err)
-	}
-	for _, dpu := range dpuList.Items {
-		if dpu.Spec.BFB == bfb.Name {
-			ref = append(ref, dpu.Name)
-		}
-	}
-	if len(ref) > 0 {
-		return nil, fmt.Errorf("being referred to by DPU(s) %s, you must delete the DPU(s) first", ref)
-	}
+	// Deletion validation moved to controller for better observability via conditions
 	return nil, nil
 }
 

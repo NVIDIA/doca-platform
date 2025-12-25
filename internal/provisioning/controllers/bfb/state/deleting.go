@@ -28,7 +28,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -37,7 +37,49 @@ type bfbDeletingState struct {
 	recorder record.EventRecorder
 }
 
-func (st *bfbDeletingState) Handle(ctx context.Context, client client.Client) error {
+func (st *bfbDeletingState) Handle(ctx context.Context, client ctrlclient.Client) error {
+
+	// Check for DPUSet references (scoped to same namespace)
+	dpusetList := &provisioningv1.DPUSetList{}
+	if err := client.List(ctx, dpusetList, ctrlclient.InNamespace(st.bfb.Namespace)); err != nil {
+		err = fmt.Errorf("failed to list DPUSets for reference checking: %w", err)
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDeleted,
+			conditions.ReasonError, conditions.ConditionMessage(err.Error()))
+		return err
+	}
+
+	// Early exit: check if any DPUSet references this BFB
+	for _, ds := range dpusetList.Items {
+		if ds.Spec.DPUTemplate.Spec.BFB.Name == st.bfb.Name {
+			err := fmt.Errorf("BFB %s/%s cannot be deleted, still referenced by DPUSet: %s",
+				st.bfb.Namespace, st.bfb.Name, ds.Name)
+			conditions.AddFalse(st.bfb, provisioningv1.BFBCondDeleted,
+				conditions.ReasonPending, conditions.ConditionMessage(err.Error()))
+			return err
+		}
+	}
+
+	// Check for DPU references (scoped to same namespace)
+	dpuList := &provisioningv1.DPUList{}
+	if err := client.List(ctx, dpuList, ctrlclient.InNamespace(st.bfb.Namespace)); err != nil {
+		err = fmt.Errorf("failed to list DPUs for reference checking: %w", err)
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDeleted,
+			conditions.ReasonError, conditions.ConditionMessage(err.Error()))
+		return err
+	}
+
+	// Early exit: check if any DPU references this BFB
+	for _, dpu := range dpuList.Items {
+		if dpu.Spec.BFB == st.bfb.Name {
+			err := fmt.Errorf("BFB %s/%s cannot be deleted, still referenced by DPU: %s",
+				st.bfb.Namespace, st.bfb.Name, dpu.Name)
+			conditions.AddFalse(st.bfb, provisioningv1.BFBCondDeleted,
+				conditions.ReasonPending, conditions.ConditionMessage(err.Error()))
+			return err
+		}
+	}
+
+	// No references found, proceed with deletion
 	bfbFile := cutil.GenerateBFBFilePath(st.bfb.Status.FileName)
 	err := os.Remove(bfbFile)
 	if err != nil && !os.IsNotExist(err) {
@@ -61,10 +103,8 @@ func (st *bfbDeletingState) Handle(ctx context.Context, client client.Client) er
 	// Set success condition before removing finalizer
 	conditions.AddTrue(st.bfb, provisioningv1.BFBCondDeleted)
 
+	// Remove finalizer - patcher will handle the update
 	controllerutil.RemoveFinalizer(st.bfb, provisioningv1.BFBFinalizer)
-	if err := client.Update(ctx, st.bfb); err != nil {
-		return err
-	}
 
 	return nil
 }
