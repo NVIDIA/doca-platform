@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -677,4 +678,43 @@ func RemoveDuplicates(arr []string) []string {
 	}
 
 	return result
+}
+
+func GetNodeFromDPUCluster(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU) (*corev1.Node, error) {
+	tenantNamespace := dpu.Spec.Cluster.Namespace
+	tenantName := dpu.Spec.Cluster.Name
+
+	dpuCluster := &provisioningv1.DPUCluster{}
+	err := client.Get(ctx, types.NamespacedName{Namespace: tenantNamespace, Name: tenantName}, dpuCluster)
+	if err != nil {
+		return nil, err
+	}
+	newClient, err := dpucluster.NewConfig(client, dpuCluster).Client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	node := &corev1.Node{}
+	if err := newClient.Get(ctx, types.NamespacedName{Namespace: tenantNamespace, Name: dpu.Name}, node); err != nil {
+		return nil, err
+	}
+	return node, nil
+}
+
+func NeedUpdateLabelsOnNodeInDPUCluster(dpuNode *corev1.Node, labelsOnDPUObject map[string]string) (bool, error) {
+	if labelsOnDPUObject == nil {
+		return false, nil
+	}
+	lastAppliedLabels := make(map[string]string)
+	if dpuNode.Annotations != nil {
+		if lastAppliedLabelsStr, ok := dpuNode.Annotations[LastAppliedLabelsOnDPUKey]; ok {
+			if err := json.Unmarshal([]byte(lastAppliedLabelsStr), &lastAppliedLabels); err != nil {
+				return false, err
+			}
+		}
+	}
+
+	if !reflect.DeepEqual(labelsOnDPUObject, lastAppliedLabels) {
+		return true, nil
+	}
+	return false, nil
 }

@@ -27,14 +27,30 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 func NodeEffectRemoval(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
+	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
-
 	// Check deletion condition
 	if !dpu.DeletionTimestamp.IsZero() {
 		state.Phase = provisioningv1.DPUDeleting
+		return *state, nil
+	}
+
+	node, err := cutil.GetNodeFromDPUCluster(ctx, ctrlCtx.Client, dpu)
+	if err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "GetNodeFromDPUClusterError", err.Error()))
+		return *state, err
+	}
+
+	if needUpdateLabels, err := cutil.NeedUpdateLabelsOnNodeInDPUCluster(node, dpu.Spec.Cluster.NodeLabels); err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "UpdateLabelsOnNodeInDPUClusterError", err.Error()))
+		return *state, err
+	} else if needUpdateLabels {
+		state.Phase = provisioningv1.DPUClusterConfig
+		logger.V(3).Info(fmt.Sprintf("node %s needs to update label", node.Name))
 		return *state, nil
 	}
 

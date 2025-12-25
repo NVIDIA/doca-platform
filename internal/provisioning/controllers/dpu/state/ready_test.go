@@ -385,7 +385,8 @@ var _ = Describe("DPU: Ready", func() {
 					And(
 						HaveField("Type", provisioningv1.DPUCondReady.String()),
 						HaveField("Status", metav1.ConditionFalse),
-						HaveField("Reason", "DPUClusterNotFound"),
+						HaveField("Reason", "GetNodeFromDPUClusterError"),
+						HaveField("Message", "dpuclusters.provisioning.dpu.nvidia.com \"non-existent-cluster\" not found"),
 					),
 				))
 			})
@@ -414,7 +415,8 @@ var _ = Describe("DPU: Ready", func() {
 					And(
 						HaveField("Type", provisioningv1.DPUCondReady.String()),
 						HaveField("Status", metav1.ConditionFalse),
-						HaveField("Reason", "NodeNotFound"),
+						HaveField("Reason", "GetNodeFromDPUClusterError"),
+						HaveField("Message", "nodes \"dpu-ready-test\" not found"),
 					),
 				))
 			})
