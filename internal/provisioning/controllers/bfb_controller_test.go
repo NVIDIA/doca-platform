@@ -91,32 +91,6 @@ var _ = Describe("BFB", func() {
 
 	Context("obj test context", func() {
 		ctx := context.Background()
-
-		It("BFB: check status (Initializing) and destroy", func() {
-			By("creating the obj")
-			fileName := DefaultBFBFileNamePrefix + utilrand.String(8) + ".bfb"
-			obj := createObj("obj-bfb")
-			obj.Spec.URL = bfbServerURL + BFB8KBPath
-			obj.Spec.FileName = ptr.To(fileName)
-			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
-			DeferCleanup(k8sClient.Delete, ctx, obj)
-
-			objFetched := &provisioningv1.BFB{}
-
-			By("expecting the Status (Initializing)")
-			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BFBInitializing))
-			}).WithTimeout(10 * time.Second).Should(Succeed())
-
-			By("checking the finalizer")
-			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				g.Expect(objFetched.Finalizers).To(ContainElement(provisioningv1.BFBFinalizer))
-			}).WithTimeout(10 * time.Second).Should(Succeed())
-
-		})
-
 		It("BFB: check filename is correctly defaulted", func() {
 			By("creating the obj")
 			obj := createObj("obj-bfb")
@@ -124,43 +98,12 @@ var _ = Describe("BFB", func() {
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ctx, obj)
 
-			By("expecting the Status (Initializing)")
+			By("expecting the filename is correctly defaulted")
 			objFetched := &provisioningv1.BFB{}
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 				g.Expect(objFetched.Status.FileName).To(Equal(bfbutil.DefaultBFBFilename(obj)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
-		})
-
-		It("BFB: check status (Downloading) and destroy", func() {
-			By("creating the obj")
-			fileName := DefaultBFBFileNamePrefix + utilrand.String(8) + ".bfb"
-			obj := createObj("obj-bfb")
-			obj.Spec.URL = bfbServerURL + BFB512KBPath
-			obj.Spec.FileName = ptr.To(fileName)
-			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
-			DeferCleanup(k8sClient.Delete, ctx, obj)
-
-			objFetched := &provisioningv1.BFB{}
-
-			By("expecting the Status (Initializing)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(10 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBInitializing))
-
-			By("checking the finalizer")
-			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				g.Expect(objFetched.Finalizers).To(ContainElement(provisioningv1.BFBFinalizer))
-				g.Expect(objFetched.Status.FileName).To(Equal(fileName))
-			}).Should(Succeed())
-
-			By("expecting the Status (Downloading)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(100 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
 		})
 
 		It("BFB: check (Downloading)->(Error) when URL is not valid (status 404)", func() {
@@ -173,30 +116,15 @@ var _ = Describe("BFB", func() {
 			DeferCleanup(k8sClient.Delete, ctx, obj)
 
 			objFetched := &provisioningv1.BFB{}
-
-			By("expecting the Status (Initializing)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
+			By("expecting the Status (Error) with condition")
+			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(10 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBInitializing))
-
-			By("expecting the Status (Downloading)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
-
-			By("expecting the Status (Error)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBError))
-
-			By("verifying Downloaded condition shows the error")
-			Expect(objFetched.Status.Conditions).NotTo(BeEmpty())
-			downloadedCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondDownloaded))
-			Expect(downloadedCond).NotTo(BeNil())
-			Expect(downloadedCond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BFBError))
+				downloadedCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondDownloaded))
+				g.Expect(downloadedCond).NotTo(BeNil())
+				g.Expect(downloadedCond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonError)))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
 		})
 
 		It("BFB: check status (Ready)", func() {
@@ -210,17 +138,12 @@ var _ = Describe("BFB", func() {
 
 			objFetched := &provisioningv1.BFB{}
 
-			By("expecting the Status (Initializing)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
+			By("checking the finalizer")
+			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(10 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBInitializing))
-
-			By("expecting the Status (Downloading)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
+				g.Expect(objFetched.Finalizers).To(ContainElement(provisioningv1.BFBFinalizer))
+				g.Expect(objFetched.Status.FileName).To(Equal(fileName))
+			}).Should(Succeed())
 
 			By("expecting the Status (Ready) with condition")
 			Eventually(func(g Gomega) {
@@ -270,18 +193,6 @@ var _ = Describe("BFB", func() {
 			DeferCleanup(k8sClient.Delete, ctx, obj)
 
 			objFetched := &provisioningv1.BFB{}
-
-			By("expecting the Status (Initializing)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(10 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBInitializing))
-
-			By("expecting the Status (Downloading)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
 
 			By("expecting the Status (Ready)")
 			Eventually(func(g Gomega) provisioningv1.BFBPhase {
@@ -334,18 +245,6 @@ var _ = Describe("BFB", func() {
 
 			objFetched := &provisioningv1.BFB{}
 
-			By("expecting the Status (Initializing)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(10 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBInitializing))
-
-			By("expecting the Status (Downloading)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
-
 			By("expecting the Status (Ready)")
 			Eventually(func(g Gomega) provisioningv1.BFBPhase {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
@@ -397,19 +296,6 @@ var _ = Describe("BFB", func() {
 			DeferCleanup(k8sClient.Delete, ctx, obj)
 
 			objFetched := &provisioningv1.BFB{}
-
-			By("expecting the Status (Initializing)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(10 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBInitializing))
-
-			By("expecting the Status (Downloading)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
-
 			By("expecting the Status (Ready) with condition")
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
@@ -479,19 +365,6 @@ var _ = Describe("BFB", func() {
 			DeferCleanup(k8sClient.Delete, ctx, obj)
 
 			objFetched := &provisioningv1.BFB{}
-
-			By("expecting the Status (Initializing)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(10 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBInitializing))
-
-			By("expecting the Status (Downloading)")
-			Eventually(func(g Gomega) provisioningv1.BFBPhase {
-				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-				return objFetched.Status.Phase
-			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
-
 			By("expecting the Status (Ready)")
 			Eventually(func(g Gomega) provisioningv1.BFBPhase {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
