@@ -209,6 +209,9 @@ var _ = Describe("InitializeInterface", func() {
 		)
 		Expect(err).To(Succeed())
 		Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface), "DPU should transition back to InitializeInterface phase after reboot with NicMode in DPUDevice")
+		_, rebootedCondition := cutil.GetDPUCondition(&status, provisioningv1.DPUCondRebooted.String())
+		Expect(rebootedCondition).To(BeNil(), "DPUCondRebooted condition should be removed when transitioning back to InitializeInterface")
+
 		mockServer.SetNicMode("DpuMode")
 
 		By("Step 6: Run InitializeInterface phase again with DpuMode set")
