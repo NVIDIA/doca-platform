@@ -328,7 +328,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 
 		// This test triggers reprovisioning, which might disrupt other tests relying on provisioned nodes.
 		// Added BeforeEach wait for the nodes to be provisioned for the test with requiresNodesLabel
-		It("verify Kubernetes API related variables are propagated correctly", func() {
+		It("verify Kubernetes API related variables are propagated correctly", Labels{requiresNodesLabel}, func() {
 			ValidateDPFOperatorKubernetesAPIServerVIPAndPort(ctx, input)
 		})
 	})
