@@ -32,7 +32,6 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
-	"github.com/fluxcd/pkg/runtime/patch"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
@@ -45,7 +44,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 // ValidateDPFOperatorBaseConfiguration verifies that DPFOperatorConfiguration ContainerComponentConfiguration options work.
@@ -669,21 +667,6 @@ func triggerDMSRecreation(ctx context.Context, c client.Client) {
 		client.InNamespace(dpfOperatorSystemNamespace),
 		client.MatchingLabels{cutil.ProvisioningComponentLabelKey: "hostagent"}))).To(Succeed())
 
-	// Then remove the existing DPUNodes
-	Expect(client.IgnoreNotFound(c.DeleteAllOf(ctx, &provisioningv1.DPUNode{}, client.InNamespace(dpfOperatorSystemNamespace)))).To(Succeed())
-
-	// TODO: Remove this block once DPUNode finalizer from the DPU controller is no longer a requirement
-	Eventually(func(g Gomega) {
-		dpuNodeList := &provisioningv1.DPUNodeList{}
-		g.Expect(c.List(ctx, dpuNodeList)).To(Succeed())
-		for _, dpuNode := range dpuNodeList.Items {
-			g.Expect(dpuNode.DeletionTimestamp).ToNot(BeNil())
-			patcher := patch.NewSerialPatcher(&dpuNode, c)
-			controllerutil.RemoveFinalizer(&dpuNode, provisioningv1.DPUNodeFinalizer)
-			g.Expect(patcher.Patch(ctx, &dpuNode)).To(Succeed())
-		}
-	}).WithTimeout(120 * time.Second).Should(Succeed())
-
 	// Then trigger reconcile of DPUNode Node Controller by modifying the node objects and expect that a new dms pod is created
 	Eventually(func(g Gomega) {
 		nodeList := &corev1.NodeList{}
@@ -699,7 +682,8 @@ func triggerDMSRecreation(ctx context.Context, c client.Client) {
 			g.Expect(pods.Items).ToNot(BeEmpty())
 			var found bool
 			for _, pod := range pods.Items {
-				if pod.Spec.NodeName == node.Name {
+				// check that hostagent pod matches node and is not deleted (i.e a new one was created)
+				if pod.Spec.NodeName == node.Name && pod.DeletionTimestamp == nil {
 					found = true
 				}
 			}
