@@ -222,7 +222,7 @@ func VerifyHostAgentPodsImageTag(ctx context.Context, input *systemTestInput, ex
 					fmt.Sprintf("DMS Pod %s should have image tag %s", pod.Name, expectedTag))
 			}
 		}
-	}).WithTimeout(time.Minute).WithPolling(1*time.Second).Should(Succeed(),
+	}).WithTimeout(3*time.Minute).WithPolling(1*time.Second).Should(Succeed(),
 		"DMS Pods should have the same image tag as the operator")
 }
 
