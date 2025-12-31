@@ -26,6 +26,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -93,19 +94,23 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 	} else if dpuNode.Spec.NodeRebootMethod.External != nil || dpuNode.Spec.NodeRebootMethod.Script != nil {
 		_, rebootCondition := cutil.GetDPUCondition(state, provisioningv1.DPUCondRebooted.String())
 		if rebootCondition != nil && rebootCondition.Status == metav1.ConditionTrue {
-			state.Phase = provisioningv1.DPUHostNetworkConfiguration
-			logger.Info(fmt.Sprintf("DPU %s moves to Host Network Configuration phase", dpu.Name))
+
 			if ctrlCtx.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
 
 				if dpu.Status.DPUMode == provisioningv1.NicMode {
+					msg := fmt.Sprintf("DPU %s was in NicMode, proceeding to InitializeInterface", dpu.Name)
+					meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondRebooted.String())
 					state.Phase = provisioningv1.DPUInitializeInterface
-					logger.Info(fmt.Sprintf("DPU %s moves to Initialize Interface phase", dpu.Name))
+					logger.Info(msg)
 					return *state, nil
 				}
 
 				state.Phase = provisioningv1.DPUClusterConfig
 				logger.Info(fmt.Sprintf("DPU %s moves to DPU Cluster Configuration phase", dpu.Name))
 
+			} else {
+				state.Phase = provisioningv1.DPUHostNetworkConfiguration
+				logger.Info(fmt.Sprintf("DPU %s moves to Host Network Configuration phase", dpu.Name))
 			}
 		}
 		return *state, nil
