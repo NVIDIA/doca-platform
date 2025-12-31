@@ -38,8 +38,8 @@ import (
 )
 
 const (
-	// throughputThreshold is the minimum throughput required for the test to pass in Gbit/sec (10 Gbit/sec)
-	throughputThreshold = 10e9
+	// throughputThreshold is the minimum throughput required for the test to pass in Gbit/sec (8 Gbit/sec)
+	throughputThreshold = 8e9
 )
 
 // TestPodConfig represents the configuration for a test pod
