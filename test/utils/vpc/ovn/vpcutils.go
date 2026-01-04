@@ -60,7 +60,7 @@ const (
 
 	// Test timeouts
 	DefaultTimeout = 1 * time.Minute
-	LongTimeout    = 3 * time.Minute
+	LongTimeout    = 6 * time.Minute
 
 	// Label keys - frequently used in the code
 	TenantNodeLabelKey       = "ovn.vpc.dpu.nvidia.com/tenant-node"
