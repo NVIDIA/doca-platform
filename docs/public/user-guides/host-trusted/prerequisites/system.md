@@ -50,7 +50,8 @@ Control plane nodes with BlueField DPUs require two configuration steps:
 The DPU NIC mode setup script (below) validates these requirements:
 
 - Root/sudo access on control plane hosts
-- MFT tools installed (`mlxconfig`, `mlxfwreset`)
+- MFT tools installed (`mst`, `mlxconfig`, `mlxfwreset`)
+- ipmitool installed and IPMI accessible locally (BMC configured; `ipmi_devintf`, `ipmi_si` kernel modules loaded)
 - BlueField DPUs present on the system
 </details>
 
@@ -61,163 +62,21 @@ The DPU NIC mode setup script (below) does not validate these (ensure they are m
 
 - Zero-Trust mode disabled (see troubleshooting if errors occur)
 - Script run **before** Kubernetes deployment
-- Host can reboot (SLR level 4 triggers warm reboot)
+- Host can reboot (script triggers a host cold power cycle via IPMI; expect downtime and impact to all DPUs/workloads on the node)
 </details>
 
 <details markdown="1">
 <summary><b>DPU NIC Mode Setup Script</b></summary>
 
-Run this command on each control plane node to create and execute the DPU NIC mode setup script. Simply copy and paste the entire code block below:
+Locate and run the DPU NIC mode setup script on each control plane node:
 
 ```bash
-cat > dpu-control-plane-setup.sh << 'SCRIPT_EOF'
-#!/bin/bash
-# Switch BlueField DPUs to NIC mode from host
-# Mode mapping (mlxconfig output):
-#   ENABLED(0)  = DPU mode
-#   DISABLED(1) = NIC mode
-# Setting INTERNAL_CPU_OFFLOAD_ENGINE=1 switches to NIC mode
-
-set -euo pipefail
-
-fail() {
-	echo "Error: $1" >&2
-	[[ -n "${2:-}" ]] && echo "$2" >&2
-	exit 1
-}
-
-usage() {
-	cat << EOF
-Usage: $(basename "$0") [--dry-run] [--no-reboot]
-
-Switch all BlueField DPUs on this host to NIC mode.
-
-  --dry-run    Show current mode and planned changes only
-  --no-reboot  Apply config but do not trigger host reboot
-EOF
-	exit 0
-}
-
-trap 'echo; echo "Interrupted" >&2; exit 130' SIGINT SIGTERM
-
-dry_run=false
-reboot=true
-
-while [[ $# -gt 0 ]]; do
-	case $1 in
-	--dry-run) dry_run=true ;;
-	--no-reboot) reboot=false ;;
-	-h | --help) usage ;;
-	*) fail "Unknown option: $1" ;;
-	esac
-	shift
-done
-
-[[ $EUID -eq 0 ]] || fail "Run as root"
-command -v mst &> /dev/null || fail "Install MFT tools (mst not found)"
-command -v mlxconfig &> /dev/null || fail "Install MFT tools (mlxconfig not found)"
-if "$reboot"; then
-	command -v mlxfwreset &> /dev/null || fail "Install MFT tools (mlxfwreset not found)"
-fi
-
-find_dpus() {
-	local -a dpus=()
-	for dev in /sys/bus/pci/devices/*/device; do
-		[[ -f "$dev" ]] || continue
-		local id
-		id=$(tr -d '[:space:]' < "$dev" 2> /dev/null) || continue
-		[[ $id =~ ^0xa2d(c|6)$ ]] || continue
-		local addr base
-		addr=$(basename "$(dirname "$dev")")
-		base=${addr%.*}
-		[[ " ${dpus[*]} " =~ " $base " ]] || dpus+=("$base")
-	done
-	echo "${dpus[@]}"
-}
-
-$dry_run && echo "=== DRY RUN: no changes will be made ==="
-
-echo "Scanning PCI bus for BlueField DPUs..."
-dpus=$(find_dpus)
-[[ -z "$dpus" ]] && {
-	echo "No BlueField DPUs found"
-	exit 0
-}
-echo "Found $(wc -w <<< "$dpus") DPU(s): $dpus"
-
-output=$(mst start 2>&1) || fail "Failed to start MST service" "$output"
-
-changed=false
-needs_reboot=false
-for dpu in $dpus; do
-	echo "Checking ${dpu}.0..."
-	output=$(mlxconfig -d "${dpu}.0" -e q 2>&1) || fail "Cannot query mode for ${dpu}.0" "$output"
-	mode_line=$(grep "INTERNAL_CPU_OFFLOAD_ENGINE" <<< "$output" || true)
-	[[ -z "$mode_line" ]] && fail "INTERNAL_CPU_OFFLOAD_ENGINE not found for ${dpu}.0"
-	echo "  $mode_line"
-
-	# Parse Current (second-to-last) and Next Boot (last) columns
-	# Note: A leading '*' may shift fields, so use NF-relative positions
-	current=$(awk '{print $(NF-1)}' <<< "$mode_line")
-	next=$(awk '{print $NF}' <<< "$mode_line")
-
-	if [[ $current =~ DISABLED && $next =~ DISABLED ]]; then
-		echo "  Status: NIC (Current & Next Boot)"
-	elif [[ $next =~ DISABLED ]]; then
-		echo "  Status: DPU now, NIC on next boot (reboot required)"
-		needs_reboot=true
-	else
-		# Need to configure NIC mode (handles both current=NIC/next=DPU and current=DPU/next=DPU)
-		if [[ $current =~ DISABLED ]]; then
-			echo "  Status: NIC now, but DPU on next boot (forcing back to NIC mode)"
-		else
-			echo "  Status: DPU (will set NIC and reboot)"
-		fi
-		if $dry_run; then
-			echo "  [DRY RUN] Would set INTERNAL_CPU_OFFLOAD_ENGINE=1"
-		else
-			echo "  Switching to NIC mode..."
-			output=$(mlxconfig -d "${dpu}.0" -y set INTERNAL_CPU_OFFLOAD_ENGINE=1 2>&1) \
-				|| fail "Failed to set NIC mode for ${dpu}.0" "$output"
-			echo "  Configuration updated"
-		fi
-		changed=true
-		needs_reboot=true
-	fi
-done
-
-if ! $changed && ! $needs_reboot; then
-	echo "All DPUs already in NIC mode"
-	exit 0
-fi
-
-$dry_run && {
-	echo "=== DRY RUN complete ==="
-	exit 0
-}
-
-first_dpu=$(awk '{print $1}' <<< "$dpus")
-
-if ! $reboot; then
-	if $changed; then
-		echo "Config complete. Reboot required to apply changes."
-	else
-		echo "Config already staged. Reboot required to apply."
-	fi
-	echo "Run: sudo mlxfwreset -d ${first_dpu}.0 -l 4 -y r --skip_fsm_sync"
-	exit 0
-fi
-
-echo "=========================================="
-echo "WARNING: Host will reboot now to apply DPU changes"
-echo "=========================================="
-mlxfwreset -d "${first_dpu}.0" -l 4 -y r --skip_fsm_sync 2>&1 \
-	|| fail "Reset failed (manual power-cycle may be required)"
-SCRIPT_EOF
-
+# Copy the script from your local repository:
+cp <repo-path>/hack/scripts/dpu-control-plane-setup.sh .
 chmod +x dpu-control-plane-setup.sh
-echo "Script created: dpu-control-plane-setup.sh"
 ```
+
+The script is available in the repository at: `hack/scripts/dpu-control-plane-setup.sh`
 
 **Quick Start**:
 ```bash
@@ -297,15 +156,20 @@ kubectl get dpu -n dpf-operator-system -o custom-columns=NAME:.metadata.name,NOD
 <details markdown="1">
 <summary><b>Troubleshooting</b></summary>
 
-**DPU still in DPU mode after reboot** (shows `*` and "Next Boot=NIC" but Current still ENABLED):
-- Warm reboot (level 4) may not apply firmware config on some BlueField firmware versions
-- **Solution**: Perform a cold boot (power cycle the host)
-- After power cycle, verify with `./dpu-control-plane-setup.sh --dry-run` - should show "NIC (Current and Next Boot)"
+**IPMI/BMC issues**:
+- **IPMI not accessible**: 
+  - Check kernel modules: `lsmod | grep -E 'ipmi_(devintf|si)'`
+  - Test local BMC: `ipmitool -I open chassis power status`
+  - Load modules if needed: `modprobe ipmi_devintf ipmi_si`
+  - Verify BMC configuration via BIOS/UEFI settings
+
+**MFT/MST issues**:
+- **MFT tools missing**: Install from https://network.nvidia.com/products/adapter-software/firmware-tools/ (>=4.33.0-169)
+- **MST service**: Ensure MST is running: `sudo mst start` and verify devices: `mst status`
 
 **Other issues**:
 - **Zero-Trust mode**: Disable via mlxprivhost/BMC/Redfish, then re-run script
-- **MFT tools missing**: Install from https://network.nvidia.com/products/adapter-software/firmware-tools/ (>=4.33.0-169)
-- **SLR timeout/hang**: Manual power-cycle may be required
+- **Power cycle timeout/hang**: Manual power-cycle may be required
 - **Labels missing on DPUNodes**: Verify K8s node labels, check provisioning-controller logs
 </details>
 
