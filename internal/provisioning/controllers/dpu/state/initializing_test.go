@@ -389,6 +389,65 @@ var _ = Describe("Phase Initializing", func() {
 			runForEachInterface(run)
 
 		})
+		It("should transition to the next phase if SkipDpuProvisioningLabel is set", func() {
+			By("prepare DPUDevice CR")
+			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+			dpuDevice.Labels[cutil.SkipDpuProvisioningLabel] = "true"
+			createObject(dpuDevice)
+
+			By("prepare DPUNode CR")
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Finalizers = []string{provisioningv1.DPUNodeFinalizer}
+			dpuNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = strTrue
+			dpuNode.Spec.DPUs = []provisioningv1.DPURef{
+				{
+					Name: dpuDevice.Name,
+				},
+			}
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status = provisioningv1.DPUNodeStatus{
+				DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaGNOI)),
+				Conditions: []metav1.Condition{
+					{
+						Type:               string(provisioningv1.DPUNodeConditionBridgeConfigured),
+						Status:             metav1.ConditionTrue,
+						Reason:             "BridgeConfigured",
+						Message:            "Bridge configured",
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+			}
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
+			By("prepare DPUCluster CR")
+			dpuCluster := dpuClusterObj(defaultDPUClusterName, "static")
+			createObject(dpuCluster)
+
+			By("prepare DPU CR")
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.PCIAddress = ptr.To("0000-00-00")
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.Cluster.Namespace = dpuCluster.Namespace
+			dpu.Spec.Cluster.Name = dpuCluster.Name
+			dpu.Status.Phase = provisioningv1.DPUInitializing
+			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
+
+			status, err := state.Initializing(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+				})
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUReady))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondInitialized.String()),
+					HaveField("Status", metav1.ConditionTrue),
+					HaveField("Reason", "Skipped"),
+				),
+			))
+		})
 	})
 })
 

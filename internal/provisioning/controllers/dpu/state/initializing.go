@@ -73,6 +73,19 @@ func Initializing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 	state.DPUType = dpuDevice.Status.DPUType
 	state.DPUMode = dpuDevice.Status.DPUMode
 
+	// Check if provisioning should be skipped
+	if dpuDevice.Labels == nil {
+		dpuDevice.Labels = make(map[string]string)
+	}
+
+	if _, exists := dpuDevice.Labels[cutil.SkipDpuProvisioningLabel]; exists {
+		msg := fmt.Sprintf("skipping provisioning for DPU %s because %s label is set", cutil.GetNamespacedName(dpu), cutil.SkipDpuProvisioningLabel)
+		logger.V(2).Info(msg)
+		state.Phase = provisioningv1.DPUReady
+		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondInitialized, "Skipped", msg))
+		return *state, nil
+	}
+
 	// Check if the DPU OOB bridge is configured for non-RedFish installation.
 	// If not configured, set the condition and return.
 	if dpuNode.Status.DPUInstallInterface != nil && *dpuNode.Status.DPUInstallInterface != string(provisioningv1.InstallViaRedFish) {
