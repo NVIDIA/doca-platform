@@ -198,6 +198,7 @@ func dpuDeviceObj(name string) *provisioningv1.DPUDevice {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: testNS.Name,
+			Labels:    make(map[string]string),
 		},
 		Spec: provisioningv1.DPUDeviceSpec{
 			SerialNumber: "MT25066004C" + utilrand.String(5),
