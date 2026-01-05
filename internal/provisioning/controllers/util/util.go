@@ -87,6 +87,8 @@ const (
 	// HostNameDPULabelKey is the label added to the DPU Kubernetes Node that indicates the hostname of the host that
 	// this DPU belongs to.
 	HostNameDPULabelKey = DPUProvisioningPrefix + "host"
+	// SkipDpuProvisioningLabel is the label used to skip DPU provisioning
+	SkipDpuProvisioningLabel = DPUProvisioningPrefix + "skip-dpu-provisioning"
 
 	// OverrideDMSPodNameAnnotationKey is the key for the override DMS pod name annotation.
 	OverrideDMSPodNameAnnotationKey = DPUProvisioningPrefix + "override-dms-pod-name"
