@@ -31,6 +31,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/filesystem"
 	"github.com/nvidia/doca-platform/internal/release"
 
 	"github.com/vishvananda/netlink"
@@ -344,7 +345,7 @@ func (n *NodeManager) rebootOccurred() (RebootResult, error) {
 		if err := os.MkdirAll(filepath.Dir(LatestRebootIDFile), 0755); err != nil {
 			return firstRun, err
 		}
-		if err := hostutil.AtomicWrite(LatestRebootIDFile, currentRebootID, 0644); err != nil {
+		if err := filesystem.AtomicWrite(LatestRebootIDFile, currentRebootID, 0644); err != nil {
 			return firstRun, err
 		}
 		return firstRun, nil
