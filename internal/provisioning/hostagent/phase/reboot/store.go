@@ -28,7 +28,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/filesystem"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -93,7 +93,7 @@ func (s *fileSystemStore) PersistBootID(dpu *provisioningv1.DPU, skip bool) erro
 	if err != nil {
 		return err
 	}
-	return hostutil.AtomicWrite(s.rebootRequestFileName(dpu), requestBytes, 0644)
+	return filesystem.AtomicWrite(s.rebootRequestFileName(dpu), requestBytes, 0644)
 }
 
 func (s *fileSystemStore) IsRebootFinished(dpu *provisioningv1.DPU) (bool, error) {
