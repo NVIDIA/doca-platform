@@ -76,7 +76,7 @@ var _ = Describe("DPU: pending", func() {
 						HaveField("Reason", provisioningv1.DPUCondDPUFlavorExists.String()),
 					),
 				))
-				Expect(dpuMap.CanProceed(dutil.DPUID("test-dpu"))).To(BeFalse())
+				Expect(dpuMap.CanProceed(dutil.DPUID("test-dpu"))).To(HaveOccurred())
 			})
 		})
 	})
