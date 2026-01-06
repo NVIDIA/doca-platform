@@ -444,7 +444,7 @@ var _ = Describe("DPU", func() {
 				Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, fakeMapClient)).To(Succeed())
 
 				By("verifying map state")
-				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-extra"))).To(BeFalse())
+				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-extra"))).To(HaveOccurred())
 			})
 
 			It("DPUInProvisioningMap: should handle empty initialization", func() {
@@ -452,7 +452,7 @@ var _ = Describe("DPU", func() {
 				Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, fakeMapClient)).To(Succeed())
 
 				By("verifying map state")
-				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-extra"))).To(BeTrue())
+				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-extra"))).To(Succeed())
 			})
 
 			It("DPUInProvisioningMap: should handle initialization with non-provisioning DPUs", func() {
@@ -473,7 +473,7 @@ var _ = Describe("DPU", func() {
 				Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, fakeMapClient)).To(Succeed())
 
 				By("verifying map state")
-				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeTrue())
+				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(Succeed())
 			})
 
 			It("DPUInProvisioningMap: should handle phase transitions - provisioning to deleting", func() {
@@ -489,8 +489,8 @@ var _ = Describe("DPU", func() {
 				By("initializing the map")
 				Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, fakeMapClient)).To(Succeed())
 
-				By("verifying CanProceed is false in Provisioning state")
-				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeFalse())
+				By("verifying CanProceed returns error in Provisioning state")
+				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(HaveOccurred())
 
 				By("transitioning to Deleting state")
 				patchFakePhase(dpu.Name, provisioningv1.DPUDeleting)
@@ -498,7 +498,7 @@ var _ = Describe("DPU", func() {
 				By("removing DPU from map as it's no longer in provisioning state")
 				dpuReconciler.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
 
-				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeTrue())
+				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(Succeed())
 			})
 
 			It("DPUInProvisioningMap: should handle phase transitions - provisioning to Error", func() {
@@ -514,8 +514,8 @@ var _ = Describe("DPU", func() {
 				By("initializing the map")
 				Expect(dpuReconciler.DPUInProvisioningMap.Initialize(ctx, fakeMapClient)).To(Succeed())
 
-				By("verifying CanProceed is false in Provisioning state")
-				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeFalse())
+				By("verifying CanProceed returns error in Provisioning state")
+				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(HaveOccurred())
 
 				By("transitioning to Error state")
 				patchFakePhase(dpu.Name, provisioningv1.DPUError)
@@ -523,7 +523,7 @@ var _ = Describe("DPU", func() {
 				By("removing DPU from map as it's no longer in provisioning state")
 				dpuReconciler.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
 
-				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(BeTrue())
+				Expect(dpuReconciler.DPUInProvisioningMap.CanProceed(dutil.DPUID("test-dpu-1"))).To(Succeed())
 			})
 
 			It("Adding/Removing Additional Requestors to DPU", func() {

@@ -30,6 +30,21 @@ import (
 // DPUID is a type alias for string that represents a DPU's unique identifier
 type DPUID string
 
+// CanProceedError represents errors returned by CanProceed
+type CanProceedError struct {
+	Reason  string
+	Message string
+}
+
+func (e *CanProceedError) Error() string {
+	return e.Message
+}
+
+// Error reasons for CanProceed
+const (
+	ErrReasonMaxDPUParallelInstallationsLimitReached = "MaxDPUParallelInstallationsLimitReached"
+)
+
 // DPUInProvisioningMap tracks the number of DPUs in provisioning states
 // This map is used to limit the number of DPUs that can be in provisioning at once.
 type DPUInProvisioningMap struct {
@@ -71,22 +86,26 @@ func (c *DPUInProvisioningMap) Initialize(ctx context.Context, client client.Cli
 	return nil
 }
 
-// CanProceed checks if a new DPU can enter provisioning and inserts if possible
-func (c *DPUInProvisioningMap) CanProceed(dpuUID DPUID) bool {
+// CanProceed checks if a new DPU can enter provisioning and inserts if possible.
+// Returns nil if can proceed, or a CanProceedError with the specific reason.
+func (c *DPUInProvisioningMap) CanProceed(dpuUID DPUID) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// If DPU is already in the map, allow it to proceed
 	if _, exists := c.dpus[dpuUID]; exists {
-		return true
+		return nil
 	}
 
 	// Otherwise check capacity and insert if possible
 	if int32(len(c.dpus)) >= c.max {
-		return false
+		return &CanProceedError{
+			Reason:  ErrReasonMaxDPUParallelInstallationsLimitReached,
+			Message: fmt.Sprintf("max DPU parallel installations limit reached, limit: %d", c.max),
+		}
 	}
 	c.insert(dpuUID)
-	return true
+	return nil
 }
 
 // insert is a helper function that should only be called from CanProceed which holds the mutex lock
