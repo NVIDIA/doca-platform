@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -39,9 +40,9 @@ var _ = Describe("DPUInProvisioningMap:", func() {
 
 		It("should handle basic insert and remove operations", func() {
 			dpuID := DPUID("test-dpu-1")
-			Expect(dpuMap.CanProceed(dpuID)).To(BeTrue())
+			Expect(dpuMap.CanProceed(dpuID)).To(Succeed())
 			dpuMap.Remove(dpuID)
-			Expect(dpuMap.CanProceed(dpuID)).To(BeTrue())
+			Expect(dpuMap.CanProceed(dpuID)).To(Succeed())
 		})
 
 		It("should handle multiple removes of same DPU", func() {
@@ -49,15 +50,15 @@ var _ = Describe("DPUInProvisioningMap:", func() {
 			dpuMap.Remove(dpuID)
 			dpuMap.Remove(dpuID)
 			dpuMap.Remove(dpuID)
-			Expect(dpuMap.CanProceed(dpuID)).To(BeTrue())
+			Expect(dpuMap.CanProceed(dpuID)).To(Succeed())
 		})
 
 		It("should handle inserting same DPU multiple times", func() {
 			dpuID := DPUID("test-dpu-1")
-			Expect(dpuMap.CanProceed(dpuID)).To(BeTrue())
-			Expect(dpuMap.CanProceed(dpuID)).To(BeTrue())
-			Expect(dpuMap.CanProceed(dpuID)).To(BeTrue())
-			Expect(dpuMap.CanProceed(DPUID("test-dpu-2"))).To(BeTrue())
+			Expect(dpuMap.CanProceed(dpuID)).To(Succeed())
+			Expect(dpuMap.CanProceed(dpuID)).To(Succeed())
+			Expect(dpuMap.CanProceed(dpuID)).To(Succeed())
+			Expect(dpuMap.CanProceed(DPUID("test-dpu-2"))).To(Succeed())
 		})
 	})
 
@@ -65,7 +66,7 @@ var _ = Describe("DPUInProvisioningMap:", func() {
 		It("should handle parallel provisioning", func() {
 			var wg sync.WaitGroup
 			concurrentOps := 10
-			results := make(chan bool, concurrentOps)
+			results := make(chan error, concurrentOps)
 
 			for i := 0; i < concurrentOps; i++ {
 				wg.Add(1)
@@ -82,20 +83,20 @@ var _ = Describe("DPUInProvisioningMap:", func() {
 			// Count successful operations
 			successCount := 0
 			for result := range results {
-				if result {
+				if result == nil {
 					successCount++
 				}
 			}
 
 			// Verify exactly maxDPUs succeeded
 			Expect(successCount).To(Equal(maxDPUs))
-			Expect(dpuMap.CanProceed(DPUID("test-dpu-extra"))).To(BeFalse())
+			Expect(dpuMap.CanProceed(DPUID("test-dpu-extra"))).To(HaveOccurred())
 		})
 
 		It("should handle concurrent removes", func() {
 			// First insert to max
 			for i := 0; i < maxDPUs; i++ {
-				Expect(dpuMap.CanProceed(DPUID(fmt.Sprintf("test-dpu-%d", i)))).To(BeTrue())
+				Expect(dpuMap.CanProceed(DPUID(fmt.Sprintf("test-dpu-%d", i)))).To(Succeed())
 			}
 
 			var wg sync.WaitGroup
@@ -110,12 +111,13 @@ var _ = Describe("DPUInProvisioningMap:", func() {
 			}
 
 			wg.Wait()
-			Expect(dpuMap.CanProceed(DPUID("test-dpu-new"))).To(BeTrue())
+			Expect(dpuMap.CanProceed(DPUID("test-dpu-new"))).To(Succeed())
 		})
 
 		It("should handle mixed concurrent operations", func() {
 			var wg sync.WaitGroup
 			concurrentOps := 10
+			errChan := make(chan error, concurrentOps)
 
 			for i := 0; i < concurrentOps; i++ {
 				wg.Add(1)
@@ -123,7 +125,9 @@ var _ = Describe("DPUInProvisioningMap:", func() {
 					defer wg.Done()
 					dpuID := DPUID(fmt.Sprintf("test-dpu-%d", id))
 					if id%2 == 0 {
-						dpuMap.CanProceed(dpuID)
+						if err := dpuMap.CanProceed(dpuID); err != nil {
+							errChan <- err
+						}
 					} else {
 						dpuMap.Remove(dpuID)
 					}
@@ -131,6 +135,13 @@ var _ = Describe("DPUInProvisioningMap:", func() {
 			}
 
 			wg.Wait()
+			close(errChan)
+
+			// Verify all errors are expected CanProceedError (limit reached is valid in concurrent scenario)
+			for err := range errChan {
+				var canProceedErr *CanProceedError
+				Expect(errors.As(err, &canProceedErr)).To(BeTrue(), "unexpected error type: %v", err)
+			}
 		})
 	})
 
@@ -138,13 +149,17 @@ var _ = Describe("DPUInProvisioningMap:", func() {
 		It("should handle max limit correctly", func() {
 			// Fill to limit
 			for i := 0; i < maxDPUs; i++ {
-				Expect(dpuMap.CanProceed(DPUID(fmt.Sprintf("test-dpu-%d", i)))).To(BeTrue())
+				Expect(dpuMap.CanProceed(DPUID(fmt.Sprintf("test-dpu-%d", i)))).To(Succeed())
 			}
-			Expect(dpuMap.CanProceed(DPUID("test-dpu-extra"))).To(BeFalse())
+			err := dpuMap.CanProceed(DPUID("test-dpu-extra"))
+			Expect(err).To(HaveOccurred())
+			var cpErr *CanProceedError
+			Expect(errors.As(err, &cpErr)).To(BeTrue())
+			Expect(cpErr.Reason).To(Equal(ErrReasonMaxDPUParallelInstallationsLimitReached))
 
 			// Remove one and verify can proceed
 			dpuMap.Remove(DPUID("test-dpu-0"))
-			Expect(dpuMap.CanProceed(DPUID("test-dpu-extra"))).To(BeTrue())
+			Expect(dpuMap.CanProceed(DPUID("test-dpu-extra"))).To(Succeed())
 		})
 	})
 })
