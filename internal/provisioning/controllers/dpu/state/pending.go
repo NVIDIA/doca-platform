@@ -18,6 +18,7 @@ package state
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -78,11 +79,18 @@ func Pending(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contro
 	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondDPUFlavorExists, "", ""))
 
 	// Check if we can proceed with provisioning
-	if !ctrlCtx.DPUInProvisioningMap.CanProceed(dutil.DPUID(dpu.UID)) {
-		err := fmt.Errorf("max DPU parallel installations limit reached, limit: %d", ctrlCtx.DPUInProvisioningMap.GetMax())
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondPending.String(), err, "MaxDPUParallelInstallationsLimitReached", err.Error()))
+	if err := ctrlCtx.DPUInProvisioningMap.CanProceed(dutil.DPUID(dpu.UID)); err != nil {
+		var cpErr *dutil.CanProceedError
+		reason := "CannotProceed"
+		if errors.As(err, &cpErr) {
+			reason = cpErr.Reason
+		}
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondPending.String(), err, reason, err.Error()))
 		return *state, nil
 	}
+
+	// Clear the pending condition when proceeding successfully
+	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondPending, "", ""))
 
 	state.Phase = provisioningv1.DPUNodeEffect
 	return *state, nil
