@@ -4094,6 +4094,25 @@ _Appears in:_
 | `nodeEffect` _[Action](#action)_ | NodeEffect is the effect the DPU has on Nodes during provisioning. |  |  |
 
 
+#### ExcludeRange
+
+
+
+ExcludeRange contains range of IP addresses to exclude from allocation
+startIP and endIP are part of the Excluded range.
+
+
+
+_Appears in:_
+- [IPV4Network](#ipv4network)
+- [IPV4Subnet](#ipv4subnet)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `startIP` _string_ | StartIP is the start of the range. |  |  |
+| `endIP` _string_ | EndIP is the end of the range. |  |  |
+
+
 #### HelmChart
 
 
@@ -4131,7 +4150,8 @@ _Appears in:_
 | `network` _string_ | Network is the CIDR from which subnets should be allocated per node. |  |  |
 | `gatewayIndex` _integer_ | GatewayIndex determines which IP in the subnet extracted from the CIDR should be the gateway IP. For point to<br />point networks (/31), one needs to leave this empty to make use of both the IPs. |  |  |
 | `prefixSize` _integer_ | PrefixSize is the size of the subnet that should be allocated per node. |  |  |
-| `exclusions` _string array_ | Exclusions is a list of IPs that should be excluded when splitting the CIDR into subnets per node. |  |  |
+| `exclusions` _string array_ | Exclusions is a list of IPs that should be excluded when splitting the CIDR into subnets per node.<br /><br />Deprecated: This field is deprecated and will be removed with v26.10.0. Use ExcludeRanges instead. |  |  |
+| `excludeRanges` _[ExcludeRange](#excluderange) array_ | ExcludeRanges is a list of IP ranges that should be excluded from the allocation. |  |  |
 | `allocations` _object (keys:string, values:string)_ | Allocations describes the subnets that should be assigned in each DPU node. |  |  |
 | `defaultGateway` _boolean_ | DefaultGateway adds gateway as default gateway in the routes list if true. |  |  |
 | `routes` _[Route](#route) array_ | Routes is the static routes list using the gateway specified in the spec. |  |  |
@@ -4154,6 +4174,7 @@ _Appears in:_
 | `subnet` _string_ | Subnet is the CIDR from which blocks should be allocated per node |  |  |
 | `gateway` _string_ | Gateway is the IP in the subnet that should be the gateway of the subnet. |  |  |
 | `perNodeIPCount` _integer_ | PerNodeIPCount is the number of IPs that should be allocated per node. |  |  |
+| `excludeRanges` _[ExcludeRange](#excluderange) array_ | ExcludeRanges is a list of IP ranges that should be excluded from the allocation. |  |  |
 | `defaultGateway` _boolean_ | if true, add gateway as default gateway in the routes list<br />DefaultGateway adds gateway as default gateway in the routes list if true. |  |  |
 | `routes` _[Route](#route) array_ | Routes is the static routes list using the gateway specified in the spec. |  |  |
 
