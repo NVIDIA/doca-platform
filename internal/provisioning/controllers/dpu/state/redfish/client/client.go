@@ -39,8 +39,10 @@ import (
 const (
 	APIChangePasswd              = "redfish/v1/AccountService/Accounts/root"
 	APICheckBMCFW                = "redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware"
+	APICheckDPUBSP               = "redfish/v1/UpdateService/FirmwareInventory/DPU_BSP"
 	APICheckDPUNIC               = "redfish/v1/UpdateService/FirmwareInventory/DPU_NIC"
 	APICheckDPUOS                = "redfish/v1/UpdateService/FirmwareInventory/DPU_OS"
+	APICheckDPUUEFI              = "redfish/v1/UpdateService/FirmwareInventory/DPU_UEFI"
 	APIInstallBFB                = "redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate"
 	APIUpdateFW                  = "redfish/v1/UpdateService"
 	APICheckProgress             = "redfish/v1/TaskService/Tasks"
@@ -296,6 +298,18 @@ func (c *Client) CheckDPUNIC() (*resty.Response, *VersionInfo, error) {
 func (c *Client) CheckDPUOS() (*resty.Response, *VersionInfo, error) {
 	return do[VersionInfo](func() (*resty.Response, error) {
 		return c.Client.R().Get(APICheckDPUOS)
+	})
+}
+
+func (c *Client) CheckDPUUEFI() (*resty.Response, *VersionInfo, error) {
+	return do[VersionInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(APICheckDPUUEFI)
+	})
+}
+
+func (c *Client) CheckDPUBSP() (*resty.Response, *VersionInfo, error) {
+	return do[VersionInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(APICheckDPUBSP)
 	})
 }
 
