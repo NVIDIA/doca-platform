@@ -97,7 +97,11 @@ type IPV4Network struct {
 	// PrefixSize is the size of the subnet that should be allocated per node.
 	PrefixSize int32 `json:"prefixSize"`
 	// Exclusions is a list of IPs that should be excluded when splitting the CIDR into subnets per node.
+	//
+	// Deprecated: This field is deprecated and will be removed with v26.10.0. Use ExcludeRanges instead.
 	Exclusions []string `json:"exclusions,omitempty"`
+	// ExcludeRanges is a list of IP ranges that should be excluded from the allocation.
+	ExcludeRanges []ExcludeRange `json:"excludeRanges,omitempty"`
 	// Allocations describes the subnets that should be assigned in each DPU node.
 	Allocations map[string]string `json:"allocations,omitempty"`
 	// DefaultGateway adds gateway as default gateway in the routes list if true.
@@ -115,11 +119,22 @@ type IPV4Subnet struct {
 	Gateway string `json:"gateway"`
 	// PerNodeIPCount is the number of IPs that should be allocated per node.
 	PerNodeIPCount int `json:"perNodeIPCount"`
+	// ExcludeRanges is a list of IP ranges that should be excluded from the allocation.
+	ExcludeRanges []ExcludeRange `json:"excludeRanges,omitempty"`
 	// if true, add gateway as default gateway in the routes list
 	// DefaultGateway adds gateway as default gateway in the routes list if true.
 	DefaultGateway bool `json:"defaultGateway,omitempty"`
 	// Routes is the static routes list using the gateway specified in the spec.
 	Routes []Route `json:"routes,omitempty"`
+}
+
+// ExcludeRange contains range of IP addresses to exclude from allocation
+// startIP and endIP are part of the Excluded range.
+type ExcludeRange struct {
+	// StartIP is the start of the range.
+	StartIP string `json:"startIP"`
+	// EndIP is the end of the range.
+	EndIP string `json:"endIP"`
 }
 
 // Route contains static route parameters

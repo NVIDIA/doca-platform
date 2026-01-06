@@ -261,6 +261,9 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 				GatewayIndex: ptr.To[int32](1),
 				PrefixSize:   24,
 				Exclusions:   []string{"192.168.0.1", "192.168.0.2"},
+				ExcludeRanges: []dpuservicev1.ExcludeRange{
+					{StartIP: "192.168.0.30", EndIP: "192.168.0.40"},
+				},
 				Allocations: map[string]string{
 					"node-1": "192.168.1.0/24",
 					"node-2": "192.168.2.0/24",
@@ -1057,8 +1060,11 @@ func getIPV4SubnetDPUServiceIPAM(namespace string) *dpuservicev1.DPUServiceIPAM 
 		"some-annot": "someValue",
 	}
 	dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
-		Subnet:         "192.168.0.0/20",
-		Gateway:        "192.168.0.1",
+		Subnet:  "192.168.0.0/20",
+		Gateway: "192.168.0.1",
+		ExcludeRanges: []dpuservicev1.ExcludeRange{
+			{StartIP: "192.168.0.30", EndIP: "192.168.0.40"},
+		},
 		PerNodeIPCount: 256,
 		DefaultGateway: true,
 		Routes:         []dpuservicev1.Route{{Dst: "5.5.5.0/16"}},
@@ -1085,6 +1091,9 @@ func validateIPPool(g Gomega, ipPool *nvipamv1.IPPool) {
 	g.Expect(ipPool.Spec.DefaultGateway).To(BeTrue())
 	g.Expect(ipPool.Spec.Routes).To(ConsistOf([]nvipamv1.Route{
 		{Dst: "5.5.5.0/16"},
+	}))
+	g.Expect(ipPool.Spec.Exclusions).To(ConsistOf([]nvipamv1.ExcludeRange{
+		{StartIP: "192.168.0.30", EndIP: "192.168.0.40"},
 	}))
 	g.Expect(ipPool.Spec.NodeSelector).To(BeComparableTo(&corev1.NodeSelector{
 		NodeSelectorTerms: []corev1.NodeSelectorTerm{
@@ -1114,6 +1123,9 @@ func getIPV4NetworkDPUServiceIPAM(namespace string) *dpuservicev1.DPUServiceIPAM
 		GatewayIndex: ptr.To[int32](1),
 		PrefixSize:   24,
 		Exclusions:   []string{"192.168.0.1", "192.168.0.2"},
+		ExcludeRanges: []dpuservicev1.ExcludeRange{
+			{StartIP: "192.168.0.30", EndIP: "192.168.0.40"},
+		},
 		Allocations: map[string]string{
 			"node-1": "192.168.1.0/24",
 			"node-2": "192.168.2.0/24",
@@ -1143,6 +1155,7 @@ func validateCIDRPool(g Gomega, cidrPool *nvipamv1.CIDRPool) {
 	g.Expect(cidrPool.Spec.Exclusions).To(ConsistOf([]nvipamv1.ExcludeRange{
 		{StartIP: "192.168.0.1", EndIP: "192.168.0.1"},
 		{StartIP: "192.168.0.2", EndIP: "192.168.0.2"},
+		{StartIP: "192.168.0.30", EndIP: "192.168.0.40"},
 	}))
 	g.Expect(cidrPool.Spec.StaticAllocations).To(ConsistOf([]nvipamv1.CIDRPoolStaticAllocation{
 		{NodeName: "node-1", Prefix: "192.168.1.0/24"},

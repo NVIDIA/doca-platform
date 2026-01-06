@@ -162,9 +162,30 @@ spec:
                     description: DefaultGateway adds gateway as default gateway in
                       the routes list if true.
                     type: boolean
+                  excludeRanges:
+                    description: ExcludeRanges is a list of IP ranges that should
+                      be excluded from the allocation.
+                    items:
+                      description: |-
+                        ExcludeRange contains range of IP addresses to exclude from allocation
+                        startIP and endIP are part of the Excluded range.
+                      properties:
+                        endIP:
+                          description: EndIP is the end of the range.
+                          type: string
+                        startIP:
+                          description: StartIP is the start of the range.
+                          type: string
+                      required:
+                      - endIP
+                      - startIP
+                      type: object
+                    type: array
                   exclusions:
-                    description: Exclusions is a list of IPs that should be excluded
-                      when splitting the CIDR into subnets per node.
+                    description: |-
+                      Exclusions is a list of IPs that should be excluded when splitting the CIDR into subnets per node.
+
+                      Deprecated: This field is deprecated and will be removed with v26.10.0. Use ExcludeRanges instead.
                     items:
                       type: string
                     type: array
@@ -210,6 +231,25 @@ spec:
                       if true, add gateway as default gateway in the routes list
                       DefaultGateway adds gateway as default gateway in the routes list if true.
                     type: boolean
+                  excludeRanges:
+                    description: ExcludeRanges is a list of IP ranges that should
+                      be excluded from the allocation.
+                    items:
+                      description: |-
+                        ExcludeRange contains range of IP addresses to exclude from allocation
+                        startIP and endIP are part of the Excluded range.
+                      properties:
+                        endIP:
+                          description: EndIP is the end of the range.
+                          type: string
+                        startIP:
+                          description: StartIP is the start of the range.
+                          type: string
+                      required:
+                      - endIP
+                      - startIP
+                      type: object
+                    type: array
                   gateway:
                     description: Gateway is the IP in the subnet that should be the
                       gateway of the subnet.
