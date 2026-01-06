@@ -1,0 +1,83 @@
+/*
+Copyright 2026 NVIDIA
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package netplan
+
+import (
+	"fmt"
+	"path/filepath"
+
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/filesystem"
+
+	"gopkg.in/yaml.v3"
+)
+
+type Network struct {
+	Version   int                 `yaml:"version"`
+	Renderer  string              `yaml:"renderer,omitempty"`
+	Ethernets map[string]Ethernet `yaml:"ethernets,omitempty"`
+	Bridges   map[string]Bridge   `yaml:"bridges,omitempty"`
+}
+
+type Ethernet struct {
+	DHCP4          *bool           `yaml:"dhcp4,omitempty"`
+	MTU            *int32          `yaml:"mtu,omitempty"`
+	DHCP4Overrides *DHCP4Overrides `yaml:"dhcp4-overrides,omitempty"`
+	LinkLocal      []string        `yaml:"link-local,omitempty"`
+}
+
+type Bridge struct {
+	Ethernet
+	Interfaces []string `yaml:"interfaces,omitempty"`
+}
+
+type DHCP4Overrides struct {
+	UseMTU *bool `yaml:"use-mtu,omitempty"`
+}
+
+// Config represents the netplan configuration structure
+type Config struct {
+	Network Network `yaml:"network"`
+}
+
+func (n Config) WriteToFile(filePath string) error {
+	// Ensure directory exists
+	dir := filepath.Dir(filePath)
+	if err := filesystem.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create netplan directory: %w", err)
+	}
+
+	// Marshal to YAML
+	data, err := yaml.Marshal(n)
+	if err != nil {
+		return fmt.Errorf("failed to marshal netplan config: %w", err)
+	}
+
+	// Write file with correct permissions (netplan requires 0600)
+	if err := filesystem.AtomicWrite(filePath, data, 0600); err != nil {
+		return fmt.Errorf("failed to write netplan file: %w", err)
+	}
+	return nil
+}
+
+func Apply() error {
+	stdout, stderr, err := bash.Run("netplan apply")
+	if err != nil {
+		return fmt.Errorf("failed to run netplan apply. stdout: %s, stderr: %s, err: %w", stdout.String(), stderr.String(), err)
+	}
+	return nil
+}
