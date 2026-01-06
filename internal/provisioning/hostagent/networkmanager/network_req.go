@@ -33,6 +33,7 @@ import (
 	"github.com/nvidia/doca-platform/cmd/hostagent/options"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/filesystem"
 
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -160,7 +161,7 @@ func writeNetworkRequestFile(nr *NetworkRequest) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal network request: %w", err)
 	}
-	err = hostutil.AtomicWrite(filePath, jsonData, 0644)
+	err = filesystem.AtomicWrite(filePath, jsonData, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to write network request file %s: %w", filePath, err)
 	}
