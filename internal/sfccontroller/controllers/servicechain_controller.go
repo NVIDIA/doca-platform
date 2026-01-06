@@ -26,6 +26,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	oflow "github.com/nvidia/doca-platform/pkg/openflow"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
 
@@ -58,7 +59,7 @@ type ServiceChainReconciler struct {
 	OVS      ovsutils.API
 	Exec     kexec.Interface
 	SC       ServiceChainAPI
-	OPFlow   OpenFlowAPI
+	OPFlow   oflow.OpenFlowAPI
 }
 
 const (

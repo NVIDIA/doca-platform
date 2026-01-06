@@ -23,6 +23,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	"github.com/nvidia/doca-platform/pkg/openflow"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
@@ -59,7 +60,7 @@ var _ = Describe("service chain controller", func() {
 		testCtx        context.Context
 		testCancelFunc context.CancelFunc
 		scMock         *MockServiceChainAPI
-		openflowMock   *MockOpenFlowAPI
+		openflowMock   *openflow.MockOpenFlowAPI
 	)
 
 	BeforeEach(func() {
@@ -70,7 +71,7 @@ var _ = Describe("service chain controller", func() {
 		ovsMock = ovsutils.NewMockAPI(mockCtrl)
 		fakeExec = &kexecTesting.FakeExec{}
 		scMock = NewMockServiceChainAPI(mockCtrl)
-		openflowMock = NewMockOpenFlowAPI(mockCtrl)
+		openflowMock = openflow.NewMockOpenFlowAPI(mockCtrl)
 
 		scr = &ServiceChainReconciler{
 			Client:   testClient,
