@@ -13,3 +13,9 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
+package openflow
+
+//go:generate mockgen -copyright_file ../../hack/boilerplate.go.txt --build_flags=--mod=mod -package openflow -destination mock_flows.go . OpenFlowAPI
+//go:generate mockgen -copyright_file ../../hack/boilerplate.go.txt --build_flags=--mod=mod -package openflow -destination mock_kexec.go k8s.io/utils/exec Interface
+//go:generate mockgen -copyright_file ../../hack/boilerplate.go.txt --build_flags=--mod=mod -package openflow -destination mock_cmd.go k8s.io/utils/exec Cmd

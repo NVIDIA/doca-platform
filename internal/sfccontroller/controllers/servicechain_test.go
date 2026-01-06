@@ -17,6 +17,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/nvidia/doca-platform/pkg/openflow"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
@@ -29,12 +31,12 @@ var _ = Describe("servicechain GenerateAndApplyOpenFlows", func() {
 		ctx          = context.Background()
 		sc           *ServiceChain
 		ports        [][]string
-		openflowMock *MockOpenFlowAPI
+		openflowMock *openflow.MockOpenFlowAPI
 	)
 
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
-		openflowMock = NewMockOpenFlowAPI(mockCtrl)
+		openflowMock = openflow.NewMockOpenFlowAPI(mockCtrl)
 		sc = &ServiceChain{OPFlow: openflowMock}
 		ports = nil
 	})
