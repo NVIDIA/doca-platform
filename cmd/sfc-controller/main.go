@@ -27,6 +27,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	sfccontroller "github.com/nvidia/doca-platform/internal/sfccontroller/controllers"
 	"github.com/nvidia/doca-platform/pkg/health"
+	oflow "github.com/nvidia/doca-platform/pkg/openflow"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
 	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
@@ -250,7 +251,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	openflow := &sfccontroller.OpenFlow{Exec: kexec.New()}
+	oFlow := &oflow.OpenFlow{Exec: kexec.New()}
 
 	if err = (&sfccontroller.ServiceChainReconciler{
 		Client:   mgr.GetClient(),
@@ -260,8 +261,8 @@ func main() {
 		OFBridge: ofb,
 		OVS:      ovsClient,
 		Exec:     kexec.New(),
-		SC:       &sfccontroller.ServiceChain{OPFlow: openflow},
-		OPFlow:   openflow,
+		SC:       &sfccontroller.ServiceChain{OPFlow: oFlow},
+		OPFlow:   oFlow,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ServiceChain")
 		os.Exit(1)
