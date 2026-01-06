@@ -19,6 +19,8 @@ import (
 	"context"
 	"fmt"
 
+	oflow "github.com/nvidia/doca-platform/pkg/openflow"
+
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -32,7 +34,7 @@ type ServiceChainAPI interface {
 var _ ServiceChainAPI = &ServiceChain{}
 
 type ServiceChain struct {
-	OPFlow OpenFlowAPI
+	OPFlow oflow.OpenFlowAPI
 }
 
 // GenerateAndApplyOpenFlows generates and applies OpenFlow rules to the service chain.
