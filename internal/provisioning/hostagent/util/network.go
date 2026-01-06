@@ -25,6 +25,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/netplan"
+
 	"github.com/vishvananda/netlink"
 	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
@@ -121,27 +123,6 @@ func RemoveVFFromBridge(vfName string) error {
 		return fmt.Errorf("failed to get VF link: %w", err)
 	}
 	return netlink.LinkSetNoMaster(vf)
-}
-
-// NetplanConfig represents the netplan configuration structure
-type NetplanConfig struct {
-	Network NetplanNetwork `yaml:"network"`
-}
-
-type NetplanNetwork struct {
-	Version   int                        `yaml:"version"`
-	Ethernets map[string]NetplanEthernet `yaml:"ethernets,omitempty"`
-	Bridges   map[string]NetplanEthernet `yaml:"bridges,omitempty"`
-}
-
-type NetplanEthernet struct {
-	DHCP4          *bool           `yaml:"dhcp4,omitempty"`
-	MTU            *int32          `yaml:"mtu,omitempty"`
-	DHCP4Overrides *DHCP4Overrides `yaml:"dhcp4-overrides,omitempty"`
-}
-
-type DHCP4Overrides struct {
-	UseMTU *bool `yaml:"use-mtu,omitempty"`
 }
 
 // GetCurrentMTU returns the current MTU of the specified interface
@@ -355,13 +336,13 @@ func ConfigureNetplan(pciAddress string, portConfigs []PortConfig, controlPlaneM
 func configurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
 	pciHelper := NewPCIHelper(pciAddress)
 	needApply := false
-	config := NetplanConfig{
-		Network: NetplanNetwork{
+	config := netplan.Config{
+		Network: netplan.Network{
 			Version: 2,
 		},
 	}
 
-	ethernets := make(map[string]NetplanEthernet)
+	ethernets := make(map[string]netplan.Ethernet)
 	// Configure each port based on the provided configurations
 	for _, portConfig := range portConfigs {
 		// Skip if no configuration needed
@@ -375,11 +356,11 @@ func configurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
 			return false, fmt.Errorf("failed to get PF%d interface name: %w", portConfig.PortNumber, err)
 		}
 
-		ethernet := NetplanEthernet{}
+		ethernet := netplan.Ethernet{}
 		// Check MTU and only configure if different from current state
 		if portConfig.MTU != nil {
 			ethernet.MTU = portConfig.MTU
-			ethernet.DHCP4Overrides = &DHCP4Overrides{UseMTU: ptr.To(false)}
+			ethernet.DHCP4Overrides = &netplan.DHCP4Overrides{UseMTU: ptr.To(false)}
 			currentMTU, err := GetCurrentMTU(interfaceName)
 			if err != nil {
 				return false, fmt.Errorf("failed to get current MTU for %s: %w", interfaceName, err)
@@ -422,7 +403,7 @@ func configurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
 }
 
 // writeNetplanFile writes the netplan configuration to a file
-func writeNetplanFile(filePath string, config *NetplanConfig) error {
+func writeNetplanFile(filePath string, config *netplan.Config) error {
 	// Ensure directory exists
 	dir := filepath.Dir(filePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -522,17 +503,17 @@ func writeBridgeMTUConfig(controlPlaneMTU int) error {
 	}
 
 	mtu := int32(controlPlaneMTU)
-	config := NetplanConfig{
-		Network: NetplanNetwork{
+	config := netplan.Config{
+		Network: netplan.Network{
 			Version:   2,
-			Bridges:   map[string]NetplanEthernet{BridgeName: {MTU: &mtu}},
-			Ethernets: make(map[string]NetplanEthernet, len(memberNames)),
+			Bridges:   map[string]netplan.Bridge{BridgeName: {Ethernet: netplan.Ethernet{MTU: &mtu}}},
+			Ethernets: make(map[string]netplan.Ethernet, len(memberNames)),
 		},
 	}
 
 	// Configure MTU for all bridge member interfaces
 	for _, memberName := range memberNames {
-		config.Network.Ethernets[memberName] = NetplanEthernet{MTU: &mtu}
+		config.Network.Ethernets[memberName] = netplan.Ethernet{MTU: &mtu}
 	}
 
 	return writeNetplanFile(BridgeMTUNetplanFile, &config)

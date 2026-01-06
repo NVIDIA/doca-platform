@@ -1,5 +1,5 @@
 /*
-Copyright 2025 NVIDIA
+Copyright 2026 NVIDIA
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package filesystem
 
 import (
 	"os"
@@ -24,7 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("File", func() {
+var _ = Describe("FilesystemHelper", func() {
 	var tempDir string
 
 	BeforeEach(func() {
@@ -135,6 +135,21 @@ var _ = Describe("File", func() {
 			content, err := os.ReadFile(path)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(content).To(Equal(data))
+		})
+
+		It("should remove a file", func() {
+			path := filepath.Join(tempDir, "test-file.txt")
+			data := []byte("test content")
+
+			err := WriteFile(path, data, 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			err = Remove(path)
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = os.Stat(path)
+			Expect(err).To(HaveOccurred())
+			Expect(os.IsNotExist(err)).To(BeTrue())
 		})
 	})
 })
