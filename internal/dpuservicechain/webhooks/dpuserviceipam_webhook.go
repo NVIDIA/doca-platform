@@ -17,6 +17,7 @@ limitations under the License.
 package webhooks
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -154,16 +155,11 @@ func validateDPUServiceIPAMIPV4Network(ipv4Network *dpuservicev1.IPV4Network) er
 	}
 
 	var errs []error
-	for _, exclusion := range ipv4Network.Exclusions {
-		ip := net.ParseIP(exclusion)
-		if ip == nil {
-			errs = append(errs, fmt.Errorf("exclusion %s is not a valid IP", exclusion))
-			continue
-		}
-		if !network.Contains(ip) {
-			errs = append(errs, fmt.Errorf("exclusion %s is not part of network %s", exclusion, ipv4Network.Network))
-		}
-	}
+
+	//nolint:staticcheck // SA1019: Exclusions is deprecated but still supported
+	errs = append(errs, validateExclusions(ipv4Network.Exclusions, network)...)
+	errs = append(errs, validateExcludeRanges(ipv4Network.ExcludeRanges, network)...)
+
 	for _, allocation := range ipv4Network.Allocations {
 		_, allocationNetwork, err := net.ParseCIDR(allocation)
 		if err != nil {
@@ -180,11 +176,64 @@ func validateDPUServiceIPAMIPV4Network(ipv4Network *dpuservicev1.IPV4Network) er
 	return kerrors.NewAggregate(errs)
 }
 
+// validateExclusions validates if the exclusions are valid and part of network. returns error for each invalid exclusion..
+func validateExclusions(exclusions []string, network *net.IPNet) []error {
+	var errs []error
+	for _, exclusion := range exclusions {
+		_, err := validateIP(exclusion, network)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errs
+}
+
+// validateExcludeRanges validates if the exclude ranges are valid and part of network. returns error for each invalid exclude range.
+func validateExcludeRanges(excludeRanges []dpuservicev1.ExcludeRange, network *net.IPNet) []error {
+	var errs []error
+	for _, excludeRange := range excludeRanges {
+		startIP, err := validateIP(excludeRange.StartIP, network)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("exclude range startIP invalid. %w", err))
+		}
+		endIP, err := validateIP(excludeRange.EndIP, network)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("exclude range endIP invalid. %w", err))
+		}
+
+		if startIP != nil && endIP != nil {
+			// ips are represented as 16 bytes slices we can compare them to see if startIP is greater than endIP.
+			if bytes.Compare(startIP, endIP) > 0 {
+				errs = append(errs, fmt.Errorf("exclude range startIP %s is greater than endIP %s", excludeRange.StartIP, excludeRange.EndIP))
+			}
+		}
+	}
+
+	return errs
+}
+
+// validateIP validates if an IP is valid and part of network. returns the ip or error if occurred.
+func validateIP(ip string, network *net.IPNet) (net.IP, error) {
+	pip := net.ParseIP(ip)
+	if pip == nil {
+		return nil, fmt.Errorf("ip %s is not a valid IP", ip)
+	}
+	if !network.Contains(pip) {
+		return nil, fmt.Errorf("ip %s is not part of network %s", ip, network.String())
+	}
+	return pip, nil
+}
+
 // validateDPUServiceIPAMIPV4Subnet validates the .spec.IPV4Subnet of a DPUServiceIPAM object
 func validateDPUServiceIPAMIPV4Subnet(ipv4Subnet *dpuservicev1.IPV4Subnet) error {
 	_, network, err := net.ParseCIDR(ipv4Subnet.Subnet)
 	if err != nil {
 		return fmt.Errorf("subnet %s is not a valid network", ipv4Subnet.Subnet)
+	}
+
+	if excludeRangesErrs := validateExcludeRanges(ipv4Subnet.ExcludeRanges, network); len(excludeRangesErrs) > 0 {
+		return kerrors.NewAggregate(excludeRangesErrs)
 	}
 
 	ip := net.ParseIP(ipv4Subnet.Gateway)

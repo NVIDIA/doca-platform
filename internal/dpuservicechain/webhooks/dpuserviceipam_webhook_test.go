@@ -89,12 +89,14 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("bad exclusion - invalid IP", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Subnet = nil
+			//nolint:staticcheck // SA1019: Exclusions is deprecated but still supported
 			ipam.Spec.IPV4Network.Exclusions[0] = "bad-ip"
 			return ipam
 		}(), true),
 		Entry("bad exclusion - IP not part of the network", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Subnet = nil
+			//nolint:staticcheck // SA1019: Exclusions is deprecated but still supported
 			ipam.Spec.IPV4Network.Exclusions[0] = "10.0.0.0"
 			return ipam
 		}(), true),
@@ -137,6 +139,54 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Subnet = nil
 			ipam.Spec.IPV4Network.Routes[0].Dst = "2001:db8:3333:4444::0/64"
+			return ipam
+		}(), true),
+		Entry("bad exclude range - invalid startIP", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.ExcludeRange{
+				{StartIP: "bad-startIP", EndIP: "192.168.0.50"},
+			}
+			return ipam
+		}(), true),
+		Entry("bad exclude range - invalid endIP", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.ExcludeRange{
+				{StartIP: "192.168.0.40", EndIP: "bad-endIP"},
+			}
+			return ipam
+		}(), true),
+		Entry("bad exclude range - startIP is not part of the network", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.ExcludeRange{
+				{StartIP: "192.178.0.40", EndIP: "192.168.0.50"},
+			}
+			return ipam
+		}(), true),
+		Entry("bad exclude range - endIP is not part of the network", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.ExcludeRange{
+				{StartIP: "192.168.0.40", EndIP: "192.178.0.50"},
+			}
+			return ipam
+		}(), true),
+		Entry("bad exclude range - endIP is smaller than startIP", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.ExcludeRange{
+				{StartIP: "192.178.0.50", EndIP: "192.178.0.40"},
+			}
+			return ipam
+		}(), true),
+		Entry("bad exclude range - endIP is smaller than startIP ipv6", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.ExcludeRange{
+				{StartIP: "2001:db8::40:1", EndIP: "2001:db8::1"},
+			}
 			return ipam
 		}(), true),
 	)
@@ -188,6 +238,54 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Network = nil
 			ipam.Spec.IPV4Subnet.Routes[0].Dst = "2011:db8:3333:4444::0/64"
+			return ipam
+		}(), true),
+		Entry("bad exclude range - invalid startIP", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.ExcludeRange{
+				{StartIP: "bad-startIP", EndIP: "192.168.0.50"},
+			}
+			return ipam
+		}(), true),
+		Entry("bad exclude range - invalid endIP", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.ExcludeRange{
+				{StartIP: "192.168.0.40", EndIP: "bad-endIP"},
+			}
+			return ipam
+		}(), true),
+		Entry("bad exclude range - startIP is not part of the network", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.ExcludeRange{
+				{StartIP: "192.178.0.40", EndIP: "192.168.0.50"},
+			}
+			return ipam
+		}(), true),
+		Entry("bad exclude range - endIP is not part of the network", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.ExcludeRange{
+				{StartIP: "192.168.0.40", EndIP: "192.178.0.50"},
+			}
+			return ipam
+		}(), true),
+		Entry("bad exclude range - endIP is smaller than startIP", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.ExcludeRange{
+				{StartIP: "192.178.0.50", EndIP: "192.178.0.40"},
+			}
+			return ipam
+		}(), true),
+		Entry("bad exclude range - endIP is smaller than startIP ipv6", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.ExcludeRange{
+				{StartIP: "2001:db8::40:1", EndIP: "2001:db8::1"},
+			}
 			return ipam
 		}(), true),
 	)
@@ -294,6 +392,10 @@ func getFullyPopulatedDPUServiceIPAM() *dpuservicev1.DPUServiceIPAM {
 					"192.168.0.10",
 					"192.168.2.30",
 				},
+				ExcludeRanges: []dpuservicev1.ExcludeRange{
+					{StartIP: "192.168.0.40", EndIP: "192.168.0.50"},
+					{StartIP: "192.168.0.60", EndIP: "192.168.0.70"},
+				},
 				Allocations: map[string]string{
 					"dpu-node-1": "192.168.1.0/24",
 					"dpu-node-2": "192.168.2.0/24",
@@ -305,6 +407,10 @@ func getFullyPopulatedDPUServiceIPAM() *dpuservicev1.DPUServiceIPAM {
 				Subnet:         "192.168.0.0/20",
 				Gateway:        "192.168.0.1",
 				PerNodeIPCount: 256,
+				ExcludeRanges: []dpuservicev1.ExcludeRange{
+					{StartIP: "192.168.0.40", EndIP: "192.168.0.50"},
+					{StartIP: "192.168.0.60", EndIP: "192.168.0.70"},
+				},
 				DefaultGateway: true,
 				Routes:         []dpuservicev1.Route{{Dst: "5.5.5.0/16"}},
 			},

@@ -364,6 +364,11 @@ func generateIPPool(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *nvipamv1.IPPoo
 		routes = append(routes, nvipamv1.Route{Dst: route.Dst})
 	}
 
+	exclusions := make([]nvipamv1.ExcludeRange, 0, len(dpuServiceIPAM.Spec.IPV4Subnet.ExcludeRanges))
+	for _, excludeRange := range dpuServiceIPAM.Spec.IPV4Subnet.ExcludeRanges {
+		exclusions = append(exclusions, nvipamv1.ExcludeRange{StartIP: excludeRange.StartIP, EndIP: excludeRange.EndIP})
+	}
+
 	pool := &nvipamv1.IPPool{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        dpuServiceIPAM.Name,
@@ -374,6 +379,7 @@ func generateIPPool(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *nvipamv1.IPPoo
 		Spec: nvipamv1.IPPoolSpec{
 			Subnet:           dpuServiceIPAM.Spec.IPV4Subnet.Subnet,
 			PerNodeBlockSize: dpuServiceIPAM.Spec.IPV4Subnet.PerNodeIPCount,
+			Exclusions:       exclusions,
 			Gateway:          dpuServiceIPAM.Spec.IPV4Subnet.Gateway,
 			NodeSelector:     dpuServiceIPAM.Spec.NodeSelector,
 			DefaultGateway:   dpuServiceIPAM.Spec.IPV4Subnet.DefaultGateway,
@@ -386,10 +392,16 @@ func generateIPPool(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *nvipamv1.IPPoo
 }
 
 // generateCIDRPool generates a CIDRPool object for the given dpuServiceIPAM
+//
+//nolint:staticcheck // SA1019: Exclusions is deprecated but still supported
 func generateCIDRPool(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *nvipamv1.CIDRPool {
-	exclusions := make([]nvipamv1.ExcludeRange, 0, len(dpuServiceIPAM.Spec.IPV4Network.Exclusions))
+	exclusions := make([]nvipamv1.ExcludeRange, 0, len(dpuServiceIPAM.Spec.IPV4Network.Exclusions)+len(dpuServiceIPAM.Spec.IPV4Network.ExcludeRanges))
 	for _, ip := range dpuServiceIPAM.Spec.IPV4Network.Exclusions {
 		exclusions = append(exclusions, nvipamv1.ExcludeRange{StartIP: ip, EndIP: ip})
+	}
+
+	for _, excludeRange := range dpuServiceIPAM.Spec.IPV4Network.ExcludeRanges {
+		exclusions = append(exclusions, nvipamv1.ExcludeRange{StartIP: excludeRange.StartIP, EndIP: excludeRange.EndIP})
 	}
 
 	allocations := make([]nvipamv1.CIDRPoolStaticAllocation, 0, len(dpuServiceIPAM.Spec.IPV4Network.Allocations))
