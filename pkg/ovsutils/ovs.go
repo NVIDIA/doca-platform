@@ -43,7 +43,7 @@ type API interface {
 	SetPortExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error
 	SetOpenVSwitchExternalIDs(ctx context.Context, externalIDs map[string]string) error
 	GetOpenVSwitchExternalIDs(ctx context.Context) (map[string]string, error)
-	AddBridge(ctx context.Context, bridgeName, bridgeDatapathType, interfaceType string) error
+	AddBridge(ctx context.Context, bridgeName, bridgeDatapathType string) error
 	GetIfaceWithName(ctx context.Context, name string) (*ovsmodel.Interface, error)
 }
 
@@ -52,6 +52,8 @@ var _ API = (*Client)(nil)
 type Client struct {
 	ovsclient.Client
 }
+
+const InterfaceTypeInternal = "internal"
 
 // AddPort performing 3 operations
 // Adding interface, adding port, attaching port to a bridge
@@ -404,7 +406,7 @@ func (c *Client) GetOpenVSwitchExternalIDs(ctx context.Context) (map[string]stri
 	return ovsRow.ExternalIDs, nil
 }
 
-func (c *Client) AddBridge(ctx context.Context, bridgeName, bridgeDatapathType, interfaceType string) error {
+func (c *Client) AddBridge(ctx context.Context, bridgeName, bridgeDatapathType string) error {
 	// Check if bridge already exists
 	err := c.Get(ctx, &ovsmodel.Bridge{Name: bridgeName})
 	if err != nil && !errors.Is(err, ovsclient.ErrNotFound) {
@@ -449,7 +451,7 @@ func (c *Client) AddBridge(ctx context.Context, bridgeName, bridgeDatapathType, 
 	interfaceInsert := &ovsmodel.Interface{
 		Name: bridgeName,
 		UUID: interfaceUUID,
-		Type: interfaceType,
+		Type: InterfaceTypeInternal,
 	}
 	interfaceCreateOp, err := c.Create(interfaceInsert)
 	if err != nil {
