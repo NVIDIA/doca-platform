@@ -63,17 +63,17 @@ func (m *MockAPI) EXPECT() *MockAPIMockRecorder {
 }
 
 // AddBridge mocks base method.
-func (m *MockAPI) AddBridge(ctx context.Context, bridgeName, bridgeDatapathType, interfaceType string) error {
+func (m *MockAPI) AddBridge(ctx context.Context, bridgeName, bridgeDatapathType string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddBridge", ctx, bridgeName, bridgeDatapathType, interfaceType)
+	ret := m.ctrl.Call(m, "AddBridge", ctx, bridgeName, bridgeDatapathType)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AddBridge indicates an expected call of AddBridge.
-func (mr *MockAPIMockRecorder) AddBridge(ctx, bridgeName, bridgeDatapathType, interfaceType any) *gomock.Call {
+func (mr *MockAPIMockRecorder) AddBridge(ctx, bridgeName, bridgeDatapathType any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddBridge", reflect.TypeOf((*MockAPI)(nil).AddBridge), ctx, bridgeName, bridgeDatapathType, interfaceType)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddBridge", reflect.TypeOf((*MockAPI)(nil).AddBridge), ctx, bridgeName, bridgeDatapathType)
 }
 
 // AddPort mocks base method.
