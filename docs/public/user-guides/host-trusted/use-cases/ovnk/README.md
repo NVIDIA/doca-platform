@@ -138,7 +138,7 @@ export SERVICE_CIDR=10.233.0.0/18
 export REGISTRY=https://helm.ngc.nvidia.com/nvidia/doca
 
 ## The DPF TAG is the version of the DPF components which will be deployed in this guide.
-export TAG=v25.10.0
+export TAG=v25.10.1
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
 export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb"
