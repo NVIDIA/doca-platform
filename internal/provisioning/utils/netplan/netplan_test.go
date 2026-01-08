@@ -22,6 +22,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"gopkg.in/yaml.v3"
+	"k8s.io/utils/ptr"
 )
 
 var _ = Describe("NetplanHelper", func() {
@@ -40,35 +42,83 @@ var _ = Describe("NetplanHelper", func() {
 
 		It("should write a valid netplan config file", func() {
 			filePath := filepath.Join(tempDir, "test.yaml")
-			mtu := int32(9000)
-			dhcp := true
 			config := &Config{
 				Network: Network{
-					Version: 2,
+					Version:  2,
+					Renderer: "networkd",
 					Ethernets: map[string]Ethernet{
 						"eth0": {
-							MTU:   &mtu,
-							DHCP4: &dhcp,
+							MTU:   ptr.To(int32(9000)),
+							DHCP4: ptr.To(true),
+							DHCP4Overrides: &DHCP4Overrides{
+								UseMTU: ptr.To(false),
+							},
+						},
+						"eth1": {
+							MTU:   ptr.To(int32(1500)),
+							DHCP4: ptr.To(false),
+						},
+						"eth2": {
+							DHCP4:     ptr.To(false),
+							LinkLocal: []string{"ipv4"},
+						},
+					},
+					Bridges: map[string]Bridge{
+						"br-dpu": {
+							Interfaces: []string{"eth0", "eth1"},
+							Ethernet: Ethernet{
+								MTU:   ptr.To(int32(9216)),
+								DHCP4: ptr.To(true),
+								DHCP4Overrides: &DHCP4Overrides{
+									UseMTU: ptr.To(false),
+								},
+							},
 						},
 					},
 				},
 			}
-
+			expectedContent := `
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    eth0:
+      mtu: 9000
+      dhcp4: true
+      dhcp4-overrides:
+        use-mtu: false
+    eth1:
+      mtu: 1500
+      dhcp4: false
+    eth2:
+      dhcp4: false
+      link-local:
+        - ipv4
+  bridges:
+    br-dpu:
+      interfaces:
+        - eth0
+        - eth1
+      mtu: 9216
+      dhcp4: true
+      dhcp4-overrides:
+        use-mtu: false
+`
 			err := config.WriteToFile(filePath)
-			Expect(err).NotTo(HaveOccurred())
-
-			_, err = os.Stat(filePath)
 			Expect(err).NotTo(HaveOccurred())
 
 			info, err := os.Stat(filePath)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(info.Mode().Perm()).To(Equal(os.FileMode(0600)))
 
-			content, err := os.ReadFile(filePath)
+			var writenObj, expectedObj map[string]interface{}
+			writenBytes, err := os.ReadFile(filePath)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(string(content)).To(ContainSubstring("version: 2"))
-			Expect(string(content)).To(ContainSubstring("eth0"))
-			Expect(string(content)).To(ContainSubstring("mtu: 9000"))
+			err = yaml.Unmarshal(writenBytes, &writenObj)
+			Expect(err).NotTo(HaveOccurred())
+			err = yaml.Unmarshal([]byte(expectedContent), &expectedObj)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(writenObj).To(Equal(expectedObj))
 		})
 
 		It("should create parent directories if they don't exist", func() {
@@ -84,61 +134,6 @@ var _ = Describe("NetplanHelper", func() {
 
 			_, err = os.Stat(filePath)
 			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("should write bridge configuration", func() {
-			filePath := filepath.Join(tempDir, "bridge.yaml")
-			mtu := int32(1500)
-			config := &Config{
-				Network: Network{
-					Version: 2,
-					Bridges: map[string]Bridge{
-						"br-dpu": {
-							Ethernet: Ethernet{
-								MTU: &mtu,
-							},
-						},
-					},
-				},
-			}
-
-			err := config.WriteToFile(filePath)
-			Expect(err).NotTo(HaveOccurred())
-
-			content, err := os.ReadFile(filePath)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(string(content)).To(ContainSubstring("bridges"))
-			Expect(string(content)).To(ContainSubstring("br-dpu"))
-		})
-	})
-
-	Context("NetplanConfig structure", Label("NetplanConfig"), func() {
-		It("should have expected fields", func() {
-			mtu := int32(9000)
-			dhcp := true
-			useMTU := false
-
-			config := Config{
-				Network: Network{
-					Version: 2,
-					Ethernets: map[string]Ethernet{
-						"eth0": {
-							MTU:   &mtu,
-							DHCP4: &dhcp,
-							DHCP4Overrides: &DHCP4Overrides{
-								UseMTU: &useMTU,
-							},
-						},
-					},
-				},
-			}
-
-			Expect(config.Network.Version).To(Equal(2))
-			Expect(config.Network.Ethernets).To(HaveLen(1))
-			eth := config.Network.Ethernets["eth0"]
-			Expect(*eth.MTU).To(Equal(int32(9000)))
-			Expect(*eth.DHCP4).To(BeTrue())
-			Expect(*eth.DHCP4Overrides.UseMTU).To(BeFalse())
 		})
 	})
 })
