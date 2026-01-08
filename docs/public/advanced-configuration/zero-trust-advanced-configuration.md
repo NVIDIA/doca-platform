@@ -107,8 +107,7 @@ spec:
 Create a `DPUNode` resource for each host that has a DPU:
 
 > [!NOTE]
-> The `.spec.dpus` field contains the names of each DPUDevice attached to the node. Currently, DPF only supports
-> setting a single DPU for each DPUNode.
+> The `.spec.dpus` field contains the names of each DPUDevice attached to the node.
 
 ```yaml
 ---
