@@ -41,7 +41,7 @@ type Ethernet struct {
 }
 
 type Bridge struct {
-	Ethernet
+	Ethernet   `yaml:",inline"`
 	Interfaces []string `yaml:"interfaces,omitempty"`
 }
 
