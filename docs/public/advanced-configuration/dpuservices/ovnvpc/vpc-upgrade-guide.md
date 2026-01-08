@@ -13,7 +13,7 @@ Use $TARGET_TAG as your desired version.
 
 ```sh
 ## The TARGET_TAG is the desired version of the DPF VPC OVN components which will be upgraded.
-export TARGET_TAG=v25.10.0
+export TARGET_TAG=v25.10.1
 ```
 
 ### 1. Upgrade vpc-ovn-node service
