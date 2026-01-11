@@ -58,15 +58,15 @@ func (m *MockOpenFlowAPI) EXPECT() *MockOpenFlowAPIMockRecorder {
 }
 
 // Add mocks base method.
-func (m *MockOpenFlowAPI) Add(ctx context.Context, flows string) error {
+func (m *MockOpenFlowAPI) Add(ctx context.Context, flows, bridgeName string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Add", ctx, flows)
+	ret := m.ctrl.Call(m, "Add", ctx, flows, bridgeName)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Add indicates an expected call of Add.
-func (mr *MockOpenFlowAPIMockRecorder) Add(ctx, flows any) *gomock.Call {
+func (mr *MockOpenFlowAPIMockRecorder) Add(ctx, flows, bridgeName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockOpenFlowAPI)(nil).Add), ctx, flows)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockOpenFlowAPI)(nil).Add), ctx, flows, bridgeName)
 }

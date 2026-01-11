@@ -28,10 +28,11 @@ import (
 //nolint:goconst
 var _ = Describe("flows", func() {
 	var (
-		mockCtrl *gomock.Controller
-		flows    OpenFlowAPI
-		execMock *MockInterface
-		cmdMock  *MockCmd
+		mockCtrl   *gomock.Controller
+		flows      OpenFlowAPI
+		execMock   *MockInterface
+		cmdMock    *MockCmd
+		bridgeName = "br-sfc"
 	)
 
 	BeforeEach(func() {
@@ -46,34 +47,38 @@ var _ = Describe("flows", func() {
 	})
 
 	It("should succeed when flows is empty", func() {
-		Expect(flows.Add(context.Background(), "")).To(Succeed())
+		Expect(flows.Add(context.Background(), "", bridgeName)).To(Succeed())
 	})
 
-	It("should succeed when flows is not empty", func() {
+	It("should succeed when bridgeName is empty", func() {
+		Expect(flows.Add(context.Background(), "some flow", "")).To(Succeed())
+	})
+
+	It("should succeed when flows and bridgeName are not empty", func() {
 		flowsStr := "learn(cookie=0,idle_timeout=10,table=0,priority=1,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:1,learn(cookie=0,idle_timeout=10,table=0,priority=1,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:2"
 		execMock.EXPECT().LookPath("ovs-ofctl").Return("ovs-ofctl", nil)
 		execMock.EXPECT().
-			CommandContext(gomock.Any(), "ovs-ofctl", "-t", "5", "--bundle", "add-flows", "br-sfc", gomock.Any()).
+			CommandContext(gomock.Any(), "ovs-ofctl", "-t", "5", "--bundle", "add-flows", bridgeName, gomock.Any()).
 			Return(cmdMock)
 		cmdMock.EXPECT().SetStderr(gomock.Any())
 		cmdMock.EXPECT().Run().Return(nil)
-		Expect(flows.Add(context.Background(), flowsStr)).To(Succeed())
+		Expect(flows.Add(context.Background(), flowsStr, bridgeName)).To(Succeed())
 	})
 
 	It("should fail if ovs-vsctl path not found", func() {
 		flowsStr := "learn(cookie=0,idle_timeout=10,table=0,priority=1,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:1,learn(cookie=0,idle_timeout=10,table=0,priority=1,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:2"
 		execMock.EXPECT().LookPath("ovs-ofctl").Return("ovs-ofctl", fmt.Errorf("ovs-ofctl not found"))
-		Expect(flows.Add(context.Background(), flowsStr)).To(MatchError(ContainSubstring("ovs-ofctl not found")))
+		Expect(flows.Add(context.Background(), flowsStr, bridgeName)).To(MatchError(ContainSubstring("ovs-ofctl not found")))
 	})
 
 	It("should fail if ovs-ofctl command fails", func() {
 		flowsStr := "learn(cookie=0,idle_timeout=10,table=0,priority=1,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:1,learn(cookie=0,idle_timeout=10,table=0,priority=1,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:2"
 		execMock.EXPECT().LookPath("ovs-ofctl").Return("ovs-ofctl", nil)
 		execMock.EXPECT().
-			CommandContext(gomock.Any(), "ovs-ofctl", "-t", "5", "--bundle", "add-flows", "br-sfc", gomock.Any()).
+			CommandContext(gomock.Any(), "ovs-ofctl", "-t", "5", "--bundle", "add-flows", bridgeName, gomock.Any()).
 			Return(cmdMock)
 		cmdMock.EXPECT().SetStderr(gomock.Any())
 		cmdMock.EXPECT().Run().Return(fmt.Errorf("ovs-ofctl command failed"))
-		Expect(flows.Add(context.Background(), flowsStr)).To(MatchError(ContainSubstring("ovs-ofctl command failed")))
+		Expect(flows.Add(context.Background(), flowsStr, bridgeName)).To(MatchError(ContainSubstring("ovs-ofctl command failed")))
 	})
 })
