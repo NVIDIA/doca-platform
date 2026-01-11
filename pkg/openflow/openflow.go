@@ -29,12 +29,13 @@ import (
 )
 
 type OpenFlowAPI interface {
-	Add(ctx context.Context, flows string) error
+	Add(ctx context.Context, flows, bridgeName string) error
 }
 
 type OpenFlow struct {
 	Exec         kexec.Interface
 	OVSOfctlPath string
+	BridgeName   string
 	mu           sync.Mutex
 }
 
@@ -43,11 +44,13 @@ type OpenFlow struct {
 // Creates a temporary file on the system and writes the aforementioned
 // string. This will file will be consumed by ovs-ofctl command with the
 // bundle argument to ensure the fact that all flows are added in an atomic operation
-func (f *OpenFlow) Add(ctx context.Context, flows string) (err error) {
-	if flows == "" {
+func (f *OpenFlow) Add(ctx context.Context, flows, bridgeName string) (err error) {
+	log := ctrllog.FromContext(ctx)
+
+	if flows == "" || bridgeName == "" {
+		log.Info("no flows or bridge name provided, skipping addition of flows")
 		return nil
 	}
-	log := ctrllog.FromContext(ctx)
 
 	// Create a temporary file with a proper pattern
 	fileP, err := os.CreateTemp("", "ovs-flows-*.txt")
@@ -77,7 +80,7 @@ func (f *OpenFlow) Add(ctx context.Context, flows string) (err error) {
 		return err
 	}
 
-	if err := f.applyFlowsFile(ctx, tempFileName); err != nil {
+	if err := f.applyFlowsFile(ctx, tempFileName, bridgeName); err != nil {
 		return err
 	}
 
@@ -86,7 +89,7 @@ func (f *OpenFlow) Add(ctx context.Context, flows string) (err error) {
 	return err
 }
 
-func (f *OpenFlow) applyFlowsFile(ctx context.Context, filePath string) error {
+func (f *OpenFlow) applyFlowsFile(ctx context.Context, filePath, bridgeName string) error {
 	if f.OVSOfctlPath == "" {
 		f.mu.Lock()
 		if f.OVSOfctlPath == "" {
@@ -100,7 +103,7 @@ func (f *OpenFlow) applyFlowsFile(ctx context.Context, filePath string) error {
 		f.mu.Unlock()
 	}
 
-	args := []string{"-t", "5", "--bundle", "add-flows", "br-sfc", filePath}
+	args := []string{"-t", "5", "--bundle", "add-flows", bridgeName, filePath}
 	cmd := f.Exec.CommandContext(ctx, f.OVSOfctlPath, args...)
 	var stderr bytes.Buffer
 	cmd.SetStderr(&stderr)
