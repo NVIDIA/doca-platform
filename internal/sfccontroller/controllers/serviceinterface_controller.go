@@ -111,7 +111,7 @@ func AddPatchPort(ctx context.Context, ovs ovsutils.API, brA, brB string, ifaceE
 	patchPort := fmt.Sprintf("puplink%sto%s", strippedBrA, strippedBrB)
 	patchPortPeer := fmt.Sprintf("puplink%sto%s", strippedBrB, strippedBrA)
 
-	log.Info("adding patch port", "brA", brA, "patchPort", patchPort, "patchPortPeer", patchPortPeer)
+	log.Info("adding patch port", "brA", brA, "brB", brB, "patchPort", patchPort, "patchPortPeer", patchPortPeer)
 	if err := ovs.AddPort(ctx, brA, patchPort, "patch", nil); err != nil {
 		return err
 	}
@@ -124,7 +124,7 @@ func AddPatchPort(ctx context.Context, ovs ovsutils.API, brA, brB string, ifaceE
 		return err
 	}
 
-	if err := ovs.SetIfaceExternalIDs(ctx, patchPortPeer, ifaceExternalIDs); err != nil {
+	if err := ovs.SetIfaceExternalIDs(ctx, patchPort, ifaceExternalIDs); err != nil {
 		return err
 	}
 
@@ -226,8 +226,8 @@ func AddInterfacesToOvs(
 		ovnBridge = getOVNBridge(serviceInterface)
 		log.Info("ovn bridge", "name", ovnBridge)
 
-		if err = AddPatchPort(ctx, ovs, ovnBridge, SFCBridge, map[string]string{"dpf-id": metadata}); err != nil {
-			log.Error(err, "failed to add patch port between bridges", "brA", ovnBridge, "brB", SFCBridge)
+		if err = AddPatchPort(ctx, ovs, SFCBridge, ovnBridge, map[string]string{"dpf-id": metadata}); err != nil {
+			log.Error(err, "failed to add patch port between bridges", "brA", SFCBridge, "brB", ovnBridge)
 			return err
 		}
 		return nil
@@ -281,8 +281,8 @@ func DeleteInterfacesFromOvs(
 		ovnBridge = getOVNBridge(serviceInterface)
 		log.Info("ovn bridge", "name", ovnBridge)
 
-		if err = DeletePatchPorts(ctx, ovs, ovnBridge, SFCBridge); err != nil {
-			log.Error(err, "failed to delete patch port between bridges", "brA", ovnBridge, "brB", SFCBridge)
+		if err = DeletePatchPorts(ctx, ovs, SFCBridge, ovnBridge); err != nil {
+			log.Error(err, "failed to delete patch port between bridges", "brA", SFCBridge, "brB", ovnBridge)
 			return err
 		}
 		return nil
