@@ -1,5 +1,5 @@
 /*
-COPYRIGHT 2024 NVIDIA
+COPYRIGHT 2026 NVIDIA
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -52,17 +52,19 @@ import (
 // ServiceChainReconciler reconciles a ServiceChain object
 type ServiceChainReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	NodeName string
-	OFTable  openflow.Table
-	OFBridge openflow.Bridge
-	OVS      ovsutils.API
-	Exec     kexec.Interface
-	SC       ServiceChainAPI
-	OPFlow   oflow.OpenFlowAPI
+	Scheme     *runtime.Scheme
+	NodeName   string
+	BridgeName string
+	OFTable    openflow.Table
+	OFBridge   openflow.Bridge
+	OVS        ovsutils.API
+	Exec       kexec.Interface
+	SC         ServiceChainAPI
+	OPFlow     oflow.OpenFlowAPI
 }
 
 const (
+	BridgeSFC                  = "br-sfc" // Default OVS bridge name for Service Function Chaining
 	RequeueIntervalFlows       = 5 * time.Second
 	podNodeNameKey             = "spec.nodeName"
 	ServiceChainFinalizer      = dpuservicev1.SvcDpuGroupName + "/ServiceChain-finalizer"
