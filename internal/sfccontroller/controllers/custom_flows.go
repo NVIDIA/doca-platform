@@ -1,5 +1,5 @@
 /*
-COPYRIGHT 2025 NVIDIA
+COPYRIGHT 2026 NVIDIA
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -143,7 +143,7 @@ func (r *ServiceChainReconciler) ensurePTPMulticastFlows(ctx context.Context, na
 
 	log.Info(fmt.Sprintf("[customflows] flow lines generated for RX: %s", flow))
 
-	err := r.OPFlow.Add(ctx, flow)
+	err := r.OPFlow.Add(ctx, flow, r.BridgeName)
 	if err != nil {
 		return err
 	}
@@ -151,7 +151,7 @@ func (r *ServiceChainReconciler) ensurePTPMulticastFlows(ctx context.Context, na
 	flow = fmt.Sprintf("cookie=%d, table=0, priority=%d, in_port=%s, dl_dst=%s, actions=output=%s",
 		hash(namespacedName), PriorityCustomFlows, servicePort, NonForwardablePTPMulticastMac, uplinkPort)
 	log.Info(fmt.Sprintf("[customflows] flow lines generated for TX: %s", flow))
-	return r.OPFlow.Add(ctx, flow)
+	return r.OPFlow.Add(ctx, flow, r.BridgeName)
 }
 
 func (r *ServiceChainReconciler) EnsureCustomFlowsForChain(ctx context.Context, sc *dpuservicev1.ServiceChain) error {
