@@ -36,6 +36,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+const (
+	testNamespace = "test-namespace"
+)
+
 func Test_sfcControllerObjects_GenerateManifests(t *testing.T) {
 	g := NewWithT(t)
 	serviceName := operatorv1.SFCControllerName
@@ -83,7 +87,7 @@ spec:
 				defaults := &release.Defaults{}
 				g.Expect(defaults.Parse()).To(Succeed())
 				vars := newDefaultVariables(defaults)
-				vars.Namespace = "test-namespace"
+				vars.Namespace = testNamespace
 				vars.Networking.HighSpeedMTU = 9000
 				return vars
 			}(),
@@ -94,7 +98,7 @@ spec:
 				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      serviceName.String(),
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 					Labels: map[string]string{
 						operatorv1.DPFComponentLabelKey: serviceName.String(),
 						release.DPFVersionLabelKey:      release.DPFVersion(),
@@ -121,7 +125,7 @@ spec:
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-1",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 						Labels: map[string]string{
 							operatorv1.DPFComponentLabelKey: serviceName.String(),
 							release.DPFVersionLabelKey:      release.DPFVersion(),
@@ -141,7 +145,7 @@ spec:
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-2",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 						Labels: map[string]string{
 							operatorv1.DPFComponentLabelKey: serviceName.String(),
 							release.DPFVersionLabelKey:      release.DPFVersion(),
@@ -182,7 +186,7 @@ spec:
 				defaults := &release.Defaults{}
 				g.Expect(defaults.Parse()).To(Succeed())
 				vars := newDefaultVariables(defaults)
-				vars.Namespace = "test-namespace"
+				vars.Namespace = testNamespace
 				vars.HelmCharts[serviceName] = "oci://some-registry.com/some-chart:v0.5.0"
 				vars.Networking.HighSpeedMTU = 9000
 				vars.DPUOpenvSwitchSharedLib64Path = ptr.To("/lib64")
@@ -196,7 +200,7 @@ spec:
 				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      serviceName.String(),
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 					Labels: map[string]string{
 						operatorv1.DPFComponentLabelKey: serviceName.String(),
 						release.DPFVersionLabelKey:      release.DPFVersion(),
@@ -223,7 +227,7 @@ spec:
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 						Labels: map[string]string{
 							operatorv1.DPFComponentLabelKey: serviceName.String(),
 							release.DPFVersionLabelKey:      release.DPFVersion(),
@@ -337,7 +341,7 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sfc-controller",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
 				Status: dpuservicev1.DPUServiceStatus{
@@ -354,7 +358,7 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-1",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 					},
 					Spec: dpuservicev1.DPUServiceNADSpec{},
 					Status: dpuservicev1.DPUServiceNADStatus{
@@ -370,7 +374,7 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-2",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 					},
 					Spec: dpuservicev1.DPUServiceNADSpec{},
 					Status: dpuservicev1.DPUServiceNADStatus{
@@ -411,7 +415,7 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sfc-controller",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
 				Status: dpuservicev1.DPUServiceStatus{
@@ -428,7 +432,7 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-1",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 					},
 					Spec: dpuservicev1.DPUServiceNADSpec{},
 					Status: dpuservicev1.DPUServiceNADStatus{
@@ -462,7 +466,7 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sfc-controller",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
 				Status: dpuservicev1.DPUServiceStatus{
@@ -479,7 +483,7 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-1",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 					},
 					Spec: dpuservicev1.DPUServiceNADSpec{},
 					Status: dpuservicev1.DPUServiceNADStatus{
@@ -495,7 +499,7 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-2",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 					},
 					Spec: dpuservicev1.DPUServiceNADSpec{},
 					Status: dpuservicev1.DPUServiceNADStatus{
@@ -537,7 +541,7 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sfc-controller",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
 				Status: dpuservicev1.DPUServiceStatus{
@@ -554,7 +558,7 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-1",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 					},
 					Spec: dpuservicev1.DPUServiceNADSpec{},
 					Status: dpuservicev1.DPUServiceNADStatus{
@@ -588,7 +592,7 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sfc-controller",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
 				Status: dpuservicev1.DPUServiceStatus{
@@ -605,7 +609,7 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-1",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 					},
 					Spec: dpuservicev1.DPUServiceNADSpec{},
 					Status: dpuservicev1.DPUServiceNADStatus{
@@ -639,7 +643,7 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sfc-controller",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
 				Status: dpuservicev1.DPUServiceStatus{
@@ -691,11 +695,11 @@ func Test_sfcControllerObjects_ReadyCheck(t *testing.T) {
 			var err error
 			if tt.upgradeFromVersion != nil {
 				config := &operatorv1.DPFOperatorConfig{}
-				config.SetNamespace("test-namespace")
+				config.SetNamespace(testNamespace)
 				config.Status.Version = tt.upgradeFromVersion
 				err = sfc.IsReadyForUpgrade(context.Background(), testClient, config)
 			} else {
-				err = sfc.IsReady(context.Background(), testClient, "test-namespace")
+				err = sfc.IsReady(context.Background(), testClient, testNamespace)
 			}
 
 			if tt.wantErr {
@@ -731,7 +735,7 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sfc-controller",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 					Labels: map[string]string{
 						release.DPFVersionLabelKey: release.DPFVersion(),
 					},
@@ -751,7 +755,7 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-1",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 						Labels: map[string]string{
 							release.DPFVersionLabelKey: release.DPFVersion(),
 						},
@@ -770,7 +774,7 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-2",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 						Labels: map[string]string{
 							release.DPFVersionLabelKey: release.DPFVersion(),
 						},
@@ -814,7 +818,7 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sfc-controller",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 					Labels: map[string]string{
 						release.DPFVersionLabelKey: "v0.0.9", // Wrong version
 					},
@@ -834,7 +838,7 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-1",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 						Labels: map[string]string{
 							release.DPFVersionLabelKey: release.DPFVersion(),
 						},
@@ -871,7 +875,7 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sfc-controller",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 					Labels: map[string]string{
 						release.DPFVersionLabelKey: release.DPFVersion(),
 					},
@@ -891,7 +895,7 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-1",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 						Labels: map[string]string{
 							release.DPFVersionLabelKey: "v0.0.9", // Wrong version
 						},
@@ -928,7 +932,7 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sfc-controller",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 					// No version label - this is allowed
 				},
 				Spec: dpuservicev1.DPUServiceSpec{},
@@ -946,7 +950,7 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-1",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 						// No version label - this is allowed
 					},
 					Spec: dpuservicev1.DPUServiceNADSpec{},
@@ -980,7 +984,7 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sfc-controller",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 					Labels: map[string]string{
 						release.DPFVersionLabelKey: release.DPFVersion(),
 					},
@@ -1000,7 +1004,7 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-1",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 						Labels: map[string]string{
 							release.DPFVersionLabelKey: release.DPFVersion(),
 						},
@@ -1037,7 +1041,7 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sfc-controller",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 					Labels: map[string]string{
 						release.DPFVersionLabelKey: release.DPFVersion(),
 					},
@@ -1057,7 +1061,7 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "DPUServiceNAD"},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-nad-1",
-						Namespace: "test-namespace",
+						Namespace: testNamespace,
 						Labels: map[string]string{
 							release.DPFVersionLabelKey: release.DPFVersion(),
 						},
@@ -1107,7 +1111,7 @@ func Test_sfcControllerObjects_ReadyAndVersionUpdatedCheck(t *testing.T) {
 				dpuServiceNADs: tt.internalSFCNADs,
 			}
 
-			err := sfc.IsReady(context.Background(), testClient, "test-namespace")
+			err := sfc.IsReady(context.Background(), testClient, testNamespace)
 
 			if tt.wantErr {
 				g.Expect(err).To(HaveOccurred())

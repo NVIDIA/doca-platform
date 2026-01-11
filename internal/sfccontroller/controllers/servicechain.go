@@ -1,5 +1,5 @@
 /*
-Copyright 2025 NVIDIA.
+Copyright 2026 NVIDIA.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -119,7 +119,7 @@ func (s *ServiceChain) GenerateAndApplyOpenFlows(ctx context.Context, ports [][]
 		}
 
 		// Try adding flows to vswitchd
-		err := s.OPFlow.Add(ctx, flowsPerArray)
+		err := s.OPFlow.Add(ctx, flowsPerArray, BridgeSFC)
 		if err != nil {
 			log.Error(err, "failed to add flows")
 			errs = append(errs, err)

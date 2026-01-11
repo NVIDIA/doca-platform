@@ -1,7 +1,7 @@
 //go:build linux
 
 /*
-COPYRIGHT 2024 NVIDIA
+COPYRIGHT 2026 NVIDIA
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -254,15 +254,16 @@ func main() {
 	oFlow := &oflow.OpenFlow{Exec: kexec.New()}
 
 	if err = (&sfccontroller.ServiceChainReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		NodeName: nodeName,
-		OFTable:  oftable,
-		OFBridge: ofb,
-		OVS:      ovsClient,
-		Exec:     kexec.New(),
-		SC:       &sfccontroller.ServiceChain{OPFlow: oFlow},
-		OPFlow:   oFlow,
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		NodeName:   nodeName,
+		BridgeName: sfccontroller.BridgeSFC,
+		OFTable:    oftable,
+		OFBridge:   ofb,
+		OVS:        ovsClient,
+		Exec:       kexec.New(),
+		SC:         &sfccontroller.ServiceChain{OPFlow: oFlow},
+		OPFlow:     oFlow,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ServiceChain")
 		os.Exit(1)

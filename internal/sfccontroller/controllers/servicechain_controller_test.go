@@ -74,13 +74,14 @@ var _ = Describe("service chain controller", func() {
 		openflowMock = openflow.NewMockOpenFlowAPI(mockCtrl)
 
 		scr = &ServiceChainReconciler{
-			Client:   testClient,
-			NodeName: testNodeName,
-			OFBridge: ofb,
-			OVS:      ovsMock,
-			Exec:     fakeExec,
-			SC:       scMock,
-			OPFlow:   openflowMock,
+			Client:     testClient,
+			NodeName:   testNodeName,
+			BridgeName: BridgeSFC,
+			OFBridge:   ofb,
+			OVS:        ovsMock,
+			Exec:       fakeExec,
+			SC:         scMock,
+			OPFlow:     openflowMock,
 		}
 
 		testManager, err := ctrl.NewManager(cfg,
