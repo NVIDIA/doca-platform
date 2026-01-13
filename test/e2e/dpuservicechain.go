@@ -44,7 +44,7 @@ func ValidateDPUServiceInterfaceCreation(ctx context.Context, input *systemTestI
 	By("verify ServiceInterfaceSet is created in DPF clusters")
 	Eventually(func(g Gomega) {
 		scs := &dpuservicev1.ServiceInterfaceSet{ObjectMeta: metav1.ObjectMeta{Name: testDPUServiceInterfaceName, Namespace: dpuServiceInterfaceNamespace}}
-		g.Expect(dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(scs), scs)).NotTo(HaveOccurred())
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKeyFromObject(scs), scs)).NotTo(HaveOccurred())
 	}, time.Second*300, time.Millisecond*250).Should(Succeed())
 }
 
@@ -61,7 +61,7 @@ func ValidateDPUServiceChainCreation(ctx context.Context, input *systemTestInput
 	By("verify ServiceChainSet is created in DPF clusters")
 	Eventually(func(g Gomega) {
 		scs := &dpuservicev1.ServiceChainSet{ObjectMeta: metav1.ObjectMeta{Name: dpuServiceChainName, Namespace: dpuServiceChainNamespace}}
-		g.Expect(dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(scs), scs)).NotTo(HaveOccurred())
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKeyFromObject(scs), scs)).NotTo(HaveOccurred())
 	}, time.Second*300, time.Millisecond*250).Should(Succeed())
 
 }
@@ -119,11 +119,11 @@ func ValidateDPUServiceChainDeletion(ctx context.Context, input *systemTestInput
 	// Get the control plane secrets.
 	Eventually(func(g Gomega) {
 		serviceChainSetList := dpuservicev1.ServiceChainSetList{}
-		g.Expect(dpuClusterClient.List(ctx, &serviceChainSetList,
+		g.Expect(dpuClusterClient[0].List(ctx, &serviceChainSetList,
 			&client.ListOptions{Namespace: dpuServiceChain.Namespace})).To(Succeed())
 		g.Expect(serviceChainSetList.Items).To(BeEmpty())
 		serviceInterfaceSetList := dpuservicev1.ServiceInterfaceSetList{}
-		g.Expect(dpuClusterClient.List(ctx, &serviceInterfaceSetList,
+		g.Expect(dpuClusterClient[0].List(ctx, &serviceInterfaceSetList,
 			&client.ListOptions{Namespace: dpuServiceInterfaceNamespace})).To(Succeed())
 		g.Expect(serviceInterfaceSetList.Items).To(BeEmpty())
 	}).WithTimeout(300 * time.Second).Should(Succeed())

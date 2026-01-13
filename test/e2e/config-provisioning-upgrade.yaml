@@ -1,5 +1,6 @@
 bfb: "../objects/upgrade/bfb.yaml"
-dpuCluster: "../objects/upgrade/dpucluster.yaml"
+dpuClusters:
+  - "../objects/upgrade/dpucluster.yaml"
 dpuFlavor: "../objects/upgrade/dpuflavor.yaml"
 dpuClusterPrerequisiteObjectPath:
   - "../objects/upgrade/kamaji-provisioning.yaml"
