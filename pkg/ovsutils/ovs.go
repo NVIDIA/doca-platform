@@ -31,6 +31,7 @@ import (
 
 //go:generate mockgen -copyright_file ../../hack/boilerplate.go.txt --build_flags=--mod=mod -package ovsutils -destination mock_ovs_conditional_api.go github.com/ovn-org/libovsdb/client ConditionalAPI
 //go:generate mockgen -copyright_file ../../hack/boilerplate.go.txt --build_flags=--mod=mod -package ovsutils -destination mock_ovs.go . API
+//go:generate mockgen -copyright_file ../../hack/boilerplate.go.txt --build_flags=--mod=mod -package ovsutils -destination mock_ovs_client.go github.com/ovn-org/libovsdb/client Client
 
 type API interface {
 	ovsclient.Client
@@ -43,7 +44,7 @@ type API interface {
 	SetPortExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error
 	SetOpenVSwitchExternalIDs(ctx context.Context, externalIDs map[string]string) error
 	GetOpenVSwitchExternalIDs(ctx context.Context) (map[string]string, error)
-	AddBridge(ctx context.Context, bridgeName, bridgeDatapathType string) error
+	AddBridge(ctx context.Context, bridgeConfig BridgeConfig) error
 	GetIfaceWithName(ctx context.Context, name string) (*ovsmodel.Interface, error)
 }
 
@@ -53,7 +54,17 @@ type Client struct {
 	ovsclient.Client
 }
 
-const InterfaceTypeInternal = "internal"
+type BridgeConfig struct {
+	Name         string
+	DatapathType string
+	FailMode     *string
+}
+
+const (
+	InterfaceTypeInternal      = "internal"
+	errMsgFailedToCreatePort   = "failed to create port %s: %v"
+	errMsgFailedToCreateBridge = "failed to create bridge %s: %v"
+)
 
 // AddPort performing 3 operations
 // Adding interface, adding port, attaching port to a bridge
@@ -108,7 +119,7 @@ func (c *Client) AddPort(ctx context.Context, bridgeName, portName, ifaceType st
 
 	pIns, err := c.Create(port)
 	if err != nil {
-		return fmt.Errorf("failed to create port %s: %v", portName, err)
+		return fmt.Errorf(errMsgFailedToCreatePort, portName, err)
 	}
 
 	operations = append(operations, pIns...)
@@ -133,7 +144,7 @@ func (c *Client) AddPort(ctx context.Context, bridgeName, portName, ifaceType st
 
 	reply, err := c.Transact(ctx, operations...)
 	if err != nil {
-		return fmt.Errorf("failed to create port %s: %v", portName, err)
+		return fmt.Errorf(errMsgFailedToCreatePort, portName, err)
 	}
 
 	if _, err := ovsdb.CheckOperationResults(reply, operations); err != nil {
@@ -406,11 +417,11 @@ func (c *Client) GetOpenVSwitchExternalIDs(ctx context.Context) (map[string]stri
 	return ovsRow.ExternalIDs, nil
 }
 
-func (c *Client) AddBridge(ctx context.Context, bridgeName, bridgeDatapathType string) error {
+func (c *Client) AddBridge(ctx context.Context, bridgeConfig BridgeConfig) error {
 	// Check if bridge already exists
-	err := c.Get(ctx, &ovsmodel.Bridge{Name: bridgeName})
+	err := c.Get(ctx, &ovsmodel.Bridge{Name: bridgeConfig.Name})
 	if err != nil && !errors.Is(err, ovsclient.ErrNotFound) {
-		return fmt.Errorf("failed to get bridge %s: %v", bridgeName, err)
+		return fmt.Errorf("failed to get bridge %s: %v", bridgeConfig.Name, err)
 	}
 	// bridge already exists
 	if err == nil {
@@ -424,38 +435,40 @@ func (c *Client) AddBridge(ctx context.Context, bridgeName, bridgeDatapathType s
 	operations := []ovsdb.Operation{}
 	// Create Bridge
 	bridge := &ovsmodel.Bridge{
-		Name:         bridgeName,
+		Name:         bridgeConfig.Name,
 		UUID:         bridgeUUID,
 		Ports:        []string{portUUID},
-		DatapathType: bridgeDatapathType,
+		DatapathType: bridgeConfig.DatapathType,
+		FailMode:     bridgeConfig.FailMode,
 	}
+
 	bridgeCreateOp, err := c.Create(bridge)
 	if err != nil {
-		return fmt.Errorf("failed to create bridge %s: %v", bridgeName, err)
+		return fmt.Errorf(errMsgFailedToCreateBridge, bridgeConfig.Name, err)
 	}
 	operations = append(operations, bridgeCreateOp...)
 
 	// Create Port
 	port := &ovsmodel.Port{
-		Name:       bridgeName,
+		Name:       bridgeConfig.Name,
 		UUID:       portUUID,
 		Interfaces: []string{interfaceUUID},
 	}
 	portCreateOp, err := c.Create(port)
 	if err != nil {
-		return fmt.Errorf("failed to create port %s: %v", bridgeName, err)
+		return fmt.Errorf(errMsgFailedToCreatePort, bridgeConfig.Name, err)
 	}
 	operations = append(operations, portCreateOp...)
 
 	// Create Interface
 	interfaceInsert := &ovsmodel.Interface{
-		Name: bridgeName,
+		Name: bridgeConfig.Name,
 		UUID: interfaceUUID,
 		Type: InterfaceTypeInternal,
 	}
 	interfaceCreateOp, err := c.Create(interfaceInsert)
 	if err != nil {
-		return fmt.Errorf("failed to create interface %s: %v", bridgeName, err)
+		return fmt.Errorf("failed to create interface %s: %v", bridgeConfig.Name, err)
 	}
 	operations = append(operations, interfaceCreateOp...)
 
@@ -480,11 +493,11 @@ func (c *Client) AddBridge(ctx context.Context, bridgeName, bridgeDatapathType s
 	// Perform the transaction
 	reply, err := c.Transact(ctx, operations...)
 	if err != nil {
-		return fmt.Errorf("failed to create bridge %s: %v", bridgeName, err)
+		return fmt.Errorf(errMsgFailedToCreateBridge, bridgeConfig.Name, err)
 	}
 
 	if _, err := ovsdb.CheckOperationResults(reply, operations); err != nil {
-		return fmt.Errorf("failed to create bridge %s: %v", bridgeName, err)
+		return fmt.Errorf(errMsgFailedToCreateBridge, bridgeConfig.Name, err)
 	}
 
 	return nil
