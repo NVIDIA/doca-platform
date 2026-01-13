@@ -56,7 +56,7 @@ import (
 type ProvisionDPUClustersInput struct {
 	numberOfNodesPerCluster int
 	dpuClusterPrerequisites []client.Object
-	dpuCluster              *provisioningv1.DPUCluster
+	dpuClusters             []*provisioningv1.DPUCluster
 	dpuFlavor               *provisioningv1.DPUFlavor
 	bfb                     *provisioningv1.BFB
 	dpuSet                  *provisioningv1.DPUSet
@@ -80,7 +80,7 @@ type systemTestInput struct {
 	config                        *operatorv1.DPFOperatorConfig
 	pvc                           *corev1.PersistentVolumeClaim
 	additionalProvisioningObjects []client.Object
-	dpuCluster                    *provisioningv1.DPUCluster
+	dpuClusters                   []*provisioningv1.DPUCluster
 	dpuFlavor                     *provisioningv1.DPUFlavor
 	dpuService                    *dpuservicev1.DPUService
 	dpuServiceHBN                 *dpuservicev1.DPUService
@@ -192,10 +192,14 @@ func (t *systemTestInput) applyConfig(conf config) {
 		t.pvc = pvc
 	}
 
-	dpuCluster := &provisioningv1.DPUCluster{}
-	dpuClusterUnstructured := unstructuredFromFile(conf.DPUClusterPath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuClusterUnstructured.Object, dpuCluster)).To(Succeed())
-	t.dpuCluster = dpuCluster
+	// Load all DPU clusters
+	t.dpuClusters = make([]*provisioningv1.DPUCluster, 0, len(conf.DPUClusterPaths))
+	for _, dpuClusterPath := range conf.DPUClusterPaths {
+		dpuCluster := &provisioningv1.DPUCluster{}
+		dpuClusterUnstructured := unstructuredFromFile(dpuClusterPath)
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuClusterUnstructured.Object, dpuCluster)).To(Succeed())
+		t.dpuClusters = append(t.dpuClusters, dpuCluster)
+	}
 
 	dpuServiceInterface := &dpuservicev1.DPUServiceInterface{}
 	dsi := unstructuredFromFile(conf.DPUServiceInterfacePath)
@@ -374,14 +378,8 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 }
 
-// ProvisionDPUCluster provisions a DPUCluster and creates a BFB.
-func ProvisionDPUCluster(ctx context.Context, input ProvisionDPUClustersInput) {
-	// TODO: Pass this in as config instead of as a global.
-	if input.bfbImageURL != "" {
-		By(fmt.Sprintf("override BFB URL with env variable BFB_IMAGE_URL=%s", input.bfbImageURL))
-		input.bfb.Spec.URL = input.bfbImageURL
-	}
-
+// ProvisionDPUClusters provisions DPUClusters.
+func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) {
 	By("create prerequisites objects for DPUClusters")
 	for _, obj := range input.dpuClusterPrerequisites {
 		obj.SetLabels(testutils.AfterAllCleanupLabels)
@@ -401,24 +399,35 @@ func ProvisionDPUCluster(ctx context.Context, input ProvisionDPUClustersInput) {
 		}
 	}
 
-	By("create DPUCluster")
-	input.dpuCluster.SetLabels(testutils.AfterAllCleanupLabels)
-	By(fmt.Sprintf("Creating DPU Cluster %s/%s", input.dpuCluster.GetNamespace(), input.dpuCluster.GetName()))
-	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, input.dpuCluster))).NotTo(HaveOccurred())
+	By("create DPUClusters")
+	for _, dpuCluster := range input.dpuClusters {
+		dpuCluster.SetLabels(testutils.AfterAllCleanupLabels)
+		By(fmt.Sprintf("Creating DPU Cluster %s/%s", dpuCluster.GetNamespace(), dpuCluster.GetName()))
+		Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuCluster))).NotTo(HaveOccurred())
+	}
 
+	By(fmt.Sprintf("Waiting for %d DPUCluster(s) to be ready", len(input.dpuClusters)))
 	Eventually(func(g Gomega) {
 		clusters := &provisioningv1.DPUClusterList{}
 		g.Expect(input.client.List(ctx, clusters)).To(Succeed())
-		g.Expect(clusters.Items).To(HaveLen(1))
+		g.Expect(clusters.Items).To(HaveLen(len(input.dpuClusters)))
 		for _, cluster := range clusters.Items {
 			g.Expect(cluster.Status.Phase).Should(Equal(provisioningv1.PhaseReady))
 		}
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
 	By("creating a client for the DPUCluster")
-	getDPUClusterClient(ctx, input)
+	getDPUClusterClients(ctx, input)
+}
 
-	By("create the BFB and DPUSet")
+// ProvisionBFBAndDPUFlavor creates the BFB and optionally the DPUFlavor resources
+func ProvisionBFBAndDPUFlavor(ctx context.Context, input ProvisionDPUClustersInput) {
+	// TODO: Pass this in as config instead of as a global.
+	if input.bfbImageURL != "" {
+		By(fmt.Sprintf("override BFB URL with env variable BFB_IMAGE_URL=%s", input.bfbImageURL))
+		input.bfb.Spec.URL = input.bfbImageURL
+	}
+	By("create the BFB and DPUFlavor")
 	Eventually(func(g Gomega) {
 		By("creating the BFB")
 		bfb := input.bfb.DeepCopy()
@@ -454,7 +463,7 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 		serviceSetDeployment := &appsv1.Deployment{}
 		g.Expect(input.client.Get(ctx, client.ObjectKey{
 			Namespace: dpfOperatorSystemNamespace,
-			Name:      fmt.Sprintf("in-cluster-%s", getServiceChainSetControllerDPUServiceName(input.dpuCluster.Name, input.dpuCluster.Namespace))},
+			Name:      fmt.Sprintf("in-cluster-%s", getServiceChainSetControllerDPUServiceName(input.dpuClusters[0].Name, input.dpuClusters[0].Namespace))},
 			serviceSetDeployment)).To(Succeed())
 		g.Expect(serviceSetDeployment.Status.ReadyReplicas).To(Equal(*serviceSetDeployment.Spec.Replicas))
 	}).WithTimeout(600 * time.Second).Should(Succeed())
@@ -462,7 +471,7 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 	By("Checking that DPUService objects have been mirrored to the DPUClusters")
 	Eventually(func(g Gomega) {
 		deployments := &appsv1.DeploymentList{}
-		g.Expect(dpuClusterClient.List(ctx, deployments, client.HasLabels{argoCDInstanceLabel})).To(Succeed())
+		g.Expect(dpuClusterClient[0].List(ctx, deployments, client.HasLabels{argoCDInstanceLabel})).To(Succeed())
 		found := map[string]bool{}
 		for i := range deployments.Items {
 			g.Expect(deployments.Items[i].GetLabels()).To(HaveKey(argoCDInstanceLabel))
@@ -470,7 +479,7 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 			found[deployments.Items[i].GetLabels()[argoCDInstanceLabel]] = true
 		}
 		daemonsets := appsv1.DaemonSetList{}
-		g.Expect(dpuClusterClient.List(ctx, &daemonsets, client.HasLabels{argoCDInstanceLabel}, client.InNamespace(input.dpuCluster.GetNamespace()))).To(Succeed())
+		g.Expect(dpuClusterClient[0].List(ctx, &daemonsets, client.HasLabels{argoCDInstanceLabel}, client.InNamespace(input.dpuClusters[0].GetNamespace()))).To(Succeed())
 		for i := range daemonsets.Items {
 			g.Expect(daemonsets.Items[i].GetLabels()).To(HaveKey(argoCDInstanceLabel))
 			g.Expect(daemonsets.Items[i].GetLabels()[argoCDInstanceLabel]).NotTo(Equal(""))
@@ -495,7 +504,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 	tracker := NewByTracker()
 	Eventually(func(g Gomega) {
 		nodes := &corev1.NodeList{}
-		g.Expect(dpuClusterClient.List(ctx, nodes)).ToNot(HaveOccurred())
+		g.Expect(dpuClusterClient[0].List(ctx, nodes)).ToNot(HaveOccurred())
 		nodeKey := fmt.Sprintf("%d/%d", len(nodes.Items), input.numberOfNodesPerCluster)
 		tracker.By(nodeKey, "Checking that the number of nodes %d is equal to %d", len(nodes.Items), input.numberOfNodesPerCluster)
 		g.Expect(nodes.Items).To(HaveLen(input.numberOfNodesPerCluster))
@@ -597,20 +606,21 @@ func verifyDPUServicesReady(ctx context.Context, input *systemTestInput, dpuServ
 	}).WithTimeout(20 * time.Minute).Should(Succeed())
 }
 
-// getDPUClusterClient retrieves the DPUCluster client for the given input.
-func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput) {
+// getDPUClusterClient retrieves the DPUCluster client for the cluster at the given index. This function is internal and should not be called directly.
+// Instead, use getDPUClusterClients to retrieve all clients for all clusters.
+func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, clusterIndex int) {
 	var clientHealthCheck func() bool
 	var restConfigHealthCheck func() bool
 	Eventually(func(g Gomega) {
 		// Use the new tunnel helper to create a client and the restConfig for the Kamaji cluster
-		dpuClusterClient, clientHealthCheck = tunnel.NewTunneledClient(ctx, input.client, input.restConfig, input.dpuCluster)
-		dpuClusterRestConfig, restConfigHealthCheck = tunnel.NewTunneledRestConfig(ctx, input.client, input.restConfig, input.dpuCluster)
+		dpuClusterClient[clusterIndex], clientHealthCheck = tunnel.NewTunneledClient(ctx, input.client, input.restConfig, input.dpuClusters[clusterIndex])
+		dpuClusterRestConfig[clusterIndex], restConfigHealthCheck = tunnel.NewTunneledRestConfig(ctx, input.client, input.restConfig, input.dpuClusters[clusterIndex])
 		// Setup the dpuClusterRestClient
-		dpuClusterRestConfig.APIPath = "/api"
-		dpuClusterRestConfig.GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
-		dpuClusterRestConfig.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
+		dpuClusterRestConfig[clusterIndex].APIPath = "/api"
+		dpuClusterRestConfig[clusterIndex].GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
+		dpuClusterRestConfig[clusterIndex].NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
 		var err error
-		dpuClusterRestClient, err = rest.RESTClientFor(dpuClusterRestConfig)
+		dpuClusterRestClient[clusterIndex], err = rest.RESTClientFor(dpuClusterRestConfig[clusterIndex])
 		g.Expect(err).ToNot(HaveOccurred())
 	}).WithTimeout(10 * time.Second).Should(Succeed())
 
@@ -631,19 +641,33 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput) {
 			case <-ticker.C:
 				if !clientHealthCheck() {
 					By("Tunneled client health check failed, recreating client and rest config")
-					getDPUClusterClient(ctx, input)
+					getDPUClusterClient(ctx, input, clusterIndex)
 					// Exit this goroutine as a new one will be created
 					return
 				}
 				if !restConfigHealthCheck() {
 					By("Tunneled rest config health check failed, recreating client and rest config")
-					getDPUClusterClient(ctx, input)
+					getDPUClusterClient(ctx, input, clusterIndex)
 					// Exit this goroutine as a new one will be created
 					return
 				}
 			}
 		}
 	}()
+}
+
+// getDPUClusterClients retrieves the DPUCluster clients for all clusters in the input.
+func getDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) {
+	// Pre-initialize the global slices with the correct size
+	numClusters := len(input.dpuClusters)
+	dpuClusterClient = make([]client.Client, numClusters)
+	dpuClusterRestConfig = make([]*rest.Config, numClusters)
+	dpuClusterRestClient = make([]*rest.RESTClient, numClusters)
+
+	// Set up client for each cluster
+	for i := range input.dpuClusters {
+		getDPUClusterClient(ctx, input, i)
+	}
 }
 
 func unstructuredFromFile(path string) *unstructured.Unstructured {

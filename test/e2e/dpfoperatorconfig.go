@@ -249,19 +249,19 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 		for name := range inClusterDeploymentDPUServices {
 			n := name.String()
 			if name == operatorv1.ServiceSetControllerName {
-				n = getServiceChainSetControllerDPUServiceName(input.dpuCluster.Name, input.dpuCluster.Namespace)
+				n = getServiceChainSetControllerDPUServiceName(input.dpuClusters[0].Name, input.dpuClusters[0].Namespace)
 			}
 			deployValidation(input.client, "in-cluster", n)
 		}
 		// Verify overrides in the DPUClusters
 		for name := range deploymentDPUservices {
-			deployValidation(dpuClusterClient, input.dpuCluster.Name, name.String())
+			deployValidation(dpuClusterClient[0], input.dpuClusters[0].Name, name.String())
 		}
 		for name := range daemonSetDPUServices {
-			nameForCluster := fmt.Sprintf("%s-%s", input.dpuCluster.Name, name)
+			nameForCluster := fmt.Sprintf("%s-%s", input.dpuClusters[0].Name, name)
 			tracker.By(nameForCluster, "verifying overrides for %s", nameForCluster)
 			daemonSets := appsv1.DaemonSetList{}
-			g.Expect(dpuClusterClient.List(ctx, &daemonSets,
+			g.Expect(dpuClusterClient[0].List(ctx, &daemonSets,
 				client.MatchingLabels{argoCDInstanceLabel: nameForCluster})).To(Succeed())
 			g.Expect(daemonSets.Items).To(HaveLen(1))
 			daemonSet := daemonSets.Items[0]
@@ -287,9 +287,9 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 }
 
 func ValidateDPFOperatorMTUCurrentConfiguration(ctx context.Context, input *systemTestInput) {
-	By("verify flannel configmap for cluster " + input.dpuCluster.Name)
+	By("verify flannel configmap for cluster " + input.dpuClusters[0].Name)
 	flannelConfigMap := &corev1.ConfigMap{}
-	Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
+	Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
 	Expect(flannelConfigMap.Data["net-conf.json"]).To(ContainSubstring("MTU\": 1500,"))
 }
 
@@ -308,10 +308,10 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *syste
 		g.Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(originalConfig))).To(Succeed())
 	}).Should(Succeed())
 
-	By("verify flannel and multus for cluster " + input.dpuCluster.Name)
+	By("verify flannel and multus for cluster " + input.dpuClusters[0].Name)
 	Eventually(func(g Gomega) {
 		flannelConfigMap := &corev1.ConfigMap{}
-		g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
 		g.Expect(flannelConfigMap.Data["net-conf.json"]).To(ContainSubstring("MTU\": 1300,"))
 
 		netAttachDef := &unstructured.Unstructured{}
@@ -321,13 +321,13 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *syste
 			Kind:    "NetworkAttachmentDefinition",
 		})
 
-		g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "mybrsfc"}, netAttachDef)).To(Succeed())
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "mybrsfc"}, netAttachDef)).To(Succeed())
 		netAttachConfig, exists, err := unstructured.NestedString(netAttachDef.Object, "spec", "config")
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(exists).To(BeTrue())
 		g.Expect(netAttachConfig).To(ContainSubstring("mtu\": 9000,"))
 
-		g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "mybrhbn"}, netAttachDef)).To(Succeed())
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "mybrhbn"}, netAttachDef)).To(Succeed())
 		netAttachConfig, exists, err = unstructured.NestedString(netAttachDef.Object, "spec", "config")
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(exists).To(BeTrue())
@@ -359,10 +359,10 @@ func ValidateDPFOperatorFlannelPodCIDRChange(ctx context.Context, input *systemT
 		g.Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(originalConfig))).To(Succeed())
 	}).Should(Succeed())
 
-	By("verify flannel configmap for cluster " + input.dpuCluster.Name)
+	By("verify flannel configmap for cluster " + input.dpuClusters[0].Name)
 	Eventually(func(g Gomega) {
 		flannelConfigMap := &corev1.ConfigMap{}
-		g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
 		g.Expect(flannelConfigMap.Data["net-conf.json"]).To(ContainSubstring("10.255.0.0/14"))
 	}, time.Second*30).Should(Succeed())
 
@@ -486,8 +486,8 @@ func ValidateDPFOperatorPathConfiguration(ctx context.Context, input *systemTest
 	Eventually(func(g Gomega) {
 		for name := range dpuServiceDaemonSetsWithPathChanges {
 			daemonSets := appsv1.DaemonSetList{}
-			nameForCluster := fmt.Sprintf("%s-%s", input.dpuCluster.Name, name)
-			g.Expect(dpuClusterClient.List(ctx, &daemonSets,
+			nameForCluster := fmt.Sprintf("%s-%s", input.dpuClusters[0].Name, name)
+			g.Expect(dpuClusterClient[0].List(ctx, &daemonSets,
 				client.MatchingLabels{argoCDInstanceLabel: nameForCluster})).To(Succeed())
 			g.Expect(daemonSets.Items).To(HaveLen(1))
 			volumes := daemonSets.Items[0].Spec.Template.Spec.Volumes
@@ -728,13 +728,13 @@ func ValidateDPFOperatorConfigCleanupPrerequisites(ctx context.Context, input *s
 		Eventually(func(g Gomega) {
 			// Expect ServiceInterface for standalone DPUServiceInterface to be created
 			standaloneServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-			g.Expect(dpuClusterClient.List(ctx, standaloneServiceInterfaceList, client.InNamespace(dpuServiceInterfaceNamespace))).To(Succeed())
+			g.Expect(dpuClusterClient[0].List(ctx, standaloneServiceInterfaceList, client.InNamespace(dpuServiceInterfaceNamespace))).To(Succeed())
 			g.Expect(standaloneServiceInterfaceList.Items).To(HaveLen(input.numberOfDPUNodes))
 
 			// Expect ServiceInterface for DPUDeployment owned DPUServiceInterface to exist
 			for _, serviceInterfaceLabels := range dpuDeploymentOwnedServiceInterfaceLabels {
 				dpudeploymentOwnedServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-				g.Expect(dpuClusterClient.List(ctx, dpudeploymentOwnedServiceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
+				g.Expect(dpuClusterClient[0].List(ctx, dpudeploymentOwnedServiceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
 				g.Expect(dpudeploymentOwnedServiceInterfaceList.Items).To(HaveLen(input.numberOfDPUNodes))
 			}
 		}).WithTimeout(2 * time.Minute).Should(Succeed())

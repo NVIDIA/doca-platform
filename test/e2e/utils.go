@@ -53,9 +53,9 @@ const (
 )
 
 var (
-	dpuClusterClient      client.Client
-	dpuClusterRestConfig  *rest.Config
-	dpuClusterRestClient  *rest.RESTClient
+	dpuClusterClient      []client.Client
+	dpuClusterRestConfig  []*rest.Config
+	dpuClusterRestClient  []*rest.RESTClient
 	hostClusterRESTClient *rest.RESTClient
 	metricsURI            string
 	// helmRegistry holds the Helm registry in which the artifacts used in e2e are pushed
