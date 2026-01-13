@@ -363,7 +363,7 @@ func createDPUServiceChainP0ToInterfaceMatchingLabels(ctx context.Context, input
 func getDPUNodesInOrder(ctx context.Context, input *systemTestInput) (corev1.Node, corev1.Node) {
 	By("getting DPU cluster nodes in order")
 	worker1, _ := getTwoWorkerNodeNames(ctx, input.client)
-	dpuNodes := getDPUClusterNodes(ctx, dpuClusterClient)
+	dpuNodes := getDPUClusterNodes(ctx, dpuClusterClient[0])
 	Expect(dpuNodes).To(HaveLen(2))
 	if dpuNodes[0].ObjectMeta.Labels["provisioning.dpu.nvidia.com/host"] == worker1 {
 		return dpuNodes[0], dpuNodes[1]
@@ -400,12 +400,12 @@ func waitForDHCPDaemonPodsReady(ctx context.Context, testClient client.Client, v
 
 // cleanupDPUClusterNodeLabels cleans up the DPU cluster node labels
 func cleanupDPUClusterNodeLabels(ctx context.Context) {
-	dpuNodes := getDPUClusterNodes(ctx, dpuClusterClient)
+	dpuNodes := getDPUClusterNodes(ctx, dpuClusterClient[0])
 	Expect(dpuNodes).To(HaveLen(2))
 
 	// Delete the specific labels
 	for _, dpuNode := range dpuNodes {
-		vpcutils.UpdateDPUNodeLabelsMerge(ctx, dpuClusterClient, dpuNode.Name, nil, []string{vpcutils.TenantNodeLabelKey, vpcutils.TenantLabelKey})
+		vpcutils.UpdateDPUNodeLabelsMerge(ctx, dpuClusterClient[0], dpuNode.Name, nil, []string{vpcutils.TenantNodeLabelKey, vpcutils.TenantLabelKey})
 	}
 }
 

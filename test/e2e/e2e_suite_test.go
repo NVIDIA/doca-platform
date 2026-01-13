@@ -240,8 +240,10 @@ var _ = BeforeSuite(func() {
 		// BeforeProvisioning(ctx, input)
 		// CreateProvisioningDPUCluster(ctx, input)
 		// CreateProvisioningDPUSet(ctx, input)
-		ProvisionDPUCluster(ctx, getProvisionDPUClustersInput())
-		ProvisionDPUSet(ctx, getProvisionDPUClustersInput())
+		provInput := getProvisionDPUClustersInput()
+		ProvisionDPUClusters(ctx, provInput)
+		ProvisionBFBAndDPUFlavor(ctx, provInput)
+		ProvisionDPUSet(ctx, provInput)
 	}
 
 	// Apply the ProvisioningBeforeSuite setup if directly specified provisioningLabel
@@ -298,7 +300,7 @@ func reportAfterEach(spec SpecReport) {
 
 		// Collect SOS reports if enabled
 		if enableSOSReports {
-			err := collectSOSReports(ctx, collectInput, dpuClusterClient, dpuClusterRestConfig)
+			err := collectSOSReports(ctx, collectInput, dpuClusterClient[0], dpuClusterRestConfig[0])
 			if err != nil {
 				GinkgoLogr.Error(err, "Failed to collect SOS reports")
 			}

@@ -40,7 +40,7 @@ func ValidateDPUServiceCredentialRequestCreation(ctx context.Context, input *sys
 
 	By("create a DPUServiceCredentialRequest targeting the DPUCluster")
 	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.dpuServiceCredentialRequest.DeepCopy())
-	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.dpuCluster.Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
+	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.dpuClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
 	Expect(input.client.Create(ctx, dcr)).To(Succeed())
 
 	By("create a DPUServiceCredentialRequest targeting the host cluster")
@@ -67,7 +67,7 @@ func ValidateDPUServiceCredentialRequestMetrics(ctx context.Context, input *syst
 
 	By("create a DPUServiceCredentialRequest targeting the DPUCluster")
 	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.dpuServiceCredentialRequest.DeepCopy())
-	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.dpuCluster.Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
+	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.dpuClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
 	Expect(input.client.Create(ctx, dcr)).To(Succeed())
 
 	By("verify DPUServiceCredentialRequest metrics in KSM")
@@ -95,7 +95,7 @@ func ValidateDPUServiceCredentialRequestDeletion(ctx context.Context, input *sys
 
 	By("create a DPUServiceCredentialRequest targeting the DPUCluster")
 	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.dpuServiceCredentialRequest.DeepCopy())
-	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.dpuCluster.Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
+	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.dpuClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
 	Expect(input.client.Create(ctx, dcr)).To(Succeed())
 
 	By("create a DPUServiceCredentialRequest targeting the host cluster")

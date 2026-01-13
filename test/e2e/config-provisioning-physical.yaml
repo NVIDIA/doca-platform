@@ -1,5 +1,6 @@
 bfb: "../objects/infrastructure/bfb.yaml"
-dpuCluster: "../objects/infrastructure/dpucluster.yaml"
+dpuClusters:
+  - "../objects/infrastructure/dpucluster.yaml"
 dpuSet: "../objects/infrastructure/dpuset.yaml"
 dpuFlavor: "../objects/infrastructure/dpuflavor-physical.yaml"
 dpuClusterPrerequisiteObjectPath:

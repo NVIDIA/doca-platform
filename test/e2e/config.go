@@ -33,7 +33,7 @@ type config struct {
 	DPUFlavorPath                     *string  `json:"dpuFlavor,omitempty"`
 	ProvisioningControllerPVCPath     *string  `json:"provisioningControllerPVC,omitempty"`
 	BFBPath                           string   `json:"bfb"`
-	DPUClusterPath                    string   `json:"dpuCluster"`
+	DPUClusterPaths                   []string `json:"dpuClusters"`
 	DPUSetPath                        string   `json:"dpuSet"`
 	DPUServiceInterfacePath           string   `json:"dpuServiceInterface"`
 	DPUServiceChainPath               string   `json:"dpuServiceChain"`

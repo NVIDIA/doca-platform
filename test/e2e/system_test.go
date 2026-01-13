@@ -198,7 +198,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			By("Waiting for provisioning")
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 			By("Waiting for DPU cluster pods to be ready")
-			VerifyClusterPods(ctx, dpuClusterClient, systemPodsToVerify)
+			VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
 			By("Waiting for DPFOperatorConfig to be ready")
 			VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
 		}
@@ -365,7 +365,7 @@ func getProvisionDPUClustersInput() ProvisionDPUClustersInput {
 	return ProvisionDPUClustersInput{
 		numberOfNodesPerCluster: input.numberOfDPUNodes,
 		dpuClusterPrerequisites: input.additionalProvisioningObjects,
-		dpuCluster:              input.dpuCluster,
+		dpuClusters:             input.dpuClusters,
 		dpuSet:                  input.dpuSet,
 		bfb:                     input.bfb,
 		dpuFlavor:               input.dpuFlavor,
