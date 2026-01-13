@@ -128,7 +128,7 @@ func main() {
 			SyncPeriod: &syncPeriod,
 		},
 		LeaderElection:   enableLeaderElection,
-		LeaderElectionID: "snap-node-driver.nvidia.com",
+		LeaderElectionID: "snap-node-driver.dpu.nvidia.com",
 
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the

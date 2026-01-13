@@ -260,7 +260,7 @@ func main() {
 			MaxConcurrentReconciles: concurrency,
 		},
 		LeaderElection:   enableLeaderElection,
-		LeaderElectionID: "19f9f38b.nvidia.com",
+		LeaderElectionID: "provisioning.dpu.nvidia.com",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
