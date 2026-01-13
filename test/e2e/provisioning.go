@@ -41,7 +41,7 @@ func getProvisionInput(input *systemTestInput) ProvisionDPUClustersInput {
 	return ProvisionDPUClustersInput{
 		numberOfNodesPerCluster: input.numberOfDPUNodes,
 		dpuClusterPrerequisites: input.additionalProvisioningObjects,
-		dpuCluster:              input.dpuCluster,
+		dpuClusters:             input.dpuClusters,
 		dpuSet:                  input.dpuSet,
 		bfb:                     input.bfb,
 		dpuFlavor:               input.dpuFlavor,
@@ -120,7 +120,7 @@ func CreateProvisioningDPUCluster(ctx context.Context, input *systemTestInput) {
 
 	By("Creating DPUCluster object")
 	// Deep copy to avoid mutating the shared original object
-	dpuCluster := provInput.dpuCluster.DeepCopy()
+	dpuCluster := provInput.dpuClusters[0].DeepCopy()
 	dpuCluster.SetLabels(testutils.AfterAllCleanupLabels)
 
 	By(fmt.Sprintf("Creating DPUCluster %s/%s",
@@ -148,7 +148,7 @@ func CreateProvisioningDPUCluster(ctx context.Context, input *systemTestInput) {
 	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 	By("Creating DPU cluster client connection")
-	getDPUClusterClient(ctx, getProvisionInput(input))
+	getDPUClusterClients(ctx, getProvisionInput(input))
 
 	By("Creating BFB object")
 	provInput = getProvisionInput(input)
@@ -242,7 +242,7 @@ func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
 	By("Waiting for DPU nodes to join the DPU cluster as K8s Nodes")
 	Eventually(func(g Gomega) {
 		nodes := &corev1.NodeList{}
-		g.Expect(dpuClusterClient.List(ctx, nodes)).To(Succeed(), "Should be able to list nodes in DPU cluster")
+		g.Expect(dpuClusterClient[0].List(ctx, nodes)).To(Succeed(), "Should be able to list nodes in DPU cluster")
 
 		g.Expect(nodes.Items).To(HaveLen(provInput.numberOfNodesPerCluster),
 			fmt.Sprintf("DPU cluster should have %d K8s nodes", provInput.numberOfNodesPerCluster))
@@ -269,7 +269,7 @@ func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
 
 func VerifyProvisioning(ctx context.Context, input *systemTestInput) {
 	provInput := getProvisionInput(input)
-	deploymentName := fmt.Sprintf("in-cluster-%s", getServiceChainSetControllerDPUServiceName(provInput.dpuCluster.Name, provInput.dpuCluster.Namespace))
+	deploymentName := fmt.Sprintf("in-cluster-%s", getServiceChainSetControllerDPUServiceName(provInput.dpuClusters[0].Name, provInput.dpuClusters[0].Namespace))
 	By(fmt.Sprintf("Checking %s deployment", deploymentName))
 	Eventually(func(g Gomega) {
 		serviceSetDeployment := &appsv1.Deployment{}
@@ -290,7 +290,7 @@ func VerifyProvisioning(ctx context.Context, input *systemTestInput) {
 	Eventually(func(g Gomega) {
 		// Check Deployments with argocd instance label
 		deployments := &appsv1.DeploymentList{}
-		g.Expect(dpuClusterClient.List(ctx, deployments, client.HasLabels{argoCDInstanceLabel})).To(Succeed())
+		g.Expect(dpuClusterClient[0].List(ctx, deployments, client.HasLabels{argoCDInstanceLabel})).To(Succeed())
 
 		found := map[string]bool{}
 		for i := range deployments.Items {
@@ -303,9 +303,9 @@ func VerifyProvisioning(ctx context.Context, input *systemTestInput) {
 		// Check DaemonSets with argocd instance label
 		provInput := getProvisionInput(input)
 		daemonsets := &appsv1.DaemonSetList{}
-		g.Expect(dpuClusterClient.List(ctx, daemonsets,
+		g.Expect(dpuClusterClient[0].List(ctx, daemonsets,
 			client.HasLabels{argoCDInstanceLabel},
-			client.InNamespace(provInput.dpuCluster.GetNamespace()))).To(Succeed())
+			client.InNamespace(provInput.dpuClusters[0].GetNamespace()))).To(Succeed())
 
 		for i := range daemonsets.Items {
 			instanceLabel := daemonsets.Items[i].GetLabels()[argoCDInstanceLabel]
@@ -350,7 +350,7 @@ func VerifyProvisioning(ctx context.Context, input *systemTestInput) {
 	}).WithTimeout(2 * time.Minute).Should(Succeed())
 
 	By("Waiting for all system pods to be ready in DPU cluster")
-	VerifyClusterPods(ctx, dpuClusterClient, systemPodsToVerify)
+	VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
 }
 
 func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
@@ -390,7 +390,7 @@ func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
 	By("Verifying K8s nodes are removed from DPU cluster")
 	Eventually(func(g Gomega) {
 		nodes := &corev1.NodeList{}
-		g.Expect(dpuClusterClient.List(ctx, nodes)).To(Succeed())
+		g.Expect(dpuClusterClient[0].List(ctx, nodes)).To(Succeed())
 		g.Expect(nodes.Items).To(BeEmpty(),
 			"DPU cluster should have no nodes after deprovisioning")
 	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
@@ -453,8 +453,8 @@ func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
 	Eventually(func(g Gomega) {
 		cluster := &provisioningv1.DPUCluster{}
 		err := input.client.Get(ctx, types.NamespacedName{
-			Name:      provInput.dpuCluster.Name,
-			Namespace: provInput.dpuCluster.Namespace,
+			Name:      provInput.dpuClusters[0].Name,
+			Namespace: provInput.dpuClusters[0].Namespace,
 		}, cluster)
 
 		if apierrors.IsNotFound(err) {

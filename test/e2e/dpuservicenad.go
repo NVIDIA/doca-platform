@@ -95,7 +95,7 @@ func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *systemTestIn
 	Eventually(func(g Gomega) {
 		const podServiceLabel string = "svc.dpu.nvidia.com/service"
 		podList := &corev1.PodList{}
-		g.Expect(dpuClusterClient.List(ctx, podList,
+		g.Expect(dpuClusterClient[0].List(ctx, podList,
 			client.InNamespace(namespace),
 			client.MatchingLabels{podServiceLabel: serviceName},
 		)).To(Succeed())
@@ -216,7 +216,7 @@ func VerifyDPUPodToPodRDMATraffic(ctx context.Context, input *systemTestInput) {
 	// We must pass pointer of a pointer here because the dpuClusterRestClient and dpuClusterRestConfig are updated in
 	// a goroutine in case they break and we need to ensure that the underlying function always picks up the up to date
 	// pointer.
-	netshoot.RunRDMATrafficTest(&dpuClusterRestClient, &dpuClusterRestConfig, input.namespace, pod1.Name, pod2.Name, podIP2)
+	netshoot.RunRDMATrafficTest(&dpuClusterRestClient[0], &dpuClusterRestConfig[0], input.namespace, pod1.Name, pod2.Name, podIP2)
 }
 
 func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput) {
@@ -304,10 +304,10 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 	By("Create and wait for dummydpuservice DPUService")
 	createDummyDPUServiceForRDMA(ctx, input.client, input.namespace, input.dpuService)
 	dpuservice.WaitForDPUServices(ctx, input.client, input.namespace, []string{"dummydpuservice-rdma"})
-	VerifyClusterPods(ctx, dpuClusterClient, []string{"dummydpuservice-rdma"})
+	VerifyClusterPods(ctx, dpuClusterClient[0], []string{"dummydpuservice-rdma"})
 
 	By("Verify underlying ServiceChain and ServiceInterface objects are ready")
-	dpuservice.VerifyUnderlyingDPUObjectsReady(ctx, dpuClusterClient, input.namespace, interfaceConfigs, []string{"pod-to-fabric"})
+	dpuservice.VerifyUnderlyingDPUObjectsReady(ctx, dpuClusterClient[0], input.namespace, interfaceConfigs, []string{"pod-to-fabric"})
 }
 
 // createDummyDPUServiceForRDMA creates a DPUService using the dummydpuservice and configures it for RDMA testing
@@ -362,7 +362,7 @@ func getPodIPForInterface(pod corev1.Pod, interfaceName string) string {
 // get2DPUServicePods returns the 2 DPUService Pods associated with a service
 func get2DPUServicePods(ctx context.Context, namespace string, serviceID string) (corev1.Pod, corev1.Pod) {
 	pods := &corev1.PodList{}
-	Expect(dpuClusterClient.List(ctx, pods, client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceID}, client.InNamespace(namespace))).ToNot(HaveOccurred())
+	Expect(dpuClusterClient[0].List(ctx, pods, client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceID}, client.InNamespace(namespace))).ToNot(HaveOccurred())
 	Expect(pods.Items).To(HaveLen(2))
 	return pods.Items[0], pods.Items[1]
 }

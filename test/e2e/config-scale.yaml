@@ -1,6 +1,7 @@
 provisioningControllerPVC: "../objects/infrastructure/pvc-quick.yaml"
 bfb: "../objects/infrastructure/fake-bfb.yaml"
-dpuCluster: "../objects/infrastructure/dpucluster.yaml"
+dpuClusters:
+  - "../objects/infrastructure/dpucluster.yaml"
 dpuSet: "../objects/infrastructure/dpuset.yaml"
 dpuFlavor: "../objects/infrastructure/dpuflavor-hbn-ovn.yaml"
 dpuClusterPrerequisiteObjectPath:
