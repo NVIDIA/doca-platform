@@ -139,7 +139,7 @@ func main() {
 			MaxConcurrentReconciles: concurrency,
 		},
 		LeaderElection:          enableLeaderElection,
-		LeaderElectionID:        "8a3114c5.dpu.nvidia.com",
+		LeaderElectionID:        "servicechainset.dpu.nvidia.com",
 		LeaderElectionNamespace: leaderElectionNamespace,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
