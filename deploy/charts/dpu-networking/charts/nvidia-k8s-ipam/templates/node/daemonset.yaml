@@ -46,6 +46,7 @@ spec:
                 fieldRef:
                   fieldPath: spec.nodeName
           securityContext:
+            runAsUser: 0
             privileged: true
           command: [ "/ipam-node" ]
           args:
