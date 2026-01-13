@@ -150,7 +150,7 @@ func main() {
 			MaxConcurrentReconciles: concurrency,
 		},
 		LeaderElection:   enableLeaderElection,
-		LeaderElectionID: "snap-host-controller.nvidia.com",
+		LeaderElectionID: "snap-host-controller.dpu.nvidia.com",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
