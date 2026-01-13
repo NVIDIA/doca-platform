@@ -62,7 +62,7 @@ func ValidateDPUServiceIPAMCreationSubnetSplit(ctx context.Context, input *syste
 	By("checking that NVIPAM IPPool CR is created in the DPU clusters")
 	Eventually(func(g Gomega) {
 		ipPools := &nvipamv1.IPPoolList{}
-		g.Expect(dpuClusterClient.List(ctx, ipPools, client.MatchingLabels{
+		g.Expect(dpuClusterClient[0].List(ctx, ipPools, client.MatchingLabels{
 			"dpu.nvidia.com/dpuserviceipam-name":      dpuServiceIPAM.GetName(),
 			"dpu.nvidia.com/dpuserviceipam-namespace": dpuServiceIPAM.GetNamespace(),
 		})).To(Succeed())
@@ -105,7 +105,7 @@ func ValidateDPUServiceIPAMMetricsDeletion(ctx context.Context, input *systemTes
 	By("checking that NVIPAM IPPool CR is deleted in each DPU cluster")
 	Eventually(func(g Gomega) {
 		ipPools := &nvipamv1.IPPoolList{}
-		g.Expect(dpuClusterClient.List(ctx, ipPools, client.MatchingLabels{
+		g.Expect(dpuClusterClient[0].List(ctx, ipPools, client.MatchingLabels{
 			"dpu.nvidia.com/dpuserviceipam-name":      dpuServiceIPAM.GetName(),
 			"dpu.nvidia.com/dpuserviceipam-namespace": dpuServiceIPAM.GetNamespace(),
 		})).To(Succeed())
@@ -122,7 +122,7 @@ func ValidateDPUServiceIPAMCreationCidrSplit(ctx context.Context, input *systemT
 	By("checking that NVIPAM CIDRPool CR is created in the DPU clusters")
 	Eventually(func(g Gomega) {
 		cidrPools := &nvipamv1.CIDRPoolList{}
-		g.Expect(dpuClusterClient.List(ctx, cidrPools, client.MatchingLabels{
+		g.Expect(dpuClusterClient[0].List(ctx, cidrPools, client.MatchingLabels{
 			"dpu.nvidia.com/dpuserviceipam-name":      dpuServiceIPAM.GetName(),
 			"dpu.nvidia.com/dpuserviceipam-namespace": dpuServiceIPAM.GetNamespace(),
 		})).To(Succeed())
@@ -149,7 +149,7 @@ func ValidateDPUServiceIPAMDeletionCidrSplit(ctx context.Context, input *systemT
 	By("checking that NVIPAM CIDRPool CR is deleted in each DPU cluster")
 	Eventually(func(g Gomega) {
 		cidrPools := &nvipamv1.CIDRPoolList{}
-		g.Expect(dpuClusterClient.List(ctx, cidrPools, client.MatchingLabels{
+		g.Expect(dpuClusterClient[0].List(ctx, cidrPools, client.MatchingLabels{
 			"dpu.nvidia.com/dpuserviceipam-name":      dpuServiceIPAM.GetName(),
 			"dpu.nvidia.com/dpuserviceipam-namespace": dpuServiceIPAM.GetNamespace(),
 		})).To(Succeed())

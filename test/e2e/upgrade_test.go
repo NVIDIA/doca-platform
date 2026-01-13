@@ -45,7 +45,9 @@ var _ = Describe("DPF Upgrade tests", Labels{dpfUpgradeTestLabel}, func() {
 		It("create DPFOperatorConfig", func() {
 			SystemSetupBeforeSuite()
 			By("Pre provisioning DPU cluster setup")
-			ProvisionDPUCluster(ctx, getProvisionDPUClustersInput())
+			provInput := getProvisionDPUClustersInput()
+			ProvisionDPUClusters(ctx, provInput)
+			ProvisionBFBAndDPUFlavor(ctx, provInput)
 		})
 
 		It("create DPUDeployments dependencies", func() {
@@ -140,7 +142,7 @@ var _ = Describe("DPF Upgrade tests", Labels{dpfUpgradeTestLabel}, func() {
 
 		It("get DPUCluster client", func() {
 			By("creating a client for the DPUCluster")
-			getDPUClusterClient(ctx, getProvisionDPUClustersInput())
+			getDPUClusterClients(ctx, getProvisionDPUClustersInput())
 		})
 
 		It("wait for DPUs to be provisioned", func() {
@@ -165,7 +167,7 @@ var _ = Describe("DPF Upgrade validation", Labels{dpfUpgradeValidationTestLabel}
 
 		It("get DPUCluster client", func() {
 			By("creating a client for the DPUCluster")
-			getDPUClusterClient(ctx, getProvisionDPUClustersInput())
+			getDPUClusterClients(ctx, getProvisionDPUClustersInput())
 		})
 
 		It("validate DPUCluster", func() {
@@ -349,7 +351,7 @@ func extractGenerationInfo(objects []client.Object) []map[string]interface{} {
 // verifySystemReady checks if the DPF system components are ready.
 // This is not a complete list of all system pods, but it includes the most important ones.
 func verifySystemReady() {
-	VerifyClusterPods(ctx, dpuClusterClient, []string{
+	VerifyClusterPods(ctx, dpuClusterClient[0], []string{
 		// Kubernetes system pods
 		"kube-flannel-ds", "coredns", "kube-proxy",
 		// DPF system components
