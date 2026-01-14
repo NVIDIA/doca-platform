@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -175,6 +176,41 @@ var _ = Describe("Operator API Validation", func() {
 				Entry("valid - only controller.image", "", "controller-image:latest", false, ""),
 				Entry("valid - no image set", "", "", false, ""),
 				Entry("invalid - both images set", "legacy-image:latest", "controller-image:latest", true, "only either 'image' (deprecated) or 'controller.image' can be set, but not both"),
+			)
+		})
+
+		Context("validate replicas configuration", func() {
+			DescribeTable("ProvisioningControllerConfiguration replicas validation",
+				func(replicas *int32, expectError bool, errorMessage string) {
+					config := getMinimalDPFOperatorConfig(testNs.Name)
+					config.Spec.ProvisioningController.Replicas = replicas
+					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
+				},
+				Entry("valid - replicas is nil (uses default)", (*int32)(nil), false, ""),
+				Entry("valid - replicas is 1", ptr.To(int32(1)), false, ""),
+				Entry("valid - replicas is 2", ptr.To(int32(2)), false, ""),
+				Entry("valid - replicas is 3", ptr.To(int32(3)), false, ""),
+				Entry("invalid - replicas is 0", ptr.To(int32(0)), true, "should be greater than or equal to 1"),
+				Entry("invalid - replicas is 4", ptr.To(int32(4)), true, "should be less than or equal to 3"),
+				Entry("invalid - replicas is negative", ptr.To(int32(-1)), true, "should be greater than or equal to 1"),
+			)
+
+			DescribeTable("KamajiClusterManagerConfiguration replicas validation",
+				func(replicas *int32, expectError bool, errorMessage string) {
+					config := getMinimalDPFOperatorConfig(testNs.Name)
+					if config.Spec.KamajiClusterManager == nil {
+						config.Spec.KamajiClusterManager = &operatorv1.KamajiClusterManagerConfiguration{}
+					}
+					config.Spec.KamajiClusterManager.Replicas = replicas
+					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
+				},
+				Entry("valid - replicas is nil (uses default)", (*int32)(nil), false, ""),
+				Entry("valid - replicas is 1", ptr.To(int32(1)), false, ""),
+				Entry("valid - replicas is 2", ptr.To(int32(2)), false, ""),
+				Entry("valid - replicas is 3", ptr.To(int32(3)), false, ""),
+				Entry("invalid - replicas is 0", ptr.To(int32(0)), true, "should be greater than or equal to 1"),
+				Entry("invalid - replicas is 4", ptr.To(int32(4)), true, "should be less than or equal to 3"),
+				Entry("invalid - replicas is negative", ptr.To(int32(-1)), true, "should be greater than or equal to 1"),
 			)
 		})
 	})
