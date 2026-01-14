@@ -45,7 +45,7 @@ var runDMSCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		defer klog.Flush()
 
-		devices, err := hostutil.DiscoverDPUs()
+		devices, err := hostutil.DiscoverDPUs(hostutil.SysFSRoot)
 		if err != nil {
 			return err
 		}

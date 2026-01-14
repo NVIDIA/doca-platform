@@ -128,7 +128,7 @@ func (n *NodeManager) initDPUDevices() ([]*provisioningv1.DPUDevice, error) {
 	defer cancel()
 
 	ret := []*provisioningv1.DPUDevice{}
-	devices, err := hostutil.DiscoverDPUs()
+	devices, err := hostutil.DiscoverDPUs(hostutil.SysFSRoot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover DPUs: %w", err)
 	}
@@ -212,7 +212,7 @@ func (n *NodeManager) initDPUNode(dpuDevices []*provisioningv1.DPUDevice) error 
 	n.nodeName.Store(nodeNameKey, nodeName)
 	dpuNode.Name = nodeName
 
-	devices, err := hostutil.DiscoverDPUs()
+	devices, err := hostutil.DiscoverDPUs(hostutil.SysFSRoot)
 	if err != nil {
 		return fmt.Errorf("failed to discover DPUs: %w", err)
 	}
@@ -370,7 +370,7 @@ func (n *NodeManager) updateDPUDeviceStatus() error {
 	timeoutCtx, cancel := context.WithTimeout(context.TODO(), timeout)
 	defer cancel()
 
-	devices, err := hostutil.DiscoverDPUs()
+	devices, err := hostutil.DiscoverDPUs(hostutil.SysFSRoot)
 	if err != nil {
 		return fmt.Errorf("failed to discover DPUs: %w", err)
 	}
