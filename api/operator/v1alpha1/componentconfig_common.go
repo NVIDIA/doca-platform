@@ -153,6 +153,7 @@ type BaseControllerConfig struct {
 	// This is used for High Availability. Leader election is enabled by default.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=3
+	// +kubebuilder:default=1
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
 }

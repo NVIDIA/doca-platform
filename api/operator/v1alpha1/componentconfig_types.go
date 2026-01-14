@@ -32,8 +32,15 @@ type DefaultOverridesConfiguration struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type ProvisioningControllerConfiguration struct {
-	BaseComponentConfig  `json:",inline"`
-	BaseControllerConfig `json:",inline"`
+	BaseComponentConfig `json:",inline"`
+
+	// Replicas is the number of replicas for the controller deployment.
+	// This is used for High Availability. Leader election is enabled by default.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3
+	// +kubebuilder:default=2
+	// +optional
+	Replicas *int32 `json:"replicas,omitempty"`
 
 	// Image overrides the container image used by the Provisioning controller.
 	//
@@ -303,8 +310,15 @@ func (c *DPUDetectorConfiguration) GetResources() map[ContainerName]*corev1.Reso
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type KamajiClusterManagerConfiguration struct {
-	BaseComponentConfig  `json:",inline"`
-	BaseControllerConfig `json:",inline"`
+	BaseComponentConfig `json:",inline"`
+
+	// Replicas is the number of replicas for the controller deployment.
+	// This is used for High Availability. Leader election is enabled by default.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3
+	// +kubebuilder:default=2
+	// +optional
+	Replicas *int32 `json:"replicas,omitempty"`
 
 	// Image overrides the container image used by the Kamaji Cluster Manager.
 	//
