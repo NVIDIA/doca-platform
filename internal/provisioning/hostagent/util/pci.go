@@ -27,14 +27,15 @@ import (
 )
 
 // Mutable paths for sysfs directories - can be overridden in tests for mocking
-var (
-	// SysPCIDevicesDir is the path to the PCI devices directory in sysfs.
-	// This is a var instead of const to allow mocking in tests.
-	SysPCIDevicesDir = "/sys/bus/pci/devices"
+const (
+	// SysFSRoot is the path to the sysfs directory.
+	SysFSRoot = "/sys"
 
-	// SysClassNetDir is the path to the network class directory in sysfs.
-	// This is a var instead of const to allow mocking in tests.
-	SysClassNetDir = "/sys/class/net"
+	// sysPCIDevicesDir is the relative path to the PCI devices directory in sysfs.
+	sysPCIDevicesDir = "bus/pci/devices"
+
+	// sysClassNetDir is the relative path to the network class directory in sysfs.
+	sysClassNetDir = "class/net"
 )
 
 // knownDPUDeviceID maps PCI device IDs to known DPU types.
@@ -45,14 +46,16 @@ var knownDPUDeviceID = map[string]struct{}{
 }
 
 type PCIHelper struct {
-	// PCIAddress is the PCI address of the device with optional function number,
+	// sysFSRoot is the path to the sysfs directory.
+	sysFSRoot string
+	// pciAddress is the PCI address of the device with optional function number,
 	// e.g. "0000:4d:00.0" or "0000:4d:00".
-	PCIAddress string
-	// PFIndex is the index of the PF, e.g. 0 for PF0, 1 for PF1, etc. If PFIndex is not set,
+	pciAddress string
+	// pfIndex is the index of the PF, e.g. 0 for PF0, 1 for PF1, etc. If pfIndex is not set,
 	// the helper use the function number in PCIAddress to determine the PF.
-	PFIndex *int
-	// VFIndex is the index of the VF, e.g. 0 for VF0, 1 for VF1, etc.
-	VFIndex *int
+	pfIndex *int
+	// vfIndex is the index of the VF, e.g. 0 for VF0, 1 for VF1, etc.
+	vfIndex *int
 }
 
 func NewPCIHelper(pciAddress string) *PCIHelper {
@@ -63,35 +66,41 @@ func NewPCIHelper(pciAddress string) *PCIHelper {
 		pciAddress = "0000:" + pciAddress
 	}
 	h := &PCIHelper{
-		PCIAddress: pciAddress,
+		sysFSRoot:  SysFSRoot,
+		pciAddress: pciAddress,
 	}
 	return h
 }
 
+func (h *PCIHelper) SetSysFS(newPath string) *PCIHelper {
+	h.sysFSRoot = newPath
+	return h
+}
+
 func (h *PCIHelper) PF(pf int) *PCIHelper {
-	h.PFIndex = &pf
+	h.pfIndex = &pf
 	return h
 }
 
 func (h *PCIHelper) VF(vf int) *PCIHelper {
-	h.VFIndex = &vf
+	h.vfIndex = &vf
 	return h
 }
 
 // Path returns the full path to the PCI device.
 func (h *PCIHelper) Path() string {
-	parts := strings.Split(h.PCIAddress, ".")
+	parts := strings.Split(h.pciAddress, ".")
 	base := parts[0]
 	suffix := "0"
 	if len(parts) == 2 {
 		suffix = parts[1]
 	}
-	if h.PFIndex != nil {
-		suffix = fmt.Sprintf("%d", *h.PFIndex)
+	if h.pfIndex != nil {
+		suffix = fmt.Sprintf("%d", *h.pfIndex)
 	}
-	p := filepath.Join(SysPCIDevicesDir, fmt.Sprintf("%s.%s", base, suffix))
-	if h.VFIndex != nil {
-		p = filepath.Join(p, fmt.Sprintf("virtfn%d", *h.VFIndex))
+	p := filepath.Join(h.sysFSRoot, sysPCIDevicesDir, fmt.Sprintf("%s.%s", base, suffix))
+	if h.vfIndex != nil {
+		p = filepath.Join(p, fmt.Sprintf("virtfn%d", *h.vfIndex))
 	}
 	return p
 }
@@ -142,7 +151,7 @@ func (h *PCIHelper) GetMTU() (int, error) {
 		return 0, fmt.Errorf("failed to get interface name: %w", err)
 	}
 
-	mtuPath := filepath.Join(SysClassNetDir, interfaceName, "mtu")
+	mtuPath := filepath.Join(h.sysFSRoot, sysClassNetDir, interfaceName, "mtu")
 	mtuBytes, err := os.ReadFile(mtuPath)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read MTU for interface %s: %w", interfaceName, err)
@@ -157,8 +166,8 @@ func (h *PCIHelper) GetMTU() (int, error) {
 
 // ReadDeviceSerialNumberFromVPD reads the serial number from a PCI device's VPD data
 // via sysfs configuration space. The pciAddress should be in format like "0000:4d:00.0"
-func ReadDeviceSerialNumberFromVPD(pciAddress string) (string, error) {
-	vpdPath := filepath.Join(SysPCIDevicesDir, pciAddress, "vpd")
+func ReadDeviceSerialNumberFromVPD(sysFSRoot string, pciAddress string) (string, error) {
+	vpdPath := filepath.Join(sysFSRoot, sysPCIDevicesDir, pciAddress, "vpd")
 	vpdData, err := os.ReadFile(vpdPath)
 	if err != nil {
 		return "", err
@@ -230,24 +239,24 @@ type Device struct {
 	NumOfPFs int
 }
 
-func DiscoverDPUs() ([]Device, error) {
+func DiscoverDPUs(sysFSRoot string) ([]Device, error) {
 	ret := []Device{}
 	devices := make(map[string]*Device)
-	deviceEntries, err := os.ReadDir(SysPCIDevicesDir)
+	deviceEntries, err := os.ReadDir(filepath.Join(sysFSRoot, sysPCIDevicesDir))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read PCI sys directory: %w", err)
 	}
 
 	for _, entry := range deviceEntries {
 		pciAddr := entry.Name()
-		isDPU, err := NewPCIHelper(pciAddr).IsDPU()
+		isDPU, err := NewPCIHelper(pciAddr).SetSysFS(sysFSRoot).IsDPU()
 		if err != nil {
 			klog.Errorf("failed to check if %s is a DPU: %v", pciAddr, err)
 			continue
 		} else if !isDPU {
 			continue
 		}
-		sn, err := NewPCIHelper(pciAddr).SerialNumber()
+		sn, err := NewPCIHelper(pciAddr).SetSysFS(sysFSRoot).SerialNumber()
 		if err != nil {
 			klog.Errorf("failed to read device serial number from VPD %s: %v", pciAddr, err)
 			continue
