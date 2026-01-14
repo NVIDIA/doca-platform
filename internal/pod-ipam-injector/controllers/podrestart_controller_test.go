@@ -180,6 +180,147 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
 		})
 
+		It("returns true when Pending pod has valid network and outdated digest", func() {
+			serviceInterface := createServiceInterfaceForService(ctx, "firewall-sfceth1-pending-valid", "firewall", "sfceth1")
+			cleanupObjects = append(cleanupObjects, serviceInterface)
+
+			mtu := 1500
+			sc := createServiceChainWithServiceInterface(ctx, "sc-pending-valid", nil, "firewall", "sfceth1", &mtu)
+			cleanupObjects = append(cleanupObjects, sc)
+
+			// Wait for resources to be available in cache and properly indexed
+			Eventually(func(g Gomega) {
+				retrievedSC := &dpuservicev1.ServiceChain{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: "sc-pending-valid"}, retrievedSC)).To(Succeed())
+				retrievedSI := &dpuservicev1.ServiceInterface{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: "firewall-sfceth1-pending-valid"}, retrievedSI)).To(Succeed())
+
+				// Also verify getServiceInterfaceWithLabels can find it via label selector
+				_, err := getServiceInterfaceWithLabels(ctx, testClient, "worker-1", "default", map[string]string{
+					dpuservicev1.DPFServiceIDLabelKey: "firewall",
+					"svc.dpu.nvidia.com/interface":    "sfceth1",
+				})
+				g.Expect(err).NotTo(HaveOccurred())
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+			pod := createTestPodWithName(
+				"test-pod-pending-valid-network",
+				map[string]string{
+					NetworkAttachmentAnnot:  `[{"name":"mybrsfc","interface":"sfceth1"}]`,
+					NetworkDigestAnnotation: "outdated-digest",
+				},
+				map[string]string{
+					dpuservicev1.DPFServiceIDLabelKey: "firewall",
+				},
+			)
+
+			// Set pod to Pending state - this simulates a pod stuck in Pending with outdated digest
+			pod.Status.Phase = corev1.PodPending
+			Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+
+			// Verify the pod is in Pending state
+			Eventually(func(g Gomega) {
+				currentPod := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), currentPod)).To(Succeed())
+				g.Expect(currentPod.Status.Phase).To(Equal(corev1.PodPending))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			// Now check if restart is needed - should return true for Pending pod with valid network and outdated digest
+			Eventually(func(g Gomega) {
+				currentPod := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), currentPod)).To(Succeed())
+				needsRestart, err := controller.needsRestartDueToDigestChange(ctx, currentPod)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(needsRestart).To(BeTrue(), "Pending pod with valid network and outdated digest should need restart")
+			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+		})
+
+		It("returns false when Pending pod has valid network and current digest", func() {
+			serviceInterface := createServiceInterfaceForService(ctx, "firewall-sfceth1-pending-current", "firewall", "sfceth1")
+			cleanupObjects = append(cleanupObjects, serviceInterface)
+
+			mtu := 1500
+			sc := createServiceChainWithServiceInterface(ctx, "sc-pending-current", nil, "firewall", "sfceth1", &mtu)
+			cleanupObjects = append(cleanupObjects, sc)
+
+			// Wait for resources to be available in cache and properly indexed
+			Eventually(func(g Gomega) {
+				retrievedSC := &dpuservicev1.ServiceChain{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: "sc-pending-current"}, retrievedSC)).To(Succeed())
+				retrievedSI := &dpuservicev1.ServiceInterface{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: "firewall-sfceth1-pending-current"}, retrievedSI)).To(Succeed())
+
+				// Also verify getServiceInterfaceWithLabels can find it via label selector
+				_, err := getServiceInterfaceWithLabels(ctx, testClient, "worker-1", "default", map[string]string{
+					dpuservicev1.DPFServiceIDLabelKey: "firewall",
+					"svc.dpu.nvidia.com/interface":    "sfceth1",
+				})
+				g.Expect(err).NotTo(HaveOccurred())
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+			// Create a temporary pod with the same configuration to calculate the expected digest
+			testPod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-for-pending-digest",
+					Namespace: "default",
+					Annotations: map[string]string{
+						NetworkAttachmentAnnot: `[{"name":"mybrsfc","interface":"sfceth1"}]`,
+					},
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: "firewall",
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "worker-1",
+					Containers: []corev1.Container{
+						{Name: "ctr1", Image: "image"},
+					},
+				},
+				Status: corev1.PodStatus{Phase: corev1.PodPending},
+			}
+
+			// Calculate the expected digest - wrap in Eventually to handle cache delays
+			var expectedDigest string
+			Eventually(func(g Gomega) {
+				networks, err := GetPodNetworks(testPod)
+				g.Expect(err).NotTo(HaveOccurred())
+				digest, err := CalculatePodNetworkDigest(ctx, testClient, testPod, networks)
+				g.Expect(err).ToNot(HaveOccurred())
+				expectedDigest = digest
+			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+
+			pod := createTestPodWithName(
+				"test-pod-pending-current-digest",
+				map[string]string{
+					NetworkAttachmentAnnot:  `[{"name":"mybrsfc","interface":"sfceth1"}]`,
+					NetworkDigestAnnotation: expectedDigest,
+				},
+				map[string]string{
+					dpuservicev1.DPFServiceIDLabelKey: "firewall",
+				},
+			)
+
+			// Set pod to Pending state - this simulates a pod in Pending with current digest
+			pod.Status.Phase = corev1.PodPending
+			Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+
+			// Verify the pod is in Pending state
+			Eventually(func(g Gomega) {
+				currentPod := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), currentPod)).To(Succeed())
+				g.Expect(currentPod.Status.Phase).To(Equal(corev1.PodPending))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			// Now check if restart is needed - should return false for Pending pod with valid network and current digest
+			Eventually(func(g Gomega) {
+				currentPod := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), currentPod)).To(Succeed())
+				needsRestart, err := controller.needsRestartDueToDigestChange(ctx, currentPod)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(needsRestart).To(BeFalse(), "Pending pod with valid network and current digest should not need restart")
+			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+		})
+
 		It("returns false when digest has not changed", func() {
 			serviceInterface := createServiceInterfaceForService(ctx, "firewall-sfceth1-digest-match-unique", "firewall", "sfceth1")
 			cleanupObjects = append(cleanupObjects, serviceInterface)
@@ -258,11 +399,11 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
 		})
 
-		It("returns false when pod is in Pending phase", func() {
+		It("returns false when pod is in Pending phase with invalid network", func() {
 			pod := createTestPodWithName(
 				"test-pod-pending",
 				map[string]string{
-					NetworkAttachmentAnnot:  `[{"name":"mybrsfc","interface":"sfceth1"}]`,
+					NetworkAttachmentAnnot:  `[{"name":"invalid-network"}]`,
 					NetworkDigestAnnotation: "stored-digest",
 				},
 				map[string]string{
@@ -305,9 +446,24 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 	})
 
 	Describe("shouldProcessPod", func() {
-		It("returns false if pod is not running", func() {
-			pod := &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodPending}}
+		It("returns false if pod has no digest annotation", func() {
+			pod := &corev1.Pod{
+				Status:     corev1.PodStatus{Phase: corev1.PodPending},
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}},
+			}
 			Expect(shouldProcessPod(pod, nil)).To(BeFalse())
+		})
+		It("returns false if pod is in Pending phase with invalid network", func() {
+			pod := &corev1.Pod{
+				Status: corev1.PodStatus{Phase: corev1.PodPending},
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{NetworkDigestAnnotation: "some-digest"},
+				},
+			}
+			networks := []*multustypes.NetworkSelectionElement{
+				{Name: "invalid-network"},
+			}
+			Expect(shouldProcessPod(pod, networks)).To(BeFalse())
 		})
 		It("returns false if pod is being deleted", func() {
 			now := metav1.Now()
@@ -364,6 +520,21 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					Name:             "valid-network-2",
 					Namespace:        "default",
 					InterfaceRequest: "eth1",
+				},
+			}
+			Expect(shouldProcessPod(pod, networks)).To(BeTrue())
+		})
+		It("returns true if Pending pod has valid network and digest annotation", func() {
+			pod := &corev1.Pod{
+				Status:     corev1.PodStatus{Phase: corev1.PodPending},
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{NetworkAttachmentAnnot: "foo", NetworkDigestAnnotation: "some-digest"}, DeletionTimestamp: nil},
+			}
+			// Create networks with valid networks (not invalid-network)
+			networks := []*multustypes.NetworkSelectionElement{
+				{
+					Name:             "valid-network",
+					Namespace:        "default",
+					InterfaceRequest: "eth0",
 				},
 			}
 			Expect(shouldProcessPod(pod, networks)).To(BeTrue())
