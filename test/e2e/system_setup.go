@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -401,7 +402,11 @@ func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) 
 
 	By("create DPUClusters")
 	for _, dpuCluster := range input.dpuClusters {
-		dpuCluster.SetLabels(testutils.AfterAllCleanupLabels)
+		dpuClusterLabels := map[string]string{
+			"svc.dpu.nvidia.com/cluster": dpuCluster.Name,
+		}
+		maps.Copy(dpuClusterLabels, testutils.AfterAllCleanupLabels)
+		dpuCluster.SetLabels(dpuClusterLabels)
 		By(fmt.Sprintf("Creating DPU Cluster %s/%s", dpuCluster.GetNamespace(), dpuCluster.GetName()))
 		Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuCluster))).NotTo(HaveOccurred())
 	}

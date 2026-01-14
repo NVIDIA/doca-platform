@@ -266,7 +266,7 @@ func VerifyDeploymentUnderlyingObjectsCreated(ctx context.Context, g Gomega, tes
 		client.MatchingLabels{
 			"svc.dpu.nvidia.com/owned-by-dpudeployment": fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName()),
 		})).To(Succeed())
-	g.Expect(gotDPUSetList.Items).To(HaveLen(1))
+	g.Expect(gotDPUSetList.Items).To(HaveLen(len(dpuDeployment.Spec.DPUs.DPUSets)))
 
 	gotDPUServiceList := &dpuservicev1.DPUServiceList{}
 	g.Expect(testClient.List(ctx,
