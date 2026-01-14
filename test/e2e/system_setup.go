@@ -416,8 +416,9 @@ func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) 
 		clusters := &provisioningv1.DPUClusterList{}
 		g.Expect(input.client.List(ctx, clusters)).To(Succeed())
 		g.Expect(clusters.Items).To(HaveLen(len(input.dpuClusters)))
-		for _, cluster := range clusters.Items {
-			g.Expect(cluster.Status.Phase).Should(Equal(provisioningv1.PhaseReady))
+		for _, dpuCluster := range input.dpuClusters {
+			g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuCluster), dpuCluster)).To(Succeed())
+			g.Expect(dpuCluster.Status.Phase).Should(Equal(provisioningv1.PhaseReady))
 		}
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
