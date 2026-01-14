@@ -30,29 +30,19 @@ import (
 // Usage pattern in tests (simple - just defer cleanup):
 //
 //	mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "eth0", nil, "")
-//	defer mock.cleanup()  // Restores original paths AND removes temp files
+//	defer mock.Cleanup()  // Removes temp files
 //	// ... test code using NewPCIHelper, IsDPU, GetMTU, etc. ...
 //
 // How it works:
-//   - createMockSysfs saves original SysPCIDevicesDir/SysClassNetDir values
-//   - createMockSysfs immediately redirects them to mock temp directories
-//   - cleanup() restores original paths AND removes temp files
+//   - createMockSysfs creates a temporary directory as the root of a mock sysfs
+//   - Cleanup() removes the temp directory and all its contents
 //   - This ensures test isolation without manual save/restore boilerplate
 type mockSysfsSetup struct {
-	// pciDevicesDir is the mock path that replaced /sys/bus/pci/devices
-	pciDevicesDir string
-
-	// classNetDir is the mock path that replaced /sys/class/net
-	classNetDir string
-
-	// cleanup restores original SysPCIDevicesDir/SysClassNetDir values
-	// AND removes all temporary files/directories created for the mock.
-	// Always call via defer to ensure cleanup even on test failure.
-	cleanup func()
+	// tempSysfsDir is the temporary directory created for the mock sysfs.
+	tempSysfsDir string
 }
 
 // createMockSysfs creates a mock sysfs structure for testing PCI functions.
-// It automatically redirects SysPCIDevicesDir and SysClassNetDir to the mock paths.
 //
 // Parameters:
 //   - pciAddress: PCI address like "0000:b1:00.0" to create device directory for
@@ -66,8 +56,8 @@ func createMockSysfs(pciAddress string, deviceID string, interfaceName string, v
 	tempDir, err := os.MkdirTemp("", "mock-sysfs-*")
 	Expect(err).NotTo(HaveOccurred())
 
-	pciDevicesDir := filepath.Join(tempDir, "bus", "pci", "devices")
-	classNetDir := filepath.Join(tempDir, "class", "net")
+	pciDevicesDir := filepath.Join(tempDir, sysPCIDevicesDir)
+	classNetDir := filepath.Join(tempDir, sysClassNetDir)
 
 	devicePath := filepath.Join(pciDevicesDir, pciAddress)
 	err = os.MkdirAll(devicePath, 0755)
@@ -101,25 +91,26 @@ func createMockSysfs(pciAddress string, deviceID string, interfaceName string, v
 		Expect(err).NotTo(HaveOccurred())
 	}
 
-	// Save original paths for restoration in cleanup
-	origPCIDevicesDir := SysPCIDevicesDir
-	origClassNetDir := SysClassNetDir
-
-	// Redirect package-level vars to mock paths
-	SysPCIDevicesDir = pciDevicesDir
-	SysClassNetDir = classNetDir
-
 	return &mockSysfsSetup{
-		pciDevicesDir: pciDevicesDir,
-		classNetDir:   classNetDir,
-		cleanup: func() {
-			// Restore original paths (critical for test isolation)
-			SysPCIDevicesDir = origPCIDevicesDir
-			SysClassNetDir = origClassNetDir
-			// Remove temp directory and all contents
-			_ = os.RemoveAll(tempDir) // Best effort cleanup, ignore error
-		},
+		tempSysfsDir: tempDir,
 	}
+}
+
+func (m *mockSysfsSetup) TempSysfsDir() string {
+	return m.tempSysfsDir
+}
+
+func (m *mockSysfsSetup) PCIDevicesDir() string {
+	return filepath.Join(m.tempSysfsDir, sysPCIDevicesDir)
+}
+
+func (m *mockSysfsSetup) ClassNetDir() string {
+	return filepath.Join(m.tempSysfsDir, sysClassNetDir)
+}
+
+func (m *mockSysfsSetup) Cleanup() {
+	// Remove temp directory and all contents
+	_ = os.RemoveAll(m.tempSysfsDir) // Best effort cleanup, ignore error
 }
 
 // createVPDDataWithSerialNumber creates VPD data containing a serial number
@@ -150,9 +141,9 @@ var _ = Describe("PCI", func() {
 
 		It("should return true for known DPU device ID 0xa2dc (BlueField-3)", func() {
 			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			helper := NewPCIHelper("0000:b1:00.0")
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
 			isDPU, err := helper.IsDPU()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(isDPU).To(BeTrue())
@@ -160,9 +151,9 @@ var _ = Describe("PCI", func() {
 
 		It("should return true for known DPU device ID 0xa2d6 (BlueField-2)", func() {
 			mock := createMockSysfs("0000:03:00.0", "0xa2d6\n", "", nil, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			helper := NewPCIHelper("0000:03:00.0")
+			helper := NewPCIHelper("0000:03:00.0").SetSysFS(mock.TempSysfsDir())
 			isDPU, err := helper.IsDPU()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(isDPU).To(BeTrue())
@@ -170,9 +161,9 @@ var _ = Describe("PCI", func() {
 
 		It("should return false for non-DPU device ID", func() {
 			mock := createMockSysfs("0000:00:00.0", "0x1234\n", "", nil, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			helper := NewPCIHelper("0000:00:00.0")
+			helper := NewPCIHelper("0000:00:00.0").SetSysFS(mock.TempSysfsDir())
 			isDPU, err := helper.IsDPU()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(isDPU).To(BeFalse())
@@ -188,9 +179,9 @@ var _ = Describe("PCI", func() {
 
 		It("should return interface name from net directory", func() {
 			mock := createMockSysfs("0000:b1:00.0", "", "enp177s0f0np0", nil, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			helper := NewPCIHelper("0000:b1:00.0")
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
 			name, err := helper.InterfaceName()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(name).To(Equal("enp177s0f0np0"))
@@ -198,14 +189,14 @@ var _ = Describe("PCI", func() {
 
 		It("should return error when net directory is empty", func() {
 			mock := createMockSysfs("0000:b1:00.0", "", "", nil, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
 			// Create empty net directory
-			netPath := filepath.Join(mock.pciDevicesDir, "0000:b1:00.0", "net")
+			netPath := filepath.Join(mock.PCIDevicesDir(), "0000:b1:00.0", "net")
 			err := os.MkdirAll(netPath, 0755)
 			Expect(err).NotTo(HaveOccurred())
 
-			helper := NewPCIHelper("0000:b1:00.0")
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
 			_, err = helper.InterfaceName()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("no network interface found"))
@@ -222,9 +213,9 @@ var _ = Describe("PCI", func() {
 		It("should return serial number from vpd file", func() {
 			vpdData := createVPDDataWithSerialNumber("MT2334XZ0L")
 			mock := createMockSysfs("0000:b1:00.0", "", "", vpdData, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			helper := NewPCIHelper("0000:b1:00.0")
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
 			sn, err := helper.SerialNumber()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(sn).To(Equal("MT2334XZ0L"))
@@ -239,9 +230,9 @@ var _ = Describe("PCI", func() {
 				'P', 'A', 'R', 'T', '1',
 			}
 			mock := createMockSysfs("0000:b1:00.0", "", "", vpdData, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			helper := NewPCIHelper("0000:b1:00.0")
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
 			sn, err := helper.SerialNumber()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(sn).To(Equal(""))
@@ -258,9 +249,9 @@ var _ = Describe("PCI", func() {
 
 		It("should return MTU value for interface", func() {
 			mock := createMockSysfs("0000:b1:00.0", "", "enp177s0f0np0", nil, "9000")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			helper := NewPCIHelper("0000:b1:00.0")
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
 			mtu, err := helper.GetMTU()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(mtu).To(Equal(9000))
@@ -268,9 +259,9 @@ var _ = Describe("PCI", func() {
 
 		It("should return error when MTU file cannot be read", func() {
 			mock := createMockSysfs("0000:b1:00.0", "", "enp177s0f0np0", nil, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			helper := NewPCIHelper("0000:b1:00.0")
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
 			_, err := helper.GetMTU()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to read MTU"))
@@ -278,9 +269,9 @@ var _ = Describe("PCI", func() {
 
 		It("should return error when MTU value is not a valid integer", func() {
 			mock := createMockSysfs("0000:b1:00.0", "", "enp177s0f0np0", nil, "invalid")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			helper := NewPCIHelper("0000:b1:00.0")
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
 			_, err := helper.GetMTU()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to parse MTU"))
@@ -289,16 +280,16 @@ var _ = Describe("PCI", func() {
 
 	Context("ReadDeviceSerialNumberFromVPD", Label("ReadDeviceSerialNumberFromVPD"), func() {
 		It("should return error when vpd file does not exist", func() {
-			_, err := ReadDeviceSerialNumberFromVPD("9999:99:99.0") // Non-existent PCI address
+			_, err := ReadDeviceSerialNumberFromVPD(SysFSRoot, "9999:99:99.0") // Non-existent PCI address
 			Expect(err).To(HaveOccurred())
 		})
 
 		It("should return serial number from vpd file", func() {
 			vpdData := createVPDDataWithSerialNumber("MT2334XZ0L")
 			mock := createMockSysfs("0000:b1:00.0", "", "", vpdData, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			sn, err := ReadDeviceSerialNumberFromVPD("0000:b1:00.0")
+			sn, err := ReadDeviceSerialNumberFromVPD(mock.TempSysfsDir(), "0000:b1:00.0")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(sn).To(Equal("MT2334XZ0L"))
 		})
@@ -307,9 +298,9 @@ var _ = Describe("PCI", func() {
 			// VPD data without serial number
 			vpdData := []byte{0x90, 0x05, 0x00, 'P', 'N', 0x02, 'A', 'B'}
 			mock := createMockSysfs("0000:b1:00.0", "", "", vpdData, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			sn, err := ReadDeviceSerialNumberFromVPD("0000:b1:00.0")
+			sn, err := ReadDeviceSerialNumberFromVPD(mock.TempSysfsDir(), "0000:b1:00.0")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(sn).To(Equal(""))
 		})
@@ -319,32 +310,32 @@ var _ = Describe("PCI", func() {
 		It("should create a PCIHelper with full address", func() {
 			helper := NewPCIHelper("0000:4d:00.0")
 			Expect(helper).NotTo(BeNil())
-			Expect(helper.PCIAddress).To(Equal("0000:4d:00.0"))
-			Expect(helper.PFIndex).To(BeNil())
-			Expect(helper.VFIndex).To(BeNil())
+			Expect(helper.pciAddress).To(Equal("0000:4d:00.0"))
+			Expect(helper.pfIndex).To(BeNil())
+			Expect(helper.vfIndex).To(BeNil())
 		})
 
 		It("should convert dash-separated address to colon-separated", func() {
 			helper := NewPCIHelper("0000-4d-00")
-			Expect(helper.PCIAddress).To(Equal("0000:4d:00"))
+			Expect(helper.pciAddress).To(Equal("0000:4d:00"))
 		})
 
 		It("should prepend domain when address has only two parts", func() {
 			helper := NewPCIHelper("4d:00")
-			Expect(helper.PCIAddress).To(Equal("0000:4d:00"))
+			Expect(helper.pciAddress).To(Equal("0000:4d:00"))
 		})
 
 		It("should handle address without function number", func() {
 			helper := NewPCIHelper("0000:4d:00")
-			Expect(helper.PCIAddress).To(Equal("0000:4d:00"))
+			Expect(helper.pciAddress).To(Equal("0000:4d:00"))
 		})
 	})
 
 	Context("PCIHelper.PF", Label("PCIHelper", "PF"), func() {
 		It("should set PF index", func() {
 			helper := NewPCIHelper("0000:4d:00").PF(0)
-			Expect(helper.PFIndex).NotTo(BeNil())
-			Expect(*helper.PFIndex).To(Equal(0))
+			Expect(helper.pfIndex).NotTo(BeNil())
+			Expect(*helper.pfIndex).To(Equal(0))
 		})
 
 		It("should return self for chaining", func() {
@@ -355,15 +346,15 @@ var _ = Describe("PCI", func() {
 
 		It("should allow setting different PF indices", func() {
 			helper := NewPCIHelper("0000:4d:00").PF(2)
-			Expect(*helper.PFIndex).To(Equal(2))
+			Expect(*helper.pfIndex).To(Equal(2))
 		})
 	})
 
 	Context("PCIHelper.VF", Label("PCIHelper", "VF"), func() {
 		It("should set VF index", func() {
 			helper := NewPCIHelper("0000:4d:00").VF(0)
-			Expect(helper.VFIndex).NotTo(BeNil())
-			Expect(*helper.VFIndex).To(Equal(0))
+			Expect(helper.vfIndex).NotTo(BeNil())
+			Expect(*helper.vfIndex).To(Equal(0))
 		})
 
 		It("should return self for chaining", func() {
@@ -374,8 +365,8 @@ var _ = Describe("PCI", func() {
 
 		It("should allow chaining PF and VF", func() {
 			helper := NewPCIHelper("0000:4d:00").PF(0).VF(3)
-			Expect(*helper.PFIndex).To(Equal(0))
-			Expect(*helper.VFIndex).To(Equal(3))
+			Expect(*helper.pfIndex).To(Equal(0))
+			Expect(*helper.vfIndex).To(Equal(3))
 		})
 	})
 
@@ -383,31 +374,31 @@ var _ = Describe("PCI", func() {
 		It("should return correct path for address with function number", func() {
 			helper := NewPCIHelper("0000:4d:00.0")
 			path := helper.Path()
-			Expect(path).To(Equal(filepath.Join(SysPCIDevicesDir, "0000:4d:00.0")))
+			Expect(path).To(Equal(filepath.Join(SysFSRoot, sysPCIDevicesDir, "0000:4d:00.0")))
 		})
 
 		It("should return correct path for address without function number", func() {
 			helper := NewPCIHelper("0000:4d:00")
 			path := helper.Path()
-			Expect(path).To(Equal(filepath.Join(SysPCIDevicesDir, "0000:4d:00.0")))
+			Expect(path).To(Equal(filepath.Join(SysFSRoot, sysPCIDevicesDir, "0000:4d:00.0")))
 		})
 
 		It("should use PF index when set", func() {
 			helper := NewPCIHelper("0000:4d:00.0").PF(1)
 			path := helper.Path()
-			Expect(path).To(Equal(filepath.Join(SysPCIDevicesDir, "0000:4d:00.1")))
+			Expect(path).To(Equal(filepath.Join(SysFSRoot, sysPCIDevicesDir, "0000:4d:00.1")))
 		})
 
 		It("should append VF path when VF index is set", func() {
 			helper := NewPCIHelper("0000:4d:00.0").VF(5)
 			path := helper.Path()
-			Expect(path).To(Equal(filepath.Join(SysPCIDevicesDir, "0000:4d:00.0", "virtfn5")))
+			Expect(path).To(Equal(filepath.Join(SysFSRoot, sysPCIDevicesDir, "0000:4d:00.0", "virtfn5")))
 		})
 
 		It("should combine PF and VF paths correctly", func() {
 			helper := NewPCIHelper("0000:4d:00").PF(1).VF(3)
 			path := helper.Path()
-			Expect(path).To(Equal(filepath.Join(SysPCIDevicesDir, "0000:4d:00.1", "virtfn3")))
+			Expect(path).To(Equal(filepath.Join(SysFSRoot, sysPCIDevicesDir, "0000:4d:00.1", "virtfn3")))
 		})
 	})
 
@@ -486,7 +477,7 @@ var _ = Describe("PCI", func() {
 	Context("PCIHelper.SetNumOfVFs", Label("PCIHelper", "SetNumOfVFs"), func() {
 		It("should return error when sriov_numvfs file does not exist", func() {
 			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
 			helper := NewPCIHelper("0000:b1:00.0")
 			err := helper.SetNumOfVFs(4)
@@ -496,14 +487,14 @@ var _ = Describe("PCI", func() {
 
 		It("should successfully write number of VFs", func() {
 			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
 			// Create sriov_numvfs file
-			numvfsPath := filepath.Join(mock.pciDevicesDir, "0000:b1:00.0", "sriov_numvfs")
+			numvfsPath := filepath.Join(mock.PCIDevicesDir(), "0000:b1:00.0", "sriov_numvfs")
 			err := os.WriteFile(numvfsPath, []byte("0"), 0644)
 			Expect(err).NotTo(HaveOccurred())
 
-			helper := NewPCIHelper("0000:b1:00.0")
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
 			err = helper.SetNumOfVFs(4)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -515,13 +506,13 @@ var _ = Describe("PCI", func() {
 
 		It("should write zero VFs", func() {
 			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			numvfsPath := filepath.Join(mock.pciDevicesDir, "0000:b1:00.0", "sriov_numvfs")
+			numvfsPath := filepath.Join(mock.PCIDevicesDir(), "0000:b1:00.0", "sriov_numvfs")
 			err := os.WriteFile(numvfsPath, []byte("8"), 0644)
 			Expect(err).NotTo(HaveOccurred())
 
-			helper := NewPCIHelper("0000:b1:00.0")
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
 			err = helper.SetNumOfVFs(0)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -535,12 +526,9 @@ var _ = Describe("PCI", func() {
 		It("should return error when PCI devices directory does not exist", func() {
 			// Create mock to get cleanup() for path restoration, then point to non-existent path
 			mock := createMockSysfs("0000:00:00.0", "0x1234\n", "", nil, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			// Override to non-existent path after mock setup
-			SysPCIDevicesDir = "/nonexistent/path/to/pci/devices"
-
-			_, err := DiscoverDPUs()
+			_, err := DiscoverDPUs("/nonexistent/path/to/pci/devices")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to read PCI sys directory"))
 		})
@@ -548,22 +536,22 @@ var _ = Describe("PCI", func() {
 		It("should return empty list when no devices exist", func() {
 			// Create mock with a device, then remove it to get empty directory
 			mock := createMockSysfs("0000:00:00.0", "0x1234\n", "", nil, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
 			// Remove the device to have an empty PCI devices directory
-			err := os.RemoveAll(filepath.Join(mock.pciDevicesDir, "0000:00:00.0"))
+			err := os.RemoveAll(filepath.Join(mock.PCIDevicesDir(), "0000:00:00.0"))
 			Expect(err).NotTo(HaveOccurred())
 
-			devices, err := DiscoverDPUs()
+			devices, err := DiscoverDPUs(mock.TempSysfsDir())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(devices).To(BeEmpty())
 		})
 
 		It("should return empty list when no DPU devices found", func() {
 			mock := createMockSysfs("0000:00:00.0", "0x1234\n", "", nil, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			devices, err := DiscoverDPUs()
+			devices, err := DiscoverDPUs(mock.TempSysfsDir())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(devices).To(BeEmpty())
 		})
@@ -571,9 +559,9 @@ var _ = Describe("PCI", func() {
 		It("should discover a single DPU device", func() {
 			vpdData := createVPDDataWithSerialNumber("MT2334XZ0L")
 			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", vpdData, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			devices, err := DiscoverDPUs()
+			devices, err := DiscoverDPUs(mock.TempSysfsDir())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(devices).To(HaveLen(1))
 			Expect(devices[0].Address).To(Equal("0000:b1:00"))
@@ -585,10 +573,10 @@ var _ = Describe("PCI", func() {
 			// Create first mock for PF0
 			vpdData := createVPDDataWithSerialNumber("MT2334XZ0L")
 			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", vpdData, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
 			// Add PF1 to the same mock directory
-			pf1Path := filepath.Join(mock.pciDevicesDir, "0000:b1:00.1")
+			pf1Path := filepath.Join(mock.PCIDevicesDir(), "0000:b1:00.1")
 			err := os.MkdirAll(pf1Path, 0755)
 			Expect(err).NotTo(HaveOccurred())
 			err = os.WriteFile(filepath.Join(pf1Path, "device"), []byte("0xa2dc\n"), 0644)
@@ -596,7 +584,7 @@ var _ = Describe("PCI", func() {
 			err = os.WriteFile(filepath.Join(pf1Path, "vpd"), vpdData, 0644)
 			Expect(err).NotTo(HaveOccurred())
 
-			devices, err := DiscoverDPUs()
+			devices, err := DiscoverDPUs(mock.TempSysfsDir())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(devices).To(HaveLen(1))
 			Expect(devices[0].Address).To(Equal("0000:b1:00"))
@@ -607,11 +595,11 @@ var _ = Describe("PCI", func() {
 		It("should discover multiple different DPU devices", func() {
 			vpdData1 := createVPDDataWithSerialNumber("MT2334XZ0L")
 			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", vpdData1, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
 			// Add a second DPU device with different address
 			vpdData2 := createVPDDataWithSerialNumber("MT9876YZ0K")
-			dev2Path := filepath.Join(mock.pciDevicesDir, "0000:3c:00.0")
+			dev2Path := filepath.Join(mock.PCIDevicesDir(), "0000:3c:00.0")
 			err := os.MkdirAll(dev2Path, 0755)
 			Expect(err).NotTo(HaveOccurred())
 			err = os.WriteFile(filepath.Join(dev2Path, "device"), []byte("0xa2d6\n"), 0644)
@@ -619,7 +607,7 @@ var _ = Describe("PCI", func() {
 			err = os.WriteFile(filepath.Join(dev2Path, "vpd"), vpdData2, 0644)
 			Expect(err).NotTo(HaveOccurred())
 
-			devices, err := DiscoverDPUs()
+			devices, err := DiscoverDPUs(mock.TempSysfsDir())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(devices).To(HaveLen(2))
 
@@ -641,15 +629,15 @@ var _ = Describe("PCI", func() {
 		It("should continue when IsDPU check fails for a device", func() {
 			vpdData := createVPDDataWithSerialNumber("MT2334XZ0L")
 			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", vpdData, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
 			// Add a device directory without device file (will cause IsDPU to fail)
-			brokenDevPath := filepath.Join(mock.pciDevicesDir, "0000:ff:00.0")
+			brokenDevPath := filepath.Join(mock.PCIDevicesDir(), "0000:ff:00.0")
 			err := os.MkdirAll(brokenDevPath, 0755)
 			Expect(err).NotTo(HaveOccurred())
 			// Note: not creating "device" file, so IsDPU will fail
 
-			devices, err := DiscoverDPUs()
+			devices, err := DiscoverDPUs(mock.TempSysfsDir())
 			Expect(err).NotTo(HaveOccurred())
 			// Should still discover the valid device
 			Expect(devices).To(HaveLen(1))
@@ -658,12 +646,12 @@ var _ = Describe("PCI", func() {
 
 		It("should continue when SerialNumber read fails for a device", func() {
 			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 			// Note: vpd file not created, so SerialNumber will fail
 
 			// Add another valid DPU device
 			vpdData := createVPDDataWithSerialNumber("MT9876YZ0K")
-			dev2Path := filepath.Join(mock.pciDevicesDir, "0000:3c:00.0")
+			dev2Path := filepath.Join(mock.PCIDevicesDir(), "0000:3c:00.0")
 			err := os.MkdirAll(dev2Path, 0755)
 			Expect(err).NotTo(HaveOccurred())
 			err = os.WriteFile(filepath.Join(dev2Path, "device"), []byte("0xa2dc\n"), 0644)
@@ -671,7 +659,7 @@ var _ = Describe("PCI", func() {
 			err = os.WriteFile(filepath.Join(dev2Path, "vpd"), vpdData, 0644)
 			Expect(err).NotTo(HaveOccurred())
 
-			devices, err := DiscoverDPUs()
+			devices, err := DiscoverDPUs(mock.TempSysfsDir())
 			Expect(err).NotTo(HaveOccurred())
 			// Should only discover the second device (first one has no vpd)
 			Expect(devices).To(HaveLen(1))
@@ -682,16 +670,16 @@ var _ = Describe("PCI", func() {
 		It("should handle mix of DPU and non-DPU devices", func() {
 			vpdData := createVPDDataWithSerialNumber("MT2334XZ0L")
 			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", vpdData, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
 			// Add a non-DPU device
-			nonDpuPath := filepath.Join(mock.pciDevicesDir, "0000:00:1f.0")
+			nonDpuPath := filepath.Join(mock.PCIDevicesDir(), "0000:00:1f.0")
 			err := os.MkdirAll(nonDpuPath, 0755)
 			Expect(err).NotTo(HaveOccurred())
 			err = os.WriteFile(filepath.Join(nonDpuPath, "device"), []byte("0x8086\n"), 0644)
 			Expect(err).NotTo(HaveOccurred())
 
-			devices, err := DiscoverDPUs()
+			devices, err := DiscoverDPUs(mock.TempSysfsDir())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(devices).To(HaveLen(1))
 			Expect(devices[0].Address).To(Equal("0000:b1:00"))
