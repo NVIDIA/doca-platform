@@ -59,7 +59,7 @@ func SetInput() {
 			// TODO: Enable Kamaji by default in the e2e tests.
 			KamajiClusterManager: &operatorv1.KamajiClusterManagerConfiguration{
 				BaseComponentConfig: operatorv1.BaseComponentConfig{
-					Disable: ptr.To(true),
+					Disable: ptr.To(false),
 				},
 			},
 			ImagePullSecrets: []string{dpfPullSecretName, "pull-secret-extra"},
