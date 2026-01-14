@@ -128,6 +128,8 @@ const (
 	scaleLabel = "SCALE"
 	// dpfSystemLabel is used to mark the tests related to the DPFSystem test suite, ex: e2e, provisioning-e2e
 	dpfSystemLabel = "DPFSystem"
+	// multiDPUCluster is used to mark the tests related to testing the DPF in a multi DPUCluster setup
+	multiDPUClusterLabel = "MultiDPUCluster"
 	// sdnLabel is used to mark the tests related to the SDN test suite, ex: sdn
 	sdnLabel = "SDN"
 	// snapLabel is used to mark the tests related to the SNAP test suite, ex: snap
