@@ -302,9 +302,9 @@ DHCP = yes
 			// Create mock sysfs with VPD data
 			vpdData := createVPDDataWithSerialNumber("MT2334XZ0L")
 			mock := createMockSysfs("0000:b1:00.0", "", "", vpdData, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			pciHelper := NewPCIHelper("0000:b1:00.0")
+			pciHelper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
 			path, err := generateNetplanFilePath(pciHelper)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(path).To(Equal("/etc/netplan/99-dpu-MT2334XZ0L.yaml"))
@@ -314,9 +314,9 @@ DHCP = yes
 			// Create mock with serial number containing special chars
 			vpdData := createVPDDataWithSerialNumber("MT/23:34")
 			mock := createMockSysfs("0000:b1:00.0", "", "", vpdData, "")
-			defer mock.cleanup()
+			defer mock.Cleanup()
 
-			pciHelper := NewPCIHelper("0000:b1:00.0")
+			pciHelper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
 			path, err := generateNetplanFilePath(pciHelper)
 			Expect(err).NotTo(HaveOccurred())
 			// Special chars should be replaced with dashes

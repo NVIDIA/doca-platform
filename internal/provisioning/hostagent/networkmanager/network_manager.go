@@ -92,7 +92,7 @@ func (nm *NetworkManager) Start() error {
 		return fmt.Errorf("failed to ensure systemd-networkd is active: %w", err)
 	}
 
-	devices, err := hostutil.DiscoverDPUs()
+	devices, err := hostutil.DiscoverDPUs(hostutil.SysFSRoot)
 	if err != nil {
 		return fmt.Errorf("failed to discovery DPUs: %w", err)
 	}
