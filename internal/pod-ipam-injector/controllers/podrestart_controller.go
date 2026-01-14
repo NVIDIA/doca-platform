@@ -196,7 +196,17 @@ func (r *PodRestartController) reconcilePods(ctx context.Context, serviceChain *
 func shouldProcessPod(pod *corev1.Pod, networks []*multustypes.NetworkSelectionElement) bool {
 	_, hasStoredDigest := pod.Annotations[NetworkDigestAnnotation]
 	markedForDeletion := pod.DeletionTimestamp != nil && !pod.DeletionTimestamp.IsZero()
-	if pod.Status.Phase == corev1.PodPending || markedForDeletion || !hasStoredDigest || HasInvalidNetwork(networks) {
+	// If the Pod is in Pending state and the invalid network is not removed, it means it's processed by the Pod IPAM injector
+	// TODO: Adjust this check once Pod IPAM Injector reads DPUServiceNAD to understand whether IPAM
+	// should be used.
+	if (pod.Status.Phase == corev1.PodPending && HasInvalidNetwork(networks)) ||
+		// If the Pod is marked for deletion, the pod will be removed anyway, we don't need to process
+		markedForDeletion ||
+		// If the Pod doesn't have a digest, it means the Pod IPAM injector didn't inject one yet or should not inject
+		// at all
+		!hasStoredDigest ||
+		// If the Pod has the invalid network, it means it's processed by the Pod IPAM Injector
+		HasInvalidNetwork(networks) {
 		return false
 	}
 
