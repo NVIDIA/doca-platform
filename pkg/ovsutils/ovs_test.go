@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	ovsclient "github.com/ovn-org/libovsdb/client"
+	"github.com/ovn-org/libovsdb/ovsdb"
 	"go.uber.org/mock/gomock"
 )
 
@@ -45,6 +46,7 @@ var _ = Describe("OVSUtils", func() {
 		portUUID           = "port-uuid"
 		failModeSecure     = "secure"
 		failModeStandalone = "standalone"
+		bridgeUUID         = "bridge-uuid"
 	)
 
 	BeforeEach(func() {
@@ -699,6 +701,122 @@ var _ = Describe("OVSUtils", func() {
 				Entry("when multiple interfaces match", 2, true, "found multiple interfaces"),
 				Entry("when single interface matches", 1, false, ""),
 			)
+		})
+
+		Describe("DeleteBridge", func() {
+			var mockConditionalAPI *MockConditionalAPI
+
+			BeforeEach(func() {
+				mockConditionalAPI = NewMockConditionalAPI(mockCtrl)
+			})
+
+			It("should be idempotent when bridge not found", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+
+				err := client.DeleteBridge(ctx, "br-test")
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should fail when Get returns non-ErrNotFound error", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(errors.New("database error"))
+
+				err := client.DeleteBridge(ctx, "br-test")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to get bridge"))
+			})
+
+			It("should delete bridge with no ports", func() {
+				// Mock Get for bridge
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						bridge := model.(*ovsmodel.Bridge)
+						bridge.UUID = bridgeUUID
+						bridge.Ports = []string{} // No ports
+						return nil
+					})
+
+				// Mock Where for bridge deletion
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+
+				mockConditionalAPI.EXPECT().
+					Delete().
+					Return([]ovsdb.Operation{}, nil)
+
+				// Mock Transact
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				err := client.DeleteBridge(ctx, "br-test")
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should delete bridge with ports (garbage collection by OVSDB)", func() {
+				// Mock Get for bridge
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						bridge := model.(*ovsmodel.Bridge)
+						bridge.UUID = bridgeUUID
+						bridge.Ports = []string{"port-uuid-1"} // Ports exist but will be GC'd
+						return nil
+					})
+
+				// Mock Where for bridge deletion
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+
+				mockConditionalAPI.EXPECT().
+					Delete().
+					Return([]ovsdb.Operation{}, nil)
+
+				// Mock Transact
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				err := client.DeleteBridge(ctx, "br-test")
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should fail when Transact returns error", func() {
+				// Mock Get for bridge
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						bridge := model.(*ovsmodel.Bridge)
+						bridge.UUID = bridgeUUID
+						bridge.Ports = []string{}
+						return nil
+					})
+
+				// Mock Where for bridge deletion
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+
+				mockConditionalAPI.EXPECT().
+					Delete().
+					Return([]ovsdb.Operation{}, nil)
+
+				// Mock Transact - returns error
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return(nil, errors.New("transaction failed"))
+
+				err := client.DeleteBridge(ctx, "br-test")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to delete bridge"))
+			})
+
 		})
 	})
 
