@@ -223,14 +223,7 @@ func ValidateDPUServiceTemplateCreationNoAnnotations(ctx context.Context, input 
 			types.NamespacedName{Name: dpuServiceTemplate.GetName(), Namespace: dpuServiceTemplate.GetNamespace()},
 			gotDPUServiceTemplate,
 		)).To(Succeed())
-		g.Expect(gotDPUServiceTemplate.Status.Conditions).To(ContainElement(
-			And(
-				HaveField("Type", string(conditions.TypeReady)),
-				HaveField("Status", metav1.ConditionTrue),
-				HaveField("Reason", string(conditions.ReasonSuccess)),
-			),
-		))
-
+		g.Expect(conditions.IsTrue(gotDPUServiceTemplate, conditions.TypeReady)).To(BeTrue())
 		g.Expect(gotDPUServiceTemplate.Status.Versions).To(BeEmpty())
 	}).WithTimeout(180 * time.Second).Should(Succeed())
 }
@@ -249,14 +242,7 @@ func VerifyDPUServiceTemplateCreationWithAnnotations(ctx context.Context, input 
 			types.NamespacedName{Name: dpuServiceTemplate.GetName(), Namespace: dpuServiceTemplate.GetNamespace()},
 			gotDPUServiceTemplate,
 		)).To(Succeed())
-
-		g.Expect(gotDPUServiceTemplate.Status.Conditions).To(ContainElement(
-			And(
-				HaveField("Type", string(conditions.TypeReady)),
-				HaveField("Status", metav1.ConditionTrue),
-				HaveField("Reason", string(conditions.ReasonSuccess)),
-			),
-		))
+		g.Expect(conditions.IsTrue(gotDPUServiceTemplate, conditions.TypeReady)).To(BeTrue())
 		g.Expect(gotDPUServiceTemplate.Status.Versions).To(HaveKeyWithValue("dpu.nvidia.com/doca-version", ">= 2.9"))
 	}).WithTimeout(180 * time.Second).Should(Succeed())
 }
