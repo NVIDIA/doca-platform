@@ -588,11 +588,7 @@ func VerifyDPFOperatorConfigReady(ctx context.Context, kclient client.Client, ti
 	Eventually(func(g Gomega) {
 		dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
 		g.Expect(kclient.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, dpfOperatorConfig)).To(Succeed())
-		// TODO: Replace with conditions.IsReady() when we start checking for correct generation in the function
-		readyCondition := conditions.Get(dpfOperatorConfig, conditions.TypeReady)
-		g.Expect(readyCondition).NotTo(BeNil())
-		g.Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue))
-		g.Expect(readyCondition.ObservedGeneration).To(Equal(dpfOperatorConfig.Generation))
+		g.Expect(conditions.IsTrue(dpfOperatorConfig, conditions.TypeReady)).To(BeTrue())
 	}).WithTimeout(timeout).WithPolling(1 * time.Second).Should(Succeed())
 }
 
