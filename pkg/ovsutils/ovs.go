@@ -46,6 +46,7 @@ type API interface {
 	GetOpenVSwitchExternalIDs(ctx context.Context) (map[string]string, error)
 	AddBridge(ctx context.Context, bridgeConfig BridgeConfig) error
 	GetIfaceWithName(ctx context.Context, name string) (*ovsmodel.Interface, error)
+	DeleteBridge(ctx context.Context, name string) error
 }
 
 var _ API = (*Client)(nil)
@@ -498,6 +499,47 @@ func (c *Client) AddBridge(ctx context.Context, bridgeConfig BridgeConfig) error
 
 	if _, err := ovsdb.CheckOperationResults(reply, operations); err != nil {
 		return fmt.Errorf(errMsgFailedToCreateBridge, bridgeConfig.Name, err)
+	}
+
+	return nil
+}
+
+// DeleteBridge deletes a bridge from OVSDB.
+// OVSDB automatically garbage collects orphaned ports and interfaces when a bridge is deleted.
+// The bridge reference is also automatically removed from Open_vSwitch.Bridges.
+// This matches the behavior of `ovs-vsctl del-br`.
+func (c *Client) DeleteBridge(ctx context.Context, name string) error {
+	// Get the bridge
+	bridge := &ovsmodel.Bridge{Name: name}
+	err := c.Get(ctx, bridge)
+	if err != nil {
+		if errors.Is(err, ovsclient.ErrNotFound) {
+			return nil // Idempotent: bridge already doesn't exist
+		}
+		return fmt.Errorf("failed to get bridge %s: %v", name, err)
+	}
+
+	// Delete the bridge itself (OVSDB handles parent reference cleanup automatically)
+	deleteBridgeOps, err := c.Where(bridge).Delete()
+	if err != nil {
+		return fmt.Errorf("failed to create delete operations for bridge %s: %v", name, err)
+	}
+
+	return c.executeDeleteOperations(ctx, deleteBridgeOps, name)
+}
+
+func (c *Client) executeDeleteOperations(ctx context.Context, operations []ovsdb.Operation, bridgeName string) error {
+	reply, err := c.Transact(ctx, operations...)
+	if err != nil {
+		return fmt.Errorf("failed to delete bridge %s: %v", bridgeName, err)
+	}
+
+	if _, err := ovsdb.CheckOperationResults(reply, operations); err != nil {
+		// Ignore "not found" errors - bridge already doesn't exist (race condition)
+		if errors.Is(err, ovsclient.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("failed to delete bridge %s: %v", bridgeName, err)
 	}
 
 	return nil
