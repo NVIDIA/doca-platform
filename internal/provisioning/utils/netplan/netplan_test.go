@@ -50,17 +50,20 @@ var _ = Describe("NetplanHelper", func() {
 						"eth0": {
 							MTU:   ptr.To(int32(9000)),
 							DHCP4: ptr.To(true),
+							DHCP6: ptr.To(false),
 							DHCP4Overrides: &DHCP4Overrides{
 								UseMTU: ptr.To(false),
 							},
 						},
 						"eth1": {
-							MTU:   ptr.To(int32(1500)),
-							DHCP4: ptr.To(false),
+							MTU:       ptr.To(int32(1500)),
+							DHCP4:     ptr.To(false),
+							LinkLocal: ptr.To([]string{}),
+							Optional:  ptr.To(true),
 						},
 						"eth2": {
 							DHCP4:     ptr.To(false),
-							LinkLocal: []string{"ipv4"},
+							LinkLocal: ptr.To([]string{"ipv4"}),
 						},
 					},
 					Bridges: map[string]Bridge{
@@ -85,11 +88,14 @@ network:
     eth0:
       mtu: 9000
       dhcp4: true
+      dhcp6: false
       dhcp4-overrides:
         use-mtu: false
     eth1:
       mtu: 1500
       dhcp4: false
+      link-local: []
+      optional: true
     eth2:
       dhcp4: false
       link-local:

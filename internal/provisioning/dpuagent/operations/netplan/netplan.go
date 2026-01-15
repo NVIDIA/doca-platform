@@ -67,7 +67,7 @@ func createOOBTmFifoNetplanFile(mode operations.InstallMode, cpMTU int32) error 
 
 	tmFifo := netplan.Ethernet{
 		DHCP4:     ptr.To(false),
-		LinkLocal: []string{"ipv4"},
+		LinkLocal: ptr.To([]string{"ipv4"}),
 	}
 
 	config := &netplan.Config{
