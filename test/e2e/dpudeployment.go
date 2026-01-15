@@ -791,11 +791,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade(ctx context.Context, 
 	By("Validating that the DPFOperatorConfig is ready for the current generation")
 	Eventually(func(g Gomega) {
 		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
-		// TODO: Replace with conditions.IsReady() when we start checking for correct generation in the function
-		readyCondition := conditions.Get(dpfOperatorConfig, conditions.TypeReady)
-		g.Expect(readyCondition).NotTo(BeNil())
-		g.Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue))
-		g.Expect(readyCondition.ObservedGeneration).To(Equal(dpfOperatorConfig.Generation))
+		g.Expect(conditions.IsTrue(dpfOperatorConfig, conditions.TypeReady)).To(BeTrue())
 	}).WithTimeout(2 * time.Minute).Should(Succeed())
 
 	By("Getting the existing DPUDeployment")
@@ -1008,11 +1004,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade(ctx context.Context, 
 	By("Validating that the DPFOperatorConfig is ready for the current generation")
 	Eventually(func(g Gomega) {
 		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
-		// TODO: Replace with conditions.IsReady() when we start checking for correct generation in the function
-		readyCondition := conditions.Get(dpfOperatorConfig, conditions.TypeReady)
-		g.Expect(readyCondition).NotTo(BeNil())
-		g.Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue))
-		g.Expect(readyCondition.ObservedGeneration).To(Equal(dpfOperatorConfig.Generation))
+		g.Expect(conditions.IsTrue(dpfOperatorConfig, conditions.TypeReady)).To(BeTrue())
 	}).WithTimeout(2 * time.Minute).Should(Succeed())
 }
 
