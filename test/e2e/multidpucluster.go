@@ -30,6 +30,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -126,12 +127,225 @@ func ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster(ctx context.Co
 
 // ValidateDPUServiceIPAMInL2ModeForMultiDPUCluster validates DPUService IPAM in L2 mode for multi-cluster setup
 func ValidateDPUServiceIPAMInL2ModeForMultiDPUCluster(ctx context.Context, input *systemTestInput) {
-	// TODO: Implement validation logic for L2 mode IPAM across multiple clusters
-	Skip("ValidateDPUServiceIPAMInL2ModeForMultiDPUCluster not yet implemented")
+	By("Getting existing DPUServiceConfiguration and updating it to use br-sfc network with IPAM requirement")
+	dpuServiceConfiguration := generateServiceConfiguration(input, "")
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuServiceConfiguration), dpuServiceConfiguration)).To(Succeed())
+	dpuServiceConfigurationOriginal := dpuServiceConfiguration.DeepCopy()
+	dpuServiceConfiguration.Spec.Interfaces[0].Network = "mybrsfc"
+	Expect(input.client.Patch(ctx, dpuServiceConfiguration, client.MergeFrom(dpuServiceConfigurationOriginal))).To(Succeed())
+
+	poolLabel := map[string]string{
+		"svc.dpu.nvidia.com/pool": "l2-pool",
+	}
+	dpuServiceIPAMTemplate := input.ipPoolDPUServiceIPAM.DeepCopy()
+	dpuServiceIPAMTemplate.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceIPAMTemplate.Labels = utils.AfterAllCleanupLabels
+	dpuServiceIPAMTemplate.Spec.ObjectMeta.Labels = poolLabel
+	dpuServiceIPAMTemplate.Spec.NodeSelector = nil
+	By("Creating DPUServiceIPAM for the first cluster")
+	dpuServiceIPAM1 := dpuServiceIPAMTemplate.DeepCopy()
+	dpuServiceIPAM1.SetName("l2-ipam-cluster-1")
+	dpuServiceIPAM1.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+		Subnet:         "192.168.10.1/28",
+		Gateway:        "192.168.10.1",
+		PerNodeIPCount: 6,
+		ExcludeRanges: []dpuservicev1.ExcludeRange{
+			{
+				StartIP: "192.168.10.7",
+				EndIP:   "192.168.10.15",
+			},
+		},
+	}
+	dpuServiceIPAM1.Spec.DPUClusterSelector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"svc.dpu.nvidia.com/cluster": input.dpuClusters[0].Name,
+		},
+	}
+	Expect(input.client.Create(ctx, dpuServiceIPAM1)).To(Succeed())
+
+	By("Creating DPUServiceIPAM for second cluster")
+	dpuServiceIPAM2 := dpuServiceIPAMTemplate.DeepCopy()
+	dpuServiceIPAM2.SetName("l2-ipam-cluster-2")
+	dpuServiceIPAM2.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+		Subnet:         "192.168.10.1/28",
+		Gateway:        "192.168.10.1",
+		PerNodeIPCount: 6,
+		ExcludeRanges: []dpuservicev1.ExcludeRange{
+			{
+				StartIP: "192.168.10.1",
+				EndIP:   "192.168.10.6",
+			},
+		},
+	}
+	dpuServiceIPAM2.Spec.DPUClusterSelector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"svc.dpu.nvidia.com/cluster": input.dpuClusters[1].Name,
+		},
+	}
+	Expect(input.client.Create(ctx, dpuServiceIPAM2)).To(Succeed())
+
+	By("Getting existing DPUDeployment and updating its servicechain to use DPUServiceIPAM")
+	dpuDeployment := generateDPUDeployment(input, "")
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+	dpuDeploymentOriginal := dpuDeployment.DeepCopy()
+	// Update the service port to include IPAM
+	dpuDeployment.Spec.ServiceChains.Switches[0].Ports[0].Service.IPAM = &dpuservicev1.IPAM{MatchLabels: poolLabel}
+	Expect(input.client.Patch(ctx, dpuDeployment, client.MergeFrom(dpuDeploymentOriginal))).To(Succeed())
+
+	By("Waiting for DPUDeployment to become ready")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+		g.Expect(conditions.IsTrue(dpuDeployment, conditions.TypeReady)).To(BeTrue())
+	}).WithTimeout(15 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+
+	By("Validating DPUService Pod in first cluster has secondary IP from correct subnet")
+	Eventually(func(g Gomega) {
+		podList := &corev1.PodList{}
+		g.Expect(dpuClusterClient[0].List(ctx, podList,
+			client.MatchingLabels{"svc.dpu.nvidia.com/service": "dpudeployment_example_example"},
+			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(podList.Items).ToNot(BeEmpty())
+		g.Expect(podList.Items).To(HaveLen(1))
+
+		pod := podList.Items[0]
+		ipStr := getPodIPForInterface(pod, "net1")
+		// Note that if the pod is restarted for whatever reason, NVIPAM will allocate the next IP in the block and this
+		// check will fail. This indicates that another issue occurs and should be checked why this happened to identify
+		// potential issues on other components. If this fails a lot, we can relax the check to check that the IP is part
+		// of the block we expect it to be.
+		g.Expect(ipStr).To(Equal("192.168.10.2"),
+			fmt.Sprintf("Pod %s in cluster 1 should have IP 192.168.10.2", pod.Name))
+	}).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Validating DPUService Pod in second cluster has secondary IP from correct subnet")
+	Eventually(func(g Gomega) {
+		podList := &corev1.PodList{}
+		g.Expect(dpuClusterClient[1].List(ctx, podList,
+			client.MatchingLabels{"svc.dpu.nvidia.com/service": "dpudeployment_example_example"},
+			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(podList.Items).ToNot(BeEmpty())
+		g.Expect(podList.Items).To(HaveLen(1))
+
+		pod := podList.Items[0]
+		ipStr := getPodIPForInterface(pod, "net1")
+		// Note that if the pod is restarted for whatever reason, NVIPAM will allocate the next IP in the block and this
+		// check will fail. This indicates that another issue occurs and should be checked why this happened to identify
+		// potential issues on other components. If this fails a lot, we can relax the check to check that the IP is part
+		// of the block we expect it to be.
+		g.Expect(ipStr).To(Equal("192.168.10.7"),
+			fmt.Sprintf("Pod %s in cluster 2 should have IP 192.168.10.7", pod.Name))
+	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
 // ValidateDPUServiceIPAMInL3ModeForMultiDPUCluster validates DPUService IPAM in L3 mode for multi-cluster setup
 func ValidateDPUServiceIPAMInL3ModeForMultiDPUCluster(ctx context.Context, input *systemTestInput) {
-	// TODO: Implement validation logic for L3 mode IPAM across multiple clusters
-	Skip("ValidateDPUServiceIPAMInL3ModeForMultiDPUCluster not yet implemented")
+	By("Getting existing DPUServiceConfiguration and updating it to use br-sfc network with IPAM requirement")
+	dpuServiceConfiguration := generateServiceConfiguration(input, "")
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuServiceConfiguration), dpuServiceConfiguration)).To(Succeed())
+	dpuServiceConfigurationOriginal := dpuServiceConfiguration.DeepCopy()
+	dpuServiceConfiguration.Spec.Interfaces[0].Network = "mybrsfc"
+	Expect(input.client.Patch(ctx, dpuServiceConfiguration, client.MergeFrom(dpuServiceConfigurationOriginal))).To(Succeed())
+
+	poolLabel := map[string]string{
+		"svc.dpu.nvidia.com/pool": "l3-pool",
+	}
+	dpuServiceIPAMTemplate := input.cidrDPUServiceIPAM.DeepCopy()
+	dpuServiceIPAMTemplate.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceIPAMTemplate.Labels = utils.AfterAllCleanupLabels
+	dpuServiceIPAMTemplate.Spec.ObjectMeta.Labels = poolLabel
+	dpuServiceIPAMTemplate.Spec.NodeSelector = nil
+
+	By("Creating DPUServiceIPAM for the first cluster")
+	dpuServiceIPAM1 := dpuServiceIPAMTemplate.DeepCopy()
+	dpuServiceIPAM1.SetName("l3-ipam-cluster-1")
+	dpuServiceIPAM1.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+		Network:      "192.168.20.0/28",
+		GatewayIndex: ptr.To[int32](1),
+		PrefixSize:   30,
+		ExcludeRanges: []dpuservicev1.ExcludeRange{
+			{
+				StartIP: "192.168.20.8",
+				EndIP:   "192.168.20.15",
+			},
+		},
+	}
+	dpuServiceIPAM1.Spec.DPUClusterSelector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"svc.dpu.nvidia.com/cluster": input.dpuClusters[0].Name,
+		},
+	}
+	Expect(input.client.Create(ctx, dpuServiceIPAM1)).To(Succeed())
+
+	By("Creating DPUServiceIPAM for second cluster")
+	dpuServiceIPAM2 := dpuServiceIPAMTemplate.DeepCopy()
+	dpuServiceIPAM2.SetName("l3-ipam-cluster-2")
+	dpuServiceIPAM2.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+		Network:      "192.168.20.0/28",
+		GatewayIndex: ptr.To[int32](1),
+		PrefixSize:   30,
+		ExcludeRanges: []dpuservicev1.ExcludeRange{
+			{
+				StartIP: "192.168.20.0",
+				EndIP:   "192.168.20.7",
+			},
+		},
+	}
+	dpuServiceIPAM2.Spec.DPUClusterSelector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"svc.dpu.nvidia.com/cluster": input.dpuClusters[1].Name,
+		},
+	}
+	Expect(input.client.Create(ctx, dpuServiceIPAM2)).To(Succeed())
+
+	By("Getting existing DPUDeployment and updating its servicechain to use DPUServiceIPAM")
+	dpuDeployment := generateDPUDeployment(input, "")
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+	dpuDeploymentOriginal := dpuDeployment.DeepCopy()
+	// Update the service port to include IPAM
+	dpuDeployment.Spec.ServiceChains.Switches[0].Ports[0].Service.IPAM = &dpuservicev1.IPAM{MatchLabels: poolLabel}
+	Expect(input.client.Patch(ctx, dpuDeployment, client.MergeFrom(dpuDeploymentOriginal))).To(Succeed())
+
+	By("Waiting for DPUDeployment to become ready")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+		g.Expect(conditions.IsTrue(dpuDeployment, conditions.TypeReady)).To(BeTrue())
+	}).WithTimeout(15 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+
+	By("Validating DPUService Pod in first cluster has secondary IP from correct subnet")
+	Eventually(func(g Gomega) {
+		podList := &corev1.PodList{}
+		g.Expect(dpuClusterClient[0].List(ctx, podList,
+			client.MatchingLabels{"svc.dpu.nvidia.com/service": "dpudeployment_example_example"},
+			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(podList.Items).ToNot(BeEmpty())
+		g.Expect(podList.Items).To(HaveLen(1))
+
+		pod := podList.Items[0]
+		ipStr := getPodIPForInterface(pod, "net1")
+		// Note that if the pod is restarted for whatever reason, NVIPAM will allocate the next IP in the block and this
+		// check will fail. This indicates that another issue occurs and should be checked why this happened to identify
+		// potential issues on other components. If this fails a lot, we can relax the check to check that the IP is part
+		// of the block we expect it to be.
+		g.Expect(ipStr).To(Equal("192.168.20.2"),
+			fmt.Sprintf("Pod %s in cluster 1 should have IP 192.168.20.2", pod.Name))
+	}).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Validating DPUService Pod in second cluster has secondary IP from correct subnet")
+	Eventually(func(g Gomega) {
+		podList := &corev1.PodList{}
+		g.Expect(dpuClusterClient[1].List(ctx, podList,
+			client.MatchingLabels{"svc.dpu.nvidia.com/service": "dpudeployment_example_example"},
+			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(podList.Items).ToNot(BeEmpty())
+		g.Expect(podList.Items).To(HaveLen(1))
+
+		pod := podList.Items[0]
+		ipStr := getPodIPForInterface(pod, "net1")
+		// Note that if the pod is restarted for whatever reason, NVIPAM will allocate the next IP in the block and this
+		// check will fail. This indicates that another issue occurs and should be checked why this happened to identify
+		// potential issues on other components. If this fails a lot, we can relax the check to check that the IP is part
+		// of the block we expect it to be.
+		g.Expect(ipStr).To(Equal("192.168.20.10"),
+			fmt.Sprintf("Pod %s in cluster 2 should have IP 192.168.20.10", pod.Name))
+	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
