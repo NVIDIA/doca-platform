@@ -191,6 +191,20 @@ func (mr *MockAPIMockRecorder) DelPort(ctx, bridgeName, portName any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DelPort", reflect.TypeOf((*MockAPI)(nil).DelPort), ctx, bridgeName, portName)
 }
 
+// DeleteBridge mocks base method.
+func (m *MockAPI) DeleteBridge(ctx context.Context, name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteBridge", ctx, name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteBridge indicates an expected call of DeleteBridge.
+func (mr *MockAPIMockRecorder) DeleteBridge(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteBridge", reflect.TypeOf((*MockAPI)(nil).DeleteBridge), ctx, name)
+}
+
 // Disconnect mocks base method.
 func (m *MockAPI) Disconnect() {
 	m.ctrl.T.Helper()
