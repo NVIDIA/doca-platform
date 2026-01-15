@@ -35,9 +35,16 @@ type Network struct {
 
 type Ethernet struct {
 	DHCP4          *bool           `yaml:"dhcp4,omitempty"`
+	DHCP6          *bool           `yaml:"dhcp6,omitempty"`
 	MTU            *int32          `yaml:"mtu,omitempty"`
 	DHCP4Overrides *DHCP4Overrides `yaml:"dhcp4-overrides,omitempty"`
-	LinkLocal      []string        `yaml:"link-local,omitempty"`
+	// LinkLocal configures the link-local addresses to bring up.
+	// A pointer is used to distinguish between nil (not specified) and empty slice
+	// Quote from netplan documentation:
+	// * If this field is not defined, the default is to enable only IPv6 link-local addresses
+	// * If the field is defined but configured as an empty set, IPv6 link-local addresses are disabled as well as IPv4 link- local addresses
+	LinkLocal *[]string `yaml:"link-local,omitempty"`
+	Optional  *bool     `yaml:"optional,omitempty"`
 }
 
 type Bridge struct {
