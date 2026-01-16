@@ -4,6 +4,15 @@ metadata:
   name: dpu-cluster-1
   namespace: dpf-operator-system
 spec:
-  kubeconfig: dpu-cluster-1-admin-kubeconfig
-  maxNodes: 1000
-  type: static
+  type: kamaji
+  clusterEndpoint:
+    # deploy keepalived instances on the nodes that match the given nodeSelector.
+    keepalived:
+      # interface on which keepalived will listen. Should be the oob interface of the control plane node.
+      interface: eth1
+      # Virtual IP reserved for the DPU Cluster load balancer. Must not be allocatable by DHCP.
+      vip: 10.0.110.200
+      # virtualRouterID must be in range [1,255], make sure the given virtualRouterID does not duplicate with any existing keepalived process running on the host
+      virtualRouterID: 126
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
