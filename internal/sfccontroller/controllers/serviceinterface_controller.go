@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"strconv"
 	"strings"
 	"time"
@@ -46,10 +47,13 @@ const (
 	ServiceInterfaceFinalizer  = dpuservicev1.SvcDpuGroupName + "/ServiceInterface-finalizer"
 	RequeueIntervalSuccess     = 20 * time.Second
 	RequeueIntervalError       = 5 * time.Second
-	OvnPatch                   = "puplinkbrovn"
-	OvnPatchPeer               = "puplinkbrsfc"
 	SFCBridge                  = "br-sfc"
 	OVNBridge                  = "br-ovn"
+
+	// Patch port naming formats
+	peerPatchNameFormat   = "p_%s_to_%s"      // used when PeerPatchName is specified
+	patchPortHashedFormat = "p_%s_to_%s_%08x" // used for auto-generated names with hash
+	patchPortUplinkFormat = "puplink%sto%s"   // used for OVN uplink patch ports
 
 	// noopRemovalPhysicalAnnotationKey is the annotation key that controls whether a Physical Interface should be removed
 	// from OVS or not. This is a workaround and must not be used in production.
@@ -104,49 +108,104 @@ func AddPort(ctx context.Context, ovs ovsutils.API, portName string, ifaceExtern
 	return nil
 }
 
-func AddPatchPort(ctx context.Context, ovs ovsutils.API, brA, brB string, ifaceExternalIDs map[string]string) error {
-	log := ctrllog.FromContext(ctx)
+// getPatchPortNames generates OVS patch port names for connecting two bridges.
+// Uses PeerPatchName when specified, otherwise derives a deterministic name from the ServiceInterface.
+// Returns the patch port name for brA and the corresponding peer port name for brB.
+//
+// Examples:
+//   - With PeerPatchName "mypatch", brA="br-sfc", brB="br-ovn":
+//     returns ("p_brsfc_to_mypatch", "mypatch")
+//   - Without PeerPatchName, brA="br-sfc", brB="br-ovn", namespace/name hash 0xabcd1234:
+//     returns ("p_brsfc_to_brovn_abcd1234", "p_brovn_to_brsfc_abcd1234")
+func getPatchPortNames(serviceInterface *dpuservicev1.ServiceInterface, brA, brB string) (string, string) {
 	strippedBrA := strings.ReplaceAll(brA, "-", "")
 	strippedBrB := strings.ReplaceAll(brB, "-", "")
-	patchPort := fmt.Sprintf("puplink%sto%s", strippedBrA, strippedBrB)
-	patchPortPeer := fmt.Sprintf("puplink%sto%s", strippedBrB, strippedBrA)
 
-	log.Info("adding patch port", "brA", brA, "brB", brB, "patchPort", patchPort, "patchPortPeer", patchPortPeer)
-	if err := ovs.AddPort(ctx, brA, patchPort, "patch", nil); err != nil {
+	if serviceInterface.Spec.Patch != nil && serviceInterface.Spec.Patch.PeerPatchName != nil {
+		peerPatchName := *serviceInterface.Spec.Patch.PeerPatchName
+		patchName := fmt.Sprintf(peerPatchNameFormat, strippedBrA, peerPatchName)
+		return patchName, peerPatchName
+	}
+
+	h := fnv.New32a()
+	h.Write([]byte(client.ObjectKeyFromObject(serviceInterface).String()))
+	interfaceNameHash := h.Sum32()
+
+	brAPatchPortName := fmt.Sprintf(patchPortHashedFormat, strippedBrA, strippedBrB, interfaceNameHash)
+	brBPatchPortName := fmt.Sprintf(patchPortHashedFormat, strippedBrB, strippedBrA, interfaceNameHash)
+	return brAPatchPortName, brBPatchPortName
+}
+
+// getOVNPatchPortNames generates OVN patch port names for connecting two bridges.
+// Returns the patch port name for brA and the corresponding peer port name for brB.
+//
+// Example:
+//   - brA="br-sfc", brB="br-ovn":
+//     returns ("puplinkbrsfctobrovn", "puplinkbrovntobrsfc")
+func getOVNPatchPortNames(brA, brB string) (string, string) {
+	strippedBrA := strings.ReplaceAll(brA, "-", "")
+	strippedBrB := strings.ReplaceAll(brB, "-", "")
+
+	brAPatchPortName := fmt.Sprintf(patchPortUplinkFormat, strippedBrA, strippedBrB)
+	brBPatchPortName := fmt.Sprintf(patchPortUplinkFormat, strippedBrB, strippedBrA)
+	return brAPatchPortName, brBPatchPortName
+}
+
+// AddPatchPort creates a bidirectional OVS patch port connection between two bridges.
+// The peer patch port is added first to ensure the operation fails if the brB bridge does not exist.
+//
+// The function performs the following steps:
+//  1. Creates a patch port on brB with the given peerPatchName
+//  2. Configures the peer port's peer option to reference patchName
+//  3. Creates a patch port on brA with the given patchName
+//  4. Configures the port's peer option to reference peerPatchName
+//  5. Sets ifaceExternalIDs to patchName for identification
+//
+// Returns an error if any OVS operation fails; partial state may remain on failure.
+func AddPatchPort(ctx context.Context, ovs ovsutils.API, brA, brB string, patchName, peerPatchName string, ifaceExternalIDs map[string]string) error {
+	log := ctrllog.FromContext(ctx)
+	log.Info("adding patch port", "brA", brA, "brB", brB, "patchName", patchName, "peerPatchName", peerPatchName)
+
+	// Adds patch to brB first to ensure it exists before adding the patch to brA
+	if err := ovs.AddPort(ctx, brB, peerPatchName, "patch", nil); err != nil {
 		return err
 	}
 
-	if err := ovs.SetIfaceOptions(ctx, patchPort, map[string]string{"peer": patchPortPeer}); err != nil {
+	if err := ovs.SetIfaceOptions(ctx, peerPatchName, map[string]string{"peer": patchName}); err != nil {
 		return err
 	}
 
-	if err := ovs.AddPort(ctx, brB, patchPortPeer, "patch", nil); err != nil {
+	if err := ovs.AddPort(ctx, brA, patchName, "patch", nil); err != nil {
 		return err
 	}
 
-	if err := ovs.SetIfaceExternalIDs(ctx, patchPort, ifaceExternalIDs); err != nil {
+	if err := ovs.SetIfaceOptions(ctx, patchName, map[string]string{"peer": peerPatchName}); err != nil {
 		return err
 	}
 
-	if err := ovs.SetIfaceOptions(ctx, patchPortPeer, map[string]string{"peer": patchPort}); err != nil {
+	if err := ovs.SetIfaceExternalIDs(ctx, patchName, ifaceExternalIDs); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func DeletePatchPorts(ctx context.Context, ovs ovsutils.API, brA, brB string) error {
+// DeletePatchPorts removes a bidirectional OVS patch port connection between two bridges.
+// This is the inverse operation of AddPatchPort.
+//
+// The function performs the following steps:
+//  1. Deletes the patch port from brA with the given patchName
+//  2. Deletes the peer patch port from brB with the given peerPatchName
+//
+// Returns an error if any OVS operation fails; partial state may remain on failure.
+func DeletePatchPorts(ctx context.Context, ovs ovsutils.API, brA, brB string, patchName, peerPatchName string) error {
 	log := ctrllog.FromContext(ctx)
-	strippedBrA := strings.ReplaceAll(brA, "-", "")
-	strippedBrB := strings.ReplaceAll(brB, "-", "")
-	patchPort := fmt.Sprintf("puplink%sto%s", strippedBrA, strippedBrB)
-	patchPortPeer := fmt.Sprintf("puplink%sto%s", strippedBrB, strippedBrA)
-	err := ovs.DelPort(ctx, brA, patchPort)
+	err := ovs.DelPort(ctx, brA, patchName)
 	if err != nil {
 		log.Info(fmt.Sprintf("failed to delete port %s", err.Error()))
 		return err
 	}
-	err = ovs.DelPort(ctx, brB, patchPortPeer)
+	err = ovs.DelPort(ctx, brB, peerPatchName)
 	if err != nil {
 		log.Info(fmt.Sprintf("failed to delete port %s", err.Error()))
 		return err
@@ -220,14 +279,33 @@ func AddInterfacesToOvs(
 ) error {
 	log := ctrllog.FromContext(ctx)
 	var err error
-	var ovnBridge string
+	var externalBridge string
 	if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypeOVN {
 		log.Info("matched on serviceInterfaceType ovn", "name", serviceInterface.Name)
-		ovnBridge = getOVNBridge(serviceInterface)
-		log.Info("ovn bridge", "name", ovnBridge)
+		externalBridge = getOVNBridge(serviceInterface)
+		log.Info("ovn bridge", "name", externalBridge)
 
-		if err = AddPatchPort(ctx, ovs, SFCBridge, ovnBridge, map[string]string{"dpf-id": metadata}); err != nil {
-			log.Error(err, "failed to add patch port between bridges", "brA", SFCBridge, "brB", ovnBridge)
+		patchPortName, patchPortPeerName := getOVNPatchPortNames(SFCBridge, externalBridge)
+		if err = AddPatchPort(ctx, ovs, SFCBridge, externalBridge, patchPortName, patchPortPeerName, map[string]string{"dpf-id": metadata}); err != nil {
+			log.Error(err, "failed to add patch port between bridges", "brA", SFCBridge, "brB", externalBridge, "patchPortName", patchPortName, "patchPortPeerName", patchPortPeerName)
+			return err
+		}
+		return nil
+	}
+
+	if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypePatch {
+		log.Info("matched on serviceInterfaceType patch", "name", serviceInterface.Name)
+		if serviceInterface.Spec.Patch == nil || serviceInterface.Spec.Patch.PeerBridge == "" {
+			log.Error(fmt.Errorf("peer bridge is not set or is empty"), "failed to add patch port between bridges", "brA", SFCBridge)
+			return fmt.Errorf("peer bridge is not set or is empty")
+		}
+
+		peerBridge := serviceInterface.Spec.Patch.PeerBridge
+		log.Info("peer bridge", "name", peerBridge)
+
+		patchName, peerPatchName := getPatchPortNames(serviceInterface, SFCBridge, peerBridge)
+		if err = AddPatchPort(ctx, ovs, SFCBridge, peerBridge, patchName, peerPatchName, map[string]string{"dpf-id": metadata}); err != nil {
+			log.Error(err, "failed to add patch port between bridges", "patchName", patchName, "peerPatchName", peerPatchName)
 			return err
 		}
 		return nil
@@ -262,7 +340,7 @@ func DeleteInterfacesFromOvs(
 ) error {
 	log := ctrllog.FromContext(ctx)
 	var err error
-	var ovnBridge string
+	var externalBridge string
 	log.Info("deleteInterfacesFromOvs")
 
 	// Skip Physical Interface removal from OVS if annotation is set
@@ -278,11 +356,29 @@ func DeleteInterfacesFromOvs(
 
 	if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypeOVN {
 		log.Info("matched on serviceInterfaceType ovn", "name", serviceInterface.Name)
-		ovnBridge = getOVNBridge(serviceInterface)
-		log.Info("ovn bridge", "name", ovnBridge)
+		externalBridge = getOVNBridge(serviceInterface)
+		log.Info("ovn bridge", "name", externalBridge)
 
-		if err = DeletePatchPorts(ctx, ovs, SFCBridge, ovnBridge); err != nil {
-			log.Error(err, "failed to delete patch port between bridges", "brA", SFCBridge, "brB", ovnBridge)
+		patchPortName, patchPortPeerName := getOVNPatchPortNames(SFCBridge, externalBridge)
+		if err = DeletePatchPorts(ctx, ovs, SFCBridge, externalBridge, patchPortName, patchPortPeerName); err != nil {
+			log.Error(err, "failed to delete patch port between bridges", "patchPortName", patchPortName, "patchPortPeerName", patchPortPeerName)
+			return err
+		}
+		return nil
+	}
+
+	if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypePatch {
+		log.Info("matched on serviceInterfaceType patch", "name", serviceInterface.Name)
+		if serviceInterface.Spec.Patch == nil || serviceInterface.Spec.Patch.PeerBridge == "" {
+			log.Error(fmt.Errorf("peer bridge is not set or is empty"), "failed to delete patch port between bridges", "brA", SFCBridge)
+			return fmt.Errorf("peer bridge is not set or is empty")
+		}
+
+		peerBridge := serviceInterface.Spec.Patch.PeerBridge
+		log.Info("peer bridge", "name", peerBridge)
+		patchPortName, patchPortPeerName := getPatchPortNames(serviceInterface, SFCBridge, peerBridge)
+		if err = DeletePatchPorts(ctx, ovs, SFCBridge, peerBridge, patchPortName, patchPortPeerName); err != nil {
+			log.Error(err, "failed to delete patch port between bridges", "patchPortName", patchPortName, "patchPortPeerName", patchPortPeerName)
 			return err
 		}
 		return nil

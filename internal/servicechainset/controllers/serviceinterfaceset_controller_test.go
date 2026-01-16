@@ -569,6 +569,11 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypeOVN, nil))
 		})
+		It("should successfully create the ServiceInterfaceSet with patch interface", func() {
+			By("creating ServiceInterfaceSet, with Node Selector")
+			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypePatch, nil))
+		})
 		It("should successfully create the ServiceInterfaceSet with service interface", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
 			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
@@ -589,6 +594,9 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		It("should fail to create the ServiceInterfaceSet with missing service definition", func() {
 			createInvalidTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypeService)
+		})
+		It("should fail to create the ServiceInterfaceSet with missing patch interface", func() {
+			createInvalidTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypePatch)
 		})
 		It("should successfully create the ServiceInterfaceSet and have all conditions set", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
@@ -957,6 +965,11 @@ func getTypedTestServiceInterfaceSpec(typ string, vn *string) dpuservicev1.Servi
 		}
 	case dpuservicev1.InterfaceTypeOVN:
 		sfc.InterfaceType = dpuservicev1.InterfaceTypeOVN
+	case dpuservicev1.InterfaceTypePatch:
+		sfc.InterfaceType = dpuservicev1.InterfaceTypePatch
+		sfc.Patch = &dpuservicev1.PatchDef{
+			PeerBridge: "br-ext",
+		}
 	case dpuservicev1.InterfaceTypeService:
 		sfc.InterfaceType = dpuservicev1.InterfaceTypeService
 		sfc.Service = &dpuservicev1.ServiceDef{
@@ -983,6 +996,8 @@ func getInvalidTestServiceInterfaceSpec(typ string) dpuservicev1.ServiceInterfac
 		sfc.Physical = nil
 	case dpuservicev1.InterfaceTypeService:
 		sfc.Service = nil
+	case dpuservicev1.InterfaceTypePatch:
+		sfc.Patch = nil
 	}
 	return sfc
 }

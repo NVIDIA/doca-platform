@@ -38,6 +38,8 @@ const (
 	InterfaceTypeVF = "vf"
 	// InterfaceTypeOVN is the ovn interface type
 	InterfaceTypeOVN = "ovn"
+	// InterfaceTypePatch is the patch interface type
+	InterfaceTypePatch = "patch"
 	// InterfaceTypeService is the service interface type
 	InterfaceTypeService = "service"
 )
@@ -45,13 +47,13 @@ const (
 var ServiceInterfaceGroupVersionKind = GroupVersion.WithKind(ServiceInterfaceKind)
 
 // ServiceInterfaceSpec defines the desired state of ServiceInterface
-// +kubebuilder:validation:XValidation:rule="(self.interfaceType == 'vlan' && has(self.vlan)) || (self.interfaceType == 'pf' && has(self.pf)) || (self.interfaceType == 'vf' && has(self.vf)) || (self.interfaceType == 'physical' && has(self.physical)) || (self.interfaceType == 'service' && has(self.service)) || (self.interfaceType == 'ovn')", message="`for interfaceType=vlan, vlan must be set; for interfaceType=pf, pf must be set; for interfaceType=vf, vf must be set; for interfaceType=physical, physical must be set; for interfaceType=service, service must be set`"
+// +kubebuilder:validation:XValidation:rule="(self.interfaceType == 'vlan' && has(self.vlan)) || (self.interfaceType == 'pf' && has(self.pf)) || (self.interfaceType == 'vf' && has(self.vf)) || (self.interfaceType == 'physical' && has(self.physical)) || (self.interfaceType == 'service' && has(self.service)) || (self.interfaceType == 'ovn') || (self.interfaceType == 'patch' && has(self.patch))", message="`for interfaceType=vlan, vlan must be set; for interfaceType=pf, pf must be set; for interfaceType=vf, vf must be set; for interfaceType=physical, physical must be set; for interfaceType=service, service must be set; for interfaceType=patch, patch must be set`"
 type ServiceInterfaceSpec struct {
 	// Node where this interface exists
 	// +optional
 	Node *string `json:"node,omitempty"`
-	// The interface type ("vlan", "physical", "pf", "vf", "ovn", "service")
-	// +kubebuilder:validation:Enum={"vlan", "physical", "pf", "vf", "ovn", "service"}
+	// The interface type ("vlan", "physical", "pf", "vf", "ovn", "patch", "service")
+	// +kubebuilder:validation:Enum={"vlan", "physical", "pf", "vf", "ovn", "patch", "service"}
 	// +required
 	InterfaceType string `json:"interfaceType"`
 	// The physical interface definition
@@ -70,8 +72,13 @@ type ServiceInterfaceSpec struct {
 	// +optional
 	Service *ServiceDef `json:"service,omitempty"`
 	// The OVN definition
+	// Deprecated: This field is deprecated and will be removed with v26.10.0.
+	// Migrate to interfaceType="patch" with spec.patch.peerBridge and spec.patch.peerPatchName instead.
 	// +optional
 	OVN *OVN `json:"ovn,omitempty"`
+	// The Patch definition
+	// +optional
+	Patch *PatchDef `json:"patch,omitempty"`
 }
 
 const (
@@ -223,6 +230,21 @@ type OVN struct {
 	// +optional
 	// +kubebuilder:default="br-ovn"
 	ExternalBridge *string `json:"externalBridge,omitempty"`
+}
+
+// PatchDef defines the configuration for Patch interface type
+type PatchDef struct {
+	// PeerBridge is the name of the bridge to which the patch port is connected.
+	// This bridge must be created before the ServiceInterface is created.
+	// +required
+	PeerBridge string `json:"peerBridge"`
+	// PeerPatchName is the name of the patch port on the peer bridge.
+	// If not set, it is auto-generated in the format: p_<bridgeA>_to_<bridgeB>_<hash>
+	// where bridge names have hyphens removed and <hash> is an 8-character FNV-1a hash
+	// derived from the ServiceInterface's namespace/name.
+	// Example: p_brovn_to_brsfc_7aea60f7 (for bridges br-ovn and br-sfc).
+	// +optional
+	PeerPatchName *string `json:"peerPatchName,omitempty"`
 }
 
 // ServiceInterfaceStatus defines the observed state of ServiceInterface
