@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -164,11 +163,27 @@ func (r *StaleObjectRemover) removeStalePorts(ctx context.Context) error {
 					ovnBridge = *serviceInterface.Spec.OVN.ExternalBridge
 				}
 			}
-			strippedOVNBridge := strings.ReplaceAll(ovnBridge, "-", "")
-			strippedSFCBridge := strings.ReplaceAll(SFCBridge, "-", "")
-			patchPort := fmt.Sprintf("puplink%sto%s", strippedSFCBridge, strippedOVNBridge)
+
+			patchPort, _ := getOVNPatchPortNames(SFCBridge, ovnBridge)
 			desiredPortSet.Insert(patchPort)
 			log.Info("adding patch port", "patchPort", patchPort)
+			continue
+		}
+
+		// For Patch interface types, we need to handle patch ports on `br-sfc` bridge.
+		// Peer bridge must be specified in the Patch spec.
+		// The patch port name will be set in spec or auto-generated based on the bridge names and namespace/name hash
+		if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypePatch {
+			if serviceInterface.Spec.Patch == nil || serviceInterface.Spec.Patch.PeerBridge == "" {
+				log.Error(fmt.Errorf("peer bridge is not set or is empty"), "failed to add patch port between bridges", "brA", SFCBridge)
+				return fmt.Errorf("peer bridge is not set or is empty")
+			}
+			peerBridge := serviceInterface.Spec.Patch.PeerBridge
+			log.Info("peer bridge is used", "peerBridge", peerBridge)
+			patchPort, _ := getPatchPortNames(&serviceInterface, SFCBridge, peerBridge)
+			desiredPortSet.Insert(patchPort)
+			log.Info("adding patch port", "patchPort", patchPort)
+			continue
 		} else {
 			portName, err := FigureOutName(ctx, r.NetworkHelper, &serviceInterface)
 			if err != nil {
