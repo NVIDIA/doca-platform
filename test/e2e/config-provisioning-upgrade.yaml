@@ -1,10 +1,8 @@
+provisioningControllerPVC: "../objects/infrastructure/pvc-provisioning.yaml"
 bfb: "../objects/upgrade/bfb.yaml"
 dpuClusters:
   - "../objects/upgrade/dpucluster.yaml"
 dpuFlavor: "../objects/upgrade/dpuflavor.yaml"
-dpuClusterPrerequisiteObjectPath:
-  - "../objects/upgrade/kamaji-provisioning.yaml"
-  - "../objects/infrastructure/nodeport-dpucluster.yaml"
 dpuDeployment: "../objects/upgrade/dpudeployment.yaml"
 dpuServiceConfiguration: "../objects/upgrade/dpuserviceconfiguration.yaml"
 dpuServiceTemplate: "../objects/upgrade/dpuservicetemplate.yaml"
