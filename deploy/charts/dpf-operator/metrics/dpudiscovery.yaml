@@ -1,0 +1,51 @@
+- groupVersionKind:
+    group: provisioning.dpu.nvidia.com
+    kind: DPUDiscovery
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: dpudiscovery
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a DPUDiscovery.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            name:
+              - metadata
+              - name
+    - name: last_scan_time
+      help: Unix timestamp of the last successful scan.
+      each:
+        gauge:
+          nilIsZero: true
+          path:
+            - status
+            - lastScanTime
+        type: Gauge
+    - name: found_dpus
+      help: The number of DPUs found during discovery.
+      each:
+        gauge:
+          nilIsZero: true
+          path:
+            - status
+            - foundDPUs
+        type: Gauge

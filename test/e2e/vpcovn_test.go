@@ -226,6 +226,10 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 			vpcutils.WaitForDPUVPCReady(ctx, input.client, vpcName, dpfOperatorSystemNamespace)
 		})
 
+		It("verify DPUVPC and DPUVirtualNetwork metrics", func() {
+			validateVPCMetrics(ctx)
+		})
+
 		It("create DPUServiceInterfaces on the nodes, same virtual network", func() {
 			pf0vf2Worker1Labels := map[string]string{
 				vpcutils.InterfaceLabelKey: pf0vf2Worker1,

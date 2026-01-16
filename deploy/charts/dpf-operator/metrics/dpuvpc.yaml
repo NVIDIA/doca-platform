@@ -1,0 +1,79 @@
+- groupVersionKind:
+    group: vpc.dpu.nvidia.com
+    kind: DPUVPC
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: dpuvpc
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a DPUVPC.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            tenant:
+              - spec
+              - tenant
+            isolation_class_name:
+              - spec
+              - isolationClassName
+    - name: inter_network_access
+      help: Whether inter-network access is enabled for the DPUVPC.
+      each:
+        type: Gauge
+        gauge:
+          nilIsZero: true
+          path:
+            - spec
+            - interNetworkAccess
+    - name: status_conditions
+      help: The condition of a DPUVPC.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: status_condition_last_transition_time
+      help: The condition last transition time of a DPUVPC.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge
