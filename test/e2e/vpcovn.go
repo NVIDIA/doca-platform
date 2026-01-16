@@ -25,7 +25,8 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
-	dpuservice "github.com/nvidia/doca-platform/test/utils/dpuservice"
+	"github.com/nvidia/doca-platform/test/utils/dpuservice"
+	"github.com/nvidia/doca-platform/test/utils/metrics"
 	vpcutils "github.com/nvidia/doca-platform/test/utils/vpc/ovn"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -540,4 +541,18 @@ func createDummyDPUService(ctx context.Context, testClient client.Client, namesp
 	dpuService = generateVPCDPUObj(name, namespace, dpuService, labels)
 
 	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, dpuService))).To(Succeed())
+}
+
+func validateVPCMetrics(ctx context.Context) {
+	By("verify DPUVPC and DPUVirtualNetwork metrics in KSM")
+	expectedMetricsNames := map[string][]string{
+		"dpuvpc":            {"created", "info", "inter_network_access", "status_conditions", "status_condition_last_transition_time"},
+		"dpuvirtualnetwork": {"created", "info", "externally_routed", "masquerade", "status_conditions", "status_condition_last_transition_time"},
+	}
+
+	Eventually(func(g Gomega) {
+		actualMetricsNames := metrics.GetKSMMetrics(ctx, hostClusterRESTClient, metricsURI)
+		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
+		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
+	}).WithTimeout(5 * time.Second).Should(Succeed())
 }

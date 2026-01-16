@@ -32,31 +32,11 @@ rbac:
     - apiGroups:
         - svc.dpu.nvidia.com
         - operator.dpu.nvidia.com
-        - svc.dpu.nvidia.com
         - provisioning.dpu.nvidia.com
+        - storage.dpu.nvidia.com
+        - vpc.dpu.nvidia.com
       resources:
-        - dpuclusters
-        - dpuclusters/status
-        - dpudeployments
-        - dpudeployments/status
-        - dpuservicecredentialrequests
-        - dpuservicecredentialrequests/status
-        - dpuservices
-        - dpuservices/status
-        - dpuservicetemplates
-        - dpuservicetemplates/status
-        - dpfoperatorconfigs
-        - dpfoperatorconfigs/status
-        - dpuservicechains
-        - dpuservicechains/status
-        - dpuserviceinterfaces
-        - dpuserviceinterfaces/status
-        - dpuserviceipams
-        - dpuserviceipams/status
-        - dpus
-        - dpus/status
-        - bfbs
-        - bfbs/status
+        - '*'
       verbs: ["list", "watch"]
     - apiGroups: ["apiextensions.k8s.io"]
       resources: ["customresourcedefinitions"]

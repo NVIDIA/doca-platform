@@ -1,0 +1,91 @@
+- groupVersionKind:
+    group: storage.dpu.nvidia.com
+    kind: DPUVolumeAttachment
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: dpuvolumeattachment
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a DPUVolumeAttachment.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            dpu_volume_name:
+              - spec
+              - dpuVolumeName
+            dpu_node_name:
+              - spec
+              - dpuNodeName
+            function_type:
+              - spec
+              - functionType
+    - name: controller_attached
+      help: Whether the volume is attached by the Vendor CSI driver.
+      each:
+        type: Gauge
+        gauge:
+          nilIsZero: true
+          path:
+            - status
+            - controllerAttached
+    - name: dpu_attached
+      help: Whether the volume is attached by the DPU.
+      each:
+        type: Gauge
+        gauge:
+          nilIsZero: true
+          path:
+            - status
+            - dpuAttached
+    - name: status_conditions
+      help: The condition of a DPUVolumeAttachment.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: status_condition_last_transition_time
+      help: The condition last transition time of a DPUVolumeAttachment.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge

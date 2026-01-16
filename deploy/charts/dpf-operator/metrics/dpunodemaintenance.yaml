@@ -1,0 +1,77 @@
+- groupVersionKind:
+    group: provisioning.dpu.nvidia.com
+    kind: DPUNodeMaintenance
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: dpunodemaintenance
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a DPUNodeMaintenance.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            dpunode_name:
+              - spec
+              - dpuNodeName
+    - name: requestor_info
+      help: Information about maintenance requestors for a DPUNodeMaintenance.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            requestor: []
+          path:
+            - spec
+            - requestor
+    - name: status_conditions
+      help: The condition of a DPUNodeMaintenance.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: status_condition_last_transition_time
+      help: The condition last transition time of a DPUNodeMaintenance.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge

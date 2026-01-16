@@ -55,6 +55,9 @@ func ValidateGeneralDPFMetrics(ctx context.Context, input *systemTestInput) {
 		}).WithTimeout(60 * time.Second).Should(Succeed())
 
 		expectedMetricsNames["dpu"] = []string{"created", "info", "status_phase", "status_conditions", "status_condition_last_transition_time"}
+		expectedMetricsNames["dpuset"] = []string{"created", "info", "status_conditions", "status_condition_last_transition_time"}
+		expectedMetricsNames["dpunode"] = []string{"created", "info", "reboot_in_progress", "status_conditions", "status_condition_last_transition_time"}
+		expectedMetricsNames["dpudevice"] = []string{"created", "info", "status_conditions", "status_condition_last_transition_time"}
 	}
 
 	Eventually(func(g Gomega) {
