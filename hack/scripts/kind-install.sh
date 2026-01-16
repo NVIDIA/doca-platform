@@ -57,6 +57,21 @@ nodes:
     nodeRegistration:
       kubeletExtraArgs:
         node-labels: "ingress-ready=true"
+  # Configure control plane components to expose metrics on all interfaces (0.0.0.0)
+  # This is required for Prometheus to scrape metrics from outside the node
+  # See docs/public/advanced-configuration/observability-guide.md for more details
+  - |
+    kind: ClusterConfiguration
+    controllerManager:
+      extraArgs:
+        bind-address: "0.0.0.0"
+    scheduler:
+      extraArgs:
+        bind-address: "0.0.0.0"
+    etcd:
+      local:
+        extraArgs:
+          listen-metrics-urls: "http://0.0.0.0:2381"
   extraPortMappings:
   - containerPort: ${DPUCLUSTER_NODE_PORT}
     hostPort: ${DPUCLUSTER_NODE_PORT}
