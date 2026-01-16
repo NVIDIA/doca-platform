@@ -1,0 +1,88 @@
+- groupVersionKind:
+    group: vpc.dpu.nvidia.com
+    kind: DPUVirtualNetwork
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: dpuvirtualnetwork
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a DPUVirtualNetwork.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            vpc_name:
+              - spec
+              - vpcName
+            type:
+              - spec
+              - type
+    - name: externally_routed
+      help: Whether the virtual network can be routed externally.
+      each:
+        type: Gauge
+        gauge:
+          nilIsZero: true
+          path:
+            - spec
+            - externallyRouted
+    - name: masquerade
+      help: Whether the virtual network should masquerade the traffic before egressing to external networks.
+      each:
+        type: Gauge
+        gauge:
+          nilIsZero: true
+          path:
+            - spec
+            - masquerade
+    - name: status_conditions
+      help: The condition of a DPUVirtualNetwork.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: status_condition_last_transition_time
+      help: The condition last transition time of a DPUVirtualNetwork.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge

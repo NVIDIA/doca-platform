@@ -25,6 +25,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/dpuservice"
+	"github.com/nvidia/doca-platform/test/utils/metrics"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -101,6 +102,19 @@ func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *systemTestIn
 		)).To(Succeed())
 		g.Expect(podList.Items).ToNot(BeEmpty(), "No Pods found in DPU cluster containing label: "+podServiceLabel)
 	}).WithTimeout(5 * time.Minute).Should(Succeed())
+}
+
+func ValidateDPUServiceNADMetrics(ctx context.Context) {
+	By("verify DPUServiceNAD metrics in KSM")
+	expectedMetricsNames := map[string][]string{
+		"dpuservicenad": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
+	}
+
+	Eventually(func(g Gomega) {
+		actualMetricsNames := metrics.GetKSMMetrics(ctx, hostClusterRESTClient, metricsURI)
+		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
+		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
+	}).WithTimeout(5 * time.Second).Should(Succeed())
 }
 
 func constructDPUServiceNAD(name, namespace string, mtu int) *dpuservicev1.DPUServiceNAD {

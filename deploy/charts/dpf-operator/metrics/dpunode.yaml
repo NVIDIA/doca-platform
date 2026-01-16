@@ -1,0 +1,79 @@
+- groupVersionKind:
+    group: provisioning.dpu.nvidia.com
+    kind: DPUNode
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: dpunode
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a DPUNode.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            name:
+              - metadata
+              - name
+            dpu_install_interface:
+              - status
+              - dpuInstallInterface
+    - name: reboot_in_progress
+      help: Whether the DPUNode is in the process of rebooting.
+      each:
+        type: Gauge
+        gauge:
+          nilIsZero: true
+          path:
+            - status
+            - rebootInProgress
+    - name: status_conditions
+      help: The condition of a DPUNode.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: status_condition_last_transition_time
+      help: The condition last transition time of a DPUNode.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge
