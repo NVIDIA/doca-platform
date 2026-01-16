@@ -81,7 +81,7 @@ func (c *Client) AddPort(ctx context.Context, bridgeName, portName, ifaceType st
 		return err
 	}
 
-	// Port already exists
+	// Port already exists or bridge does not exist
 	if err == nil {
 		isPortInBridge, err := c.IsIfaceInBr(ctx, bridgeName, portName)
 		if err != nil {
