@@ -20,6 +20,6 @@ roleRef:
   name: dpf-operator-prometheus-metrics
 subjects:
   - kind: ServiceAccount
-    name: dpf-operator-prometheus-server
+    name: kube-prometheus-stack-prometheus
     namespace: {{ .Release.Namespace }}
 {{- end}}

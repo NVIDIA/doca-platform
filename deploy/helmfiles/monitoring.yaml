@@ -1,14 +1,11 @@
 repositories:
   - name: prometheus-community
     url: https://prometheus-community.github.io/helm-charts
-  - name: grafana
-    url: https://grafana.github.io/helm-charts
 
 helmDefaults:
   atomic: true
   cleanupOnFail: true
   skipDeps: false
-  wait: false
   timeout: 600
 
 releases:
@@ -22,22 +19,12 @@ releases:
     values:
       - values/kube-state-metrics.yaml
 
-  - name: grafana
+  - name: kube-prometheus-stack
     namespace: dpf-operator-system
     createNamespace: true
-    chart: grafana/grafana
-    version: 8.4.6
+    chart: prometheus-community/kube-prometheus-stack
+    version: 80.4.1
     labels:
-      app: grafana
+      app: kube-prometheus-stack
     values:
-      - values/grafana.yaml
-
-  - name: prometheus
-    namespace: dpf-operator-system
-    createNamespace: true
-    chart: prometheus-community/prometheus
-    version: 25.26.0
-    labels:
-      app: prometheus
-    values:
-      - values/prometheus.yaml
+      - values/kube-prometheus-stack.yaml
