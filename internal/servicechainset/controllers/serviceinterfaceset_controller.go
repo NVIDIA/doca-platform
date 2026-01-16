@@ -275,6 +275,12 @@ func (r *ServiceInterfaceSetReconciler) createOrUpdateChild(ctx context.Context,
 			ExternalBridge: serviceInterfaceSet.Spec.Template.Spec.OVN.ExternalBridge,
 		}
 	}
+	if serviceInterfaceSet.Spec.Template.Spec.Patch != nil {
+		serviceInterface.Spec.Patch = &dpuservicev1.PatchDef{
+			PeerBridge:    serviceInterfaceSet.Spec.Template.Spec.Patch.PeerBridge,
+			PeerPatchName: serviceInterfaceSet.Spec.Template.Spec.Patch.PeerPatchName,
+		}
+	}
 	serviceInterface.SetManagedFields(nil)
 	serviceInterface.SetGroupVersionKind(dpuservicev1.GroupVersion.WithKind("ServiceInterface"))
 	if err := r.Client.Patch(ctx, serviceInterface, client.Apply, client.ForceOwnership, client.FieldOwner(serviceInterfaceSetControllerName)); err != nil {

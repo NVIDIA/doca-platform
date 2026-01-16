@@ -54,6 +54,7 @@ type TestDPUServiceInterfaceConfig struct {
 	Network        string
 	VirtualNetwork *string
 	ExternalBridge *string
+	PeerBridge     string
 }
 
 func WaitForDPUServices(ctx context.Context, client client.Client, namespace string, serviceNames []string) {
@@ -207,6 +208,20 @@ func SetDPUServiceInterfaceOVN(dpuServiceInterface *dpuservicev1.DPUServiceInter
 		InterfaceType: dpuservicev1.InterfaceTypeOVN,
 		OVN: &dpuservicev1.OVN{
 			ExternalBridge: config.ExternalBridge,
+		},
+	}
+}
+
+func SetDPUServiceInterfacePatch(dpuServiceInterface *dpuservicev1.DPUServiceInterface, config TestDPUServiceInterfaceConfig) {
+	dpuServiceInterface.SetLabels(config.Labels)
+	dpuServiceInterface.Spec.Template.Spec.Template.ObjectMeta = dpuservicev1.ObjectMeta{
+		Labels:      config.Labels,
+		Annotations: config.Annotations,
+	}
+	dpuServiceInterface.Spec.Template.Spec.Template.Spec = dpuservicev1.ServiceInterfaceSpec{
+		InterfaceType: dpuservicev1.InterfaceTypePatch,
+		Patch: &dpuservicev1.PatchDef{
+			PeerBridge: config.PeerBridge,
 		},
 	}
 }

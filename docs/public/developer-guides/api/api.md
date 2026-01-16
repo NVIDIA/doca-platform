@@ -4268,6 +4268,23 @@ _Appears in:_
 | `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  |  |
 
 
+#### PatchDef
+
+
+
+PatchDef defines the configuration for Patch interface type
+
+
+
+_Appears in:_
+- [ServiceInterfaceSpec](#serviceinterfacespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `peerBridge` _string_ | PeerBridge is the name of the bridge to which the patch port is connected.<br />This bridge must be created before the ServiceInterface is created. |  |  |
+| `peerPatchName` _string_ | PeerPatchName is the name of the patch port on the peer bridge.<br />If not set, it is auto-generated in the format: p_<bridgeA>_to_<bridgeB>_<hash><br />where bridge names have hyphens removed and <hash> is an 8-character FNV-1a hash<br />derived from the ServiceInterface's namespace/name.<br />Example: p_brovn_to_brsfc_7aea60f7 (for bridges br-ovn and br-sfc). |  |  |
+
+
 #### Physical
 
 
@@ -4754,13 +4771,14 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `node` _string_ | Node where this interface exists |  |  |
-| `interfaceType` _string_ | The interface type ("vlan", "physical", "pf", "vf", "ovn", "service") |  | Enum: [vlan physical pf vf ovn service] <br /> |
+| `interfaceType` _string_ | The interface type ("vlan", "physical", "pf", "vf", "ovn", "patch", "service") |  | Enum: [vlan physical pf vf ovn patch service] <br /> |
 | `physical` _[Physical](#physical)_ | The physical interface definition |  |  |
 | `vlan` _[VLAN](#vlan)_ | The VLAN definition |  |  |
 | `vf` _[VF](#vf)_ | The VF definition |  |  |
 | `pf` _[PF](#pf)_ | The PF definition |  |  |
 | `service` _[ServiceDef](#servicedef)_ | The Service definition |  |  |
-| `ovn` _[OVN](#ovn)_ | The OVN definition |  |  |
+| `ovn` _[OVN](#ovn)_ | The OVN definition<br />Deprecated: This field is deprecated and will be removed with v26.10.0.<br />Migrate to interfaceType="patch" with spec.patch.peerBridge and spec.patch.peerPatchName instead. |  |  |
+| `patch` _[PatchDef](#patchdef)_ | The Patch definition |  |  |
 
 
 #### ServiceInterfaceSpecTemplate
