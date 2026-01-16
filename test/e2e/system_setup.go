@@ -668,6 +668,13 @@ func getDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) 
 
 	// Set up client for each cluster
 	for i := range input.dpuClusters {
+		// Get DPUCluster before getting the client to ensure we have the latest state.
+		// This is useful in cases we use a DPUCluster in the templates that doesn't set the kubeconfig and we expect
+		// the relevant controller to set it. In particular, without this, if the DPUCluster is not created part of the
+		// e2e test suite, getting the client will fail, failing the suite.
+		Eventually(func(g Gomega) {
+			g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(input.dpuClusters[i]), input.dpuClusters[i])).To(Succeed())
+		}).WithTimeout(10 * time.Second).Should(Succeed())
 		getDPUClusterClient(ctx, input, i)
 	}
 }
