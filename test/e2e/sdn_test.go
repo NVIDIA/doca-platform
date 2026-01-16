@@ -65,5 +65,8 @@ var _ = Describe("DPF System tests - SDN", SpecPriority(SDNTestPriority), Labels
 		It("create a pod consuming a DPUServiceNAD with all dependencies and check that it is created successfully", func() {
 			ValidateDPUServiceNADConsumedByPod(ctx, input)
 		})
+		It("verify DPUServiceNAD metrics", func() {
+			ValidateDPUServiceNADMetrics(ctx)
+		})
 	})
 })

@@ -1,0 +1,79 @@
+- groupVersionKind:
+    group: provisioning.dpu.nvidia.com
+    kind: DPUDevice
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: dpudevice
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a DPUDevice.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            serial_number:
+              - spec
+              - serialNumber
+            psid:
+              - status
+              - psid
+            dpu_type:
+              - status
+              - dpuType
+            dpu_mode:
+              - status
+              - dpuMode
+            pci_address:
+              - status
+              - pciAddress
+    - name: status_conditions
+      help: The condition of a DPUDevice.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: status_condition_last_transition_time
+      help: The condition last transition time of a DPUDevice.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge
