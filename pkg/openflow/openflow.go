@@ -29,7 +29,8 @@ import (
 )
 
 type OpenFlowAPI interface {
-	Add(ctx context.Context, flows, bridgeName string) error
+	AddFlows(ctx context.Context, flows, bridgeName string) error
+	AddMeter(ctx context.Context, meter, bridgeName string) error
 }
 
 type OpenFlow struct {
@@ -39,12 +40,12 @@ type OpenFlow struct {
 	mu           sync.Mutex
 }
 
-// Add adds flows to the OpenFlow switch.
+// AddFlows adds flows to the OpenFlow switch.
 // Utility function which takes in a multiline string called flows
 // Creates a temporary file on the system and writes the aforementioned
 // string. This will file will be consumed by ovs-ofctl command with the
 // bundle argument to ensure the fact that all flows are added in an atomic operation
-func (f *OpenFlow) Add(ctx context.Context, flows, bridgeName string) (err error) {
+func (f *OpenFlow) AddFlows(ctx context.Context, flows, bridgeName string) (err error) {
 	log := ctrllog.FromContext(ctx)
 
 	if flows == "" || bridgeName == "" {
@@ -80,16 +81,17 @@ func (f *OpenFlow) Add(ctx context.Context, flows, bridgeName string) (err error
 		return err
 	}
 
-	if err := f.applyFlowsFile(ctx, tempFileName, bridgeName); err != nil {
+	if err := f.applyFlowsFromFile(ctx, tempFileName, bridgeName); err != nil {
 		return err
 	}
 
-	log.Info("added flows:")
-	log.Info(flows)
+	log.Info("added flows", "flows", flows)
 	return err
 }
 
-func (f *OpenFlow) applyFlowsFile(ctx context.Context, filePath, bridgeName string) error {
+// ensureOVSOfctlPath initializes OVSOfctlPath if not already set.
+// Using thread-safe lazy initialization.
+func (f *OpenFlow) ensureOVSOfctlPath() error {
 	if f.OVSOfctlPath == "" {
 		f.mu.Lock()
 		if f.OVSOfctlPath == "" {
@@ -102,13 +104,47 @@ func (f *OpenFlow) applyFlowsFile(ctx context.Context, filePath, bridgeName stri
 		}
 		f.mu.Unlock()
 	}
+	return nil
+}
+
+// AddMeter adds a meter to a given switch.
+// This is a wrapper over a cmdcall to the utility ovs-ofctl which allows adding only one meter at a time.
+// This functionality is supported from OpenFlow version 1.3 and above.
+func (f *OpenFlow) AddMeter(ctx context.Context, meter, bridgeName string) error {
+	log := ctrllog.FromContext(ctx)
+
+	if meter == "" || bridgeName == "" {
+		log.Info("no meter or bridge name provided, skipping addition of meters")
+		return nil
+	}
+
+	if err := f.ensureOVSOfctlPath(); err != nil {
+		return err
+	}
+
+	args := []string{"-t", "5", "add-meter", bridgeName, meter}
+	cmd := f.Exec.CommandContext(ctx, f.OVSOfctlPath, args...)
+	var stderr bytes.Buffer
+	cmd.SetStderr(&stderr)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("error adding meter %q with ovs-ofctl (args %v) failed: err=%w stderr=%s", meter, args, err, stderr.String())
+	}
+
+	log.Info("added meter", "meter", meter)
+	return nil
+}
+
+func (f *OpenFlow) applyFlowsFromFile(ctx context.Context, filePath, bridgeName string) error {
+	if err := f.ensureOVSOfctlPath(); err != nil {
+		return err
+	}
 
 	args := []string{"-t", "5", "--bundle", "add-flows", bridgeName, filePath}
 	cmd := f.Exec.CommandContext(ctx, f.OVSOfctlPath, args...)
 	var stderr bytes.Buffer
 	cmd.SetStderr(&stderr)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("error running ovs-ofctl command with args %v failed: err=%w stderr=%s", args, err, stderr.String())
+		return fmt.Errorf("error adding flows to bridge %q with ovs-ofctl (args %v) failed: err=%w stderr=%s", bridgeName, args, err, stderr.String())
 	}
 
 	return nil

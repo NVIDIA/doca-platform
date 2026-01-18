@@ -59,7 +59,7 @@ var _ = Describe("servicechain GenerateAndApplyOpenFlows", func() {
 		ports = [][]string{{"1", "2"}}
 		expectedFlows := `cookie=0, table=0, priority=20, in_port=1 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:2
 cookie=0, table=0, priority=20, in_port=2 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:1`
-		openflowMock.EXPECT().Add(gomock.Any(), expectedFlows, BridgeSFC).Return(nil)
+		openflowMock.EXPECT().AddFlows(gomock.Any(), expectedFlows, BridgeSFC).Return(nil)
 		Expect(sc.GenerateAndApplyOpenFlows(ctx, ports, 0)).To(Succeed())
 	})
 
@@ -68,7 +68,7 @@ cookie=0, table=0, priority=20, in_port=2 actions=learn(cookie=0,idle_timeout=10
 		expectedFlows := `cookie=0, table=0, priority=20, in_port=1 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=3,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:2,output:3
 cookie=0, table=0, priority=20, in_port=2 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=3,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:1,output:3
 cookie=0, table=0, priority=20, in_port=3 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:1,output:2`
-		openflowMock.EXPECT().Add(gomock.Any(), expectedFlows, BridgeSFC).Return(nil)
+		openflowMock.EXPECT().AddFlows(gomock.Any(), expectedFlows, BridgeSFC).Return(nil)
 		Expect(sc.GenerateAndApplyOpenFlows(ctx, ports, 0)).To(Succeed())
 	})
 
@@ -76,23 +76,23 @@ cookie=0, table=0, priority=20, in_port=3 actions=learn(cookie=0,idle_timeout=10
 		ports = [][]string{{"1", "2"}, {"3", "4"}}
 		expectedFlows := `cookie=0, table=0, priority=20, in_port=1 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:2
 cookie=0, table=0, priority=20, in_port=2 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:1`
-		openflowMock.EXPECT().Add(gomock.Any(), expectedFlows, BridgeSFC).Return(nil)
+		openflowMock.EXPECT().AddFlows(gomock.Any(), expectedFlows, BridgeSFC).Return(nil)
 		expectedFlows = `cookie=0, table=0, priority=20, in_port=3 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=4,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:4
 cookie=0, table=0, priority=20, in_port=4 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=3,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:3`
-		openflowMock.EXPECT().Add(gomock.Any(), expectedFlows, BridgeSFC).Return(nil)
+		openflowMock.EXPECT().AddFlows(gomock.Any(), expectedFlows, BridgeSFC).Return(nil)
 		Expect(sc.GenerateAndApplyOpenFlows(ctx, ports, 0)).To(Succeed())
 	})
 
 	It("should contionue even if one of the flows fails", func() {
 		ports = [][]string{{"1", "2"}, {"3", "4"}}
-		openflowMock.EXPECT().Add(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("add flows failed"))
-		openflowMock.EXPECT().Add(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+		openflowMock.EXPECT().AddFlows(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("add flows failed"))
+		openflowMock.EXPECT().AddFlows(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 		Expect(sc.GenerateAndApplyOpenFlows(ctx, ports, 0)).To(MatchError(ContainSubstring("add flows failed")))
 	})
 
 	It("should fail when adding flows fails", func() {
 		ports = [][]string{{"1", "2"}}
-		openflowMock.EXPECT().Add(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("add flows failed"))
+		openflowMock.EXPECT().AddFlows(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("add flows failed"))
 		Expect(sc.GenerateAndApplyOpenFlows(ctx, ports, 0)).To(MatchError(ContainSubstring("add flows failed")))
 	})
 })
