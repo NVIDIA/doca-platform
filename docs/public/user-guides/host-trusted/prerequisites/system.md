@@ -16,7 +16,7 @@ There is a high availability control plane machines serving many worker nodes in
 Each control plane machine:
 
 * May be virtualized
-* x86_64 architecture
+* x86_64 or ARM64 (aarch64) architecture
 * 16 GB RAM
 * 8 CPUs
 * If DPUs are installed, they must be in NIC mode (see [Control Plane Nodes with BlueField DPUs](#control-plane-nodes-with-bluefield-dpus))
