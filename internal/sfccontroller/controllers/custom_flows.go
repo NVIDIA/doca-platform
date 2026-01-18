@@ -143,7 +143,7 @@ func (r *ServiceChainReconciler) ensurePTPMulticastFlows(ctx context.Context, na
 
 	log.Info(fmt.Sprintf("[customflows] flow lines generated for RX: %s", flow))
 
-	err := r.OPFlow.Add(ctx, flow, r.BridgeName)
+	err := r.OPFlow.AddFlows(ctx, flow, r.BridgeName)
 	if err != nil {
 		return err
 	}
@@ -151,7 +151,7 @@ func (r *ServiceChainReconciler) ensurePTPMulticastFlows(ctx context.Context, na
 	flow = fmt.Sprintf("cookie=%d, table=0, priority=%d, in_port=%s, dl_dst=%s, actions=output=%s",
 		hash(namespacedName), PriorityCustomFlows, servicePort, NonForwardablePTPMulticastMac, uplinkPort)
 	log.Info(fmt.Sprintf("[customflows] flow lines generated for TX: %s", flow))
-	return r.OPFlow.Add(ctx, flow, r.BridgeName)
+	return r.OPFlow.AddFlows(ctx, flow, r.BridgeName)
 }
 
 func (r *ServiceChainReconciler) EnsureCustomFlowsForChain(ctx context.Context, sc *dpuservicev1.ServiceChain) error {
