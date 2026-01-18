@@ -119,7 +119,7 @@ func (s *ServiceChain) GenerateAndApplyOpenFlows(ctx context.Context, ports [][]
 		}
 
 		// Try adding flows to vswitchd
-		err := s.OPFlow.Add(ctx, flowsPerArray, BridgeSFC)
+		err := s.OPFlow.AddFlows(ctx, flowsPerArray, BridgeSFC)
 		if err != nil {
 			log.Error(err, "failed to add flows")
 			errs = append(errs, err)
