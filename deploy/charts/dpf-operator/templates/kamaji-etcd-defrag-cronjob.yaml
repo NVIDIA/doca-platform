@@ -19,6 +19,7 @@ spec:
           containers:
             - name: etcd-defrag
               image: {{ .Values.kamajiEtcdDefrag.image }}
+              imagePullPolicy: {{ .Values.kamajiEtcdDefrag.pullPolicy }}
               args:
                 - --endpoints={{- $replicas := .Values.kamajiEtcdDefrag.replicas | int -}}
                 {{- $port := .Values.kamajiEtcdDefrag.clientPort | int -}}
