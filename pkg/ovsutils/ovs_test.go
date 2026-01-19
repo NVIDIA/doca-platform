@@ -220,6 +220,26 @@ var _ = Describe("OVSUtils", func() {
 
 			Expect(mockAPI.AddPort(ctx, config)).To(MatchError(expectedErr))
 		})
+
+		It("should fail when bridge does not exist", func() {
+			expectedErr := errors.New("failed to get bridge br-test: bridge does not exist")
+			mockAPI.EXPECT().
+				AddPort(ctx, PortConfig{
+					BridgeName:    "br-test",
+					Name:          "port-test",
+					InterfaceType: "internal",
+				}).
+				Return(expectedErr)
+
+			err := mockAPI.AddPort(ctx, PortConfig{
+				BridgeName:    "br-test",
+				Name:          "port-test",
+				InterfaceType: "internal",
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err).To(MatchError(expectedErr))
+			Expect(err.Error()).To(ContainSubstring("bridge does not exist"))
+		})
 	})
 
 	Describe("DelPort", func() {
@@ -607,6 +627,113 @@ var _ = Describe("OVSUtils", func() {
 				Entry("when bridge already exists (idempotent)", nil, false, ""),
 				Entry("when Get returns non-ErrNotFound error", errors.New("database connection lost"), true, "failed to get bridge"),
 			)
+		})
+
+		Describe("AddPort", func() {
+			var mockConditionalAPI *MockConditionalAPI
+
+			BeforeEach(func() {
+				mockConditionalAPI = NewMockConditionalAPI(mockCtrl)
+			})
+
+			It("should fail when bridge does not exist", func() {
+				// First Get call for port (port doesn't exist yet)
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+
+				// Second Get call for bridge (bridge doesn't exist)
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+
+				err := client.AddPort(ctx, PortConfig{
+					BridgeName:    "br-nonexistent",
+					Name:          "port-test",
+					InterfaceType: "internal",
+				})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to get bridge"))
+			})
+
+			It("should succeed when port already exists on same bridge", func() {
+				// Port exists
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						port := model.(*ovsmodel.Port)
+						port.UUID = portUUID
+						return nil
+					})
+
+				// Check if port is in bridge - Get port again
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						port := model.(*ovsmodel.Port)
+						port.UUID = portUUID
+						return nil
+					})
+
+				mockOVSClient.EXPECT().
+					WhereAll(gomock.Any(), gomock.Any()).
+					Return(mockConditionalAPI)
+
+				mockConditionalAPI.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]ovsmodel.Bridge)
+						*ptr = []ovsmodel.Bridge{{Name: "br-test"}}
+						return nil
+					})
+
+				err := client.AddPort(ctx, PortConfig{
+					BridgeName:    "br-test",
+					Name:          "port-test",
+					InterfaceType: "internal",
+				})
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should fail when port exists on different bridge", func() {
+				// Port exists
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						port := model.(*ovsmodel.Port)
+						port.UUID = portUUID
+						return nil
+					})
+
+				// Check if port is in bridge - Get port again
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						port := model.(*ovsmodel.Port)
+						port.UUID = portUUID
+						return nil
+					})
+
+				mockOVSClient.EXPECT().
+					WhereAll(gomock.Any(), gomock.Any()).
+					Return(mockConditionalAPI)
+
+				mockConditionalAPI.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]ovsmodel.Bridge)
+						*ptr = []ovsmodel.Bridge{{Name: "br-other"}}
+						return nil
+					})
+
+				err := client.AddPort(ctx, PortConfig{
+					BridgeName:    "br-test",
+					Name:          "port-test",
+					InterfaceType: "internal",
+				})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("already exists on a bridge other than"))
+			})
 		})
 
 		Describe("DelPort", func() {
