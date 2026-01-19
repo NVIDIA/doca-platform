@@ -86,7 +86,7 @@ spec:
     source:
       repoURL: $OVN_KUBERNETES_REPO_URL
       chart: ovn-kubernetes-chart
-      version: $TAG
+      version: $OVN_KUBERNETES_CHART_TAG
     values:
       commonManifests:
         enabled: true
@@ -95,7 +95,7 @@ spec:
         ovnMultiNetworkEnable: true # enables secondary CNI/network support
         nodeMgmtPortNetdev: $DPU_P0_VF1
       leaseNamespace: "ovn-kubernetes"
-      gatewayOpts: "--gateway-interface=br-ovn"
+      gatewayOpts: "--gateway-interface=br-dpu"
 ```
 
 </details>
