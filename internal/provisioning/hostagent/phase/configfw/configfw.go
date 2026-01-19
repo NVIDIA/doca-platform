@@ -22,10 +22,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
+	"github.com/fluxcd/pkg/runtime/patch"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -72,6 +75,18 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 
 	pciAddress := filepath.Base(hostutil.NewPCIHelper(dev.Address).PF(0).Path())
 
+	valid, err := h.validateFWVersion(ctx, dpu, pciAddress)
+	if err != nil {
+		hostutil.NewCondition(condition).Failure(err, "FailedToGetFWReleaseDate").Set(&dpu.Status.Conditions)
+		return dpu.Status, ctrl.Result{}, err
+	}
+	if !valid {
+		err = fmt.Errorf("NIC FW release version which is lower than April 2024 is not supported")
+		hostutil.NewCondition(condition).Failure(err, "UnsupportedFWVersion").Set(&dpu.Status.Conditions)
+		dpu.Status.Phase = provisioningv1.DPUError
+		return dpu.Status, ctrl.Result{}, err
+	}
+
 	mode, err := GetDPUMode(ctx, pciAddress)
 	if err != nil {
 		hostutil.NewCondition(condition).Failure(err, "FailedToGetDPUMode").Set(&dpu.Status.Conditions)
@@ -91,6 +106,43 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 		logger.Info("Successfully set DPU mode", "PCI Address", pciAddress)
 	}
 	return dpu.Status, ctrl.Result{}, nil
+}
+
+func (h *Handler) validateFWVersion(ctx context.Context, dpu *provisioningv1.DPU, pciAddress string) (bool, error) {
+	logger := log.FromContext(ctx)
+	command := fmt.Sprintf("flint -d %s.0 q full | grep 'FW Release Date' | awk -F ': *' '{print $2}'", pciAddress)
+	stdout, stderr, err := hostutil.RunBash(command)
+	if err != nil {
+		logger.Error(err, "Failed to run cmd", "cmd", command, "stdout", stdout.String(), "stderr", stderr.String())
+		return false, fmt.Errorf("failed to run cmd: %s, err: %w, stdout: %s, stderr: %s", command, err, stdout.String(), stderr.String())
+	}
+
+	layout := "2.1.2006"
+	fwReleaseDate, err := time.Parse(layout, strings.TrimSpace(stdout.String()))
+	logger.Info("FW release date", "fwReleaseDate", fwReleaseDate)
+	if err != nil {
+		logger.Error(err, "Failed to parse FW release date", "fwReleaseDate", stdout.String())
+		return false, fmt.Errorf("failed to parse FW release date: %w", err)
+	}
+	year, month := fwReleaseDate.Year(), fwReleaseDate.Month()
+	if year > 2024 || (year == 2024 && month > 4) {
+		return true, nil
+	}
+
+	if year == 2024 && month == 4 {
+		// add "host-power-cycle-required" annotation on dpu object
+		patcher := patch.NewSerialPatcher(dpu, h.Client)
+		if dpu.Annotations == nil {
+			dpu.Annotations = make(map[string]string)
+		}
+		dpu.Annotations[cutil.HostPowerCycleRequireKey] = "true"
+		if err := patcher.Patch(ctx, dpu); err != nil {
+			logger.Error(err, "Failed to add host-power-cycle-required annotation on dpu object", "dpu", dpu.Name)
+			return false, fmt.Errorf("failed to add host-power-cycle-required annotation on dpu object: %w", err)
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 func GetDPUMode(ctx context.Context, pciAddress string) (string, error) {
