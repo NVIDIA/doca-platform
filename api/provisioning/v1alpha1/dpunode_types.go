@@ -67,6 +67,9 @@ const (
 
 const (
 	DPUNodeExternalRebootRequiredAnnotation = "provisioning.dpu.nvidia.com/dpunode-external-reboot-required"
+	// DPUNodeScriptConfigMapVersionAnnotation stores the ResourceVersion of the ConfigMap
+	// used to create the last script reboot job. Used to detect ConfigMap changes for auto-retry.
+	DPUNodeScriptConfigMapVersionAnnotation = "provisioning.dpu.nvidia.com/dpunode-script-configmap-version"
 )
 
 func (ct DPUNodeConditionType) String() string {

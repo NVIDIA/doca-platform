@@ -319,6 +319,25 @@ func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisionin
 			job := &batchv1.Job{}
 			if err := r.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: jobName}, job); err != nil {
 				if apierrors.IsNotFound(err) {
+					// Job not found - check if ConfigMap has been modified to trigger auto-retry
+					shouldRetry, retryErr := r.shouldRetryScriptJob(ctx, dpuNode)
+					if retryErr != nil {
+						logger.Error(retryErr, "Failed to check if script job should be retried")
+					} else if shouldRetry {
+						logger.Info("Job not found but ConfigMap has been modified, triggering retry")
+
+						if err := r.clearDPURebootedConditions(ctx, dpus); err != nil {
+							return ctrl.Result{}, err
+						}
+
+						r.Recorder.Event(dpuNode, corev1.EventTypeNormal, "ScriptRebootRetry",
+							"ConfigMap modified after job deletion, retrying script reboot")
+
+						// Requeue to create a new job
+						return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
+					}
+
+					// No retry - set JobNotFound condition
 					err = fmt.Errorf("job %s not found", jobName)
 					if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "JobNotFound", err.Error())); err != nil {
 						return ctrl.Result{}, err
@@ -333,15 +352,40 @@ func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisionin
 
 			if job.Status.Succeeded > 0 {
 				logger.Info("The custom reboot script succeeded.")
-
+				// Clean up the ConfigMap version annotation and persist to cluster
+				delete(dpuNode.Annotations, provisioningv1.DPUNodeScriptConfigMapVersionAnnotation)
 				r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionFalse, "", "")
 				if err := r.updateDPUCondition(ctx, dpus, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", "")); err != nil {
 					return ctrl.Result{}, err
 				}
 				return ctrl.Result{}, nil
 			} else if job.Status.Failed > 0 {
+				// Check if ConfigMap has been modified since the job was created
+				shouldRetry, err := r.shouldRetryScriptJob(ctx, dpuNode)
+				if err != nil {
+					logger.Error(err, "Failed to check if script job should be retried")
+					// Continue with normal failure handling if we can't check
+				} else if shouldRetry {
+					logger.Info("ConfigMap has been modified, automatically retrying script job")
+
+					// Delete the failed job
+					if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationForeground)); err != nil && !apierrors.IsNotFound(err) {
+						logger.Error(err, fmt.Sprintf("Unable to delete failed Job %s for retry", jobName))
+						return ctrl.Result{}, err
+					}
+
+					if err := r.clearDPURebootedConditions(ctx, dpus); err != nil {
+						return ctrl.Result{}, err
+					}
+
+					r.Recorder.Event(dpuNode, corev1.EventTypeNormal, "ScriptRebootRetry",
+						"ConfigMap was modified, retrying script reboot job")
+					logger.Info("Retry preparation complete, new job will be created on next reconciliation")
+					return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
+				}
+
 				r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionFalse, "", "")
-				// Not remove the failed job for user debuging.
+				// Not remove the failed job for user debugging.
 				err = fmt.Errorf("the custom reboot script failed")
 				if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "RebootFailed", err.Error())); err != nil {
 					return ctrl.Result{}, err
@@ -398,6 +442,11 @@ func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provis
 		return err
 	}
 
+	// Store the ConfigMap ResourceVersion for change detection
+	if dpuNode.Annotations == nil {
+		dpuNode.Annotations = make(map[string]string)
+	}
+	dpuNode.Annotations[provisioningv1.DPUNodeScriptConfigMapVersionAnnotation] = configMap.ResourceVersion
 	podTemplateStr, ok := configMap.Data[PodTemplateConfigMapKey]
 	if !ok {
 		err := fmt.Errorf("%s not found in ConfigMap", PodTemplateConfigMapKey)
@@ -582,6 +631,57 @@ func (r *DPUNodeReconciler) generateJobName(dpuNode *provisioningv1.DPUNode) str
 	return fmt.Sprintf("%s-script-job", dpuNode.Name)
 }
 
+// shouldRetryScriptJob checks if the ConfigMap has been modified since the job was created
+func (r *DPUNodeReconciler) shouldRetryScriptJob(ctx context.Context, dpuNode *provisioningv1.DPUNode) (bool, error) {
+	if dpuNode.Spec.NodeRebootMethod == nil || dpuNode.Spec.NodeRebootMethod.Script == nil {
+		return false, nil
+	}
+
+	// Get the stored ConfigMap version
+	storedVersion, ok := dpuNode.Annotations[provisioningv1.DPUNodeScriptConfigMapVersionAnnotation]
+	if !ok {
+		// No stored version means we can't compare - don't retry automatically
+		return false, nil
+	}
+
+	// Fetch the current ConfigMap
+	configMap := &corev1.ConfigMap{}
+	configMapNamespacedName := types.NamespacedName{
+		Namespace: dpuNode.Namespace,
+		Name:      dpuNode.Spec.NodeRebootMethod.Script.Name,
+	}
+	if err := r.Get(ctx, configMapNamespacedName, configMap); err != nil {
+		return false, err
+	}
+
+	// Compare ResourceVersions
+	return configMap.ResourceVersion != storedVersion, nil
+}
+
+// clearDPURebootedConditions removes the Rebooted condition from all DPUs to allow retry.
+func (r *DPUNodeReconciler) clearDPURebootedConditions(ctx context.Context, dpus []*provisioningv1.DPU) error {
+	for _, dpu := range dpus {
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			if err := r.Get(ctx, client.ObjectKeyFromObject(dpu), dpu); err != nil {
+				return err
+			}
+			// Remove the Rebooted condition to reset the state
+			conditions := []metav1.Condition{}
+			for _, cond := range dpu.Status.Conditions {
+				if cond.Type != provisioningv1.DPUCondRebooted.String() {
+					conditions = append(conditions, cond)
+				}
+			}
+			dpu.Status.Conditions = conditions
+			return r.Status().Update(ctx, dpu)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *DPUNodeReconciler) ensureEnv(envs []corev1.EnvVar, name, value string) []corev1.EnvVar {
 	for _, e := range envs {
 		if e.Name == name {
@@ -657,7 +757,27 @@ func (r *DPUNodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.dpuToDPUNodeReq)).
 		Watches(&operatorv1.DPFOperatorConfig{},
 			handler.EnqueueRequestsFromMapFunc(r.dpfOperatorConfigToDPUNodeReq)).
+		// Watch ConfigMaps for script reboot method changes
+		// Only watch ConfigMaps that have the pod-template key (used for script reboot)
+		Watches(&corev1.ConfigMap{},
+			handler.EnqueueRequestsFromMapFunc(r.configMapToDPUNodeReq),
+			builder.WithPredicates(r.scriptRebootConfigMapPredicate())).
 		Complete(r)
+}
+
+// scriptRebootConfigMapPredicate returns a predicate that filters ConfigMaps
+// to only those that contain the pod-template key used for script reboot.
+// This improves performance by avoiding processing unrelated ConfigMaps.
+func (r *DPUNodeReconciler) scriptRebootConfigMapPredicate() predicate.Predicate {
+	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
+		cm, ok := obj.(*corev1.ConfigMap)
+		if !ok {
+			return false
+		}
+		// Only process ConfigMaps that have the pod-template key
+		_, hasPodTemplate := cm.Data[PodTemplateConfigMapKey]
+		return hasPodTemplate
+	})
 }
 
 func (r *DPUNodeReconciler) dpfOperatorConfigToDPUNodeReq(ctx context.Context, resource client.Object) []reconcile.Request {
@@ -718,6 +838,37 @@ func (r *DPUNodeReconciler) dpuToDPUNodeReq(ctx context.Context, resource client
 			Namespace: dpu.Namespace,
 		},
 	}}
+}
+
+// configMapToDPUNodeReq maps ConfigMap changes to DPUNodes that use them for script reboot
+func (r *DPUNodeReconciler) configMapToDPUNodeReq(ctx context.Context, resource client.Object) []reconcile.Request {
+	logger := log.FromContext(ctx)
+	configMap := resource.(*corev1.ConfigMap)
+	requests := make([]reconcile.Request, 0)
+
+	// List all DPUNodes in the same namespace
+	dpuNodeList := &provisioningv1.DPUNodeList{}
+	if err := r.List(ctx, dpuNodeList, client.InNamespace(configMap.Namespace)); err != nil {
+		logger.Error(err, "Failed to list DPUNodes for ConfigMap watch",
+			"configMap", configMap.Name, "namespace", configMap.Namespace)
+		return nil
+	}
+
+	// Find DPUNodes that reference this ConfigMap for script reboot
+	for _, dpuNode := range dpuNodeList.Items {
+		if dpuNode.Spec.NodeRebootMethod != nil &&
+			dpuNode.Spec.NodeRebootMethod.Script != nil &&
+			dpuNode.Spec.NodeRebootMethod.Script.Name == configMap.Name {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      dpuNode.GetName(),
+					Namespace: dpuNode.GetNamespace(),
+				},
+			})
+		}
+	}
+
+	return requests
 }
 
 func (r *DPUNodeReconciler) getDPUNodeUpgradeCondition(dpuNode *provisioningv1.DPUNode) (bool, bool) {
