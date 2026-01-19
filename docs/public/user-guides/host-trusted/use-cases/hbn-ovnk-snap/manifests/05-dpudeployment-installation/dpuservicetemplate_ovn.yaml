@@ -10,11 +10,11 @@ spec:
     source:
       repoURL: $OVN_KUBERNETES_REPO_URL
       chart: ovn-kubernetes-chart
-      version: $TAG
+      version: $OVN_KUBERNETES_CHART_TAG
     values:
       commonManifests:
         enabled: true
       dpuManifests:
         enabled: true
       leaseNamespace: "ovn-kubernetes"
-      gatewayOpts: "--gateway-interface=br-ovn"
+      gatewayOpts: "--gateway-interface=br-dpu"

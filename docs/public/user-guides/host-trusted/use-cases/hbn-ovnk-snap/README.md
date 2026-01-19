@@ -133,7 +133,10 @@ export SNAP_NGC_IMAGE_URL=nvcr.io/nvidia/doca/doca_vfs
 
 ## The repository URL for the OVN-Kubernetes Helm chart.
 ## Usually this is the NVIDIA GHCR repository. For development purposes, this can be set to a different repository.
-export OVN_KUBERNETES_REPO_URL=oci://ghcr.io/nvidia
+export OVN_KUBERNETES_REPO_URL=oci://ghcr.io/mellanox/charts
+
+# OVN-Kubernetes chart tag
+export OVN_KUBERNETES_CHART_TAG=v0.1.0-latest
 
 ## POD_CIDR is the CIDR used for pods in the target Kubernetes cluster.
 export POD_CIDR=10.233.64.0/18
@@ -634,14 +637,26 @@ spec:
       _ovs-vsctl set Interface p0 mtu_request=9216
       _ovs-vsctl set Port p0 external_ids:dpf-type=physical
 
+      # Activate DOCA for OVNK
       _ovs-vsctl set Open_vSwitch . external-ids:ovn-bridge-datapath-type=netdev
+      # setup ovnkube managed bridge, br-dpu (this corresponds to br-ex on ovnk docs)
+      _ovs-vsctl --may-exist add-br br-dpu
+      _ovs-vsctl br-set-external-id br-dpu bridge-id br-dpu
+      _ovs-vsctl br-set-external-id br-dpu bridge-uplink pbrdputobrovn
+      _ovs-vsctl set bridge br-dpu datapath_type=netdev
+      _ovs-vsctl --may-exist add-port br-dpu pf0hpf
+      _ovs-vsctl set Interface pf0hpf mtu_request=9216
+      _ovs-vsctl set Interface pf0hpf type=dpdk
+
+      # Create OVS bridge (br-ovn) in between the SC managed bridge and OVNK
       _ovs-vsctl --may-exist add-br br-ovn
       _ovs-vsctl set bridge br-ovn datapath_type=netdev
-      _ovs-vsctl br-set-external-id br-ovn bridge-id br-ovn
-      _ovs-vsctl br-set-external-id br-ovn bridge-uplink puplinkbrovntobrsfc
-      _ovs-vsctl --may-exist add-port br-ovn pf0hpf
-      _ovs-vsctl set Interface pf0hpf type=dpdk
-      _ovs-vsctl set Interface pf0hpf mtu_request=9216
+      _ovs-vsctl --may-exist add-port br-ovn pbrovntobrdpu
+      _ovs-vsctl --may-exist add-port br-dpu pbrdputobrovn
+
+      # Patch br-ovn and br-dpu together
+      _ovs-vsctl set Interface pbrovntobrdpu type=patch options:peer=pbrdputobrovn
+      _ovs-vsctl set Interface pbrdputobrovn type=patch options:peer=pbrovntobrdpu
 
   bfcfgParameters:
     - UPDATE_ATF_UEFI=yes
@@ -806,14 +821,14 @@ spec:
     source:
       repoURL: $OVN_KUBERNETES_REPO_URL
       chart: ovn-kubernetes-chart
-      version: $TAG
+      version: $OVN_KUBERNETES_CHART_TAG
     values:
       commonManifests:
         enabled: true
       dpuManifests:
         enabled: true
       leaseNamespace: "ovn-kubernetes"
-      gatewayOpts: "--gateway-interface=br-ovn"
+      gatewayOpts: "--gateway-interface=br-dpu"
 ```
 </details>
 
