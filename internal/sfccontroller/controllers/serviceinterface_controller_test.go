@@ -218,7 +218,7 @@ var _ = Describe("service interface controller", func() {
 			Entry("fail to set port external ids",
 				physicalIfaceSpec,
 				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).Return(nil)
 					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 					ovsMock.EXPECT().SetPortExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).
 						Return(errors.New("failed to set port external ids"))
@@ -226,7 +226,7 @@ var _ = Describe("service interface controller", func() {
 			Entry("failed to add interface",
 				physicalIfaceSpec,
 				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(errors.New("failed to add port"))
 				}, false),
 			Entry("failed to get port name",
@@ -238,7 +238,7 @@ var _ = Describe("service interface controller", func() {
 				pfIfaceSpec,
 				func() {
 					networkHelperMock.EXPECT().GetPFRepresentorDPU(gomock.Any()).Return("pf0hpf", nil)
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).Return(nil)
 					ovsMock.EXPECT().SetIfaceExternalIDs(
 						gomock.Any(),
 						gomock.Any(),
@@ -250,7 +250,7 @@ var _ = Describe("service interface controller", func() {
 				vfIfaceSpec,
 				func() {
 					networkHelperMock.EXPECT().GetVFRepresentorDPU(gomock.Any(), gomock.Any()).Return("pf0vf2", nil)
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).Return(nil)
 					ovsMock.EXPECT().SetIfaceExternalIDs(
 						gomock.Any(),
 						gomock.Any(),
@@ -261,20 +261,16 @@ var _ = Describe("service interface controller", func() {
 			Entry("fail to set inteface external ids",
 				physicalIfaceSpec,
 				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).Return(nil)
 					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).
 						Return(errors.New("failed to set external ids"))
 				}, false),
 			Entry("success ovn interface",
 				ovnIfaceSpec,
 				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(nil)
 					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{"dpf-id": client.ObjectKeyFromObject(si).String()})).
 						Return(nil)
@@ -282,64 +278,33 @@ var _ = Describe("service interface controller", func() {
 			Entry("failed to add patch port",
 				ovnIfaceSpec,
 				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(errors.New("failed to add patch port"))
 				}, false),
-			Entry("failed to set interface options",
-				ovnIfaceSpec,
-				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(errors.New("failed to set interface options"))
-				},
-				false),
 			Entry("failed to add second port",
 				ovnIfaceSpec,
 				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(errors.New("failed to add port"))
 				}, false),
 			Entry("failed to set interface external ids",
 				ovnIfaceSpec,
 				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(nil)
 					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).
 						Return(errors.New("failed to set interface external ids"))
-				}, false),
-			Entry("failed to set interface options",
-				ovnIfaceSpec,
-				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(errors.New("failed to set interface options"))
 				}, false),
 			Entry("success patch interface",
 				patchIfaceSpec,
 				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(nil)
 					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{"dpf-id": client.ObjectKeyFromObject(si).String()})).
 						Return(nil)
@@ -347,53 +312,26 @@ var _ = Describe("service interface controller", func() {
 			Entry("failed to add patch port",
 				patchIfaceSpec,
 				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(errors.New("failed to add patch port"))
 				}, false),
-			Entry("failed to set interface options",
-				patchIfaceSpec,
-				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(errors.New("failed to set interface options"))
-				},
-				false),
 			Entry("failed to add second port",
 				patchIfaceSpec,
 				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(errors.New("failed to add port"))
 				}, false),
 			Entry("failed to set interface external ids",
 				patchIfaceSpec,
 				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(nil)
 					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).
 						Return(errors.New("failed to set interface external ids"))
-				}, false),
-			Entry("failed to set interface options",
-				patchIfaceSpec,
-				func() {
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(nil)
-					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).
-						Return(errors.New("failed to set interface options"))
 				}, false),
 			Entry("nothing to do for vlan type interface",
 				vlanIfaceSpec,

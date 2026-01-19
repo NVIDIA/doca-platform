@@ -77,17 +77,17 @@ func (mr *MockAPIMockRecorder) AddBridge(ctx, bridgeConfig any) *gomock.Call {
 }
 
 // AddPort mocks base method.
-func (m *MockAPI) AddPort(ctx context.Context, bridgeName, portName, ifaceType string, mtu *int) error {
+func (m *MockAPI) AddPort(ctx context.Context, portConfig PortConfig) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddPort", ctx, bridgeName, portName, ifaceType, mtu)
+	ret := m.ctrl.Call(m, "AddPort", ctx, portConfig)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AddPort indicates an expected call of AddPort.
-func (mr *MockAPIMockRecorder) AddPort(ctx, bridgeName, portName, ifaceType, mtu any) *gomock.Call {
+func (mr *MockAPIMockRecorder) AddPort(ctx, portConfig any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddPort", reflect.TypeOf((*MockAPI)(nil).AddPort), ctx, bridgeName, portName, ifaceType, mtu)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddPort", reflect.TypeOf((*MockAPI)(nil).AddPort), ctx, portConfig)
 }
 
 // Cache mocks base method.

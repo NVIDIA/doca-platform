@@ -164,40 +164,61 @@ var _ = Describe("OVSUtils", func() {
 
 	Describe("AddPort", func() {
 		It("should be idempotent when port already exists on same bridge", func() {
+			config := PortConfig{
+				BridgeName:    "br-test",
+				Name:          "port-test",
+				InterfaceType: "internal",
+			}
 			mockAPI.EXPECT().
-				AddPort(ctx, "br-test", "port-test", "internal", nil).
+				AddPort(ctx, config).
 				Return(nil)
 
-			Expect(mockAPI.AddPort(ctx, "br-test", "port-test", "internal", nil)).To(Succeed())
+			Expect(mockAPI.AddPort(ctx, config)).To(Succeed())
 		})
 
 		It("should fail when port exists on different bridge", func() {
 			expectedErr := errors.New("port port-test already exists on a bridge other than br-test")
+			config := PortConfig{
+				BridgeName:    "br-test",
+				Name:          "port-test",
+				InterfaceType: "internal",
+			}
 			mockAPI.EXPECT().
-				AddPort(ctx, "br-test", "port-test", "internal", nil).
+				AddPort(ctx, config).
 				Return(expectedErr)
 
-			err := mockAPI.AddPort(ctx, "br-test", "port-test", "internal", nil)
+			err := mockAPI.AddPort(ctx, config)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("already exists on a bridge other than"))
 		})
 
 		It("should succeed with custom MTU", func() {
 			mtu := 1500
+			config := PortConfig{
+				BridgeName:    "br-test",
+				Name:          "port-test",
+				InterfaceType: "internal",
+				MTU:           &mtu,
+			}
 			mockAPI.EXPECT().
-				AddPort(ctx, "br-test", "port-test", "internal", &mtu).
+				AddPort(ctx, config).
 				Return(nil)
 
-			Expect(mockAPI.AddPort(ctx, "br-test", "port-test", "internal", &mtu)).To(Succeed())
+			Expect(mockAPI.AddPort(ctx, config)).To(Succeed())
 		})
 
 		It("should fail when database error occurs", func() {
 			expectedErr := errors.New("database error")
+			config := PortConfig{
+				BridgeName:    "br-test",
+				Name:          "port-test",
+				InterfaceType: "internal",
+			}
 			mockAPI.EXPECT().
-				AddPort(ctx, "br-test", "port-test", "internal", nil).
+				AddPort(ctx, config).
 				Return(expectedErr)
 
-			Expect(mockAPI.AddPort(ctx, "br-test", "port-test", "internal", nil)).To(MatchError(expectedErr))
+			Expect(mockAPI.AddPort(ctx, config)).To(MatchError(expectedErr))
 		})
 	})
 
@@ -824,11 +845,16 @@ var _ = Describe("OVSUtils", func() {
 		It("should handle multiple error types from API", func() {
 			By("Testing connection errors")
 			connErr := errors.New("connection timeout")
+			config := PortConfig{
+				BridgeName:    "br-test",
+				Name:          "port-test",
+				InterfaceType: "internal",
+			}
 			mockAPI.EXPECT().
-				AddPort(ctx, "br-test", "port-test", "internal", nil).
+				AddPort(ctx, config).
 				Return(connErr)
 
-			err := mockAPI.AddPort(ctx, "br-test", "port-test", "internal", nil)
+			err := mockAPI.AddPort(ctx, config)
 			Expect(err).To(MatchError(connErr))
 
 			By("Testing not found errors")
@@ -854,11 +880,16 @@ var _ = Describe("OVSUtils", func() {
 			Expect(err).To(HaveOccurred())
 
 			By("Testing with nil MTU")
+			config := PortConfig{
+				BridgeName:    "br-test",
+				Name:          "port-test",
+				InterfaceType: "internal",
+			}
 			mockAPI.EXPECT().
-				AddPort(ctx, "br-test", "port-test", "internal", nil).
+				AddPort(ctx, config).
 				Return(nil)
 
-			Expect(mockAPI.AddPort(ctx, "br-test", "port-test", "internal", nil)).To(Succeed())
+			Expect(mockAPI.AddPort(ctx, config)).To(Succeed())
 		})
 
 		It("should handle empty maps", func() {
