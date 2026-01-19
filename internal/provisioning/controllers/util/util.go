@@ -126,6 +126,8 @@ const (
 	KubernetesVersion = "v1.34.0"
 	// MaxNameLength is the maximum length of the name of the K8s resource.
 	MaxNameLength = validation.DNS1123SubdomainMaxLength // 253
+	// HostPowerCycleRequireKey is the key for the host power cycle required annotation.
+	HostPowerCycleRequireKey = DPUProvisioningPrefix + "host-power-cycle-required"
 )
 
 var (
