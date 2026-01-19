@@ -8,6 +8,7 @@ controllerManager:
   image:
     repository: ""
     tag: ""
+  pullPolicy: IfNotPresent
   replicas: 1
   serviceAccount:
     annotations: {}
@@ -60,6 +61,8 @@ kamajiEtcdDefrag:
   ## The schedule for the etcd-defrag job.
   schedule: 0 0 * * *
   image: ghcr.io/ahrtr/etcd-defrag:v0.22.0
+  ## The image pull policy for the etcd-defrag job.
+  pullPolicy: IfNotPresent
   ## The defrag rule for the etcd-defrag job.
   ## See: https://github.com/ahrtr/etcd-defrag?tab=readme-ov-file#defragmentation-rule
   defragRule: "dbQuotaUsage > 0.8 || dbSize - dbSizeInUse > 200*1024*1024"
