@@ -49,6 +49,8 @@ const (
 	RequeueIntervalError       = 5 * time.Second
 	SFCBridge                  = "br-sfc"
 	OVNBridge                  = "br-ovn"
+	InterfaceTypeDPDK          = "dpdk"
+	InterfaceTypePatch         = "patch"
 
 	// Patch port naming formats
 	peerPatchNameFormat   = "p_%s_to_%s"      // used when PeerPatchName is specified
@@ -93,7 +95,11 @@ type ServiceInterfaceReconciler struct {
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 func AddPort(ctx context.Context, ovs ovsutils.API, portName string, ifaceExternalIDs, portExternalIDs map[string]string) error {
-	if err := ovs.AddPort(ctx, SFCBridge, portName, "dpdk", nil); err != nil {
+	if err := ovs.AddPort(ctx, ovsutils.PortConfig{
+		BridgeName:    SFCBridge,
+		Name:          portName,
+		InterfaceType: InterfaceTypeDPDK,
+	}); err != nil {
 		return err
 	}
 
@@ -155,35 +161,37 @@ func getOVNPatchPortNames(brA, brB string) (string, string) {
 // The peer patch port is added first to ensure the operation fails if the brB bridge does not exist.
 //
 // The function performs the following steps:
-//  1. Creates a patch port on brB with the given peerPatchName
-//  2. Configures the peer port's peer option to reference patchName
-//  3. Creates a patch port on brA with the given patchName
-//  4. Configures the port's peer option to reference peerPatchName
-//  5. Sets ifaceExternalIDs to patchName for identification
+//  1. Creates a patch port on brB with the given patchPortPeer
+//  2. Configures the peer port's peer option to reference patchPort
+//  3. Creates a patch port on brA with the given patchPort
+//  4. Configures the port's peer option to reference patchPortPeer
+//  5. Sets ifaceExternalIDs to patchPort for identification
 //
 // Returns an error if any OVS operation fails; partial state may remain on failure.
-func AddPatchPort(ctx context.Context, ovs ovsutils.API, brA, brB string, patchName, peerPatchName string, ifaceExternalIDs map[string]string) error {
+func AddPatchPort(ctx context.Context, ovs ovsutils.API, brA, brB string, patchPort, patchPortPeer string, ifaceExternalIDs map[string]string) error {
 	log := ctrllog.FromContext(ctx)
-	log.Info("adding patch port", "brA", brA, "brB", brB, "patchName", patchName, "peerPatchName", peerPatchName)
+	log.Info("adding patch port", "brA", brA, "brB", brB, "patchPort", patchPort, "patchPortPeer", patchPortPeer)
 
 	// Adds patch to brB first to ensure it exists before adding the patch to brA
-	if err := ovs.AddPort(ctx, brB, peerPatchName, "patch", nil); err != nil {
+	if err := ovs.AddPort(ctx, ovsutils.PortConfig{
+		BridgeName:       brB,
+		Name:             patchPortPeer,
+		InterfaceType:    InterfaceTypePatch,
+		InterfaceOptions: map[string]string{"peer": patchPort},
+	}); err != nil {
 		return err
 	}
 
-	if err := ovs.SetIfaceOptions(ctx, peerPatchName, map[string]string{"peer": patchName}); err != nil {
+	if err := ovs.AddPort(ctx, ovsutils.PortConfig{
+		BridgeName:       brA,
+		Name:             patchPort,
+		InterfaceType:    InterfaceTypePatch,
+		InterfaceOptions: map[string]string{"peer": patchPortPeer},
+	}); err != nil {
 		return err
 	}
 
-	if err := ovs.AddPort(ctx, brA, patchName, "patch", nil); err != nil {
-		return err
-	}
-
-	if err := ovs.SetIfaceOptions(ctx, patchName, map[string]string{"peer": peerPatchName}); err != nil {
-		return err
-	}
-
-	if err := ovs.SetIfaceExternalIDs(ctx, patchName, ifaceExternalIDs); err != nil {
+	if err := ovs.SetIfaceExternalIDs(ctx, patchPort, ifaceExternalIDs); err != nil {
 		return err
 	}
 
@@ -194,18 +202,18 @@ func AddPatchPort(ctx context.Context, ovs ovsutils.API, brA, brB string, patchN
 // This is the inverse operation of AddPatchPort.
 //
 // The function performs the following steps:
-//  1. Deletes the patch port from brA with the given patchName
-//  2. Deletes the peer patch port from brB with the given peerPatchName
+//  1. Deletes the patch port from brA with the given patchPort
+//  2. Deletes the peer patch port from brB with the given patchPortPeer
 //
 // Returns an error if any OVS operation fails; partial state may remain on failure.
-func DeletePatchPorts(ctx context.Context, ovs ovsutils.API, brA, brB string, patchName, peerPatchName string) error {
+func DeletePatchPorts(ctx context.Context, ovs ovsutils.API, brA, brB string, patchPort, patchPortPeer string) error {
 	log := ctrllog.FromContext(ctx)
-	err := ovs.DelPort(ctx, brA, patchName)
+	err := ovs.DelPort(ctx, brA, patchPort)
 	if err != nil {
 		log.Info(fmt.Sprintf("failed to delete port %s", err.Error()))
 		return err
 	}
-	err = ovs.DelPort(ctx, brB, peerPatchName)
+	err = ovs.DelPort(ctx, brB, patchPortPeer)
 	if err != nil {
 		log.Info(fmt.Sprintf("failed to delete port %s", err.Error()))
 		return err

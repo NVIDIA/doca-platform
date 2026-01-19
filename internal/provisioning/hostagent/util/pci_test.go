@@ -479,7 +479,7 @@ var _ = Describe("PCI", func() {
 			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
 			defer mock.Cleanup()
 
-			helper := NewPCIHelper("0000:b1:00.0")
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
 			err := helper.SetNumOfVFs(4)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to stat sriov_numvfs path"))
