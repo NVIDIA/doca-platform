@@ -35,7 +35,7 @@ import (
 
 type API interface {
 	ovsclient.Client
-	AddPort(ctx context.Context, bridgeName, portName, ifaceType string, mtu *int) error
+	AddPort(ctx context.Context, portConfig PortConfig) error
 	DelPort(ctx context.Context, bridgeName, portName string) error
 	SetIfaceExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error
 	GetIfaceWithExternalIDs(ctx context.Context, externalIDs map[string]string) (*ovsmodel.Interface, error)
@@ -61,6 +61,14 @@ type BridgeConfig struct {
 	FailMode     *string
 }
 
+type PortConfig struct {
+	Name             string
+	BridgeName       string
+	InterfaceType    string
+	MTU              *int
+	InterfaceOptions map[string]string
+}
+
 const (
 	InterfaceTypeInternal      = "internal"
 	errMsgFailedToCreatePort   = "failed to create port %s: %v"
@@ -70,10 +78,10 @@ const (
 // AddPort performing 3 operations
 // Adding interface, adding port, attaching port to a bridge
 // The port will not be added if it already exists on a different bridge
-func (c *Client) AddPort(ctx context.Context, bridgeName, portName, ifaceType string, mtu *int) error {
+func (c *Client) AddPort(ctx context.Context, portConfig PortConfig) error {
 	port := &ovsmodel.Port{
-		Name: portName,
-		UUID: portName,
+		Name: portConfig.Name,
+		UUID: portConfig.Name,
 	}
 
 	err := c.Get(ctx, port)
@@ -83,50 +91,49 @@ func (c *Client) AddPort(ctx context.Context, bridgeName, portName, ifaceType st
 
 	// Port already exists or bridge does not exist
 	if err == nil {
-		isPortInBridge, err := c.IsIfaceInBr(ctx, bridgeName, portName)
+		isPortInBridge, err := c.IsIfaceInBr(ctx, portConfig.BridgeName, portConfig.Name)
 		if err != nil {
-			return fmt.Errorf("failed to check if port %s is in bridge %s: %v", portName, bridgeName, err)
+			return fmt.Errorf("failed to check if port %s is in bridge %s: %v", portConfig.Name, portConfig.BridgeName, err)
 		}
 		// Does not add port because it already exists on this bridge
 		if isPortInBridge {
 			return nil
 		}
 		// Should not add port because it already exists on different bridge
-		return fmt.Errorf("port %s already exists on a bridge other than %s", portName, bridgeName)
+		return fmt.Errorf("port %s already exists on a bridge other than %s", portConfig.Name, portConfig.BridgeName)
 	}
 
 	// maxMtuSize is the maximum MTU size that a DOCA enabled interface can take
 	maxMtuSize := 9216
-	ifaceUUI := "iface" + portName
+	ifaceUUI := "iface" + portConfig.Name
 	iface := &ovsmodel.Interface{
-		Name:       portName,
+		Name:       portConfig.Name,
 		UUID:       ifaceUUI,
-		Type:       ifaceType,
+		Type:       portConfig.InterfaceType,
 		MTURequest: &maxMtuSize,
+		Options:    portConfig.InterfaceOptions,
 	}
 
-	if mtu != nil {
-		iface.MTURequest = mtu
+	if portConfig.MTU != nil {
+		iface.MTURequest = portConfig.MTU
 	}
 
-	iIns, err := c.Create(iface)
+	operations, err := c.Create(iface)
 	if err != nil {
-		return fmt.Errorf("failed to create interface for port %s: %v", portName, err)
+		return fmt.Errorf("failed to create interface for port %s: %v", portConfig.Name, err)
 	}
-
-	operations := iIns
 
 	port.Interfaces = []string{ifaceUUI}
 
 	pIns, err := c.Create(port)
 	if err != nil {
-		return fmt.Errorf(errMsgFailedToCreatePort, portName, err)
+		return fmt.Errorf(errMsgFailedToCreatePort, portConfig.Name, err)
 	}
 
 	operations = append(operations, pIns...)
 
 	bridge := &ovsmodel.Bridge{
-		Name: bridgeName,
+		Name: portConfig.BridgeName,
 	}
 
 	bIns, err := c.Where(bridge).Mutate(
@@ -138,18 +145,18 @@ func (c *Client) AddPort(ctx context.Context, bridgeName, portName, ifaceType st
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("failed to add port %s to %s bridge: %v", portName, bridgeName, err)
+		return fmt.Errorf("failed to add port %s to %s bridge: %v", portConfig.Name, portConfig.BridgeName, err)
 	}
 
 	operations = append(operations, bIns...)
 
 	reply, err := c.Transact(ctx, operations...)
 	if err != nil {
-		return fmt.Errorf(errMsgFailedToCreatePort, portName, err)
+		return fmt.Errorf(errMsgFailedToCreatePort, portConfig.Name, err)
 	}
 
 	if _, err := ovsdb.CheckOperationResults(reply, operations); err != nil {
-		return fmt.Errorf("port %s creation failed: %v", portName, err)
+		return fmt.Errorf("port %s creation failed: %v", portConfig.Name, err)
 
 	}
 
