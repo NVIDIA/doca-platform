@@ -89,7 +89,7 @@ func (c *Client) AddPort(ctx context.Context, portConfig PortConfig) error {
 		return err
 	}
 
-	// Port already exists or bridge does not exist
+	// Port already exists
 	if err == nil {
 		isPortInBridge, err := c.IsIfaceInBr(ctx, portConfig.BridgeName, portConfig.Name)
 		if err != nil {
@@ -101,6 +101,14 @@ func (c *Client) AddPort(ctx context.Context, portConfig PortConfig) error {
 		}
 		// Should not add port because it already exists on different bridge
 		return fmt.Errorf("port %s already exists on a bridge other than %s", portConfig.Name, portConfig.BridgeName)
+	}
+
+	bridge := &ovsmodel.Bridge{
+		Name: portConfig.BridgeName,
+	}
+	// SDK will not fail if we add a port to a non-existent bridge
+	if err := c.Get(ctx, bridge); err != nil {
+		return fmt.Errorf("failed to get bridge %s: %v", portConfig.BridgeName, err)
 	}
 
 	// maxMtuSize is the maximum MTU size that a DOCA enabled interface can take
@@ -131,10 +139,6 @@ func (c *Client) AddPort(ctx context.Context, portConfig PortConfig) error {
 	}
 
 	operations = append(operations, pIns...)
-
-	bridge := &ovsmodel.Bridge{
-		Name: portConfig.BridgeName,
-	}
 
 	bIns, err := c.Where(bridge).Mutate(
 		bridge,
