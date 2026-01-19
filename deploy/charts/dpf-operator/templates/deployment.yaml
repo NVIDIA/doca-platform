@@ -37,6 +37,7 @@ spec:
           - --leader-elect=true
         image: {{ .Values.controllerManager.image.repository }}:{{ .Values.controllerManager.image.tag
           | default .Chart.AppVersion }}
+        imagePullPolicy: {{ .Values.controllerManager.pullPolicy }}
         livenessProbe:
           httpGet:
             path: /healthz
