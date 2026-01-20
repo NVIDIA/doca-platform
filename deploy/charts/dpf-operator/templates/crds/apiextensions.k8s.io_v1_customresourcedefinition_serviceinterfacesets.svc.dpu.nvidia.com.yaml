@@ -164,8 +164,8 @@ spec:
                           peerPatchName:
                             description: |-
                               PeerPatchName is the name of the patch port on the peer bridge.
-                              If not set, it is auto-generated in the format: p_<bridgeA>_to_<bridgeB>_<hash>
-                              where bridge names have hyphens removed and <hash> is an 8-character FNV-1a hash
+                              If not set, it is auto-generated in the format: `p_<bridgeA>_to_<bridgeB>_<hash>`
+                              where bridge names have hyphens removed and `<hash>` is an 8-character FNV-1a hash
                               derived from the ServiceInterface's namespace/name.
                               Example: p_brovn_to_brsfc_7aea60f7 (for bridges br-ovn and br-sfc).
                             type: string
