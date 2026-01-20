@@ -147,6 +147,8 @@ func (c *Cluster) run(ctx context.Context) error {
 		corev1.SchemeGroupVersion.WithKind("Secret"),
 		corev1.SchemeGroupVersion.WithKind("PersistentVolumeClaim"),
 		appsv1.SchemeGroupVersion.WithKind("DaemonSet"),
+		appsv1.SchemeGroupVersion.WithKind("Deployment"),
+		appsv1.SchemeGroupVersion.WithKind("ReplicaSet"),
 		batchv1.SchemeGroupVersion.WithKind("Job"),
 		operatorv1.DPFOperatorConfigGroupVersionKind,
 		provisioningv1.DPUFlavorGroupVersionKind,
