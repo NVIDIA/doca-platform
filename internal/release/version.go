@@ -23,7 +23,7 @@ import (
 
 const (
 	// LastReleasedDPFGAVersion is the latest release version of DPF.
-	LastReleasedDPFGAVersion = "v25.10.0"
+	LastReleasedDPFGAVersion = "v25.10.1"
 
 	// DPFVersionLabelKey is the DPF version label key used for label resources.
 	DPFVersionLabelKey = "operator.dpu.nvidia.com/dpf-version"
