@@ -25,6 +25,8 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 type clusterHandler struct {
@@ -52,4 +54,9 @@ func (ch *clusterHandler) CleanUpCluster(context.Context, *provisioningv1.DPUClu
 
 func (ch clusterHandler) Type() string {
 	return string(provisioningv1.StaticCluster)
+}
+
+func (ch *clusterHandler) DPFOperatorConfigToDPUClusters(ctx context.Context, o client.Object) []reconcile.Request {
+	// static cluster manager does not react to DPF operator config changes
+	return []reconcile.Request{}
 }
