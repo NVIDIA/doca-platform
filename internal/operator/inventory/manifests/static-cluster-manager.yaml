@@ -17,6 +17,14 @@ metadata:
   name: static-cm-manager-role
 rules:
 - apiGroups:
+  - operator.dpu.nvidia.com
+  resources:
+  - dpfoperatorconfigs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - provisioning.dpu.nvidia.com
   resources:
   - dpuclusters

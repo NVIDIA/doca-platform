@@ -138,6 +138,9 @@ type DPFOperatorConfigSpec struct {
 	// +kubebuilder:default={controlPlaneMTU: 1500}
 	// +optional
 	Networking *Networking `json:"networking,omitempty"`
+	// Monitoring is the configuration for monitoring resources.
+	// +optional
+	Monitoring *MonitoringConfiguration `json:"monitoring,omitempty"`
 
 	// List of secret names which are used to pull images for DPF system components and DPUServices.
 	// These secrets must be in the same namespace as the DPF Operator Config and should be created before the config is created.
@@ -183,6 +186,15 @@ type DPFOperatorConfigSpec struct {
 	// StaticClusterManager is the configuration for the static-cluster-manager
 	// +optional
 	StaticClusterManager *StaticClusterManagerConfiguration `json:"staticClusterManager,omitempty"`
+}
+
+// MonitoringConfiguration defines the configuration for monitoring resources.
+type MonitoringConfiguration struct {
+	// Enabled controls whether monitoring resources are installed.
+	// When enabled, the controller:
+	// - Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // DPFOperatorConfigStatus defines the observed state of DPFOperatorConfig
@@ -240,4 +252,8 @@ func (c *DPFOperatorConfig) UpgradeInProgress() bool {
 
 func (c *DPFOperatorConfig) IsNewConfig() bool {
 	return c.Status.ObservedGeneration == 0
+}
+
+func (c *DPFOperatorConfig) MonitoringEnabled() bool {
+	return c.Spec.Monitoring != nil && c.Spec.Monitoring.Enabled != nil && *c.Spec.Monitoring.Enabled
 }

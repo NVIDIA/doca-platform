@@ -164,6 +164,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `overrides` _[Overrides](#overrides)_ |  |  |  |
 | `networking` _[Networking](#networking)_ |  | \{ controlPlaneMTU:1500 \} |  |
+| `monitoring` _[MonitoringConfiguration](#monitoringconfiguration)_ | Monitoring is the configuration for monitoring resources. |  |  |
 | `imagePullSecrets` _string array_ | List of secret names which are used to pull images for DPF system components and DPUServices.<br />These secrets must be in the same namespace as the DPF Operator Config and should be created before the config is created.<br />System reconciliation will not proceed until these secrets are available. |  |  |
 | `dpuServiceController` _[DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)_ | DPUServiceController is the configuration for the DPUServiceController |  |  |
 | `provisioningController` _[ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)_ | ProvisioningController is the configuration for the ProvisioningController |  |  |
@@ -495,6 +496,22 @@ _Appears in:_
 | `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 2 | Maximum: 3 <br />Minimum: 1 <br /> |
 | `image` _[Image](#image)_ | Image overrides the container image used by the Kamaji Cluster Manager.<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Kamaji Cluster Manager component.<br />It contains the image for the controller and its resource requirements. |  |  |
+
+
+#### MonitoringConfiguration
+
+
+
+MonitoringConfiguration defines the configuration for monitoring resources.
+
+
+
+_Appears in:_
+- [DPFOperatorConfigSpec](#dpfoperatorconfigspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `enabled` _boolean_ | Enabled controls whether monitoring resources are installed.<br />When enabled, the controller:<br />- Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics. |  |  |
 
 
 #### MultusConfiguration
