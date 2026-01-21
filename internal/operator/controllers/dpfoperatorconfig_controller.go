@@ -133,6 +133,7 @@ type DPFOperatorConfigReconcilerSettings struct {
 // +kubebuilder:rbac:groups=kamaji.clastix.io,resources=tenantcontrolplanes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=*,verbs=*
 // +kubebuilder:rbac:groups=nv-ipam.nvidia.com,resources=ippools,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DPFOperatorConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {

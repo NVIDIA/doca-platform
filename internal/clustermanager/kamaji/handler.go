@@ -27,8 +27,9 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/clustermanager/controller"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
-	"github.com/nvidia/doca-platform/internal/operator/utils"
+	operatorutils "github.com/nvidia/doca-platform/internal/operator/utils"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/utils"
 	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
 
 	"github.com/Masterminds/sprig/v3"
@@ -37,8 +38,11 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -50,6 +54,7 @@ import (
 )
 
 // +kubebuilder:rbac:groups=kamaji.clastix.io,resources=tenantcontrolplanes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
@@ -96,6 +101,12 @@ var (
 			},
 		}},
 	}
+
+	serviceMonitorGVK = schema.GroupVersionKind{
+		Group:   "monitoring.coreos.com",
+		Version: "v1",
+		Kind:    "ServiceMonitor",
+	}
 )
 
 func init() {
@@ -117,16 +128,23 @@ func (cm *clusterHandler) ReconcileCluster(ctx context.Context, dc *provisioning
 	kubeconfig, nodePort, cond, err := cm.reconcileKamaji(ctx, dc)
 	if err != nil {
 		return "", nil, err
-	} else if cond != nil {
+	}
+	if cond != nil {
 		conds = append(conds, *cond)
 	}
 
 	cond, err = cm.reconcileKeepalived(ctx, dc, nodePort)
 	if err != nil {
 		return "", nil, err
-	} else if cond != nil {
+	}
+	if cond != nil {
 		conds = append(conds, *cond)
 	}
+
+	if err = cm.reconcileServiceMonitor(ctx, dc, nodePort); err != nil {
+		return "", nil, err
+	}
+
 	return kubeconfig, conds, err
 }
 
@@ -171,7 +189,7 @@ func (cm *clusterHandler) reconcileKeepalived(ctx context.Context, dc *provision
 	if err := tmpl.Execute(buf, values); err != nil {
 		return nil, fmt.Errorf("failed to execute template, err: %v", err)
 	}
-	objs, err := utils.BytesToUnstructured(buf.Bytes())
+	objs, err := operatorutils.BytesToUnstructured(buf.Bytes())
 	if err != nil {
 		return nil, fmt.Errorf("error while converting keepalived manifests to objects: %w", err)
 	} else if len(objs) == 0 {
@@ -301,6 +319,268 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 	}
 
 	return adminKubeconfigName(dc), nodePort, cutil.NewCondition(string(provisioningv1.ConditionCreated), nil, "Created", ""), nil
+}
+
+func (cm *clusterHandler) reconcileServiceMonitor(ctx context.Context, dc *provisioningv1.DPUCluster, nodePort int32) error {
+	logger := log.FromContext(ctx)
+	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, cm.Client)
+	if err != nil {
+		return fmt.Errorf("get DPFOperatorConfig to verify if monitoring is enabled: %v", err)
+	}
+
+	// If monitoring is disabled, delete ServiceMonitor and Service if they exist
+	if !dpfOperatorConfig.MonitoringEnabled() {
+		return cm.reconcileDeleteServiceMonitor(ctx, dc)
+	}
+
+	// Return early if no ServiceMonitor CRD is found
+	if !cm.hasGVK(serviceMonitorGVK) {
+		logger.V(1).Info("ServiceMonitor CRD not found, skipping ServiceMonitor reconciliation")
+		return nil
+	}
+
+	// Deploy Kubernetes Service for metrics scraping
+	svc := getMetricsService(dc, nodePort)
+	logger.V(1).Info("reconciling metrics Service", "service", klog.KObj(svc))
+	owner := metav1.NewControllerRef(dc, provisioningv1.DPUClusterGroupVersionKind)
+	svc.SetOwnerReferences([]metav1.OwnerReference{*owner})
+	err = cm.Client.Patch(ctx, svc, client.Apply, client.FieldOwner("kamaji-cluster-manager"), client.ForceOwnership)
+	if err != nil {
+		return fmt.Errorf("failed to update metrics Service, err: %v", err)
+	}
+
+	// Deploy ServiceMonitor resource for Prometheus scraping.
+	// This is copied from https://kamaji.clastix.io/guides/monitoring/#enable-metrics-scraping
+	sm := getServiceMonitorResource(dc, serviceMonitorGVK)
+	logger.V(1).Info("reconciling ServiceMonitor", "servicemonitor", klog.KObj(sm))
+	sm.SetOwnerReferences([]metav1.OwnerReference{*owner})
+	err = cm.Client.Patch(ctx, sm, client.Apply, client.FieldOwner("kamaji-cluster-manager"), client.ForceOwnership)
+	if err != nil {
+		return fmt.Errorf("failed to update ServiceMonitor, err: %v", err)
+	}
+
+	return nil
+}
+
+func (cm *clusterHandler) reconcileDeleteServiceMonitor(ctx context.Context, dc *provisioningv1.DPUCluster) error {
+	logger := log.FromContext(ctx)
+
+	// Delete ServiceMonitor if CRD exists
+	if cm.hasGVK(serviceMonitorGVK) {
+		sm := &unstructured.Unstructured{}
+		sm.SetGroupVersionKind(serviceMonitorGVK)
+		sm.SetName(dc.GetName())
+		sm.SetNamespace(dc.GetNamespace())
+		if err := cm.Client.Get(ctx, types.NamespacedName{Namespace: sm.GetNamespace(), Name: sm.GetName()}, sm); err == nil {
+			if ownedBy(sm, dc) {
+				logger.V(1).Info("deleting ServiceMonitor because monitoring is disabled", "servicemonitor", klog.KObj(sm))
+				if err := cm.Client.Delete(ctx, sm); err != nil && !apierrors.IsNotFound(err) {
+					return fmt.Errorf("failed to delete ServiceMonitor: %v", err)
+				}
+			}
+		} else if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to get ServiceMonitor: %v", err)
+		}
+	}
+
+	// Delete metrics Service
+	svc := &corev1.Service{}
+	svc.SetName(fmt.Sprintf("%s-metrics", dc.GetName()))
+	svc.SetNamespace(dc.GetNamespace())
+	if err := cm.Client.Get(ctx, types.NamespacedName{Namespace: svc.GetNamespace(), Name: svc.GetName()}, svc); err == nil {
+		logger.V(1).Info("deleting metrics Service because monitoring is disabled", "service", klog.KObj(svc))
+		if ownedBy(svc, dc) {
+			if err := cm.Client.Delete(ctx, svc); err != nil && !apierrors.IsNotFound(err) {
+				return fmt.Errorf("failed to delete metrics Service: %v", err)
+			}
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to get metrics Service: %v", err)
+	}
+
+	return nil
+}
+
+func (cm *clusterHandler) hasGVK(gvk schema.GroupVersionKind) bool {
+	_, err := cm.Client.RESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
+	return err == nil
+}
+
+func ownedBy(obj metav1.Object, owner metav1.Object) bool {
+	for _, ref := range obj.GetOwnerReferences() {
+		if ref.UID == owner.GetUID() && ref.Controller != nil && *ref.Controller {
+			return true
+		}
+	}
+	return false
+}
+
+func getMetricsService(dc *provisioningv1.DPUCluster, nodePort int32) *corev1.Service {
+	svc := &corev1.Service{}
+	svc.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Service"))
+	svc.SetName(fmt.Sprintf("%s-metrics", dc.GetName()))
+	svc.SetNamespace(dc.GetNamespace())
+	svc.SetLabels(map[string]string{
+		"kamaji.clastix.io/name": dc.GetName() + "-metrics",
+	})
+	svc.Spec = corev1.ServiceSpec{
+		Selector: map[string]string{
+			"kamaji.clastix.io/name": dc.GetName(),
+		},
+		Ports: []corev1.ServicePort{
+			{
+				Name:       "kube-apiserver-metrics",
+				Port:       6443,
+				Protocol:   corev1.ProtocolTCP,
+				TargetPort: intstr.IntOrString{IntVal: nodePort},
+			},
+			{
+				Name:       "kube-controller-manager-metrics",
+				Port:       10257,
+				Protocol:   corev1.ProtocolTCP,
+				TargetPort: intstr.IntOrString{IntVal: 10257},
+			},
+			{
+				Name:       "kube-scheduler-metrics",
+				Port:       10259,
+				Protocol:   corev1.ProtocolTCP,
+				TargetPort: intstr.IntOrString{IntVal: 10259},
+			},
+		},
+	}
+	return svc
+}
+
+func getServiceMonitorResource(dc *provisioningv1.DPUCluster, gvk schema.GroupVersionKind) *unstructured.Unstructured {
+	clusterName := dc.GetName()
+	secretName := clusterName + "-api-server-kubelet-client-certificate"
+
+	sm := &unstructured.Unstructured{}
+	sm.SetName(clusterName)
+	sm.SetNamespace(dc.GetNamespace())
+	sm.SetGroupVersionKind(gvk)
+	sm.SetLabels(map[string]string{
+		"kamaji.clastix.io/name":                   clusterName + "-metrics",
+		provisioningv1.DPUClusterNameLabelKey:      clusterName,
+		provisioningv1.DPUClusterNamespaceLabelKey: dc.GetNamespace(),
+	})
+	sm.Object["spec"] = map[string]interface{}{
+		"selector": map[string]interface{}{
+			"matchLabels": map[string]interface{}{
+				"kamaji.clastix.io/name": clusterName + "-metrics",
+			},
+		},
+		"endpoints": []interface{}{
+			map[string]interface{}{
+				"port":          "kube-apiserver-metrics",
+				"scheme":        "https",
+				"path":          "/metrics",
+				"interval":      "15s",
+				"scrapeTimeout": "10s",
+				"tlsConfig": map[string]interface{}{
+					"insecureSkipVerify": true,
+					"cert": map[string]interface{}{
+						"secret": map[string]interface{}{
+							"name": secretName,
+							"key":  "apiserver-kubelet-client.crt",
+						},
+					},
+					"keySecret": map[string]interface{}{
+						"name": secretName,
+						"key":  "apiserver-kubelet-client.key",
+					},
+				},
+				"metricRelabelings": []interface{}{
+					map[string]interface{}{
+						"action": "drop",
+						"regex":  "apiserver_request_duration_seconds_bucket;(0.15|0.2|0.3|0.35|0.4|0.45|0.6|0.7|0.8|0.9|1.25|1.5|1.75|2|3|3.5|4|4.5|6|7|8|9|15|25|40|50)",
+						"sourceLabels": []interface{}{
+							"__name__",
+							"le",
+						},
+					},
+				},
+				"relabelings": []interface{}{
+					map[string]interface{}{
+						"action":      "replace",
+						"targetLabel": "cluster",
+						"replacement": clusterName,
+					},
+					map[string]interface{}{
+						"action":      "replace",
+						"targetLabel": "job",
+						"replacement": "apiserver",
+					},
+				},
+			},
+			map[string]interface{}{
+				"port":          "kube-controller-manager-metrics",
+				"scheme":        "https",
+				"path":          "/metrics",
+				"interval":      "15s",
+				"scrapeTimeout": "10s",
+				"tlsConfig": map[string]interface{}{
+					"insecureSkipVerify": true,
+					"cert": map[string]interface{}{
+						"secret": map[string]interface{}{
+							"name": secretName,
+							"key":  "apiserver-kubelet-client.crt",
+						},
+					},
+					"keySecret": map[string]interface{}{
+						"name": secretName,
+						"key":  "apiserver-kubelet-client.key",
+					},
+				},
+				"relabelings": []interface{}{
+					map[string]interface{}{
+						"action":      "replace",
+						"targetLabel": "cluster",
+						"replacement": clusterName,
+					},
+					map[string]interface{}{
+						"action":      "replace",
+						"targetLabel": "job",
+						"replacement": "kube-controller-manager",
+					},
+				},
+			},
+			map[string]interface{}{
+				"port":          "kube-scheduler-metrics",
+				"scheme":        "https",
+				"path":          "/metrics",
+				"interval":      "15s",
+				"scrapeTimeout": "10s",
+				"tlsConfig": map[string]interface{}{
+					"insecureSkipVerify": true,
+					"cert": map[string]interface{}{
+						"secret": map[string]interface{}{
+							"name": secretName,
+							"key":  "apiserver-kubelet-client.crt",
+						},
+					},
+					"keySecret": map[string]interface{}{
+						"name": secretName,
+						"key":  "apiserver-kubelet-client.key",
+					},
+				},
+				"relabelings": []interface{}{
+					map[string]interface{}{
+						"action":      "replace",
+						"targetLabel": "cluster",
+						"replacement": clusterName,
+					},
+					map[string]interface{}{
+						"action":      "replace",
+						"targetLabel": "job",
+						"replacement": "kube-scheduler",
+					},
+				},
+			},
+		},
+	}
+
+	return sm
 }
 
 func kamajiTCPName(dc *provisioningv1.DPUCluster) types.NamespacedName {
@@ -466,4 +746,22 @@ func daemonsetToDPUCluster(ctx context.Context, o client.Object) []reconcile.Req
 		}
 	}
 	return nil
+}
+
+func (cm *clusterHandler) DPFOperatorConfigToDPUClusters(ctx context.Context, o client.Object) []reconcile.Request {
+	dcList := &provisioningv1.DPUClusterList{}
+	if err := cm.Client.List(ctx, dcList); err != nil {
+		klog.Errorf("failed to list DPUClusters for DPFOperatorConfig %s: %v", klog.KObj(o), err)
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(dcList.Items))
+	for _, dc := range dcList.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      dc.Name,
+				Namespace: dc.Namespace,
+			},
+		})
+	}
+	return requests
 }
