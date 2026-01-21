@@ -68,7 +68,9 @@ spec:
       _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
       _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
       _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
-      _ovs-vsctl set Open_vSwitch . other_config:ctl-pipe-size=1024
+      _ovs-vsctl set Open_vSwitch . other_config:doca-congestion-threshold=60
+      _ovs-vsctl set Open_vSwitch . other_config:flow-limit=500000
+      _ovs-vsctl set Open_vSwitch . other_config:hw-offload-ct-unidir-udp-enabled=true
       _ovs-vsctl --if-exists del-br ovsbr1
       _ovs-vsctl --if-exists del-br ovsbr2
       _ovs-vsctl --may-exist add-br br-sfc
