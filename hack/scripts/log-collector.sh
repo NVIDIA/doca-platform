@@ -22,8 +22,8 @@
 #   3. DPUCluster Stern: Follows log-collector pods and extracts nested logs
 #
 # Log files written to:
-#   $ARTIFACTS/logs/host-cluster/{namespace}/{pod}/{container}.log (host cluster)
-#   $ARTIFACTS/logs/{dpucluster-name}/{namespace}/{pod}/{container}.log (DPU clusters)
+#   $ARTIFACTS_DIR/logs/host-cluster/{namespace}/{pod}/{container}.log (host cluster)
+#   $ARTIFACTS_DIR/logs/{dpucluster-name}/{namespace}/{pod}/{container}.log (DPU clusters)
 #
 # Usage:
 #   ./log-collector.sh [command to run]
@@ -35,8 +35,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STERN=${STERN:-"stern"}
-ARTIFACTS=${ARTIFACTS:-"artifacts"}
-LOGS_DIR="${ARTIFACTS%/}/logs"
+ARTIFACTS_DIR=${ARTIFACTS_DIR:-"artifacts"}
+LOGS_DIR="${ARTIFACTS_DIR%/}/logs"
 HOST_LOGS_DIR="${LOGS_DIR}/host-cluster"
 
 # Clean the logs directory before starting

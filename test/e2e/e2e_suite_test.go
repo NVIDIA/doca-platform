@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -64,6 +65,8 @@ var (
 	configPath string
 	// testKubeconfig path to be used for this test.
 	testKubeconfig string
+	// artifactsDir is the path where test artifacts will be stored.
+	artifactsDir string
 
 	// skipCleanup indicates whether to skip the cleanup of resources created during the e2e test run.
 	// When set to true, resources will not be removed after the test completes.
@@ -131,6 +134,14 @@ func getEnvVariables() {
 		if err != nil {
 			panic(fmt.Errorf("string must be a bool: %v", err))
 		}
+	}
+
+	if path, found := os.LookupEnv("ARTIFACTS_DIR"); found {
+		artifactsDir = path
+	} else {
+		// Default to ../../artifacts relative to the current file.
+		_, basePath, _, _ := runtime.Caller(0)
+		artifactsDir = filepath.Join(filepath.Dir(basePath), "../../artifacts")
 	}
 }
 
@@ -291,8 +302,9 @@ func reportAfterEach(spec SpecReport) {
 			testClient:       testClient,
 			clientset:        clientset,
 			restConfig:       restConfig,
+			artifactsDir:     artifactsDir,
 		}
-		err := collectResourcesAndLogs(ctx, collectInput, "failed_tests/"+spec.LeafNodeText)
+		err := collectKubernetesResources(ctx, collectInput, "failed_tests/"+spec.LeafNodeText)
 		if err != nil {
 			// Don't fail the test if the log collector fails - just print the errors.
 			GinkgoLogr.Error(err, "failed to collect resources and logs for the clusters")
@@ -329,8 +341,9 @@ var _ = ReportAfterSuite("My Suite", func(report Report) {
 		testClient:       testClient,
 		clientset:        clientset,
 		restConfig:       restConfig,
+		artifactsDir:     artifactsDir,
 	}
-	err := collectResourcesAndLogs(ctx, collectInput, "final")
+	err := collectKubernetesResources(ctx, collectInput, "final")
 	if err != nil {
 		// Don't fail the test if the log collector fails - just print the errors.
 		GinkgoLogr.Error(err, "failed to collect resources and logs for the clusters")

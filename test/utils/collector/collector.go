@@ -17,15 +17,12 @@ limitations under the License.
 package collector
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -204,8 +201,8 @@ func (c *Cluster) run(ctx context.Context) error {
 		}
 	}
 
-	// Dump the logs from all the pods on the cluster.+
-	err = c.dumpPodLogsAndEvents(ctx)
+	// Dump the events from all the pods on the cluster.
+	err = c.dumpPodEvents(ctx)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("error dumping pod logs %w", err))
 	}
@@ -260,7 +257,7 @@ func (c *Cluster) getDPFOperatorInventoryGVKs() ([]schema.GroupVersionKind, erro
 	return output, err
 }
 
-func (c *Cluster) dumpPodLogsAndEvents(ctx context.Context) error {
+func (c *Cluster) dumpPodEvents(ctx context.Context) error {
 	podList := &corev1.PodList{}
 	err := c.client.List(ctx, podList)
 	if err != nil {
@@ -268,62 +265,11 @@ func (c *Cluster) dumpPodLogsAndEvents(ctx context.Context) error {
 	}
 	errs := []error{}
 	for _, pod := range podList.Items {
-		// Dump logs only for the DPU clusters.
-		if c.Name() != "main" {
-			if err = c.dumpLogsForPod(ctx, &pod); err != nil {
-				errs = append(errs, err)
-			}
-		}
 		if err = c.dumpEventsForNamespacedResource(ctx, "Pod", types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return kerrors.NewAggregate(errs)
-}
-
-func (c *Cluster) dumpLogsForPod(ctx context.Context, pod *corev1.Pod) (reterr error) {
-	errs := []error{}
-	for _, container := range pod.Spec.Containers {
-		podLogOpts := corev1.PodLogOptions{Container: container.Name}
-		if err := c.dumpLogsForContainer(ctx, pod.Namespace, pod.Name, "", podLogOpts); err != nil {
-			errs = append(errs, err)
-		}
-
-		// Also collect the logs from a previous container if one existed.
-		previousContainerOpts := corev1.PodLogOptions{Container: container.Name, Previous: true}
-		if err := c.dumpLogsForContainer(ctx, pod.Namespace, pod.Name, ".previous", previousContainerOpts); err != nil {
-			if !strings.Contains(err.Error(), "not found") {
-				errs = append(errs, err)
-			}
-		}
-
-	}
-	return kerrors.NewAggregate(errs)
-}
-
-func (c *Cluster) dumpLogsForContainer(ctx context.Context, podNamespace, podName, fileSuffix string, options corev1.PodLogOptions) (reterr error) {
-	req := c.clientset.CoreV1().Pods(podNamespace).GetLogs(podName, &options)
-	podLogs, err := req.Stream(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		err := podLogs.Close()
-		if err != nil {
-			reterr = err
-		}
-	}()
-
-	logs := new(bytes.Buffer)
-	_, err = io.Copy(logs, podLogs)
-	if err != nil {
-		return err
-	}
-	filePath := filepath.Join(c.artifactsDir, "Logs", podNamespace, podName, fmt.Sprintf("%v.log%s", options.Container, fileSuffix))
-	if err := c.writeToFile(logs.Bytes(), filePath); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (c *Cluster) writeToFile(data []byte, filePath string) error {

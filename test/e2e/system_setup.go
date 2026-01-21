@@ -693,9 +693,10 @@ type collectResourcesInput struct {
 	testClient       client.Client
 	clientset        *kubernetes.Clientset
 	restConfig       *rest.Config
+	artifactsDir     string
 }
 
-func collectResourcesAndLogs(ctx context.Context, input collectResourcesInput, testName string) error {
+func collectKubernetesResources(ctx context.Context, input collectResourcesInput, testName string) error {
 	if !input.collectResources {
 		return nil
 	}
@@ -719,8 +720,8 @@ func collectResourcesAndLogs(ctx context.Context, input collectResourcesInput, t
 
 	// Get the path to place artifacts in
 	_, basePath, _, _ := runtime.Caller(0)
-	artifactsPath := filepath.Join(filepath.Dir(basePath), fmt.Sprintf("../../artifacts/%s", testName))
 	inventoryManifestsPath := filepath.Join(filepath.Dir(basePath), "../../internal/operator/inventory/manifests")
+	artifactsPath := filepath.Join(input.artifactsDir, testName)
 
 	cc := collector.ClusterCollector{
 		Client:     input.testClient,
