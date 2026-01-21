@@ -92,6 +92,10 @@ func (h *dummyHandler) CleanUpCluster(_ context.Context, _ *provisioningv1.DPUCl
 	return true, nil
 }
 
+func (h *dummyHandler) DPFOperatorConfigToDPUClusters(_ context.Context, _ client.Object) []reconcile.Request {
+	return nil
+}
+
 func (h *dummyHandler) Type() string {
 	return "dummy"
 }

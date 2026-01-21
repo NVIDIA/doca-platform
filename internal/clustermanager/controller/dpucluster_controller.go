@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"sync"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
@@ -37,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 var (
@@ -58,6 +60,7 @@ func RegisterWatch(object client.Object, eventHandler handler.EventHandler, opts
 type ClusterHandler interface {
 	ReconcileCluster(context.Context, *provisioningv1.DPUCluster) (string, []metav1.Condition, error)
 	CleanUpCluster(context.Context, *provisioningv1.DPUCluster) (bool, error)
+	DPFOperatorConfigToDPUClusters(ctx context.Context, o client.Object) []reconcile.Request
 	Type() string
 }
 
@@ -74,6 +77,7 @@ type DPUClusterReconciler struct {
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuclusters/finalizers,verbs=update
+// +kubebuilder:rbac:groups=operator.dpu.nvidia.com,resources=dpfoperatorconfigs,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -184,7 +188,10 @@ func (r *DPUClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.rvCache == nil {
 		r.rvCache = make(map[types.NamespacedName]int64)
 	}
-	b := ctrl.NewControllerManagedBy(mgr).For(&provisioningv1.DPUCluster{})
+	b := ctrl.NewControllerManagedBy(mgr).
+		For(&provisioningv1.DPUCluster{}).
+		Watches(&operatorv1.DPFOperatorConfig{},
+			handler.EnqueueRequestsFromMapFunc(r.DPFOperatorConfigToDPUClusters))
 	for _, w := range watches {
 		b.Watches(w.object, w.handler, w.opts...)
 	}
