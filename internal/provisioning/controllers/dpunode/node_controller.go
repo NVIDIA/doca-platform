@@ -53,9 +53,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	node := &corev1.Node{}
 	if err := r.Client.Get(ctx, req.NamespacedName, node); err != nil {
 		if apierrors.IsNotFound(err) {
-			// TODO: Consider if adding a finalizer on the node object is the way to go to be able to handle that
-			// in a more consistent way
-			if err := r.reconcileDelete(ctx, req.Name); err != nil {
+			if err = r.handleReconcileDelete(ctx, req.NamespacedName.Name); err != nil {
 				return ctrl.Result{}, err
 			}
 			// Return early if the object is not found.
@@ -65,6 +63,16 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	if !r.isDPUEnabled(node) {
+		return ctrl.Result{}, nil
+	}
+
+	if !node.DeletionTimestamp.IsZero() {
+		if err := r.handleReconcileDelete(ctx, node.Name); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	if !node.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}
 
@@ -102,9 +110,9 @@ func getDPUNodeKey(node string) client.ObjectKey {
 }
 
 // reconcileDelete ensures proper cleanup of resources when a node has been deleted or cannot be found
-func (r *NodeReconciler) reconcileDelete(ctx context.Context, node string) error {
+func (r *NodeReconciler) handleReconcileDelete(ctx context.Context, nodeName string) error {
 	dpuNode := &provisioningv1.DPUNode{}
-	err := r.Client.Get(ctx, getDPUNodeKey(node), dpuNode)
+	err := r.Client.Get(ctx, getDPUNodeKey(nodeName), dpuNode)
 	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to get DPUNode: %w", err)
 	}
@@ -114,15 +122,12 @@ func (r *NodeReconciler) reconcileDelete(ctx context.Context, node string) error
 		return nil
 	}
 
-	// First we delete the DPUNode to ensure that we set the deletion timestamp.
-	if err := r.Client.Delete(ctx, dpuNode); err != nil {
+	// Delete the DPUNode to ensure that we set the deletion timestamp.
+	// If DPUNode has finalizers, it will remain with DeletionTimestamp set.
+	// If DPUNode has no finalizers, it will be deleted immediately.
+	if err := r.Client.Delete(ctx, dpuNode); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to delete DPUNode: %w", err)
 	}
-
-	if err := r.Client.Update(ctx, dpuNode); err != nil {
-		return fmt.Errorf("failed to update DPUNode: %w", err)
-	}
-
 	return nil
 }
 

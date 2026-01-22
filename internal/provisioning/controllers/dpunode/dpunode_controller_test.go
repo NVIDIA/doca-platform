@@ -19,7 +19,7 @@ package dpunode
 import (
 	"context"
 	"encoding/json"
-	"testing"
+	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
@@ -33,13 +33,46 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestDPUNodeReconciler(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "DPUNode Reconciler Non exported Suite")
+const dpuInstallInterface = "eth0"
+
+// errorInjectingClient wraps a client and injects errors for specific operations
+type dpuNodeErrorInjectingClient struct {
+	client.Client
+	listFunc   func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error
+	deleteFunc func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error
+}
+
+func (c *dpuNodeErrorInjectingClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if c.listFunc != nil {
+		return c.listFunc(ctx, list, opts...)
+	}
+	return c.Client.List(ctx, list, opts...)
+}
+
+func (c *dpuNodeErrorInjectingClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	if c.deleteFunc != nil {
+		return c.deleteFunc(ctx, obj, opts...)
+	}
+	return c.Client.Delete(ctx, obj, opts...)
+}
+
+// Helper function to create a DPUNode for testing
+func createTestDPUNode(name string, finalizers []string) *provisioningv1.DPUNode {
+	return &provisioningv1.DPUNode{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       name,
+			Namespace:  "test-namespace",
+			Finalizers: finalizers,
+		},
+		Spec: provisioningv1.DPUNodeSpec{
+			NodeRebootMethod: &provisioningv1.NodeRebootMethod{},
+		},
+	}
 }
 
 var _ = Describe("DPUNodeReconciler Non exported", func() {
@@ -2363,6 +2396,648 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 			}, updatedDPU)).To(Succeed())
 			_, cond := cutil.GetDPUCondition(&updatedDPU.Status, string(provisioningv1.DPUCondRebooted))
 			Expect(cond).NotTo(BeNil())
+		})
+	})
+
+	Context("Reconcile - DPUNode Deletion", func() {
+		var (
+			reconciler *DPUNodeReconciler
+			fakeClient client.Client
+			ctx        context.Context
+			scheme     *runtime.Scheme
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			scheme = runtime.NewScheme()
+			_ = corev1.AddToScheme(scheme)
+			_ = provisioningv1.AddToScheme(scheme)
+
+			fakeClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&provisioningv1.DPUNode{}, &provisioningv1.DPU{}, &provisioningv1.DPUDevice{}).
+				Build()
+
+			dpuInstallInterface := dpuInstallInterface
+			reconciler = &DPUNodeReconciler{
+				Client:              fakeClient,
+				DPUInstallInterface: &dpuInstallInterface,
+				Recorder:            record.NewFakeRecorder(32),
+			}
+		})
+
+		It("should return without error when DPUNode does not exist", func() {
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "non-existent-dpunode",
+					Namespace: "test-namespace",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+		})
+
+		It("should add finalizer to DPUNode without finalizer", func() {
+			dpuNode := createTestDPUNode("test-dpunode", nil)
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
+
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Verify finalizer was added
+			updatedDPUNode := &provisioningv1.DPUNode{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode",
+				Namespace: "test-namespace",
+			}, updatedDPUNode)).To(Succeed())
+			Expect(updatedDPUNode.Finalizers).To(ContainElement(provisioningv1.DPUNodeFinalizer))
+		})
+
+		It("should delete associated DPUs when DPUNode is being deleted", func() {
+			// Create DPUNode with finalizer
+			dpuNode := createTestDPUNode("test-dpunode", []string{provisioningv1.DPUNodeFinalizer})
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
+
+			// Create associated DPUs with the dpunode label
+			dpu1 := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpu-1",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName: "test-dpunode",
+				},
+			}
+			dpu2 := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpu-2",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName: "test-dpunode",
+				},
+			}
+			Expect(fakeClient.Create(ctx, dpu1)).To(Succeed())
+			Expect(fakeClient.Create(ctx, dpu2)).To(Succeed())
+
+			// Delete the DPUNode
+			Expect(fakeClient.Delete(ctx, dpuNode)).To(Succeed())
+
+			// Reconcile should delete the associated DPUs
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Verify DPUs have deletion timestamp (marked for deletion)
+			updatedDPU1 := &provisioningv1.DPU{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpu-1",
+				Namespace: "test-namespace",
+			}, updatedDPU1)
+			// DPU should either be deleted or have deletion timestamp
+			if err == nil {
+				Expect(updatedDPU1.DeletionTimestamp).NotTo(BeNil())
+			}
+
+			updatedDPU2 := &provisioningv1.DPU{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpu-2",
+				Namespace: "test-namespace",
+			}, updatedDPU2)
+			// DPU should either be deleted or have deletion timestamp
+			if err == nil {
+				Expect(updatedDPU2.DeletionTimestamp).NotTo(BeNil())
+			}
+		})
+
+		It("should delete associated DPUDevices when DPUNode is being deleted", func() {
+			// Create DPUNode with finalizer
+			dpuNode := createTestDPUNode("test-dpunode", []string{provisioningv1.DPUNodeFinalizer})
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
+
+			// Create associated DPUDevices with the dpunode label
+			dpuDevice1 := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice-1",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode",
+					},
+				},
+				Spec: provisioningv1.DPUDeviceSpec{},
+			}
+			dpuDevice2 := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice-2",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode",
+					},
+				},
+				Spec: provisioningv1.DPUDeviceSpec{},
+			}
+			Expect(fakeClient.Create(ctx, dpuDevice1)).To(Succeed())
+			Expect(fakeClient.Create(ctx, dpuDevice2)).To(Succeed())
+
+			// Delete the DPUNode
+			Expect(fakeClient.Delete(ctx, dpuNode)).To(Succeed())
+
+			// Reconcile should delete the associated DPUDevices
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Verify DPUDevices have deletion timestamp (marked for deletion)
+			updatedDPUDevice1 := &provisioningv1.DPUDevice{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpudevice-1",
+				Namespace: "test-namespace",
+			}, updatedDPUDevice1)
+			// DPUDevice should either be deleted or have deletion timestamp
+			if err == nil {
+				Expect(updatedDPUDevice1.DeletionTimestamp).NotTo(BeNil())
+			}
+
+			updatedDPUDevice2 := &provisioningv1.DPUDevice{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpudevice-2",
+				Namespace: "test-namespace",
+			}, updatedDPUDevice2)
+			// DPUDevice should either be deleted or have deletion timestamp
+			if err == nil {
+				Expect(updatedDPUDevice2.DeletionTimestamp).NotTo(BeNil())
+			}
+		})
+
+		It("should remove finalizer when all DPUDevices are deleted and no DPUs exist", func() {
+			// Create DPUNode with finalizer
+			dpuNode := createTestDPUNode("test-dpunode", []string{provisioningv1.DPUNodeFinalizer})
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
+
+			// Delete the DPUNode (no associated DPUs or DPUDevices)
+			Expect(fakeClient.Delete(ctx, dpuNode)).To(Succeed())
+
+			// Reconcile should remove the finalizer
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Verify finalizer was removed - DPUNode may be deleted or still exist without finalizer
+			updatedDPUNode := &provisioningv1.DPUNode{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode",
+				Namespace: "test-namespace",
+			}, updatedDPUNode)
+			if err == nil {
+				// If DPUNode still exists, verify finalizer was removed
+				Expect(updatedDPUNode.Finalizers).NotTo(ContainElement(provisioningv1.DPUNodeFinalizer))
+			}
+		})
+
+		It("should not remove finalizer when DPUDevices still exist", func() {
+			// Create DPUNode with finalizer
+			dpuNode := createTestDPUNode("test-dpunode", []string{provisioningv1.DPUNodeFinalizer})
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
+
+			// Create associated DPUDevice that won't be deleted yet
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-dpudevice",
+					Namespace:  "test-namespace",
+					Finalizers: []string{"some-other-finalizer"}, // This prevents immediate deletion
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode",
+					},
+				},
+				Spec: provisioningv1.DPUDeviceSpec{},
+			}
+			Expect(fakeClient.Create(ctx, dpuDevice)).To(Succeed())
+
+			// Delete the DPUNode
+			Expect(fakeClient.Delete(ctx, dpuNode)).To(Succeed())
+
+			// Reconcile should NOT remove the finalizer because DPUDevice still exists
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Verify finalizer is still present
+			updatedDPUNode := &provisioningv1.DPUNode{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode",
+				Namespace: "test-namespace",
+			}, updatedDPUNode)).To(Succeed())
+			Expect(updatedDPUNode.Finalizers).To(ContainElement(provisioningv1.DPUNodeFinalizer))
+			Expect(updatedDPUNode.DeletionTimestamp).NotTo(BeNil())
+		})
+
+		It("should not remove finalizer when DPUs still exist", func() {
+			// Create DPUNode with finalizer
+			dpuNode := createTestDPUNode("test-dpunode", []string{provisioningv1.DPUNodeFinalizer})
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
+
+			// Create associated DPU with a finalizer to prevent immediate deletion
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-dpu",
+					Namespace:  "test-namespace",
+					Finalizers: []string{"test-finalizer"}, // Prevent immediate deletion in fake client
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName: "test-dpunode",
+				},
+			}
+			Expect(fakeClient.Create(ctx, dpu)).To(Succeed())
+
+			// Delete the DPUNode
+			Expect(fakeClient.Delete(ctx, dpuNode)).To(Succeed())
+
+			// First reconcile - should trigger DPU deletion but not remove finalizer yet
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Verify finalizer is still present
+			updatedDPUNode := &provisioningv1.DPUNode{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode",
+				Namespace: "test-namespace",
+			}, updatedDPUNode)).To(Succeed())
+			Expect(updatedDPUNode.Finalizers).To(ContainElement(provisioningv1.DPUNodeFinalizer))
+			Expect(updatedDPUNode.DeletionTimestamp).NotTo(BeNil())
+		})
+
+		It("should handle deletion of DPUNode with multiple finalizers", func() {
+			// Create DPUNode with multiple finalizers
+			dpuNode := createTestDPUNode("test-dpunode", []string{
+				provisioningv1.DPUNodeFinalizer,
+				"other.finalizer.io/test",
+			})
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
+
+			// Delete the DPUNode (no associated DPUs or DPUDevices)
+			Expect(fakeClient.Delete(ctx, dpuNode)).To(Succeed())
+
+			// Reconcile should remove only the DPUNode finalizer
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Verify DPUNode finalizer was removed but other finalizers remain
+			updatedDPUNode := &provisioningv1.DPUNode{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode",
+				Namespace: "test-namespace",
+			}, updatedDPUNode)).To(Succeed())
+			Expect(updatedDPUNode.Finalizers).NotTo(ContainElement(provisioningv1.DPUNodeFinalizer))
+			Expect(updatedDPUNode.Finalizers).To(ContainElement("other.finalizer.io/test"))
+			Expect(updatedDPUNode.DeletionTimestamp).NotTo(BeNil())
+		})
+
+		It("should handle cascading deletion - DPUs and DPUDevices together", func() {
+			// Create DPUNode with finalizer
+			dpuNode := createTestDPUNode("test-dpunode", []string{provisioningv1.DPUNodeFinalizer})
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
+
+			// Create associated DPU
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpu",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName: "test-dpunode",
+				},
+			}
+			Expect(fakeClient.Create(ctx, dpu)).To(Succeed())
+
+			// Create associated DPUDevice
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode",
+					},
+				},
+				Spec: provisioningv1.DPUDeviceSpec{},
+			}
+			Expect(fakeClient.Create(ctx, dpuDevice)).To(Succeed())
+
+			// Delete the DPUNode
+			Expect(fakeClient.Delete(ctx, dpuNode)).To(Succeed())
+
+			// Reconcile should delete both DPU and DPUDevice
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Verify both DPU and DPUDevice are marked for deletion
+			updatedDPU := &provisioningv1.DPU{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpu",
+				Namespace: "test-namespace",
+			}, updatedDPU)
+			if err == nil {
+				Expect(updatedDPU.DeletionTimestamp).NotTo(BeNil())
+			}
+
+			updatedDPUDevice := &provisioningv1.DPUDevice{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpudevice",
+				Namespace: "test-namespace",
+			}, updatedDPUDevice)
+			if err == nil {
+				Expect(updatedDPUDevice.DeletionTimestamp).NotTo(BeNil())
+			}
+		})
+
+		It("should not affect DPUs and DPUDevices from other DPUNodes", func() {
+			// Create two DPUNodes
+			dpuNode1 := createTestDPUNode("test-dpunode-1", []string{provisioningv1.DPUNodeFinalizer})
+			dpuNode2 := createTestDPUNode("test-dpunode-2", []string{provisioningv1.DPUNodeFinalizer})
+			Expect(fakeClient.Create(ctx, dpuNode1)).To(Succeed())
+			Expect(fakeClient.Create(ctx, dpuNode2)).To(Succeed())
+
+			// Create DPUs for both nodes
+			dpu1 := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpu-1",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode-1",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName: "test-dpunode-1",
+				},
+			}
+			dpu2 := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpu-2",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode-2",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName: "test-dpunode-2",
+				},
+			}
+			Expect(fakeClient.Create(ctx, dpu1)).To(Succeed())
+			Expect(fakeClient.Create(ctx, dpu2)).To(Succeed())
+
+			// Delete only dpuNode1
+			Expect(fakeClient.Delete(ctx, dpuNode1)).To(Succeed())
+
+			// Reconcile dpuNode1
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "test-dpunode-1",
+					Namespace: "test-namespace",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Verify dpu1 is marked for deletion
+			updatedDPU1 := &provisioningv1.DPU{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpu-1",
+				Namespace: "test-namespace",
+			}, updatedDPU1)
+			if err == nil {
+				Expect(updatedDPU1.DeletionTimestamp).NotTo(BeNil())
+			}
+
+			// Verify dpu2 is NOT affected
+			updatedDPU2 := &provisioningv1.DPU{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpu-2",
+				Namespace: "test-namespace",
+			}, updatedDPU2)).To(Succeed())
+			Expect(updatedDPU2.DeletionTimestamp).To(BeNil())
+		})
+
+		It("should return error when listing DPU fails during DPUNode deletion", func() {
+			// Create DPUNode with finalizer
+			dpuNode := createTestDPUNode("test-dpunode", []string{provisioningv1.DPUNodeFinalizer})
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
+
+			// Delete the DPUNode (this sets DeletionTimestamp)
+			Expect(fakeClient.Delete(ctx, dpuNode)).To(Succeed())
+
+			// Create error injecting client that fails on DPUList List operations
+			errorClient := &dpuNodeErrorInjectingClient{
+				Client: fakeClient,
+				listFunc: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+					// Return error only for DPUList List operations
+					if _, ok := list.(*provisioningv1.DPUList); ok {
+						return fmt.Errorf("simulated DPU list error")
+					}
+					// Pass through for other List operations
+					return fakeClient.List(ctx, list, opts...)
+				},
+			}
+
+			dpuInstallInterface := dpuInstallInterface
+
+			errorReconciler := &DPUNodeReconciler{
+				Client:              errorClient,
+				DPUInstallInterface: &dpuInstallInterface,
+				Recorder:            record.NewFakeRecorder(32),
+			}
+
+			// Reconcile should return error
+			result, err := errorReconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("simulated DPU list error"))
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Verify DPUNode still exists with finalizer (deletion not completed due to list error)
+			updatedDPUNode := &provisioningv1.DPUNode{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode",
+				Namespace: "test-namespace",
+			}, updatedDPUNode)).To(Succeed())
+			Expect(updatedDPUNode.Finalizers).To(ContainElement(provisioningv1.DPUNodeFinalizer))
+			Expect(updatedDPUNode.DeletionTimestamp.IsZero()).To(BeFalse())
+		})
+
+		It("should return error when listing DPUDevice fails during DPUNode deletion", func() {
+			// Create DPUNode with finalizer
+			dpuNode := createTestDPUNode("test-dpunode", []string{provisioningv1.DPUNodeFinalizer})
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
+
+			// Delete the DPUNode (this sets DeletionTimestamp)
+			Expect(fakeClient.Delete(ctx, dpuNode)).To(Succeed())
+
+			// Create error injecting client that fails on DPUDeviceList List operations
+			errorClient := &dpuNodeErrorInjectingClient{
+				Client: fakeClient,
+				listFunc: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+					// Return error only for DPUDeviceList List operations
+					if _, ok := list.(*provisioningv1.DPUDeviceList); ok {
+						return fmt.Errorf("simulated DPUDevice list error")
+					}
+					// Pass through for other List operations
+					return fakeClient.List(ctx, list, opts...)
+				},
+			}
+
+			dpuInstallInterface := dpuInstallInterface
+			errorReconciler := &DPUNodeReconciler{
+				Client:              errorClient,
+				DPUInstallInterface: &dpuInstallInterface,
+				Recorder:            record.NewFakeRecorder(32),
+			}
+
+			// Reconcile should return error
+			result, err := errorReconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("simulated DPUDevice list error"))
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Verify DPUNode still exists with finalizer (deletion not completed due to list error)
+			updatedDPUNode := &provisioningv1.DPUNode{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode",
+				Namespace: "test-namespace",
+			}, updatedDPUNode)).To(Succeed())
+			Expect(updatedDPUNode.Finalizers).To(ContainElement(provisioningv1.DPUNodeFinalizer))
+			Expect(updatedDPUNode.DeletionTimestamp.IsZero()).To(BeFalse())
+		})
+
+		It("should return error when deleting DPUDevice fails during DPUNode deletion", func() {
+			// Create DPUNode with finalizer
+			dpuNode := createTestDPUNode("test-dpunode", []string{provisioningv1.DPUNodeFinalizer})
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
+
+			// Create associated DPUDevice
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode",
+					},
+				},
+				Spec: provisioningv1.DPUDeviceSpec{},
+			}
+			Expect(fakeClient.Create(ctx, dpuDevice)).To(Succeed())
+
+			// Delete the DPUNode (this sets DeletionTimestamp)
+			Expect(fakeClient.Delete(ctx, dpuNode)).To(Succeed())
+
+			// Create error injecting client that fails on DPUDevice Delete operations
+			errorClient := &dpuNodeErrorInjectingClient{
+				Client: fakeClient,
+				deleteFunc: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+					// Return error only for DPUDevice Delete operations
+					if _, ok := obj.(*provisioningv1.DPUDevice); ok {
+						return fmt.Errorf("simulated DPUDevice delete error")
+					}
+					// Pass through for other Delete operations
+					return fakeClient.Delete(ctx, obj, opts...)
+				},
+			}
+
+			dpuInstallInterface := dpuInstallInterface
+			errorReconciler := &DPUNodeReconciler{
+				Client:              errorClient,
+				DPUInstallInterface: &dpuInstallInterface,
+				Recorder:            record.NewFakeRecorder(32),
+			}
+
+			// Reconcile should return error
+			result, err := errorReconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("simulated DPUDevice delete error"))
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Verify DPUNode still exists with finalizer (deletion not completed due to delete error)
+			updatedDPUNode := &provisioningv1.DPUNode{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode",
+				Namespace: "test-namespace",
+			}, updatedDPUNode)).To(Succeed())
+			Expect(updatedDPUNode.Finalizers).To(ContainElement(provisioningv1.DPUNodeFinalizer))
+			Expect(updatedDPUNode.DeletionTimestamp.IsZero()).To(BeFalse())
+
+			// Verify DPUDevice still exists (not deleted due to error)
+			updatedDPUDevice := &provisioningv1.DPUDevice{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpudevice",
+				Namespace: "test-namespace",
+			}, updatedDPUDevice)).To(Succeed())
 		})
 	})
 })
