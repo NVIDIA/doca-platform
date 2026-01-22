@@ -102,10 +102,12 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 	// Defer a patch call to always patch the object when Reconcile exits.
 	defer func() {
 		log.Info("Patching")
-		if err := patcher.Patch(ctx, dpuNode,
+		err := patcher.Patch(ctx, dpuNode,
 			patch.WithFieldOwner(DPUNodeControllerName),
 			patch.WithStatusObservedGeneration{},
-		); err != nil {
+		)
+		// Ignore NotFound errors (including nested in aggregates) as the object may have been deleted after finalizer removal
+		if err != nil && !containsNotFoundError(err) {
 			log.Error(err, "Failed to patch DPUNode")
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
@@ -193,7 +195,27 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 // handleDeletionAndFinalizer handles deletion timestamp and finalizer setup
 func (r *DPUNodeReconciler) handleDeletionAndFinalizer(ctx context.Context, dpuNode *provisioningv1.DPUNode) error {
 	if !dpuNode.DeletionTimestamp.IsZero() {
-		return r.removeFinalizer(ctx, dpuNode)
+		dpus := &provisioningv1.DPUList{}
+		if err := r.List(ctx, dpus, client.MatchingLabels{cutil.DPUNodeNameLabel: dpuNode.Name}); err != nil {
+			return err
+		}
+		for _, dpu := range dpus.Items {
+			if err := r.Delete(ctx, &dpu); err != nil {
+				return err
+			}
+		}
+		dpuDevices := &provisioningv1.DPUDeviceList{}
+		if err := r.List(ctx, dpuDevices, client.MatchingLabels{cutil.DPUNodeNameLabel: dpuNode.Name}); err != nil {
+			return err
+		}
+		if len(dpuDevices.Items) == 0 {
+			return r.removeFinalizer(ctx, dpuNode)
+		}
+		for _, dpuDevice := range dpuDevices.Items {
+			if err := r.Delete(ctx, &dpuDevice); err != nil {
+				return err
+			}
+		}
 	}
 	if !controllerutil.ContainsFinalizer(dpuNode, provisioningv1.DPUNodeFinalizer) {
 		controllerutil.AddFinalizer(dpuNode, provisioningv1.DPUNodeFinalizer)
@@ -881,6 +903,25 @@ func (r *DPUNodeReconciler) getDPUNodeUpgradeCondition(dpuNode *provisioningv1.D
 		}
 	}
 	return upgradeConditionExists, needDMSUpgrade
+}
+
+// containsNotFoundError recursively checks if an error or aggregate error contains a NotFound error
+func containsNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if apierrors.IsNotFound(err) {
+		return true
+	}
+	// Check if it's an aggregate error
+	if agg, ok := err.(kerrors.Aggregate); ok {
+		for _, e := range agg.Errors() {
+			if containsNotFoundError(e) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // removeFinalizer removes the finalizer from the DPUNode object to ensure that it can be deleted
