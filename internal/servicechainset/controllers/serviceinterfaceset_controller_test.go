@@ -461,6 +461,34 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 				g.Expect(si.Spec.Service.VirtualNetwork).To(Equal(ptr.To("myvnet")))
 			}, timeout*3, interval).Should(Succeed())
 		})
+		It("should set patch fields for ServiceInterface type Patch", func() {
+			By("Create a node")
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", nil))
+
+			By("Create ServiceInterfaceSet with patch fields")
+			sis := serviceInterfaceSpec(testNS.Name, nil)
+			peerExternalIDs := map[string]string{
+				"key1": "value1",
+				"key2": "value2",
+			}
+			sis.Spec.Template.Spec = getTypedTestServiceInterfaceSpec(dpuservicev1.InterfaceTypePatch, nil)
+			sis.Spec.Template.Spec.Patch.PeerPatchName = ptr.To("custom-patch-name")
+			sis.Spec.Template.Spec.Patch.PeerExternalIDs = peerExternalIDs
+			Expect(testClient.Create(ctx, sis)).NotTo(HaveOccurred())
+			cleanupObjects = append(cleanupObjects, sis)
+
+			By("Reconciling the created resource")
+			Eventually(func(g Gomega) {
+				serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
+				g.Expect(testClient.List(ctx, serviceInterfaceList)).NotTo(HaveOccurred())
+				g.Expect(serviceInterfaceList.Items).To(HaveLen(1))
+				si := serviceInterfaceList.Items[0]
+				g.Expect(si.Spec.Patch).NotTo(BeNil())
+				g.Expect(si.Spec.Patch.PeerBridge).To(Equal("br-ext"))
+				g.Expect(si.Spec.Patch.PeerPatchName).To(Equal(ptr.To("custom-patch-name")))
+				g.Expect(si.Spec.Patch.PeerExternalIDs).To(Equal(peerExternalIDs))
+			}, timeout*3, interval).Should(Succeed())
+		})
 		//nolint:goconst
 		It("should preserve labels and annotation from ServiceInterface that are not specified in ServiceInterfaceSet", func() {
 			// define test label/annotation keys an values
