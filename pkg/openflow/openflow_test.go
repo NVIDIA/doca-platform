@@ -129,7 +129,7 @@ var _ = Describe("AddMeter", func() {
 
 	It("should succeed when meter and bridgeName are not empty", func() {
 		execMock.EXPECT().
-			CommandContext(gomock.Any(), "ovs-ofctl", "-t", "5", "add-meter", bridgeName, testMeterStr).
+			CommandContext(gomock.Any(), "ovs-ofctl", "-t", "5", "-O", "OpenFlow13", "add-meter", bridgeName, testMeterStr).
 			Return(cmdMock)
 		cmdMock.EXPECT().SetStderr(gomock.Any())
 		cmdMock.EXPECT().Run().Return(nil)
@@ -156,7 +156,7 @@ var _ = Describe("AddMeter", func() {
 			false,
 			func() {
 				execMock.EXPECT().
-					CommandContext(gomock.Any(), "ovs-ofctl", "-t", "5", "add-meter", bridgeName, testMeterStr).
+					CommandContext(gomock.Any(), "ovs-ofctl", "-t", "5", "-O", "OpenFlow13", "add-meter", bridgeName, testMeterStr).
 					Return(cmdMock)
 				cmdMock.EXPECT().SetStderr(gomock.Any())
 				cmdMock.EXPECT().Run().Return(fmt.Errorf("ovs-ofctl command failed"))
@@ -253,7 +253,7 @@ var _ = Describe("ensureOVSOfctlPath", func() {
 
 		// Mock the actual command execution
 		execMock.EXPECT().
-			CommandContext(gomock.Any(), "/usr/bin/ovs-ofctl", "-t", "5", "add-meter", bridgeName, testMeterStr).
+			CommandContext(gomock.Any(), "/usr/bin/ovs-ofctl", "-t", "5", "-O", "OpenFlow13", "add-meter", bridgeName, testMeterStr).
 			Return(cmdMock)
 		cmdMock.EXPECT().SetStderr(gomock.Any())
 		cmdMock.EXPECT().Run().Return(nil)
