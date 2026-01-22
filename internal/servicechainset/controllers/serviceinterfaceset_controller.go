@@ -277,8 +277,9 @@ func (r *ServiceInterfaceSetReconciler) createOrUpdateChild(ctx context.Context,
 	}
 	if serviceInterfaceSet.Spec.Template.Spec.Patch != nil {
 		serviceInterface.Spec.Patch = &dpuservicev1.PatchDef{
-			PeerBridge:    serviceInterfaceSet.Spec.Template.Spec.Patch.PeerBridge,
-			PeerPatchName: serviceInterfaceSet.Spec.Template.Spec.Patch.PeerPatchName,
+			PeerBridge:      serviceInterfaceSet.Spec.Template.Spec.Patch.PeerBridge,
+			PeerPatchName:   serviceInterfaceSet.Spec.Template.Spec.Patch.PeerPatchName,
+			PeerExternalIDs: serviceInterfaceSet.Spec.Template.Spec.Patch.PeerExternalIDs,
 		}
 	}
 	serviceInterface.SetManagedFields(nil)
