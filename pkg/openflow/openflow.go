@@ -122,7 +122,7 @@ func (f *OpenFlow) AddMeter(ctx context.Context, meter, bridgeName string) error
 		return err
 	}
 
-	args := []string{"-t", "5", "add-meter", bridgeName, meter}
+	args := []string{"-t", "5", "-O", "OpenFlow13", "add-meter", bridgeName, meter}
 	cmd := f.Exec.CommandContext(ctx, f.OVSOfctlPath, args...)
 	var stderr bytes.Buffer
 	cmd.SetStderr(&stderr)
