@@ -265,10 +265,7 @@ var _ = BeforeSuite(func() {
 		SystemSetupBeforeSuite()
 		ProvisioningBeforeSuite()
 	}
-	// Apply the OVNKHBNBeforeSuite setup if directly specified OVNKPrimaryLabel
-	if Label(ovnkPrimaryLabel).MatchesLabelFilter(labelFilter) {
-		OVNKHBNBeforeSuite()
-	}
+
 	// Apply the SDNBeforeSuite setup if not directly specified !SDN
 	if !strings.Contains(labelFilter, "!"+sdnLabel) {
 		SDNBeforeSuite()
