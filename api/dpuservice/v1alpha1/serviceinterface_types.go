@@ -245,6 +245,9 @@ type PatchDef struct {
 	// Example: p_brovn_to_brsfc_7aea60f7 (for bridges br-ovn and br-sfc).
 	// +optional
 	PeerPatchName *string `json:"peerPatchName,omitempty"`
+	// PeerExternalIDs are the external IDs used to identify the peer patch port.
+	// +optional
+	PeerExternalIDs map[string]string `json:"peerExternalIDs,omitempty"`
 }
 
 // ServiceInterfaceStatus defines the observed state of ServiceInterface
