@@ -4300,6 +4300,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `peerBridge` _string_ | PeerBridge is the name of the bridge to which the patch port is connected.<br />This bridge must be created before the ServiceInterface is created. |  |  |
 | `peerPatchName` _string_ | PeerPatchName is the name of the patch port on the peer bridge.<br />If not set, it is auto-generated in the format: `p_<bridgeA>_to_<bridgeB>_<hash>`<br />where bridge names have hyphens removed and `<hash>` is an 8-character FNV-1a hash<br />derived from the ServiceInterface's namespace/name.<br />Example: p_brovn_to_brsfc_7aea60f7 (for bridges br-ovn and br-sfc). |  |  |
+| `peerExternalIDs` _object (keys:string, values:string)_ | PeerExternalIDs are the external IDs used to identify the peer patch port. |  |  |
 
 
 #### Physical

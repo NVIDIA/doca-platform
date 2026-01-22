@@ -281,6 +281,12 @@ spec:
                                       PeerBridge is the name of the bridge to which the patch port is connected.
                                       This bridge must be created before the ServiceInterface is created.
                                     type: string
+                                  peerExternalIDs:
+                                    additionalProperties:
+                                      type: string
+                                    description: PeerExternalIDs are the external
+                                      IDs used to identify the peer patch port.
+                                    type: object
                                   peerPatchName:
                                     description: |-
                                       PeerPatchName is the name of the patch port on the peer bridge.

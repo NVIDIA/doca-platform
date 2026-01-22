@@ -63,6 +63,12 @@ const (
 	noopRemovalPhysicalAnnotationKey = "svc.dpu.nvidia.com/noop-physical-removal"
 )
 
+// patchPortOptions holds the configuration options for creating a patch port.
+type patchPortOptions struct {
+	portName    string
+	externalIDs map[string]string
+}
+
 //nolint:unparam
 func requeueDone() (ctrl.Result, error) {
 	return ctrl.Result{}, nil
@@ -161,38 +167,45 @@ func getOVNPatchPortNames(brA, brB string) (string, string) {
 // The peer patch port is added first to ensure the operation fails if the brB bridge does not exist.
 //
 // The function performs the following steps:
-//  1. Creates a patch port on brB with the given patchPortPeer
-//  2. Configures the peer port's peer option to reference patchPort
+//  1. Creates a patch port on brB with the given peerPatchPort
+//  2. Configures the peer patch port's peer option to reference patchPort
 //  3. Creates a patch port on brA with the given patchPort
-//  4. Configures the port's peer option to reference patchPortPeer
-//  5. Sets ifaceExternalIDs to patchPort for identification
+//  4. Configures the port's peer option to reference peerPatchPort
+//  5. Sets patchExternalIDs to patchPort for identification
+//  6. Sets peerExternalIDs to peerPatchPort for identification
 //
 // Returns an error if any OVS operation fails; partial state may remain on failure.
-func AddPatchPort(ctx context.Context, ovs ovsutils.API, brA, brB string, patchPort, patchPortPeer string, ifaceExternalIDs map[string]string) error {
+func AddPatchPort(ctx context.Context, ovs ovsutils.API, brA, brB string, patchPort, peerPatchPort patchPortOptions) error {
 	log := ctrllog.FromContext(ctx)
-	log.Info("adding patch port", "brA", brA, "brB", brB, "patchPort", patchPort, "patchPortPeer", patchPortPeer)
+	log.Info("adding patch port", "brA", brA, "brB", brB, "patchPort", patchPort.portName, "peerPatchPort", peerPatchPort.portName)
 
 	// Adds patch to brB first to ensure it exists before adding the patch to brA
 	if err := ovs.AddPort(ctx, ovsutils.PortConfig{
 		BridgeName:       brB,
-		Name:             patchPortPeer,
+		Name:             peerPatchPort.portName,
 		InterfaceType:    InterfaceTypePatch,
-		InterfaceOptions: map[string]string{"peer": patchPort},
+		InterfaceOptions: map[string]string{"peer": patchPort.portName},
 	}); err != nil {
 		return err
 	}
 
 	if err := ovs.AddPort(ctx, ovsutils.PortConfig{
 		BridgeName:       brA,
-		Name:             patchPort,
+		Name:             patchPort.portName,
 		InterfaceType:    InterfaceTypePatch,
-		InterfaceOptions: map[string]string{"peer": patchPortPeer},
+		InterfaceOptions: map[string]string{"peer": peerPatchPort.portName},
 	}); err != nil {
 		return err
 	}
 
-	if err := ovs.SetIfaceExternalIDs(ctx, patchPort, ifaceExternalIDs); err != nil {
+	if err := ovs.SetIfaceExternalIDs(ctx, patchPort.portName, patchPort.externalIDs); err != nil {
 		return err
+	}
+
+	if peerPatchPort.externalIDs != nil {
+		if err := ovs.SetIfaceExternalIDs(ctx, peerPatchPort.portName, peerPatchPort.externalIDs); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -206,14 +219,14 @@ func AddPatchPort(ctx context.Context, ovs ovsutils.API, brA, brB string, patchP
 //  2. Deletes the peer patch port from brB with the given patchPortPeer
 //
 // Returns an error if any OVS operation fails; partial state may remain on failure.
-func DeletePatchPorts(ctx context.Context, ovs ovsutils.API, brA, brB string, patchPort, patchPortPeer string) error {
+func DeletePatchPorts(ctx context.Context, ovs ovsutils.API, brA, brB string, patchPort, peerPatchPort string) error {
 	log := ctrllog.FromContext(ctx)
 	err := ovs.DelPort(ctx, brA, patchPort)
 	if err != nil {
 		log.Info(fmt.Sprintf("failed to delete port %s", err.Error()))
 		return err
 	}
-	err = ovs.DelPort(ctx, brB, patchPortPeer)
+	err = ovs.DelPort(ctx, brB, peerPatchPort)
 	if err != nil {
 		log.Info(fmt.Sprintf("failed to delete port %s", err.Error()))
 		return err
@@ -293,9 +306,15 @@ func AddInterfacesToOvs(
 		externalBridge = getOVNBridge(serviceInterface)
 		log.Info("ovn bridge", "name", externalBridge)
 
-		patchPortName, patchPortPeerName := getOVNPatchPortNames(SFCBridge, externalBridge)
-		if err = AddPatchPort(ctx, ovs, SFCBridge, externalBridge, patchPortName, patchPortPeerName, map[string]string{"dpf-id": metadata}); err != nil {
-			log.Error(err, "failed to add patch port between bridges", "brA", SFCBridge, "brB", externalBridge, "patchPortName", patchPortName, "patchPortPeerName", patchPortPeerName)
+		patchPort := patchPortOptions{
+			externalIDs: map[string]string{"dpf-id": metadata},
+		}
+		peerPatchPort := patchPortOptions{
+			externalIDs: nil,
+		}
+		patchPort.portName, peerPatchPort.portName = getOVNPatchPortNames(SFCBridge, externalBridge)
+		if err = AddPatchPort(ctx, ovs, SFCBridge, externalBridge, patchPort, peerPatchPort); err != nil {
+			log.Error(err, "failed to add patch port between bridges", "brA", SFCBridge, "brB", externalBridge, "patchPort", patchPort.portName, "patchPortPeer", peerPatchPort.portName)
 			return err
 		}
 		return nil
@@ -311,9 +330,15 @@ func AddInterfacesToOvs(
 		peerBridge := serviceInterface.Spec.Patch.PeerBridge
 		log.Info("peer bridge", "name", peerBridge)
 
-		patchName, peerPatchName := getPatchPortNames(serviceInterface, SFCBridge, peerBridge)
-		if err = AddPatchPort(ctx, ovs, SFCBridge, peerBridge, patchName, peerPatchName, map[string]string{"dpf-id": metadata}); err != nil {
-			log.Error(err, "failed to add patch port between bridges", "patchName", patchName, "peerPatchName", peerPatchName)
+		patchPort := patchPortOptions{
+			externalIDs: map[string]string{"dpf-id": metadata},
+		}
+		peerPatchPort := patchPortOptions{
+			externalIDs: serviceInterface.Spec.Patch.PeerExternalIDs,
+		}
+		patchPort.portName, peerPatchPort.portName = getPatchPortNames(serviceInterface, SFCBridge, peerBridge)
+		if err = AddPatchPort(ctx, ovs, SFCBridge, peerBridge, patchPort, peerPatchPort); err != nil {
+			log.Error(err, "failed to add patch port between bridges", "patchPort", patchPort.portName, "peerPatchPort", peerPatchPort.portName)
 			return err
 		}
 		return nil
