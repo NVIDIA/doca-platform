@@ -54,6 +54,7 @@ require (
 	github.com/containernetworking/plugins v1.2.0 // indirect
 	github.com/contiv/libovsdb v0.0.0-20170227191248-d0061a53e358 // indirect
 	github.com/evanphx/json-patch v5.9.0+incompatible // indirect
+	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/orcaman/concurrent-map/v2 v2.0.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect

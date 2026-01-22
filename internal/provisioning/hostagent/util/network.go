@@ -216,11 +216,12 @@ func getNetworkctlInfo(interfaceName string) (*networkctlInfo, error) {
 	return info, nil
 }
 
-// isDHCPConfigured checks if DHCP is configured for the interface.
+// IsDHCPConfigured checks if DHCP is configured for the specified interface
 // It uses a two-tier approach:
 // 1. First checks runtime state via networkctl (if DHCP obtained an address, it's definitely configured)
 // 2. If no address found, checks the configuration file (DHCP may be configured but no address yet)
-func isDHCPConfigured(interfaceName string) (bool, error) {
+// Exported for use by network configuration backends
+func IsDHCPConfigured(interfaceName string) (bool, error) {
 	// Call networkctl once to get both DHCP status and network file path
 	info, err := getNetworkctlInfo(interfaceName)
 	if err != nil {
@@ -303,7 +304,45 @@ func parseDHCPFromNetworkdConfig(networkFilePath string) (bool, error) {
 	return false, nil // DHCP setting not found
 }
 
+// NetworkBackend is an interface for network configuration backends
+// This avoids circular dependency with netconfig package
+type NetworkBackend interface {
+	ConfigurePFInterfaces(pciAddress string, portConfigs []PortConfig) (bool, error)
+	ConfigureBridgeMTU(bridgeName string, mtu int) (bool, error)
+	ApplyConfiguration() error
+}
+
+// ConfigureNetwork configures the PF network interfaces and bridge MTU using the provided backend
+// This is the backend-agnostic version that works with both NetworkManager and systemd-networkd
+func ConfigureNetwork(backend NetworkBackend, pciAddress string, portConfigs []PortConfig, controlPlaneMTU int) error {
+	// Fail fast if bridge doesn't exist - prevents partial configuration
+	if _, err := netlink.LinkByName(BridgeName); err != nil {
+		return fmt.Errorf("bridge %s not found - cannot configure network: %w", BridgeName, err)
+	}
+
+	// Configure PF network interfaces and check if changes are needed
+	pfNeedsApply, err := backend.ConfigurePFInterfaces(pciAddress, portConfigs)
+	if err != nil {
+		return fmt.Errorf("failed to configure PF interfaces: %w", err)
+	}
+
+	// Configure bridge MTU and check if changes are needed
+	bridgeNeedsApply, err := backend.ConfigureBridgeMTU(BridgeName, controlPlaneMTU)
+	if err != nil {
+		return fmt.Errorf("failed to configure bridge MTU: %w", err)
+	}
+
+	// Apply configuration if either PF or bridge changes are needed
+	if pfNeedsApply || bridgeNeedsApply {
+		if err = backend.ApplyConfiguration(); err != nil {
+			return fmt.Errorf("failed to apply network configuration: %w", err)
+		}
+	}
+	return nil
+}
+
 // ConfigureNetplan configures the PF network interfaces and bridge MTU using netplan
+// This function is kept for backward compatibility
 func ConfigureNetplan(pciAddress string, portConfigs []PortConfig, controlPlaneMTU int) error {
 	// Fail fast if bridge doesn't exist - prevents partial configuration
 	if _, err := netlink.LinkByName(BridgeName); err != nil {
@@ -311,29 +350,30 @@ func ConfigureNetplan(pciAddress string, portConfigs []PortConfig, controlPlaneM
 	}
 
 	// Configure PF network interfaces and check if changes are needed
-	pfNeedsApply, err := configurePFs(pciAddress, portConfigs)
+	pfNeedsApply, err := ConfigurePFs(pciAddress, portConfigs)
 	if err != nil {
 		return fmt.Errorf("failed to configure PF interfaces: %w", err)
 	}
 
 	// Configure bridge MTU using netplan and check if changes are needed
-	bridgeNeedsApply, err := configureBridgeMTU(controlPlaneMTU)
+	bridgeNeedsApply, err := ConfigureBridgeMTU(controlPlaneMTU)
 	if err != nil {
 		return fmt.Errorf("failed to configure bridge MTU: %w", err)
 	}
 
 	// Apply netplan configuration if either PF or bridge changes are needed
 	if pfNeedsApply || bridgeNeedsApply {
-		if err = applyNetplan(); err != nil {
+		if err = ApplyNetplan(); err != nil {
 			return fmt.Errorf("failed to apply netplan configuration: %w", err)
 		}
 	}
 	return nil
 }
 
-// configurePFs configures the PF network interfaces using netplan
+// ConfigurePFs configures the PF network interfaces using netplan
 // Returns (needsApply, error) where needsApply indicates if changes are needed
-func configurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
+// Exported for use by network configuration backends
+func ConfigurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
 	pciHelper := NewPCIHelper(pciAddress)
 	needApply := false
 	config := netplan.Config{
@@ -374,7 +414,7 @@ func configurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
 		// Check DHCP and only configure if different from current state
 		if portConfig.DHCP != nil {
 			ethernet.DHCP4 = portConfig.DHCP
-			currentDHCP, err := isDHCPConfigured(interfaceName)
+			currentDHCP, err := IsDHCPConfigured(interfaceName)
 			if err != nil {
 				return false, fmt.Errorf("failed to determine DHCP configuration for %s: %w", interfaceName, err)
 			}
@@ -424,8 +464,9 @@ func writeNetplanFile(filePath string, config *netplan.Config) error {
 	return nil
 }
 
-// applyNetplan applies the netplan configuration
-func applyNetplan() error {
+// ApplyNetplan applies the netplan configuration
+// Exported for use by network configuration backends
+func ApplyNetplan() error {
 	klog.Infof("Executing 'netplan apply'")
 	cmd := exec.Command("netplan", "apply")
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -477,9 +518,10 @@ func checkIfBridgeMTUChangeNeeded(controlPlaneMTU int) (bool, error) {
 	return false, nil
 }
 
-// configureBridgeMTU configures the bridge and its member interfaces MTU using netplan
+// ConfigureBridgeMTU configures the bridge and its member interfaces MTU using netplan
 // Returns (needsApply, error) where needsApply indicates if changes are needed
-func configureBridgeMTU(controlPlaneMTU int) (bool, error) {
+// Exported for use by network configuration backends
+func ConfigureBridgeMTU(controlPlaneMTU int) (bool, error) {
 	// Check if changes are needed first
 	needsApply, err := checkIfBridgeMTUChangeNeeded(controlPlaneMTU)
 	if err != nil {
