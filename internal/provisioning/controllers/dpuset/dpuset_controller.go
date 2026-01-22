@@ -347,6 +347,10 @@ func (r *DPUSetReconciler) getDPUDeviceMap(ctx context.Context, dpuSet *provisio
 
 	// 3. List DPUDevices based on the constructed label selector
 	for _, node := range dpuNodeList.Items {
+		// Skip nodes that are being deleted
+		if !node.DeletionTimestamp.IsZero() {
+			continue
+		}
 		selector := deviceSelector.DeepCopySelector()
 		// Select DPUDevices belonging to the given DPUNode
 		// DPUNodeNameLabel is required. Lack of it means many other labels are also missing, creating DPU for such DPUDevice ends up with failure
