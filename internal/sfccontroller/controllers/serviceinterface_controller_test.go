@@ -99,6 +99,19 @@ var _ = Describe("service interface controller", func() {
 		},
 	}
 
+	patchIfaceSpecWithPeerExternalIDs := dpuservicev1.ServiceInterfaceSpec{
+		Node:          &testNodeName,
+		InterfaceType: dpuservicev1.InterfaceTypePatch,
+		Patch: &dpuservicev1.PatchDef{
+			PeerBridge:    peerBridge,
+			PeerPatchName: &peerPatchName,
+			PeerExternalIDs: map[string]string{
+				"custom-key":  "custom-value",
+				"another-key": "another-value",
+			},
+		},
+	}
+
 	pfIfaceSpec := dpuservicev1.ServiceInterfaceSpec{
 		Node:          &testNodeName,
 		InterfaceType: dpuservicev1.InterfaceTypePF,
@@ -333,6 +346,33 @@ var _ = Describe("service interface controller", func() {
 					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).
 						Return(errors.New("failed to set interface external ids"))
 				}, false),
+			Entry("success patch interface with peer external IDs",
+				patchIfaceSpecWithPeerExternalIDs,
+				func() {
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+						Return(nil)
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+						Return(nil)
+					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{"dpf-id": client.ObjectKeyFromObject(si).String()})).
+						Return(nil)
+					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{
+						"custom-key":  "custom-value",
+						"another-key": "another-value",
+					})).
+						Return(nil)
+				}, true),
+			Entry("failed to set peer external ids",
+				patchIfaceSpecWithPeerExternalIDs,
+				func() {
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+						Return(nil)
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+						Return(nil)
+					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil)
+					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(errors.New("failed to set peer external ids"))
+				}, false),
 			Entry("nothing to do for vlan type interface",
 				vlanIfaceSpec,
 				func() {},
@@ -521,6 +561,71 @@ var _ = Describe("service interface controller", func() {
 		It("should requeue if failed to delete port second patch port", func() {
 			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("failed to delete port"))
+
+			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
+				Namespace: deletedServiceInterface.Namespace,
+				Name:      deletedServiceInterface.Name,
+			}})
+			Expect(err).To(Succeed())
+			Expect(result.RequeueAfter).NotTo(BeZero())
+		})
+	})
+
+	Context("delete patch port", func() {
+		var deletedServiceInterface *dpuservicev1.ServiceInterface
+
+		BeforeEach(func() {
+			peerBridge := "br-peer"
+			peerPatchName := "peer-patch"
+			deletedServiceInterface = &dpuservicev1.ServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "deleted-service-interface",
+					Namespace: ns.Name,
+				},
+				Spec: dpuservicev1.ServiceInterfaceSpec{
+					Node:          &testNodeName,
+					InterfaceType: dpuservicev1.InterfaceTypePatch,
+					Patch: &dpuservicev1.PatchDef{
+						PeerBridge:    peerBridge,
+						PeerPatchName: &peerPatchName,
+					},
+				},
+			}
+
+			controllerutil.AddFinalizer(deletedServiceInterface, ServiceInterfaceFinalizer)
+
+			Expect(testClient.Create(ctx, deletedServiceInterface)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, deletedServiceInterface)
+			Expect(testClient.Delete(ctx, deletedServiceInterface)).To(Succeed())
+		})
+
+		It("should return success", func() {
+			// delete patch port between bridges
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+
+			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
+				Namespace: deletedServiceInterface.Namespace,
+				Name:      deletedServiceInterface.Name,
+			}})
+			Expect(err).To(Succeed())
+			Expect(result.RequeueAfter).To(BeZero())
+		})
+
+		It("should requeue if failed to delete patch port", func() {
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("failed to delete patch port"))
+
+			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
+				Namespace: deletedServiceInterface.Namespace,
+				Name:      deletedServiceInterface.Name,
+			}})
+			Expect(err).To(Succeed())
+			Expect(result.RequeueAfter).NotTo(BeZero())
+		})
+
+		It("should requeue if failed to delete peer patch port", func() {
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("failed to delete peer patch port"))
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
 				Namespace: deletedServiceInterface.Namespace,
