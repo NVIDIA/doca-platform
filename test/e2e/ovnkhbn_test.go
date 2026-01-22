@@ -20,13 +20,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 )
 
-func OVNKHBNBeforeSuite() {
-	By("Setting OVNK HBN configs for the test")
-	input.applyOVNKHBNConfig(*conf)
-}
-
 //nolint:dupl
-var _ = Describe("DPF System tests - OVNK HBN", Labels{ovnkPrimaryLabel, requiresNodesLabel}, func() {
+var _ = Describe("DPF System tests - OVNK HBN", Labels{ovnkHbnLabel, requiresNodesLabel}, func() {
 	BeforeEach(func() {
 		By("wait for OVNK HBN deployment to be ready")
 		WaitForOVNKHBNDeploymentReady(ctx, input)
@@ -37,10 +32,10 @@ var _ = Describe("DPF System tests - OVNK HBN", Labels{ovnkPrimaryLabel, require
 
 	Context("OVNK HBN", func() {
 		It("verify performance of pod to pod same node", func() {
-			VerifyPerformancePodToPodSameNode(ctx, input)
+			VerifyPerformancePodToPodSameNode(ctx, input, "ovnkhbn")
 		})
 		It("verify performance of pod to pod different nodes", func() {
-			VerifyPerformancePodToPodDifferentNode(ctx, input)
+			VerifyPerformancePodToPodDifferentNode(ctx, input, "ovnkhbn")
 		})
 	})
 })
