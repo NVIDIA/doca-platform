@@ -27,6 +27,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
 	"github.com/nvidia/doca-platform/test/utils"
+	"github.com/nvidia/doca-platform/test/utils/netshoot"
 	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
 
 	netattdefv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
@@ -148,6 +149,8 @@ const (
 	externalTestLabel = "ExternalTest"
 	// ovnkPrimaryLabel is used to mark the tests that need to run with OVNK as primary CNI.
 	ovnkPrimaryLabel = "OVNKPrimary"
+	// ovnkHbnLabel is used to mark the tests that need to run with OVNK as primary CNI while having HBN deployed alongside it.
+	ovnkHbnLabel = "OVNKHBN"
 	// dpfVPCTestLabel is used to mark the tests related to the VPC OVN test suite.
 	dpfVPCTestLabel = "DPFVPCOVN"
 )
@@ -265,4 +268,80 @@ func getDPUClusterNodes(ctx context.Context, dpuClusterClient client.Client) []c
 	nodes := &corev1.NodeList{}
 	Expect(dpuClusterClient.List(ctx, nodes)).To(Succeed())
 	return nodes.Items
+}
+
+// VerifyPerformancePodToPodSameNode verifies performance between pods on the same node
+func VerifyPerformancePodToPodSameNode(ctx context.Context, input *systemTestInput, namespacePrefix string) {
+	if !input.hasDpuNodes() {
+		Skip("Skip test as there are not multiple nodes")
+	}
+
+	hostNamespace := namespacePrefix + "-same-node"
+	createTestNamespace(ctx, input.client, hostNamespace)
+
+	By("creating test pods")
+	pod1Config, pod2Config := getPodSameNodeConfigs(ctx, input, hostNamespace)
+	netshoot.CreateAndWaitForPods(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
+
+	By("get pod2 IP")
+	pod2IP := netshoot.GetPodIP(ctx, input.client, hostNamespace, pod2Config.Name)
+
+	By("running traffic test between pods")
+	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
+}
+
+// VerifyPerformancePodToPodDifferentNode verifies performance between pods on different nodes
+func VerifyPerformancePodToPodDifferentNode(ctx context.Context, input *systemTestInput, namespacePrefix string) {
+	if !input.hasDpuNodes() {
+		Skip("Skip test as there are not multiple nodes")
+	}
+
+	hostNamespace := namespacePrefix + "-different-node"
+	createTestNamespace(ctx, input.client, hostNamespace)
+
+	By("creating test pods")
+	pod1Config, pod2Config := getPodDifferentNodeConfigs(ctx, input, hostNamespace)
+	netshoot.CreateAndWaitForPods(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
+
+	By("get pod2 IP")
+	pod2IP := netshoot.GetPodIP(ctx, input.client, hostNamespace, pod2Config.Name)
+
+	By("running traffic test between pods")
+	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
+}
+
+// getPodDifferentNodeConfigs returns two pod configs for different nodes
+func getPodDifferentNodeConfigs(ctx context.Context, input *systemTestInput, namespace string) (netshoot.TestPodConfig, netshoot.TestPodConfig) {
+	workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.client)
+
+	pod1Config := netshoot.TestPodConfig{
+		Name:      "pod1",
+		Namespace: namespace,
+		NodeName:  workerNode1,
+	}
+	pod2Config := netshoot.TestPodConfig{
+		Name:      "pod2",
+		Namespace: namespace,
+		NodeName:  workerNode2,
+	}
+
+	return pod1Config, pod2Config
+}
+
+// getPodSameNodeConfigs returns two pod configs for the same node
+func getPodSameNodeConfigs(ctx context.Context, input *systemTestInput, namespace string) (netshoot.TestPodConfig, netshoot.TestPodConfig) {
+	workerNode1, _ := getTwoWorkerNodeNames(ctx, input.client)
+
+	pod1Config := netshoot.TestPodConfig{
+		Name:      "pod1",
+		Namespace: namespace,
+		NodeName:  workerNode1,
+	}
+	pod2Config := netshoot.TestPodConfig{
+		Name:      "pod2",
+		Namespace: namespace,
+		NodeName:  workerNode1,
+	}
+
+	return pod1Config, pod2Config
 }
