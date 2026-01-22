@@ -171,10 +171,6 @@ func updateImagePullSecret(svc *unstructured.Unstructured, secretName string) {
 	Expect(err).ToNot(HaveOccurred())
 }
 
-func (t *systemTestInput) applyOVNKHBNConfig(conf config) {
-	// placeholder for DPUDeployment and DPUSet required for OVNK HBN
-}
-
 func (t *systemTestInput) applyConfig(conf config) {
 	bfb := &provisioningv1.BFB{}
 	bfbUnstructured := unstructuredFromFile(conf.BFBPath)
