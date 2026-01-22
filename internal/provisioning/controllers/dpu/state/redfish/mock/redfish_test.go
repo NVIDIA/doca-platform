@@ -70,3 +70,32 @@ func testChassisInfo(t *testing.T, client *client.Client) {
 		t.Errorf("Expected part number 900-9D3B4-00SV-EA0, got %s", chassisInfo.PartNumber)
 	}
 }
+
+func TestBF4Auth(t *testing.T) {
+	// Create a BF4 mock server
+	server := NewRedfishMockServer("BF-24.10", "testpassword")
+	server.dpuVersion = BF4
+	server.Start()
+	defer server.Stop()
+
+	// Get a client configured for BF4 (uses admin instead of root)
+	client, err := server.GetClient()
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+
+	// Test that BF4 auth works with admin user
+	resp, err := client.GetRootService()
+	if err != nil {
+		t.Fatalf("Failed to get root service with BF4 auth: %v", err)
+	}
+	if resp.StatusCode() != 200 {
+		t.Errorf("Expected status 200 with BF4 auth, got %d", resp.StatusCode())
+	}
+
+	if client.UserInfo.Username != "admin" {
+		t.Errorf("Expected username admin, got %s", client.UserInfo.Username)
+	}
+
+	klog.Infof("BF4 authentication test passed successfully")
+}
