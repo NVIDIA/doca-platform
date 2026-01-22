@@ -39,8 +39,16 @@ type RedfishMockServer struct {
 	server     *httptest.Server
 	bmcVersion string
 	password   string
-	dpuMode    string // Current DPU mode: "NicMode" or "DpuMode"
+	dpuMode    string     // Current DPU mode: "NicMode" or "DpuMode"
+	dpuVersion DpuVersion // Current DPU version
 }
+
+type DpuVersion int
+
+const (
+	BF3 DpuVersion = 3
+	BF4 DpuVersion = 4
+)
 
 // NewRedfishMockServer creates a new mock Redfish server
 func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
@@ -48,6 +56,7 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 		bmcVersion: bmcVersion,
 		password:   password,
 		dpuMode:    "DpuMode", // Default to DpuMode
+		dpuVersion: BF3,       // Default to BF3
 	}
 
 	mux := http.NewServeMux()
@@ -148,7 +157,11 @@ func (r *RedfishMockServer) GetClient() (*client.Client, error) {
 	}
 
 	// Set basic auth
-	c.SetBasicAuth("root", r.password)
+	if r.dpuVersion == BF3 {
+		c.SetBasicAuth("root", r.password)
+	} else {
+		c.SetBasicAuth("admin", r.password)
+	}
 
 	return c, nil
 }

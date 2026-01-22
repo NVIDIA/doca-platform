@@ -73,7 +73,8 @@ const (
 )
 
 const (
-	BMCUser              = "root"
+	BF3BMCUser           = "root"
+	BF4BMCUser           = "admin"
 	BMCPasswordSecret    = "bmc-shared-password"
 	BMCSharedPasswordKey = "password"
 	BMCDefaultPassword   = "0penBmc"
@@ -548,7 +549,7 @@ func InitPassword(ctx context.Context, bmcAddress string, namespace string, k8sC
 	}
 
 	// check if the default password has been changed as requested by the DOCA BMC manual
-	client, err := NewBasicAuthClient(bmcAddress, BMCUser, passwd)
+	client, err := NewBasicAuthClient(bmcAddress, BF3BMCUser, passwd)
 	if err != nil {
 		return nil, err
 	}
@@ -559,7 +560,7 @@ func InitPassword(ctx context.Context, bmcAddress string, namespace string, k8sC
 	switch resp.StatusCode() {
 	case http.StatusUnauthorized:
 		log.FromContext(ctx).Info("try to change password")
-		defaultClient, err := NewBasicAuthClient(bmcAddress, BMCUser, BMCDefaultPassword)
+		defaultClient, err := NewBasicAuthClient(bmcAddress, BF3BMCUser, BMCDefaultPassword)
 		if err != nil {
 			return nil, err
 		}
@@ -567,6 +568,17 @@ func InitPassword(ctx context.Context, bmcAddress string, namespace string, k8sC
 		if err != nil {
 			return nil, err
 		} else if resp.StatusCode() == http.StatusUnauthorized {
+			defaultClient, err = NewBasicAuthClient(bmcAddress, BF4BMCUser, BMCDefaultPassword)
+			if err != nil {
+				return nil, err
+			}
+			resp, _, err = defaultClient.ChangeBMCPassword(passwd)
+			if err != nil {
+				return nil, err
+			}
+			if resp.StatusCode() == http.StatusOK {
+				return defaultClient, nil
+			}
 			return nil, fmt.Errorf("the default BMC password has been changed and the given password is wrong")
 		} else if resp.StatusCode() != http.StatusOK {
 			return nil, fmt.Errorf("expected status %q, received status %q", http.StatusOK, resp.Status())
