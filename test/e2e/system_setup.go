@@ -451,6 +451,16 @@ func ProvisionBFBAndDPUFlavor(ctx context.Context, input ProvisionDPUClustersInp
 		dpuFlavor.SetLabels(testutils.AfterAllCleanupLabels)
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuFlavor))).NotTo(HaveOccurred())
 	}).WithTimeout(60 * time.Second).Should(Succeed())
+
+	By("checking that BFB is ready")
+	Eventually(func(g Gomega) {
+		bfb := &provisioningv1.BFB{}
+		g.Expect(input.client.Get(ctx, client.ObjectKey{
+			Name:      input.bfb.Name,
+			Namespace: input.bfb.Namespace,
+		}, bfb)).To(Succeed())
+		g.Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBReady))
+	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 }
 
 // ProvisionDPUSet DPUSet that will provision DPUs in the background if the environment has such DPUs.
