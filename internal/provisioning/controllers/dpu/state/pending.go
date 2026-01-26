@@ -40,26 +40,51 @@ func Pending(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contro
 		return *state, nil
 	}
 
-	// Check for the presence of the specified BFB
-	bfb := &provisioningv1.BFB{}
-	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.BFB}, bfb); err != nil {
-		if apierrors.IsNotFound(err) {
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBReady.String(), err, "BFBNotFound", err.Error()))
+	switch dpu.Status.DPUType {
+	case provisioningv1.DPUTypeBlueField3:
+
+		// Check for the presence of the specified BFB
+		bfb := &provisioningv1.BFB{}
+		if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.BFB}, bfb); err != nil {
+			if apierrors.IsNotFound(err) {
+				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBReady.String(), err, "BFBNotFound", err.Error()))
+				return *state, err
+			}
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBReady.String(), err, "GetBFBError", err.Error()))
 			return *state, err
 		}
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBReady.String(), err, "GetBFBError", err.Error()))
-		return *state, err
-	}
 
-	// Check BFB is ready
-	if bfb.Status.Phase != provisioningv1.BFBReady {
-		err := fmt.Errorf("BFB is not ready")
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBReady.String(), err, "BFBIsNotReady", err.Error()))
-		return *state, err
+		// Check BFB is ready
+		if bfb.Status.Phase != provisioningv1.BFBReady {
+			err := fmt.Errorf("BFB is not ready")
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBReady.String(), err, "BFBIsNotReady", err.Error()))
+			return *state, err
+		}
+		logger.Info("BFB is ready")
+		state.BFBFile = cutil.GenerateBFBFilePath(bfb.Status.FileName)
+		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondBFBReady, "", ""))
+
+	case provisioningv1.DPUTypeBlueField4:
+
+		blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
+		if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.BlueFieldSoftware}, blueFieldSoftware); err != nil {
+			if apierrors.IsNotFound(err) {
+				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBlueFieldSoftwareReady.String(), err, "BlueFieldSoftwareNotFound", err.Error()))
+				return *state, err
+			}
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBlueFieldSoftwareReady.String(), err, "GetBlueFieldSoftwareError", err.Error()))
+			return *state, err
+		}
+
+		if blueFieldSoftware.Status.Phase != provisioningv1.BlueFieldSoftwareReady {
+			err := fmt.Errorf("BlueFieldSoftware is not ready")
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBlueFieldSoftwareReady.String(), err, "BlueFieldSoftwareIsNotReady", err.Error()))
+			return *state, err
+		}
+
+		logger.Info("BlueFieldSoftware is ready")
+		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondBlueFieldSoftwareReady, "", ""))
 	}
-	logger.Info("BFB is ready")
-	state.BFBFile = cutil.GenerateBFBFilePath(bfb.Status.FileName)
-	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondBFBReady, "", ""))
 
 	// Check for the presence of the specified DPUFlavor
 	if dpu.Spec.DPUFlavor == "" {
