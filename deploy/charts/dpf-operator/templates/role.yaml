@@ -129,12 +129,6 @@ rules:
 - apiGroups:
   - cert-manager.io
   resources:
-  - '*'
-  verbs:
-  - '*'
-- apiGroups:
-  - cert-manager.io
-  resources:
   - certificaterequests
   - certificates
   - issuers
@@ -203,13 +197,21 @@ rules:
   resources:
   - nodemaintenances
   verbs:
-  - '*'
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - maintenance.nvidia.com
   resources:
   - nodemaintenances/status
   verbs:
-  - '*'
+  - get
+  - patch
+  - update
 - apiGroups:
   - monitoring.coreos.com
   resources:
