@@ -19,3 +19,5 @@ spec:
   resourceType: sf
   ipam: true
   bridge: "br-sfc"
+  chainedCNIs:
+  - type: rdma
