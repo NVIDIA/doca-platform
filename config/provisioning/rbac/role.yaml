@@ -133,6 +133,7 @@ rules:
   - provisioning.dpu.nvidia.com
   resources:
   - bfbs
+  - bluefieldsoftwares
   - dpuclusters
   - dpudevices
   - dpudiscoveries
@@ -151,6 +152,7 @@ rules:
   - provisioning.dpu.nvidia.com
   resources:
   - bfbs/finalizers
+  - bluefieldsoftwares/finalizers
   - dpuclusters/finalizers
   - dpudevices/finalizers
   - dpudiscoveries/finalizers
@@ -164,6 +166,7 @@ rules:
   - provisioning.dpu.nvidia.com
   resources:
   - bfbs/status
+  - bluefieldsoftwares/status
   - dpuclusters/status
   - dpudevices/status
   - dpudiscoveries/status

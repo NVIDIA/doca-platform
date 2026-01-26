@@ -35,6 +35,7 @@ import (
 	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/bfb"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/bluefieldsoftware"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/discovery"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -172,6 +173,14 @@ var _ = BeforeSuite(func() {
 		Recorder: k8sManager.GetEventRecorderFor(bfb.BFBControllerName),
 	}
 	err = bfbReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	bfsReconciler := &bluefieldsoftware.BlueFieldSoftwareReconciler{
+		Client:   k8sManager.GetClient(),
+		Scheme:   k8sManager.GetScheme(),
+		Recorder: k8sManager.GetEventRecorderFor(bluefieldsoftware.BlueFieldSoftwareControllerName),
+	}
+	err = bfsReconciler.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	dpuMap = dutil.NewDPUInProvisioningMap(maxDPUParallelInstallations)
