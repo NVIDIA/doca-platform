@@ -117,6 +117,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				nil,
 			)
 
+			// Get fresh copy before updating status to avoid conflicts
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
+
 			// Set pod to Running state so it can be properly processed by the controller
 			pod.Status.Phase = corev1.PodRunning
 			Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
@@ -167,6 +170,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
+
+			// Get fresh copy before updating status to avoid conflicts
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
 
 			// Set pod to Running state so it can be processed
 			pod.Status.Phase = corev1.PodRunning
@@ -386,6 +392,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				},
 			)
 
+			// Get fresh copy before updating status to avoid conflicts
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
+
 			// Set pod to Running state so it can be processed
 			pod.Status.Phase = corev1.PodRunning
 			Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
@@ -574,6 +583,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				},
 			)
 
+			// Get fresh copy before updating status to avoid conflicts
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
+
 			// Set pod to Running state so it can be processed by the controller
 			pod.Status.Phase = corev1.PodRunning
 			Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
@@ -689,6 +701,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 			)
 			// Don't add pod1 to cleanupObjects - controller will handle deletion
 
+			// Get fresh copy before updating status to avoid conflicts
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod1), pod1)).To(Succeed())
+
 			// Set pod1 to Running state
 			pod1.Status.Phase = corev1.PodRunning
 			Expect(testClient.Status().Patch(ctx, pod1, client.Merge)).To(Succeed())
@@ -704,6 +719,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				},
 			)
 			// Don't add pod2 to cleanupObjects - controller will handle deletion
+
+			// Get fresh copy before updating status to avoid conflicts
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod2), pod2)).To(Succeed())
 
 			// Set pod2 to Running state
 			pod2.Status.Phase = corev1.PodRunning
@@ -863,6 +881,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					},
 				)
 
+				By("Get fresh copy before updating status to avoid conflicts")
+				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
+
 				By("Set pod to Running state")
 				pod.Status.Phase = corev1.PodRunning
 				Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
@@ -946,6 +967,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					},
 				)
 
+				By("Get fresh copy before updating status to avoid conflicts")
+				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
+
 				By("Set pod to Running state")
 				pod.Status.Phase = corev1.PodRunning
 				Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
@@ -979,6 +1003,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 						dpuservicev1.DPFServiceIDLabelKey: "firewall",
 					},
 				)
+
+				By("Get fresh copy before updating status to avoid conflicts")
+				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
 
 				By("Set pod to Running state")
 				pod.Status.Phase = corev1.PodRunning
@@ -1015,6 +1042,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					},
 				)
 
+				By("Get fresh copy before updating status to avoid conflicts")
+				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
+
 				By("Set pod to Running state")
 				pod.Status.Phase = corev1.PodRunning
 				Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
@@ -1049,6 +1079,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 						dpuservicev1.DPFServiceIDLabelKey: "firewall",
 					},
 				)
+
+				By("Get fresh copy before updating status to avoid conflicts")
+				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
 
 				By("Set pod to Running state")
 				pod.Status.Phase = corev1.PodRunning
@@ -1118,6 +1151,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					},
 				)
 
+				By("Get fresh copy before updating status to avoid conflicts")
+				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
+
 				By("Set pod to Running state")
 				pod.Status.Phase = corev1.PodRunning
 				Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
@@ -1181,6 +1217,10 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 						dpuservicev1.DPFServiceIDLabelKey: "firewall",
 					},
 				)
+
+				By("Get fresh copies before updating status to avoid conflicts")
+				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod1), pod1)).To(Succeed())
+				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod2), pod2)).To(Succeed())
 
 				By("Set both pods to Running state")
 				pod1.Status.Phase = corev1.PodRunning
