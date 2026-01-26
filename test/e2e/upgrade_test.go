@@ -34,7 +34,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -56,13 +55,6 @@ var _ = Describe("DPF Upgrade tests", Labels{dpfUpgradeTestLabel}, func() {
 			Expect(input.client.Create(ctx, dpuServiceTemplate)).To(Succeed())
 
 			dpuServiceConfiguration := generateServiceConfiguration(input, "")
-			// TODO: Remove this one in 25.10 -> 26.1
-			// The reason we have it is because the release 25.7 doesn't include:
-			// * 6672586a98b2b0df24875b5e1e37bfac41828c3d
-			// * 2267ee32751910258d47185546d9e7a52b7d660b
-			dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Resources = corev1.ResourceList{
-				"nvidia.com/bf_sf": resource.MustParse("1"),
-			}
 			Expect(input.client.Create(ctx, dpuServiceConfiguration)).To(Succeed())
 
 			dpuServiceTemplate2 := generateDPUServiceTemplate(input, "2")
@@ -70,13 +62,6 @@ var _ = Describe("DPF Upgrade tests", Labels{dpfUpgradeTestLabel}, func() {
 			Expect(input.client.Create(ctx, dpuServiceTemplate2)).To(Succeed())
 
 			dpuServiceConfiguration2 := generateServiceConfiguration(input, "2")
-			// TODO: Remove this one in 25.10 -> 26.1
-			// The reason we have it is because the release 25.7 doesn't include:
-			// * 6672586a98b2b0df24875b5e1e37bfac41828c3d
-			// * 2267ee32751910258d47185546d9e7a52b7d660b
-			dpuServiceConfiguration2.Spec.ServiceConfiguration.ServiceDaemonSet.Resources = corev1.ResourceList{
-				"nvidia.com/bf_sf": resource.MustParse("1"),
-			}
 			dpuServiceConfiguration2.Spec.Interfaces = []dpuservicev1.ServiceInterfaceTemplate{{Name: "net2", Network: "mybrsfc"}}
 			Expect(input.client.Create(ctx, dpuServiceConfiguration2)).To(Succeed())
 
