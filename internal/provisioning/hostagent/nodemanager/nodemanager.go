@@ -40,6 +40,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -158,12 +159,27 @@ func (n *NodeManager) initDPUDevices() ([]*provisioningv1.DPUDevice, error) {
 				return nil, fmt.Errorf("failed to get DPU device %s: %w", dpuDevice.Name, err)
 			}
 		}
+
+		pciAddressForQueryMode := filepath.Base(hostutil.NewPCIHelper(device.Address).PF(0).Path())
+		mode, err := hostutil.GetDPUMode(timeoutCtx, pciAddressForQueryMode)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get DPU mode: %w", err)
+		}
 		pciAddress := strings.ReplaceAll(device.Address, ":", "-")
-		dpuDevice.Status.PCIAddress = &pciAddress
-		if err := n.Status().Update(timeoutCtx, dpuDevice); err != nil {
+		var updatedDevice *provisioningv1.DPUDevice
+		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			latest := &provisioningv1.DPUDevice{}
+			if err := n.Get(timeoutCtx, client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: dpuDevice.Name}, latest); err != nil {
+				return err
+			}
+			latest.Status.DPUMode = mode
+			latest.Status.PCIAddress = ptr.To(pciAddress)
+			updatedDevice = latest
+			return n.Status().Update(timeoutCtx, latest)
+		}); err != nil {
 			return nil, fmt.Errorf("failed to update DPU device %s: %w", dpuDevice.Name, err)
 		}
-		ret = append(ret, dpuDevice)
+		ret = append(ret, updatedDevice)
 		klog.Infof("Registered DPUDevice. name: %s, serial number: %s, PCI address: %s", dpuDevice.Name, dpuDevice.Spec.SerialNumber, pciAddress)
 	}
 	return ret, nil
