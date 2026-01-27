@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -87,16 +86,16 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 		return dpu.Status, ctrl.Result{}, err
 	}
 
-	mode, err := GetDPUMode(ctx, pciAddress)
+	mode, err := hostutil.GetDPUMode(ctx, pciAddress)
 	if err != nil {
 		hostutil.NewCondition(condition).Failure(err, "FailedToGetDPUMode").Set(&dpu.Status.Conditions)
 		return dpu.Status, ctrl.Result{}, err
 	}
-	if strings.EqualFold(mode, "DPU") {
+	if mode == provisioningv1.DpuMode {
 		hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
 	} else {
 		logger.Info("Setting DPU mode to DPU", "current mode", mode, "pciAddress", pciAddress)
-		if err := SetDPUMode(pciAddress); err != nil {
+		if err := hostutil.SetDPUMode(pciAddress); err != nil {
 			hostutil.NewCondition(condition).Failure(err, "FailedToSetDPUMode").Set(&dpu.Status.Conditions)
 			return dpu.Status, ctrl.Result{}, err
 		}
@@ -143,49 +142,4 @@ func (h *Handler) validateFWVersion(ctx context.Context, dpu *provisioningv1.DPU
 		return true, nil
 	}
 	return false, nil
-}
-
-func GetDPUMode(ctx context.Context, pciAddress string) (string, error) {
-	logger := log.FromContext(ctx)
-	cmd := fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure --address 127.0.0.1:9339 --target %s get --path /nvidia/mode/config/mode", pciAddress)
-	if stdout, stderr, err := hostutil.RunBash(cmd); err != nil {
-		return "", fmt.Errorf("failed to run cmd: %s, err: %w, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
-	} else {
-		logger.Info(fmt.Sprintf("Get mode of %s output: %s", pciAddress, stdout.String()))
-		// dmsc outputs the mode in a pretty weird format:
-		//[
-		//	{
-		//	  "source": "127.0.0.1:9339",
-		//	  "timestamp": 1761796906478936518,
-		//	  "time": "2025-10-30T04:01:46.478936518Z",
-		//	  "target": "c9:00.0",
-		//	  "updates": [
-		//		{
-		//		  "Path": "nvidia/mode/config/mode",
-		//		  "values": {
-		//			"nvidia/mode/config/mode": "DPU"
-		//		  }
-		//		}
-		//	  ]
-		//	}
-		//]
-
-		pattern := `"nvidia/mode/config/mode"\s*:\s*"([^"]+)"`
-		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(stdout.String())
-		if len(matches) > 1 {
-			return matches[1], nil
-		}
-		return "", fmt.Errorf("failed to parse DPU mode from: %s", stdout.String())
-	}
-}
-
-func SetDPUMode(pciAddress string) error {
-	// DMS will use the PCI address without the "0000:" prefix to determine if the device is BlueField3.
-	pciAddress = strings.TrimPrefix(pciAddress, "0000:")
-	cmd := fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure --address 127.0.0.1:9339 --target %s set --update /nvidia/mode/config/mode:::string:::DPU", pciAddress)
-	if stdout, stderr, err := hostutil.RunBash(cmd); err != nil {
-		return fmt.Errorf("failed to run cmd: %s, err: %w, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
-	}
-	return nil
 }
