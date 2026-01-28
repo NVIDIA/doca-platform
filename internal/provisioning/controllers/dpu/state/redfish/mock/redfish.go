@@ -219,7 +219,7 @@ func (r *RedfishMockServer) handleGetChassis(w http.ResponseWriter, req *http.Re
 		"@odata.type":    "#Chassis.v1_20_0.Chassis",
 		"Id":             "Card1",
 		"Name":           "BlueField DPU Card",
-		"Model":          "BlueField-3 B3220",
+		"Model":          "BlueField-3 DPU",
 		"PartNumber":     DpuOPN,
 		"SerialNumber":   DpuSerialNumber,
 		"Status": map[string]interface{}{
