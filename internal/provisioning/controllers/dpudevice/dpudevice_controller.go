@@ -428,6 +428,13 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		return err
 	}
 
+	dpuDevice.Status.DPUType = chassisInfo.GetBlueFieldVersion()
+	if dpuDevice.Status.DPUType == provisioningv1.DPUTypeUnknown {
+		err = fmt.Errorf("unknown DPU type")
+		log.Error(err, "Failed to get DPU type", "address", bmcAddress, "response", resp)
+		return err
+	}
+
 	if chassisInfo.SerialNumber == "" {
 		err = fmt.Errorf("serial number is empty")
 		log.Error(err, "Failed to get chassis info", "address", bmcAddress, "response", resp)
@@ -441,17 +448,6 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 	} else {
 		dpuDevice.Status.SerialNumber = ptr.To(chassisInfo.SerialNumber)
 		dpuDevice.Status.PSID = ptr.To(chassisInfo.SerialNumber)
-	}
-
-	switch {
-	case strings.Contains(chassisInfo.Model, "BlueField 2"):
-		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField2
-	case strings.Contains(chassisInfo.Model, "BlueField 3"):
-		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField3
-	case strings.Contains(chassisInfo.Model, "BlueField 4"):
-		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField4
-	default:
-		dpuDevice.Status.DPUType = provisioningv1.DPUTypeUnknown
 	}
 
 	dpuDevice.Status.OPN = ptr.To(chassisInfo.PartNumber)

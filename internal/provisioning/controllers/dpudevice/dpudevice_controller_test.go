@@ -22,9 +22,12 @@ import (
 	"testing"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
+	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -320,6 +323,103 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			// Will fail because no TLS secrets exist in the fake client
 			err := reconciler.discoverDPUDevice(ctx, dpuDevice)
 			Expect(err).To(HaveOccurred())
+		})
+
+		It("should successfully discover a BlueField 3 card using Redfish mock", func() {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			_ = provisioningv1.AddToScheme(scheme)
+			_ = corev1.AddToScheme(scheme)
+
+			// Create and start the mock Redfish server
+			mockServer, err := mock.CreateMockRedfishServer("BF-24.10", "testpassword")
+			Expect(err).NotTo(HaveOccurred())
+			defer mockServer.Stop()
+
+			// Get the mock server address
+			bmcIP := mockServer.GetIPAddress()
+			bmcPort := uint32(mockServer.GetPort())
+
+			// Create a DPUDevice with the mock server's address
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice-bf3",
+					Namespace: "test-namespace",
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					SerialNumber: mock.DpuSerialNumber,
+				},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCIP:   &bmcIP,
+					BMCPort: &bmcPort,
+				},
+			}
+
+			// Create TLS secrets for the mock server
+			// Generate mTLS certificates for testing
+			caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
+
+			// CA secret that the client expects
+			caSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpf-provisioning-ca-secret",
+					Namespace: "test-namespace",
+				},
+				Type: corev1.SecretTypeTLS,
+				Data: map[string][]byte{
+					"tls.crt": caCrt,
+				},
+			}
+
+			// Client certificate secret for mTLS
+			clientSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpf-provisioning-redfish-client-secret",
+					Namespace: "test-namespace",
+				},
+				Type: corev1.SecretTypeTLS,
+				Data: map[string][]byte{
+					"tls.crt": clientCrt,
+					"tls.key": clientKey,
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(dpuDevice, caSecret, clientSecret).
+				Build()
+
+			reconciler := &DPUDeviceReconciler{
+				Client: fakeClient,
+			}
+
+			// Call discoverDPUDevice
+			err = reconciler.discoverDPUDevice(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify that the DPU type is BlueField 3
+			Expect(dpuDevice.Status.DPUType).To(Equal(provisioningv1.DPUTypeBlueField3))
+
+			// Verify other discovered fields
+			Expect(dpuDevice.Status.SerialNumber).NotTo(BeNil())
+			Expect(*dpuDevice.Status.SerialNumber).To(Equal(mock.DpuSerialNumber))
+
+			Expect(dpuDevice.Status.OPN).NotTo(BeNil())
+			Expect(*dpuDevice.Status.OPN).To(Equal(mock.DpuOPN))
+
+			Expect(dpuDevice.Status.PSID).NotTo(BeNil())
+			Expect(*dpuDevice.Status.PSID).To(Equal(mock.DpuSerialNumber))
+
+			Expect(dpuDevice.Status.DPUMode).To(Equal(provisioningv1.DpuMode))
+
+			Expect(dpuDevice.Status.PF0MAC).NotTo(BeNil())
+			Expect(*dpuDevice.Status.PF0MAC).To(Equal("00:1B:21:C0:8F:32"))
+
+			// Verify labels are set
+			Expect(dpuDevice.Labels).NotTo(BeNil())
+			Expect(dpuDevice.Labels).To(HaveKey("provisioning.dpu.nvidia.com/dpudevice-bmc-ip"))
+			Expect(dpuDevice.Labels).To(HaveKey("provisioning.dpu.nvidia.com/dpudevice-opn"))
+			Expect(dpuDevice.Labels).To(HaveKey("provisioning.dpu.nvidia.com/dpudevice-psid"))
 		})
 	})
 })

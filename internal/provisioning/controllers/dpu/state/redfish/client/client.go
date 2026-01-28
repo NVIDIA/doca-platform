@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -435,6 +436,27 @@ type ChassisInfo struct {
 	Model        string `json:"Model"`
 	PartNumber   string `json:"PartNumber"`
 	SerialNumber string `json:"SerialNumber"`
+}
+
+var blueFieldRegex = regexp.MustCompile(`bluefield[- ]?(\d+)`)
+
+func (c *ChassisInfo) GetBlueFieldVersion() provisioningv1.DPUType {
+	// Extract BlueField version number from model string
+	matches := blueFieldRegex.FindStringSubmatch(strings.ToLower(c.Model))
+	if len(matches) >= 2 {
+		switch matches[1] {
+		case "2":
+			return provisioningv1.DPUTypeBlueField2
+		case "3":
+			return provisioningv1.DPUTypeBlueField3
+		case "4":
+			return provisioningv1.DPUTypeBlueField4
+		default:
+			return provisioningv1.DPUTypeUnknown
+		}
+	} else {
+		return provisioningv1.DPUTypeUnknown
+	}
 }
 
 // GetChassis fetches part number of DPU
