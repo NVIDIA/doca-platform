@@ -28,7 +28,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/bfb"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/bluefieldsoftware"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/csr"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/discovery"
@@ -50,7 +49,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientset "k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	"k8s.io/component-base/logs"
 	logsv1 "k8s.io/component-base/logs/api/v1"
 	_ "k8s.io/component-base/logs/json/register"
@@ -87,60 +85,56 @@ func init() {
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 
-type cliFlags struct {
-	metricsAddr                    string
-	pprofBindAddr                  string
-	enableLeaderElection           bool
-	insecureMetrics                bool
-	enableHTTP2                    bool
-	probeAddr                      string
-	dmsImage                       string
-	imagePullSecrets               string
-	bfbPVC                         string
-	dmsTimeout                     int
-	dmsPodTimeout                  time.Duration
-	syncPeriod                     time.Duration
-	dpuInstallInterface            string
-	bfCFGTemplateFile              string
-	bfbRegistry                    string
-	concurrency                    int
-	customCASecretName             string
-	dmsPodEnvs                     []string
-	maxDPUParallelInstallations    int32
-	enableDpuDiscovery             bool
-	multiDPUOperationsSyncWaitTime time.Duration
-	maxUnavailableDPUNodes         int32
-}
+func main() {
+	var metricsAddr string
+	var pprofBindAddr string
+	var enableLeaderElection bool
+	var insecureMetrics bool
+	var enableHTTP2 bool
+	var probeAddr string
+	var dmsImage string
+	var imagePullSecrets string
+	var bfbPVC string
+	var dmsTimeout int
+	var dmsPodTimeout time.Duration
+	var syncPeriod time.Duration
+	var dpuInstallInterface string
+	var bfCFGTemplateFile string
+	var bfbRegistry string
+	var concurrency int
+	var customCASecretName string
+	var dmsPodEnvs []string
+	var maxDPUParallelInstallations int32
+	var enableDpuDiscovery bool
+	var multiDPUOperationsSyncWaitTime time.Duration
+	var maxUnavailableDPUNodes int32
 
-func parseFlags() *cliFlags {
-	flags := &cliFlags{}
-
-	fs.StringVar(&flags.metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-	fs.StringVar(&flags.probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	fs.StringVar(&flags.pprofBindAddr, "pprof-bind-address", "", "The address the pprof endpoint binds to.")
-	fs.BoolVar(&flags.enableLeaderElection, "leader-elect", false,
+	fs.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
+	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	fs.StringVar(&pprofBindAddr, "pprof-bind-address", "", "The address the pprof endpoint binds to.")
+	fs.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	fs.BoolVar(&flags.insecureMetrics, "insecure-metrics", false,
+	fs.BoolVar(&insecureMetrics, "insecure-metrics", false,
 		"If set the metrics endpoint is served insecure without AuthN/AuthZ.")
-	fs.BoolVar(&flags.enableHTTP2, "enable-http2", false,
+	fs.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	fs.StringVar(&flags.dmsImage, "dms-image", "", "The image for DMS pod.")
-	fs.StringVar(&flags.imagePullSecrets, "image-pull-secrets", "", "The image pull secrets for pods deployed by this controller.")
-	fs.StringVar(&flags.bfbPVC, "bfb-pvc", "", "The pvc to storage bfb.")
-	fs.IntVar(&flags.dmsTimeout, "dms-timeout", 900, "The max timeout execution in seconds of a command if not responding, 0 is unlimited.")
-	fs.DurationVar(&flags.dmsPodTimeout, "dms-pod-timeout", 5*time.Minute, "Timeout for DMS pods")
-	fs.DurationVar(&flags.syncPeriod, "sync-period", 10*time.Minute, "The minimum interval at which watched resources are reconciled.")
-	fs.IntVar(&flags.concurrency, "concurrency", 1, "Number of objects to process simultaneously by each controller.")
-	fs.StringVar(&flags.dpuInstallInterface, "dpu-install-interface", string(provisioningv1.InstallViaHostAgent), "the interface used to provision DPUs")
-	fs.StringVar(&flags.bfCFGTemplateFile, "bf-cfg-template-file", "", "A custom bf.cfg template used as part of DPU provisioning.")
-	fs.StringVar(&flags.bfbRegistry, "bfb-registry", "", "hostname of the BFB registry from which BFBs are downloaded")
-	fs.StringVar(&flags.customCASecretName, "custom-CA-secret", "", "the secret object which containing the custom CA certificate")
-	fs.StringSliceVar(&flags.dmsPodEnvs, "dms-pod-envs", []string{}, "environment variables to set in the DMS pod")
-	fs.Int32Var(&flags.maxDPUParallelInstallations, "max-dpu-parallel-installations", 50, "The maximum number of DPUs that can be in provisioning at once")
-	fs.BoolVar(&flags.enableDpuDiscovery, "enable-dpu-discovery", true, "Enable autmated DPU discovery")
-	fs.DurationVar(&flags.multiDPUOperationsSyncWaitTime, "multi-dpu-operations-sync-wait-time", 30*time.Second, "The wait time between DPUs sync operations on the same node")
-	fs.Int32Var(&flags.maxUnavailableDPUNodes, "max-unavailable-dpu-nodes", 50, "The maximum number of DPUNodes that are unavailable during the node effect period")
+	fs.StringVar(&dmsImage, "dms-image", "", "The image for DMS pod.")
+	fs.StringVar(&imagePullSecrets, "image-pull-secrets", "", "The image pull secrets for pods deployed by this controller.")
+	fs.StringVar(&bfbPVC, "bfb-pvc", "", "The pvc to storage bfb.")
+	fs.IntVar(&dmsTimeout, "dms-timeout", 900, "The max timeout execution in seconds of a command if not responding, 0 is unlimited.")
+	fs.DurationVar(&dmsPodTimeout, "dms-pod-timeout", 5*time.Minute, "Timeout for DMS pods")
+	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute, "The minimum interval at which watched resources are reconciled.")
+	fs.IntVar(&concurrency, "concurrency", 1, "Number of objects to process simultaneously by each controller.")
+	fs.StringVar(&dpuInstallInterface, "dpu-install-interface", string(provisioningv1.InstallViaHostAgent), "the interface used to provision DPUs")
+	fs.StringVar(&bfCFGTemplateFile, "bf-cfg-template-file", "", "A custom bf.cfg template used as part of DPU provisioning.")
+	fs.StringVar(&bfbRegistry, "bfb-registry", "", "hostname of the BFB registry from which BFBs are downloaded")
+	fs.StringVar(&customCASecretName, "custom-CA-secret", "", "the secret object which containing the custom CA certificate")
+	fs.StringSliceVar(&dmsPodEnvs, "dms-pod-envs", []string{}, "environment variables to set in the DMS pod")
+	fs.Int32Var(&maxDPUParallelInstallations, "max-dpu-parallel-installations", 50, "The maximum number of DPUs that can be in provisioning at once")
+	fs.BoolVar(&enableDpuDiscovery, "enable-dpu-discovery", true, "Enable autmated DPU discovery")
+	fs.DurationVar(&multiDPUOperationsSyncWaitTime, "multi-dpu-operations-sync-wait-time", 30*time.Second, "The wait time between DPUs sync operations on the same node")
+	fs.Int32Var(&maxUnavailableDPUNodes, "max-unavailable-dpu-nodes", 50, "The maximum number of DPUNodes that are unavailable during the node effect period")
 
 	logsv1.AddFlags(logOptions, fs)
 
@@ -151,10 +145,6 @@ func parseFlags() *cliFlags {
 	}
 	ctrl.SetLogger(klog.Background())
 
-	return flags
-}
-
-func createManager(flags *cliFlags) (ctrl.Manager, *rest.Config) {
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
 	// prevent from being vulnerable to the HTTP/2 Stream Cancelation and
@@ -167,7 +157,7 @@ func createManager(flags *cliFlags) (ctrl.Manager, *rest.Config) {
 	}
 
 	tlsOpts := []func(*tls.Config){}
-	if !flags.enableHTTP2 {
+	if !enableHTTP2 {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
@@ -176,11 +166,11 @@ func createManager(flags *cliFlags) (ctrl.Manager, *rest.Config) {
 	})
 
 	metricsOpts := metricsserver.Options{
-		BindAddress:    flags.metricsAddr,
+		BindAddress:    metricsAddr,
 		SecureServing:  true,
 		FilterProvider: filters.WithAuthenticationAndAuthorization,
 	}
-	if flags.insecureMetrics {
+	if insecureMetrics {
 		metricsOpts.SecureServing = false
 		metricsOpts.FilterProvider = nil
 	}
@@ -190,20 +180,26 @@ func createManager(flags *cliFlags) (ctrl.Manager, *rest.Config) {
 		Scheme:                 scheme,
 		Metrics:                metricsOpts,
 		WebhookServer:          webhookServer,
-		HealthProbeBindAddress: flags.probeAddr,
+		HealthProbeBindAddress: probeAddr,
 		Client: client.Options{
 			Cache: &client.CacheOptions{
+				// Don't cache Secrets and ConfigMaps. In general, the
+				// controller-runtime client does a LIST and WATCH to cache
+				// kinds you request (see https://github.com/kubernetes-sigs/controller-runtime/pull/1249),
+				// and this can mean caching all secrets and configmaps; when
+				// all that's required is the few that are referenced for
+				// objects of interest to the controllers.
 				DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}},
 			},
 		},
 		Cache: cache.Options{
-			SyncPeriod: &flags.syncPeriod,
+			SyncPeriod: &syncPeriod,
 		},
-		PprofBindAddress: flags.pprofBindAddr,
+		PprofBindAddress: pprofBindAddr,
 		Controller: config.Controller{
-			MaxConcurrentReconciles: flags.concurrency,
+			MaxConcurrentReconciles: concurrency,
 		},
-		LeaderElection:   flags.enableLeaderElection,
+		LeaderElection:   enableLeaderElection,
 		LeaderElectionID: "provisioning.dpu.nvidia.com",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
@@ -222,39 +218,44 @@ func createManager(flags *cliFlags) (ctrl.Manager, *rest.Config) {
 		os.Exit(1)
 	}
 
-	return mgr, clientConfig
-}
+	// imagePullSecrets should be a comma-joined list of the names of imagePullSecrets.
+	imagePullSecretsReferences := []corev1.LocalObjectReference{}
+	if imagePullSecrets != "" {
+		secretList := strings.Split(imagePullSecrets, ",")
+		for _, secret := range secretList {
+			imagePullSecretsReferences = append(imagePullSecretsReferences, corev1.LocalObjectReference{Name: secret})
+		}
+	}
 
-func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferences []corev1.LocalObjectReference) *dutil.DPUInProvisioningMap {
 	alloc := allocator.NewAllocator(mgr.GetClient())
 	dpuOptions := dutil.DPUOptions{
 		ImagePullSecrets:            imagePullSecretsReferences,
-		DPUInstallInterface:         flags.dpuInstallInterface,
-		BFCFGTemplateFile:           flags.bfCFGTemplateFile,
-		BFBRegistry:                 flags.bfbRegistry,
-		CustomCASecretName:          flags.customCASecretName,
-		MaxDPUParallelInstallations: flags.maxDPUParallelInstallations,
+		DPUInstallInterface:         dpuInstallInterface,
+		BFCFGTemplateFile:           bfCFGTemplateFile,
+		BFBRegistry:                 bfbRegistry,
+		CustomCASecretName:          customCASecretName,
+		MaxDPUParallelInstallations: maxDPUParallelInstallations,
 	}
 
 	setupLog.Info("DPU", "options", dpuOptions)
 
-	dpuMap := dutil.NewDPUInProvisioningMap(flags.maxDPUParallelInstallations)
+	dpuMap := dutil.NewDPUInProvisioningMap(maxDPUParallelInstallations)
 
-	if err := dpu.NewDPUReconciler(
+	if err = (dpu.NewDPUReconciler(
 		mgr,
 		alloc,
 		&dutil.KubeadmBootstrapTokenGenerator{Client: mgr.GetClient()},
 		&reboot.DMSPodExecUptimeChecker{},
 		dpuOptions,
 		dpuMap,
-	).SetupWithManager(mgr); err != nil {
+	)).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPU")
 		os.Exit(1)
 	}
-	if err := (&dpuset.DPUSetReconciler{
+	if err = (&dpuset.DPUSetReconciler{
 		Client: mgr.GetClient(),
 		Options: dpuset.DPUSetOptions{
-			DPUInstallInterface: flags.dpuInstallInterface,
+			DPUInstallInterface: dpuInstallInterface,
 		},
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor(dpuset.DPUSetControllerName),
@@ -262,7 +263,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferen
 		setupLog.Error(err, "unable to create controller", "controller", "DPUSet")
 		os.Exit(1)
 	}
-	if err := (&bfb.BFBReconciler{
+	if err = (&bfb.BFBReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor(bfb.BFBControllerName),
@@ -270,15 +271,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferen
 		setupLog.Error(err, "unable to create controller", "controller", "BFB")
 		os.Exit(1)
 	}
-	if err := (&bluefieldsoftware.BlueFieldSoftwareReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor(bluefieldsoftware.BlueFieldSoftwareControllerName),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "BlueFieldSoftware")
-		os.Exit(1)
-	}
-	if err := (&dpucluster.DPUClusterReconciler{
+	if err = (&dpucluster.DPUClusterReconciler{
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
 		Recorder:  mgr.GetEventRecorderFor(dpucluster.DPUClusterControllerName),
@@ -287,7 +280,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferen
 		setupLog.Error(err, "unable to create controller", "controller", "DPUCluster")
 		os.Exit(1)
 	}
-	if err := (&dpudevice.DPUDeviceReconciler{
+	if err = (&dpudevice.DPUDeviceReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
@@ -296,33 +289,33 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferen
 	}
 
 	dmsPodOptions := dnutil.HostAgentPodOptions{
-		HostAgentImageWithTag: flags.dmsImage,
+		HostAgentImageWithTag: dmsImage,
 		ImagePullSecrets:      imagePullSecretsReferences,
-		DMSTimeout:            flags.dmsTimeout,
-		DMSPodTimeout:         flags.dmsPodTimeout,
-		DMSPodEnvs:            flags.dmsPodEnvs,
-		BFBRegistryAddress:    flags.bfbRegistry,
+		DMSTimeout:            dmsTimeout,
+		DMSPodTimeout:         dmsPodTimeout,
+		DMSPodEnvs:            dmsPodEnvs,
+		BFBRegistryAddress:    bfbRegistry,
 	}
 	setupLog.Info("DPUNode", "options", dmsPodOptions)
 
-	if err := (&dpunode.NodeReconciler{
+	if err = (&dpunode.NodeReconciler{
 		Client:  mgr.GetClient(),
 		Options: dmsPodOptions,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Node")
 		os.Exit(1)
 	}
-	if err := (&dpunode.DPUNodeReconciler{
+	if err = (&dpunode.DPUNodeReconciler{
 		Client:              mgr.GetClient(),
 		Recorder:            mgr.GetEventRecorderFor(dpunode.DPUNodeControllerName),
 		Options:             dmsPodOptions,
-		DPUInstallInterface: &flags.dpuInstallInterface,
+		DPUInstallInterface: &dpuInstallInterface,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUNode")
 		os.Exit(1)
 	}
-	if flags.dpuInstallInterface == string(provisioningv1.InstallViaRedFish) && flags.enableDpuDiscovery {
-		if err := (&discovery.DPUDiscoveryReconciler{
+	if dpuInstallInterface == string(provisioningv1.InstallViaRedFish) && enableDpuDiscovery {
+		if err = (&discovery.DPUDiscoveryReconciler{
 			Client: mgr.GetClient(),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "DPUDiscovery")
@@ -331,66 +324,60 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferen
 	}
 
 	dpunodemaintenanceOptions := dpunodemaintenance.DPUNodeMaintenanceOptions{
-		MultiDPUOperationsSyncWaitTime: flags.multiDPUOperationsSyncWaitTime,
-		MaxUnavailableDPUNodes:         flags.maxUnavailableDPUNodes,
+		MultiDPUOperationsSyncWaitTime: multiDPUOperationsSyncWaitTime,
+		MaxUnavailableDPUNodes:         maxUnavailableDPUNodes,
 	}
 
 	setupLog.Info("DPUNodeMaintenance", "options", dpunodemaintenanceOptions)
 
-	if err := (&dpunodemaintenance.DPUNodeMaintenanceReconciler{
+	if err = (&dpunodemaintenance.DPUNodeMaintenanceReconciler{
 		Client:              mgr.GetClient(),
 		Recorder:            mgr.GetEventRecorderFor(dpunodemaintenance.DPUNodeMaintenanceControllerName),
-		DPUInstallInterface: &flags.dpuInstallInterface,
+		DPUInstallInterface: &dpuInstallInterface,
 		Options:             dpunodemaintenanceOptions,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUNodeMaintenance")
 		os.Exit(1)
 	}
-
-	return dpuMap
-}
-
-func setupWebhooks(mgr ctrl.Manager, dpuInstallInterface string) {
-	if err := (&provisioningwebhooks.BFB{}).SetupWebhookWithManager(mgr); err != nil {
+	if err = (&provisioningwebhooks.BFB{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "BFB")
 		os.Exit(1)
 	}
-	if err := (&provisioningwebhooks.DPUSet{}).SetupWebhookWithManager(mgr); err != nil {
+	if err = (&provisioningwebhooks.DPUSet{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "DPUSet")
 		os.Exit(1)
 	}
-	if err := (&provisioningwebhooks.DPUFlavor{
+	if err = (&provisioningwebhooks.DPUFlavor{
 		DPUInstallInterface: &dpuInstallInterface,
 	}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "DPUFlavor")
 		os.Exit(1)
 	}
-	if err := (&provisioningwebhooks.DPUDevice{
+	if err = (&provisioningwebhooks.DPUDevice{
 		Client: mgr.GetClient(),
 	}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "DPUDevice")
 		os.Exit(1)
 	}
-	if err := (&provisioningwebhooks.DPUNode{
+	if err = (&provisioningwebhooks.DPUNode{
 		Client: mgr.GetClient(),
 	}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "DPUNode")
 		os.Exit(1)
 	}
-}
 
-func setupCSRController(mgr ctrl.Manager, clientConfig *rest.Config) {
 	k8sClient := clientset.NewForConfigOrDie(clientConfig)
-	if err := (&csr.CSRReconciler{
+	if err = (&csr.CSRReconciler{
 		ClientSet:     k8sClient,
 		RuntimeClient: mgr.GetClient(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CSR")
 		os.Exit(1)
 	}
-}
 
-func setupHealthChecks(mgr ctrl.Manager, ctx context.Context) {
+	// Get the context from the signal handler
+	ctx := ctrl.SetupSignalHandler()
+
 	if err := mgr.AddHealthzCheck("healthz", health.APIConnectionCheck(ctx, mgr)); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
@@ -399,9 +386,7 @@ func setupHealthChecks(mgr ctrl.Manager, ctx context.Context) {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
-}
 
-func setupInitRunnable(mgr ctrl.Manager, dpuMap *dutil.DPUInProvisioningMap) {
 	// Initialize after the cache is running and respect manager shutdown
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		if err := dpuMap.Initialize(ctx, mgr.GetClient()); err != nil {
@@ -413,31 +398,6 @@ func setupInitRunnable(mgr ctrl.Manager, dpuMap *dutil.DPUInProvisioningMap) {
 		setupLog.Error(err, "unable to register DPUInProvisioningMap init runnable")
 		os.Exit(1)
 	}
-}
-
-func main() {
-	flags := parseFlags()
-
-	mgr, clientConfig := createManager(flags)
-
-	// imagePullSecrets should be a comma-joined list of the names of imagePullSecrets.
-	imagePullSecretsReferences := []corev1.LocalObjectReference{}
-	if flags.imagePullSecrets != "" {
-		secretList := strings.Split(flags.imagePullSecrets, ",")
-		for _, secret := range secretList {
-			imagePullSecretsReferences = append(imagePullSecretsReferences, corev1.LocalObjectReference{Name: secret})
-		}
-	}
-
-	dpuMap := setupControllers(mgr, flags, imagePullSecretsReferences)
-	setupWebhooks(mgr, flags.dpuInstallInterface)
-	setupCSRController(mgr, clientConfig)
-
-	// Get the context from the signal handler
-	ctx := ctrl.SetupSignalHandler()
-
-	setupHealthChecks(mgr, ctx)
-	setupInitRunnable(mgr, dpuMap)
 
 	// Start the manager
 	setupLog.Info("starting manager")

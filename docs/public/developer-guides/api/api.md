@@ -856,8 +856,6 @@ Package v1alpha1 contains API Schema definitions for the provisioning.dpu v1alph
 ### Resource Types
 - [BFB](#bfb)
 - [BFBList](#bfblist)
-- [BlueFieldSoftware](#bluefieldsoftware)
-- [BlueFieldSoftwareList](#bluefieldsoftwarelist)
 - [DPU](#dpu)
 - [DPUCluster](#dpucluster)
 - [DPUClusterList](#dpuclusterlist)
@@ -1031,123 +1029,6 @@ _Appears in:_
 | `doca` _string_ | DOCA version<br />Specifies the version of NVIDIA's Data Center-on-a-Chip Architecture (DOCA),<br />a platform for developing applications on DPUs |  |  |
 | `uefi` _string_ | UEFI (Unified Extensible Firmware Interface) version.<br />Indicates the UEFI firmware version, which is responsible for booting<br />the operating system and initializing hardware components |  |  |
 | `atf` _string_ | ATF (Arm Trusted Firmware) version.<br />Contains the version of ATF, which provides a secure runtime environment |  |  |
-
-
-#### BlueFieldSoftware
-
-
-
-BlueFieldSoftware is the Schema for the bluefieldsoftware API
-
-
-
-_Appears in:_
-- [BlueFieldSoftwareList](#bluefieldsoftwarelist)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
-| `kind` _string_ | `BlueFieldSoftware` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `spec` _[BlueFieldSpec](#bluefieldspec)_ |  |  |  |
-| `status` _[BlueFieldSoftwareStatus](#bluefieldsoftwarestatus)_ |  | \{ phase:Initializing \} |  |
-
-
-#### BlueFieldSoftwareList
-
-
-
-BlueFieldSoftwareList contains a list of BlueFieldSoftware
-
-
-
-
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
-| `kind` _string_ | `BlueFieldSoftwareList` | | |
-| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `items` _[BlueFieldSoftware](#bluefieldsoftware) array_ |  |  |  |
-
-
-#### BlueFieldSoftwarePhase
-
-_Underlying type:_ _string_
-
-BlueFieldSoftwarePhase describes current state of BlueFieldSoftware CR.
-Only one of the following state may be specified.
-Default is Initializing.
-
-_Validation:_
-- Enum: [Initializing Downloading Ready Deleting Error]
-
-_Appears in:_
-- [BlueFieldSoftwareStatus](#bluefieldsoftwarestatus)
-
-| Field | Description |
-| --- | --- |
-| `Initializing` | BlueFieldSoftware CR is created<br /> |
-| `Downloading` | Downloading BlueFieldSoftware components<br /> |
-| `Ready` | Finished downloading BlueFieldSoftware components, ready for DPU to use<br /> |
-| `Deleting` | Delete BlueFieldSoftware<br /> |
-| `Error` | Error happens during BlueFieldSoftware downloading<br /> |
-
-
-#### BlueFieldSoftwareStatus
-
-
-
-BlueFieldSoftwareStatus defines the observed state of BlueFieldSoftware
-
-
-
-_Appears in:_
-- [BlueFieldSoftware](#bluefieldsoftware)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `phase` _[BlueFieldSoftwarePhase](#bluefieldsoftwarephase)_ | The current state of BlueFieldSoftware. | Initializing | Enum: [Initializing Downloading Ready Deleting Error] <br /> |
-| `versions` _[BluefieldSoftwareVersions](#bluefieldsoftwareversions)_ | Versions tracks the versions of the components |  |  |
-| `downloadedComponents` _[DownloadedComponents](#downloadedcomponents)_ | DownloadedComponents tracks which components have been successfully downloaded |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represent the latest available observations of BlueFieldSoftware state |  |  |
-
-
-#### BlueFieldSpec
-
-
-
-
-
-
-
-_Appears in:_
-- [BlueFieldSoftware](#bluefieldsoftware)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `pldmFwBundle` _string_ |  |  |  |
-| `osIso` _string_ |  |  |  |
-| `tmpFwComponents` _[TmpFwComponents](#tmpfwcomponents)_ |  |  |  |
-
-
-#### BluefieldSoftwareVersions
-
-
-
-BluefieldSoftwareVersions defines the versions of various software components for a Bluefield device.
-
-
-
-_Appears in:_
-- [BlueFieldSoftwareStatus](#bluefieldsoftwarestatus)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `fwBundleVersion` _string_ |  |  |  |
-| `osISOVersion` _string_ |  |  |  |
-| `tmpFwComponentsVersions` _[TmpFwComponentsVersions](#tmpfwcomponentsversions)_ |  |  |  |
 
 
 #### ClusterEndpointSpec
@@ -2003,7 +1884,6 @@ _Appears in:_
 | `dpuNodeName` _string_ | Specifies the DPUNode this DPU belongs to |  |  |
 | `dpuDeviceName` _string_ | Specifies the name of the DPUDevice this DPU is associated with |  | MinLength: 1 <br /> |
 | `bfb` _string_ | Specifies name of the bfb CR to use for this DPU |  |  |
-| `blueFieldSoftware` _string_ | Specifies the name of the BlueFieldSoftware CR to use for this DPU |  |  |
 | `serialNumber` _string_ | The serial number of the DPU |  | MinLength: 1 <br /> |
 | `pciAddress` _string_ | The PCI device related DPU<br />Example: "0000-03-00", "03-00" |  | Pattern: `^([0-9a-fA-F]\{4\}[-])?[0-9a-fA-F]\{2\}[-][0-9a-fA-F]\{2\}$` <br /> |
 | `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} |  |
@@ -2097,28 +1977,6 @@ _Appears in:_
 | `BlueField2` |  |
 | `BlueField3` |  |
 | `BlueField4` |  |
-
-
-#### DownloadedComponents
-
-
-
-DownloadedComponents tracks which components have been downloaded
-
-
-
-_Appears in:_
-- [BlueFieldSoftwareStatus](#bluefieldsoftwarestatus)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `pldmFWBundle` _string_ |  |  |  |
-| `osIso` _string_ |  |  |  |
-| `bmcErot` _string_ |  |  |  |
-| `bmcFW` _string_ |  |  |  |
-| `astraNicFw` _string_ |  |  |  |
-| `graceErot` _string_ |  |  |  |
-| `graceFw` _string_ |  |  |  |
 
 
 #### DpuModeType
@@ -2404,46 +2262,6 @@ _Appears in:_
 | --- | --- |
 | `OnDelete` | New DPU CR will only be created when you manually delete old DPU CR.<br /> |
 | `RollingUpdate` | Gradually scale down the old DPUs and scale up the new one.<br /> |
-
-
-#### TmpFwComponents
-
-
-
-
-
-
-
-_Appears in:_
-- [BlueFieldSpec](#bluefieldspec)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `bmcErot` _string_ |  |  |  |
-| `bmcFw` _string_ |  |  |  |
-| `astraNicFw` _string_ |  |  |  |
-| `graceErot` _string_ |  |  |  |
-| `graceFw` _string_ |  |  |  |
-
-
-#### TmpFwComponentsVersions
-
-
-
-
-
-
-
-_Appears in:_
-- [BluefieldSoftwareVersions](#bluefieldsoftwareversions)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `bmcErotVersion` _string_ |  |  |  |
-| `bmcFwVersion` _string_ |  |  |  |
-| `astraNicFwVersion` _string_ |  |  |  |
-| `graceErotVersion` _string_ |  |  |  |
-| `graceFwVersion` _string_ |  |  |  |
 
 
 #### UpgradePolicy
