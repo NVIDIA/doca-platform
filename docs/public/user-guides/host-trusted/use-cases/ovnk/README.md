@@ -127,7 +127,7 @@ export HELM_REGISTRY_REPO_URL=https://helm.ngc.nvidia.com/nvidia/doca
 export OVN_KUBERNETES_REPO_URL=oci://ghcr.io/mellanox/charts
 
 # OVN-Kubernetes chart tag
-export OVN_KUBERNETES_CHART_TAG=v0.1.0-latest
+export OVN_KUBERNETES_CHART_TAG=v26.1.27-ad5189a
 
 ## POD_CIDR is the CIDR used for pods in the target Kubernetes cluster.
 export POD_CIDR=10.233.64.0/18
@@ -168,7 +168,7 @@ kubectl create ns ovn-kubernetes
 
 Install the OVN Kubernetes CNI components from the helm chart. A number of [environment variables](#0-required-variables) must be set before running this command.
 ```shell
-envsubst < manifests/01-cni-installation/helm-values/ovn-kubernetes.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version $TAG --values -
+envsubst < manifests/01-cni-installation/helm-values/ovn-kubernetes.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version ${OVN_KUBERNETES_CHART_TAG} --values -
 ```
 
 <details markdown="1"><summary>OVN-Kubernetes Helm values</summary>
@@ -437,7 +437,7 @@ operator:
 The OVN Kubernetes resource injection webhook injected each pod scheduled to a worker node with a request for a VF and a Network Attachment Definition. This webhook is part of the same helm chart as the other components of the OVN Kubernetes CNI. Here it is installed by adjusting the existing helm installation to add the webhook component to the installation. 
 
 ```shell
-envsubst < manifests/04-enable-accelerated-cni/helm-values/ovn-kubernetes.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes-resource-injector ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version $TAG --values -
+envsubst < manifests/04-enable-accelerated-cni/helm-values/ovn-kubernetes.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes-resource-injector ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version ${OVN_KUBERNETES_CHART_TAG} --values -
 ```
 
 <details markdown="1"><summary>OVN Kubernetes Resource Injector Helm values</summary>
