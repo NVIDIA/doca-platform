@@ -24,7 +24,7 @@ are set before running this command.
 
 
 ```shell
-envsubst < manifests/01-cni-installation/ovn-kubernetes_secondary_network.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version $TAG --values -
+envsubst < manifests/01-cni-installation/ovn-kubernetes_secondary_network.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version ${OVN_KUBERNETES_CHART_TAG} --values -
 ```
 
 <details markdown="1"><summary>OVN-Kubernetes Helm values</summary>
