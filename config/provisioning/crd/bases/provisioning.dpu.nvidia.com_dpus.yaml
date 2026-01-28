@@ -54,10 +54,6 @@ spec:
               bfb:
                 description: Specifies name of the bfb CR to use for this DPU
                 type: string
-              blueFieldSoftware:
-                description: Specifies the name of the BlueFieldSoftware CR to use
-                  for this DPU
-                type: string
               bmcIP:
                 description: |-
                   BMCIP is the ip address of the DPU BMC

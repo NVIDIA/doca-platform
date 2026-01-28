@@ -234,20 +234,6 @@ func bfbObj(name string) *provisioningv1.BFB {
 	}
 	return bfb
 }
-
-func blueFieldSoftwareObj(name string) *provisioningv1.BlueFieldSoftware {
-	bfs := &provisioningv1.BlueFieldSoftware{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: testNS.Name,
-		},
-		Spec: provisioningv1.BlueFieldSpec{
-			PldmFwBundle: "https://test.com/fw-bundle.tar.gz",
-		},
-	}
-	return bfs
-}
-
 func nodeObj(name string) *corev1.Node {
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
