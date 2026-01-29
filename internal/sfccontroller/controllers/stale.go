@@ -239,7 +239,7 @@ func getSfcOvsPorts(ctx context.Context, ovs ovsutils.API) (sets.Set[string], er
 			model.Condition{
 				Field:    &port.ExternalIDs,
 				Function: ovsdb.ConditionExcludes,
-				Value:    map[string]string{"dpf-type": "physical"},
+				Value:    map[string]string{ovsutils.DPFTypeKey: ovsutils.DPFTypePhysical},
 			},
 			model.Condition{
 				Field:    &port.UUID,

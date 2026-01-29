@@ -71,6 +71,9 @@ type PortConfig struct {
 
 const (
 	InterfaceTypeInternal      = "internal"
+	DPFIDKey                   = "dpf-id"   // OVS external_ids key for DPF identifier
+	DPFTypeKey                 = "dpf-type" // OVS external_ids key for DPF type
+	DPFTypePhysical            = "physical" // Physical port type value
 	errMsgFailedToCreatePort   = "failed to create port %s: %v"
 	errMsgFailedToCreateBridge = "failed to create bridge %s: %v"
 )

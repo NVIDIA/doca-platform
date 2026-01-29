@@ -255,7 +255,7 @@ var _ = Describe("service interface controller", func() {
 					ovsMock.EXPECT().SetIfaceExternalIDs(
 						gomock.Any(),
 						gomock.Any(),
-						gomock.Eq(map[string]string{"dpf-id": client.ObjectKeyFromObject(si).String()}),
+						gomock.Eq(map[string]string{ovsutils.DPFIDKey: client.ObjectKeyFromObject(si).String()}),
 					).Return(nil)
 					ovsMock.EXPECT().SetPortExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				}, true),
@@ -267,7 +267,7 @@ var _ = Describe("service interface controller", func() {
 					ovsMock.EXPECT().SetIfaceExternalIDs(
 						gomock.Any(),
 						gomock.Any(),
-						gomock.Eq(map[string]string{"dpf-id": client.ObjectKeyFromObject(si).String()}),
+						gomock.Eq(map[string]string{ovsutils.DPFIDKey: client.ObjectKeyFromObject(si).String()}),
 					).Return(nil)
 					ovsMock.EXPECT().SetPortExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				}, true),
@@ -285,7 +285,7 @@ var _ = Describe("service interface controller", func() {
 						Return(nil)
 					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(nil)
-					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{"dpf-id": client.ObjectKeyFromObject(si).String()})).
+					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{ovsutils.DPFIDKey: client.ObjectKeyFromObject(si).String()})).
 						Return(nil)
 				}, true),
 			Entry("failed to add patch port",
@@ -319,7 +319,7 @@ var _ = Describe("service interface controller", func() {
 						Return(nil)
 					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(nil)
-					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{"dpf-id": client.ObjectKeyFromObject(si).String()})).
+					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{ovsutils.DPFIDKey: client.ObjectKeyFromObject(si).String()})).
 						Return(nil)
 				}, true),
 			Entry("failed to add patch port",
@@ -353,7 +353,7 @@ var _ = Describe("service interface controller", func() {
 						Return(nil)
 					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 						Return(nil)
-					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{"dpf-id": client.ObjectKeyFromObject(si).String()})).
+					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{ovsutils.DPFIDKey: client.ObjectKeyFromObject(si).String()})).
 						Return(nil)
 					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{
 						"custom-key":  "custom-value",
