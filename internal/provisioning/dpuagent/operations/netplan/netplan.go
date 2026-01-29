@@ -17,52 +17,133 @@ limitations under the License.
 package netplan
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/filesystem"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/netplan"
 
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 )
 
-type NetplanOperation struct {
+const (
+	PFMTU                   = 9216
+	hostAgentServiceAddress = "169.254.0.1:11029"
+	defaultNetplanRoot      = "/etc/netplan"
+)
+
+type CheckNetwork struct {
 }
 
-func (n *NetplanOperation) Name() string {
-	return "Setup netplan"
+func (c *CheckNetwork) Name() string {
+	return "Check Network"
 }
 
-func (n *NetplanOperation) Type() operations.OperationType {
-	return operations.RunOnce
+func (c *CheckNetwork) ConditionType() string {
+	return "NetworkChecked"
 }
 
-func (n *NetplanOperation) Execute(ctx operations.Context) error {
-	if err := createOOBTmFifoNetplanFile(ctx.InstallConfig.Mode, ctx.InstallConfig.ControlPlaneMTU); err != nil {
-		return fmt.Errorf("failed to create oo98-oob-tmfifo.yaml: %w", err)
+func (c *CheckNetwork) ShouldSkip(ctx *operations.Context) bool {
+	return false
+}
+
+func (c *CheckNetwork) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {
+	return false
+}
+
+func (c *CheckNetwork) Execute(execCtx context.Context, optCtx *operations.Context) error {
+	return optCtx.Client.HealthCheck()
+}
+
+type listPFFunc func() ([]string, error)
+
+type ConfigureNetwork struct {
+	// sysFSRoot is the root directory of the sysfs filesystem.
+	sysFSRoot        string
+	netplanRoot      string
+	applyNetplanFunc func() error
+}
+
+func (n *ConfigureNetwork) Name() string {
+	return "Configure Network"
+}
+
+func (n *ConfigureNetwork) ConditionType() string {
+	return "NetworkConfigured"
+}
+
+func (n *ConfigureNetwork) ShouldSkip(ctx *operations.Context) bool {
+	return ctx.Options.SkipNetworkConfig
+}
+
+func (n *ConfigureNetwork) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {
+	return false
+}
+
+func (n *ConfigureNetwork) Execute(execCtx context.Context, optCtx *operations.Context) error {
+	return n.configNetplan(optCtx)
+}
+
+func (n *ConfigureNetwork) configNetplan(ctx *operations.Context) error {
+	if n.netplanRoot == "" {
+		n.netplanRoot = defaultNetplanRoot
 	}
-	if err := createBrCommChNetplanFile(ctx.InstallConfig.ControlPlaneMTU); err != nil {
-		return fmt.Errorf("failed to create 99-dpf-comm-ch.yaml: %w", err)
-	}
-	if err := remove60Mlx(); err != nil {
+	if err := n.remove60Mlx(); err != nil {
 		return fmt.Errorf("failed to remove 60-mlnx.yaml: %w", err)
+	}
+	if err := n.setOOBAndRshimInterface(ctx.Options.ZeroTrustMode, ctx.Options.ControlPlaneMTU); err != nil {
+		return fmt.Errorf("failed to create 98-oob-tmfifo.yaml: %w", err)
+	}
+	if !ctx.Options.ZeroTrustMode {
+		if err := n.setBridgeCommCh(ctx.Options.ControlPlaneMTU); err != nil {
+			return fmt.Errorf("failed to create 99-dpf-comm-ch.yaml: %w", err)
+		}
+	}
+	pfs, err := n.listPFsFromSysfs()()
+	if err != nil {
+		return fmt.Errorf("failed to list PFs: %w", err)
+	}
+	if err := n.setPFMTU(pfs); err != nil {
+		return fmt.Errorf("failed to create 97-pf-mtu.yaml: %w", err)
+	}
+	klog.Infof("Successfully created all netplan files")
+	if n.applyNetplanFunc == nil {
+		n.applyNetplanFunc = runNetplanApply
+	}
+	if err := n.applyNetplanFunc(); err != nil {
+		return fmt.Errorf("failed to apply netplan: %w", err)
 	}
 	return nil
 }
 
-func remove60Mlx() error {
-	name := "/etc/netplan/60-mlnx.yaml"
-	return filesystem.Remove(name)
+func (n *ConfigureNetwork) remove60Mlx() error {
+	name := filepath.Join(n.netplanRoot, "60-mlnx.yaml")
+	if err := filesystem.Remove(name); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
-func createOOBTmFifoNetplanFile(mode operations.InstallMode, cpMTU int32) error {
-	name := "/etc/netplan/98-oob-tmfifo.yaml"
+func (n *ConfigureNetwork) setOOBAndRshimInterface(zeroTrustMode bool, cpMTU int32) error {
+	name := filepath.Join(n.netplanRoot, "98-oob-tmfifo.yaml")
 	oob := netplan.Ethernet{}
-	if mode == operations.ZeroTrustMode {
+	if zeroTrustMode {
 		oob.DHCP4 = ptr.To(true)
 		oob.MTU = ptr.To(cpMTU)
 	} else {
 		oob.DHCP4 = ptr.To(false)
+		oob.DHCP6 = ptr.To(false)
+		oob.LinkLocal = ptr.To([]string{})
+		oob.Optional = ptr.To(true)
 	}
 
 	tmFifo := netplan.Ethernet{
@@ -83,8 +164,8 @@ func createOOBTmFifoNetplanFile(mode operations.InstallMode, cpMTU int32) error 
 	return config.WriteToFile(name)
 }
 
-func createBrCommChNetplanFile(cpMTU int32) error {
-	name := "/etc/netplan/99-dpf-comm-ch.yaml"
+func (n *ConfigureNetwork) setBridgeCommCh(cpMTU int32) error {
+	name := filepath.Join(n.netplanRoot, "99-dpf-comm-ch.yaml")
 	config := &netplan.Config{
 		Network: netplan.Network{
 			Version:  2,
@@ -106,4 +187,54 @@ func createBrCommChNetplanFile(cpMTU int32) error {
 		},
 	}
 	return config.WriteToFile(name)
+}
+
+func (n *ConfigureNetwork) setPFMTU(pfs []string) error {
+	name := filepath.Join(n.netplanRoot, "97-pf-mtu.yaml")
+	config := &netplan.Config{
+		Network: netplan.Network{
+			Version:  2,
+			Renderer: "networkd",
+		},
+	}
+	for _, pf := range pfs {
+		if config.Network.Ethernets == nil {
+			config.Network.Ethernets = make(map[string]netplan.Ethernet)
+		}
+		config.Network.Ethernets[pf] = netplan.Ethernet{
+			MTU: ptr.To(int32(PFMTU)),
+		}
+	}
+	return config.WriteToFile(name)
+}
+
+func (n *ConfigureNetwork) listPFsFromSysfs() listPFFunc {
+	if n.sysFSRoot == "" {
+		n.sysFSRoot = hostutil.SysFSRoot
+	}
+	return func() ([]string, error) {
+		pfs := []string{}
+		devs, err := hostutil.DiscoverDPUs(n.sysFSRoot)
+		if err != nil {
+			return nil, fmt.Errorf("failed to discover DPUs: %w", err)
+		}
+		if len(devs) == 0 {
+			return nil, fmt.Errorf("no DPUs found")
+		} else if len(devs) > 1 {
+			return nil, fmt.Errorf("multiple DPUs found")
+		}
+		dev := devs[0]
+		for i := 0; i < dev.NumOfPFs; i++ {
+			pfs = append(pfs, fmt.Sprintf("p%d", i), fmt.Sprintf("pf%dhpf", i))
+		}
+		return pfs, nil
+	}
+}
+
+func runNetplanApply() error {
+	stdout, stderr, err := bash.Run("netplan apply")
+	if err != nil {
+		return fmt.Errorf("failed to apply netplan: %w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
+	}
+	return nil
 }

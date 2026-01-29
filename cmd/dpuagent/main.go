@@ -19,55 +19,65 @@ limitations under the License.
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client/trustedhost"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client/zerotrust"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 
 	"github.com/spf13/pflag"
-	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/yaml"
-)
-
-const (
-	DPFDir = "/opt/dpf"
-)
-
-var (
-	kubeconfig        string
-	dpuflavorPath     string
-	installConfigPath string
 )
 
 func main() {
 	defer klog.Flush()
 
-	pflag.StringVar(&kubeconfig, "kubeconfig", filepath.Join(DPFDir, "kubeconfig"), "Path to the kubeconfig file")
-	pflag.StringVar(&dpuflavorPath, "dpuflavor", filepath.Join(DPFDir, "dpuflavor.yaml"), "Path to the DPU flavor file")
-	pflag.StringVar(&installConfigPath, "config", filepath.Join(DPFDir, "install.config"), "Path to the install config file")
+	options := opts.Options{}
+	pflag.BoolVar(&options.ZeroTrustMode, "zero-trust-mode", false, "Enable zero trust mode")
+	pflag.Int32Var(&options.ControlPlaneMTU, "control-plane-mtu", 1500, "Control plane MTU")
+	pflag.StringVar(&options.Kubeconfig, "kubeconfig", "", "Path to the kubeconfig file")
+	pflag.StringVar(&options.DPUName, "dpu-name", "", "Name of the DPU")
+	pflag.StringVar(&options.DPUNamespace, "dpu-namespace", "", "Namespace of the DPU")
+	pflag.StringVar(&options.DPUFlavor, "dpuflavor", "", "Path to the DPU flavor YAML file")
+	pflag.StringVar(&options.KubeadmSecretName, "kubeadm-secret-name", "", "Name of the Secret containing the Kubeadm join command")
+	pflag.StringVar(&options.KubeadmSecretNamespace, "kubeadm-secret-namespace", "", "Namespace of the Secret containing the Kubeadm join command")
+	pflag.BoolVar(&options.SkipSysctl, "skip-sysctl", false, "Skip sysctl configuration")
+	pflag.BoolVar(&options.SkipNetworkConfig, "skip-network-config", false, "Skip network configuration")
+	pflag.BoolVar(&options.SkipDNSConfig, "skip-dns-config", false, "Skip DNS configuration")
+	pflag.BoolVar(&options.SkipContainerdConfigration, "skip-containerd-config", false, "Skip containerd configuration")
+	pflag.BoolVar(&options.SkipSFConfig, "skip-sf-config", false, "Skip SF configuration")
+	pflag.BoolVar(&options.SkipVFMac, "skip-vf-mac", false, "Skip VF MAC configuration")
+	pflag.BoolVar(&options.SkipOVSRawScript, "skip-ovs-raw-script", false, "Skip OVS raw script configuration")
+	pflag.BoolVar(&options.SkipKernelCmdLine, "skip-kernel-cmd-line", false, "Skip kernel cmd line configuration")
 	pflag.Parse()
 
-	client := buildClientOrDie(kubeconfig)
-	dpuFlavor := &provisioningv1.DPUFlavor{}
-	parseFileOrDie(dpuflavorPath, YamlParserFunc, dpuFlavor)
-	installConfig := &operations.InstallConfig{}
-	parseFileOrDie(installConfigPath, JSONParserFunc, installConfig)
-
-	ctx := operations.Context{
-		Client:        client,
-		DPUFlavor:     *dpuFlavor,
-		InstallConfig: *installConfig,
+	if err := options.Validate(); err != nil {
+		klog.Errorf("failed to validate options: %v", err)
+		os.Exit(1)
 	}
-	if err := dpuagent.NewDPUAgent(ctx).Run(); err != nil {
+
+	dpuFlavor := &provisioningv1.DPUFlavor{}
+	parseFileOrDie(options.DPUFlavor, YamlParserFunc, dpuFlavor)
+
+	var client client.Client
+	if options.ZeroTrustMode {
+		client = zerotrust.NewZerotrustClient(options.Kubeconfig, options.DPUName, options.DPUNamespace)
+	} else {
+		client = trustedhost.NewTrustedhostClient(options.DPUName, options.DPUNamespace)
+	}
+	optCtx := &operations.Context{
+		Client:    client,
+		DPUFlavor: *dpuFlavor,
+		Options:   options,
+	}
+	if err := dpuagent.NewDPUAgent(optCtx).Run(ctrl.SetupSignalHandler()); err != nil {
 		klog.Fatalf("failed to run DPU agent: %v", err)
 	}
 	klog.Info("Successfully ran DPU agent")
@@ -76,8 +86,6 @@ func main() {
 type ParseFunc func(data []byte, obj interface{}) error
 
 func YamlParserFunc(data []byte, obj interface{}) error { return yaml.Unmarshal(data, obj) }
-
-func JSONParserFunc(data []byte, obj interface{}) error { return json.Unmarshal(data, obj) }
 
 func parseFile(name string, parse ParseFunc, obj interface{}) error {
 	data, err := os.ReadFile(name)
@@ -95,19 +103,4 @@ func parseFileOrDie(name string, parse ParseFunc, obj interface{}) {
 	if err != nil {
 		klog.Fatalf("failed to parse file %s: %v", name, err)
 	}
-}
-
-func buildClientOrDie(kubeconfig string) client.Client {
-	scheme := runtime.NewScheme()
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(provisioningv1.AddToScheme(scheme))
-	clientCfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-	if err != nil {
-		klog.Fatalf("failed to build client config: %v", err)
-	}
-	unCachedClient, err := client.New(clientCfg, client.Options{Scheme: scheme})
-	if err != nil {
-		klog.Fatalf("failed to create un-cached client: %v", err)
-	}
-	return unCachedClient
 }
