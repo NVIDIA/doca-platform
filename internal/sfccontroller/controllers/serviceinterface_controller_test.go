@@ -112,6 +112,42 @@ var _ = Describe("service interface controller", func() {
 		},
 	}
 
+	patchIfaceSpecWithEmptyPeerExternalIDs := dpuservicev1.ServiceInterfaceSpec{
+		Node:          &testNodeName,
+		InterfaceType: dpuservicev1.InterfaceTypePatch,
+		Patch: &dpuservicev1.PatchDef{
+			PeerBridge:      peerBridge,
+			PeerPatchName:   &peerPatchName,
+			PeerExternalIDs: map[string]string{},
+		},
+	}
+
+	patchIfaceSpecWithReservedDPFID := dpuservicev1.ServiceInterfaceSpec{
+		Node:          &testNodeName,
+		InterfaceType: dpuservicev1.InterfaceTypePatch,
+		Patch: &dpuservicev1.PatchDef{
+			PeerBridge:    peerBridge,
+			PeerPatchName: &peerPatchName,
+			PeerExternalIDs: map[string]string{
+				"dpf-id":     "user-provided-value",
+				"custom-key": "custom-value",
+			},
+		},
+	}
+
+	patchIfaceSpecWithEmptyDPFID := dpuservicev1.ServiceInterfaceSpec{
+		Node:          &testNodeName,
+		InterfaceType: dpuservicev1.InterfaceTypePatch,
+		Patch: &dpuservicev1.PatchDef{
+			PeerBridge:    peerBridge,
+			PeerPatchName: &peerPatchName,
+			PeerExternalIDs: map[string]string{
+				"dpf-id":     "",
+				"custom-key": "custom-value",
+			},
+		},
+	}
+
 	pfIfaceSpec := dpuservicev1.ServiceInterfaceSpec{
 		Node:          &testNodeName,
 		InterfaceType: dpuservicev1.InterfaceTypePF,
@@ -321,6 +357,8 @@ var _ = Describe("service interface controller", func() {
 						Return(nil)
 					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{ovsutils.DPFIDKey: client.ObjectKeyFromObject(si).String()})).
 						Return(nil)
+					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{"dpf-id": client.ObjectKeyFromObject(si).String()})).
+						Return(nil)
 				}, true),
 			Entry("failed to add patch port",
 				patchIfaceSpec,
@@ -356,11 +394,23 @@ var _ = Describe("service interface controller", func() {
 					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{ovsutils.DPFIDKey: client.ObjectKeyFromObject(si).String()})).
 						Return(nil)
 					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{
+						"dpf-id":      client.ObjectKeyFromObject(si).String(),
 						"custom-key":  "custom-value",
 						"another-key": "another-value",
 					})).
 						Return(nil)
 				}, true),
+			Entry("success patch interface with empty PeerExternalIDs map",
+				patchIfaceSpecWithEmptyPeerExternalIDs,
+				func() {
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).Return(nil)
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).Return(nil)
+					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{"dpf-id": client.ObjectKeyFromObject(si).String()})).
+						Return(nil)
+					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{"dpf-id": client.ObjectKeyFromObject(si).String()})).
+						Return(nil)
+				},
+				true),
 			Entry("failed to set peer external ids",
 				patchIfaceSpecWithPeerExternalIDs,
 				func() {
@@ -373,6 +423,14 @@ var _ = Describe("service interface controller", func() {
 					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Any()).
 						Return(errors.New("failed to set peer external ids"))
 				}, false),
+			Entry("reject patch interface when user sets dpf-id in peer external IDs",
+				patchIfaceSpecWithReservedDPFID,
+				func() {},
+				false),
+			Entry("reject patch interface when user sets empty dpf-id in peer external IDs",
+				patchIfaceSpecWithEmptyDPFID,
+				func() {},
+				false),
 			Entry("nothing to do for vlan type interface",
 				vlanIfaceSpec,
 				func() {},
