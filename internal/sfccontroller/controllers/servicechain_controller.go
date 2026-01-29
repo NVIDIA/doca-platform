@@ -116,7 +116,7 @@ func findInterface(ctx context.Context, ovs ovsutils.API, condition string) (str
 	// Get doesn't work for ExternalIDs field
 	var ifaces []ovsmodel.Interface
 	iface := &ovsmodel.Interface{
-		ExternalIDs: map[string]string{"dpf-id": condition},
+		ExternalIDs: map[string]string{ovsutils.DPFIDKey: condition},
 	}
 	err := ovs.WhereAll(
 		iface,
