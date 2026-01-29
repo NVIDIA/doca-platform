@@ -307,7 +307,7 @@ func AddInterfacesToOvs(
 		log.Info("ovn bridge", "name", externalBridge)
 
 		patchPort := patchPortOptions{
-			externalIDs: map[string]string{"dpf-id": metadata},
+			externalIDs: map[string]string{ovsutils.DPFIDKey: metadata},
 		}
 		peerPatchPort := patchPortOptions{
 			externalIDs: nil,
@@ -331,7 +331,7 @@ func AddInterfacesToOvs(
 		log.Info("peer bridge", "name", peerBridge)
 
 		patchPort := patchPortOptions{
-			externalIDs: map[string]string{"dpf-id": metadata},
+			externalIDs: map[string]string{ovsutils.DPFIDKey: metadata},
 		}
 		peerPatchPort := patchPortOptions{
 			externalIDs: serviceInterface.Spec.Patch.PeerExternalIDs,
@@ -352,9 +352,9 @@ func AddInterfacesToOvs(
 
 	if portName != "" {
 		if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypePhysical {
-			err = AddPort(ctx, ovs, portName, map[string]string{"dpf-id": metadata}, map[string]string{"dpf-type": "physical"})
+			err = AddPort(ctx, ovs, portName, map[string]string{ovsutils.DPFIDKey: metadata}, map[string]string{ovsutils.DPFTypeKey: ovsutils.DPFTypePhysical})
 		} else {
-			err = AddPort(ctx, ovs, portName, map[string]string{"dpf-id": metadata}, nil)
+			err = AddPort(ctx, ovs, portName, map[string]string{ovsutils.DPFIDKey: metadata}, nil)
 		}
 		if err != nil {
 			log.Info(fmt.Sprintf("failed to add port: %s", err.Error()))
