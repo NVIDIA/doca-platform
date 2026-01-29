@@ -42,6 +42,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
@@ -141,7 +142,9 @@ func (cm *clusterHandler) ReconcileCluster(ctx context.Context, dc *provisioning
 		conds = append(conds, *cond)
 	}
 
-	if err = cm.reconcileServiceMonitor(ctx, dc, nodePort); err != nil {
+	// TODO: add conditions for monitoring
+	err = cm.reconcileMonitoring(ctx, dc, nodePort)
+	if err != nil {
 		return "", nil, err
 	}
 
@@ -321,69 +324,56 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 	return adminKubeconfigName(dc), nodePort, cutil.NewCondition(string(provisioningv1.ConditionCreated), nil, "Created", ""), nil
 }
 
-func (cm *clusterHandler) reconcileServiceMonitor(ctx context.Context, dc *provisioningv1.DPUCluster, nodePort int32) error {
-	logger := log.FromContext(ctx)
+func (cm *clusterHandler) reconcileMonitoring(ctx context.Context, dc *provisioningv1.DPUCluster, nodePort int32) error {
 	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, cm.Client)
 	if err != nil {
 		return fmt.Errorf("get DPFOperatorConfig to verify if monitoring is enabled: %v", err)
 	}
 
-	// If monitoring is disabled, delete ServiceMonitor and Service if they exist
-	if !dpfOperatorConfig.MonitoringEnabled() {
-		return cm.reconcileDeleteServiceMonitor(ctx, dc)
+	// Delete monitoring resources if monitoring is disabled or DPUCluster is in deletion.
+	if !dpfOperatorConfig.MonitoringEnabled() || !dc.DeletionTimestamp.IsZero() {
+		return cm.reconcileDeleteMonitoring(ctx, dc)
 	}
 
-	// Return early if no ServiceMonitor CRD is found
-	if !cm.hasGVK(serviceMonitorGVK) {
-		logger.V(1).Info("ServiceMonitor CRD not found, skipping ServiceMonitor reconciliation")
-		return nil
+	var errs []error
+	if err := cm.reconcileMonitoringService(ctx, dc, nodePort); err != nil {
+		errs = append(errs, fmt.Errorf("reconcile metrics Service: %v", err))
 	}
 
-	// Deploy Kubernetes Service for metrics scraping
+	if err := cm.reconcileServiceMonitor(ctx, dc); err != nil {
+		errs = append(errs, fmt.Errorf("reconcile ServiceMonitor: %v", err))
+	}
+
+	return kerrors.NewAggregate(errs)
+}
+
+func (cm *clusterHandler) reconcileDeleteMonitoring(ctx context.Context, dc *provisioningv1.DPUCluster) error {
+	var errs []error
+	if err := cm.reconcileDeleteMonitoringService(ctx, dc); err != nil {
+		errs = append(errs, fmt.Errorf("reconcile delete metrics Service: %v", err))
+	}
+	if err := cm.reconcileDeleteServiceMonitor(ctx, dc); err != nil {
+		errs = append(errs, fmt.Errorf("reconcile delete ServiceMonitor: %v", err))
+	}
+	return kerrors.NewAggregate(errs)
+}
+
+func (cm *clusterHandler) reconcileMonitoringService(ctx context.Context, dc *provisioningv1.DPUCluster, nodePort int32) error {
+	logger := log.FromContext(ctx)
 	svc := getMetricsService(dc, nodePort)
 	logger.V(1).Info("reconciling metrics Service", "service", klog.KObj(svc))
 	owner := metav1.NewControllerRef(dc, provisioningv1.DPUClusterGroupVersionKind)
 	svc.SetOwnerReferences([]metav1.OwnerReference{*owner})
-	err = cm.Client.Patch(ctx, svc, client.Apply, client.FieldOwner("kamaji-cluster-manager"), client.ForceOwnership)
+	err := cm.Client.Patch(ctx, svc, client.Apply, client.FieldOwner("kamaji-cluster-manager"), client.ForceOwnership)
 	if err != nil {
 		return fmt.Errorf("failed to update metrics Service, err: %v", err)
-	}
-
-	// Deploy ServiceMonitor resource for Prometheus scraping.
-	// This is copied from https://kamaji.clastix.io/guides/monitoring/#enable-metrics-scraping
-	sm := getServiceMonitorResource(dc, serviceMonitorGVK)
-	logger.V(1).Info("reconciling ServiceMonitor", "servicemonitor", klog.KObj(sm))
-	sm.SetOwnerReferences([]metav1.OwnerReference{*owner})
-	err = cm.Client.Patch(ctx, sm, client.Apply, client.FieldOwner("kamaji-cluster-manager"), client.ForceOwnership)
-	if err != nil {
-		return fmt.Errorf("failed to update ServiceMonitor, err: %v", err)
 	}
 
 	return nil
 }
 
-func (cm *clusterHandler) reconcileDeleteServiceMonitor(ctx context.Context, dc *provisioningv1.DPUCluster) error {
+func (cm *clusterHandler) reconcileDeleteMonitoringService(ctx context.Context, dc *provisioningv1.DPUCluster) error {
 	logger := log.FromContext(ctx)
-
-	// Delete ServiceMonitor if CRD exists
-	if cm.hasGVK(serviceMonitorGVK) {
-		sm := &unstructured.Unstructured{}
-		sm.SetGroupVersionKind(serviceMonitorGVK)
-		sm.SetName(dc.GetName())
-		sm.SetNamespace(dc.GetNamespace())
-		if err := cm.Client.Get(ctx, types.NamespacedName{Namespace: sm.GetNamespace(), Name: sm.GetName()}, sm); err == nil {
-			if ownedBy(sm, dc) {
-				logger.V(1).Info("deleting ServiceMonitor because monitoring is disabled", "servicemonitor", klog.KObj(sm))
-				if err := cm.Client.Delete(ctx, sm); err != nil && !apierrors.IsNotFound(err) {
-					return fmt.Errorf("failed to delete ServiceMonitor: %v", err)
-				}
-			}
-		} else if !apierrors.IsNotFound(err) {
-			return fmt.Errorf("failed to get ServiceMonitor: %v", err)
-		}
-	}
-
-	// Delete metrics Service
 	svc := &corev1.Service{}
 	svc.SetName(fmt.Sprintf("%s-metrics", dc.GetName()))
 	svc.SetNamespace(dc.GetNamespace())
@@ -396,6 +386,55 @@ func (cm *clusterHandler) reconcileDeleteServiceMonitor(ctx context.Context, dc 
 		}
 	} else if !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to get metrics Service: %v", err)
+	}
+
+	return nil
+}
+
+func (cm *clusterHandler) reconcileServiceMonitor(ctx context.Context, dc *provisioningv1.DPUCluster) error {
+	logger := log.FromContext(ctx)
+
+	// Return early if no ServiceMonitor CRD is found
+	if !cm.hasGVK(serviceMonitorGVK) {
+		logger.V(1).Info("ServiceMonitor CRD not found, skipping ServiceMonitor reconciliation")
+		return nil
+	}
+
+	// Deploy ServiceMonitor resource for Prometheus scraping.
+	// This is copied from https://kamaji.clastix.io/guides/monitoring/#enable-metrics-scraping
+	sm := getServiceMonitorResource(dc, serviceMonitorGVK)
+	logger.V(1).Info("reconciling ServiceMonitor", "servicemonitor", klog.KObj(sm))
+	owner := metav1.NewControllerRef(dc, provisioningv1.DPUClusterGroupVersionKind)
+	sm.SetOwnerReferences([]metav1.OwnerReference{*owner})
+	err := cm.Client.Patch(ctx, sm, client.Apply, client.FieldOwner("kamaji-cluster-manager"), client.ForceOwnership)
+	if err != nil {
+		return fmt.Errorf("failed to update ServiceMonitor, err: %v", err)
+	}
+
+	return nil
+}
+
+func (cm *clusterHandler) reconcileDeleteServiceMonitor(ctx context.Context, dc *provisioningv1.DPUCluster) error {
+	logger := log.FromContext(ctx)
+
+	// Return early if no ServiceMonitor CRD is found
+	if !cm.hasGVK(serviceMonitorGVK) {
+		return nil
+	}
+
+	sm := &unstructured.Unstructured{}
+	sm.SetGroupVersionKind(serviceMonitorGVK)
+	sm.SetName(dc.GetName())
+	sm.SetNamespace(dc.GetNamespace())
+	if err := cm.Client.Get(ctx, types.NamespacedName{Namespace: sm.GetNamespace(), Name: sm.GetName()}, sm); err == nil {
+		if ownedBy(sm, dc) {
+			logger.V(1).Info("deleting ServiceMonitor because monitoring is disabled", "servicemonitor", klog.KObj(sm))
+			if err := cm.Client.Delete(ctx, sm); err != nil && !apierrors.IsNotFound(err) {
+				return fmt.Errorf("failed to delete ServiceMonitor: %v", err)
+			}
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to get ServiceMonitor: %v", err)
 	}
 
 	return nil

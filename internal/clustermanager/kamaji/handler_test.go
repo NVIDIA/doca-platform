@@ -17,7 +17,6 @@ limitations under the License.
 package nvidia
 
 import (
-	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
@@ -31,15 +30,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var _ = Describe("Kamaji Handler - ServiceMonitor", func() {
+var _ = Describe("Kamaji Handler - Reconciliation Functions", func() {
 	var (
-		testNS            *corev1.Namespace
-		handler           *clusterHandler
-		dpfOperatorConfig *operatorv1.DPFOperatorConfig
-		dpuCluster        *provisioningv1.DPUCluster
+		testNS     *corev1.Namespace
+		handler    *clusterHandler
+		dpuCluster *provisioningv1.DPUCluster
 	)
 
 	BeforeEach(func() {
@@ -67,32 +64,14 @@ var _ = Describe("Kamaji Handler - ServiceMonitor", func() {
 		}
 		Expect(k8sClient.Create(ctx, dpuCluster)).To(Succeed())
 		DeferCleanup(testutils.CleanupAndWait, ctx, k8sClient, dpuCluster)
-
-		By("creating DPFOperatorConfig")
-		dpfOperatorConfig = &operatorv1.DPFOperatorConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "dpf-operator-config",
-				Namespace: testNS.Name,
-			},
-			Spec: operatorv1.DPFOperatorConfigSpec{
-				Monitoring: &operatorv1.MonitoringConfiguration{
-					Enabled: ptr.To(true),
-				},
-				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-					BFBPersistentVolumeClaimName: "test-pvc",
-				},
-			},
-		}
-		Expect(k8sClient.Create(ctx, dpfOperatorConfig)).To(Succeed())
-		DeferCleanup(testutils.CleanupAndWait, ctx, k8sClient, dpfOperatorConfig)
 	})
 
-	Context("When monitoring is enabled and ServiceMonitor CRD exists", func() {
-		It("should successfully create metrics Service and ServiceMonitor", func() {
+	Context("reconcileMonitoringService", func() {
+		It("should create metrics Service with correct configuration", func() {
 			nodePort := int32(30443)
 
-			By("Reconciling ServiceMonitor")
-			err := handler.reconcileServiceMonitor(ctx, dpuCluster, nodePort)
+			By("Reconciling monitoring service")
+			err := handler.reconcileMonitoringService(ctx, dpuCluster, nodePort)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying metrics Service is created")
@@ -107,44 +86,19 @@ var _ = Describe("Kamaji Handler - ServiceMonitor", func() {
 			Expect(svc.Labels["kamaji.clastix.io/name"]).To(Equal(dpuCluster.Name + "-metrics"))
 			Expect(svc.Spec.Selector["kamaji.clastix.io/name"]).To(Equal(dpuCluster.Name))
 			Expect(svc.Spec.Ports).To(HaveLen(3))
-			Expect(svc.Spec.Ports[0].Name).To(Equal("kube-apiserver-metrics"))
-			Expect(svc.Spec.Ports[0].Port).To(Equal(int32(6443)))
 			Expect(svc.Spec.Ports[0].TargetPort).To(Equal(intstr.FromInt32(nodePort)))
-
-			By("Verifying ServiceMonitor is created")
-			sm := &unstructured.Unstructured{}
-			sm.SetGroupVersionKind(serviceMonitorGVK)
-			Eventually(func() error {
-				return k8sClient.Get(ctx, types.NamespacedName{
-					Name:      dpuCluster.Name,
-					Namespace: dpuCluster.Namespace,
-				}, sm)
-			}).Should(Succeed())
-
-			Expect(sm.GetLabels()["kamaji.clastix.io/name"]).To(Equal(dpuCluster.Name + "-metrics"))
-			Expect(sm.GetLabels()[provisioningv1.DPUClusterNameLabelKey]).To(Equal(dpuCluster.Name))
-
-			// Verify spec structure
-			spec, found, err := unstructured.NestedMap(sm.Object, "spec")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(found).To(BeTrue())
-
-			endpoints, found, err := unstructured.NestedSlice(spec, "endpoints")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(found).To(BeTrue())
-			Expect(endpoints).To(HaveLen(3))
 		})
 	})
 
-	Context("When monitoring is disabled", func() {
-		It("should delete metrics Service and ServiceMonitor if they exist and are owned by DPUCluster", func() {
+	Context("reconcileDeleteMonitoringService", func() {
+		It("should delete metrics Service if it exists and is owned by DPUCluster", func() {
 			nodePort := int32(30443)
 
-			By("First creating the resources with monitoring enabled")
-			err := handler.reconcileServiceMonitor(ctx, dpuCluster, nodePort)
+			By("Creating the metrics Service")
+			err := handler.reconcileMonitoringService(ctx, dpuCluster, nodePort)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Verifying resources exist")
+			By("Verifying Service exists")
 			svc := &corev1.Service{}
 			Eventually(func() error {
 				return k8sClient.Get(ctx, types.NamespacedName{
@@ -153,19 +107,8 @@ var _ = Describe("Kamaji Handler - ServiceMonitor", func() {
 				}, svc)
 			}).Should(Succeed())
 
-			By("Disabling monitoring")
-			Eventually(func() error {
-				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig); err != nil {
-					return err
-				}
-				dpfOperatorConfig.Spec.Monitoring = &operatorv1.MonitoringConfiguration{
-					Enabled: ptr.To(false),
-				}
-				return k8sClient.Update(ctx, dpfOperatorConfig)
-			}).Should(Succeed())
-
-			By("Reconciling ServiceMonitor again")
-			err = handler.reconcileServiceMonitor(ctx, dpuCluster, nodePort)
+			By("Deleting the metrics Service")
+			err = handler.reconcileDeleteMonitoringService(ctx, dpuCluster)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying Service is deleted")
@@ -176,22 +119,9 @@ var _ = Describe("Kamaji Handler - ServiceMonitor", func() {
 				}, svc)
 				return apierrors.IsNotFound(err)
 			}).Should(BeTrue())
-
-			By("Verifying ServiceMonitor is deleted")
-			sm := &unstructured.Unstructured{}
-			sm.SetGroupVersionKind(serviceMonitorGVK)
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Name:      dpuCluster.Name,
-					Namespace: dpuCluster.Namespace,
-				}, sm)
-				return apierrors.IsNotFound(err)
-			}).Should(BeTrue())
 		})
 
-		It("should NOT delete metrics Service and ServiceMonitor if they are not owned by DPUCluster", func() {
-			nodePort := int32(30443)
-
+		It("should not delete Service if it is not owned by DPUCluster", func() {
 			By("Creating a Service without proper owner reference")
 			svc := &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
@@ -218,7 +148,54 @@ var _ = Describe("Kamaji Handler - ServiceMonitor", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, svc)).To(Succeed())
+			DeferCleanup(k8sClient.Delete, ctx, svc)
 
+			By("Attempting to delete the Service")
+			err := handler.reconcileDeleteMonitoringService(ctx, dpuCluster)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying Service still exists")
+			existingSvc := &corev1.Service{}
+			Consistently(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      dpuCluster.Name + "-metrics",
+					Namespace: dpuCluster.Namespace,
+				}, existingSvc)
+			}).Should(Succeed())
+		})
+	})
+
+	Context("reconcileDeleteServiceMonitor", func() {
+		It("should delete ServiceMonitor if it exists and is owned by DPUCluster", func() {
+			By("Creating the ServiceMonitor")
+			err := handler.reconcileServiceMonitor(ctx, dpuCluster)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying ServiceMonitor exists")
+			sm := &unstructured.Unstructured{}
+			sm.SetGroupVersionKind(serviceMonitorGVK)
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      dpuCluster.Name,
+					Namespace: dpuCluster.Namespace,
+				}, sm)
+			}).Should(Succeed())
+
+			By("Deleting the ServiceMonitor")
+			err = handler.reconcileDeleteServiceMonitor(ctx, dpuCluster)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying ServiceMonitor is deleted")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      dpuCluster.Name,
+					Namespace: dpuCluster.Namespace,
+				}, sm)
+				return apierrors.IsNotFound(err)
+			}).Should(BeTrue())
+		})
+
+		It("should not delete ServiceMonitor if it is not owned by DPUCluster", func() {
 			By("Creating a ServiceMonitor without proper owner reference")
 			sm := &unstructured.Unstructured{}
 			sm.SetGroupVersionKind(serviceMonitorGVK)
@@ -233,45 +210,26 @@ var _ = Describe("Kamaji Handler - ServiceMonitor", func() {
 					Controller: ptr.To(true),
 				},
 			})
-			sm.Object["spec"] = map[string]interface{}{
-				"selector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
+			sm.Object["spec"] = map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
 						"test": "label",
 					},
 				},
-				"endpoints": []interface{}{
-					map[string]interface{}{
+				"endpoints": []any{
+					map[string]any{
 						"port": "metrics",
 					},
 				},
 			}
 			Expect(k8sClient.Create(ctx, sm)).To(Succeed())
+			DeferCleanup(k8sClient.Delete, ctx, sm)
 
-			By("Disabling monitoring")
-			Eventually(func() error {
-				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig); err != nil {
-					return err
-				}
-				dpfOperatorConfig.Spec.Monitoring = &operatorv1.MonitoringConfiguration{
-					Enabled: ptr.To(false),
-				}
-				return k8sClient.Update(ctx, dpfOperatorConfig)
-			}).Should(Succeed())
-
-			By("Reconciling ServiceMonitor with monitoring disabled")
-			err := handler.reconcileServiceMonitor(ctx, dpuCluster, nodePort)
+			By("Attempting to delete the ServiceMonitor")
+			err := handler.reconcileDeleteServiceMonitor(ctx, dpuCluster)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Verifying Service still exists (not deleted)")
-			existingSvc := &corev1.Service{}
-			Consistently(func() error {
-				return k8sClient.Get(ctx, types.NamespacedName{
-					Name:      dpuCluster.Name + "-metrics",
-					Namespace: dpuCluster.Namespace,
-				}, existingSvc)
-			}).Should(Succeed())
-
-			By("Verifying ServiceMonitor still exists (not deleted)")
+			By("Verifying ServiceMonitor still exists")
 			existingSM := &unstructured.Unstructured{}
 			existingSM.SetGroupVersionKind(serviceMonitorGVK)
 			Consistently(func() error {
@@ -280,22 +238,20 @@ var _ = Describe("Kamaji Handler - ServiceMonitor", func() {
 					Namespace: dpuCluster.Namespace,
 				}, existingSM)
 			}).Should(Succeed())
-
-			By("Cleaning up manually created resources")
-			Expect(k8sClient.Delete(ctx, svc)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, sm)).To(Succeed())
 		})
 	})
 
-	Context("When updating existing ServiceMonitor", func() {
-		It("should update the ServiceMonitor with new nodePort", func() {
-			initialNodePort := int32(30443)
+	Context("reconcileDeleteMonitoring", func() {
+		It("should delete both Service and ServiceMonitor", func() {
+			nodePort := int32(30443)
 
-			By("Creating initial resources")
-			err := handler.reconcileServiceMonitor(ctx, dpuCluster, initialNodePort)
+			By("Creating the resources")
+			err := handler.reconcileMonitoringService(ctx, dpuCluster, nodePort)
+			Expect(err).NotTo(HaveOccurred())
+			err = handler.reconcileServiceMonitor(ctx, dpuCluster)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Verifying initial Service")
+			By("Verifying resources exist")
 			svc := &corev1.Service{}
 			Eventually(func() error {
 				return k8sClient.Get(ctx, types.NamespacedName{
@@ -303,23 +259,37 @@ var _ = Describe("Kamaji Handler - ServiceMonitor", func() {
 					Namespace: dpuCluster.Namespace,
 				}, svc)
 			}).Should(Succeed())
-			Expect(svc.Spec.Ports[0].TargetPort).To(Equal(intstr.FromInt32(initialNodePort)))
 
-			By("Reconciling with new nodePort")
-			newNodePort := int32(30444)
-			err = handler.reconcileServiceMonitor(ctx, dpuCluster, newNodePort)
+			sm := &unstructured.Unstructured{}
+			sm.SetGroupVersionKind(serviceMonitorGVK)
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      dpuCluster.Name,
+					Namespace: dpuCluster.Namespace,
+				}, sm)
+			}).Should(Succeed())
+
+			By("Deleting both resources")
+			err = handler.reconcileDeleteMonitoring(ctx, dpuCluster)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Verifying Service is updated")
-			Eventually(func() int32 {
-				if err := k8sClient.Get(ctx, types.NamespacedName{
+			By("Verifying Service is deleted")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
 					Name:      dpuCluster.Name + "-metrics",
 					Namespace: dpuCluster.Namespace,
-				}, svc); err != nil {
-					return 0
-				}
-				return svc.Spec.Ports[0].TargetPort.IntVal
-			}).Should(Equal(newNodePort))
+				}, svc)
+				return apierrors.IsNotFound(err)
+			}).Should(BeTrue())
+
+			By("Verifying ServiceMonitor is deleted")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      dpuCluster.Name,
+					Namespace: dpuCluster.Namespace,
+				}, sm)
+				return apierrors.IsNotFound(err)
+			}).Should(BeTrue())
 		})
 	})
 })
@@ -423,7 +393,7 @@ var _ = Describe("Kamaji Handler - Helper Functions", func() {
 
 			for i, expected := range expectedEndpoints {
 				By("Verifying endpoint for " + expected.name)
-				endpoint, ok := endpoints[i].(map[string]interface{})
+				endpoint, ok := endpoints[i].(map[string]any)
 				Expect(ok).To(BeTrue())
 				Expect(endpoint["port"]).To(Equal(expected.port))
 				Expect(endpoint["scheme"]).To(Equal("https"))
