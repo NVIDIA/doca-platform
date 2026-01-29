@@ -17,39 +17,120 @@ limitations under the License.
 package dpuagent
 
 import (
+	"context"
 	"fmt"
+	"time"
 
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/checkbridge"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/containerd"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/dns"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/dpumode"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/grub"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/kernelmodule"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/kubelet"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/netplan"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nvconfig"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/ovsscript"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/reboot"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/sfconfig"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/staticfiles"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/sysctl"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/vfmac"
+	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 )
 
+const (
+	defaultRetryInterval = 30 * time.Second
+)
+
 type DPUAgent struct {
-	context    operations.Context
-	operations []operations.Operation
+	optCtx        *operations.Context
+	operations    []operations.Operation
+	retryInterval time.Duration
 }
 
-func NewDPUAgent(context operations.Context) *DPUAgent {
+func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 	// The DPU Agent executes operations sequentially in the order defined in the slice.
 	operations := []operations.Operation{
-		&netplan.NetplanOperation{},
-		&vfmac.VFMACOperation{},
+		&sysctl.SetParams{},
+		&sysctl.CheckParams{},
+		&kernelmodule.LoadModule{},
+		&netplan.ConfigureNetwork{},
+		&netplan.CheckNetwork{},
+		&dns.ConfigureDNS{},
+		&staticfiles.VerifyStaticFiles{},
+		&kubelet.RemoveBuiltinKubelet{},
+		&containerd.ConfigureContainerd{},
+		&dpumode.EnsureMode{},
+		&grub.ConfigureKernelCmdLine{},
+		&nvconfig.GetLatestDPU{},
+		&nvconfig.ConfigureNVConfig{},
+		&reboot.CheckHostRebootRequired{},
+		&reboot.ShutDownArm{},
+		&sfconfig.CreateSF{},
+		&vfmac.SetVFMac{},
+		&ovsscript.RunOVSScript{},
+		&checkbridge.CheckBridgeIP{},
+		&kubelet.ConfigureKubelet{},
 	}
 	return &DPUAgent{
-		context:    context,
+		optCtx:     optCtx,
 		operations: operations,
 	}
 }
 
-func (d *DPUAgent) Run() error {
-	for _, op := range d.operations {
-		// TODO: skip "run once" operations that are already executed.
-		if err := op.Execute(d.context); err != nil {
-			return fmt.Errorf("error executing operation %s: %v", op.Name(), err)
-		}
-		klog.Infof("Successfully executed operation %s", op.Name())
+func (d *DPUAgent) Run(ctx context.Context) error {
+	if d.optCtx == nil {
+		return fmt.Errorf("context is nil")
 	}
+
+	if d.retryInterval == 0 {
+		d.retryInterval = defaultRetryInterval
+	}
+	d.optCtx.Status = provisioningv1.DPUInternalStatus{
+		Conditions: []metav1.Condition{},
+	}
+	for _, op := range d.operations {
+		if op.ShouldSkip(d.optCtx) {
+			klog.Infof("Skipping operation %s", op.Name())
+			continue
+		}
+
+		// Execute the operations until success
+		_ = wait.PollUntilContextCancel(ctx, d.retryInterval, true, func(execCtx context.Context) (bool, error) {
+			err := op.Execute(execCtx, d.optCtx)
+			if err != nil {
+				klog.Errorf("[%s] Failed to execute, retrying. err: %v", op.Name(), err)
+				hostutil.NewCondition(op.ConditionType()).Failure(err, "FailedToExecute").Set(&d.optCtx.Status.Conditions)
+			} else {
+				klog.Infof("[%s] Successfully executed", op.Name())
+				hostutil.NewCondition(op.ConditionType()).Success("").Set(&d.optCtx.Status.Conditions)
+			}
+
+			if err != nil || op.ShouldUpdateStatusBeforeContinue(d.optCtx) {
+				d.updateStatusUntilSuccess(ctx)
+			}
+			return err == nil, nil
+		})
+	}
+	d.updateStatusUntilSuccess(ctx)
+	klog.Infof("DPUAgent finished")
 	return nil
+}
+
+// updateStatusUntilSuccess updates the status until success
+func (d *DPUAgent) updateStatusUntilSuccess(ctx context.Context) {
+	_ = wait.PollUntilContextCancel(ctx, 2*time.Second, true, func(updateCtx context.Context) (bool, error) {
+		if err := d.optCtx.Client.UpdateStatus(updateCtx, d.optCtx.Status); err != nil {
+			klog.Warningf("Failed to update DPU status: %v", err)
+			return false, nil
+		}
+		return true, nil
+	})
 }

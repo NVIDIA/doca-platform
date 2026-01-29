@@ -1532,7 +1532,11 @@ _Appears in:_
 | `hostNetworkInterfaceConfigs` _[NetworkInterfaceConfig](#networkinterfaceconfig) array_ | HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces. |  |  |
 
 
-#### DPUInfo
+
+
+
+
+#### DPUInternalStatus
 
 
 
@@ -1546,11 +1550,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `hostRebootRequired` _boolean_ | HostRebootRequired indicates whether the host requires a reboot after the DPU is installed |  |  |
+| `initialBootID` _string_ | InitialBootID is the boot ID of the DPU OS during the first boot |  |  |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  |  |
-
-
-
-
 
 
 #### DPUList
@@ -1919,7 +1920,7 @@ _Appears in:_
 | `postProvisioningNodeEffect` _boolean_ | Indicates that node effect was triggered by post-provisioning label changes |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 | `dpuType` _[DPUType](#dputype)_ | The type of the DPU | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br /> |
-| `dpuInfo` _[DPUInfo](#dpuinfo)_ | DPUInfo contains the information reported from inside the DPU |  |  |
+| `dpuInternalStatus` _[DPUInternalStatus](#dpuinternalstatus)_ | DPUInternalStatus contains the information reported from inside the DPU |  |  |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | The mode of the DPU | dpu | Enum: [dpu nic] <br /> |
 
 

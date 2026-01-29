@@ -17,42 +17,31 @@ limitations under the License.
 package operations
 
 import (
+	"context"
+
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client"
 )
 
-type OperationType int
-
-const (
-	RunOnce OperationType = iota
-	RunOnEachReboot
-)
-
+// Operation is the interface for all operations.
+// The same optCtx instance is passed to all operations, which can be used to pass data between operations.
+// Since the optCtx is not thread-safe, do not execute operations in parallel.
 type Operation interface {
 	Name() string
-	Type() OperationType
-	Execute(ctx Context) error
+	ConditionType() string
+	Execute(execCtx context.Context, optCtx *Context) error
+	ShouldSkip(optCtx *Context) bool
+	ShouldUpdateStatusBeforeContinue(optCtx *Context) bool
 }
 
+// Context is the context for all operations.
+// It is passed to all operations and can be used to pass data between operations.
+// Since the Context is not thread-safe, do not access it from multiple goroutines.
 type Context struct {
-	Client        client.Client
-	DPUFlavor     provisioningv1.DPUFlavor
-	InstallConfig InstallConfig
-}
-
-type InstallMode string
-
-const (
-	ZeroTrustMode   InstallMode = "zero-trust"
-	TrustedHostMode InstallMode = "trusted-host"
-)
-
-type InstallConfig struct {
-	Mode           InstallMode            `json:"mode"`
-	KubeadmJoinCmd string                 `json:"kubeadmJoinCmd"`
-	DPU            provisioningv1.DPU     `json:"dpu"`
-	DPUNode        provisioningv1.DPUNode `json:"dpuNode"`
-	// ControlPlaneMTU is populated by the provisioning controller using the value from the DPFOperatorConfig.
-	ControlPlaneMTU int32 `json:"controlPlaneMTU"`
+	Client    client.Client
+	DPUFlavor provisioningv1.DPUFlavor
+	Options   opts.Options
+	LatestDPU *provisioningv1.DPU
+	Status    provisioningv1.DPUInternalStatus
 }
