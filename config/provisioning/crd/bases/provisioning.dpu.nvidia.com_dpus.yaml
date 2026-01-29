@@ -344,9 +344,18 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self==oldSelf
-              dpuInfo:
-                description: DPUInfo contains the information reported from inside
-                  the DPU
+              dpuInstallInterface:
+                description: |-
+                  the name of the interface which will be used to install the bfb image,
+                  and communicate with DPU, can be one of hostAgent,redfish
+                enum:
+                - gNOI
+                - hostAgent
+                - redfish
+                type: string
+              dpuInternalStatus:
+                description: DPUInternalStatus contains the information reported from
+                  inside the DPU
                 properties:
                   conditions:
                     description: Conditions contains the conditions reported from
@@ -411,16 +420,11 @@ spec:
                     description: HostRebootRequired indicates whether the host requires
                       a reboot after the DPU is installed
                     type: boolean
+                  initialBootID:
+                    description: InitialBootID is the boot ID of the DPU OS during
+                      the first boot
+                    type: string
                 type: object
-              dpuInstallInterface:
-                description: |-
-                  the name of the interface which will be used to install the bfb image,
-                  and communicate with DPU, can be one of hostAgent,redfish
-                enum:
-                - gNOI
-                - hostAgent
-                - redfish
-                type: string
               dpuMode:
                 allOf:
                 - enum:

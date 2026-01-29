@@ -28,6 +28,7 @@ limitations under the License.
 package vfmac
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
@@ -36,27 +37,42 @@ import (
 	"github.com/nvidia/doca-platform/pkg/vfmac"
 )
 
-type VFMACOperation struct {
+type SetVFMac struct {
+	vfmacInstance VFMacInstance
 }
 
-func (v *VFMACOperation) Name() string {
-	return "vfmac"
+func (v *SetVFMac) Name() string {
+	return "Set VF MAC"
 }
 
-func (v *VFMACOperation) Type() operations.OperationType {
-	return operations.RunOnEachReboot
+func (v *SetVFMac) ConditionType() string {
+	return "VFMacSet"
 }
 
-func (v *VFMACOperation) Execute(ctx operations.Context) error {
-	// Create a new VFMAC instance with default configuration
-	vfmacInstance, err := vfmac.NewVFMAC(filesystem.DefaultFileSystem, networkhelper.New(), "", "")
-	if err != nil {
-		return fmt.Errorf("error creating VFMAC instance: %v", err)
+func (v *SetVFMac) ShouldSkip(ctx *operations.Context) bool {
+	return ctx.Options.SkipVFMac
+}
+
+func (v *SetVFMac) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {
+	return false
+}
+
+func (v *SetVFMac) Execute(execCtx context.Context, optCtx *operations.Context) error {
+	if v.vfmacInstance == nil {
+		var err error
+		// Create a new VFMAC instance with default configuration
+		v.vfmacInstance, err = vfmac.NewVFMAC(filesystem.DefaultFileSystem, networkhelper.New(), "", "")
+		if err != nil {
+			return fmt.Errorf("error creating VFMAC instance: %v", err)
+		}
 	}
-
 	// Process VFs using the new instance
-	if err := vfmacInstance.ProcessVFs(); err != nil {
+	if err := v.vfmacInstance.ProcessVFs(); err != nil {
 		return fmt.Errorf("error processing VFs: %v", err)
 	}
 	return nil
+}
+
+type VFMacInstance interface {
+	ProcessVFs() error
 }

@@ -261,9 +261,9 @@ type DPUStatus struct {
 	// +optional
 	DPUType DPUType `json:"dpuType,omitempty"`
 
-	// DPUInfo contains the information reported from inside the DPU
+	// DPUInternalStatus contains the information reported from inside the DPU
 	// +optional
-	DPUInfo *DPUInfo `json:"dpuInfo,omitempty"`
+	DPUInternalStatus *DPUInternalStatus `json:"dpuInternalStatus,omitempty"`
 
 	// The mode of the DPU
 	// +kubebuilder:validation:Enum=dpu;nic
@@ -281,10 +281,13 @@ type Firmware struct {
 	UEFI string `json:"uefi,omitempty"`
 }
 
-type DPUInfo struct {
+type DPUInternalStatus struct {
 	// HostRebootRequired indicates whether the host requires a reboot after the DPU is installed
 	// +optional
 	HostRebootRequired *bool `json:"hostRebootRequired,omitempty"`
+
+	// InitialBootID is the boot ID of the DPU OS during the first boot
+	InitialBootID *string `json:"initialBootID,omitempty"`
 
 	// Conditions contains the conditions reported from inside the DPU
 	// +optional
