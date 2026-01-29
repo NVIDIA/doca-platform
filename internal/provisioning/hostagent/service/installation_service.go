@@ -24,12 +24,15 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/service/types"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	restful "github.com/emicklei/go-restful/v3"
 	"github.com/vishvananda/netlink"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -50,11 +53,22 @@ func NewInstallationService(client client.Client, listenAddr string) *Installati
 	s := &InstallationService{
 		Client: client,
 	}
-	ws := new(restful.WebService).
-		Path("/").
-		Consumes(restful.MIME_JSON).
-		Produces(restful.MIME_JSON)
-	ws.Route(ws.POST("/update-status").To(s.updateStatus))
+	ws := new(restful.WebService).Path("/")
+	ws.Route(
+		ws.POST("/update-status").
+			Consumes(restful.MIME_JSON).
+			Produces(restful.MIME_JSON).
+			To(s.UpdateStatus))
+	ws.Route(
+		ws.GET("/get-object").
+			Param(ws.QueryParameter("group", "the API group of the object (empty for core API group)")).
+			Param(ws.QueryParameter("version", "the API version of the object").Required(true)).
+			Param(ws.QueryParameter("kind", "the kind of the object").Required(true)).
+			Param(ws.QueryParameter("namespace", "the namespace of the object (empty for cluster-scoped objects)")).
+			Param(ws.QueryParameter("name", "the name of the object").Required(true)).
+			Produces(restful.MIME_JSON).
+			To(s.GetObject))
+	ws.Route(ws.GET("/healthz").To(s.HealthCheck))
 	container := restful.NewContainer()
 	container.Add(ws)
 	s.server = &http.Server{
@@ -86,19 +100,17 @@ func (s *InstallationService) Start(setupBridge bool) error {
 }
 
 func (s *InstallationService) Stop() {
-	ctx, cancel := context.WithTimeout(context.TODO(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = s.server.Shutdown(ctx)
 }
 
-type UpdateStatusRequest struct {
-	DPUName      string                 `json:"dpuName"`
-	DPUNamespace string                 `json:"dpuNamespace"`
-	DPUInfo      provisioningv1.DPUInfo `json:"dpuInfo"`
+func (s *InstallationService) HealthCheck(req *restful.Request, resp *restful.Response) {
+	resp.WriteHeader(http.StatusOK)
 }
 
-func (s *InstallationService) updateStatus(req *restful.Request, resp *restful.Response) {
-	var request UpdateStatusRequest
+func (s *InstallationService) UpdateStatus(req *restful.Request, resp *restful.Response) {
+	var request types.UpdateStatusRequest
 	if err := req.ReadEntity(&request); err != nil {
 		klog.Errorf("failed to read update status request: %v", err)
 		_ = resp.WriteError(http.StatusBadRequest, err)
@@ -107,29 +119,61 @@ func (s *InstallationService) updateStatus(req *restful.Request, resp *restful.R
 	klog.Infof("Received update status request: %#v", request)
 
 	dpu := &provisioningv1.DPU{}
-	if err := s.Get(context.TODO(), client.ObjectKey{Namespace: request.DPUNamespace, Name: request.DPUName}, dpu); err != nil {
+	if err := s.Get(req.Request.Context(), client.ObjectKey{Namespace: request.DPUNamespace, Name: request.DPUName}, dpu); err != nil {
 		klog.Errorf("failed to get DPU %s: %v", request.DPUName, err)
 		_ = resp.WriteError(http.StatusNotFound, err)
 		return
 	}
 
 	patch := client.MergeFrom(dpu.DeepCopy())
-	if dpu.Status.DPUInfo == nil {
-		dpu.Status.DPUInfo = &provisioningv1.DPUInfo{
+	if dpu.Status.DPUInternalStatus == nil {
+		dpu.Status.DPUInternalStatus = &provisioningv1.DPUInternalStatus{
 			Conditions: []metav1.Condition{},
 		}
 	}
-	dpu.Status.DPUInfo.HostRebootRequired = request.DPUInfo.HostRebootRequired
+	if request.DPUInfo.HostRebootRequired != nil {
+		dpu.Status.DPUInternalStatus.HostRebootRequired = request.DPUInfo.HostRebootRequired
+	}
+	if request.DPUInfo.InitialBootID != nil {
+		dpu.Status.DPUInternalStatus.InitialBootID = request.DPUInfo.InitialBootID
+	}
 	for _, condition := range request.DPUInfo.Conditions {
-		meta.SetStatusCondition(&dpu.Status.DPUInfo.Conditions, condition)
+		meta.SetStatusCondition(&dpu.Status.DPUInternalStatus.Conditions, condition)
 	}
 
-	if err := s.Status().Patch(context.TODO(), dpu, patch); err != nil {
+	if err := s.Status().Patch(req.Request.Context(), dpu, patch); err != nil {
 		klog.Errorf("failed to patch DPU %s: %v", request.DPUName, err)
 		_ = resp.WriteError(http.StatusInternalServerError, err)
 		return
 	}
 	resp.WriteHeader(http.StatusOK)
+}
+
+type GetObjectResponse struct {
+}
+
+func (s *InstallationService) GetObject(req *restful.Request, resp *restful.Response) {
+	group := req.QueryParameter("group") // empty for core API group
+	version := req.QueryParameter("version")
+	kind := req.QueryParameter("kind")
+	namespace := req.QueryParameter("namespace") // empty for cluster-scoped objects
+	name := req.QueryParameter("name")
+
+	gvk := schema.GroupVersionKind{
+		Group:   group,
+		Version: version,
+		Kind:    kind,
+	}
+	klog.Infof("Received request to get object %s %s/%s", gvk, namespace, name)
+
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(gvk)
+	if err := s.Get(req.Request.Context(), client.ObjectKey{Namespace: namespace, Name: name}, obj); err != nil {
+		klog.Errorf("failed to get object %s %s/%s: %v", gvk, namespace, name, err)
+		_ = resp.WriteError(http.StatusNotFound, err)
+		return
+	}
+	_ = resp.WriteEntity(obj)
 }
 
 func setupMgmtBridge(bridgeAddr *netlink.Addr) error {

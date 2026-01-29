@@ -1,0 +1,106 @@
+/*
+Copyright 2026 NVIDIA
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package dpumode
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"path/filepath"
+
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
+
+	"k8s.io/klog/v2"
+)
+
+const (
+	defaultMstDevicesPath = "/dev/mst"
+)
+
+type EnsureMode struct {
+	mstDevicesPath string
+	runBash        func(cmd string) (bytes.Buffer, bytes.Buffer, error)
+}
+
+func (d *EnsureMode) Name() string {
+	return "Ensure DPU Mode"
+}
+
+func (d *EnsureMode) ConditionType() string {
+	return "DpuModeEnsured"
+}
+
+func (d *EnsureMode) ShouldSkip(ctx *operations.Context) bool {
+	return false
+}
+
+func (d *EnsureMode) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {
+	return false
+}
+
+func (d *EnsureMode) Execute(execCtx context.Context, optCtx *operations.Context) error {
+	if d.mstDevicesPath == "" {
+		d.mstDevicesPath = defaultMstDevicesPath
+	}
+
+	// Find all devices in /dev/mst/
+	devices, err := filepath.Glob(filepath.Join(d.mstDevicesPath, "*"))
+	if err != nil {
+		return fmt.Errorf("failed to list MST devices: %w", err)
+	}
+
+	if len(devices) == 0 {
+		klog.Warningf("No MST devices found in %s", d.mstDevicesPath)
+		return nil
+	}
+
+	for _, dev := range devices {
+		if err := d.setDpuMode(dev, optCtx.DPUFlavor.Spec.DpuMode); err != nil {
+			return fmt.Errorf("failed to set DPU mode for device %s: %w", dev, err)
+		}
+	}
+	return nil
+}
+
+func (d *EnsureMode) setDpuMode(dev string, dpuMode provisioningv1.DpuModeType) error {
+	var cmd string
+	switch dpuMode {
+	case provisioningv1.ZeroTrustMode:
+		klog.Infof("Setting DPU to zero-trust mode for device %s", dev)
+		cmd = fmt.Sprintf("mlxprivhost -d %s r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner", dev)
+	case provisioningv1.DpuMode:
+		klog.Infof("Setting DPU to DPU mode for device %s", dev)
+		cmd = fmt.Sprintf("mlxprivhost -d %s p", dev)
+	case provisioningv1.NicMode:
+		return nil
+	default:
+		return fmt.Errorf("invalid DPU mode: %s", dpuMode)
+	}
+
+	if d.runBash == nil {
+		d.runBash = bash.Run
+	}
+	stdout, stderr, err := d.runBash(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to run mlxprivhost: stdout=%s, stderr=%s, err=%w", stdout.String(), stderr.String(), err)
+	}
+
+	klog.Infof("Successfully set DPU mode for device %s", dev)
+	return nil
+}
