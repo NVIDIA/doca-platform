@@ -333,9 +333,23 @@ func AddInterfacesToOvs(
 		patchPort := patchPortOptions{
 			externalIDs: map[string]string{ovsutils.DPFIDKey: metadata},
 		}
-		peerPatchPort := patchPortOptions{
-			externalIDs: serviceInterface.Spec.Patch.PeerExternalIDs,
+
+		// User should not set the reserved dpf-id
+		if serviceInterface.Spec.Patch.PeerExternalIDs != nil {
+			if _, exists := serviceInterface.Spec.Patch.PeerExternalIDs[ovsutils.DPFIDKey]; exists {
+				log.Info("External ID is reserved and managed internally, it cannot be set by users", "key", ovsutils.DPFIDKey)
+				return fmt.Errorf("external ID %s is a reserved and managed internally, it cannot be set by users", ovsutils.DPFIDKey)
+			}
 		}
+
+		peerPatchPort := patchPortOptions{
+			externalIDs: make(map[string]string),
+		}
+		for k, v := range serviceInterface.Spec.Patch.PeerExternalIDs {
+			peerPatchPort.externalIDs[k] = v
+		}
+		peerPatchPort.externalIDs[ovsutils.DPFIDKey] = metadata
+
 		patchPort.portName, peerPatchPort.portName = getPatchPortNames(serviceInterface, SFCBridge, peerBridge)
 		if err = AddPatchPort(ctx, ovs, SFCBridge, peerBridge, patchPort, peerPatchPort); err != nil {
 			log.Error(err, "failed to add patch port between bridges", "patchPort", patchPort.portName, "peerPatchPort", peerPatchPort.portName)

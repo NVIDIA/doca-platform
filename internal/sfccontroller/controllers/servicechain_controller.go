@@ -131,29 +131,38 @@ func findInterface(ctx context.Context, ovs ovsutils.API, condition string) (str
 		return "", fmt.Errorf("failed to get interface with external_ids: %s: %v", iface.ExternalIDs, err)
 	}
 
-	if len(ifaces) != 1 {
-		return "", fmt.Errorf("failed to find matching interface with external_ids :%s", iface.ExternalIDs)
+	if len(ifaces) == 0 {
+		return "", fmt.Errorf("failed to find matching interface with external_ids: %s", iface.ExternalIDs)
 	}
 
-	iface = &ifaces[0]
-
-	found, err := ovs.IsIfaceInBr(ctx, SFCBridge, iface.Name)
-	if err != nil {
-		return "", err
+	if len(ifaces) > 2 {
+		return "", fmt.Errorf("found %d interfaces with external_ids %s, expected at most 2", len(ifaces), iface.ExternalIDs)
 	}
 
-	if found {
-		if iface.Ofport == nil {
-			return "", fmt.Errorf("interface %s Ofport is nil", iface.Name)
+	// patch port should have two interfaces with the same dpf-id, other ports should have one interface
+	for i := range ifaces {
+		found, err := ovs.IsIfaceInBr(ctx, SFCBridge, ifaces[i].Name)
+		if err != nil {
+			return "", err
 		}
-		return fmt.Sprintf("%d", *iface.Ofport), nil
+		if found {
+			if ifaces[i].Ofport == nil {
+				return "", fmt.Errorf("interface %s Ofport is nil", ifaces[i].Name)
+			}
+			return fmt.Sprintf("%d", *ifaces[i].Ofport), nil
+		}
 	}
 
-	// check if port is a patch port for hbn
+	// More than one interface found is patch port case, expected one of the interfaces to be in br-sfc
+	if len(ifaces) > 1 {
+		return "", fmt.Errorf("neither interface with dpf-id %s found in %s", condition, SFCBridge)
+	}
 
-	// Build br-hbn patch p + intfname + brsfc
+	// check if this is a port created for hbn by ovs cni
+	// naming is generated in the format: `p<interface_name>brsfc`
+	iface = &ifaces[0]
 	portName := "p" + iface.Name + "brsfc"
-	found, err = ovs.IsIfaceInBr(ctx, SFCBridge, portName)
+	found, err := ovs.IsIfaceInBr(ctx, SFCBridge, portName)
 	if err != nil {
 		return "", err
 	}
@@ -161,9 +170,7 @@ func findInterface(ctx context.Context, ovs ovsutils.API, condition string) (str
 		return "", fmt.Errorf("port %s or %s not found in %s", iface.Name, portName, SFCBridge)
 	}
 
-	iface = &ovsmodel.Interface{
-		Name: portName,
-	}
+	iface = &ovsmodel.Interface{Name: portName}
 	err = ovs.Get(ctx, iface)
 	if err != nil {
 		return "", fmt.Errorf("failed to get interface %s: %v", portName, err)
