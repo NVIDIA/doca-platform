@@ -5,11 +5,165 @@ title: "API reference"
 # API Reference
 
 ## Packages
+- [noderesources.dpu.nvidia.com/v1alpha1](#noderesourcesdpunvidiacomv1alpha1)
 - [operator.dpu.nvidia.com/v1alpha1](#operatordpunvidiacomv1alpha1)
 - [provisioning.dpu.nvidia.com/v1alpha1](#provisioningdpunvidiacomv1alpha1)
 - [storage.dpu.nvidia.com/v1alpha1](#storagedpunvidiacomv1alpha1)
 - [svc.dpu.nvidia.com/v1alpha1](#svcdpunvidiacomv1alpha1)
 - [vpc.dpu.nvidia.com/v1alpha1](#vpcdpunvidiacomv1alpha1)
+
+
+## noderesources.dpu.nvidia.com/v1alpha1
+
+Package v1alpha1 contains API Schema definitions for the noderesources v1alpha1 API group
+
+### Resource Types
+- [NodeSRIOVDevicePluginConfig](#nodesriovdevicepluginconfig)
+- [NodeSRIOVDevicePluginConfigList](#nodesriovdevicepluginconfiglist)
+
+
+
+#### DevicePluginResource
+
+
+
+DevicePluginResource defines a single device plugin resource configuration.
+
+
+
+_Appears in:_
+- [NodeSRIOVDevicePluginConfigSpec](#nodesriovdevicepluginconfigspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is the endpoint resource name for the device plugin.<br />Should contain only alphanumeric characters, underscores and hyphens.<br />The full extended resource name will be constructed as resource-prefix/name.<br />Example: pods_vf, ovnk_mgmt_vf |  | MinLength: 1 <br />Pattern: `^[a-zA-Z0-9_-]+$` <br /> |
+| `resourcePrefix` _string_ | ResourcePrefix is the resource prefix used by the device plugin to prefix the resource name.<br />If not set, the default resource prefix will be used. |  | Pattern: `^[a-zA-Z0-9][a-zA-Z0-9-]*(\.[a-zA-Z0-9][a-zA-Z0-9-]*)+$` <br /> |
+| `type` _[DevicePluginResourceType](#devicepluginresourcetype)_ | Type specifies the type of the device plugin resource. |  | Enum: [vf] <br /> |
+| `options` _[DevicePluginResourceOptions](#devicepluginresourceoptions)_ | Options contains additional options for the device plugin resource. |  |  |
+| `ranges` _[VFRange](#vfrange) array_ | Ranges specifies the VF ranges on PFs to be included in this resource. |  | MinItems: 1 <br /> |
+
+
+#### DevicePluginResourceOptions
+
+
+
+DevicePluginResourceOptions contains additional options for a device plugin resource.
+
+
+
+_Appears in:_
+- [DevicePluginResource](#devicepluginresource)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `isRdma` _boolean_ | IsRdma indicates whether RDMA is enabled for this resource. |  |  |
+
+
+#### DevicePluginResourceType
+
+_Underlying type:_ _string_
+
+DevicePluginResourceType specifies the type of the device plugin resource.
+
+_Validation:_
+- Enum: [vf]
+
+_Appears in:_
+- [DevicePluginResource](#devicepluginresource)
+
+| Field | Description |
+| --- | --- |
+| `vf` | DevicePluginResourceTypeVF represents a Virtual Function resource.<br /> |
+
+
+#### NodeSRIOVDevicePluginConfig
+
+
+
+NodeSRIOVDevicePluginConfig is the Schema for the nodesriovdevicepluginconfigs API
+
+
+
+_Appears in:_
+- [NodeSRIOVDevicePluginConfigList](#nodesriovdevicepluginconfiglist)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `noderesources.dpu.nvidia.com/v1alpha1` | | |
+| `kind` _string_ | `NodeSRIOVDevicePluginConfig` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[NodeSRIOVDevicePluginConfigSpec](#nodesriovdevicepluginconfigspec)_ |  |  |  |
+| `status` _[NodeSRIOVDevicePluginConfigStatus](#nodesriovdevicepluginconfigstatus)_ |  |  |  |
+
+
+#### NodeSRIOVDevicePluginConfigList
+
+
+
+NodeSRIOVDevicePluginConfigList contains a list of NodeSRIOVDevicePluginConfig
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `noderesources.dpu.nvidia.com/v1alpha1` | | |
+| `kind` _string_ | `NodeSRIOVDevicePluginConfigList` | | |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `items` _[NodeSRIOVDevicePluginConfig](#nodesriovdevicepluginconfig) array_ |  |  |  |
+
+
+#### NodeSRIOVDevicePluginConfigSpec
+
+
+
+NodeSRIOVDevicePluginConfigSpec defines the desired state of NodeSRIOVDevicePluginConfig
+
+
+
+_Appears in:_
+- [NodeSRIOVDevicePluginConfig](#nodesriovdevicepluginconfig)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `devicePluginResources` _[DevicePluginResource](#devicepluginresource) array_ | DevicePluginResources is the list of device plugin resource configurations. |  | MinItems: 1 <br /> |
+
+
+#### NodeSRIOVDevicePluginConfigStatus
+
+
+
+NodeSRIOVDevicePluginConfigStatus defines the observed state of NodeSRIOVDevicePluginConfig
+
+
+
+_Appears in:_
+- [NodeSRIOVDevicePluginConfig](#nodesriovdevicepluginconfig)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions exposes the current state of the NodeSRIOVDevicePluginConfig. |  |  |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+
+
+#### VFRange
+
+
+
+VFRange defines a range of Virtual Functions on a Physical Function.
+
+
+
+_Appears in:_
+- [DevicePluginResource](#devicepluginresource)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `pfIndex` _integer_ | PFIndex is the index of the Physical Function. |  | Minimum: 0 <br /> |
+| `start` _integer_ | Start is the starting VF index (inclusive).<br />If not set, the range starts from VF 0. |  | Minimum: 0 <br /> |
+| `end` _integer_ | End is the ending VF index (inclusive).<br />If not set, the range extends to the last VF on the PF. |  | Minimum: 0 <br /> |
+
 
 
 ## operator.dpu.nvidia.com/v1alpha1
@@ -56,6 +210,7 @@ _Appears in:_
 - [KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
+- [NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)
 - [OVSCNIConfiguration](#ovscniconfiguration)
 - [ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)
 - [SFCControllerConfiguration](#sfccontrollerconfiguration)
@@ -79,6 +234,7 @@ by all controller configurations to reduce code duplication.
 
 _Appears in:_
 - [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
+- [NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)
 - [ServiceSetControllerConfiguration](#servicesetcontrollerconfiguration)
 - [StaticClusterManagerConfiguration](#staticclustermanagerconfiguration)
 
@@ -179,6 +335,7 @@ _Appears in:_
 | `sfcController` _[SFCControllerConfiguration](#sfccontrollerconfiguration)_ | SFCController is the configuration for the SFCController |  |  |
 | `kamajiClusterManager` _[KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)_ | KamajiClusterManager is the configuration for the kamaji-cluster-manager |  |  |
 | `staticClusterManager` _[StaticClusterManagerConfiguration](#staticclustermanagerconfiguration)_ | StaticClusterManager is the configuration for the static-cluster-manager |  |  |
+| `nodeSRIOVDevicePluginController` _[NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)_ | NodeSRIOVDevicePluginController is the configuration for the NodeSRIOVDevicePlugin controller.<br />This controller manages per-node SRIOV device plugin pods based on DPU configurations.<br />The controller is disabled by default. |  |  |
 
 
 #### DPFOperatorConfigStatus
@@ -251,6 +408,7 @@ _Appears in:_
 - [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
 - [KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)
 - [MultusConfiguration](#multusconfiguration)
+- [NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)
 - [OVSCNIConfiguration](#ovscniconfiguration)
 - [ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)
 - [SFCControllerConfiguration](#sfccontrollerconfiguration)
@@ -404,6 +562,7 @@ _Appears in:_
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
 - [NVIPAMController](#nvipamcontroller)
+- [NodeSRIOVDevicePluginSettings](#nodesriovdevicepluginsettings)
 - [OVSCNIConfiguration](#ovscniconfiguration)
 - [ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)
 - [SFCControllerConfiguration](#sfccontrollerconfiguration)
@@ -601,6 +760,46 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `controlPlaneMTU` _integer_ | ControlPlaneMTU is the MTU value to be set on the management network.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br /> |
 | `highSpeedMTU` _integer_ | HighSpeedMTU is the MTU value to be set on the high-speed interface.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br /> |
+
+
+#### NodeSRIOVDevicePluginControllerConfiguration
+
+
+
+NodeSRIOVDevicePluginControllerConfiguration is the configuration for the NodeSRIOVDevicePlugin controller.
+This controller manages per-node SRIOV device plugin pods based on DPU configurations.
+The controller is disabled by default.
+
+
+
+_Appears in:_
+- [DPFOperatorConfigSpec](#dpfoperatorconfigspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
+| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 1 | Maximum: 3 <br />Minimum: 1 <br /> |
+| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the NodeSRIOVDevicePlugin controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
+| `devicePlugin` _[NodeSRIOVDevicePluginSettings](#nodesriovdevicepluginsettings)_ | DevicePlugin contains the configuration for the SRIOV device plugin pods<br />managed by this controller. |  |  |
+
+
+#### NodeSRIOVDevicePluginSettings
+
+
+
+NodeSRIOVDevicePluginSettings contains configuration for the SRIOV device plugin pods
+managed by the NodeSRIOVDevicePlugin controller.
+
+
+
+_Appears in:_
+- [NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `image` _[Image](#image)_ | Image overrides the container image for the SRIOV device plugin. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `initImage` _[Image](#image)_ | InitImage overrides the container image for the init container<br />that generates device plugin configuration. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `defaultResourcePrefix` _string_ | DefaultResourcePrefix is the default resource prefix for the SRIOV device plugin resources.<br />Defaults to "nvidia.com". |  |  |
 
 
 #### OVSCNIConfiguration
