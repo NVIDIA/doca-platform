@@ -1,0 +1,2 @@
+resources:
+- bases/noderesources.dpu.nvidia.com_nodesriovdevicepluginconfigs.yaml
