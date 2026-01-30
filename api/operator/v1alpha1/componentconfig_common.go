@@ -24,21 +24,22 @@ import (
 )
 
 var (
-	ProvisioningControllerName ComponentName = "provisioning-controller"
-	DPUServiceControllerName   ComponentName = "dpuservice-controller"
-	ServiceSetControllerName   ComponentName = "servicechainset-controller"
-	ServiceChainSetCRDsName    ComponentName = "servicechainset-rbac-and-crds"
-	DPUDetectorName            ComponentName = "dpudetector"
-	FlannelName                ComponentName = "flannel"
-	MultusName                 ComponentName = "multus"
-	SRIOVDevicePluginName      ComponentName = "sriov-device-plugin"
-	OVSCNIName                 ComponentName = "ovs-cni"
-	NVIPAMName                 ComponentName = "nvidia-k8s-ipam"
-	SFCControllerName          ComponentName = "sfc-controller"
-	KamajiClusterManagerName   ComponentName = "kamaji-cluster-manager"
-	StaticClusterManagerName   ComponentName = "static-cluster-manager"
-	BFBRegistryName            ComponentName = "bfb-registry"
-	CNIInstallerName           ComponentName = "cni-installer"
+	ProvisioningControllerName          ComponentName = "provisioning-controller"
+	DPUServiceControllerName            ComponentName = "dpuservice-controller"
+	ServiceSetControllerName            ComponentName = "servicechainset-controller"
+	ServiceChainSetCRDsName             ComponentName = "servicechainset-rbac-and-crds"
+	DPUDetectorName                     ComponentName = "dpudetector"
+	FlannelName                         ComponentName = "flannel"
+	MultusName                          ComponentName = "multus"
+	SRIOVDevicePluginName               ComponentName = "sriov-device-plugin"
+	OVSCNIName                          ComponentName = "ovs-cni"
+	NVIPAMName                          ComponentName = "nvidia-k8s-ipam"
+	SFCControllerName                   ComponentName = "sfc-controller"
+	KamajiClusterManagerName            ComponentName = "kamaji-cluster-manager"
+	StaticClusterManagerName            ComponentName = "static-cluster-manager"
+	BFBRegistryName                     ComponentName = "bfb-registry"
+	CNIInstallerName                    ComponentName = "cni-installer"
+	NodeSRIOVDevicePluginControllerName ComponentName = "nodesriovdeviceplugin-controller"
 )
 
 type ComponentName string
@@ -122,6 +123,9 @@ func (c *DPFOperatorConfig) ComponentConfigs() []ComponentConfigurable {
 	}
 	if c.Spec.CNIInstaller != nil {
 		out = append(out, c.Spec.CNIInstaller)
+	}
+	if c.Spec.NodeSRIOVDevicePluginController != nil {
+		out = append(out, c.Spec.NodeSRIOVDevicePluginController)
 	}
 	return out
 }
