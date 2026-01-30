@@ -819,3 +819,61 @@ func (c *CNIInstallerConfiguration) GetResources() map[ContainerName]*corev1.Res
 		CNIInstallerContainer: c.Installer.GetResource(),
 	}
 }
+
+// NodeSRIOVDevicePluginSettings contains configuration for the SRIOV device plugin pods
+// managed by the NodeSRIOVDevicePlugin controller.
+type NodeSRIOVDevicePluginSettings struct {
+	// Image overrides the container image for the SRIOV device plugin.
+	// +optional
+	Image Image `json:"image,omitempty"`
+
+	// InitImage overrides the container image for the init container
+	// that generates device plugin configuration.
+	// +optional
+	InitImage Image `json:"initImage,omitempty"`
+
+	// DefaultResourcePrefix is the default resource prefix for the SRIOV device plugin resources.
+	// Defaults to "nvidia.com".
+	// +optional
+	DefaultResourcePrefix *string `json:"defaultResourcePrefix,omitempty"`
+}
+
+// NodeSRIOVDevicePluginControllerConfiguration is the configuration for the NodeSRIOVDevicePlugin controller.
+// This controller manages per-node SRIOV device plugin pods based on DPU configurations.
+// The controller is disabled by default.
+type NodeSRIOVDevicePluginControllerConfiguration struct {
+	BaseComponentConfig  `json:",inline"`
+	BaseControllerConfig `json:",inline"`
+
+	// Controller contains the configuration for the NodeSRIOVDevicePlugin controller component.
+	// It contains the image for the controller and its resource requirements.
+	// +optional
+	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
+
+	// DevicePlugin contains the configuration for the SRIOV device plugin pods
+	// managed by this controller.
+	// +optional
+	DevicePlugin *NodeSRIOVDevicePluginSettings `json:"devicePlugin,omitempty"`
+}
+
+func (c *NodeSRIOVDevicePluginControllerConfiguration) Name() string {
+	return NodeSRIOVDevicePluginControllerName.String()
+}
+
+// GetImages returns a map of container names to their images
+func (c *NodeSRIOVDevicePluginControllerConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.Controller != nil {
+		images[ControllerManagerContainer] = c.Controller.GetImage()
+	}
+	return images
+}
+
+func (c *NodeSRIOVDevicePluginControllerConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.Controller == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		ControllerManagerContainer: c.Controller.GetResource(),
+	}
+}

@@ -613,6 +613,106 @@ spec:
                     minimum: 1280
                     type: integer
                 type: object
+              nodeSRIOVDevicePluginController:
+                description: |-
+                  NodeSRIOVDevicePluginController is the configuration for the NodeSRIOVDevicePlugin controller.
+                  This controller manages per-node SRIOV device plugin pods based on DPU configurations.
+                  The controller is disabled by default.
+                properties:
+                  controller:
+                    description: |-
+                      Controller contains the configuration for the NodeSRIOVDevicePlugin controller component.
+                      It contains the image for the controller and its resource requirements.
+                    properties:
+                      image:
+                        description: Image is a reference to a container image.
+                        pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                        type: string
+                      resources:
+                        description: |-
+                          Resources defines the memory and CPU resource requests and limits for the component.
+                          This field is optional, and if not set, the component will use the default resource.
+                        properties:
+                          limits:
+                            description: Limits defines the resource limits for the
+                              component.
+                            properties:
+                              cpu:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: CPU is the amount of CPU requested by
+                                  the component.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              memory:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: Memory is the amount of Memory requested
+                                  by the component.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                            type: object
+                          requests:
+                            description: Requests defines the resource requests for
+                              the component.
+                            properties:
+                              cpu:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: CPU is the amount of CPU requested by
+                                  the component.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              memory:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: Memory is the amount of Memory requested
+                                  by the component.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                            type: object
+                        type: object
+                    type: object
+                  devicePlugin:
+                    description: |-
+                      DevicePlugin contains the configuration for the SRIOV device plugin pods
+                      managed by this controller.
+                    properties:
+                      defaultResourcePrefix:
+                        description: |-
+                          DefaultResourcePrefix is the default resource prefix for the SRIOV device plugin resources.
+                          Defaults to "nvidia.com".
+                        type: string
+                      image:
+                        description: Image overrides the container image for the SRIOV
+                          device plugin.
+                        pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                        type: string
+                      initImage:
+                        description: |-
+                          InitImage overrides the container image for the init container
+                          that generates device plugin configuration.
+                        pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                        type: string
+                    type: object
+                  disable:
+                    description: Disable ensures the component is not deployed when
+                      set to true.
+                    type: boolean
+                  replicas:
+                    default: 1
+                    description: |-
+                      Replicas is the number of replicas for the controller deployment.
+                      This is used for High Availability. Leader election is enabled by default.
+                    format: int32
+                    maximum: 3
+                    minimum: 1
+                    type: integer
+                type: object
               nvipam:
                 description: NVIPAM is the configuration for NVIPAM
                 properties:
