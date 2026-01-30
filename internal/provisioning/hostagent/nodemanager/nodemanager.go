@@ -40,7 +40,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -160,26 +159,12 @@ func (n *NodeManager) initDPUDevices() ([]*provisioningv1.DPUDevice, error) {
 			}
 		}
 
-		pciAddressForQueryMode := filepath.Base(hostutil.NewPCIHelper(device.Address).PF(0).Path())
-		mode, err := hostutil.GetDPUMode(timeoutCtx, pciAddressForQueryMode)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get DPU mode: %w", err)
-		}
 		pciAddress := strings.ReplaceAll(device.Address, ":", "-")
-		var updatedDevice *provisioningv1.DPUDevice
-		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			latest := &provisioningv1.DPUDevice{}
-			if err := n.Get(timeoutCtx, client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: dpuDevice.Name}, latest); err != nil {
-				return err
-			}
-			latest.Status.DPUMode = mode
-			latest.Status.PCIAddress = ptr.To(pciAddress)
-			updatedDevice = latest
-			return n.Status().Update(timeoutCtx, latest)
-		}); err != nil {
+		dpuDevice.Status.PCIAddress = &pciAddress
+		if err := n.Status().Update(timeoutCtx, dpuDevice); err != nil {
 			return nil, fmt.Errorf("failed to update DPU device %s: %w", dpuDevice.Name, err)
 		}
-		ret = append(ret, updatedDevice)
+		ret = append(ret, dpuDevice)
 		klog.Infof("Registered DPUDevice. name: %s, serial number: %s, PCI address: %s", dpuDevice.Name, dpuDevice.Spec.SerialNumber, pciAddress)
 	}
 	return ret, nil
@@ -405,6 +390,14 @@ func (n *NodeManager) updateDPUDeviceStatus() error {
 			continue
 		}
 		dpuDevice.Status.PF0Name = ptr.To(pn0Name)
+
+		pciAddressForQueryMode := filepath.Base(hostutil.NewPCIHelper(device.Address).PF(0).Path())
+		mode, err := hostutil.GetDPUMode(timeoutCtx, pciAddressForQueryMode)
+		if err != nil {
+			return fmt.Errorf("failed to get DPU mode: %w", err)
+		}
+		dpuDevice.Status.DPUMode = mode
+
 		if err := n.Status().Update(timeoutCtx, dpuDevice); err != nil {
 			return fmt.Errorf("failed to update DPUDevice status. name:%s, err: %w", dpuDeviceCRName(device), err)
 		}
