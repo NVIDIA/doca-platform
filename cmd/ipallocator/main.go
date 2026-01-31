@@ -23,7 +23,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/nvidia/doca-platform/internal/cniprovisioner/utils/readyz"
+	"github.com/nvidia/doca-platform/internal/utils/readyz"
 	"github.com/nvidia/doca-platform/pkg/ipallocator"
 
 	"github.com/containernetworking/cni/libcni"

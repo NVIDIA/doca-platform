@@ -40,10 +40,6 @@ linters:
           alias: dpuservicecontroller
         - pkg: github.com/nvidia/doca-platform/internal/controlplane/metadata
           alias: controlplanemeta
-        - pkg: github.com/nvidia/doca-platform/internal/cniprovisioner/dpu/config
-          alias: dpucniprovisionerconfig
-        - pkg: github.com/nvidia/doca-platform/internal/cniprovisioner/host/config
-          alias: hostcniprovisionerconfig
         - pkg: github.com/nvidia/doca-platform/api/provisioning/v1alpha1
           alias: provisioningv1
         - pkg: github.com/nvidia/doca-platform/api/vpc/v1alpha1

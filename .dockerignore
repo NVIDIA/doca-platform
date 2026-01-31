@@ -30,7 +30,6 @@ artifacts/
 hack/*
 !hack/tools/tools.mk
 !hack/boilerplate.go.txt
-!hack/repos/ovn-kubernetes/**
 # Exclude generated files that contain TAG and would invalidate cache
 hack/repos/**/values.yaml
 dpuservices/**/values.yaml

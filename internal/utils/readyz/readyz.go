@@ -1,5 +1,5 @@
 /*
-Copyright 2024 NVIDIA
+Copyright 2026 NVIDIA
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,11 +14,25 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package ovsclient
+package readyz
 
-import kexec "k8s.io/utils/exec"
+import (
+	"fmt"
+	"os"
+)
 
-// New creates a new OVSClient
-func New(exec kexec.Interface) (OVSClient, error) {
-	return newOvsClient(exec)
+const (
+	// readyzFilePath is the file that is written by this package when the application is ready.
+	readyzFilePath = "/var/run/readyz"
+)
+
+// ReportReady declares that the application is ready. It writes a file on the host which can be used in a readiness
+// probe.
+func ReportReady() error {
+	err := os.WriteFile(readyzFilePath, []byte("ready"), 0644)
+	if err != nil {
+		return fmt.Errorf("error while writing ready file: %w", err)
+	}
+
+	return nil
 }
