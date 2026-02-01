@@ -328,6 +328,10 @@ spec:
                         - key
                         type: object
                     type: object
+                  secureBoot:
+                    description: SecureBoot specifies whether UEFI Secure Boot should
+                      be enabled.
+                    type: boolean
                 required:
                 - bfb
                 - flavor

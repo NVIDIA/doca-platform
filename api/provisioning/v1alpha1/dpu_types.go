@@ -192,6 +192,11 @@ type DPUSpec struct {
 	// +required
 	DPUFlavor string `json:"dpuFlavor"`
 
+	// SecureBoot specifies whether UEFI Secure Boot should be enabled.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="Value is immutable"
+	SecureBoot *bool `json:"secureBoot,omitempty"`
+
 	// BMCIP is the ip address of the DPU BMC
 	//
 	// Deprecated: Use BMCIP from DPUDevice instead.
@@ -270,6 +275,10 @@ type DPUStatus struct {
 	// +kubebuilder:default=dpu
 	// +optional
 	DPUMode DpuModeType `json:"dpuMode,omitempty"`
+
+	// SecureBoot indicates the current UEFI Secure Boot state.
+	// +optional
+	SecureBoot *SecureBootStatus `json:"secureBoot,omitempty"`
 }
 
 type Firmware struct {

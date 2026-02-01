@@ -182,6 +182,10 @@ type DPUs struct {
 	// NodeEffect is the effect the DPU has on Nodes during provisioning.
 	// +optional
 	NodeEffect *provisioningv1.Action `json:"nodeEffect,omitempty"`
+
+	// SecureBoot specifies whether UEFI Secure Boot should be enabled.
+	// +optional
+	SecureBoot *bool `json:"secureBoot,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!(has(self.dpuAnnotations) && (self.dpuAnnotations.exists(key, key.contains('dpu.nvidia.com/') || key.endsWith('dpu.nvidia.com')))) ", message="should not contain dpu.nvidia.com/ and should not end with dpu.nvidia.com"

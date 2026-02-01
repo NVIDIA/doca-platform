@@ -36,11 +36,14 @@ const (
 
 // RedfishMockServer represents a mock Redfish server for testing
 type RedfishMockServer struct {
-	server     *httptest.Server
-	bmcVersion string
-	password   string
-	dpuMode    string     // Current DPU mode: "NicMode" or "DpuMode"
-	dpuVersion DpuVersion // Current DPU version
+	server                *httptest.Server
+	bmcVersion            string
+	password              string
+	dpuMode               string     // Current DPU mode: "NicMode" or "DpuMode"
+	secureBootEnable      bool       // Configured/desired Secure Boot state (for next boot)
+	secureBootCurrentBoot bool       // Actual Secure Boot state of current boot session
+	oemLastState          string     // Current ARM OS boot state: "OsIsRunning", "OsStarting", etc.
+	dpuVersion            DpuVersion // Current DPU version
 }
 
 type DpuVersion int
@@ -53,10 +56,13 @@ const (
 // NewRedfishMockServer creates a new mock Redfish server
 func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mock := &RedfishMockServer{
-		bmcVersion: bmcVersion,
-		password:   password,
-		dpuMode:    "DpuMode", // Default to DpuMode
-		dpuVersion: BF3,       // Default to BF3
+		bmcVersion:            bmcVersion,
+		password:              password,
+		dpuMode:               "DpuMode",     // Default to DpuMode
+		dpuVersion:            BF3,           // Default to BF3
+		secureBootEnable:      false,         // Default configured state: disabled
+		secureBootCurrentBoot: false,         // Default current boot state: disabled
+		oemLastState:          "OsIsRunning", // Default to OS running
 	}
 
 	mux := http.NewServeMux()
@@ -82,11 +88,18 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	// NetworkDeviceFunctions
 	mux.HandleFunc("/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/eth0f0", mock.handleGetNetworkDeviceFunction)
 
+	// System endpoints
+	mux.HandleFunc("/redfish/v1/Systems/Bluefield", mock.handleGetSystem)
+
 	// BIOS endpoints
 	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Bios", mock.handleGetBios)
 	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Bios/Settings", mock.handleSetBiosSettings)
 	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/Mode.Set", mock.handleSetMode)
 	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Oem/Nvidia", mock.handleGetProductDescription)
+
+	// Secure Boot endpoints
+	mux.HandleFunc("/redfish/v1/Systems/Bluefield/SecureBoot", mock.handleSecureBoot)
+	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Actions/ComputerSystem.Reset", mock.handleResetSystem)
 
 	mock.server = httptest.NewUnstartedServer(mux)
 	return mock
@@ -400,12 +413,194 @@ func (r *RedfishMockServer) GetNicMode() string {
 	return r.dpuMode
 }
 
+// SetSecureBootEnable sets the configured Secure Boot state (for next boot)
+func (r *RedfishMockServer) SetSecureBootEnable(enabled bool) {
+	r.secureBootEnable = enabled
+}
+
+// GetSecureBootEnable returns the configured Secure Boot state
+func (r *RedfishMockServer) GetSecureBootEnable() bool {
+	return r.secureBootEnable
+}
+
+// SetSecureBootCurrentBoot sets the current boot session's Secure Boot state
+func (r *RedfishMockServer) SetSecureBootCurrentBoot(enabled bool) {
+	r.secureBootCurrentBoot = enabled
+}
+
+// GetSecureBootCurrentBoot returns the current boot session's Secure Boot state
+func (r *RedfishMockServer) GetSecureBootCurrentBoot() bool {
+	return r.secureBootCurrentBoot
+}
+
+// ApplySecureBootAfterReboot simulates the second reboot that applies Secure Boot configuration.
+// Test code should call this explicitly after simulating two reboots:
+//  1. First reboot: client.ForceRestartDPUArm() - applies BIOS config
+//  2. Second reboot: client.ForceRestartDPUArm() + mock.ApplySecureBootAfterReboot() - activates Secure Boot
+func (r *RedfishMockServer) ApplySecureBootAfterReboot() {
+	r.secureBootCurrentBoot = r.secureBootEnable
+}
+
+// SetOemLastState sets the ARM OS boot state for the mock server
+func (r *RedfishMockServer) SetOemLastState(state string) {
+	r.oemLastState = state
+}
+
+// GetOemLastState returns the current ARM OS boot state
+func (r *RedfishMockServer) GetOemLastState() string {
+	return r.oemLastState
+}
+
 // GetCertificate returns the server's TLS certificate in PEM format
 func (r *RedfishMockServer) GetCertificate() []byte {
 	if r.server == nil || r.server.Certificate() == nil {
 		return nil
 	}
 	return r.server.Certificate().Raw
+}
+
+// handleGetSystem handles GET requests to /redfish/v1/Systems/Bluefield
+func (r *RedfishMockServer) handleGetSystem(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	response := map[string]interface{}{
+		"@odata.id":    "/redfish/v1/Systems/Bluefield",
+		"@odata.type":  "#ComputerSystem.v1_22_0.ComputerSystem",
+		"Id":           "Bluefield",
+		"Name":         "Bluefield",
+		"Description":  "This ComputerSystem resource represents the SoC that is part of the DPU found in Card1",
+		"SystemType":   "Physical",
+		"Manufacturer": "Nvidia",
+		"Model":        "Bluefield 3 SmartNIC Main Card",
+		"SerialNumber": DpuSerialNumber,
+		"PowerState":   "On",
+		"Status": map[string]interface{}{
+			"State":      "Enabled",
+			"Health":     "OK",
+			"Conditions": []interface{}{},
+		},
+		"BootProgress": map[string]interface{}{
+			"LastState":     "OEM",
+			"LastStateTime": "1970-01-21T11:09:24.575484+00:00",
+			"OemLastState":  r.oemLastState,
+		},
+		"Boot": map[string]interface{}{
+			"BootSourceOverrideEnabled": "Disabled",
+			"BootSourceOverrideMode":    "UEFI",
+			"BootSourceOverrideTarget":  "None",
+		},
+		"Bios": map[string]interface{}{
+			"@odata.id": "/redfish/v1/Systems/Bluefield/Bios",
+		},
+		"SecureBoot": map[string]interface{}{
+			"@odata.id": "/redfish/v1/Systems/Bluefield/SecureBoot",
+		},
+		"Links": map[string]interface{}{
+			"Chassis": []map[string]interface{}{
+				{"@odata.id": "/redfish/v1/Chassis/Card1"},
+			},
+			"ManagedBy": []map[string]interface{}{
+				{"@odata.id": "/redfish/v1/Managers/Bluefield_BMC"},
+			},
+		},
+		"Actions": map[string]interface{}{
+			"#ComputerSystem.Reset": map[string]interface{}{
+				"target":              "/redfish/v1/Systems/Bluefield/Actions/ComputerSystem.Reset",
+				"@Redfish.ActionInfo": "/redfish/v1/Systems/Bluefield/ResetActionInfo",
+			},
+		},
+	}
+	writeJSONResponse(w, response)
+}
+
+// handleSecureBoot handles GET and PATCH requests to /redfish/v1/Systems/Bluefield/SecureBoot
+func (r *RedfishMockServer) handleSecureBoot(w http.ResponseWriter, req *http.Request) {
+	switch req.Method {
+	case http.MethodGet:
+		// Return Secure Boot state - current boot vs configured state can differ
+		currentBoot := "Disabled"
+		if r.secureBootCurrentBoot {
+			currentBoot = "Enabled"
+		}
+
+		response := map[string]interface{}{
+			"@odata.id":             "/redfish/v1/Systems/Bluefield/SecureBoot",
+			"@odata.type":           "#SecureBoot.v1_1_0.SecureBoot",
+			"Id":                    "SecureBoot",
+			"Name":                  "UEFI Secure Boot",
+			"SecureBootCurrentBoot": currentBoot,        // What current boot session used
+			"SecureBootEnable":      r.secureBootEnable, // What's configured for next boot
+			"SecureBootMode":        "UserMode",
+		}
+		writeJSONResponse(w, response)
+
+	case http.MethodPatch:
+		// Update Secure Boot setting (only changes SecureBootEnable, not SecureBootCurrentBoot)
+		// SecureBootCurrentBoot will only update after system reboot
+		var body map[string]interface{}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if enabled, ok := body["SecureBootEnable"].(bool); ok {
+			r.secureBootEnable = enabled
+			// Note: secureBootCurrentBoot is NOT changed here - only updated on reboot
+		}
+
+		w.WriteHeader(http.StatusOK)
+		response := map[string]interface{}{
+			"@odata.id": "/redfish/v1/Systems/Bluefield/SecureBoot",
+		}
+		writeJSONResponse(w, response)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleResetSystem handles POST requests to /redfish/v1/Systems/Bluefield/Actions/ComputerSystem.Reset
+func (r *RedfishMockServer) handleResetSystem(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate reset type
+	resetType, ok := body["ResetType"].(string)
+	if !ok || (resetType != "ForceRestart" && resetType != "GracefulRestart" && resetType != "PowerCycle") {
+		http.Error(w, "Invalid reset type", http.StatusBadRequest)
+		return
+	}
+
+	// Note: Secure Boot requires TWO reboots to take effect
+	// - First reboot: Apply BIOS configuration
+	// - Second reboot: Boot with new Secure Boot state
+	// Test code must explicitly call ApplySecureBootAfterReboot() at the right time
+
+	// Return success message like real API
+	w.WriteHeader(http.StatusOK)
+	response := map[string]interface{}{
+		"@Message.ExtendedInfo": []map[string]interface{}{
+			{
+				"@odata.type":     "#Message.v1_1_1.Message",
+				"Message":         "The request completed successfully.",
+				"MessageId":       "Base.1.18.1.Success",
+				"MessageSeverity": "OK",
+				"Resolution":      "None.",
+			},
+		},
+	}
+	writeJSONResponse(w, response)
 }
 
 // CreateMockRedfishServer creates and starts a mock Redfish server for testing

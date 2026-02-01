@@ -1526,6 +1526,7 @@ _Appears in:_
 | `pf0Mac` _string_ | PF0MAC is the MAC address of the PF0 on the device.<br />Example: "00:00:00:00:00:00" |  | Pattern: `^([0-9A-Fa-f]\{2\}[:-])\{5\}([0-9A-Fa-f]\{2\})$` <br /> |
 | `dpuType` _[DPUType](#dputype)_ | DPUType is the type of the DPU. | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br /> |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | DPUMode is the mode of the DPU. | dpu | Enum: [dpu nic] <br /> |
+| `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  |  |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  |  |
 
 
@@ -2089,6 +2090,7 @@ _Appears in:_
 | `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} |  |
 | `cluster` _[K8sCluster](#k8scluster)_ | Specifies details on the K8S cluster to join |  |  |
 | `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br /> |
+| `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  |  |
 | `bmcIP` _string_ | BMCIP is the ip address of the DPU BMC<br /><br />Deprecated: Use BMCIP from DPUDevice instead. |  |  |
 
 
@@ -2121,6 +2123,7 @@ _Appears in:_
 | `dpuType` _[DPUType](#dputype)_ | The type of the DPU | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br /> |
 | `dpuInternalStatus` _[DPUInternalStatus](#dpuinternalstatus)_ | DPUInternalStatus contains the information reported from inside the DPU |  |  |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | The mode of the DPU | dpu | Enum: [dpu nic] <br /> |
+| `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  |  |
 
 
 #### DPUTemplate
@@ -2157,6 +2160,7 @@ _Appears in:_
 | `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} |  |
 | `cluster` _[ClusterSpec](#clusterspec)_ | Specifies details on the K8S cluster to join |  |  |
 | `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br /> |
+| `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  |  |
 
 
 #### DPUType
@@ -2443,6 +2447,23 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `name` _string_ |  |  | MinLength: 1 <br /> |
+
+
+#### SecureBootStatus
+
+
+
+SecureBootStatus represents the UEFI Secure Boot configuration status on the DPU.
+
+
+
+_Appears in:_
+- [DPUDeviceStatus](#dpudevicestatus)
+- [DPUStatus](#dpustatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `enabled` _boolean_ | Enabled indicates whether UEFI Secure Boot is currently enabled on the DPU. |  |  |
 
 
 #### StrategyType
@@ -4307,6 +4328,7 @@ _Appears in:_
 | `flavor` _string_ | Flavor is the name of the DPUFlavor object to be used in this DPUDeployment. It must be in the same namespace as<br />the DPUDeployment. |  |  |
 | `dpuSets` _[DPUSet](#dpuset) array_ | DPUSets contains configuration for each DPUSet that is going to be created by the DPUDeployment |  | MaxItems: 50 <br />MinItems: 1 <br /> |
 | `nodeEffect` _[Action](#action)_ | NodeEffect is the effect the DPU has on Nodes during provisioning. |  |  |
+| `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  |  |
 
 
 #### ExcludeRange
