@@ -64,6 +64,9 @@ const (
 	APIGetChassis                = "redfish/v1/Chassis/{CHASSIS_ID}"
 	APIGetNetworkDeviceFunctions = "redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/{PF_ID}"
 	APIRootService               = "redfish/v1"
+	APISystemRoot                = APIRootService + "/Systems/Bluefield"
+	APISecureBoot                = APISystemRoot + "/SecureBoot"
+	APIResetSystem               = APISystemRoot + "/Actions/ComputerSystem.Reset"
 
 	// CASecret is created by the cert-manager Certificate deployed by DPF,
 	CASecret = "dpf-provisioning-ca-secret"
@@ -100,6 +103,79 @@ type TaskProgress struct {
 	PercentComplete int
 	TaskState       string
 	TaskStatus      string
+}
+
+// SecureBootState represents the Secure Boot enabled/disabled state.
+// Corresponds to Redfish SecureBootCurrentBoot property.
+type SecureBootState string
+
+const (
+	SecureBootStateEnabled  SecureBootState = "Enabled"
+	SecureBootStateDisabled SecureBootState = "Disabled"
+)
+
+// SecureBootModeType represents UEFI Secure Boot operating modes.
+// Defined by DMTF Redfish Data Model Specification (DSP0268).
+type SecureBootModeType string
+
+const (
+	// SecureBootModeSetup indicates Setup Mode - no Platform Key enrolled.
+	// Keys can be enrolled without signature verification.
+	SecureBootModeSetup SecureBootModeType = "SetupMode"
+
+	// SecureBootModeUser indicates User Mode - Platform Key enrolled.
+	// Normal secure boot operation with signature verification.
+	SecureBootModeUser SecureBootModeType = "UserMode"
+
+	// SecureBootModeAudit indicates Audit Mode - verification logged but not enforced.
+	// Boot is allowed even if signature verification fails.
+	SecureBootModeAudit SecureBootModeType = "AuditMode"
+
+	// SecureBootModeDeployed indicates Deployed Mode - most restrictive.
+	// Additional policy restrictions prevent unauthorized config changes.
+	SecureBootModeDeployed SecureBootModeType = "DeployedMode"
+)
+
+// SecureBootInfo represents the Redfish SecureBoot resource.
+// Field names match DMTF Redfish specification for traceability.
+// See: https://redfish.dmtf.org/schemas/v1/SecureBoot.v1_1_0.json
+type SecureBootInfo struct {
+	// SecureBootCurrentBoot indicates the current boot's Secure Boot state.
+	// This is read-only and reflects the actual hardware state.
+	SecureBootCurrentBoot SecureBootState `json:"SecureBootCurrentBoot"`
+
+	// SecureBootEnable controls whether Secure Boot will be active on next boot.
+	// This is the persistent firmware setting that can be configured.
+	SecureBootEnable bool `json:"SecureBootEnable"`
+
+	// SecureBootMode indicates the current UEFI Secure Boot operating mode.
+	// This is read-only and determined by platform security state.
+	SecureBootMode SecureBootModeType `json:"SecureBootMode"`
+}
+
+// IsCurrentlyActive returns true if Secure Boot is active on the current boot.
+func (s *SecureBootInfo) IsCurrentlyActive() bool {
+	return s.SecureBootCurrentBoot == SecureBootStateEnabled
+}
+
+// IsPersistentlyEnabled returns true if Secure Boot is configured to be enabled.
+func (s *SecureBootInfo) IsPersistentlyEnabled() bool {
+	return s.SecureBootEnable
+}
+
+// RequiresReboot returns true if the persistent setting differs from current state.
+func (s *SecureBootInfo) RequiresReboot() bool {
+	return s.IsCurrentlyActive() != s.IsPersistentlyEnabled()
+}
+
+// IsInSetupMode returns true if the DPU is in Setup Mode (no Platform Key enrolled).
+func (s *SecureBootInfo) IsInSetupMode() bool {
+	return s.SecureBootMode == SecureBootModeSetup
+}
+
+// ResetRequest for DPU ARM restart operations
+type ResetRequest struct {
+	ResetType string `json:"ResetType"` // "ForceRestart", "GracefulRestart", "PowerCycle"
 }
 
 // Bios information from Redfish API
@@ -689,4 +765,63 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 	}
 
 	return tlsClient, nil
+}
+
+// GetSecureBoot queries current Secure Boot state from BMC
+func (c *Client) GetSecureBoot() (*resty.Response, *SecureBootInfo, error) {
+	return do[SecureBootInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(APISecureBoot)
+	})
+}
+
+// EnableSecureBoot configures Secure Boot to enabled
+func (c *Client) EnableSecureBoot() (*resty.Response, error) {
+	payload := map[string]interface{}{
+		"SecureBootEnable": true,
+	}
+	resp, err := c.Client.R().
+		SetBody(payload).
+		Patch(APISecureBoot)
+	if err != nil {
+		return resp, fmt.Errorf("failed to enable Secure Boot: %w", err)
+	}
+	// PATCH operations may return 200 OK or 204 No Content
+	if resp.StatusCode() != http.StatusOK && resp.StatusCode() != http.StatusNoContent {
+		return resp, fmt.Errorf("failed to enable Secure Boot: unexpected status code %d", resp.StatusCode())
+	}
+	return resp, nil
+}
+
+// DisableSecureBoot configures Secure Boot to disabled
+func (c *Client) DisableSecureBoot() (*resty.Response, error) {
+	payload := map[string]interface{}{
+		"SecureBootEnable": false,
+	}
+	resp, err := c.Client.R().
+		SetBody(payload).
+		Patch(APISecureBoot)
+	if err != nil {
+		return resp, fmt.Errorf("failed to disable Secure Boot: %w", err)
+	}
+	// PATCH operations may return 200 OK or 204 No Content
+	if resp.StatusCode() != http.StatusOK && resp.StatusCode() != http.StatusNoContent {
+		return resp, fmt.Errorf("failed to disable Secure Boot: unexpected status code %d", resp.StatusCode())
+	}
+	return resp, nil
+}
+
+// ForceRestartDPUArm performs ForceRestart on DPU ARM (not host power cycle).
+func (c *Client) ForceRestartDPUArm() (*resty.Response, error) {
+	payload := ResetRequest{ResetType: "ForceRestart"}
+	resp, err := c.Client.R().
+		SetBody(payload).
+		Post(APIResetSystem)
+	if err != nil {
+		return resp, fmt.Errorf("failed to force restart DPU ARM: %w", err)
+	}
+	// POST operations may return 200 OK or 204 No Content
+	if resp.StatusCode() != http.StatusOK && resp.StatusCode() != http.StatusNoContent {
+		return resp, fmt.Errorf("failed to force restart DPU ARM: unexpected status code %d", resp.StatusCode())
+	}
+	return resp, nil
 }

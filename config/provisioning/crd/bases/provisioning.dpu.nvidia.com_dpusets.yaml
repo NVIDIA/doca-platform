@@ -314,6 +314,10 @@ spec:
                             1 : 0) + (has(self.customLabel) ? 1 : 0) + (has(self.drain)
                             ? 1 : 0) + (has(self.customAction) ? 1 : 0) + (has(self.hold)
                             ? 1 : 0) == 1'
+                      secureBoot:
+                        description: SecureBoot specifies whether UEFI Secure Boot
+                          should be enabled.
+                        type: boolean
                     required:
                     - dpuFlavor
                     type: object

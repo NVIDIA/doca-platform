@@ -131,6 +131,9 @@ type DPUTemplateSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	DPUFlavor string `json:"dpuFlavor"`
+	// SecureBoot specifies whether UEFI Secure Boot should be enabled.
+	// +optional
+	SecureBoot *bool `json:"secureBoot,omitempty"`
 }
 
 // DPUTemplate is a template for DPU
