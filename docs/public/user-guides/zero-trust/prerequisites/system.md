@@ -47,7 +47,7 @@ Control plane nodes with BlueField DPUs require two configuration steps:
 The DPU NIC mode setup script (below) validates these requirements:
 
 - Root/sudo access on control plane hosts
-- MFT tools installed (`mst`, `mlxconfig`, `mlxfwreset`)
+- MFT tools installed (`mst`, `mlxconfig`)
 - ipmitool installed and IPMI accessible locally (BMC configured; `ipmi_devintf`, `ipmi_si` kernel modules loaded)
 - BlueField DPUs present on the system
 </details>
