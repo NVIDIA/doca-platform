@@ -257,6 +257,14 @@ spec:
                   Example: "MT_0001234567", "MT25066004C7"
                 pattern: ^MT_?[A-Z0-9]+$
                 type: string
+              secureBoot:
+                description: SecureBoot indicates the current UEFI Secure Boot state.
+                properties:
+                  enabled:
+                    description: Enabled indicates whether UEFI Secure Boot is currently
+                      enabled on the DPU.
+                    type: boolean
+                type: object
               serialNumber:
                 description: |-
                   SerialNumber is the serial number of the device.

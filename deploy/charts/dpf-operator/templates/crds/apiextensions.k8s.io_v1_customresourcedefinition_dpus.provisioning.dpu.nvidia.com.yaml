@@ -249,6 +249,13 @@ spec:
                   Example: "0000-03-00", "03-00"
                 pattern: ^([0-9a-fA-F]{4}[-])?[0-9a-fA-F]{2}[-][0-9a-fA-F]{2}$
                 type: string
+              secureBoot:
+                description: SecureBoot specifies whether UEFI Secure Boot should
+                  be enabled.
+                type: boolean
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
               serialNumber:
                 description: The serial number of the DPU
                 minLength: 1
@@ -506,6 +513,14 @@ spec:
               requiredReset:
                 description: whether require reset of DPU
                 type: boolean
+              secureBoot:
+                description: SecureBoot indicates the current UEFI Secure Boot state.
+                properties:
+                  enabled:
+                    description: Enabled indicates whether UEFI Secure Boot is currently
+                      enabled on the DPU.
+                    type: boolean
+                type: object
             required:
             - phase
             type: object

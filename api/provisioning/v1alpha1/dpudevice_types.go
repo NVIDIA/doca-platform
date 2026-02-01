@@ -201,8 +201,19 @@ type DPUDeviceStatus struct {
 	// +optional
 	DPUMode DpuModeType `json:"dpuMode,omitempty"`
 
+	// SecureBoot indicates the current UEFI Secure Boot state.
+	// +optional
+	SecureBoot *SecureBootStatus `json:"secureBoot,omitempty"`
+
 	// +optional
 	Conditions []metav1.Condition `json:"conditions"`
+}
+
+// SecureBootStatus represents the UEFI Secure Boot configuration status on the DPU.
+type SecureBootStatus struct {
+	// Enabled indicates whether UEFI Secure Boot is currently enabled on the DPU.
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 type DPUType string
