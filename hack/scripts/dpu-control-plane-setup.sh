@@ -21,7 +21,7 @@
 # Setting INTERNAL_CPU_OFFLOAD_ENGINE=1 switches to NIC mode
 # Script performs cold power cycle via IPMI to apply changes
 
-set -euo pipefail
+set -Euo pipefail
 
 fail() {
 	echo "Error: $1" >&2
@@ -59,7 +59,6 @@ done
 [[ $EUID -eq 0 ]] || fail "Run as root"
 command -v mst &> /dev/null || fail "Install MFT tools (mst not found)"
 command -v mlxconfig &> /dev/null || fail "Install MFT tools (mlxconfig not found)"
-command -v mlxfwreset &> /dev/null || fail "Install MFT tools (mlxfwreset not found)"
 command -v ipmitool &> /dev/null || fail "Install ipmitool (not found)"
 # Always check IPMI access to provide early feedback
 ipmitool -I open chassis status &> /dev/null || fail "IPMI not accessible" "Load IPMI kernel modules (ipmi_devintf, ipmi_si) or check BMC configuration"
@@ -144,15 +143,6 @@ $dry_run && {
 	echo "=== DRY RUN complete ==="
 	exit 0
 }
-
-echo "Resetting DPU firmware to commit configuration changes..."
-for dpu in $dpus; do
-	echo "Resetting ${dpu}.0..."
-	echo "  Running: mlxfwreset -d ${dpu}.0 --level 3 --skip_fsm_sync -y r"
-	mlxfwreset -d "${dpu}.0" --level 3 --skip_fsm_sync -y r 2>&1 || {
-		echo "Warning: Failed to reset ${dpu}.0 firmware"
-	}
-done
 
 if ! $reboot; then
 	if $changed; then
