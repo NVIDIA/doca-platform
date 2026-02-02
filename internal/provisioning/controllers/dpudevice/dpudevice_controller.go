@@ -429,7 +429,7 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 	}
 
 	dpuDevice.Status.DPUType = chassisInfo.GetBlueFieldVersion()
-	if dpuDevice.Status.DPUType == provisioningv1.DPUTypeUnknown {
+	if dpuDevice.Status.DPUMode == provisioningv1.DpuMode && dpuDevice.Status.DPUType == provisioningv1.DPUTypeUnknown {
 		err = fmt.Errorf("unknown DPU type")
 		log.Error(err, "Failed to get DPU type", "address", bmcAddress, "response", resp)
 		return err
