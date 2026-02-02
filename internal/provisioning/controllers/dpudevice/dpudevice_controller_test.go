@@ -421,6 +421,172 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(dpuDevice.Labels).To(HaveKey("provisioning.dpu.nvidia.com/dpudevice-opn"))
 			Expect(dpuDevice.Labels).To(HaveKey("provisioning.dpu.nvidia.com/dpudevice-psid"))
 		})
+
+		It("should fail when DPU type is unknown in DPU mode", func() {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			_ = provisioningv1.AddToScheme(scheme)
+			_ = corev1.AddToScheme(scheme)
+
+			// Create and start the mock Redfish server
+			mockServer, err := mock.CreateMockRedfishServer("BF-24.10", "testpassword")
+			Expect(err).NotTo(HaveOccurred())
+			defer mockServer.Stop()
+
+			// Set a model that doesn't match the BlueField pattern to trigger unknown DPU type
+			mockServer.SetModel("Unknown-DPU-Model")
+
+			// Get the mock server address
+			bmcIP := mockServer.GetIPAddress()
+			bmcPort := uint32(mockServer.GetPort())
+
+			// Create a DPUDevice with the mock server's address
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice-unknown",
+					Namespace: "test-namespace",
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					SerialNumber: mock.DpuSerialNumber,
+				},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCIP:   &bmcIP,
+					BMCPort: &bmcPort,
+				},
+			}
+
+			// Create TLS secrets for the mock server
+			caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
+
+			caSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpf-provisioning-ca-secret",
+					Namespace: "test-namespace",
+				},
+				Type: corev1.SecretTypeTLS,
+				Data: map[string][]byte{
+					"tls.crt": caCrt,
+				},
+			}
+
+			clientSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpf-provisioning-redfish-client-secret",
+					Namespace: "test-namespace",
+				},
+				Type: corev1.SecretTypeTLS,
+				Data: map[string][]byte{
+					"tls.crt": clientCrt,
+					"tls.key": clientKey,
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(dpuDevice, caSecret, clientSecret).
+				Build()
+
+			reconciler := &DPUDeviceReconciler{
+				Client: fakeClient,
+			}
+
+			// Call discoverDPUDevice - should fail with unknown DPU type error
+			err = reconciler.discoverDPUDevice(ctx, dpuDevice)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("unknown DPU type"))
+
+			// Verify that the DPU type is set to Unknown
+			Expect(dpuDevice.Status.DPUType).To(Equal(provisioningv1.DPUTypeUnknown))
+
+			// Verify that the DPU mode is DPU mode (default)
+			Expect(dpuDevice.Status.DPUMode).To(Equal(provisioningv1.DpuMode))
+		})
+
+		It("should succeed when DPU type is unknown in NIC mode", func() {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			_ = provisioningv1.AddToScheme(scheme)
+			_ = corev1.AddToScheme(scheme)
+
+			// Create and start the mock Redfish server
+			mockServer, err := mock.CreateMockRedfishServer("BF-24.10", "testpassword")
+			Expect(err).NotTo(HaveOccurred())
+			defer mockServer.Stop()
+
+			// Set the DPU to NIC mode
+			mockServer.SetNicMode("NicMode")
+
+			// Set a model that doesn't match the BlueField pattern to trigger unknown DPU type
+			mockServer.SetModel("Unknown-DPU-Model")
+
+			// Get the mock server address
+			bmcIP := mockServer.GetIPAddress()
+			bmcPort := uint32(mockServer.GetPort())
+
+			// Create a DPUDevice with the mock server's address
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice-nic-unknown",
+					Namespace: "test-namespace",
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					SerialNumber: mock.DpuSerialNumber,
+				},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCIP:   &bmcIP,
+					BMCPort: &bmcPort,
+				},
+			}
+
+			// Create TLS secrets for the mock server
+			caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
+
+			caSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpf-provisioning-ca-secret",
+					Namespace: "test-namespace",
+				},
+				Type: corev1.SecretTypeTLS,
+				Data: map[string][]byte{
+					"tls.crt": caCrt,
+				},
+			}
+
+			clientSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpf-provisioning-redfish-client-secret",
+					Namespace: "test-namespace",
+				},
+				Type: corev1.SecretTypeTLS,
+				Data: map[string][]byte{
+					"tls.crt": clientCrt,
+					"tls.key": clientKey,
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(dpuDevice, caSecret, clientSecret).
+				Build()
+
+			reconciler := &DPUDeviceReconciler{
+				Client: fakeClient,
+			}
+
+			// Call discoverDPUDevice - should succeed even with unknown DPU type because it's in NIC mode
+			err = reconciler.discoverDPUDevice(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify that the DPU type is set to Unknown
+			Expect(dpuDevice.Status.DPUType).To(Equal(provisioningv1.DPUTypeUnknown))
+
+			// Verify that the DPU mode is NIC mode
+			Expect(dpuDevice.Status.DPUMode).To(Equal(provisioningv1.NicMode))
+
+			// Verify other fields are still set correctly
+			Expect(dpuDevice.Status.SerialNumber).NotTo(BeNil())
+			Expect(*dpuDevice.Status.SerialNumber).To(Equal(mock.DpuSerialNumber))
+		})
 	})
 })
 

@@ -44,6 +44,7 @@ type RedfishMockServer struct {
 	secureBootCurrentBoot bool       // Actual Secure Boot state of current boot session
 	oemLastState          string     // Current ARM OS boot state: "OsIsRunning", "OsStarting", etc.
 	dpuVersion            DpuVersion // Current DPU version
+	model                 string     // DPU model string (optional override)
 }
 
 type DpuVersion int
@@ -226,13 +227,19 @@ func (r *RedfishMockServer) handleGetChassis(w http.ResponseWriter, req *http.Re
 		return
 	}
 
+	// Use custom model if set, otherwise default to BlueField-3
+	model := r.model
+	if model == "" {
+		model = "BlueField-3 DPU"
+	}
+
 	response := map[string]interface{}{
 		"@odata.context": "/redfish/v1/$metadata#Chassis.Chassis",
 		"@odata.id":      "/redfish/v1/Chassis/Card1",
 		"@odata.type":    "#Chassis.v1_20_0.Chassis",
 		"Id":             "Card1",
 		"Name":           "BlueField DPU Card",
-		"Model":          "BlueField-3 DPU",
+		"Model":          model,
 		"PartNumber":     DpuOPN,
 		"SerialNumber":   DpuSerialNumber,
 		"Status": map[string]interface{}{
@@ -449,6 +456,11 @@ func (r *RedfishMockServer) SetOemLastState(state string) {
 // GetOemLastState returns the current ARM OS boot state
 func (r *RedfishMockServer) GetOemLastState() string {
 	return r.oemLastState
+}
+
+// SetModel sets the DPU model string
+func (r *RedfishMockServer) SetModel(model string) {
+	r.model = model
 }
 
 // GetCertificate returns the server's TLS certificate in PEM format

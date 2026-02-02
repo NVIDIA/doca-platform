@@ -33,6 +33,7 @@ import (
 )
 
 var _ = Describe("InitializeInterface", func() {
+
 	var (
 		defaultDPUName        = "dpu-initialize-interface-test"
 		defaultDPUNodeName    = "dpu-node-initialize-interface-test"
@@ -42,13 +43,27 @@ var _ = Describe("InitializeInterface", func() {
 		strTrue               = "true"
 	)
 
-	It("should set DPU mode to DpuMode if DPU is in NicMode with full transition flow", func() {
-		By("prepare mock Redfish server")
-		mockServer, err := redfishmock.CreateMockRedfishServer("BF-24.10", "password")
-		mockServer.SetNicMode("NicMode")
-		Expect(err).NotTo(HaveOccurred())
-		defer mockServer.Stop()
+	// Helper function to create mock Redfish server
+	createMockRedfishServer := func() (*redfishmock.RedfishMockServer, error) {
+		return redfishmock.CreateMockRedfishServer("BF-24.10", "password")
+	}
 
+	// Helper function to prepare DPUFlavor CR
+	prepareDPUFlavor := func() {
+		By("prepare DPUFlavor CR")
+		dpuFlavor := dpuFlavorObj(defaultDPUFlavorName)
+		createObject(dpuFlavor)
+	}
+
+	// Helper function to prepare DPUCluster CR
+	prepareDPUCluster := func() {
+		By("Prepare DPUCluster CR")
+		dpuCluster := dpuClusterObj(defaultDPUClusterName, "static")
+		createObject(dpuCluster)
+	}
+
+	// Helper function to create BMC and mTLS certificate secrets
+	createBMCAndMTLSSecrets := func(mockServerIP string) {
 		By("create BMC credentials secret")
 		bmcSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
@@ -61,9 +76,9 @@ var _ = Describe("InitializeInterface", func() {
 		}
 		Expect(k8sClient.Create(ctx, bmcSecret)).To(Succeed())
 
-		By("create CA and client certificate secrets for mTLS")
+		By("Create CA and client certificate secrets for mTLS")
 		// Generate mTLS certificates for testing
-		caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
+		caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServerIP)
 
 		// Create CA certificate secret
 		caSecret := &corev1.Secret{
@@ -89,20 +104,16 @@ var _ = Describe("InitializeInterface", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, clientSecret)).To(Succeed())
+	}
 
-		By("prepare DPUFlavor CR")
-		dpuFlavor := dpuFlavorObj(defaultDPUFlavorName)
-		createObject(dpuFlavor)
-
-		By("prepare DPUDevice CR with NicMode and Redfish BMC")
-		dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
-		dpuDevice.Spec.BMCIP = ptr.To(mockServer.GetIPAddress())
-		dpuDevice.Spec.BMCPort = ptr.To(uint32(mockServer.GetPort()))
-		createObject(dpuDevice)
+	// Helper function to set DPUDevice status as ready
+	setDPUDeviceReady := func(dpuDevice *provisioningv1.DPUDevice, dpuMode provisioningv1.DpuModeType) {
 		patch := client.MergeFrom(dpuDevice.DeepCopy())
-		dpuDevice.Status.BMCIP = ptr.To(mockServer.GetIPAddress())
-		dpuDevice.Status.BMCPort = ptr.To(uint32(mockServer.GetPort()))
-		dpuDevice.Status.DPUMode = provisioningv1.NicMode
+		dpuDevice.Status.BMCIP = dpuDevice.Spec.BMCIP
+		dpuDevice.Status.BMCPort = dpuDevice.Spec.BMCPort
+		dpuDevice.Status.DPUMode = dpuMode
+		// Preserve DPUType if it was already set (e.g., to Unknown for testing)
+		// Otherwise it will remain as it was initialized
 		dpuDevice.Status.Conditions = []metav1.Condition{
 			{
 				Type:               string(provisioningv1.ConditionDpuDeviceReady),
@@ -114,6 +125,43 @@ var _ = Describe("InitializeInterface", func() {
 			},
 		}
 		Expect(k8sClient.Status().Patch(ctx, dpuDevice, patch)).To(Succeed())
+	}
+
+	// Helper function to set DPUNode status with bridge configured
+	setDPUNodeReady := func(dpuNode *provisioningv1.DPUNode) {
+		patch := client.MergeFrom(dpuNode.DeepCopy())
+		dpuNode.Status = provisioningv1.DPUNodeStatus{
+			DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaRedFish)),
+			Conditions: []metav1.Condition{
+				{
+					Type:               string(provisioningv1.DPUNodeConditionBridgeConfigured),
+					Status:             metav1.ConditionTrue,
+					Reason:             "BridgeConfigured",
+					Message:            "OOBBridgeConfigured",
+					LastTransitionTime: metav1.Now(),
+				},
+			},
+		}
+		Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+	}
+
+	It("should set DPU mode to DpuMode if DPU is in NicMode with full transition flow", func() {
+		By("prepare mock Redfish server")
+		mockServer, err := createMockRedfishServer()
+		mockServer.SetNicMode("NicMode")
+		Expect(err).NotTo(HaveOccurred())
+		defer mockServer.Stop()
+
+		createBMCAndMTLSSecrets(mockServer.GetIPAddress())
+
+		prepareDPUFlavor()
+
+		By("prepare DPUDevice CR with NicMode and Redfish BMC")
+		dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+		dpuDevice.Spec.BMCIP = ptr.To(mockServer.GetIPAddress())
+		dpuDevice.Spec.BMCPort = ptr.To(uint32(mockServer.GetPort()))
+		createObject(dpuDevice)
+		setDPUDeviceReady(dpuDevice, provisioningv1.NicMode)
 
 		By("prepare DPUNode CR with External reboot method")
 		dpuNode := dpuNodeObj(defaultDPUNodeName)
@@ -131,34 +179,20 @@ var _ = Describe("InitializeInterface", func() {
 			provisioningv1.DPUNodeExternalRebootRequiredAnnotation: "true",
 		}
 		createObject(dpuNode)
-		patch = client.MergeFrom(dpuNode.DeepCopy())
-		dpuNode.Status = provisioningv1.DPUNodeStatus{
-			DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaRedFish)),
-			Conditions: []metav1.Condition{
-				{
-					Type:               string(provisioningv1.DPUNodeConditionBridgeConfigured),
-					Status:             metav1.ConditionTrue,
-					Reason:             "BridgeConfigured",
-					Message:            "Bridge configured",
-					LastTransitionTime: metav1.Now(),
-				},
-			},
-		}
-		Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+		setDPUNodeReady(dpuNode)
 
-		By("prepare DPUCluster CR")
-		dpuCluster := dpuClusterObj(defaultDPUClusterName, "static")
-		createObject(dpuCluster)
+		prepareDPUCluster()
 
 		By("prepare DPU CR in InitializeInterface phase")
 		dpu := dpuObj(defaultDPUName)
 		dpu.Spec.DPUNodeName = dpuNode.Name
 		dpu.Spec.DPUDeviceName = dpuDevice.Name
-		dpu.Spec.DPUFlavor = dpuFlavor.Name
-		dpu.Spec.Cluster.Namespace = dpuCluster.Namespace
-		dpu.Spec.Cluster.Name = dpuCluster.Name
+		dpu.Spec.DPUFlavor = defaultDPUFlavorName
+		dpu.Spec.Cluster.Namespace = defaultDPUClusterName
+		dpu.Spec.Cluster.Name = defaultDPUClusterName
 		dpu.Status.Phase = provisioningv1.DPUInitializeInterface
 		dpu.Status.DPUMode = provisioningv1.NicMode
+		dpu.Status.DPUType = provisioningv1.DPUTypeUnknown
 		dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
 
 		By("Step 1: DPU in InitializeInterface phase detects NicMode and transitions to Rebooting")
@@ -190,7 +224,7 @@ var _ = Describe("InitializeInterface", func() {
 		Expect(status.Phase).To(Equal(provisioningv1.DPURebooting), "DPU should remain in Rebooting phase until reboot annotation is removed")
 
 		By("Step 4: Simulate host reboot by removing reboot-required annotation and setting Rebooted condition")
-		patch = client.MergeFrom(dpuNode.DeepCopy())
+		patch := client.MergeFrom(dpuNode.DeepCopy())
 		delete(dpuNode.Annotations, provisioningv1.DPUNodeExternalRebootRequiredAnnotation)
 		Expect(k8sClient.Patch(ctx, dpuNode, patch)).To(Succeed())
 
@@ -233,5 +267,136 @@ var _ = Describe("InitializeInterface", func() {
 				HaveField("Reason", string(provisioningv1.DPUCondInterfaceInitialized)),
 			),
 		))
+		Expect(status.DPUMode).To(Equal(provisioningv1.DpuMode), "DPU mode should be DpuMode")
+		Expect(status.DPUType).To(Equal(provisioningv1.DPUTypeBlueField3), "DPU type should be BlueField3")
 	})
+
+	It("should fail when DpuDevice DPUtype is Unknown", func() {
+		By("prepare mock Redfish server with DpuMode")
+		mockServer, err := createMockRedfishServer()
+		mockServer.SetNicMode("DpuMode")
+		mockServer.SetModel("Unknown DPU Model") // Set unknown model to trigger Unknown DPU type
+		Expect(err).NotTo(HaveOccurred())
+		defer mockServer.Stop()
+
+		createBMCAndMTLSSecrets(mockServer.GetIPAddress())
+
+		By("prepare DPUDevice CR with Unknown DPU type")
+		dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+		dpuDevice.Spec.BMCIP = ptr.To(mockServer.GetIPAddress())
+		dpuDevice.Spec.BMCPort = ptr.To(uint32(mockServer.GetPort()))
+		dpuDevice.Status.DPUType = provisioningv1.DPUTypeUnknown
+		createObject(dpuDevice)
+		setDPUDeviceReady(dpuDevice, provisioningv1.NicMode)
+
+		By("prepare DPUNode CR")
+		dpuNode := dpuNodeObj(defaultDPUNodeName)
+		createObject(dpuNode)
+		setDPUNodeReady(dpuNode)
+
+		prepareDPUCluster()
+
+		prepareDPUFlavor()
+
+		By("prepare DPU CR in InitializeInterface phase")
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUNodeName = dpuNode.Name
+		dpu.Spec.DPUDeviceName = dpuDevice.Name
+		dpu.Spec.DPUFlavor = defaultDPUFlavorName
+		dpu.Spec.Cluster.Namespace = defaultDPUClusterName
+		dpu.Spec.Cluster.Name = defaultDPUClusterName
+		dpu.Status.Phase = provisioningv1.DPUInitializeInterface
+		dpu.Status.DPUMode = provisioningv1.NicMode
+		dpu.Status.DPUType = provisioningv1.DPUTypeUnknown
+		dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
+
+		By("Run InitializeInterface phase")
+		status, err := InitializeInterface(ctx, dpu,
+			&dutil.ControllerContext{
+				Client: k8sClient,
+				Options: dutil.DPUOptions{
+					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
+				},
+			},
+		)
+		Expect(err).To(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface), "DPU should remain in InitializeInterface phase when DPU type is Unknown")
+		Expect(status.Conditions).Should(ContainElements(
+			And(
+				HaveField("Type", string(provisioningv1.DPUCondInterfaceInitialized)),
+				HaveField("Status", metav1.ConditionFalse),
+				HaveField("Reason", "FailedToGetDPUType"),
+			),
+		))
+		Expect(status.DPUMode).To(Equal(provisioningv1.DpuMode), "DPU mode should be set to DpuMode")
+		Expect(status.DPUType).To(Equal(provisioningv1.DPUTypeUnknown), "DPU type should be Unknown")
+	})
+
+	It("should proceed with provisioning when DPU is already in DpuMode", func() {
+		By("prepare mock Redfish server with DpuMode")
+		mockServer, err := createMockRedfishServer()
+		mockServer.SetNicMode("DpuMode")
+		Expect(err).NotTo(HaveOccurred())
+		defer mockServer.Stop()
+
+		createBMCAndMTLSSecrets(mockServer.GetIPAddress())
+
+		prepareDPUFlavor()
+
+		By("prepare DPUDevice CR already in DpuMode")
+		dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+		dpuDevice.Spec.BMCIP = ptr.To(mockServer.GetIPAddress())
+		dpuDevice.Spec.BMCPort = ptr.To(uint32(mockServer.GetPort()))
+		createObject(dpuDevice)
+		setDPUDeviceReady(dpuDevice, provisioningv1.DpuMode)
+
+		By("prepare DPUNode CR")
+		dpuNode := dpuNodeObj(defaultDPUNodeName)
+		dpuNode.Finalizers = []string{provisioningv1.DPUNodeFinalizer}
+		dpuNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = strTrue
+		dpuNode.Spec.DPUs = []provisioningv1.DPURef{
+			{
+				Name: dpuDevice.Name,
+			},
+		}
+		dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+			External: &provisioningv1.External{},
+		}
+		createObject(dpuNode)
+		setDPUNodeReady(dpuNode)
+
+		prepareDPUCluster()
+
+		By("prepare DPU CR in InitializeInterface phase already in DpuMode")
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUNodeName = dpuNode.Name
+		dpu.Spec.DPUDeviceName = dpuDevice.Name
+		dpu.Spec.DPUFlavor = defaultDPUFlavorName
+		dpu.Spec.Cluster.Namespace = defaultDPUClusterName
+		dpu.Spec.Cluster.Name = defaultDPUClusterName
+		dpu.Status.Phase = provisioningv1.DPUInitializeInterface
+		dpu.Status.DPUMode = provisioningv1.DpuMode
+		dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
+
+		By("Run InitializeInterface phase when DPU is already in DpuMode")
+		status, err := InitializeInterface(ctx, dpu,
+			&dutil.ControllerContext{
+				Client: k8sClient,
+				Options: dutil.DPUOptions{
+					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
+				},
+			},
+		)
+		Expect(err).To(Succeed())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters), "DPU should proceed to ConfigFWParameters phase when already in DpuMode")
+		Expect(status.Conditions).Should(ContainElements(
+			And(
+				HaveField("Type", string(provisioningv1.DPUCondInterfaceInitialized)),
+				HaveField("Status", metav1.ConditionTrue),
+				HaveField("Reason", string(provisioningv1.DPUCondInterfaceInitialized)),
+			),
+		))
+		Expect(status.DPUMode).To(Equal(provisioningv1.DpuMode), "DPU mode should remain DpuMode")
+	})
+
 })

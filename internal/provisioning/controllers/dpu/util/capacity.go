@@ -110,7 +110,6 @@ const (
 	CapacityUnknown CapacityResult = iota
 	CapacitySatisfied
 	CapacityInsufficient
-	CapacityRebootRequired
 )
 
 func (spec *BlueFieldSpecs) CanSatisfy(req corev1.ResourceList) CapacityResult {
