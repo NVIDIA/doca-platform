@@ -901,7 +901,9 @@ spec:
           labels:
             port: ovn
         spec:
-          interfaceType: ovn
+          interfaceType: patch
+          patch:
+            peerBridge: br-ovn
 ```
 </details>
 

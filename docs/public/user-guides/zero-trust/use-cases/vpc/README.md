@@ -758,9 +758,9 @@ spec:
           labels:
             ovn.vpc.dpu.nvidia.com/interface: "ovn-ext-patch"
         spec:
-          interfaceType: ovn
-          ovn:
-            externalBridge: br-ovn-ext
+          interfaceType: patch
+          patch:
+            peerBridge: br-ovn-ext
 ```
 
 </details>
