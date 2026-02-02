@@ -239,8 +239,8 @@ func createVPCDPUServiceInterface(ctx context.Context, input *systemTestInput, c
 		dpuservice.SetDPUServiceInterfaceVF(dpuServiceInterface, config)
 	case dpuservicev1.InterfaceTypeService:
 		dpuservice.SetDPUServiceInterfaceSF(dpuServiceInterface, config)
-	case dpuservicev1.InterfaceTypeOVN:
-		dpuservice.SetDPUServiceInterfaceOVN(dpuServiceInterface, config)
+	case dpuservicev1.InterfaceTypePatch:
+		dpuservice.SetDPUServiceInterfacePatch(dpuServiceInterface, config)
 	default:
 		Fail(fmt.Sprintf("invalid interface type: %s", config.Type))
 	}
@@ -274,12 +274,12 @@ func createVPCPrerequisiteDPUServiceInterfaces(ctx context.Context, input *syste
 
 	By("creating ovn ext service interface")
 	createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
-		Name:           vpcutils.OvnExtPatchName,
-		InterfaceName:  vpcutils.OvnExtPatchName,
-		Type:           dpuservicev1.InterfaceTypeOVN,
-		Namespace:      input.namespace,
-		Labels:         brOVNExtLabels,
-		ExternalBridge: ptr.To(vpcutils.BrOVNExt),
+		Name:          vpcutils.OvnExtPatchName,
+		InterfaceName: vpcutils.OvnExtPatchName,
+		Type:          dpuservicev1.InterfaceTypePatch,
+		Namespace:     input.namespace,
+		Labels:        brOVNExtLabels,
+		PeerBridge:    vpcutils.BrOVNExt,
 	})
 }
 
