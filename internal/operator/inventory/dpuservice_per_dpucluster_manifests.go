@@ -36,11 +36,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var _ Component = &serviceChainSetControllerObjects{}
+var _ Component = &dpuServicePerDPUClusterObjects{}
 
-// serviceChainSetControllerObjects contains objects that are used to generate servicechainset controller manifests.
-// serviceChainSetControllerObjects objects should be immutable after Parse()
-type serviceChainSetControllerObjects struct {
+// dpuServicePerDPUClusterObjects contains objects that are used to generate per dpucluster manifests.
+// dpuServicePerDPUClusterObjects objects should be immutable after Parse()
+type dpuServicePerDPUClusterObjects struct {
 	data []byte
 	// templateDPUService is the template DPUService that will be used to generate:
 	// 1. A RBAC/CRDs DPUService (non-in-cluster) for deploying RBAC and CRDs
@@ -48,30 +48,36 @@ type serviceChainSetControllerObjects struct {
 	templateDPUService fromDPUService
 	// dpuServiceCredentialsRequest is the template credentials request for the DPUService that will be instantiated per DPUCluster.
 	dpuServiceCredentialsRequest *unstructured.Unstructured
+	// componentName is the name used for the component label
+	componentName operatorv1.ComponentName
+	// rbacAndCRDsName is the name for the RBAC/CRDs DPUService
+	rbacAndCRDsName operatorv1.ComponentName
 }
 
-func newServiceChainSetControllerObjects(data []byte) *serviceChainSetControllerObjects {
-	return &serviceChainSetControllerObjects{
+func newServiceChainSetControllerObjects(data []byte) *dpuServicePerDPUClusterObjects {
+	return &dpuServicePerDPUClusterObjects{
 		data:               data,
 		templateDPUService: fromDPUService{name: operatorv1.ServiceSetControllerName},
+		componentName:      operatorv1.ServiceSetControllerName,
+		rbacAndCRDsName:    operatorv1.ServiceChainSetCRDsName,
 	}
 }
 
-func (p *serviceChainSetControllerObjects) Name() operatorv1.ComponentName {
-	return operatorv1.ServiceSetControllerName
+func (p *dpuServicePerDPUClusterObjects) Name() operatorv1.ComponentName {
+	return p.componentName
 }
 
-// Parse parses the servicechainset controller data into the relevant fields of the struct and performs some basic validations.
-func (p *serviceChainSetControllerObjects) Parse() (err error) {
+// Parse parses the data into the relevant fields of the struct and performs some basic validations.
+func (p *dpuServicePerDPUClusterObjects) Parse() (err error) {
 	if p.data == nil {
-		return fmt.Errorf("serviceChainSetControllerObjects.data can not be empty")
+		return fmt.Errorf("dpuServicePerDPUClusterObjects.data can not be empty")
 	}
 
 	objs, err := operatorutils.BytesToUnstructured(p.data)
 	if err != nil {
-		return fmt.Errorf("error while converting ServiceChainSet controller manifests to objects: %w", err)
+		return fmt.Errorf("error while converting %s manifests to objects: %w", p.componentName.String(), err)
 	} else if len(objs) == 0 {
-		return fmt.Errorf("no objects found in ServiceChainSet controller manifests")
+		return fmt.Errorf("no objects found in %s manifests", p.componentName.String())
 	}
 
 	for _, obj := range objs {
@@ -106,7 +112,7 @@ func (p *serviceChainSetControllerObjects) Parse() (err error) {
 }
 
 // GenerateManifests applies edits and returns objects
-func (p *serviceChainSetControllerObjects) GenerateManifests(vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
+func (p *dpuServicePerDPUClusterObjects) GenerateManifests(vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
 	if ok := vars.DisableSystemComponents[p.Name()]; ok {
 		return []client.Object{}, nil
 	}
@@ -129,7 +135,7 @@ func (p *serviceChainSetControllerObjects) GenerateManifests(vars Variables, opt
 	objs := make([]*unstructured.Unstructured, 0)
 
 	// Build the list of service accounts for all DPUClusters that the RBACAndCRDs DPUService should grant access to.
-	// This is in the form of what the ServiceChainSetController chart expects. These service accounts are created by
+	// This is in the form of what e.g. the ServiceChainSetController chart expects. These service accounts are created by
 	// the DPUServiceCredentialRequest we create below for each DPUCluster.
 	serviceAccounts := make([]types.NamespacedName, 0, len(vars.DPUClusters))
 
@@ -142,8 +148,8 @@ func (p *serviceChainSetControllerObjects) GenerateManifests(vars Variables, opt
 		labelsToAddCopy[provisioningv1.DPUClusterNamespaceLabelKey] = cluster.Cluster.Namespace
 		// We hash the DPUCluster name and namespace to keep the name short and within the 63 character limit
 		hashedClusterNameNamespace := digest.Short(digest.FromObjects(cluster.Cluster.Name, cluster.Cluster.Namespace), 10)
-		secretName := fmt.Sprintf("servicechainset-controller-manager-credentials-%s", hashedClusterNameNamespace)
-		serviceAccountName := fmt.Sprintf("servicechainset-controller-manager-%s", hashedClusterNameNamespace)
+		secretName := fmt.Sprintf("%s-credentials-%s", p.componentName.String(), hashedClusterNameNamespace)
+		serviceAccountName := fmt.Sprintf("%s-%s", p.componentName.String(), hashedClusterNameNamespace)
 
 		// Create a DPUService per cluster
 		dpuServicePerClusterCopy, err := p.generatePerClusterDPUService(vars, labelsToAddCopy, hashedClusterNameNamespace, secretName, serviceAccountName)
@@ -190,7 +196,7 @@ func (p *serviceChainSetControllerObjects) GenerateManifests(vars Variables, opt
 }
 
 // generateRBACAndCRDsDPUService generates the RBAC and CRDs DPUService with appropriate edits applied
-func (p *serviceChainSetControllerObjects) generateRBACAndCRDsDPUService(vars Variables, labelsToAdd map[string]string, serviceAccounts []types.NamespacedName) (*unstructured.Unstructured, error) {
+func (p *dpuServicePerDPUClusterObjects) generateRBACAndCRDsDPUService(vars Variables, labelsToAdd map[string]string, serviceAccounts []types.NamespacedName) (*unstructured.Unstructured, error) {
 	// Generate the RBAC and CRDs DPUService
 	rbacAndCRDsDPUServiceCopy, err := p.templateDPUService.applyDPUServiceEdits(vars, labelsToAdd)
 	if err != nil {
@@ -198,18 +204,18 @@ func (p *serviceChainSetControllerObjects) generateRBACAndCRDsDPUService(vars Va
 	}
 
 	// Adjust the name of the DPUService to match the RBAC and CRDs DPUService name
-	rbacAndCRDsDPUServiceCopy.SetName(operatorv1.ServiceChainSetCRDsName.String())
+	rbacAndCRDsDPUServiceCopy.SetName(p.rbacAndCRDsName.String())
 
 	// Add additional values required by the RBAC and CRDs DPUService
-	edits := NewEdits()
-	rbacAndCRDEdits := serviceSetControllerRBACAndCRDEdits(serviceAccounts)
+	dpuServiceEdits := NewEdits()
+	edits := rbacAndCRDEdits(p.componentName.String(), serviceAccounts)
 
-	for _, edit := range rbacAndCRDEdits {
-		edits.AddForKindS(DPUServiceKind, edit)
+	for _, edit := range edits {
+		dpuServiceEdits.AddForKindS(DPUServiceKind, edit)
 	}
 
 	// Apply the edits.
-	if err := edits.Apply([]*unstructured.Unstructured{rbacAndCRDsDPUServiceCopy}); err != nil {
+	if err := dpuServiceEdits.Apply([]*unstructured.Unstructured{rbacAndCRDsDPUServiceCopy}); err != nil {
 		return nil, err
 	}
 
@@ -217,7 +223,7 @@ func (p *serviceChainSetControllerObjects) generateRBACAndCRDsDPUService(vars Va
 }
 
 // generatePerClusterDPUService generates a per-cluster DPUService with appropriate edits applied
-func (p *serviceChainSetControllerObjects) generatePerClusterDPUService(vars Variables, labelsToAdd map[string]string, hashedClusterNameNamespace string, secretName string, serviceAccountName string) (*unstructured.Unstructured, error) {
+func (p *dpuServicePerDPUClusterObjects) generatePerClusterDPUService(vars Variables, labelsToAdd map[string]string, hashedClusterNameNamespace string, secretName string, serviceAccountName string) (*unstructured.Unstructured, error) {
 	// Create a DPUService per cluster and apply the standard edits
 	dpuServicePerClusterCopy, err := p.templateDPUService.applyDPUServiceEdits(vars, labelsToAdd)
 	if err != nil {
@@ -227,16 +233,15 @@ func (p *serviceChainSetControllerObjects) generatePerClusterDPUService(vars Var
 	// Adjust the name of the DPUService to include the hashed DPUCluster name and namespace.
 	dpuServicePerClusterCopy.SetName(fmt.Sprintf("%s-%s", dpuServicePerClusterCopy.GetName(), hashedClusterNameNamespace))
 
-	// Add additional values required by the servicechainset controller DPUServices
-	edits := NewEdits()
-	serviceSetControllerEdits := serviceSetControllerEdits(secretName, serviceAccountName)
+	dpuServiceEdits := NewEdits()
+	edits := perClusterEdits(p.componentName.String(), secretName, serviceAccountName)
 
-	for _, edit := range serviceSetControllerEdits {
-		edits.AddForKindS(DPUServiceKind, edit)
+	for _, edit := range edits {
+		dpuServiceEdits.AddForKindS(DPUServiceKind, edit)
 	}
 
 	// Apply the edits.
-	if err := edits.Apply([]*unstructured.Unstructured{dpuServicePerClusterCopy}); err != nil {
+	if err := dpuServiceEdits.Apply([]*unstructured.Unstructured{dpuServicePerClusterCopy}); err != nil {
 		return nil, err
 	}
 
@@ -244,7 +249,7 @@ func (p *serviceChainSetControllerObjects) generatePerClusterDPUService(vars Var
 }
 
 // generatePerClusterDPUServiceCredentialRequest generates a per-cluster DPUServiceCredentialRequest with appropriate edits applied
-func (p *serviceChainSetControllerObjects) generatePerClusterDPUServiceCredentialRequest(namespace string, labelsToAdd map[string]string, hashedClusterNameNamespace string, clusterName string, clusterNamespace string, secretName string, serviceAccountName string) (*unstructured.Unstructured, error) {
+func (p *dpuServicePerDPUClusterObjects) generatePerClusterDPUServiceCredentialRequest(namespace string, labelsToAdd map[string]string, hashedClusterNameNamespace string, clusterName string, clusterNamespace string, secretName string, serviceAccountName string) (*unstructured.Unstructured, error) {
 	// Create DPUServiceCredentialsRequest copy
 	clusterCredReqCopy := p.dpuServiceCredentialsRequest.DeepCopy()
 	originalCredReqName := clusterCredReqCopy.GetName()
@@ -315,10 +320,10 @@ func dpuServiceCredentialsRequestSetSecretEdit(name, namespace string) Unstructu
 	}
 }
 
-// areDPUServicesReady checks whether the DPUServices for the servicechainset controller are ready. Based on the
-// versionValidation input passed, this function also checks if the DPUServices are matching the DPF version.
+// areDPUServicesReady checks whether the DPUServices are ready. Based on the versionValidation input passed,
+// this function also checks if the DPUServices are matching the DPF version.
 // It also verifies that the expected count of DPUServices (1 RBAC/CRDs + N per-cluster) matches the actual count.
-func (p *serviceChainSetControllerObjects) areDPUServicesReady(ctx context.Context, c client.Client, namespace string, dpuClusterCount int, versionValidation bool) []error {
+func (p *dpuServicePerDPUClusterObjects) areDPUServicesReady(ctx context.Context, c client.Client, namespace string, dpuClusterCount int, versionValidation bool) []error {
 	var errs []error
 
 	// List all DPUServices with our component label
@@ -348,17 +353,17 @@ func (p *serviceChainSetControllerObjects) areDPUServicesReady(ctx context.Conte
 		}
 
 		if !conditions.IsTrue(&dpuService, conditions.TypeReady) {
-			errs = append(errs, fmt.Errorf("ServiceChainSet Controller related DPUService %s/%s is not ready", namespace, dpuService.GetName()))
+			errs = append(errs, fmt.Errorf("%s related DPUService %s/%s is not ready", p.componentName.String(), namespace, dpuService.GetName()))
 		}
 	}
 
 	return errs
 }
 
-// areDPUServiceCredentialRequestsReady checks whether the DPUServiceCredentialRequests for the servicechainset controller are ready.
+// areDPUServiceCredentialRequestsReady checks whether the DPUServiceCredentialRequests for the DPUService are ready.
 // Based on the versionValidation input passed, this function also checks if the DPUServiceCredentialRequests are matching the DPF version.
 // It also verifies that the expected count of DPUServiceCredentialRequests (N per-cluster) matches the actual count.
-func (p *serviceChainSetControllerObjects) areDPUServiceCredentialRequestsReady(ctx context.Context, c client.Client, namespace string, expectedClusterCount int, versionValidation bool) []error {
+func (p *dpuServicePerDPUClusterObjects) areDPUServiceCredentialRequestsReady(ctx context.Context, c client.Client, namespace string, expectedClusterCount int, versionValidation bool) []error {
 	var errs []error
 
 	// List all DPUServiceCredentialRequests with our component label
@@ -386,16 +391,16 @@ func (p *serviceChainSetControllerObjects) areDPUServiceCredentialRequestsReady(
 		}
 
 		if !conditions.IsTrue(&credReq, conditions.TypeReady) {
-			errs = append(errs, fmt.Errorf("ServiceChainSet Controller related DPUServiceCredentialRequest %s/%s is not ready", namespace, credReq.GetName()))
+			errs = append(errs, fmt.Errorf("%s related DPUServiceCredentialRequest %s/%s is not ready", p.componentName.String(), namespace, credReq.GetName()))
 		}
 	}
 
 	return errs
 }
 
-// IsReadyForUpgrade reports the readiness of the servicechainset controller objects. It returns an error when any of the resources is not
+// IsReadyForUpgrade reports the readiness of the objects. It returns an error when any of the resources is not
 // ready.
-func (p *serviceChainSetControllerObjects) IsReadyForUpgrade(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig) error {
+func (p *dpuServicePerDPUClusterObjects) IsReadyForUpgrade(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig) error {
 	var errs []error
 
 	// List DPUClusters to determine expected count
@@ -419,9 +424,9 @@ func (p *serviceChainSetControllerObjects) IsReadyForUpgrade(ctx context.Context
 	return kerrors.NewAggregate(errs)
 }
 
-// IsReady reports the readiness of the servicechainset controller objects as well as the version state. It returns
+// IsReady reports the readiness of the objects as well as the version state. It returns
 // an error when any of the resources is not ready.
-func (p *serviceChainSetControllerObjects) IsReady(ctx context.Context, c client.Client, namespace string) error {
+func (p *dpuServicePerDPUClusterObjects) IsReady(ctx context.Context, c client.Client, namespace string) error {
 	var errs []error
 
 	// List DPUClusters to determine expected count
