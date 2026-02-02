@@ -616,7 +616,7 @@ lint: golangci-lint ## Run golangci-lint linter & yamllint
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	GOOS=linux $(GOLANGCI_LINT) run --fix
 
-VERIFY_TARGETS ?= generate copyright md-links shfmt crdify
+VERIFY_TARGETS ?= generate copyright md-links shfmt crdify helmchart-all
 
 .PHONY: verify
 verify: $(addprefix verify-,$(VERIFY_TARGETS)) ## Run all verify-* targets
@@ -649,6 +649,26 @@ export CRDIFY_CRD_DIR = $(patsubst $(PROJECT_DIR)/%,%,$(CRDDIR))
 .PHONY: verify-crdify
 verify-crdify: binary-dpfdev ## Verify that the CRDs are valid
 	hack/scripts/crd-validation.sh
+
+ARTIFACTS_RENDERED_HELM_CHARTS_DIR ?= $(ARTIFACTS_DIR)/rendered-helm-charts
+$(ARTIFACTS_RENDERED_HELM_CHARTS_DIR): $(ARTIFACTS_DIR)
+	@mkdir -p $(ARTIFACTS_RENDERED_HELM_CHARTS_DIR)
+
+VERIFY_HELMCHART_TARGETS ?= operator # Not yet enabled charts: dpu-networking ovn-kubernetes ovn-kubernetes-resource-injector dummydpuservice
+
+.PHONY: verify-helmchart-all
+verify-helmchart-all: $(addprefix verify-helmchart-,$(VERIFY_HELMCHART_TARGETS)) ## Run all verify-helmchart-* targets
+
+# Note: This simulates setting the correct digest for the image by using the @sha256:X syntax which is requirement to comply with CKV_K8S_15 and CKV_K8S_43.
+.PHONY: verify-helmchart-operator
+verify-helmchart-operator: helm-package-operator helm $(ARTIFACTS_RENDERED_HELM_CHARTS_DIR) binary-dpfdev ## Run helmchart verification for dpf-operator
+	$Q $(HELM) template dpf-operator $(CHARTSDIR)/dpf-operator-$(TAG).tgz -n dpf-operator \
+	 --set controllerManager.image.tag=$(TAG)@sha256:A \
+	 --set kamajiEtcdDefrag.image=ghcr.io/ahrtr/etcd-defrag@sha256:B \
+	  > $(ARTIFACTS_RENDERED_HELM_CHARTS_DIR)/dpf-operator-$(TAG).yaml
+	$Q RENDERED_HELM_CHART="$(ARTIFACTS_RENDERED_HELM_CHARTS_DIR)/dpf-operator-$(TAG).yaml" \
+	  HELM_CHART_NAME="dpf-operator" \
+	  hack/scripts/validate-helmchart-checkov.sh
 
 .PHONY: lint-helm
 lint-helm: lint-helm-dpu-networking lint-helm-dummydpuservice lint-helm-storage
