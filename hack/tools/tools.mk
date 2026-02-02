@@ -81,6 +81,7 @@ MODELGEN_VERSION ?= v0.7.0
 CODE_GENERATOR_VERSION ?= v0.31.3
 NGC_VERSION ?= 3.64.4
 SHFMT_VERSION ?= v3.11.0
+CHECKOV_VERSION ?= sha256:675d68b0c9043041727bccab8318485118d80531700ec55ed266146bb71c34b8 # version 3.2.497
 
 ## Tool Binaries
 export YQ = $(TOOLSDIR)/yq-$(YQ_VERSION)
@@ -347,6 +348,21 @@ deepcopy-gen: $(DEEPCOPY_GEN)
 	@$(MAKE) tools-path TOOL=deepcopy-gen VERSION=$(CODE_GENERATOR_VERSION)
 $(DEEPCOPY_GEN): | $(TOOLSDIR)
 	$(call go-install-tool,$(DEEPCOPY_GEN),k8s.io/code-generator/cmd/deepcopy-gen,$(CODE_GENERATOR_VERSION))
+
+.PHONY: checkov
+checkov: ## Download the checkov docker image locally if necessary.
+	docker pull bridgecrew/checkov@$(CHECKOV_VERSION)
+
+.PHONY: checkov-run
+checkov-run: ## Run the checkov image.
+	@if [ -z "$(CHECKOV_DATA_DIR)" ] || [ -z "$(CHECKOV_CHECKS)" ] || [ -z "$(CHECKOV_COMMAND)" ] || [ -z "$(CHECKOV_OUTPUT_FILE)" ]; then \
+		echo "Usage: make checkov-run CHECKOV_DATA_DIR=<path-to-data> CHECKOV_CHECKS=<check1>,<check2> CHECKOV_COMMAND=<checkov command> CHECKOV_OUTPUT_FILE=<path-to-output-file>"; \
+		exit 1; \
+	fi; \
+	docker run --rm -v $(CHECKOV_DATA_DIR):/data:ro bridgecrew/checkov@$(CHECKOV_VERSION) \
+	  --check "$(CHECKOV_CHECKS)" \
+	  $(CHECKOV_COMMAND) \
+	  > "$(CHECKOV_OUTPUT_FILE)" || true # Ignoring errors since we want to filter the findings using dpfdev.
 
 .PHONY: ngc
 ngc: $(NGC) ## Download ngc locally if necessary.
