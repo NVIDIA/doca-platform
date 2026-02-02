@@ -592,11 +592,6 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypePhysical, nil))
 		})
-		It("should successfully create the ServiceInterfaceSet with ovn interface", func() {
-			By("creating ServiceInterfaceSet, with Node Selector")
-			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
-				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypeOVN, nil))
-		})
 		It("should successfully create the ServiceInterfaceSet with patch interface", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
 			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
@@ -991,8 +986,6 @@ func getTypedTestServiceInterfaceSpec(typ string, vn *string) dpuservicev1.Servi
 		sfc.Physical = &dpuservicev1.Physical{
 			InterfaceName: "enp33s0f0np0",
 		}
-	case dpuservicev1.InterfaceTypeOVN:
-		sfc.InterfaceType = dpuservicev1.InterfaceTypeOVN
 	case dpuservicev1.InterfaceTypePatch:
 		sfc.InterfaceType = dpuservicev1.InterfaceTypePatch
 		sfc.Patch = &dpuservicev1.PatchDef{
