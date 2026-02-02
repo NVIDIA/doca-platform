@@ -167,10 +167,10 @@ func getOVNPatchPortNames(brA, brB string) (string, string) {
 // The peer patch port is added first to ensure the operation fails if the brB bridge does not exist.
 //
 // The function performs the following steps:
-//  1. Creates a patch port on brB with the given peerPatchPort
-//  2. Configures the peer patch port's peer option to reference patchPort
-//  3. Creates a patch port on brA with the given patchPort
-//  4. Configures the port's peer option to reference peerPatchPort
+//  1. Creates a patch port on brB with the given peerPatchPort (without peer option)
+//  2. Creates a patch port on brA with the given patchPort (without peer option)
+//  3. Sets the peer option on peerPatchPort to reference patchPort
+//  4. Sets the peer option on patchPort to reference peerPatchPort
 //  5. Sets patchExternalIDs to patchPort for identification
 //  6. Sets peerExternalIDs to peerPatchPort for identification
 //
@@ -179,22 +179,29 @@ func AddPatchPort(ctx context.Context, ovs ovsutils.API, brA, brB string, patchP
 	log := ctrllog.FromContext(ctx)
 	log.Info("adding patch port", "brA", brA, "brB", brB, "patchPort", patchPort.portName, "peerPatchPort", peerPatchPort.portName)
 
-	// Adds patch to brB first to ensure it exists before adding the patch to brA
+	// Create patch port on brB first to fail fast if the peer bridge doesn't exist.
 	if err := ovs.AddPort(ctx, ovsutils.PortConfig{
-		BridgeName:       brB,
-		Name:             peerPatchPort.portName,
-		InterfaceType:    InterfaceTypePatch,
-		InterfaceOptions: map[string]string{"peer": patchPort.portName},
+		BridgeName:    brB,
+		Name:          peerPatchPort.portName,
+		InterfaceType: InterfaceTypePatch,
 	}); err != nil {
 		return err
 	}
 
 	if err := ovs.AddPort(ctx, ovsutils.PortConfig{
-		BridgeName:       brA,
-		Name:             patchPort.portName,
-		InterfaceType:    InterfaceTypePatch,
-		InterfaceOptions: map[string]string{"peer": peerPatchPort.portName},
+		BridgeName:    brA,
+		Name:          patchPort.portName,
+		InterfaceType: InterfaceTypePatch,
 	}); err != nil {
+		return err
+	}
+
+	// Configure peer relationship after both ports exist to avoid netdev datapath errors.
+	if err := ovs.SetIfaceOptions(ctx, peerPatchPort.portName, map[string]string{"peer": patchPort.portName}); err != nil {
+		return err
+	}
+
+	if err := ovs.SetIfaceOptions(ctx, patchPort.portName, map[string]string{"peer": peerPatchPort.portName}); err != nil {
 		return err
 	}
 
