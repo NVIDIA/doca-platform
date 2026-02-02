@@ -17,6 +17,8 @@ limitations under the License.
 package e2e
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 )
 
@@ -43,6 +45,14 @@ var _ = Describe("DPF System tests - Multi DPUCluster", Labels{multiDPUClusterLa
 	})
 
 	Context("Validate system behavior", Ordered, func() {
+		BeforeAll(func() {
+			By("Waiting for DPU cluster 0 pods to be ready")
+			VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
+			By("Waiting for DPU cluster 1 pods to be ready")
+			VerifyClusterPods(ctx, dpuClusterClient[1], systemPodsToVerify)
+			By("Waiting for DPFOperatorConfig to be ready")
+			VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
+		})
 		It("Create DPUServiceIPAM in L2 mode and validate workload", func() {
 			ValidateDPUServiceIPAMInL2ModeForMultiDPUCluster(ctx, input)
 		})
