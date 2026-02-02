@@ -1,0 +1,43 @@
+checks: # Will get used as comma separated list for the --check flag of checkov
+- CKV_K8S_8 # Liveness Probe Should be Configured
+- CKV_K8S_9  # Readiness Probe Should be Configured
+- CKV_K8S_11 # CPU limits should be set
+- CKV_K8S_13 # Memory limits should be set
+- CKV_K8S_15 # Image Pull Policy should be Always
+- CKV_K8S_29 # Apply security context to your pods and containers
+- CKV_K8S_35 # Prefer using secrets as files over secrets as environment variables
+- CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
+- CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+- CKV_K8S_43 # Image should use digest
+- CKV_K8S_49 # Minimize wildcard use in Roles and ClusterRoles
+
+exclusions: # Is used to define exclusions on a per-chart basis when analyzing a report via `dpfdev checkov`.
+  dpf-operator:
+  # These findings need to be validated if they are ok, or need either changes to the output or at least make them configurable.
+  - check_id: CKV_K8S_11 # CPU limits should be set
+    resource: CronJob.dpf-operator.dpf-operator-kamaji-etcd-defrag-job
+    evaluated_keys:
+      - spec/jobTemplate/spec/template/spec/containers/[0]/resources/limits/cpu
+  - check_id: CKV_K8S_13 # Memory limits should be set
+    resource: CronJob.dpf-operator.dpf-operator-kamaji-etcd-defrag-job
+    evaluated_keys:
+      - spec/jobTemplate/spec/template/spec/containers/[0]/resources/limits/memory
+  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
+    resource: CronJob.dpf-operator.dpf-operator-kamaji-etcd-defrag-job
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: CronJob.dpf-operator.dpf-operator-kamaji-etcd-defrag-job
+  - check_id: CKV_K8S_11 # CPU limits should be set
+    resource: Deployment.dpf-operator.dpf-operator-controller-manager
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/cpu
+  - check_id: CKV_K8S_13 # Memory limits should be set
+    resource: Deployment.dpf-operator.dpf-operator-controller-manager
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/memory
+  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
+    resource: Deployment.dpf-operator.dpf-operator-controller-manager
+  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
+    resource: Deployment.dpf-operator.dpf-operator-controller-manager
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: Deployment.dpf-operator.dpf-operator-controller-manager
+
