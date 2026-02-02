@@ -261,7 +261,7 @@ func (s *SystemComponents) setSRIOVDevicePlugin(input fromDPUService) *SystemCom
 	return s
 }
 
-func (s *SystemComponents) setServiceFunctionChainSet(input serviceChainSetControllerObjects) *SystemComponents {
+func (s *SystemComponents) setServiceFunctionChainSet(input dpuServicePerDPUClusterObjects) *SystemComponents {
 	s.ServiceFunctionChainSet = &input
 	return s
 }

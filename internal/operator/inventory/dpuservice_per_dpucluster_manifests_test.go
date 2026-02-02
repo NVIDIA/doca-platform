@@ -225,7 +225,7 @@ spec:
 												},
 											},
 											"serviceAccount": map[string]interface{}{
-												"name": "servicechainset-controller-manager-73923044a5",
+												"name": "servicechainset-controller-73923044a5",
 											},
 										},
 										"deployHostManifests": true,
@@ -235,7 +235,7 @@ spec:
 												"name": "KUBERNETES_SERVICE_HOST",
 												"valueFrom": map[string]interface{}{
 													"secretKeyRef": map[string]interface{}{
-														"name": "servicechainset-controller-manager-credentials-73923044a5",
+														"name": "servicechainset-controller-credentials-73923044a5",
 														"key":  "KUBERNETES_SERVICE_HOST",
 													},
 												},
@@ -244,7 +244,7 @@ spec:
 												"name": "KUBERNETES_SERVICE_PORT",
 												"valueFrom": map[string]interface{}{
 													"secretKeyRef": map[string]interface{}{
-														"name": "servicechainset-controller-manager-credentials-73923044a5",
+														"name": "servicechainset-controller-credentials-73923044a5",
 														"key":  "KUBERNETES_SERVICE_PORT",
 													},
 												},
@@ -264,7 +264,7 @@ spec:
 													"sources": []interface{}{
 														map[string]interface{}{
 															"secret": map[string]interface{}{
-																"name": "servicechainset-controller-manager-credentials-73923044a5",
+																"name": "servicechainset-controller-credentials-73923044a5",
 																"items": []interface{}{
 																	map[string]interface{}{
 																		"key":  "TOKEN_FILE",
@@ -275,7 +275,7 @@ spec:
 														},
 														map[string]interface{}{
 															"secret": map[string]interface{}{
-																"name": "servicechainset-controller-manager-credentials-73923044a5",
+																"name": "servicechainset-controller-credentials-73923044a5",
 																"items": []interface{}{
 																	map[string]interface{}{
 																		"key":  "KUBERNETES_CA_DATA",
@@ -334,7 +334,7 @@ spec:
 										"rbac": map[string]interface{}{
 											"serviceAccounts": []interface{}{
 												map[string]interface{}{
-													"name":      "servicechainset-controller-manager-73923044a5",
+													"name":      "servicechainset-controller-73923044a5",
 													"namespace": "test-namespace",
 												},
 											},
@@ -367,7 +367,7 @@ spec:
 					},
 					Spec: dpuservicev1.DPUServiceCredentialRequestSpec{
 						ServiceAccount: dpuservicev1.NamespacedName{
-							Name:      "servicechainset-controller-manager-73923044a5",
+							Name:      "servicechainset-controller-73923044a5",
 							Namespace: ptr.To("test-namespace"),
 						},
 						Duration: &metav1.Duration{Duration: 24 * time.Hour},
@@ -377,7 +377,7 @@ spec:
 						},
 						Type: "tokenFile",
 						Secret: dpuservicev1.NamespacedName{
-							Name:      "servicechainset-controller-manager-credentials-73923044a5",
+							Name:      "servicechainset-controller-credentials-73923044a5",
 							Namespace: ptr.To("test-namespace"),
 						},
 					},
@@ -477,7 +477,7 @@ spec:
 												},
 											},
 											"serviceAccount": map[string]interface{}{
-												"name": "servicechainset-controller-manager-73923044a5",
+												"name": "servicechainset-controller-73923044a5",
 											},
 										},
 										"deployHostManifests": true,
@@ -487,7 +487,7 @@ spec:
 												"name": "KUBERNETES_SERVICE_HOST",
 												"valueFrom": map[string]interface{}{
 													"secretKeyRef": map[string]interface{}{
-														"name": "servicechainset-controller-manager-credentials-73923044a5",
+														"name": "servicechainset-controller-credentials-73923044a5",
 														"key":  "KUBERNETES_SERVICE_HOST",
 													},
 												},
@@ -496,7 +496,7 @@ spec:
 												"name": "KUBERNETES_SERVICE_PORT",
 												"valueFrom": map[string]interface{}{
 													"secretKeyRef": map[string]interface{}{
-														"name": "servicechainset-controller-manager-credentials-73923044a5",
+														"name": "servicechainset-controller-credentials-73923044a5",
 														"key":  "KUBERNETES_SERVICE_PORT",
 													},
 												},
@@ -516,7 +516,7 @@ spec:
 													"sources": []interface{}{
 														map[string]interface{}{
 															"secret": map[string]interface{}{
-																"name": "servicechainset-controller-manager-credentials-73923044a5",
+																"name": "servicechainset-controller-credentials-73923044a5",
 																"items": []interface{}{
 																	map[string]interface{}{
 																		"key":  "TOKEN_FILE",
@@ -527,7 +527,7 @@ spec:
 														},
 														map[string]interface{}{
 															"secret": map[string]interface{}{
-																"name": "servicechainset-controller-manager-credentials-73923044a5",
+																"name": "servicechainset-controller-credentials-73923044a5",
 																"items": []interface{}{
 																	map[string]interface{}{
 																		"key":  "KUBERNETES_CA_DATA",
@@ -583,7 +583,7 @@ spec:
 												},
 											},
 											"serviceAccount": map[string]interface{}{
-												"name": "servicechainset-controller-manager-1bdc412401",
+												"name": "servicechainset-controller-1bdc412401",
 											},
 										},
 										"deployHostManifests": true,
@@ -593,7 +593,7 @@ spec:
 												"name": "KUBERNETES_SERVICE_HOST",
 												"valueFrom": map[string]interface{}{
 													"secretKeyRef": map[string]interface{}{
-														"name": "servicechainset-controller-manager-credentials-1bdc412401",
+														"name": "servicechainset-controller-credentials-1bdc412401",
 														"key":  "KUBERNETES_SERVICE_HOST",
 													},
 												},
@@ -602,7 +602,7 @@ spec:
 												"name": "KUBERNETES_SERVICE_PORT",
 												"valueFrom": map[string]interface{}{
 													"secretKeyRef": map[string]interface{}{
-														"name": "servicechainset-controller-manager-credentials-1bdc412401",
+														"name": "servicechainset-controller-credentials-1bdc412401",
 														"key":  "KUBERNETES_SERVICE_PORT",
 													},
 												},
@@ -622,7 +622,7 @@ spec:
 													"sources": []interface{}{
 														map[string]interface{}{
 															"secret": map[string]interface{}{
-																"name": "servicechainset-controller-manager-credentials-1bdc412401",
+																"name": "servicechainset-controller-credentials-1bdc412401",
 																"items": []interface{}{
 																	map[string]interface{}{
 																		"key":  "TOKEN_FILE",
@@ -633,7 +633,7 @@ spec:
 														},
 														map[string]interface{}{
 															"secret": map[string]interface{}{
-																"name": "servicechainset-controller-manager-credentials-1bdc412401",
+																"name": "servicechainset-controller-credentials-1bdc412401",
 																"items": []interface{}{
 																	map[string]interface{}{
 																		"key":  "KUBERNETES_CA_DATA",
@@ -692,11 +692,11 @@ spec:
 										"rbac": map[string]interface{}{
 											"serviceAccounts": []interface{}{
 												map[string]interface{}{
-													"name":      "servicechainset-controller-manager-73923044a5",
+													"name":      "servicechainset-controller-73923044a5",
 													"namespace": "test-namespace",
 												},
 												map[string]interface{}{
-													"name":      "servicechainset-controller-manager-1bdc412401",
+													"name":      "servicechainset-controller-1bdc412401",
 													"namespace": "test-namespace",
 												},
 											},
@@ -729,7 +729,7 @@ spec:
 					},
 					Spec: dpuservicev1.DPUServiceCredentialRequestSpec{
 						ServiceAccount: dpuservicev1.NamespacedName{
-							Name:      "servicechainset-controller-manager-73923044a5",
+							Name:      "servicechainset-controller-73923044a5",
 							Namespace: ptr.To("test-namespace"),
 						},
 						Duration: &metav1.Duration{Duration: 24 * time.Hour},
@@ -739,7 +739,7 @@ spec:
 						},
 						Type: "tokenFile",
 						Secret: dpuservicev1.NamespacedName{
-							Name:      "servicechainset-controller-manager-credentials-73923044a5",
+							Name:      "servicechainset-controller-credentials-73923044a5",
 							Namespace: ptr.To("test-namespace"),
 						},
 					},
@@ -761,7 +761,7 @@ spec:
 					},
 					Spec: dpuservicev1.DPUServiceCredentialRequestSpec{
 						ServiceAccount: dpuservicev1.NamespacedName{
-							Name:      "servicechainset-controller-manager-1bdc412401",
+							Name:      "servicechainset-controller-1bdc412401",
 							Namespace: ptr.To("test-namespace"),
 						},
 						Duration: &metav1.Duration{Duration: 24 * time.Hour},
@@ -771,7 +771,7 @@ spec:
 						},
 						Type: "tokenFile",
 						Secret: dpuservicev1.NamespacedName{
-							Name:      "servicechainset-controller-manager-credentials-1bdc412401",
+							Name:      "servicechainset-controller-credentials-1bdc412401",
 							Namespace: ptr.To("test-namespace"),
 						},
 					},
@@ -863,7 +863,7 @@ spec:
 												},
 											},
 											"serviceAccount": map[string]interface{}{
-												"name": "servicechainset-controller-manager-73923044a5",
+												"name": "servicechainset-controller-73923044a5",
 											},
 										},
 										"deployHostManifests": true,
@@ -873,7 +873,7 @@ spec:
 												"name": "KUBERNETES_SERVICE_HOST",
 												"valueFrom": map[string]interface{}{
 													"secretKeyRef": map[string]interface{}{
-														"name": "servicechainset-controller-manager-credentials-73923044a5",
+														"name": "servicechainset-controller-credentials-73923044a5",
 														"key":  "KUBERNETES_SERVICE_HOST",
 													},
 												},
@@ -882,7 +882,7 @@ spec:
 												"name": "KUBERNETES_SERVICE_PORT",
 												"valueFrom": map[string]interface{}{
 													"secretKeyRef": map[string]interface{}{
-														"name": "servicechainset-controller-manager-credentials-73923044a5",
+														"name": "servicechainset-controller-credentials-73923044a5",
 														"key":  "KUBERNETES_SERVICE_PORT",
 													},
 												},
@@ -902,7 +902,7 @@ spec:
 													"sources": []interface{}{
 														map[string]interface{}{
 															"secret": map[string]interface{}{
-																"name": "servicechainset-controller-manager-credentials-73923044a5",
+																"name": "servicechainset-controller-credentials-73923044a5",
 																"items": []interface{}{
 																	map[string]interface{}{
 																		"key":  "TOKEN_FILE",
@@ -913,7 +913,7 @@ spec:
 														},
 														map[string]interface{}{
 															"secret": map[string]interface{}{
-																"name": "servicechainset-controller-manager-credentials-73923044a5",
+																"name": "servicechainset-controller-credentials-73923044a5",
 																"items": []interface{}{
 																	map[string]interface{}{
 																		"key":  "KUBERNETES_CA_DATA",
@@ -972,7 +972,7 @@ spec:
 										"rbac": map[string]interface{}{
 											"serviceAccounts": []interface{}{
 												map[string]interface{}{
-													"name":      "servicechainset-controller-manager-73923044a5",
+													"name":      "servicechainset-controller-73923044a5",
 													"namespace": "test-namespace",
 												},
 											},
@@ -1005,7 +1005,7 @@ spec:
 					},
 					Spec: dpuservicev1.DPUServiceCredentialRequestSpec{
 						ServiceAccount: dpuservicev1.NamespacedName{
-							Name:      "servicechainset-controller-manager-73923044a5",
+							Name:      "servicechainset-controller-73923044a5",
 							Namespace: ptr.To("test-namespace"),
 						},
 						Duration: &metav1.Duration{Duration: 24 * time.Hour},
@@ -1015,7 +1015,7 @@ spec:
 						},
 						Type: "tokenFile",
 						Secret: dpuservicev1.NamespacedName{
-							Name:      "servicechainset-controller-manager-credentials-73923044a5",
+							Name:      "servicechainset-controller-credentials-73923044a5",
 							Namespace: ptr.To("test-namespace"),
 						},
 					},
@@ -1413,7 +1413,7 @@ func Test_serviceChainSetControllerObjects_ReadyCheck(t *testing.T) {
 				},
 			},
 			wantErr:          true,
-			expectedErrorMsg: "ServiceChainSet Controller related DPUService test-namespace/servicechainset-rbac-and-crds is not ready",
+			expectedErrorMsg: "servicechainset-controller related DPUService test-namespace/servicechainset-rbac-and-crds is not ready",
 		},
 		{
 			name: "ServiceChainSet Controller is not ready when one of the DPUServiceCredentialsRequests is not ready",
@@ -1495,7 +1495,7 @@ func Test_serviceChainSetControllerObjects_ReadyCheck(t *testing.T) {
 				},
 			},
 			wantErr:          true,
-			expectedErrorMsg: "ServiceChainSet Controller related DPUServiceCredentialRequest test-namespace/servicesetcontroller-73923044a5 is not ready",
+			expectedErrorMsg: "servicechainset-controller related DPUServiceCredentialRequest test-namespace/servicesetcontroller-73923044a5 is not ready",
 		},
 	}
 
@@ -1513,10 +1513,12 @@ func Test_serviceChainSetControllerObjects_ReadyCheck(t *testing.T) {
 			}
 			testClient := fake.NewClientBuilder().WithScheme(s).WithObjects(clusterObjects...).Build()
 
-			scs := &serviceChainSetControllerObjects{
+			scs := &dpuServicePerDPUClusterObjects{
 				templateDPUService: fromDPUService{
 					name: operatorv1.ServiceSetControllerName,
 				},
+				componentName:   operatorv1.ServiceSetControllerName,
+				rbacAndCRDsName: operatorv1.ServiceChainSetCRDsName,
 			}
 
 			var err error
@@ -1881,7 +1883,7 @@ func Test_serviceChainSetControllerObjects_ReadyAndVersionUpdatedCheck(t *testin
 				},
 			},
 			wantErr:          true,
-			expectedErrorMsg: "ServiceChainSet Controller related DPUService test-namespace/servicechainset-rbac-and-crds is not ready",
+			expectedErrorMsg: "servicechainset-controller related DPUService test-namespace/servicechainset-rbac-and-crds is not ready",
 		},
 		{
 			name: "ServiceChainSet Controller is not ready when a DPUServiceCredentialRequest is not ready",
@@ -1963,7 +1965,7 @@ func Test_serviceChainSetControllerObjects_ReadyAndVersionUpdatedCheck(t *testin
 				},
 			},
 			wantErr:          true,
-			expectedErrorMsg: "ServiceChainSet Controller related DPUServiceCredentialRequest test-namespace/servicesetcontroller-73923044a5 is not ready",
+			expectedErrorMsg: "servicechainset-controller related DPUServiceCredentialRequest test-namespace/servicesetcontroller-73923044a5 is not ready",
 		},
 		{
 			name: "ServiceChainSet Controller is not ready when a DPUService is missing",
@@ -2104,10 +2106,12 @@ func Test_serviceChainSetControllerObjects_ReadyAndVersionUpdatedCheck(t *testin
 			}
 			testClient := fake.NewClientBuilder().WithScheme(s).WithObjects(clusterObjects...).Build()
 
-			scs := &serviceChainSetControllerObjects{
+			scs := &dpuServicePerDPUClusterObjects{
 				templateDPUService: fromDPUService{
 					name: operatorv1.ServiceSetControllerName,
 				},
+				componentName:   operatorv1.ServiceSetControllerName,
+				rbacAndCRDsName: operatorv1.ServiceChainSetCRDsName,
 			}
 
 			var err error

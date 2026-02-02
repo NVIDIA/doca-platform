@@ -279,7 +279,7 @@ func multusEdits(vars Variables) ([]StructuredEdit, error) {
 	}, nil
 }
 
-func serviceSetControllerEdits(secretName string, serviceAccountName string) []StructuredEdit {
+func perClusterEdits(chartName string, secretName string, serviceAccountName string) []StructuredEdit {
 	edits := []StructuredEdit{}
 
 	// Create the projected volume configuration for the tokenfile
@@ -358,16 +358,16 @@ func serviceSetControllerEdits(secretName string, serviceAccountName string) []S
 
 	edits = append(edits,
 		dpuServiceInClusterEdit(true),
-		dpuServiceAddValueEdit(serviceAccountName, operatorv1.ServiceSetControllerName.String(), "controllerManager", "serviceAccount", "name"),
-		dpuServiceAddValueEdit(true, operatorv1.ServiceSetControllerName.String(), "deployHostManifests"),
-		dpuServiceAddValueEdit(tokenfileVolume, operatorv1.ServiceSetControllerName.String(), "volumes"),
-		dpuServiceAddValueEdit(envVars, operatorv1.ServiceSetControllerName.String(), "env"),
-		dpuServiceAddValueEdit(volumeMounts, operatorv1.ServiceSetControllerName.String(), "volumeMounts"),
+		dpuServiceAddValueEdit(serviceAccountName, chartName, "controllerManager", "serviceAccount", "name"),
+		dpuServiceAddValueEdit(true, chartName, "deployHostManifests"),
+		dpuServiceAddValueEdit(tokenfileVolume, chartName, "volumes"),
+		dpuServiceAddValueEdit(envVars, chartName, "env"),
+		dpuServiceAddValueEdit(volumeMounts, chartName, "volumeMounts"),
 	)
 	return edits
 }
 
-func serviceSetControllerRBACAndCRDEdits(serviceAccounts []types.NamespacedName) []StructuredEdit {
+func rbacAndCRDEdits(chartName string, serviceAccounts []types.NamespacedName) []StructuredEdit {
 	// Convert []types.NamespacedName to []interface{} with lowercase keys for Helm chart compatibility
 	serviceAccountList := make([]interface{}, 0, len(serviceAccounts))
 	for _, sa := range serviceAccounts {
@@ -379,8 +379,8 @@ func serviceSetControllerRBACAndCRDEdits(serviceAccounts []types.NamespacedName)
 
 	edits := []StructuredEdit{}
 	edits = append(edits,
-		dpuServiceAddValueEdit(true, operatorv1.ServiceSetControllerName.String(), "deployDPUManifests"),
-		dpuServiceAddValueEdit(serviceAccountList, operatorv1.ServiceSetControllerName.String(), "rbac", "serviceAccounts"),
+		dpuServiceAddValueEdit(true, chartName, "deployDPUManifests"),
+		dpuServiceAddValueEdit(serviceAccountList, chartName, "rbac", "serviceAccounts"),
 		dpuServiceInClusterEdit(false),
 	)
 	return edits
