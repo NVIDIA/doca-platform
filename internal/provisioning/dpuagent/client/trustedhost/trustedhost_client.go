@@ -27,6 +27,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/service/types"
+	httputil "github.com/nvidia/doca-platform/internal/provisioning/utils/http"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -64,23 +65,20 @@ func (c *TrustedhostClient) HealthCheck() error {
 		c.hostAgentEndpoint = defaultHostAgentEndpoint
 	}
 	resp, err := runWithRetry(func() (*http.Response, error) {
-		return http.Get(fmt.Sprintf("%s/healthz", c.hostAgentEndpoint))
+		return http.Get(c.hostAgentEndpoint + "/healthz")
 	}, defaultMaxRetries, defaultRetryInterval)
 	if err != nil {
 		return err
 	}
 	defer closeBody(resp)
-	if resp.StatusCode != http.StatusOK {
-		return returnError(resp)
-	}
-	return nil
+	return httputil.CheckHTTPResponse(resp)
 }
 
 func (c *TrustedhostClient) UpdateStatus(ctx context.Context, dpuInfo provisioningv1.DPUInternalStatus) error {
 	if c.hostAgentEndpoint == "" {
 		c.hostAgentEndpoint = defaultHostAgentEndpoint
 	}
-	url := fmt.Sprintf("%s/update-status", c.hostAgentEndpoint)
+	url := c.hostAgentEndpoint + "/update-status"
 	request := types.UpdateStatusRequest{
 		DPUName:      c.dpuName,
 		DPUNamespace: c.dpuNamespace,
@@ -97,10 +95,7 @@ func (c *TrustedhostClient) UpdateStatus(ctx context.Context, dpuInfo provisioni
 		return err
 	}
 	defer closeBody(resp)
-	if resp.StatusCode != http.StatusOK {
-		return returnError(resp)
-	}
-	return nil
+	return httputil.CheckHTTPResponse(resp)
 }
 
 func (c *TrustedhostClient) GetObject(ctx context.Context, namespace string, name string, obj client.Object) error {
@@ -123,8 +118,8 @@ func (c *TrustedhostClient) GetObject(ctx context.Context, namespace string, nam
 	}
 	defer closeBody(resp)
 
-	if resp.StatusCode != http.StatusOK {
-		return returnError(resp)
+	if err := httputil.CheckHTTPResponse(resp); err != nil {
+		return err
 	}
 	return json.NewDecoder(resp.Body).Decode(obj)
 }
@@ -151,12 +146,4 @@ func runWithRetry(sendReq sendRequestFunc, maxRetries int, retryInterval time.Du
 func closeBody(resp *http.Response) {
 	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
-}
-
-func returnError(resp *http.Response) error {
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		klog.Warningf("failed to read body: %v", err)
-	}
-	return fmt.Errorf("status code: %d, body: %s", resp.StatusCode, string(body))
 }

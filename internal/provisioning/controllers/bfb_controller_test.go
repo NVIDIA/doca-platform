@@ -346,10 +346,14 @@ var _ = Describe("BFB", func() {
 			By("creating server for bfb download")
 			mux := http.NewServeMux()
 			handler := func(w http.ResponseWriter, r *http.Request) {
-				Expect(r.Method).To(Equal("GET"))
+				// Support both HEAD (for size verification) and GET (for download)
+				Expect(r.Method).To(SatisfyAny(Equal("GET"), Equal("HEAD")))
 				w.Header().Set("Content-Type", "application/octet-stream")
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testBFB)))
 				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write(testBFB)
+				if r.Method == "GET" {
+					_, _ = w.Write(testBFB)
+				}
 			}
 			mux.HandleFunc(bfbPath, handler)
 			server := httptest.NewUnstartedServer(mux)

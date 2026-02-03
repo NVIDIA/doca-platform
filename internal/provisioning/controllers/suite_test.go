@@ -319,10 +319,14 @@ const (
 func bfbServer(bfbToServe []byte) func() {
 	mux := http.NewServeMux()
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		Expect(r.Method).To(Equal("GET"))
+		// Support both HEAD (for size verification) and GET (for download)
+		Expect(r.Method).To(SatisfyAny(Equal("GET"), Equal("HEAD")))
 		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(bfbToServe)))
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(bfbToServe)
+		if r.Method == "GET" {
+			_, _ = w.Write(bfbToServe)
+		}
 	}
 	mux.HandleFunc(BFB512KBPath, handler)
 	mux.HandleFunc(BFB8KBPath, handler)
