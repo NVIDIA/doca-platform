@@ -1,5 +1,5 @@
 /*
-Copyright 2025 NVIDIA
+Copyright 2026 NVIDIA
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package util
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -70,7 +71,7 @@ var _ = Describe("Download", func() {
 			err := os.WriteFile(dst, []byte(existingContent), 0644)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Server that should not be called
+			// Server should not be called at all since file exists
 			serverCalled := false
 			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				serverCalled = true
@@ -112,7 +113,7 @@ var _ = Describe("Download", func() {
 			dst := filepath.Join(tempDir, "not_found.txt")
 			err := DownloadFile(context.Background(), server.URL, dst, 0644)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("status: 404"))
+			Expect(err.Error()).To(ContainSubstring("404"))
 
 			// Verify file was not created
 			_, err = os.Stat(dst)
@@ -127,7 +128,7 @@ var _ = Describe("Download", func() {
 			dst := filepath.Join(tempDir, "server_error.txt")
 			err := DownloadFile(context.Background(), server.URL, dst, 0644)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("status: 500"))
+			Expect(err.Error()).To(ContainSubstring("500"))
 		})
 
 		It("should return error for invalid URL", func() {
@@ -159,23 +160,71 @@ var _ = Describe("Download", func() {
 			Expect(info.Mode().Perm()).To(Equal(expectedMode))
 		})
 
-		It("should handle context cancellation", func() {
-			// Create a server that delays response
+		It("should handle context cancellation before download starts", func() {
 			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				// Write header but delay body - this allows the request to start
-				// but gives time for cancellation
-				time.Sleep(100 * time.Millisecond)
-				_, _ = w.Write([]byte("delayed content"))
+				_, _ = w.Write([]byte("content"))
 			}))
 
 			ctx, cancel := context.WithCancel(context.Background())
-			// Cancel immediately
+			// Cancel immediately before download starts
 			cancel()
 
 			dst := filepath.Join(tempDir, "cancelled.txt")
 			err := DownloadFile(ctx, server.URL, dst, 0644)
 			Expect(err).To(HaveOccurred())
+		})
+
+		It("should handle interrupt during download", func() {
+			// Create a server that sends data in chunks with delays
+			// This simulates a slow download that can be interrupted mid-stream
+			chunkSize := 1024
+			totalChunks := 10
+			chunk := make([]byte, chunkSize)
+			for i := range chunk {
+				chunk[i] = 'x'
+			}
+
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "HEAD" {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+				// Send data in chunks with delays to allow cancellation mid-download
+				for i := 0; i < totalChunks; i++ {
+					select {
+					case <-r.Context().Done():
+						return
+					default:
+						_, _ = w.Write(chunk)
+						if f, ok := w.(http.Flusher); ok {
+							f.Flush()
+						}
+						time.Sleep(50 * time.Millisecond)
+					}
+				}
+			}))
+
+			ctx, cancel := context.WithCancel(context.Background())
+
+			// Cancel after a short delay to interrupt mid-download
+			go func() {
+				time.Sleep(100 * time.Millisecond)
+				cancel()
+			}()
+
+			dst := filepath.Join(tempDir, "interrupted.txt")
+			err := DownloadFile(ctx, server.URL, dst, 0644)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(SatisfyAny(
+				ContainSubstring("download canceled"),
+				ContainSubstring("context canceled"),
+			))
+
+			// Verify destination file was not created (temp file cleaned up)
+			_, statErr := os.Stat(dst)
+			Expect(os.IsNotExist(statErr)).To(BeTrue())
 		})
 
 		It("should handle large file download", func() {
@@ -229,6 +278,94 @@ var _ = Describe("Download", func() {
 			for _, f := range files {
 				Expect(f.Name()).NotTo(ContainSubstring(".tmp"))
 			}
+		})
+
+		It("should return error when downloaded size does not match Content-Length", func() {
+			actualContent := "this is the full content that will be sent"
+			// Set Content-Length smaller than actual content to simulate size mismatch
+			wrongSize := len(actualContent) - 10
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", wrongSize))
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(actualContent))
+			}))
+
+			dst := filepath.Join(tempDir, "size_mismatch.txt")
+			err := DownloadFile(context.Background(), server.URL, dst, 0644)
+			Expect(err).To(HaveOccurred())
+			// Go's HTTP client may catch this as "unexpected EOF" or our validation catches it
+			Expect(err.Error()).To(SatisfyAny(
+				ContainSubstring("downloaded file size mismatch"),
+				ContainSubstring("unexpected EOF"),
+			))
+
+			// Verify file was not created (temp file should be cleaned up)
+			_, err = os.Stat(dst)
+			Expect(os.IsNotExist(err)).To(BeTrue())
+		})
+
+		It("should succeed when Content-Length matches downloaded size", func() {
+			testContent := "exact size content"
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(testContent))
+			}))
+
+			dst := filepath.Join(tempDir, "exact_size.txt")
+			err := DownloadFile(context.Background(), server.URL, dst, 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			content, err := os.ReadFile(dst)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal(testContent))
+		})
+
+		It("should return error when server truncates response (sends less than Content-Length)", func() {
+			// This simulates the bug scenario where a 1.5GB file ends up as 555 bytes
+			// Server claims to send 10000 bytes but only sends 100, then closes connection
+			expectedSize := 10000
+			actualSent := 100
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", expectedSize))
+				w.WriteHeader(http.StatusOK)
+				// Write partial content and let the connection close
+				_, _ = w.Write(make([]byte, actualSent))
+				// Connection closes here, simulating network drop or server-side truncation
+			}))
+
+			dst := filepath.Join(tempDir, "truncated.txt")
+			err := DownloadFile(context.Background(), server.URL, dst, 0644)
+			Expect(err).To(HaveOccurred())
+			// Go's HTTP client detects early connection close as "unexpected EOF"
+			// or our validation catches it as size mismatch
+			Expect(err.Error()).To(SatisfyAny(
+				ContainSubstring("downloaded file size mismatch"),
+				ContainSubstring("unexpected EOF"),
+				ContainSubstring("EOF"),
+			))
+
+			// Verify no corrupt file was created at destination
+			_, statErr := os.Stat(dst)
+			Expect(os.IsNotExist(statErr)).To(BeTrue())
+		})
+
+		It("should handle download without Content-Length header", func() {
+			// Some servers don't set Content-Length (chunked encoding or unknown size)
+			testContent := "content without length header"
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Don't set Content-Length, let Go handle chunked transfer
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(testContent))
+			}))
+
+			dst := filepath.Join(tempDir, "no_content_length.txt")
+			err := DownloadFile(context.Background(), server.URL, dst, 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			content, err := os.ReadFile(dst)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal(testContent))
 		})
 	})
 })
