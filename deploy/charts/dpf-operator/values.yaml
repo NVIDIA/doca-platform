@@ -50,6 +50,8 @@ prometheusSecureMetrics:
 ## kamajiEtcdDefrag enables the etcd-defrag job for Kamaji.
 ## This job is used to defragment the etcd database used by Kamaji.
 kamajiEtcdDefrag:
+  ## namespaceOverride allows to override the namespace where the etcd-defrag job will be deployed.
+  namespaceOverride: ""
   enabled: true
   ## releaseName is the name of the kamaji-etcd release name.
   ## If it is deployed by the kamaji chart itself it will be "kamaji-etcd".
