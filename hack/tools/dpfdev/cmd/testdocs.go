@@ -347,8 +347,17 @@ func buildCommandScript(cmd string, envVars map[string]string, envFileName strin
 	// Add shebang
 	scriptContent.WriteString("#!/usr/bin/env bash\n\n")
 
+	// Change to the working directory from previous command if it exists
+	if pwd, ok := envVars["PWD"]; ok {
+		scriptContent.WriteString(fmt.Sprintf("cd '%s' || exit 1\n", strings.ReplaceAll(pwd, "'", "'\\''")))
+	}
+
 	// Set environment variables from previous command
 	for k, v := range envVars {
+		// Skip PWD as we already handled it with cd
+		if k == "PWD" || k == "OLDPWD" {
+			continue
+		}
 		// Escape single quotes in the value
 		escapedValue := strings.ReplaceAll(v, "'", "'\\''")
 		scriptContent.WriteString(fmt.Sprintf("export %s='%s'\n", k, escapedValue))
