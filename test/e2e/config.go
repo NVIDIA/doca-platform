@@ -35,6 +35,7 @@ type config struct {
 	BFBPath                           string   `json:"bfb"`
 	DPUClusterPaths                   []string `json:"dpuClusters"`
 	DPUSetPath                        string   `json:"dpuSet"`
+	DPUDiscoveryPath                  *string  `json:"dpuDiscovery,omitempty"`
 	DPUServiceInterfacePath           string   `json:"dpuServiceInterface"`
 	DPUServiceChainPath               string   `json:"dpuServiceChain"`
 	DPUDeploymentPath                 string   `json:"dpuDeployment"`

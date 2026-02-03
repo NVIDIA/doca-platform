@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -153,6 +154,8 @@ const (
 	ovnkHbnLabel = "OVNKHBN"
 	// dpfVPCTestLabel is used to mark the tests related to the VPC OVN test suite.
 	dpfVPCTestLabel = "DPFVPCOVN"
+	// zeroTrustLabel is used to apply Zero Trust mode in DPFOperatorConfig on the BeforeSuite stage. Also is used to mark the tests  that can run in ZT mode.
+	zeroTrustLabel = "ZeroTrust"
 )
 
 // EventuallyCheckReadyStatusCondition checks for the Ready condition on any object having a Status.Conditions[...].Type == "Ready" field
@@ -268,6 +271,11 @@ func getDPUClusterNodes(ctx context.Context, dpuClusterClient client.Client) []c
 	nodes := &corev1.NodeList{}
 	Expect(dpuClusterClient.List(ctx, nodes)).To(Succeed())
 	return nodes.Items
+}
+
+// isGinkgoLabel returns if a label is passed while running ginkgo and is not excluded
+func isGinkgoLabelApplied(ginkgoLabel string) bool {
+	return strings.Contains(GinkgoLabelFilter(), ginkgoLabel) && !strings.Contains(GinkgoLabelFilter(), "!"+ginkgoLabel)
 }
 
 // VerifyPerformancePodToPodSameNode verifies performance between pods on the same node

@@ -56,6 +56,7 @@ func init() {
 	flag.StringVar(&testKubeconfig, "e2e.testKubeconfig", "", "path to the testKubeconfig file")
 	flag.StringVar(&configPath, "e2e.config", "", "path to the configuration file")
 	flag.StringVar(&externalTest, "e2e.externalTestScript", "", "path to the external test file, script will be called in between BeforeSuite setup and AfterSuite cleanup")
+	flag.StringVar(&HostRebootScript, "e2e.hostRebootScript", "", "path to the host reboot script file, script will be called as a part of dpu provisioning for the ZeroTrust suite")
 
 	getEnvVariables()
 }
@@ -75,6 +76,8 @@ var (
 	collectResources = true
 	// externalTest path used to run external tests scripts
 	externalTest string
+	// HostRebootScript path used to Zero Trust Host Reboot script
+	HostRebootScript string
 	// enableSOSReports to enable collecting SOS reports after an e2e test run failure.
 	enableSOSReports = false
 )
@@ -259,7 +262,7 @@ var _ = BeforeSuite(func() {
 
 	// Apply the ProvisioningBeforeSuite setup if directly specified provisioningLabel
 	// !skipProvisioning() branch should not be executed in provisioning-only tests
-	if strings.Contains(labelFilter, provisioningLabel) && !strings.Contains(labelFilter, "!"+provisioningLabel) {
+	if isGinkgoLabelApplied(provisioningLabel) {
 		// SystemSetupBeforeSuite must run first to deploy the DPF operator and system components
 		// Provisioning tests need the operator running but will provision DPUs from scratch (no pre-provisioning)
 		SystemSetupBeforeSuite()
@@ -353,3 +356,11 @@ var _ = ReportAfterSuite("My Suite", func(report Report) {
 	Expect(testutils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(testutils.AfterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
 	Expect(testutils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(testutils.AfterAllCleanupLabels), resourcesToDelete...)).To(Succeed())
 })
+
+func validateFlags() {
+	if isGinkgoLabelApplied(zeroTrustLabel) {
+		if len(HostRebootScript) == 0 {
+			panic("This script must be provided when ZeroTrust label is present")
+		}
+	}
+}
