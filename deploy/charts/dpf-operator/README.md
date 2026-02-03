@@ -28,6 +28,7 @@ DPF Operator manages the lifecycle of a DOCA Platform Framework system.
 | kamajiEtcdDefrag.defragRule | string | `"dbQuotaUsage > 0.8 || dbSize - dbSizeInUse > 200*1024*1024"` |  |
 | kamajiEtcdDefrag.enabled | bool | `true` |  |
 | kamajiEtcdDefrag.image | string | `"ghcr.io/ahrtr/etcd-defrag:v0.22.0"` |  |
+| kamajiEtcdDefrag.namespaceOverride | string | `""` |  |
 | kamajiEtcdDefrag.pullPolicy | string | `"IfNotPresent"` |  |
 | kamajiEtcdDefrag.releaseName | string | `"kamaji-etcd"` |  |
 | kamajiEtcdDefrag.replicas | int | `3` |  |

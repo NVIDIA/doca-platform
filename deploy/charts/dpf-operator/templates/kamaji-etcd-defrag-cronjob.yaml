@@ -3,7 +3,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: {{ .Release.Name }}-kamaji-etcd-defrag-job
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ default .Release.Namespace .Values.kamajiEtcdDefrag.namespaceOverride }}
 spec:
   schedule: {{ .Values.kamajiEtcdDefrag.schedule }}
   successfulJobsHistoryLimit: {{ .Values.kamajiEtcdDefrag.successfulJobsHistoryLimit }}
@@ -24,7 +24,7 @@ spec:
                 - --endpoints={{- $replicas := .Values.kamajiEtcdDefrag.replicas | int -}}
                 {{- $port := .Values.kamajiEtcdDefrag.clientPort | int -}}
                 {{- $releaseName := .Values.kamajiEtcdDefrag.releaseName -}}
-                {{- $namespace := .Release.Namespace -}}
+                {{- $namespace := (default .Release.Namespace .Values.kamajiEtcdDefrag.namespaceOverride) -}}
                 {{- range $i, $_ := until $replicas -}}
                   {{- printf "https://%s-%d.%s.%s.svc.cluster.local:%d" $releaseName $i $releaseName $namespace $port -}}
                   {{- if lt (add1 $i) $replicas }},{{ end -}}
