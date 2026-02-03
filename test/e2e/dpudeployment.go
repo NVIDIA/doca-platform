@@ -349,7 +349,6 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 	inClusterDPUServiceTemplate.SetLabels(testutils.AfterAllCleanupLabels)
 	inClusterDPUServiceTemplate.SetName("dpudeployment-example-in-cluster-servicetemplate")
 	inClusterDPUServiceTemplate.Spec.DeploymentServiceName = "example-in-cluster"
-	Expect(input.client.Create(ctx, inClusterDPUServiceTemplate)).To(Succeed())
 
 	inClusterDPUServiceConfiguration := input.dpuServiceConfiguration.DeepCopy()
 	inClusterDPUServiceConfiguration.SetLabels(testutils.AfterAllCleanupLabels)
@@ -357,7 +356,6 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 	inClusterDPUServiceConfiguration.Spec.Interfaces = nil
 	inClusterDPUServiceConfiguration.Spec.DeploymentServiceName = "example-in-cluster"
 	inClusterDPUServiceConfiguration.Spec.ServiceConfiguration.DeployInCluster = ptr.To(true)
-	Expect(input.client.Create(ctx, inClusterDPUServiceConfiguration)).To(Succeed())
 
 	dpuDeployment := testutils.GenerateDPUObj("dpf-dpudeployment", input.dpuDeployment.DeepCopy().Namespace, input.dpuDeployment.DeepCopy(), testutils.AfterAllCleanupLabels)
 	// Intentionally using deprecated field, e2e tests will be updated once we have removed the deprecated field. Unit
@@ -372,9 +370,13 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		ServiceConfiguration: "dpudeployment-example-serviceconfiguration-2",
 	}
 
-	dpuDeployment.Spec.Services["example-in-cluster"] = dpuservicev1.DPUDeploymentServiceConfiguration{
-		ServiceTemplate:      inClusterDPUServiceTemplate.GetName(),
-		ServiceConfiguration: inClusterDPUServiceConfiguration.GetName(),
+	if !isGinkgoLabelApplied(zeroTrustLabel) {
+		Expect(input.client.Create(ctx, inClusterDPUServiceTemplate)).To(Succeed())
+		Expect(input.client.Create(ctx, inClusterDPUServiceConfiguration)).To(Succeed())
+		dpuDeployment.Spec.Services["example-in-cluster"] = dpuservicev1.DPUDeploymentServiceConfiguration{
+			ServiceTemplate:      inClusterDPUServiceTemplate.GetName(),
+			ServiceConfiguration: inClusterDPUServiceConfiguration.GetName(),
+		}
 	}
 
 	// Update the switch to map net1 to net2
@@ -439,6 +441,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 	VerifyDPUClusterWithNodes(ctx, ProvisionDPUClustersInput{
 		numberOfNodesPerCluster: input.numberOfDPUNodes,
 		client:                  input.client,
+		HostRebootScript:        input.HostRebootScript,
 	})
 
 	By(fmt.Sprintf("verify ServiceInterface is created in %d nodes", input.numberOfDPUNodes))
@@ -447,8 +450,21 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		g.Expect(dpuClusterClient[0].List(ctx, serviceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
 		g.Expect(serviceInterfaceList.Items).To(HaveLen(input.numberOfDPUNodes))
 	}).WithTimeout(15 * time.Minute).WithPolling(120 * time.Second).Should(Succeed())
+}
 
-	By("verifying that the dpuDeployment is ready")
+func VerifyDPUDeploymentIsReady(ctx context.Context, input *systemTestInput) {
+	if input.numberOfDPUNodes != 2 {
+		// Test assumes that there are exactly 2 host nodes to match the DPU cluster
+		Skip("Skip test as there are not exactly 2 nodes")
+	}
+	By("Getting the existing DPUDeployment")
+	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
+	dpuDeployment := &dpuservicev1.DPUDeployment{}
+	dpuDeployment.SetName("dpf-dpudeployment")
+	dpuDeployment.SetNamespace(dpfOperatorSystemNamespace)
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+
+	By(fmt.Sprintf("Verifying that the dpuDeployment %s is ready", dpuDeployment.GetName()))
 	Eventually(func(g Gomega) {
 		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 		g.Expect(conditions.IsTrue(dpuDeployment, conditions.TypeReady)).To(BeTrue())

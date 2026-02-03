@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-#  2024 NVIDIA CORPORATION & AFFILIATES
+# Copyright 2024 NVIDIA CORPORATION & AFFILIATES
 #
 #  Licensed under the Apache License, Version 2.0 (the License);
 #  you may not use this file except in compliance with the License.
@@ -18,13 +18,27 @@ set -o nounset
 set -o pipefail
 set -o errexit
 
+: ${ZERO_TRUST:="false"}
 # create-artefact-secrets.sh will create secrets required to pull images and helm charts from NGC or Gitlab if the relevant API KEY is set in the environment
 
 ## Ensure the script is idempotent, allowing safe re-execution even if the secret already exists.
 kubectl -n dpf-operator-system delete secret dpf-helm-secret --ignore-not-found
 kubectl -n dpf-operator-system delete secret dpf-pull-secret --ignore-not-found
+kubectl -n dpf-operator-system delete secret bmc-shared-password --ignore-not-found
 
 IMAGE_PULL_KEY="${IMAGE_PULL_KEY:-""}"
+
+## Create a bmc-shared-password secret to be used by ZeroTrust
+if [[ "$ZERO_TRUST" == "true" ]]; then
+	BMC_ROOT_PASSWORD="${BMC_ROOT_PASSWORD:-""}"
+
+	if [[ "$BMC_ROOT_PASSWORD" == "" ]]; then
+		echo "BMC_ROOT_PASSWORD not set. Failed as creation of bmc-shared-password secret is not possible."
+		exit 1
+	fi
+	kubectl create namespace dpf-operator-system || true
+	kubectl create secret generic -n dpf-operator-system bmc-shared-password --from-literal=password=$BMC_ROOT_PASSWORD
+fi
 
 if [[ "$IMAGE_PULL_KEY" == "" ]]; then
 	echo "IMAGE_PULL_KEY not set. Skipping imagePullSecret creation"
