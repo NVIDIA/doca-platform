@@ -1,5 +1,5 @@
 /*
-Copyright 2025 NVIDIA
+Copyright 2026 NVIDIA
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,14 +21,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
+	"time"
+
+	httputil "github.com/nvidia/doca-platform/internal/provisioning/utils/http"
 )
 
 // DownloadFile downloads a file from a URL to a destination file.
-// todo: make this an util and substitute the one in dpu-controllers
+// If the file already exists, the download is skipped.
+// The downloaded content is validated against the Content-Length header from the GET response.
 func DownloadFile(ctx context.Context, url string, dst string, fileMode os.FileMode) error {
+	// Check if file already exists - skip download if it does
 	if _, err := os.Stat(dst); err == nil {
 		return nil
 	}
@@ -42,19 +46,16 @@ func DownloadFile(ctx context.Context, url string, dst string, fileMode os.FileM
 	}
 	defer os.Remove(tempFile.Name()) //nolint: errcheck
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	// Retry protects initial connection from transient network failures.
+	// Once connected, body reading has no retry.
+	resp, err := httputil.DoRequestWithRetry(ctx, "GET", url, 3, time.Second)
 	if err != nil {
 		return err
 	}
+	defer httputil.CloseBody(resp)
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to get: %s status: %d", url, resp.StatusCode)
-	}
-	defer resp.Body.Close() //nolint: errcheck
+	expectedSize := resp.ContentLength
+	var totalWritten int64
 
 	buf := make([]byte, 128*1024*1024)
 copyLoop:
@@ -76,8 +77,20 @@ copyLoop:
 			if _, writeErr := tempFile.Write(buf[:n]); writeErr != nil {
 				return writeErr
 			}
+			totalWritten += int64(n)
 		}
 	}
+
+	// Validate downloaded file size against Content-Length header from this GET response.
+	// This detects truncated downloads caused by network failures or connection drops.
+	// Only validate when Content-Length is positive (known size).
+	// Skip validation when Content-Length is -1 (not set) or 0 (empty) since we can't reliably verify.
+	// If validation fails, the function returns an error and the deferred os.Remove() cleans up
+	// the temporary file, ensuring no partial/corrupted file is left at the destination.
+	if expectedSize > 0 && totalWritten != expectedSize {
+		return fmt.Errorf("downloaded file size mismatch: expected %d bytes, got %d bytes", expectedSize, totalWritten)
+	}
+
 	// Close the temp file before renaming
 	if err := tempFile.Close(); err != nil {
 		return err

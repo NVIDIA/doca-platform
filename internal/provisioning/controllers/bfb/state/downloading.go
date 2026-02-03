@@ -1,5 +1,5 @@
 /*
-Copyright 2024 NVIDIA
+Copyright 2026 NVIDIA
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,14 +21,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	butil "github.com/nvidia/doca-platform/internal/provisioning/controllers/bfb/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/events"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
+	httputil "github.com/nvidia/doca-platform/internal/provisioning/utils/http"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	corev1 "k8s.io/api/core/v1"
@@ -143,19 +144,16 @@ func downloadBFB(ctx context.Context, bfbTask butil.BFBTask) {
 		}
 		defer os.Remove(tempFile.Name()) //nolint: errcheck
 
-		req, err := http.NewRequestWithContext(ctx, "GET", bfbTask.URL, nil)
+		// Retry protects initial connection from transient network failures.
+		// Once connected, body reading has no retry.
+		resp, err := httputil.DoRequestWithRetry(ctx, "GET", bfbTask.URL, 3, time.Second)
 		if err != nil {
 			return nil, err
 		}
+		defer httputil.CloseBody(resp)
 
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("failed to get: %s status: %d", bfbTask.URL, resp.StatusCode)
-		}
-		defer resp.Body.Close() //nolint: errcheck
+		expectedSize := resp.ContentLength
+		var totalWritten int64
 
 		buf := make([]byte, 128*1024*1024)
 	copyLoop:
@@ -178,7 +176,18 @@ func downloadBFB(ctx context.Context, bfbTask butil.BFBTask) {
 				if _, writeErr := tempFile.Write(buf[:n]); writeErr != nil {
 					return nil, writeErr
 				}
+				totalWritten += int64(n)
 			}
+		}
+
+		// Validate downloaded file size against Content-Length header from this GET response.
+		// This detects truncated downloads caused by network failures or connection drops.
+		// Only validate when Content-Length is positive (known size).
+		// Skip validation when Content-Length is -1 (not set) or 0 (empty) since we can't reliably verify.
+		// If validation fails, the function returns an error and the deferred os.Remove() cleans up
+		// the temporary file, ensuring no partial/corrupted file is left at the destination.
+		if expectedSize > 0 && totalWritten != expectedSize {
+			return nil, fmt.Errorf("downloaded file size mismatch: expected %d bytes, got %d bytes", expectedSize, totalWritten)
 		}
 
 		// Close the temp file before renaming
