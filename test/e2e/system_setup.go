@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -64,6 +65,7 @@ type ProvisionDPUClustersInput struct {
 	client                  client.Client
 	bfbImageURL             string
 	restConfig              *rest.Config
+	HostRebootScript        string
 }
 
 // systemTestInput represents the fully loaded and processed test environment.
@@ -83,6 +85,7 @@ type systemTestInput struct {
 	additionalProvisioningObjects []client.Object
 	dpuClusters                   []*provisioningv1.DPUCluster
 	dpuFlavor                     *provisioningv1.DPUFlavor
+	dpuDiscovery                  *provisioningv1.DPUDiscovery
 	dpuService                    *dpuservicev1.DPUService
 	dpuServiceHBN                 *dpuservicev1.DPUService
 	dpuServiceInterface           *dpuservicev1.DPUServiceInterface
@@ -106,6 +109,7 @@ type systemTestInput struct {
 	skipCleanup                   bool
 	bfbImageURL                   string
 	restConfig                    *rest.Config
+	HostRebootScript              string
 }
 
 func (t *systemTestInput) applySDNConfig(conf config) {
@@ -198,6 +202,13 @@ func (t *systemTestInput) applyConfig(conf config) {
 		t.dpuClusters = append(t.dpuClusters, dpuCluster)
 	}
 
+	if conf.DPUDiscoveryPath != nil {
+		dpuDiscovery := &provisioningv1.DPUDiscovery{}
+		dpuDiscoveryUnstructured := unstructuredFromFile(*conf.DPUDiscoveryPath)
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuDiscoveryUnstructured.Object, dpuDiscovery)).To(Succeed())
+		t.dpuDiscovery = dpuDiscovery
+	}
+
 	dpuServiceInterface := &dpuservicev1.DPUServiceInterface{}
 	dsi := unstructuredFromFile(conf.DPUServiceInterfacePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dsi.Object, dpuServiceInterface)).To(Succeed())
@@ -271,7 +282,9 @@ type DeployDPFSystemComponentsInput struct {
 	systemNamespace           string
 	ProvisioningControllerPVC *corev1.PersistentVolumeClaim
 	ImagePullSecrets          []string
+	dpuDiscovery              *provisioningv1.DPUDiscovery
 	client                    client.Client
+	numberOfDPUNodes          int
 }
 
 // DeployDPFSystemComponents creates the operatorConfig and some dependencies and checks that the system components
@@ -318,6 +331,11 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 
 	By("create the DPFOperatorConfig for the system")
 	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, input.operatorConfig))).NotTo(HaveOccurred())
+
+	if isGinkgoLabelApplied(zeroTrustLabel) {
+		By("Deploy DPUDiscovery for ZeroTrust")
+		CreateDPUDiscovery(ctx, input)
+	}
 
 	By("ensure the DPF controllers are running and ready")
 	Eventually(func(g Gomega) {
@@ -514,6 +532,12 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 // addition verifies that the DPUs become ready.
 func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersInput) {
 	tracker := NewByTracker()
+
+	if isGinkgoLabelApplied(zeroTrustLabel) {
+		RebootAndVerifyDPU(ctx, input)
+	}
+
+	// Verify nodes are present in DPUCluster,
 	Eventually(func(g Gomega) {
 		nodes := &corev1.NodeList{}
 		g.Expect(dpuClusterClient[0].List(ctx, nodes)).ToNot(HaveOccurred())
@@ -522,14 +546,101 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 		g.Expect(nodes.Items).To(HaveLen(input.numberOfNodesPerCluster))
 	}).WithTimeout(45 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 
+	// Verify DPUs are ready
 	Eventually(func(g Gomega) {
 		dpus := &provisioningv1.DPUList{}
 		g.Expect(input.client.List(ctx, dpus)).ToNot(HaveOccurred())
 		g.Expect(dpus.Items).To(HaveLen(input.numberOfNodesPerCluster))
+
 		for _, dpu := range dpus.Items {
+			dpuStatusKey := fmt.Sprintf("%s/%v", dpu.Name, dpu.Status.Phase)
+			tracker.By(dpuStatusKey, "DPU %s dpu.Status.Phase=%v", dpu.Name, dpu.Status.Phase)
 			g.Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPUReady))
 		}
-	}).WithTimeout(30 * time.Minute).Should(Succeed())
+	}).WithTimeout(20 * time.Minute).Should(Succeed())
+
+}
+
+// RebootAndVerifyDPU waits and verifies that the DPUs expecting reboot, triggers node and dpu reboot via power cycle
+// here when expected condition met.
+// In addition removes annotation from rebooted node after the reboot is finished.
+// applies to ZeroTrust only
+func RebootAndVerifyDPU(ctx context.Context, input ProvisionDPUClustersInput) {
+	tracker := NewByTracker()
+	// Verify DPUs are present in DPUCluster
+	dpus := &provisioningv1.DPUList{}
+
+	// applies to ZeroTrust only
+	By("Wait for DPUs to reach DPURebooting state in ZeroTrust")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.List(ctx, dpus)).ToNot(HaveOccurred())
+		g.Expect(dpus.Items).To(HaveLen(input.numberOfNodesPerCluster))
+
+		for _, dpu := range dpus.Items {
+			dpuStatusKey := fmt.Sprintf("%s/%v", dpu.Name, dpu.Status.Phase)
+			tracker.By(dpuStatusKey, "DPU %s dpu.Status.Phase=%v", dpu.Name, dpu.Status.Phase)
+
+			if dpu.Status.Phase != provisioningv1.DPUReady {
+				dpuKey := client.ObjectKey{Name: dpu.Name, Namespace: dpu.Namespace}
+				current := &provisioningv1.DPU{}
+				g.Expect(input.client.Get(ctx, dpuKey, current)).To(Succeed())
+				// TODO: update this behavior when retry during provisioning is introduced
+				// Failing test instantly when facing Error during provisioning
+				Expect(current.Status.Phase).NotTo(Equal(provisioningv1.DPUError))
+				g.Expect(current.Status.Phase).To(Equal(provisioningv1.DPURebooting))
+			}
+		}
+	}).WithTimeout(45 * time.Minute).Should(Succeed())
+
+	By("Trigger host reboot via script for all DPUs requiring reboot")
+	Expect(input.client.List(ctx, dpus)).ToNot(HaveOccurred())
+	for i := range dpus.Items {
+		dpuKey := client.ObjectKey{Name: dpus.Items[i].Name, Namespace: dpus.Items[i].Namespace}
+		current := &provisioningv1.DPU{}
+		Expect(input.client.Get(ctx, dpuKey, current)).To(Succeed())
+
+		if current.Status.Phase == provisioningv1.DPURebooting {
+			nodeName := fmt.Sprintf("worker%d", i+1)
+			By(fmt.Sprintf("Trigger host %s reboot via script for DPU %s", nodeName, current.Name))
+			err := RebootHostByScript(input.HostRebootScript, nodeName)
+			Expect(err).NotTo(HaveOccurred(), "Reboot host script failed for %s: %v", nodeName, err)
+		}
+	}
+
+	By("Waiting for SSH connectivity to all hosts after reboot")
+	Eventually(func(g Gomega) {
+		for i := 0; i < input.numberOfNodesPerCluster; i++ {
+			nodeName := fmt.Sprintf("worker%d", i+1)
+			By(fmt.Sprintf("Checking SSH connectivity for %s", nodeName))
+
+			// Try SSH with timeout
+			cmd := exec.Command("ssh",
+				"-o", "ConnectTimeout=3",
+				"-o", "BatchMode=yes",
+				"-o", "StrictHostKeyChecking=no",
+				nodeName,
+				"true")
+
+			err := cmd.Run()
+			g.Expect(err).NotTo(HaveOccurred(),
+				fmt.Sprintf("SSH connectivity check failed for %s", nodeName))
+		}
+	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+
+	By("Removing provisioning.dpu.nvidia.com/dpunode-external-reboot-required annotation from DPUNodes after the host reboot")
+	nodes := &provisioningv1.DPUNodeList{}
+	Expect(input.client.List(ctx, nodes)).ToNot(HaveOccurred())
+
+	for _, node := range nodes.Items {
+		annotation := "provisioning.dpu.nvidia.com/dpunode-external-reboot-required"
+
+		if _, ok := node.GetAnnotations()[annotation]; ok {
+			patch := client.MergeFrom(node.DeepCopy())
+			delete(node.Annotations, annotation)
+			Expect(input.client.Patch(ctx, &node, patch)).ToNot(HaveOccurred(),
+				fmt.Sprintf("Failed to patch DPUNode %s", node.Name))
+		}
+	}
 }
 
 func VerifyClusterPods(ctx context.Context, client client.Client, podSubstrToVerify []string) {
@@ -596,6 +707,42 @@ func VerifyDPFOperatorConfigReady(ctx context.Context, kclient client.Client, ti
 		g.Expect(kclient.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, dpfOperatorConfig)).To(Succeed())
 		g.Expect(conditions.IsTrue(dpfOperatorConfig, conditions.TypeReady)).To(BeTrue())
 	}).WithTimeout(timeout).WithPolling(1 * time.Second).Should(Succeed())
+}
+
+// CreateDPUDiscovery verifies no worker nodes and no DPUDevices are in the host cluster.
+// Creates DPUDiscovery and verifies DPUDevices were found and added.
+func CreateDPUDiscovery(ctx context.Context, input DeployDPFSystemComponentsInput) {
+	By("Verify worker nodes are not present")
+	workerNodes := &corev1.NodeList{}
+	Eventually(func() int {
+		err := input.client.List(ctx, workerNodes, client.InNamespace(dpfOperatorSystemNamespace), client.MatchingLabels(map[string]string{"node-role.kubernetes.io/worker": ""}))
+		Expect(err).NotTo(HaveOccurred())
+		return len(workerNodes.Items)
+	}, time.Second*30, time.Millisecond*250).Should(Equal(0))
+
+	By("Verify DPU devices are not present")
+	dpuDeviceList := &provisioningv1.DPUDeviceList{}
+	Eventually(func() int {
+		err := input.client.List(ctx, dpuDeviceList, client.InNamespace(input.systemNamespace))
+		Expect(err).NotTo(HaveOccurred())
+		return len(dpuDeviceList.Items)
+	}, time.Second*30, time.Millisecond*250).Should(Equal(0))
+
+	By("Creating DpuDiscovery")
+	Expect(input.dpuDiscovery).NotTo(BeNil(), "dpuDiscovery config is required for ZeroTrust")
+	discovery := input.dpuDiscovery.DeepCopy()
+	discovery.SetNamespace(input.systemNamespace)
+	discovery.SetLabels(testutils.AfterAllCleanupLabels)
+
+	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, discovery))).NotTo(HaveOccurred())
+
+	By("Waiting for DPU discovery to complete and create DPU devices")
+	dpuDeviceList = &provisioningv1.DPUDeviceList{}
+	Eventually(func() int {
+		err := input.client.List(ctx, dpuDeviceList, client.InNamespace(input.systemNamespace))
+		Expect(err).NotTo(HaveOccurred())
+		return len(dpuDeviceList.Items)
+	}, time.Minute*5, time.Millisecond*250).Should(Equal(input.numberOfDPUNodes))
 }
 
 // verifyDPUServicesReady checks that the DPUService is ready.
@@ -683,6 +830,15 @@ func getDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) 
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 		getDPUClusterClient(ctx, input, i)
 	}
+}
+
+func RebootHostByScript(rebootHostScript string, hostName string) error {
+	cmd := exec.Command(rebootHostScript, hostName)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return cmd.Run()
 }
 
 func unstructuredFromFile(path string) *unstructured.Unstructured {
