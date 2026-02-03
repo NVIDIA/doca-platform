@@ -390,3 +390,127 @@ func TestUpdateEnvironmentVariablesFromFile(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkingDirectoryPersistence(t *testing.T) {
+	g := NewWithT(t)
+
+	tests := []struct {
+		name         string
+		commands     []string
+		expectedDirs []string // expected PWD after each command
+	}{
+		{
+			name: "cd to subdirectory and verify persistence",
+			commands: []string{
+				"mkdir -p testdir",
+				"cd testdir",
+				"pwd", // should be in testdir
+			},
+			expectedDirs: []string{
+				"", // after mkdir, PWD unchanged
+				"", // after cd, PWD changes (checked in next command)
+				"testdir",
+			},
+		},
+		{
+			name: "cd to absolute path and verify persistence",
+			commands: []string{
+				"cd /tmp",
+				"pwd",
+			},
+			expectedDirs: []string{
+				"", // after cd, PWD changes
+				"/tmp",
+			},
+		},
+		{
+			name: "multiple cd commands",
+			commands: []string{
+				"mkdir -p testdir/subdir",
+				"cd testdir",
+				"pwd",
+				"cd subdir",
+				"pwd",
+			},
+			expectedDirs: []string{
+				"",
+				"",
+				"testdir",
+				"",
+				"subdir",
+			},
+		},
+		{
+			name: "cd with relative paths",
+			commands: []string{
+				"mkdir -p testdir",
+				"cd testdir",
+				"cd ..",
+				"pwd",
+			},
+			expectedDirs: []string{
+				"",
+				"",
+				"",
+				"", // should be back to original directory
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a temporary directory for the test
+			tmpDir, err := os.MkdirTemp("", "testdocs-cd-test-*")
+			g.Expect(err).ToNot(HaveOccurred())
+			defer os.RemoveAll(tmpDir)
+
+			// Change to the temp directory for the test
+			originalDir, err := os.Getwd()
+			g.Expect(err).ToNot(HaveOccurred())
+			defer os.Chdir(originalDir)
+
+			err = os.Chdir(tmpDir)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			// Track environment across commands
+			envVars := make(map[string]string)
+
+			for i, cmd := range tt.commands {
+				// Create temporary file for environment capture
+				envFile, err := os.CreateTemp("", "test-env-*.txt")
+				g.Expect(err).ToNot(HaveOccurred())
+				defer os.Remove(envFile.Name())
+				g.Expect(envFile.Close()).ToNot(HaveOccurred())
+
+				// Build and execute command script
+				scriptFile, err := buildCommandScript(cmd, envVars, envFile.Name())
+				g.Expect(err).ToNot(HaveOccurred())
+				defer os.Remove(scriptFile)
+
+				execCmd := exec.Command(scriptFile)
+				output, err := execCmd.CombinedOutput()
+				g.Expect(err).ToNot(HaveOccurred(), "Command failed: %s\nOutput: %s", cmd, string(output))
+
+				// Update environment variables from the executed command
+				err = updateEnvironmentVariablesFromFile(envFile.Name(), envVars)
+				g.Expect(err).ToNot(HaveOccurred())
+
+				// Check expected directory if specified
+				if tt.expectedDirs[i] != "" {
+					pwd, exists := envVars["PWD"]
+					g.Expect(exists).To(BeTrue(), "PWD should be set in environment")
+
+					// For relative paths, check if PWD ends with expected dir
+					if tt.expectedDirs[i][0] != '/' {
+						g.Expect(pwd).To(HaveSuffix(tt.expectedDirs[i]),
+							"Expected PWD to end with %s, got %s", tt.expectedDirs[i], pwd)
+					} else {
+						// For absolute paths, check exact match
+						g.Expect(pwd).To(Equal(tt.expectedDirs[i]),
+							"Expected PWD to be %s, got %s", tt.expectedDirs[i], pwd)
+					}
+				}
+			}
+		})
+	}
+}
