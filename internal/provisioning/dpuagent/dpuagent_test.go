@@ -206,6 +206,45 @@ var _ = Describe("DPUAgent", func() {
 			// - 1 time at the end of Run
 			Expect(statusUpdateCount).To(BeNumerically(">=", 5))
 		})
+
+		It("should abort and return error when context is canceled and not execute subsequent operations", func() {
+			cancelCtx, cancelFunc := context.WithCancel(ctx)
+			attempts := 0
+			secondOpExecuted := false
+
+			agent := &DPUAgent{
+				retryInterval: testRetryInterval,
+				optCtx: &operations.Context{
+					Client: &mockClient{},
+				},
+				operations: []operations.Operation{
+					&mockOperation{
+						name:          "blocking-op",
+						conditionType: "BlockingOpCondition",
+						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+							attempts++
+							if attempts >= 2 {
+								cancelFunc()
+							}
+							return fmt.Errorf("persistent error")
+						},
+					},
+					&mockOperation{
+						name:          "subsequent-op",
+						conditionType: "SubsequentOpCondition",
+						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+							secondOpExecuted = true
+							return nil
+						},
+					},
+				},
+			}
+
+			err := agent.Run(cancelCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("context canceled"))
+			Expect(secondOpExecuted).To(BeFalse(), "subsequent operation should not be executed after context is canceled")
+		})
 	})
 })
 
