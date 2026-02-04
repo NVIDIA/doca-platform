@@ -99,10 +99,27 @@ func Test_dpfctlTreeDiscovery(t *testing.T) {
 			objectsTree: []objectsWithConditions{
 				{object: defaultDPFOperatorConfig(), conditions: getTrueCondition()},
 				{object: defaultDPUSet(), conditions: getTrueCondition()},
-				{object: defaultBFBWithVersion(), customStatus: getBFBStatus()},
+				{object: defaultBFBWithVersion("test"), customStatus: getBFBStatus()},
 			},
 			expectedPrefix: []string{
 				"DPFOperatorConfig/test  default  Ready: True  Success",
+				"└─DPUSets",
+				"  └─DPUSet/test         default",
+				"    └─BFB/test          default  Ready: True  Ready    0s  File: bf-bundle-2.9.1-50.bfb, DOCA: 2.9.1",
+			},
+		},
+		{
+			name: "Add DPUSet with BFB and standalone BFB",
+			objectsTree: []objectsWithConditions{
+				{object: defaultDPFOperatorConfig(), conditions: getTrueCondition()},
+				{object: defaultDPUSet(), conditions: getTrueCondition()},
+				{object: defaultBFBWithVersion("test"), customStatus: getBFBStatus()},
+				{object: defaultBFBWithVersion("another-bfb"), customStatus: getBFBStatus()},
+			},
+			expectedPrefix: []string{
+				"DPFOperatorConfig/test  default  Ready: True  Success",
+				"├─BFBs",
+				"│ └─BFB/another-bfb     default  Ready: True  Ready    0s  File: bf-bundle-2.9.1-50.bfb, DOCA: 2.9.1",
 				"└─DPUSets",
 				"  └─DPUSet/test         default",
 				"    └─BFB/test          default  Ready: True  Ready    0s  File: bf-bundle-2.9.1-50.bfb, DOCA: 2.9.1",
@@ -1150,10 +1167,10 @@ func defaultArgoCDApplication() *argov1.Application {
 	}
 }
 
-func defaultBFBWithVersion() *provisioningv1.BFB {
+func defaultBFBWithVersion(name string) *provisioningv1.BFB {
 	return &provisioningv1.BFB{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test",
+			Name:      name,
 			Namespace: "default",
 		},
 		Spec: provisioningv1.BFBSpec{
