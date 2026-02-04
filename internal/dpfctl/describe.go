@@ -244,6 +244,11 @@ func DiscoverDPUSets(ctx context.Context, tree *ObjectTree, scope objectScope, d
 		return nil, err
 	}
 
+	// Add standalone BFBs that are not referenced by any DPUSet
+	if err := addStandaloneBFBs(ctx, scope, dpfOperatorConfig); err != nil {
+		return nil, err
+	}
+
 	return tree, nil
 }
 
@@ -468,30 +473,7 @@ func addDPUSets(ctx context.Context, o objectScope, root client.Object, matchLab
 			}
 
 			if bfbExists {
-				virtBfb := VirtualObjectForVisualization(bfb, provisioningv1.BFBKind)
-				readyCondition := metav1.Condition{
-					Type:               string(provisioningv1.BFBReady),
-					Status:             metav1.ConditionFalse,
-					LastTransitionTime: bfb.ObjectMeta.GetCreationTimestamp(),
-					Reason:             string(bfb.Status.Phase),
-				}
-				if bfb.Status.Phase == provisioningv1.BFBReady {
-					readyCondition = metav1.Condition{
-						Type:               string(provisioningv1.BFBReady),
-						Status:             metav1.ConditionTrue,
-						LastTransitionTime: bfb.ObjectMeta.GetCreationTimestamp(),
-						Reason:             string(bfb.Status.Phase),
-						Message:            fmt.Sprintf("File: %s", filepath.Base(bfb.Spec.URL)),
-					}
-					if bfb.Status.Versions.DOCA != "" {
-						readyCondition.Message += fmt.Sprintf(", DOCA: %s", bfb.Status.Versions.DOCA)
-					}
-				}
-
-				virtBfb.Object["status"] = map[string]interface{}{
-					"conditions": []metav1.Condition{readyCondition},
-				}
-
+				virtBfb := createBFBVirtualObject(bfb)
 				o.tree.Add(dpuSet.DeepCopy(), virtBfb)
 			}
 		}
@@ -505,6 +487,83 @@ func addDPUSets(ctx context.Context, o objectScope, root client.Object, matchLab
 	}
 
 	o.tree.AddMultipleWithHeader(root, addToTree, "DPUSets")
+	return nil
+}
+
+func createBFBVirtualObject(bfb *provisioningv1.BFB) *unstructured.Unstructured {
+	virtBfb := VirtualObjectForVisualization(bfb, provisioningv1.BFBKind)
+	readyCondition := metav1.Condition{
+		Type:               string(provisioningv1.BFBReady),
+		Status:             metav1.ConditionFalse,
+		LastTransitionTime: bfb.ObjectMeta.GetCreationTimestamp(),
+		Reason:             string(bfb.Status.Phase),
+	}
+	if bfb.Status.Phase == provisioningv1.BFBReady {
+		readyCondition = metav1.Condition{
+			Type:               string(provisioningv1.BFBReady),
+			Status:             metav1.ConditionTrue,
+			LastTransitionTime: bfb.ObjectMeta.GetCreationTimestamp(),
+			Reason:             string(bfb.Status.Phase),
+			Message:            fmt.Sprintf("File: %s", filepath.Base(bfb.Spec.URL)),
+		}
+		if bfb.Status.Versions.DOCA != "" {
+			readyCondition.Message += fmt.Sprintf(", DOCA: %s", bfb.Status.Versions.DOCA)
+		}
+	}
+
+	virtBfb.Object["status"] = map[string]interface{}{
+		"conditions": []metav1.Condition{readyCondition},
+	}
+	return virtBfb
+}
+
+// addStandaloneBFBs adds BFBs that are not referenced by any DPUSet or are referenced by a non-existent DPUSet.
+func addStandaloneBFBs(ctx context.Context, o objectScope, root client.Object) error {
+	if !showResource(o.opts, provisioningv1.BFBKind) {
+		return nil
+	}
+
+	// Get all BFBs
+	bfbList := &provisioningv1.BFBList{}
+	if err := o.client.List(ctx, bfbList); err != nil {
+		return err
+	}
+
+	// Get all DPUSets to find which BFBs are referenced
+	dpuSetList := &provisioningv1.DPUSetList{}
+	if err := o.client.List(ctx, dpuSetList); err != nil {
+		return err
+	}
+
+	// Build a map of BFB names that are referenced by existing DPUSets
+	referencedBFBs := make(map[types.NamespacedName]bool)
+	for _, dpuSet := range dpuSetList.Items {
+		if dpuSet.Spec.DPUTemplate.Spec.BFB.Name != "" {
+			nn := types.NamespacedName{
+				Name:      dpuSet.Spec.DPUTemplate.Spec.BFB.Name,
+				Namespace: dpuSet.Namespace,
+			}
+			referencedBFBs[nn] = true
+		}
+	}
+
+	// Add BFBs that are not referenced or have no matching DPUSet
+	addToTree := []client.Object{}
+	for _, bfb := range bfbList.Items {
+		if !isObjDebug(&bfb, o.opts.ShowResources) {
+			continue
+		}
+
+		// Skip BFBs that are already shown as part of a DPUSet
+		if referencedBFBs[client.ObjectKeyFromObject(&bfb)] {
+			continue
+		}
+
+		virtBfb := createBFBVirtualObject(&bfb)
+		addToTree = append(addToTree, virtBfb)
+	}
+
+	o.tree.AddMultipleWithHeader(root, addToTree, "BFBs", GroupingObject(true))
 	return nil
 }
 
