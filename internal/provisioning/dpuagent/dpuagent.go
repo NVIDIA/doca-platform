@@ -96,6 +96,7 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 	d.optCtx.Status = provisioningv1.DPUInternalStatus{
 		Conditions: []metav1.Condition{},
 	}
+	var err error
 	for _, op := range d.operations {
 		if op.ShouldSkip(d.optCtx) {
 			klog.Infof("Skipping operation %s", op.Name())
@@ -103,7 +104,7 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 		}
 
 		// Execute the operations until success
-		_ = wait.PollUntilContextCancel(ctx, d.retryInterval, true, func(execCtx context.Context) (bool, error) {
+		err = wait.PollUntilContextCancel(ctx, d.retryInterval, true, func(execCtx context.Context) (bool, error) {
 			err := op.Execute(execCtx, d.optCtx)
 			if err != nil {
 				klog.Errorf("[%s] Failed to execute, retrying. err: %v", op.Name(), err)
@@ -118,6 +119,10 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 			}
 			return err == nil, nil
 		})
+		// The only reason for error here is context cancellation
+		if err != nil {
+			return fmt.Errorf("execution of operatior %s aborted: %v", op.Name(), err)
+		}
 	}
 	d.updateStatusUntilSuccess(ctx)
 	klog.Infof("DPUAgent finished")
