@@ -929,7 +929,7 @@ binary-dpfdev: ## Build the dpfdev CLI tool
 
 DOCKER_BUILD_TARGETS=$(DPU_ARCH_DOCKER_BUILD_TARGETS) $(MULTI_ARCH_DOCKER_BUILD_TARGETS)
 DPU_ARCH_DOCKER_BUILD_TARGETS=$(DPU_ARCH_BUILD_TARGETS) ovs-cni cni-installer
-MULTI_ARCH_DOCKER_BUILD_TARGETS= dpf-system hostdriver storage-system storage-host bfb-registry
+MULTI_ARCH_DOCKER_BUILD_TARGETS= dpf-system hostdriver storage-system storage-host bfb-registry keepalived
 
 .PHONY: binary-hostagent
 binary-hostagent: ## Build the hostagent binary.
@@ -990,6 +990,10 @@ export STORAGE_SYSTEM_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(STORAGE_SYSTEM_IM
 STORAGE_HOST_IMAGE_NAME = storage-host
 export STORAGE_HOST_IMAGE ?= $(REGISTRY)/$(STORAGE_HOST_IMAGE_NAME)
 export STORAGE_HOST_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(STORAGE_HOST_IMAGE_NAME)
+
+KEEPALIVED_IMAGE_NAME = dpf-keepalived
+export KEEPALIVED_IMAGE ?= $(REGISTRY)/$(KEEPALIVED_IMAGE_NAME)
+export KEEPALIVED_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(KEEPALIVED_IMAGE_NAME)
 
 DPF_SYSTEM_ARCH ?= $(HOST_ARCH) $(DPU_ARCH)
 
@@ -1249,6 +1253,42 @@ docker-push-storage-host-for-%:
 docker-create-manifest-for-storage-host:
 	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
 	docker manifest create --amend $(STORAGE_HOST_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(STORAGE_HOST_IMAGE):$(TAG))
+
+.PHONY: docker-build-keepalived # Build a multi-arch image for keepalived. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
+docker-build-keepalived: $(addprefix docker-build-keepalived-for-,$(DPF_SYSTEM_ARCH))
+
+docker-build-keepalived-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
+	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
+	$(CURDIR)/hack/scripts/docker-build.sh \
+		--load \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
+		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
+		--provenance=false \
+		--progress=plain \
+		--platform=linux/$* \
+		-t $(KEEPALIVED_IMAGE):$(TAG)-$* \
+		-f Dockerfile.keepalived \
+		.
+
+.PHONY: docker-push-keepalived # Push a multi-arch image for keepalived using docker manifest. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
+docker-push-keepalived: $(addprefix docker-push-keepalived-for-,$(DPF_SYSTEM_ARCH))
+	docker manifest push --purge $(KEEPALIVED_IMAGE):$(TAG)
+
+docker-push-keepalived-for-%:
+	# Tag and push the arch-specific image with the single arch-agnostic tag.
+	docker tag $(KEEPALIVED_IMAGE):$(TAG)-$* $(KEEPALIVED_IMAGE):$(TAG)
+	docker push $(KEEPALIVED_IMAGE):$(TAG)
+	# This must be called in a separate target to ensure the shell command is called in the correct order.
+	$(MAKE) docker-create-manifest-for-keepalived
+
+docker-create-manifest-for-keepalived:
+	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
+	docker manifest create --amend $(KEEPALIVED_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(KEEPALIVED_IMAGE):$(TAG))
 
 .PHONY: docker-build-bfb-registry # Build a multi-arch image for BFB Registry. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-bfb-registry: $(addprefix docker-build-bfb-registry-for-,$(DPF_SYSTEM_ARCH))

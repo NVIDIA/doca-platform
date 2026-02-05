@@ -28,7 +28,6 @@ DPF uses the following components:
 | SR-IOV Device Plugin        | Community (OSS) | ghcr.io/k8snetworkplumbingwg                                       | sriov-network-device-plugin                   | v3.11.0  |          |
 | Etcd Defrag                 | Community (OSS) | ghcr.io/ahrtr                                                      | etcd-defrag                                   | v0.22.0 | Optional |
 | Kamaji                      | Community (OSS) | ghcr.io/clastix                                                    | kamaji                                        | v1.34.0 | Optional |
-| Keepalived                  | Community (OSS) | docker.io/osixia                                                   | keepalived                                    | 2.0.20  | Optional |
 | Local Path Provisioner      | Community (OSS) | docker.io/rancher                                                  | local-path-provisioner                        | v0.0.31 | Optional |
 | Kube State Metrics          | Community (OSS) | registry.k8s.io/kube-state-metrics                                 | kube-state-metrics                            | v2.13.0 | Optional |
 | Prometheus                  | Community (OSS) | quay.io/prometheus                                                 | prometheus                                    | v2.54.1 | Optional |
