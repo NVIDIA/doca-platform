@@ -31,7 +31,7 @@ set -e
 
 # Save structured logs from docker buildx if enabled
 if [[ "$DOCKER_BUILD_LOGGING" == "true" ]]; then
-	mkdir -p "$ARTIFACTS_DIR"
+	mkdir -p "$ARTIFACTS_DIR/docker-build/"
 
 	# Extract image:tag from arguments (look for -t or --tag)
 	IMAGE_TAG=""
@@ -55,7 +55,7 @@ if [[ "$DOCKER_BUILD_LOGGING" == "true" ]]; then
 		exit $BUILD_EXIT
 	fi
 
-	LOG_FILE="${ARTIFACTS_DIR}/docker-build-log-${LOG_NAME}.json"
+	LOG_FILE="${ARTIFACTS_DIR}/docker-build/docker-build-log-${LOG_NAME}.json"
 	docker buildx history logs --progress=rawjson 1> "$LOG_FILE" 2>&1 || true
 fi
 
