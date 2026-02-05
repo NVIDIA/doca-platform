@@ -33,7 +33,6 @@ const (
 	MaxRetryCount = 10
 )
 
-var OsInstallTaskMap sync.Map
 var BmcFwUpdateTaskMap sync.Map
 var RebootTaskMap sync.Map
 var HostNetworkTaskMap sync.Map
