@@ -462,6 +462,20 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		dpuDevice.Status.PF0MAC = ptr.To(pf0.Ethernet.MACAddress)
 	}
 
+	resp, secureBootInfo, err := client.GetSecureBoot()
+	if err != nil {
+		log.Error(err, "Failed to get Secure Boot state", "address", bmcAddress, "response", resp)
+		return err
+	}
+
+	if secureBootInfo != nil {
+		enabled := secureBootInfo.IsCurrentlyActive()
+		dpuDevice.Status.SecureBoot = &provisioningv1.SecureBootStatus{
+			Enabled: ptr.To(enabled),
+		}
+		log.Info("Detected Secure Boot state", "address", bmcAddress, "enabled", enabled)
+	}
+
 	// TODO: Get the PCI address once it will be available in the Redfish API
 
 	if dpuDevice.Labels == nil {

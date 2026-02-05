@@ -398,6 +398,23 @@ func (n *NodeManager) updateDPUDeviceStatus() error {
 		}
 		dpuDevice.Status.DPUMode = mode
 
+		// Detect Secure Boot state via rshim interface
+		rshimInfo, err := hostutil.QueryRshimByPCI(device.Address)
+		if err != nil {
+			return fmt.Errorf("failed to query rshim for DPU %s (PCI: %s): %w",
+				dpuDeviceCRName(device), device.Address, err)
+		}
+		if rshimInfo.SecureBootEnabled == nil {
+			// SecureBoot info may not be available on older firmware - treat as unknown
+			klog.Warningf("SecureBoot status not available in rshim output for DPU %s (rshim: %s) - leaving as unknown",
+				dpuDeviceCRName(device), rshimInfo.RshimName)
+			// Leave dpuDevice.Status.SecureBoot as nil to indicate unknown state
+		} else {
+			dpuDevice.Status.SecureBoot = &provisioningv1.SecureBootStatus{
+				Enabled: rshimInfo.SecureBootEnabled,
+			}
+		}
+
 		if err := n.Status().Update(timeoutCtx, dpuDevice); err != nil {
 			return fmt.Errorf("failed to update DPUDevice status. name:%s, err: %w", dpuDeviceCRName(device), err)
 		}
