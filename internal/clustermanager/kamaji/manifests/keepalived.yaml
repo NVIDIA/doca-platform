@@ -47,6 +47,12 @@ spec:
         {{- range $key, $value := .NodeSelector}}
         {{$key}}: "{{$value}}"{{end -}}
 {{- end}}
+{{- if .ImagePullSecrets}}
+      imagePullSecrets:
+      {{- range .ImagePullSecrets}}
+      - name: {{.}}
+      {{- end}}
+{{- end}}
       hostNetwork: true
       initContainers:
       - name: create-conf
@@ -80,7 +86,7 @@ spec:
           name: conf
       containers:
       - name: keepalived
-        image: osixia/keepalived:2.0.20
+        image: {{.KeepalivedImage}}
         imagePullPolicy: IfNotPresent
         resources:
           limits:
