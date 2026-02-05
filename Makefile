@@ -587,12 +587,6 @@ ARTIFACTS_DIR ?= $(CURDIR)/artifacts
 $(ARTIFACTS_DIR):
 	@mkdir -p $(ARTIFACTS_DIR)
 
-DOCKER_BUILD_LOGGING ?= false
-
-# Pattern target to save docker build logs
-# Usage: make save-docker-build-logs BUILD_TARGET_IMAGE_NAME=dpf-system-arm64 BUILD_TARGET_IMAGE_TAG=v0.1.0
-.PHONY: save-docker-build-logs
-
 E2E_TEST_DEFAULTS ?= -v -ginkgo.v -ginkgo.fail-fast -ginkgo.timeout=2h
 E2E_TEST_ARGS ?= -ginkgo.label-filter="DPFSystem && !SDN && !DPFVPCOVN" -e2e.config=./config-quick.yaml
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
@@ -1006,6 +1000,9 @@ UBUNTU_MIRROR ?= http://archive.ubuntu.com/ubuntu/
 ## This is used to speedup our CI builds by disabling the source code download&package step.
 ## Note: not all images have additional packages, so this env does not apply to all images.
 PACKAGE_SOURCES ?= true
+
+## Control whether to create BuildKit history logs for the docker builds.
+DOCKER_BUILD_LOGGING ?= false
 
 .PHONY: docker-build-dpf-system # Build a multi-arch image for DPF System. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-dpf-system: $(addprefix docker-build-dpf-system-for-,$(DPF_SYSTEM_ARCH))
