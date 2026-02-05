@@ -87,17 +87,8 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, client *rc.Client) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
-	taskName := fmt.Sprintf("%s-%s", dpu.Name, dpu.UID)
-	defer func(oldPhase provisioningv1.DPUPhase) {
-		if oldPhase == state.Phase {
-			return
-		}
-		dutil.OsInstallTaskMap.Delete(taskName)
-	}(state.Phase)
 
-	taskID, ok := dutil.OsInstallTaskMap.Load(taskName)
-
-	if !ok {
+	if dpu.Status.RedfishTaskID == nil {
 		resp, taskInfo, err := client.InstallBFB(concatBFBAndBFCFGPath(ctrlCtx.Options.BFBRegistry, dpu.Status.BFBFile, dpu.Status.BFCFGFile))
 		if err != nil {
 			err = fmt.Errorf("failed to install BFB: %w", err)
@@ -114,13 +105,15 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 			state.Phase = provisioningv1.DPUError
 			return *state, nil
 		}
-		dutil.OsInstallTaskMap.Store(taskName, taskInfo.ID)
+		// Update the state with the task ID so it's reflected in the returned status
+		state.RedfishTaskID = &taskInfo.ID
+
 		logger.Info(fmt.Sprintf("new install task: %+v", *taskInfo))
 		return *state, nil
 	}
 
 	// check progress
-	resp, prog, err := client.CheckTaskProgress(taskID.(string))
+	resp, prog, err := client.CheckTaskProgress(*dpu.Status.RedfishTaskID)
 	if err != nil {
 		err = fmt.Errorf("failed to check task progress: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToCheckProgress", err.Error()))
@@ -130,12 +123,13 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToCheckProgress", err.Error()))
 		return *state, err
 	}
-	logger.Info(fmt.Sprintf("taskProgress: %+v", prog))
 	if prog.TaskState == "Exception" {
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToInstall", fmt.Sprintf("Task %s is in Exception state: %v", taskID.(string), prog.Messages)))
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToInstall", fmt.Sprintf("Task %s is in Exception state: %v", *dpu.Status.RedfishTaskID, prog.Messages)))
 		state.Phase = provisioningv1.DPUError
 		return *state, nil
 	}
+
+	logger.Info(fmt.Sprintf("taskProgress: %+v", prog))
 	if prog.PercentComplete < 100 {
 		taskProgress := fmt.Sprintf("install task %d%% complete", prog.PercentComplete)
 		cond := cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), nil, "TaskProgress", taskProgress)
@@ -144,6 +138,7 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 		return *state, nil
 	}
 
+	state.RedfishTaskID = nil
 	cond := cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), nil, "", "")
 	cond.Status = metav1.ConditionTrue
 	cutil.SetDPUCondition(state, cond)
