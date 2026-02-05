@@ -420,6 +420,45 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(dpuDevice.Labels).To(HaveKey("provisioning.dpu.nvidia.com/dpudevice-bmc-ip"))
 			Expect(dpuDevice.Labels).To(HaveKey("provisioning.dpu.nvidia.com/dpudevice-opn"))
 			Expect(dpuDevice.Labels).To(HaveKey("provisioning.dpu.nvidia.com/dpudevice-psid"))
+
+			// Verify Secure Boot detection (default: enabled)
+			Expect(dpuDevice.Status.SecureBoot).NotTo(BeNil())
+			Expect(dpuDevice.Status.SecureBoot.Enabled).NotTo(BeNil())
+			Expect(*dpuDevice.Status.SecureBoot.Enabled).To(BeTrue())
+		})
+
+		It("should detect Secure Boot disabled state", func() {
+			ctx := context.Background()
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			// Configure Secure Boot as disabled
+			mockServer.SetSecureBootEnable(false)
+			mockServer.ApplySecureBootAfterReboot()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-sb-disabled")
+
+			err := reconciler.discoverDPUDevice(ctx, dpuDevice)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(dpuDevice.Status.SecureBoot).NotTo(BeNil())
+			Expect(dpuDevice.Status.SecureBoot.Enabled).NotTo(BeNil())
+			Expect(*dpuDevice.Status.SecureBoot.Enabled).To(BeFalse())
+		})
+
+		It("should fail when Secure Boot detection fails", func() {
+			ctx := context.Background()
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			// Simulate Secure Boot endpoint failure
+			mockServer.SetSecureBootError(true)
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-sb-error")
+
+			err := reconciler.discoverDPUDevice(ctx, dpuDevice)
+
+			Expect(err).To(HaveOccurred())
 		})
 
 		It("should fail when DPU type is unknown in DPU mode", func() {
@@ -589,6 +628,73 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 		})
 	})
 })
+
+// setupDiscoveryTest creates a mock Redfish server and reconciler with necessary secrets
+func setupDiscoveryTest() (*mock.RedfishMockServer, *DPUDeviceReconciler) {
+	scheme := runtime.NewScheme()
+	_ = provisioningv1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	mockServer, err := mock.CreateMockRedfishServer("BF-24.10", "testpassword")
+	Expect(err).NotTo(HaveOccurred())
+
+	bmcIP := mockServer.GetIPAddress()
+	caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
+
+	caSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "dpf-provisioning-ca-secret",
+			Namespace: "test-namespace",
+		},
+		Type: corev1.SecretTypeTLS,
+		Data: map[string][]byte{
+			"tls.crt": caCrt,
+		},
+	}
+
+	clientSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "dpf-provisioning-redfish-client-secret",
+			Namespace: "test-namespace",
+		},
+		Type: corev1.SecretTypeTLS,
+		Data: map[string][]byte{
+			"tls.crt": clientCrt,
+			"tls.key": clientKey,
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(caSecret, clientSecret).
+		Build()
+
+	reconciler := &DPUDeviceReconciler{
+		Client: fakeClient,
+	}
+
+	return mockServer, reconciler
+}
+
+// createTestDPUDevice creates a DPUDevice test object configured for the given mock server
+func createTestDPUDevice(mockServer *mock.RedfishMockServer, name string) *provisioningv1.DPUDevice {
+	bmcIP := mockServer.GetIPAddress()
+	bmcPort := uint32(mockServer.GetPort())
+
+	return &provisioningv1.DPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "test-namespace",
+		},
+		Spec: provisioningv1.DPUDeviceSpec{
+			SerialNumber: mock.DpuSerialNumber,
+		},
+		Status: provisioningv1.DPUDeviceStatus{
+			BMCIP:   &bmcIP,
+			BMCPort: &bmcPort,
+		},
+	}
+}
 
 // Helper to get CertificateRequest GVK
 func crGVK() schema.GroupVersionKind {

@@ -215,10 +215,19 @@ func (r *Handler) runSLR(ctx context.Context, toBeRebooted []provisioningv1.DPU)
 }
 
 func (r *Handler) shutDownARM(ctx context.Context, dpu provisioningv1.DPU, dev hostutil.Device) error {
+	// Use test injection if available (for unit tests)
 	rshimFunc := r.getRshimNameByPCIFunc
 	if rshimFunc == nil {
-		rshimFunc = r.rshimNameByPCI
+		// Production: Use QueryRshimByPCI for efficient rshim discovery
+		rshimFunc = func(pciAddr string) (string, error) {
+			info, err := hostutil.QueryRshimByPCI(pciAddr)
+			if err != nil {
+				return "", err
+			}
+			return info.RshimName, nil
+		}
 	}
+
 	rshim, err := rshimFunc(dev.Address)
 	if err != nil {
 		return fmt.Errorf("failed to find DPU rshim for PCI address: %s. err: %v", dev.Address, err)
@@ -320,19 +329,6 @@ func (r *Handler) runRebootHost(cmd string) (stdout, stderr bytes.Buffer, err er
 		f = hostutil.RunBash
 	}
 	return f(cmd)
-}
-
-// rshimNameByPCI finds the rshim appropriate to the given PCI address.
-// Iterate over all the rshim devices and searches for the one that contains the given target PCI.
-func (r *Handler) rshimNameByPCI(PCIAddress string) (string, error) {
-	cmd := "ls /dev | egrep 'rshim.*[0-9]+' | while read line ; do echo $(" +
-		"echo 'DISPLAY_LEVEL 1' > /dev/$line/misc && " +
-		"cat /dev/$line/misc | grep " + PCIAddress + " | xargs -r echo $line | awk 'END {print $1}') ; done | tr -d '[:space:]'"
-	out, stderr, err := hostutil.RunBash(cmd)
-	if err != nil || len(stderr.String()) > 0 || len(out.String()) == 0 {
-		return "", fmt.Errorf("can't find rshim address on device: %v, stderr: %v, error: %v", PCIAddress, stderr, err)
-	}
-	return out.String(), nil
 }
 
 func (r *Handler) isDPUOff(rshim string) (bool, string, error) {

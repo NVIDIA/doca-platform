@@ -42,6 +42,7 @@ type RedfishMockServer struct {
 	dpuMode               string                   // Current DPU mode: "NicMode" or "DpuMode"
 	secureBootEnable      bool                     // Configured/desired Secure Boot state (for next boot)
 	secureBootCurrentBoot bool                     // Actual Secure Boot state of current boot session
+	secureBootError       bool                     // Simulate Secure Boot endpoint error for testing
 	oemLastState          string                   // Current ARM OS boot state: "OsIsRunning", "OsStarting", etc.
 	dpuVersion            DpuVersion               // Current DPU version
 	model                 string                   // DPU model string (optional override)
@@ -63,8 +64,8 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 		password:              password,
 		dpuMode:               "DpuMode",                  // Default to DpuMode
 		dpuVersion:            BF3,                        // Default to BF3
-		secureBootEnable:      false,                      // Default configured state: disabled
-		secureBootCurrentBoot: false,                      // Default current boot state: disabled
+		secureBootEnable:      true,                       // Default configured state: enabled
+		secureBootCurrentBoot: true,                       // Default current boot state: enabled
 		oemLastState:          "OsIsRunning",              // Default to OS running
 		taskState:             "Completed",                // Default task state
 		taskMessages:          []map[string]interface{}{}, // Default empty messages
@@ -476,6 +477,11 @@ func (r *RedfishMockServer) ApplySecureBootAfterReboot() {
 	r.secureBootCurrentBoot = r.secureBootEnable
 }
 
+// SetSecureBootError enables or disables Secure Boot endpoint error simulation for testing
+func (r *RedfishMockServer) SetSecureBootError(simulateError bool) {
+	r.secureBootError = simulateError
+}
+
 // SetOemLastState sets the ARM OS boot state for the mock server
 func (r *RedfishMockServer) SetOemLastState(state string) {
 	r.oemLastState = state
@@ -568,6 +574,12 @@ func (r *RedfishMockServer) handleGetSystem(w http.ResponseWriter, req *http.Req
 
 // handleSecureBoot handles GET and PATCH requests to /redfish/v1/Systems/Bluefield/SecureBoot
 func (r *RedfishMockServer) handleSecureBoot(w http.ResponseWriter, req *http.Request) {
+	// Simulate error if flag is set
+	if r.secureBootError {
+		http.Error(w, "Secure Boot endpoint unavailable", http.StatusInternalServerError)
+		return
+	}
+
 	switch req.Method {
 	case http.MethodGet:
 		// Return Secure Boot state - current boot vs configured state can differ
