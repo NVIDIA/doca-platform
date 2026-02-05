@@ -149,8 +149,8 @@ func New() *SystemComponents {
 		DPUDetector: &dpuDetectorObjects{
 			data: dpuDetectorData,
 		},
-		KamajiClusterManager: newClusterManagerObjects(operatorv1.KamajiClusterManagerName, kamajiCMData),
-		StaticClusterManager: newClusterManagerObjects(operatorv1.StaticClusterManagerName, staticCMData),
+		KamajiClusterManager: newKamajiClusterManagerObjects(kamajiCMData),
+		StaticClusterManager: newStaticClusterManagerObjects(staticCMData),
 		CNIInstaller: &fromDPUService{
 			name: operatorv1.CNIInstallerName,
 			data: cniInstallerData,
