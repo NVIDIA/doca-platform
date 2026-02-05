@@ -39,12 +39,14 @@ type RedfishMockServer struct {
 	server                *httptest.Server
 	bmcVersion            string
 	password              string
-	dpuMode               string     // Current DPU mode: "NicMode" or "DpuMode"
-	secureBootEnable      bool       // Configured/desired Secure Boot state (for next boot)
-	secureBootCurrentBoot bool       // Actual Secure Boot state of current boot session
-	oemLastState          string     // Current ARM OS boot state: "OsIsRunning", "OsStarting", etc.
-	dpuVersion            DpuVersion // Current DPU version
-	model                 string     // DPU model string (optional override)
+	dpuMode               string                   // Current DPU mode: "NicMode" or "DpuMode"
+	secureBootEnable      bool                     // Configured/desired Secure Boot state (for next boot)
+	secureBootCurrentBoot bool                     // Actual Secure Boot state of current boot session
+	oemLastState          string                   // Current ARM OS boot state: "OsIsRunning", "OsStarting", etc.
+	dpuVersion            DpuVersion               // Current DPU version
+	model                 string                   // DPU model string (optional override)
+	taskState             string                   // Current task state: "Completed", "Exception", etc.
+	taskMessages          []map[string]interface{} // Task messages for Exception state
 }
 
 type DpuVersion int
@@ -59,11 +61,13 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mock := &RedfishMockServer{
 		bmcVersion:            bmcVersion,
 		password:              password,
-		dpuMode:               "DpuMode",     // Default to DpuMode
-		dpuVersion:            BF3,           // Default to BF3
-		secureBootEnable:      false,         // Default configured state: disabled
-		secureBootCurrentBoot: false,         // Default current boot state: disabled
-		oemLastState:          "OsIsRunning", // Default to OS running
+		dpuMode:               "DpuMode",                  // Default to DpuMode
+		dpuVersion:            BF3,                        // Default to BF3
+		secureBootEnable:      false,                      // Default configured state: disabled
+		secureBootCurrentBoot: false,                      // Default current boot state: disabled
+		oemLastState:          "OsIsRunning",              // Default to OS running
+		taskState:             "Completed",                // Default task state
+		taskMessages:          []map[string]interface{}{}, // Default empty messages
 	}
 
 	mux := http.NewServeMux()
@@ -75,10 +79,11 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mux.HandleFunc("/redfish/v1/Chassis/Card1", mock.handleGetChassis)
 
 	// UpdateService
-	mux.HandleFunc("/redfish/v1/UpdateService", mock.handleUpdateService)
+	mux.HandleFunc(client.APIUpdateFW, mock.handleUpdateService)
+	mux.HandleFunc("/redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate", mock.handleInstallBFB)
 
 	// TaskService
-	mux.HandleFunc("/redfish/v1/TaskService/Tasks/{task_id}", mock.handleGetTask)
+	mux.HandleFunc("/redfish/v1/TaskService/Tasks/", mock.handleGetTask)
 
 	// Managers
 	mux.HandleFunc("/redfish/v1/Managers", mock.handleGetManagers)
@@ -210,7 +215,7 @@ func (r *RedfishMockServer) handleRootService(w http.ResponseWriter, req *http.R
 			"@odata.id": "/redfish/v1/Managers",
 		},
 		"UpdateService": map[string]interface{}{
-			"@odata.id": "/redfish/v1/UpdateService",
+			"@odata.id": client.APIUpdateFW,
 		},
 		"TaskService": map[string]interface{}{
 			"@odata.id": "/redfish/v1/TaskService",
@@ -251,8 +256,8 @@ func (r *RedfishMockServer) handleGetChassis(w http.ResponseWriter, req *http.Re
 	writeJSONResponse(w, response)
 }
 
-// handleUpdateService handles update service information requests
-func (r *RedfishMockServer) handleUpdateService(w http.ResponseWriter, req *http.Request) {
+// handleInstallBFB handles BFB installation requests
+func (r *RedfishMockServer) handleInstallBFB(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -265,11 +270,29 @@ func (r *RedfishMockServer) handleUpdateService(w http.ResponseWriter, req *http
 		"@odata.id":      "/redfish/v1/TaskService/Tasks/0",
 		"@odata.type":    "#Task.v1_10_0.Task",
 		"Id":             "0",
-		"Name":           "Update Service",
+		"Name":           "BFB Install Task",
 	}
 
 	w.WriteHeader(http.StatusAccepted)
 	writeJSONResponse(w, taskInfo)
+}
+
+// handleUpdateService handles update service information requests
+func (r *RedfishMockServer) handleUpdateService(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	response := map[string]interface{}{
+		"@odata.context": "/redfish/v1/$metadata#UpdateService.UpdateService",
+		"@odata.id":      client.APIUpdateFW,
+		"@odata.type":    "#UpdateService.v1_10_0.UpdateService",
+		"Id":             "UpdateService",
+		"Name":           "Update Service",
+	}
+
+	writeJSONResponse(w, response)
 }
 
 // handleGetTask handles task information requests
@@ -285,8 +308,13 @@ func (r *RedfishMockServer) handleGetTask(w http.ResponseWriter, req *http.Reque
 		"@odata.type":     "#Task.v1_10_0.Task",
 		"Id":              "0",
 		"Name":            "Update Service",
-		"TaskState":       "Completed",
+		"TaskState":       r.taskState,
 		"PercentComplete": 100,
+	}
+
+	// Add messages if taskState is Exception
+	if r.taskState == "Exception" && len(r.taskMessages) > 0 {
+		taskInfo["Messages"] = r.taskMessages
 	}
 
 	writeJSONResponse(w, taskInfo)
@@ -461,6 +489,16 @@ func (r *RedfishMockServer) GetOemLastState() string {
 // SetModel sets the DPU model string
 func (r *RedfishMockServer) SetModel(model string) {
 	r.model = model
+}
+
+// SetTaskState sets the task state for the mock server
+func (r *RedfishMockServer) SetTaskState(state string) {
+	r.taskState = state
+}
+
+// SetTaskMessages sets the task messages for the mock server
+func (r *RedfishMockServer) SetTaskMessages(messages []map[string]interface{}) {
+	r.taskMessages = messages
 }
 
 // GetCertificate returns the server's TLS certificate in PEM format

@@ -2124,6 +2124,7 @@ _Appears in:_
 | `dpuInternalStatus` _[DPUInternalStatus](#dpuinternalstatus)_ | DPUInternalStatus contains the information reported from inside the DPU |  |  |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | The mode of the DPU | dpu | Enum: [dpu nic] <br /> |
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  |  |
+| `redfishTaskId` _string_ | The task ID of the last task performed on the DPU BMC |  |  |
 
 
 #### DPUTemplate
