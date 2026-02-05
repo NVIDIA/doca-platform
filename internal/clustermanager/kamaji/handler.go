@@ -59,6 +59,7 @@ import (
 // +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;update;patch
 
 const (
 	kubernetesNodeRoleMaster       = "node-role.kubernetes.io/master"
@@ -117,11 +118,16 @@ func init() {
 
 type clusterHandler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme          *runtime.Scheme
+	keepalivedImage string
 }
 
-func NewHandler(client client.Client, scheme *runtime.Scheme) controller.ClusterHandler {
-	return &clusterHandler{Client: client, Scheme: scheme}
+func NewHandler(client client.Client, scheme *runtime.Scheme, keepalivedImage string) controller.ClusterHandler {
+	return &clusterHandler{
+		Client:          client,
+		Scheme:          scheme,
+		keepalivedImage: keepalivedImage,
+	}
 }
 
 func (cm *clusterHandler) ReconcileCluster(ctx context.Context, dc *provisioningv1.DPUCluster) (string, []metav1.Condition, error) {
@@ -164,20 +170,31 @@ func (cm *clusterHandler) reconcileKeepalived(ctx context.Context, dc *provision
 	if dc.Spec.ClusterEndpoint == nil || dc.Spec.ClusterEndpoint.Keepalived == nil || nodePort == 0 {
 		return nil, nil
 	}
+
+	// Copy imagePullSecrets from operator namespace to tenant namespace
+	imagePullSecrets, err := cm.copyImagePullSecrets(ctx, dc.Namespace)
+	if err != nil {
+		return nil, fmt.Errorf("failed to copy imagePullSecrets: %w", err)
+	}
+
 	values := struct {
-		Name            string
-		Interface       string
-		VirtualRouterID int
-		VirtualIP       string
-		NodePort        int32
-		NodeSelector    map[string]string
+		Name             string
+		Interface        string
+		VirtualRouterID  int
+		VirtualIP        string
+		NodePort         int32
+		NodeSelector     map[string]string
+		ImagePullSecrets []string
+		KeepalivedImage  string
 	}{
-		Name:            fmt.Sprintf("%s-keepalived", dc.Name),
-		Interface:       dc.Spec.ClusterEndpoint.Keepalived.Interface,
-		VirtualRouterID: dc.Spec.ClusterEndpoint.Keepalived.VirtualRouterID,
-		VirtualIP:       dc.Spec.ClusterEndpoint.Keepalived.VIP,
-		NodePort:        nodePort,
-		NodeSelector:    dc.Spec.ClusterEndpoint.Keepalived.NodeSelector,
+		Name:             fmt.Sprintf("%s-keepalived", dc.Name),
+		Interface:        dc.Spec.ClusterEndpoint.Keepalived.Interface,
+		VirtualRouterID:  dc.Spec.ClusterEndpoint.Keepalived.VirtualRouterID,
+		VirtualIP:        dc.Spec.ClusterEndpoint.Keepalived.VIP,
+		NodePort:         nodePort,
+		NodeSelector:     dc.Spec.ClusterEndpoint.Keepalived.NodeSelector,
+		ImagePullSecrets: imagePullSecrets,
+		KeepalivedImage:  cm.keepalivedImage,
 	}
 	tc, tcCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer tcCancel()
@@ -785,6 +802,69 @@ func daemonsetToDPUCluster(ctx context.Context, o client.Object) []reconcile.Req
 		}
 	}
 	return nil
+}
+
+func (cm *clusterHandler) copyImagePullSecrets(ctx context.Context, targetNamespace string) ([]string, error) {
+	logger := log.FromContext(ctx)
+
+	// Get DPFOperatorConfig to find imagePullSecrets
+	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, cm.Client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get DPFOperatorConfig: %w", err)
+	}
+
+	// If target namespace is same as operator namespace, secrets are already available
+	if targetNamespace == dpfOperatorConfig.Namespace {
+		return dpfOperatorConfig.Spec.ImagePullSecrets, nil
+	}
+
+	// If no imagePullSecrets configured, return empty list
+	if len(dpfOperatorConfig.Spec.ImagePullSecrets) == 0 {
+		logger.V(1).Info("no imagePullSecrets configured in DPFOperatorConfig")
+		return nil, nil
+	}
+
+	copiedSecrets := make([]string, 0, len(dpfOperatorConfig.Spec.ImagePullSecrets))
+	for _, secretName := range dpfOperatorConfig.Spec.ImagePullSecrets {
+		// Get secret from operator namespace
+		srcSecret := &corev1.Secret{}
+		if err := cm.Client.Get(ctx, types.NamespacedName{
+			Name:      secretName,
+			Namespace: dpfOperatorConfig.Namespace,
+		}, srcSecret); err != nil {
+			if apierrors.IsNotFound(err) {
+				logger.V(1).Info("imagePullSecret not found in operator namespace, skipping",
+					"secret", secretName, "namespace", dpfOperatorConfig.Namespace)
+				continue
+			}
+			return nil, fmt.Errorf("failed to get imagePullSecret %s: %w", secretName, err)
+		}
+
+		// Use server-side apply to create or update secret atomically
+		dstSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: targetNamespace,
+			},
+			Type: srcSecret.Type,
+			Data: srcSecret.Data,
+		}
+		dstSecret.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
+
+		// Patch will create if not exists, or update if exists
+		if err := cm.Client.Patch(ctx, dstSecret, client.Apply,
+			client.FieldOwner("kamaji-cluster-manager"), client.ForceOwnership); err != nil {
+			return nil, fmt.Errorf("failed to apply imagePullSecret %s in namespace %s: %w",
+				secretName, targetNamespace, err)
+		}
+
+		logger.V(1).Info("applied imagePullSecret in tenant namespace",
+			"secret", secretName, "namespace", targetNamespace)
+
+		copiedSecrets = append(copiedSecrets, secretName)
+	}
+
+	return copiedSecrets, nil
 }
 
 func (cm *clusterHandler) DPFOperatorConfigToDPUClusters(ctx context.Context, o client.Object) []reconcile.Request {

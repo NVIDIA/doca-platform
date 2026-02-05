@@ -43,6 +43,7 @@ func TestDefaults_Parse(t *testing.T) {
 		"dpfStorageSystemImage":  "example.com/storage-system:v0.1.0",
 		"dpfStorageHostImage":    "example.com/storage-host:v0.1.0",
 		"cniInstallerImage":      "example.com/dpf-cni-installer:v0.1.0",
+		"keepalivedImage":        "example.com/dpf-keepalived:v0.1.0",
 		"dpuNetworkingHelmChart": "oci://example.com/dpu-networking:v0.1.0",
 	}
 	tests := []struct {
@@ -78,6 +79,11 @@ func TestDefaults_Parse(t *testing.T) {
 		{
 			name:    "fail when ovsCniImage empty/missing",
 			content: withoutValue(g, defaultValues, "ovsCniImage"),
+			wantErr: true,
+		},
+		{
+			name:    "fail when keepalivedImage empty/missing",
+			content: withoutValue(g, defaultValues, "keepalivedImage"),
 			wantErr: true,
 		},
 	}

@@ -50,9 +50,9 @@ type Defaults struct {
 	DPFSystemImage         string `yaml:"dpfSystemImage"`
 	CNIInstallerImage      string `yaml:"cniInstallerImage"`
 	DPUNetworkingHelmChart string `yaml:"dpuNetworkingHelmChart"`
-
-	OVSCNIImage      string `yaml:"ovsCniImage"`
-	BFBRegistryImage string `yaml:"bfbRegistryImage"`
+	OVSCNIImage            string `yaml:"ovsCniImage"`
+	BFBRegistryImage       string `yaml:"bfbRegistryImage"`
+	KeepalivedImage        string `yaml:"keepalivedImage"`
 }
 
 // Parse parses the defaults from the embedded generated YAML file
@@ -76,6 +76,9 @@ func (d *Defaults) Parse() error {
 	}
 	if len(d.OVSCNIImage) == 0 {
 		return errors.New("ovsCniImage can't be empty")
+	}
+	if len(d.KeepalivedImage) == 0 {
+		return errors.New("keepalivedImage can't be empty")
 	}
 
 	return nil

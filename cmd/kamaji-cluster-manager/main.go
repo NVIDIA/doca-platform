@@ -66,6 +66,7 @@ func main() {
 	var enableHTTP2 bool
 	var syncPeriod time.Duration
 	var concurrency int
+	var keepalivedImage string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.StringVar(&pprofAddr, "pprof-bind-address", "", "The address the pprof endpoint binds to.")
@@ -80,6 +81,7 @@ func main() {
 		"The minimum interval at which watched resources are reconciled.")
 	flag.IntVar(&concurrency, "concurrency", 1,
 		"Number of objects to process simultaneously by each controller.")
+	flag.StringVar(&keepalivedImage, "keepalived-image", "", "The keepalived image to use for cluster endpoints.")
 
 	opts := zap.Options{
 		Development: true,
@@ -143,11 +145,17 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
+
+	if keepalivedImage == "" {
+		setupLog.Error(nil, "keepalived-image flag is required")
+		os.Exit(1)
+	}
+
 	ctx := ctrl.SetupSignalHandler()
 	if err = (&controller.DPUClusterReconciler{
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
-		ClusterHandler: kamajicm.NewHandler(mgr.GetClient(), mgr.GetScheme()),
+		ClusterHandler: kamajicm.NewHandler(mgr.GetClient(), mgr.GetScheme(), keepalivedImage),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUCluster")
 		os.Exit(1)
