@@ -29,6 +29,7 @@ import (
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
+	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -37,6 +38,19 @@ import (
 func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
+
+	// Check if DPU deletion is requested during OS installation
+	if !dpu.DeletionTimestamp.IsZero() {
+		logger.Info("DPU deletion requested while in Installing state, cannot delete DPU during OS installation")
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "CannotDeleteWhileInstalling", "Cannot delete DPU during OS installation. Wait for completion or timeout."))
+	}
+
+	// Check for installation timeout
+	if err := checkInstallationTimeout(state, ctrlCtx.Options.ZeroTrustInstallTimeout, logger); err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "InstallationTimeout", err.Error()))
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
 
 	device := &provisioningv1.DPUDevice{}
 	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, device); err != nil {
@@ -155,4 +169,25 @@ func concatBFBAndBFCFGPath(bfbRegistry string, bfbFile string, bfcfgFile string)
 	}
 	bfCfg := strings.TrimPrefix(bfcfgFile, "/"+cutil.BFBBaseDir+"/")
 	return filepath.Join(bfbRegistry, cutil.BFBBaseDir, fmt.Sprintf("??%s,%s?", filepath.Base(bfbFile), bfCfg), "bfb-to-install")
+}
+
+// checkInstallationTimeout checks if the OS installation has exceeded the configured timeout.
+// Returns an error if timeout is exceeded, nil otherwise.
+func checkInstallationTimeout(state *provisioningv1.DPUStatus, timeout time.Duration, logger logr.Logger) error {
+	if timeout <= 0 {
+		return nil
+	}
+
+	_, bfbPreparedCond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondBFBPrepared))
+	if bfbPreparedCond == nil {
+		return nil
+	}
+
+	elapsed := time.Since(bfbPreparedCond.LastTransitionTime.Time)
+	if elapsed <= timeout {
+		return nil
+	}
+
+	logger.Info("OS installation timeout exceeded", "elapsed", elapsed, "timeout", timeout)
+	return fmt.Errorf("OS installation timeout exceeded: %v > %v", elapsed, timeout)
 }

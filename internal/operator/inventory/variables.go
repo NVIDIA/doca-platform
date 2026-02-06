@@ -24,6 +24,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
 
@@ -127,6 +128,7 @@ type DPFProvisioningVariables struct {
 	MaxUnavailableDPUNodes         *int32
 	Registry                       *operatorv1.RegistryConfiguration
 	Replicas                       *int32
+	ZeroTrustInstallTimeout        *metav1.Duration
 }
 
 type SFCControllerVariables struct {
@@ -229,6 +231,7 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		MaxUnavailableDPUNodes:       config.Spec.ProvisioningController.MaxUnavailableDPUNodes,
 		Registry:                     config.Spec.ProvisioningController.Registry,
 		Replicas:                     config.Spec.ProvisioningController.Replicas,
+		ZeroTrustInstallTimeout:      config.Spec.ProvisioningController.ZeroTrustInstallTimeout,
 	}
 	if config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime != nil {
 		variables.DPFProvisioningController.MultiDPUOperationsSyncWaitTime = config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime.Duration

@@ -18,6 +18,7 @@ package util
 
 import (
 	"sync"
+	"time"
 
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
@@ -50,6 +51,9 @@ type DPUOptions struct {
 	BFBRegistry                 string
 	CustomCASecretName          string
 	MaxDPUParallelInstallations int32
+	// ZeroTrustInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
+	// Default: 45 minutes
+	ZeroTrustInstallTimeout time.Duration
 }
 
 type ControllerContext struct {

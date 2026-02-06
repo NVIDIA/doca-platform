@@ -104,6 +104,15 @@ type ProvisioningControllerConfiguration struct {
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	MaxUnavailableDPUNodes *int32 `json:"maxUnavailableDPUNodes,omitempty"`
+
+	// ZeroTrustInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
+	// If the installation exceeds this timeout, the DPU will transition to an error state.
+	// +kubebuilder:default="45m"
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
+	// +kubebuilder:validation:Format=duration
+	// +optional
+	ZeroTrustInstallTimeout *metav1.Duration `json:"zeroTrustInstallTimeout,omitempty"`
 }
 
 func (c *ProvisioningControllerConfiguration) Name() string {
