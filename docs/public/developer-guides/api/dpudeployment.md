@@ -458,6 +458,8 @@ spec:
         key: "dpu"
         value: "provisioning"
         effect: NoSchedule
+    dpuSetStrategy:
+      type: RollingUpdate
 ```
 
 In the above example, the `DPUDeployment` targets 2 sets of DPUs. The first set
@@ -500,6 +502,9 @@ The following fields are available in the `spec.dpus`:
       target all DPU clusters.
 * `nodeEffect`: The effect to be applied on the nodes to which the DPUs are attached.
   In this example, a `NoSchedule` taint is applied to the nodes.
+* `dpuSetStrategy`: The strategy to use for updating DPUSets created by the `DPUDeployment`.
+  This field controls how existing DPUs are reprovisioned when changes occur. See the [DPUSet](./dpuset.md)
+  for more information.
 
 See the [Prerequisite Custom Resources With Examples](#prerequisite-custom-resources-with-examples)
 section for examples of the `DPUFlavor` and `BFB` Custom Resources.
