@@ -108,6 +108,7 @@ func main() {
 	var enableDpuDiscovery bool
 	var multiDPUOperationsSyncWaitTime time.Duration
 	var maxUnavailableDPUNodes int32
+	var zeroTrustInstallTimeout time.Duration
 
 	fs.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -135,6 +136,7 @@ func main() {
 	fs.BoolVar(&enableDpuDiscovery, "enable-dpu-discovery", true, "Enable autmated DPU discovery")
 	fs.DurationVar(&multiDPUOperationsSyncWaitTime, "multi-dpu-operations-sync-wait-time", 30*time.Second, "The wait time between DPUs sync operations on the same node")
 	fs.Int32Var(&maxUnavailableDPUNodes, "max-unavailable-dpu-nodes", 50, "The maximum number of DPUNodes that are unavailable during the node effect period")
+	fs.DurationVar(&zeroTrustInstallTimeout, "zero-trust-install-timeout", 45*time.Minute, "Maximum time allowed for OS installation in zero-trust mode")
 
 	logsv1.AddFlags(logOptions, fs)
 
@@ -235,6 +237,7 @@ func main() {
 		BFBRegistry:                 bfbRegistry,
 		CustomCASecretName:          customCASecretName,
 		MaxDPUParallelInstallations: maxDPUParallelInstallations,
+		ZeroTrustInstallTimeout:     zeroTrustInstallTimeout,
 	}
 
 	setupLog.Info("DPU", "options", dpuOptions)

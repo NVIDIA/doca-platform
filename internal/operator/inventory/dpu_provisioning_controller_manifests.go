@@ -217,6 +217,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setMaxDPUParallelInstallations,
 			p.setMultiDPUOperationsSyncWaitTime,
 			p.setMaxUnavailableDPUNodes,
+			p.setZeroTrustInstallTimeout,
 			p.setResources,
 			p.setBFBRegistryAddress,
 			p.setReplicas,
@@ -563,6 +564,17 @@ func (p *provisioningControllerObjects) setReplicas(deploy *appsv1.Deployment, v
 	}
 	deploy.Spec.Replicas = replicas
 	return nil
+}
+
+func (p *provisioningControllerObjects) setZeroTrustInstallTimeout(deploy *appsv1.Deployment, vars Variables) error {
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+	}
+	if vars.DPFProvisioningController.ZeroTrustInstallTimeout == nil {
+		return nil
+	}
+	return setFlags(c, fmt.Sprintf("--zero-trust-install-timeout=%s", vars.DPFProvisioningController.ZeroTrustInstallTimeout.Duration.String()))
 }
 
 // IsReadyForUpgrade reports the readiness of the provisioning controller objects. It returns an error when the number of Replicas in
