@@ -17,8 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"github.com/nvidia/doca-platform/pkg/conditions"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -31,22 +29,6 @@ var (
 	// NodeSRIOVDevicePluginConfigGroupVersionKind is the GroupVersionKind of the NodeSRIOVDevicePluginConfig object
 	NodeSRIOVDevicePluginConfigGroupVersionKind = GroupVersion.WithKind(NodeSRIOVDevicePluginConfigKind)
 )
-
-// Status related constants
-const (
-	// ConditionNodeSRIOVDevicePluginConfigReady indicates that the config is ready (reconciled and validated).
-	ConditionNodeSRIOVDevicePluginConfigReady conditions.ConditionType = "ConfigReady"
-)
-
-var (
-	// NodeSRIOVDevicePluginConfigConditions is the list of conditions for NodeSRIOVDevicePluginConfig.
-	NodeSRIOVDevicePluginConfigConditions = []conditions.ConditionType{
-		conditions.TypeReady,
-		ConditionNodeSRIOVDevicePluginConfigReady,
-	}
-)
-
-var _ conditions.GetSet = &NodeSRIOVDevicePluginConfig{}
 
 // DevicePluginResourceType specifies the type of the device plugin resource.
 // +kubebuilder:validation:Enum=vf
@@ -78,7 +60,7 @@ type DevicePluginResource struct {
 
 	// ResourcePrefix is the resource prefix used by the device plugin to prefix the resource name.
 	// If not set, the default resource prefix will be used.
-	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9][a-zA-Z0-9-]*(\.[a-zA-Z0-9][a-zA-Z0-9-]*)+$`
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	// +optional
 	ResourcePrefix *string `json:"resourcePrefix,omitempty"`
 
@@ -159,14 +141,4 @@ type NodeSRIOVDevicePluginConfigList struct {
 
 func init() {
 	SchemeBuilder.Register(&NodeSRIOVDevicePluginConfig{}, &NodeSRIOVDevicePluginConfigList{})
-}
-
-// GetConditions returns the conditions of the NodeSRIOVDevicePluginConfig.
-func (c *NodeSRIOVDevicePluginConfig) GetConditions() []metav1.Condition {
-	return c.Status.Conditions
-}
-
-// SetConditions sets the conditions of the NodeSRIOVDevicePluginConfig.
-func (c *NodeSRIOVDevicePluginConfig) SetConditions(conditions []metav1.Condition) {
-	c.Status.Conditions = conditions
 }
