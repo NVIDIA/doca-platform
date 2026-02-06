@@ -688,6 +688,7 @@ spec:
                         description: |-
                           DefaultResourcePrefix is the default resource prefix for the SRIOV device plugin resources.
                           Defaults to "nvidia.com".
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                         type: string
                       image:
                         description: Image overrides the container image for the SRIOV

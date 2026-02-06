@@ -112,7 +112,7 @@ spec:
                       description: |-
                         ResourcePrefix is the resource prefix used by the device plugin to prefix the resource name.
                         If not set, the default resource prefix will be used.
-                      pattern: ^[a-zA-Z0-9][a-zA-Z0-9-]*(\.[a-zA-Z0-9][a-zA-Z0-9-]*)+$
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                       type: string
                     type:
                       description: Type specifies the type of the device plugin resource.

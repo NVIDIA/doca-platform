@@ -37,7 +37,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `name` _string_ | Name is the endpoint resource name for the device plugin.<br />Should contain only alphanumeric characters, underscores and hyphens.<br />The full extended resource name will be constructed as resource-prefix/name.<br />Example: pods_vf, ovnk_mgmt_vf |  | MinLength: 1 <br />Pattern: `^[a-zA-Z0-9_-]+$` <br /> |
-| `resourcePrefix` _string_ | ResourcePrefix is the resource prefix used by the device plugin to prefix the resource name.<br />If not set, the default resource prefix will be used. |  | Pattern: `^[a-zA-Z0-9][a-zA-Z0-9-]*(\.[a-zA-Z0-9][a-zA-Z0-9-]*)+$` <br /> |
+| `resourcePrefix` _string_ | ResourcePrefix is the resource prefix used by the device plugin to prefix the resource name.<br />If not set, the default resource prefix will be used. |  | Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br /> |
 | `type` _[DevicePluginResourceType](#devicepluginresourcetype)_ | Type specifies the type of the device plugin resource. |  | Enum: [vf] <br /> |
 | `options` _[DevicePluginResourceOptions](#devicepluginresourceoptions)_ | Options contains additional options for the device plugin resource. |  |  |
 | `ranges` _[VFRange](#vfrange) array_ | Ranges specifies the VF ranges on PFs to be included in this resource. |  | MinItems: 1 <br /> |
@@ -799,7 +799,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `image` _[Image](#image)_ | Image overrides the container image for the SRIOV device plugin. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `initImage` _[Image](#image)_ | InitImage overrides the container image for the init container<br />that generates device plugin configuration. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `defaultResourcePrefix` _string_ | DefaultResourcePrefix is the default resource prefix for the SRIOV device plugin resources.<br />Defaults to "nvidia.com". |  |  |
+| `defaultResourcePrefix` _string_ | DefaultResourcePrefix is the default resource prefix for the SRIOV device plugin resources.<br />Defaults to "nvidia.com". |  | Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br /> |
 
 
 #### OVSCNIConfiguration
