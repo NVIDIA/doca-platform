@@ -37,7 +37,7 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 | `containerdConfig` | [ContainerdConfig](#containerdconfig) | ContainerdConfig contains the configuration for containerd |
 | `dpuResources` | ResourceList | Minimum resources needed for BFB installation |
 | `systemReservedResources` | ResourceList | Resources reserved for system use |
-| `dpuMode` | [DpuModeType](#dpumodetype) | DPU operation mode (default: `dpu`) |
+| `dpuMode` | [DpuModeType](#dpumodetype) | DPU operation mode. Defaults to `zero-trust` when using Redfish install interface, otherwise defaults to `dpu` |
 | `hostNetworkInterfaceConfigs` | [][NetworkInterfaceConfig](#networkinterfaceconfig) | Host-side network interface configuration |
 
 ### DPUFlavorGrub
@@ -133,6 +133,12 @@ nvconfig:
 
 - `dpu`: Standard DPU mode
 - `zero-trust`: Zero-trust security mode
+
+**Default Behavior**: When `dpuMode` is not specified in the DPUFlavor, the system automatically determines the appropriate mode based on the DPF deployment configuration:
+- If DPF is configured with Redfish install interface (Zero Trust deployment), defaults to `zero-trust`
+- Otherwise, defaults to `dpu`
+
+This ensures that DPUs are provisioned with the correct security mode matching the deployment type without requiring explicit configuration.
 
 ### DPUFlavorFileOp
 
