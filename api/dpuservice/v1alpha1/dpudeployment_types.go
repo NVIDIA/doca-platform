@@ -183,6 +183,10 @@ type DPUs struct {
 	// +optional
 	NodeEffect *provisioningv1.Action `json:"nodeEffect,omitempty"`
 
+	// DPUSetStrategy is the strategy to use for the DPUSets created by the DPUDeployment.
+	// +optional
+	DPUSetStrategy *provisioningv1.DPUSetStrategy `json:"dpuSetStrategy,omitempty"`
+
 	// SecureBoot specifies whether UEFI Secure Boot should be enabled.
 	// +optional
 	SecureBoot *bool `json:"secureBoot,omitempty"`

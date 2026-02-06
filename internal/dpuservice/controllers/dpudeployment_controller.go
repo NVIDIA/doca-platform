@@ -750,9 +750,7 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 			},
 		},
 		Spec: provisioningv1.DPUSetSpec{
-			Strategy: &provisioningv1.DPUSetStrategy{
-				Type: provisioningv1.RollingUpdateStrategyType,
-			},
+			Strategy: dpuDeployment.Spec.DPUs.DPUSetStrategy,
 			DPUTemplate: provisioningv1.DPUTemplate{
 				Annotations: dpuSetSettings.DPUAnnotations,
 				Spec: provisioningv1.DPUTemplateSpec{

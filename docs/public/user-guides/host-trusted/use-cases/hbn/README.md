@@ -517,6 +517,8 @@ spec:
       dpuDeviceSelector:
         matchLabels:
           provisioning.dpu.nvidia.com/dpudevice-pf0-name: $DPU_P0
+    dpuSetStrategy:
+      type: RollingUpdate
   services:
     doca-hbn:
       serviceTemplate: doca-hbn

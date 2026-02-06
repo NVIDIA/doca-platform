@@ -2062,6 +2062,7 @@ _Appears in:_
 
 _Appears in:_
 - [DPUSetSpec](#dpusetspec)
+- [DPUs](#dpus)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -4329,6 +4330,7 @@ _Appears in:_
 | `flavor` _string_ | Flavor is the name of the DPUFlavor object to be used in this DPUDeployment. It must be in the same namespace as<br />the DPUDeployment. |  |  |
 | `dpuSets` _[DPUSet](#dpuset) array_ | DPUSets contains configuration for each DPUSet that is going to be created by the DPUDeployment |  | MaxItems: 50 <br />MinItems: 1 <br /> |
 | `nodeEffect` _[Action](#action)_ | NodeEffect is the effect the DPU has on Nodes during provisioning. |  |  |
+| `dpuSetStrategy` _[DPUSetStrategy](#dpusetstrategy)_ | DPUSetStrategy is the strategy to use for the DPUSets created by the DPUDeployment. |  |  |
 | `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  |  |
 
 
