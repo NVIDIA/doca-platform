@@ -3040,4 +3040,179 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 			}, updatedDPUDevice)).To(Succeed())
 		})
 	})
+
+	Context("noneDPUInNodeEffectOrRebooting", func() {
+		var (
+			reconciler *DPUNodeReconciler
+			fakeClient client.Client
+			ctx        context.Context
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			scheme := runtime.NewScheme()
+			_ = provisioningv1.AddToScheme(scheme)
+
+			fakeClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&provisioningv1.DPU{}, &provisioningv1.DPUNode{}).
+				Build()
+
+			reconciler = &DPUNodeReconciler{
+				Client: fakeClient,
+			}
+		})
+
+		It("should return nil when no DPUNodeMaintenance exists and no RebootInProgress condition", func() {
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+				Status: provisioningv1.DPUNodeStatus{
+					Conditions: []metav1.Condition{},
+				},
+			}
+
+			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should return error when NodeEffectInProgress condition is True", func() {
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+				Status: provisioningv1.DPUNodeStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   provisioningv1.DPUNodeConditionNodeEffectInProgress.String(),
+							Status: metav1.ConditionTrue,
+						},
+					},
+				},
+			}
+
+			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, true)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(Equal("node effect is in progress"))
+		})
+
+		It("should return error when RebootInProgress condition is True", func() {
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+				Status: provisioningv1.DPUNodeStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   provisioningv1.DPUNodeConditionRebootInProgress.String(),
+							Status: metav1.ConditionTrue,
+						},
+					},
+				},
+			}
+
+			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(Equal("reboot is in progress"))
+		})
+
+		It("should remove RebootInProgress condition when it exists but no DPUs exist", func() {
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+				Status: provisioningv1.DPUNodeStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   provisioningv1.DPUNodeConditionRebootInProgress.String(),
+							Status: metav1.ConditionFalse,
+						},
+					},
+				},
+			}
+
+			// No DPUs exist for this DPUNode
+			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify RebootInProgress condition was removed
+			Expect(dpuNode.Status.Conditions).To(BeEmpty())
+		})
+
+		It("should keep RebootInProgress condition when DPUs exist", func() {
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode",
+					},
+				},
+				Status: provisioningv1.DPUNodeStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   provisioningv1.DPUNodeConditionRebootInProgress.String(),
+							Status: metav1.ConditionFalse,
+						},
+					},
+				},
+			}
+
+			// Create a DPU for this DPUNode
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpu",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName: "test-dpunode",
+				},
+				Status: provisioningv1.DPUStatus{
+					Phase: provisioningv1.DPUReady,
+				},
+			}
+			Expect(fakeClient.Create(ctx, dpu)).To(Succeed())
+
+			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify RebootInProgress condition still exists
+			Expect(dpuNode.Status.Conditions).To(HaveLen(1))
+			Expect(dpuNode.Status.Conditions[0].Type).To(Equal(provisioningv1.DPUNodeConditionRebootInProgress.String()))
+		})
+
+		It("should handle both NodeEffectInProgress and RebootInProgress conditions", func() {
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+				Status: provisioningv1.DPUNodeStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   provisioningv1.DPUNodeConditionNodeEffectInProgress.String(),
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   provisioningv1.DPUNodeConditionRebootInProgress.String(),
+							Status: metav1.ConditionFalse,
+						},
+					},
+				},
+			}
+
+			// NodeEffect takes precedence, should return error before checking RebootInProgress
+			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, true)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(Equal("node effect is in progress"))
+		})
+	})
 })
