@@ -834,6 +834,7 @@ type NodeSRIOVDevicePluginSettings struct {
 
 	// DefaultResourcePrefix is the default resource prefix for the SRIOV device plugin resources.
 	// Defaults to "nvidia.com".
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	// +optional
 	DefaultResourcePrefix *string `json:"defaultResourcePrefix,omitempty"`
 }
