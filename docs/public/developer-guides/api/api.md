@@ -1728,7 +1728,7 @@ _Appears in:_
 | `containerdConfig` _[ContainerdConfig](#containerdconfig)_ | ContainerdConfig contains the configuration for containerd. |  |  |
 | `dpuResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | DPUResources indicates the minimum amount of resources needed for a BFB with that flavor to be installed on a<br />DPU. Using this field, the controller can understand if that flavor can be installed on a particular DPU. It<br />should be set to the total amount of resources the system needs + the resources that should be made available for<br />DPUServices to consume. |  |  |
 | `systemReservedResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are<br />not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and<br />SystemReservedResources. This field must not be specified if dpuResources are not specified. |  |  |
-| `dpuMode` _[DpuModeType](#dpumodetype)_ | Specifies the DPU Mode type: one of dpu,zero-trust | dpu | Enum: [dpu zero-trust nic] <br /> |
+| `dpuMode` _[DpuModeType](#dpumodetype)_ | Specifies the DPU Mode type: one of dpu,zero-trust.<br />When not specified, defaults to "zero-trust" if the DPF deployment uses Redfish install interface,<br />otherwise defaults to "dpu". |  | Enum: [dpu zero-trust nic] <br /> |
 | `hostNetworkInterfaceConfigs` _[NetworkInterfaceConfig](#networkinterfaceconfig) array_ | HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces. |  |  |
 
 
