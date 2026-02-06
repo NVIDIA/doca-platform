@@ -80,8 +80,10 @@ spec:
                     type: string
                 type: object
               dpuMode:
-                default: dpu
-                description: 'Specifies the DPU Mode type: one of dpu,zero-trust'
+                description: |-
+                  Specifies the DPU Mode type: one of dpu,zero-trust.
+                  When not specified, defaults to "zero-trust" if the DPF deployment uses Redfish install interface,
+                  otherwise defaults to "dpu".
                 enum:
                 - dpu
                 - zero-trust

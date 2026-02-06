@@ -74,8 +74,9 @@ type DPUFlavorSpec struct {
 	// +optional
 	SystemReservedResources corev1.ResourceList `json:"systemReservedResources,omitempty"`
 
-	// Specifies the DPU Mode type: one of dpu,zero-trust
-	// +kubebuilder:default=dpu
+	// Specifies the DPU Mode type: one of dpu,zero-trust.
+	// When not specified, defaults to "zero-trust" if the DPF deployment uses Redfish install interface,
+	// otherwise defaults to "dpu".
 	// +optional
 	DpuMode DpuModeType `json:"dpuMode,omitempty"`
 

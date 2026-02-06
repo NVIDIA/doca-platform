@@ -795,6 +795,83 @@ spec:
 			Expect(err).ToNot(HaveOccurred())
 		})
 
+		// Tests for Default method (DpuMode defaulting based on install interface)
+		It("Default should set DpuMode to zero-trust when install interface is Redfish and DpuMode is empty", func() {
+			installInterface := string(provisioningv1.InstallViaRedFish)
+			webhook := &DPUFlavor{DPUInstallInterface: &installInterface}
+			dpuFlavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{},
+			}
+			err := webhook.Default(ctx, dpuFlavor)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dpuFlavor.Spec.DpuMode).To(Equal(provisioningv1.ZeroTrustMode))
+		})
+
+		It("Default should set DpuMode to dpu when install interface is HostAgent and DpuMode is empty", func() {
+			installInterface := string(provisioningv1.InstallViaHostAgent)
+			webhook := &DPUFlavor{DPUInstallInterface: &installInterface}
+			dpuFlavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{},
+			}
+			err := webhook.Default(ctx, dpuFlavor)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dpuFlavor.Spec.DpuMode).To(Equal(provisioningv1.DpuMode))
+		})
+
+		It("Default should set DpuMode to dpu when install interface is GNOI and DpuMode is empty", func() {
+			installInterface := string(provisioningv1.InstallViaGNOI)
+			webhook := &DPUFlavor{DPUInstallInterface: &installInterface}
+			dpuFlavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{},
+			}
+			err := webhook.Default(ctx, dpuFlavor)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dpuFlavor.Spec.DpuMode).To(Equal(provisioningv1.DpuMode))
+		})
+
+		It("Default should set DpuMode to dpu when install interface is nil and DpuMode is empty", func() {
+			webhook := &DPUFlavor{DPUInstallInterface: nil}
+			dpuFlavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{},
+			}
+			err := webhook.Default(ctx, dpuFlavor)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dpuFlavor.Spec.DpuMode).To(Equal(provisioningv1.DpuMode))
+		})
+
+		It("Default should not override explicit DpuMode when install interface is Redfish", func() {
+			installInterface := string(provisioningv1.InstallViaRedFish)
+			webhook := &DPUFlavor{DPUInstallInterface: &installInterface}
+			dpuFlavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					DpuMode: provisioningv1.DpuMode, // User explicitly set dpu mode
+				},
+			}
+			err := webhook.Default(ctx, dpuFlavor)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dpuFlavor.Spec.DpuMode).To(Equal(provisioningv1.DpuMode)) // Should remain as user specified
+		})
+
+		It("Default should not override explicit DpuMode when install interface is HostAgent", func() {
+			installInterface := string(provisioningv1.InstallViaHostAgent)
+			webhook := &DPUFlavor{DPUInstallInterface: &installInterface}
+			dpuFlavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					DpuMode: provisioningv1.ZeroTrustMode, // User explicitly set zero-trust mode
+				},
+			}
+			err := webhook.Default(ctx, dpuFlavor)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dpuFlavor.Spec.DpuMode).To(Equal(provisioningv1.ZeroTrustMode)) // Should remain as user specified
+		})
+
+		It("Default should return error for invalid object type", func() {
+			webhook := &DPUFlavor{}
+			err := webhook.Default(ctx, &provisioningv1.DPU{}) // Wrong type
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid object type"))
+		})
+
 		// Tests for type assertion error handling (!ok branches)
 		It("ValidateCreate should return error for invalid object type", func() {
 			webhook := &DPUFlavor{}

@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
+// +kubebuilder:webhook:path=/mutate-provisioning-dpu-nvidia-com-v1alpha1-dpuflavor,mutating=true,failurePolicy=fail,sideEffects=None,groups=provisioning.dpu.nvidia.com,resources=dpuflavors,verbs=create;update,versions=v1alpha1,name=mdpuflavor.kb.io,admissionReviewVersions=v1
 // +kubebuilder:webhook:path=/validate-provisioning-dpu-nvidia-com-v1alpha1-dpuflavor,mutating=false,failurePolicy=fail,sideEffects=None,groups=provisioning.dpu.nvidia.com,resources=dpuflavors,verbs=create;update;delete,versions=v1alpha1,name=vdpuflavor.kb.io,admissionReviewVersions=v1
 
 // DPUFlavor implements a webhook for the DPUFlavor object.
@@ -42,6 +43,7 @@ type DPUFlavor struct {
 	DPUInstallInterface *string
 }
 
+var _ webhook.CustomDefaulter = &DPUFlavor{}
 var _ webhook.CustomValidator = &DPUFlavor{}
 
 // log is for logging in this package.
@@ -55,8 +57,34 @@ func (r *DPUFlavor) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	manager = mgr
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&provisioningv1.DPUFlavor{}).
+		WithDefaulter(r).
 		WithValidator(r).
 		Complete()
+}
+
+// Default implements webhook.CustomDefaulter so a webhook will be registered for the type
+func (r *DPUFlavor) Default(ctx context.Context, obj runtime.Object) error {
+	dpuFlavor, ok := obj.(*provisioningv1.DPUFlavor)
+	if !ok {
+		return apierrors.NewBadRequest(fmt.Sprintf("invalid object type expected DPUFlavor got %s", obj.GetObjectKind().GroupVersionKind().String()))
+	}
+
+	dpuflavorlog.V(4).Info("default", "name", dpuFlavor.Name)
+
+	// Set DpuMode default based on install interface:
+	// - If Redfish install interface (Zero Trust deployment), default to zero-trust mode
+	// - Otherwise, default to dpu mode
+	if dpuFlavor.Spec.DpuMode == "" {
+		if r.DPUInstallInterface != nil && *r.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
+			dpuFlavor.Spec.DpuMode = provisioningv1.ZeroTrustMode
+			dpuflavorlog.V(4).Info("defaulting DpuMode to zero-trust for Redfish install interface", "name", dpuFlavor.Name)
+		} else {
+			dpuFlavor.Spec.DpuMode = provisioningv1.DpuMode
+			dpuflavorlog.V(4).Info("defaulting DpuMode to dpu", "name", dpuFlavor.Name)
+		}
+	}
+
+	return nil
 }
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
