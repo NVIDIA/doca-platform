@@ -39,8 +39,10 @@ import (
 )
 
 type bfbDownloadingState struct {
-	bfb      *provisioningv1.BFB
-	recorder record.EventRecorder
+	bfb        *provisioningv1.BFB
+	recorder   record.EventRecorder
+	checkBFB   func(string) (bool, error)
+	versionBFB func(string) (*provisioningv1.BFBVersions, error)
 }
 
 func (st *bfbDownloadingState) Handle(ctx context.Context, _ client.Client) error {
@@ -59,13 +61,14 @@ func (st *bfbDownloadingState) Handle(ctx context.Context, _ client.Client) erro
 		return nil
 	}
 
-	exist, err := IsBFBExist(st.bfb.Status.FileName)
+	exist, err := st.checkBFB(st.bfb.Status.FileName)
 	if err != nil {
 		st.bfb.Status.Phase = provisioningv1.BFBError
 		msg := fmt.Sprintf("Download BFB: (%s/%s) failed with error :%s", st.bfb.Namespace, st.bfb.Name, err.Error())
 		st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, msg)
+		// Use ReasonFailure for filesystem errors - user intervention required (e.g., fix permissions, disk space)
 		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
-			conditions.ReasonError, conditions.ConditionMessage(err.Error()))
+			conditions.ReasonFailure, conditions.ConditionMessage(err.Error()))
 		return err
 	}
 
@@ -113,12 +116,14 @@ func (st *bfbDownloadingState) Handle(ctx context.Context, _ client.Client) erro
 	}
 	// There is no related downloading task and BFB file exists in cache.
 	// Get the BFB version.
-	versions, err := butil.VersionFromBFBFile(cutil.GenerateBFBFilePath(st.bfb.Status.FileName))
+	versions, err := st.versionBFB(cutil.GenerateBFBFilePath(st.bfb.Status.FileName))
 	if err != nil {
+		st.bfb.Status.Phase = provisioningv1.BFBError
 		msg := fmt.Sprintf("Retrieving BFB version: (%s/%s) failed with error :%s", st.bfb.Namespace, st.bfb.Name, err.Error())
 		st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, msg)
+		// Use ReasonFailure for version parsing errors - user intervention required (invalid BFB file at URL)
 		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
-			conditions.ReasonError, conditions.ConditionMessage(err.Error()))
+			conditions.ReasonFailure, conditions.ConditionMessage(err.Error()))
 		return err
 	}
 	st.bfb.Status.Versions = *versions
@@ -211,15 +216,20 @@ func downloadBFB(ctx context.Context, bfbTask butil.BFBTask) {
 	butil.DownloadingTaskMap.Store(bfbTask.TaskName, bfbDownloader)
 }
 
-func IsBFBExist(fileName string) (bool, error) {
+// checkBFB checks if the BFB file exists on the filesystem
+func checkBFB(fileName string) (bool, error) {
 	bfbFilePath := cutil.GenerateBFBFilePath(fileName)
 	_, err := os.Stat(bfbFilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
-		} else {
-			return false, err
 		}
+		return false, err
 	}
 	return true, nil
+}
+
+// versionBFB extracts version information from a BFB file
+func versionBFB(filePath string) (*provisioningv1.BFBVersions, error) {
+	return butil.VersionFromBFBFile(filePath)
 }
