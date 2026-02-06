@@ -217,7 +217,6 @@ In Host Trusted model, the automatically created DPUDevice objects have the foll
 
 ### Selection Flow
 
-
 ## Host Power-cycle in DPU provisioning
 
 If the version of running BFB is lower than 2.7 before DPU provisioning, the BlueField firmware upgrades and mlxconfig

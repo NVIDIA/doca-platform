@@ -711,6 +711,8 @@ spec:
       dpuNodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
+    dpuSetStrategy:
+      type: RollingUpdate
   services:
     ovn:
       serviceTemplate: ovn

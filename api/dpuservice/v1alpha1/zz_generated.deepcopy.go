@@ -1363,6 +1363,11 @@ func (in *DPUs) DeepCopyInto(out *DPUs) {
 		*out = new(provisioningv1alpha1.Action)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.DPUSetStrategy != nil {
+		in, out := &in.DPUSetStrategy, &out.DPUSetStrategy
+		*out = new(provisioningv1alpha1.DPUSetStrategy)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.SecureBoot != nil {
 		in, out := &in.SecureBoot, &out.SecureBoot
 		*out = new(bool)
