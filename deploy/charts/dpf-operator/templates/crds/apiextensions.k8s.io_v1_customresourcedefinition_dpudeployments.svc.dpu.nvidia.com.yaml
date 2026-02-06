@@ -251,7 +251,8 @@ spec:
                       - message: should not contain dpu.nvidia.com/ and should not
                           end with dpu.nvidia.com
                         rule: '!(has(self.dpuAnnotations) && (self.dpuAnnotations.exists(key,
-                          key.contains(''dpu.nvidia.com/'') || key.endsWith(''dpu.nvidia.com'')))) '
+                          (key.contains(''dpu.nvidia.com/'') || key.endsWith(''dpu.nvidia.com''))
+                          && !key.startsWith(''noderesources.dpu.nvidia.com''))))'
                       - message: only one of nodeSelector or dpuNodeSelector can be
                           specified
                         rule: '!(has(self.nodeSelector) && has(self.dpuNodeSelector))'
