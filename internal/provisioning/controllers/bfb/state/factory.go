@@ -37,8 +37,10 @@ func GetBFBState(bfb *provisioningv1.BFB, recorder record.EventRecorder) State {
 		}
 	case provisioningv1.BFBDownloading:
 		return &bfbDownloadingState{
-			bfb,
-			recorder,
+			bfb:        bfb,
+			recorder:   recorder,
+			checkBFB:   checkBFB,
+			versionBFB: versionBFB,
 		}
 	case provisioningv1.BFBReady:
 		return &bfbReadyState{
