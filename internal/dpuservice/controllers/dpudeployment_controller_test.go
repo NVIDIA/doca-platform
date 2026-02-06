@@ -1485,9 +1485,6 @@ var _ = Describe("DPUDeployment Controller", func() {
 								"dpukey1": "dpuvalue1",
 							},
 						},
-						Strategy: &provisioningv1.DPUSetStrategy{
-							Type: provisioningv1.RollingUpdateStrategyType,
-						},
 						DPUTemplate: provisioningv1.DPUTemplate{
 							Annotations: map[string]string{
 								"annotationkey1": "annotationvalue1",
@@ -1519,9 +1516,6 @@ var _ = Describe("DPUDeployment Controller", func() {
 							MatchLabels: map[string]string{
 								"dpukey2": "dpuvalue2",
 							},
-						},
-						Strategy: &provisioningv1.DPUSetStrategy{
-							Type: provisioningv1.RollingUpdateStrategyType,
 						},
 						DPUTemplate: provisioningv1.DPUTemplate{
 							Annotations: map[string]string{
@@ -2825,9 +2819,6 @@ var _ = Describe("DPUDeployment Controller", func() {
 							MatchLabels: map[string]string{
 								"dpukey3": "dpuvalue3",
 							},
-						},
-						Strategy: &provisioningv1.DPUSetStrategy{
-							Type: provisioningv1.RollingUpdateStrategyType,
 						},
 						DPUTemplate: provisioningv1.DPUTemplate{
 							Annotations: map[string]string{

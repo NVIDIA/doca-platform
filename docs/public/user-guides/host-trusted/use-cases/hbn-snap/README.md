@@ -1282,6 +1282,8 @@ spec:
       dpuNodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
+    dpuSetStrategy:
+      type: RollingUpdate
   services:
     doca-hbn:
       serviceTemplate: doca-hbn
@@ -2230,6 +2232,8 @@ spec:
       dpuNodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
+    dpuSetStrategy:
+      type: RollingUpdate
   services:
     doca-hbn:
       serviceTemplate: doca-hbn
