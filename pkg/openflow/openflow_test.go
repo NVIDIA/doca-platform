@@ -136,6 +136,18 @@ var _ = Describe("AddMeter", func() {
 		Expect(flows.AddMeter(context.Background(), testMeterStr, bridgeName)).To(Succeed())
 	})
 
+	It("should succeed when meter already exists", func() {
+		execMock.EXPECT().
+			CommandContext(gomock.Any(), "ovs-ofctl", "-t", "5", "-O", "OpenFlow13", "add-meter", bridgeName, testMeterStr).
+			Return(cmdMock)
+		cmdMock.EXPECT().SetStderr(gomock.Any()).Do(func(stderr interface{}) {
+			// Write the OFPMMFC_METER_EXISTS error to stderr
+			_, _ = stderr.(interface{ Write([]byte) (int, error) }).Write([]byte("ovs-ofctl: OFPMMFC_METER_EXISTS\n"))
+		})
+		cmdMock.EXPECT().Run().Return(fmt.Errorf("exit status 1"))
+		Expect(flows.AddMeter(context.Background(), testMeterStr, bridgeName)).To(Succeed())
+	})
+
 	DescribeTable("should handle errors appropriately",
 		func(needsUninitializedFlow bool, setupMock func(), expectedError string) {
 			testFlow := flows
@@ -152,13 +164,16 @@ var _ = Describe("AddMeter", func() {
 			},
 			"ovs-ofctl not found",
 		),
-		Entry("when ovs-ofctl command fails",
+		Entry("when ovs-ofctl command fails with non-METER_EXISTS error",
 			false,
 			func() {
 				execMock.EXPECT().
 					CommandContext(gomock.Any(), "ovs-ofctl", "-t", "5", "-O", "OpenFlow13", "add-meter", bridgeName, testMeterStr).
 					Return(cmdMock)
-				cmdMock.EXPECT().SetStderr(gomock.Any())
+				cmdMock.EXPECT().SetStderr(gomock.Any()).Do(func(stderr interface{}) {
+					// Write a different error to stderr (not METER_EXISTS)
+					_, _ = stderr.(interface{ Write([]byte) (int, error) }).Write([]byte("ovs-ofctl: some other error\n"))
+				})
 				cmdMock.EXPECT().Run().Return(fmt.Errorf("ovs-ofctl command failed"))
 			},
 			"ovs-ofctl command failed",
