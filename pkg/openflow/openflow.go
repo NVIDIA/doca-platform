@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	kexec "k8s.io/utils/exec"
@@ -110,10 +111,10 @@ func (f *OpenFlow) ensureOVSOfctlPath() error {
 // AddMeter adds a meter to a given switch.
 // This is a wrapper over a cmdcall to the utility ovs-ofctl which allows adding only one meter at a time.
 // This functionality is supported from OpenFlow version 1.3 and above.
-func (f *OpenFlow) AddMeter(ctx context.Context, meter, bridgeName string) error {
+func (f *OpenFlow) AddMeter(ctx context.Context, meterConf, bridgeName string) error {
 	log := ctrllog.FromContext(ctx)
 
-	if meter == "" || bridgeName == "" {
+	if meterConf == "" || bridgeName == "" {
 		log.Info("no meter or bridge name provided, skipping addition of meters")
 		return nil
 	}
@@ -122,15 +123,30 @@ func (f *OpenFlow) AddMeter(ctx context.Context, meter, bridgeName string) error
 		return err
 	}
 
-	args := []string{"-t", "5", "-O", "OpenFlow13", "add-meter", bridgeName, meter}
+	args := []string{"-t", "5", "-O", "OpenFlow13", "add-meter", bridgeName, meterConf}
 	cmd := f.Exec.CommandContext(ctx, f.OVSOfctlPath, args...)
+
 	var stderr bytes.Buffer
 	cmd.SetStderr(&stderr)
+
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("error adding meter %q with ovs-ofctl (args %v) failed: err=%w stderr=%s", meter, args, err, stderr.String())
+		errStr := stderr.String()
+
+		// OVS returns "OFPMMFC_METER_EXISTS" in the error output if the ID is taken.
+		// We check for this specific OpenFlow error constant.
+		// This function is not truly idempotent, as it does not check if the meter is actually the same and
+		// will recreate the meter if it is not.
+		if strings.Contains(errStr, "OFPMMFC_METER_EXISTS") {
+			log.Info("meter identifier already exists", "meter", meterConf)
+			return nil
+		}
+
+		// If the error was something else (syntax, connection, etc), we return the failure.
+		return fmt.Errorf("error adding meter %q with ovs-ofctl (args %v) failed: err=%w stderr=%s",
+			meterConf, args, err, errStr)
 	}
 
-	log.Info("added meter", "meter", meter)
+	log.Info("added meter", "meter", meterConf)
 	return nil
 }
 
