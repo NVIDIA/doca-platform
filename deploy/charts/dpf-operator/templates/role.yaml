@@ -14,6 +14,7 @@ rules:
   - persistentvolumeclaims
   - pods
   - pods/exec
+  - secrets
   - serviceaccounts
   - serviceaccounts/token
   verbs:
@@ -44,17 +45,6 @@ rules:
   - namespaces
   verbs:
   - create
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
 - apiGroups:
   - admissionregistration.k8s.io
   resources:
