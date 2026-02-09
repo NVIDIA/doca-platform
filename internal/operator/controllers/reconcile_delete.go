@@ -22,6 +22,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	noderesourcesv1 "github.com/nvidia/doca-platform/api/noderesources/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
@@ -111,7 +112,14 @@ var dpuDeploymentResources = []schema.GroupVersionKind{
 	dpuservicev1.DPUServiceConfigurationGroupVersionKind,
 }
 
+// nodeResourceResources tracks the resources from the noderesources API group which need to be deleted by the DPF Operator.
+var nodeResourceResources = []schema.GroupVersionKind{
+	noderesourcesv1.NodeSRIOVDevicePluginConfigGroupVersionKind,
+}
+
 var orderedDeleteList = []func(ctx context.Context, c client.Client) error{
+	// NodeResource can be deleted first
+	deleteNodeResourceResources,
 	// ServiceChain objects must be deleted before DPUServices as system DPUServices - e.g. the SFC controller - implement their deletion.
 	deleteServiceChainResources,
 	// DPUDeployments must be deleted after ServiceChains as those objects may depend on the DPUDeployment owned dpusets.
@@ -136,6 +144,10 @@ func deleteDpuDeploymentResources(ctx context.Context, c client.Client) error {
 
 func deleteProvisioningResources(ctx context.Context, c client.Client) error {
 	return deleteResources(ctx, c, provisioningResources, []string{})
+}
+
+func deleteNodeResourceResources(ctx context.Context, c client.Client) error {
+	return deleteResources(ctx, c, nodeResourceResources, []string{})
 }
 
 func deleteResources(ctx context.Context, c client.Client, gvkList []schema.GroupVersionKind, labelExclusionList []string) error {

@@ -1,0 +1,26 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-noderesources-dpu-nvidia-com-v1alpha1-nodesriovdevicepluginconfig
+  failurePolicy: Fail
+  name: vnodesriovdevicepluginconfig.kb.io
+  rules:
+  - apiGroups:
+    - noderesources.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - nodesriovdevicepluginconfigs
+  sideEffects: None
