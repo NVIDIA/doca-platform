@@ -54,19 +54,20 @@ type Component interface {
 
 // SystemComponents holds kubernetes object manifests to be deployed by the operator.
 type SystemComponents struct {
-	DPUService              Component
-	DPFProvisioning         Component
-	ServiceFunctionChainSet Component
-	Multus                  Component
-	SRIOVDevicePlugin       Component
-	NvIPAM                  Component
-	OvsCni                  Component
-	Flannel                 Component
-	SfcController           Component
-	KamajiClusterManager    Component
-	StaticClusterManager    Component
-	DPUDetector             Component
-	CNIInstaller            Component
+	DPUService                      Component
+	DPFProvisioning                 Component
+	ServiceFunctionChainSet         Component
+	Multus                          Component
+	SRIOVDevicePlugin               Component
+	NvIPAM                          Component
+	OvsCni                          Component
+	Flannel                         Component
+	SfcController                   Component
+	KamajiClusterManager            Component
+	StaticClusterManager            Component
+	DPUDetector                     Component
+	CNIInstaller                    Component
+	NodeSRIOVDevicePluginController Component
 }
 
 // Embed manifests for Kubernetes objects created by the controller.
@@ -112,6 +113,9 @@ var (
 
 	//go:embed manifests/cni-installer.yaml
 	cniInstallerData []byte
+
+	//go:embed manifests/nodesriovdeviceplugin-controller.yaml
+	nodeSRIOVDevicePluginControllerData []byte
 )
 
 // New returns a new SystemComponents inventory with data preloaded but parsing not completed.
@@ -155,6 +159,8 @@ func New() *SystemComponents {
 			name: operatorv1.CNIInstallerName,
 			data: cniInstallerData,
 		},
+		NodeSRIOVDevicePluginController: newNodeSRIOVDevicePluginControllerObjects(
+			nodeSRIOVDevicePluginControllerData),
 	}
 }
 
@@ -188,6 +194,7 @@ func (s *SystemComponents) AllComponents() []Component {
 		s.OvsCni,
 		s.SfcController,
 		s.CNIInstaller,
+		s.NodeSRIOVDevicePluginController,
 	}
 }
 
