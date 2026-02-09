@@ -23,6 +23,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	noderesourcesv1 "github.com/nvidia/doca-platform/api/noderesources/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
@@ -51,6 +52,7 @@ func TestDPFOperatorConfigReconciler_reconcileDelete(t *testing.T) {
 
 	g.Expect(operatorv1.AddToScheme(scheme)).To(Succeed())
 	g.Expect(dpuservicev1.AddToScheme(scheme)).To(Succeed())
+	g.Expect(noderesourcesv1.AddToScheme(scheme)).To(Succeed())
 	g.Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
 
 	tests := []struct {
@@ -58,6 +60,8 @@ func TestDPFOperatorConfigReconciler_reconcileDelete(t *testing.T) {
 		// gvkWithFinalizer is the GVK of the objects that should have a finalizer which stops the flow of the deletion.
 		// Note: This object is not counted in the `ObjectsExpected` numbers above.
 		gvkWithFinalizer *schema.GroupVersionKind
+		// nodeResourceObjsExpected is a boolean describing if resources from this group should exist.
+		nodeResourceObjsExpected bool
 		// dpuDeploymentObjsExpected is a boolean describing if resources from this group should exist after running deletion for this test case.
 		dpuDeploymentObjsExpected bool
 		// serviceChainObjsExpected is a boolean describing if resources from this group should exist.
@@ -69,6 +73,7 @@ func TestDPFOperatorConfigReconciler_reconcileDelete(t *testing.T) {
 	}{
 		{
 			name:                      "Deletion works with no finalizers set",
+			nodeResourceObjsExpected:  false,
 			serviceChainObjsExpected:  false,
 			dpuDeploymentObjsExpected: false,
 			dpuServiceObjsExpected:    false,
@@ -77,6 +82,7 @@ func TestDPFOperatorConfigReconciler_reconcileDelete(t *testing.T) {
 		{
 			name:                      "Ensure DPUService, Provisioning, dpuDeployment is not deleted if ServiceChain has finalizer",
 			gvkWithFinalizer:          &dpuservicev1.DPUServiceChainGroupVersionKind,
+			nodeResourceObjsExpected:  false,
 			serviceChainObjsExpected:  false,
 			dpuDeploymentObjsExpected: true,
 			dpuServiceObjsExpected:    true,
@@ -85,6 +91,7 @@ func TestDPFOperatorConfigReconciler_reconcileDelete(t *testing.T) {
 		{
 			name:                      "Ensure Provisioning, DPUService is not deleted if DPUDeployment has finalizer",
 			gvkWithFinalizer:          &dpuservicev1.DPUDeploymentGroupVersionKind,
+			nodeResourceObjsExpected:  false,
 			serviceChainObjsExpected:  false,
 			dpuDeploymentObjsExpected: false,
 			dpuServiceObjsExpected:    true,
@@ -93,6 +100,7 @@ func TestDPFOperatorConfigReconciler_reconcileDelete(t *testing.T) {
 		{
 			name:                      "Ensure Provisioning is not deleted if DPUService has finalizer",
 			gvkWithFinalizer:          &dpuservicev1.DPUServiceGroupVersionKind,
+			nodeResourceObjsExpected:  false,
 			serviceChainObjsExpected:  false,
 			dpuDeploymentObjsExpected: false,
 			dpuServiceObjsExpected:    false,
@@ -130,6 +138,7 @@ func TestDPFOperatorConfigReconciler_reconcileDelete(t *testing.T) {
 			objectsToCreate = append(objectsToCreate, generateObjectsByGVK(ns.Name, dpuDeploymentResources)...)
 			objectsToCreate = append(objectsToCreate, generateObjectsByGVK(ns.Name, serviceChainResources)...)
 			objectsToCreate = append(objectsToCreate, generateObjectsByGVK(ns.Name, dpuserviceResources)...)
+			objectsToCreate = append(objectsToCreate, generateObjectsByGVK(ns.Name, nodeResourceResources)...)
 			objectsToCreate = append(objectsToCreate, generateObjectsByGVK(ns.Name, provisioningResources)...)
 
 			c := fake.NewClientBuilder().WithObjects(objectsToCreate...).WithScheme(scheme).Build()
@@ -151,26 +160,30 @@ func TestDPFOperatorConfigReconciler_reconcileDelete(t *testing.T) {
 			g.Eventually(func(g Gomega) {
 
 				_, _ = r.reconcileDelete(ctx, dpfOperatorConfig, []*dpucluster.Config{})
-				// 1) Expect the DPUDeployment objects to match the expected state.
+				// Expect the DPUDeployment objects to match the expected state.
 				g.Expect(objectsInListStillExist(r.Client, dpuDeploymentResources)).To(Equal(tt.dpuDeploymentObjsExpected))
-				// 2) Expect the ServiceChain objects to match the expected state.
+				// Expect the ServiceChain objects to match the expected state.
 				g.Expect(objectsInListStillExist(r.Client, serviceChainResources)).To(Equal(tt.serviceChainObjsExpected))
-				// 3) Expect the DPUService objects to match the expected state.
+				// Expect the DPUService objects to match the expected state.
 				g.Expect(objectsInListStillExist(r.Client, dpuserviceResources)).To(Equal(tt.dpuServiceObjsExpected))
-				// 4) Expect the Provisioning objects to match the expected state.
+				// Expect the NodeResource objects to match the expected state.
+				g.Expect(objectsInListStillExist(r.Client, nodeResourceResources)).To(Equal(tt.nodeResourceObjsExpected))
+				// Expect the Provisioning objects to match the expected state.
 				g.Expect(objectsInListStillExist(r.Client, provisioningResources)).To(Equal(tt.provisioningObjsExpected))
 			}).WithTimeout(5 * time.Second).Should(Succeed())
 
 			// Ensure the state does not change.
 			g.Consistently(func(g Gomega) {
 				_, _ = r.reconcileDelete(ctx, dpfOperatorConfig, []*dpucluster.Config{})
-				// 1) Expect the DPUDeployment list to have the right number of members.
+				// Expect the DPUDeployment list to have the right number of members.
 				g.Expect(objectsInListStillExist(r.Client, dpuDeploymentResources)).To(Equal(tt.dpuDeploymentObjsExpected))
-				// 2) Expect the ServiceChain list to have the right number of members.
+				// Expect the ServiceChain list to have the right number of members.
 				g.Expect(objectsInListStillExist(r.Client, serviceChainResources)).To(Equal(tt.serviceChainObjsExpected))
-				// 3) Expect the DPUService list to have the right number of members.
+				// Expect the DPUService list to have the right number of members.
 				g.Expect(objectsInListStillExist(r.Client, dpuserviceResources)).To(Equal(tt.dpuServiceObjsExpected))
-				// 4) Expect the Provisioning list to have the right number of members.
+				// Expect the NodeResource list to have the right number of members.
+				g.Expect(objectsInListStillExist(r.Client, nodeResourceResources)).To(Equal(tt.nodeResourceObjsExpected))
+				// Expect the Provisioning list to have the right number of members.
 				g.Expect(objectsInListStillExist(r.Client, provisioningResources)).To(Equal(tt.provisioningObjsExpected))
 			}).WithTimeout(5 * time.Second).Should(Succeed())
 

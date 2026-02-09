@@ -55,18 +55,21 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 
 			// Static cluster manager is disabled by default.
 			operatorv1.StaticClusterManagerName: true,
+			// NodeSRIOVDevicePluginController is disabled by default.
+			operatorv1.NodeSRIOVDevicePluginControllerName: true,
 		},
 		Images: map[string]string{
 			// Images built as part of the DPF Operator release.
-			operatorv1.ProvisioningControllerName.WithContainer(operatorv1.ControllerManagerContainer): defaults.DPFSystemImage,
-			operatorv1.DPUServiceControllerName.WithContainer(operatorv1.ControllerManagerContainer):   defaults.DPFSystemImage,
-			operatorv1.StaticClusterManagerName.WithContainer(operatorv1.ControllerManagerContainer):   defaults.DPFSystemImage,
-			operatorv1.KamajiClusterManagerName.WithContainer(operatorv1.ControllerManagerContainer):   defaults.DPFSystemImage,
-			operatorv1.ServiceSetControllerName.WithContainer(operatorv1.ControllerManagerContainer):   defaults.DPFSystemImage,
-			operatorv1.SFCControllerName.WithContainer(operatorv1.ControllerManagerContainer):          defaults.DPFSystemImage,
-			operatorv1.OVSCNIName.WithContainer(operatorv1.OVSCNI):                                     defaults.OVSCNIImage,
-			operatorv1.DPUDetectorName.WithContainer(operatorv1.DPUDetectorContainer):                  defaults.DPFSystemImage,
-			operatorv1.CNIInstallerName.WithContainer(operatorv1.CNIInstallerContainer):                defaults.CNIInstallerImage,
+			operatorv1.ProvisioningControllerName.WithContainer(operatorv1.ControllerManagerContainer):          defaults.DPFSystemImage,
+			operatorv1.DPUServiceControllerName.WithContainer(operatorv1.ControllerManagerContainer):            defaults.DPFSystemImage,
+			operatorv1.StaticClusterManagerName.WithContainer(operatorv1.ControllerManagerContainer):            defaults.DPFSystemImage,
+			operatorv1.KamajiClusterManagerName.WithContainer(operatorv1.ControllerManagerContainer):            defaults.DPFSystemImage,
+			operatorv1.ServiceSetControllerName.WithContainer(operatorv1.ControllerManagerContainer):            defaults.DPFSystemImage,
+			operatorv1.SFCControllerName.WithContainer(operatorv1.ControllerManagerContainer):                   defaults.DPFSystemImage,
+			operatorv1.OVSCNIName.WithContainer(operatorv1.OVSCNI):                                              defaults.OVSCNIImage,
+			operatorv1.DPUDetectorName.WithContainer(operatorv1.DPUDetectorContainer):                           defaults.DPFSystemImage,
+			operatorv1.CNIInstallerName.WithContainer(operatorv1.CNIInstallerContainer):                         defaults.CNIInstallerImage,
+			operatorv1.NodeSRIOVDevicePluginControllerName.WithContainer(operatorv1.ControllerManagerContainer): defaults.DPFSystemImage,
 			// BFBRegistry is not configurable via the DPFOperatorConfig, thus it does not need to have the container name included.
 			operatorv1.BFBRegistryName.String(): defaults.BFBRegistryImage,
 		},
@@ -82,6 +85,11 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 		},
 		SFCController: SFCControllerVariables{
 			SecureFlowDeletionTimeout: 0 * time.Second,
+		},
+		NodeSRIOVDevicePluginController: NodeSRIOVDevicePluginControllerVariables{
+			DevicePluginImage:     defaults.NodeSRIOVDevicePluginImage,
+			DevicePluginInitImage: defaults.DPFSystemImage,
+			DefaultResourcePrefix: "nvidia.com",
 		},
 		Resources: map[string]corev1.ResourceRequirements{},
 		Replicas: map[operatorv1.ComponentName]*int32{
@@ -106,6 +114,7 @@ type Variables struct {
 	DPUClusters                      []*dpucluster.Config
 	DPFProvisioningController        DPFProvisioningVariables
 	SFCController                    SFCControllerVariables
+	NodeSRIOVDevicePluginController  NodeSRIOVDevicePluginControllerVariables
 	Networking                       Networking
 	DisableSystemComponents          map[operatorv1.ComponentName]bool
 	ImagePullSecrets                 []string
@@ -138,6 +147,16 @@ type SFCControllerVariables struct {
 type Networking struct {
 	ControlPlaneMTU int
 	HighSpeedMTU    int
+}
+
+// NodeSRIOVDevicePluginControllerVariables holds variables for the NodeSRIOVDevicePlugin controller.
+type NodeSRIOVDevicePluginControllerVariables struct {
+	// DevicePluginImage is the container image for the SRIOV device plugin.
+	DevicePluginImage string
+	// DevicePluginInitImage is the container image for the init container.
+	DevicePluginInitImage string
+	// DefaultResourcePrefix is the default resource prefix for device plugin resources.
+	DefaultResourcePrefix string
 }
 
 func VariablesFromDPFOperatorConfig(defaults *release.Defaults, config *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config) Variables {
@@ -310,6 +329,25 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 	// Extract replicas for cluster managers
 	if config.Spec.KamajiClusterManager != nil && config.Spec.KamajiClusterManager.Replicas != nil {
 		variables.Replicas[operatorv1.KamajiClusterManagerName] = config.Spec.KamajiClusterManager.Replicas
+	}
+
+	// Extract replicas for NodeSRIOVDevicePluginController
+	if config.Spec.NodeSRIOVDevicePluginController != nil && config.Spec.NodeSRIOVDevicePluginController.Replicas != nil {
+		variables.Replicas[operatorv1.NodeSRIOVDevicePluginControllerName] = config.Spec.NodeSRIOVDevicePluginController.Replicas
+	}
+
+	// Extract NodeSRIOVDevicePluginController configuration
+	if config.Spec.NodeSRIOVDevicePluginController != nil && config.Spec.NodeSRIOVDevicePluginController.DevicePlugin != nil {
+		dp := config.Spec.NodeSRIOVDevicePluginController.DevicePlugin
+		if dp.Image != nil {
+			variables.NodeSRIOVDevicePluginController.DevicePluginImage = *dp.Image
+		}
+		if dp.InitImage != nil {
+			variables.NodeSRIOVDevicePluginController.DevicePluginInitImage = *dp.InitImage
+		}
+		if dp.DefaultResourcePrefix != nil {
+			variables.NodeSRIOVDevicePluginController.DefaultResourcePrefix = *dp.DefaultResourcePrefix
+		}
 	}
 
 	return variables
