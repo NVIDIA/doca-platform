@@ -36,15 +36,16 @@ func TestDefaults_Parse(t *testing.T) {
 	}
 
 	defaultValues := map[string]string{
-		"dmsImage":               "example.com/hostdriver:v0.1.0",
-		"dpfSystemImage":         "example.com/dpf-system:v0.1.0",
-		"ovsCniImage":            "example.com/ovs-cni-plugin:v0.1.0",
-		"bfbRegistryImage":       "example.com/bfb-registry:v0.1.0",
-		"dpfStorageSystemImage":  "example.com/storage-system:v0.1.0",
-		"dpfStorageHostImage":    "example.com/storage-host:v0.1.0",
-		"cniInstallerImage":      "example.com/dpf-cni-installer:v0.1.0",
-		"keepalivedImage":        "example.com/dpf-keepalived:v0.1.0",
-		"dpuNetworkingHelmChart": "oci://example.com/dpu-networking:v0.1.0",
+		"dmsImage":                   "example.com/hostdriver:v0.1.0",
+		"dpfSystemImage":             "example.com/dpf-system:v0.1.0",
+		"ovsCniImage":                "example.com/ovs-cni-plugin:v0.1.0",
+		"bfbRegistryImage":           "example.com/bfb-registry:v0.1.0",
+		"dpfStorageSystemImage":      "example.com/storage-system:v0.1.0",
+		"dpfStorageHostImage":        "example.com/storage-host:v0.1.0",
+		"cniInstallerImage":          "example.com/dpf-cni-installer:v0.1.0",
+		"keepalivedImage":            "example.com/dpf-keepalived:v0.1.0",
+		"nodeSRIOVDevicePluginImage": "example.com/node-sriov-device-plugin:v0.1.0",
+		"dpuNetworkingHelmChart":     "oci://example.com/dpu-networking:v0.1.0",
 	}
 	tests := []struct {
 		name    string
@@ -84,6 +85,11 @@ func TestDefaults_Parse(t *testing.T) {
 		{
 			name:    "fail when keepalivedImage empty/missing",
 			content: withoutValue(g, defaultValues, "keepalivedImage"),
+			wantErr: true,
+		},
+		{
+			name:    "fail when nodeSRIOVDevicePluginImage empty/missing",
+			content: withoutValue(g, defaultValues, "nodeSRIOVDevicePluginImage"),
 			wantErr: true,
 		},
 	}

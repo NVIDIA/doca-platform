@@ -10,3 +10,6 @@ keepalivedImage: ${KEEPALIVED_UPSTREAM_IMAGE}:${TAG}
 
 ## Helm charts built as part of the DPF release.
 dpuNetworkingHelmChart: ${UPSTREAM_HELM_REGISTRY}/${DPU_NETWORKING_HELM_CHART_NAME}:${TAG}
+
+## Extra dependencies that are directly refered by the DPF binaries, but not built as part of the DPF release.
+nodeSRIOVDevicePluginImage: ${NODE_SRIOV_DEVICE_PLUGIN_IMAGE}:${NODE_SRIOV_DEVICE_PLUGIN_TAG}

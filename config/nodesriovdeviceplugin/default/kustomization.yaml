@@ -1,0 +1,135 @@
+# Adds namespace to all resources.
+namespace: dpf-nodesriovdeviceplugin-system
+
+# Value of this field is prepended to the
+# names of all resources, e.g. a deployment named
+# "wordpress" becomes "alices-wordpress".
+# Note that it should also match with the prefix (text before '-') of the namespace
+# field above.
+namePrefix: dpf-nodesriovdeviceplugin-
+
+sortOptions:
+  order: legacy
+  legacySortOptions:
+    orderFirst:
+      -  PriorityClass
+      -  Namespace
+      -  NetworkPolicy
+      -  ResourceQuota
+      -  LimitRange
+      -  PodSecurityPolicy
+      -  PodDisruptionBudget
+      -  ServiceAccount
+      -  Secret
+      -  SecretList
+      -  ConfigMap
+      -  StorageClass
+      -  PersistentVolume
+      -  PersistentVolumeClaim
+      -  CustomResourceDefinition
+      -  ClusterRole
+      -  ClusterRoleList
+      -  ClusterRoleBinding
+      -  ClusterRoleBindingList
+      -  Role
+      -  RoleList
+      -  RoleBinding
+      -  RoleBindingList
+      -  Service
+      -  DaemonSet
+      -  Pod
+      -  ReplicationController
+      -  ReplicaSet
+      -  Deployment
+      -  HorizontalPodAutoscaler
+      -  StatefulSet
+      -  Job
+      -  CronJob
+      -  IngressClass
+      -  Ingress
+      -  APIService
+      - Certificate
+      - Issuer
+
+labels:
+  - includeTemplates: true
+    includeSelectors: true
+    pairs:
+      dpu.nvidia.com/component: nodesriovdeviceplugin-controller
+      app.kubernetes.io/part-of: nodesriovdeviceplugin-controller
+
+resources:
+- ../webhook
+- ../rbac
+- ../manager
+- ../certmanager
+
+patchesStrategicMerge:
+  - manager_webhook_patch.yaml
+  - webhookcainjection_patch.yaml
+
+replacements:
+  - source: # Add cert-manager annotation to MutatingWebhookConfiguration
+      kind: Certificate
+      group: cert-manager.io
+      version: v1
+      name: serving-cert # this name should match the one in certificate.yaml
+      fieldPath: .metadata.namespace # namespace of the certificate CR
+    targets:
+      - select:
+          kind: ValidatingWebhookConfiguration
+        fieldPaths:
+          - .metadata.annotations.[cert-manager.io/inject-ca-from]
+        options:
+          delimiter: '/'
+          index: 0
+          create: true
+  - source:
+      kind: Certificate
+      group: cert-manager.io
+      version: v1
+      name: serving-cert # this name should match the one in certificate.yaml
+      fieldPath: .metadata.name
+    targets:
+      - select:
+          kind: ValidatingWebhookConfiguration
+        fieldPaths:
+          - .metadata.annotations.[cert-manager.io/inject-ca-from]
+        options:
+          delimiter: '/'
+          index: 1
+          create: true
+  - source:
+      kind: Service
+      version: v1
+      name: webhook-service
+      fieldPath: .metadata.name # namespace of the service
+    targets:
+      - select:
+          kind: Certificate
+          group: cert-manager.io
+          version: v1
+        fieldPaths:
+          - .spec.dnsNames.0
+          - .spec.dnsNames.1
+        options:
+          delimiter: '.'
+          index: 0
+          create: true
+  - source:
+      kind: Service
+      version: v1
+      name: webhook-service
+      fieldPath: .metadata.namespace # namespace of the service
+    targets:
+      - select:
+          kind: Certificate
+          group: cert-manager.io
+          version: v1
+        fieldPaths:
+          - .spec.dnsNames.0
+          - .spec.dnsNames.1
+        options:
+          delimiter: '.'
+          index: 1
+          create: true

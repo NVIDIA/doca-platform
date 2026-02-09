@@ -215,6 +215,32 @@ rules:
   - update
   - watch
 - apiGroups:
+  - noderesources.dpu.nvidia.com
+  resources:
+  - nodesriovdevicepluginconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - noderesources.dpu.nvidia.com
+  resources:
+  - nodesriovdevicepluginconfigs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - noderesources.dpu.nvidia.com
+  resources:
+  - nodesriovdevicepluginconfigs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - nv-ipam.nvidia.com
   resources:
   - ippools
