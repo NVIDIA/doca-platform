@@ -46,13 +46,14 @@ func init() {
 
 // Defaults structure contains the default artifacts that the operators should deploy
 type Defaults struct {
-	DMSImage               string `yaml:"dmsImage"`
-	DPFSystemImage         string `yaml:"dpfSystemImage"`
-	CNIInstallerImage      string `yaml:"cniInstallerImage"`
-	DPUNetworkingHelmChart string `yaml:"dpuNetworkingHelmChart"`
-	OVSCNIImage            string `yaml:"ovsCniImage"`
-	BFBRegistryImage       string `yaml:"bfbRegistryImage"`
-	KeepalivedImage        string `yaml:"keepalivedImage"`
+	DMSImage                   string `yaml:"dmsImage"`
+	DPFSystemImage             string `yaml:"dpfSystemImage"`
+	CNIInstallerImage          string `yaml:"cniInstallerImage"`
+	DPUNetworkingHelmChart     string `yaml:"dpuNetworkingHelmChart"`
+	OVSCNIImage                string `yaml:"ovsCniImage"`
+	BFBRegistryImage           string `yaml:"bfbRegistryImage"`
+	KeepalivedImage            string `yaml:"keepalivedImage"`
+	NodeSRIOVDevicePluginImage string `yaml:"nodeSRIOVDevicePluginImage"`
 }
 
 // Parse parses the defaults from the embedded generated YAML file
@@ -79,6 +80,9 @@ func (d *Defaults) Parse() error {
 	}
 	if len(d.KeepalivedImage) == 0 {
 		return errors.New("keepalivedImage can't be empty")
+	}
+	if len(d.NodeSRIOVDevicePluginImage) == 0 {
+		return errors.New("nodeSRIOVDevicePluginImage can't be empty")
 	}
 
 	return nil
