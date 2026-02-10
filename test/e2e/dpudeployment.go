@@ -185,7 +185,28 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 		for _, application := range dpuServiceNameToApplication {
 			if bytes.Contains(application.Spec.Source.Helm.ValuesObject.Raw, []byte("malformedPullPolicy")) {
 				origApp := application.DeepCopy()
+				// Set valid helm values.
 				application.Spec.Source.Helm.ValuesObject = &machineryruntime.RawExtension{Raw: []byte(`{}`)}
+				// Set maximum backoff duration to 1s for the case if it was not yet reconciled or we re-create the application.
+				if application.Spec.SyncPolicy == nil {
+					application.Spec.SyncPolicy = &argov1.SyncPolicy{}
+				}
+				if application.Spec.SyncPolicy.Retry == nil {
+					application.Spec.SyncPolicy.Retry = &argov1.RetryStrategy{}
+				}
+				if application.Spec.SyncPolicy.Retry.Backoff == nil {
+					application.Spec.SyncPolicy.Retry.Backoff = &argov1.Backoff{}
+				}
+				// Set maximum backoff duration to 1s for the existing operation to ensure it is not waiting for a long backoff duration.
+				application.Spec.SyncPolicy.Retry.Backoff.MaxDuration = "1s"
+				if application.Status.OperationState == nil {
+					application.Status.OperationState = &argov1.OperationState{}
+				}
+				if application.Status.OperationState.Operation.Retry.Backoff == nil {
+					application.Status.OperationState.Operation.Retry.Backoff = &argov1.Backoff{}
+				}
+				application.Status.OperationState.Operation.Retry.Backoff.MaxDuration = "1s"
+
 				g.Expect(input.client.Patch(ctx, &application, client.MergeFrom(origApp))).To(Succeed())
 				// Delete the application to ensure that we haven't recreated the application in the meantime with the
 				// patch above

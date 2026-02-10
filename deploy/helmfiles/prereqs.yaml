@@ -16,7 +16,7 @@ repositories:
   - name: jetstack
     url: https://charts.jetstack.io
   - name: local-storage
-    url: git+https://github.com/rancher/local-path-provisioner@deploy/chart?ref=v0.0.31
+    url: git+https://github.com/rancher/local-path-provisioner@deploy/chart?ref=v0.0.34
 
 helmDefaults:
   atomic: true
@@ -30,7 +30,7 @@ releases:
     namespace: cert-manager
     createNamespace: true
     chart: jetstack/cert-manager
-    version: v1.18.1
+    version: v1.19.3
     labels:
       app: cert-manager
     values:
@@ -66,7 +66,7 @@ releases:
     namespace: dpf-operator-system
     createNamespace: true
     chart: oci://ghcr.io/mellanox/maintenance-operator-chart
-    version: 0.2.0
+    version: 0.3.0
     labels:
       app: maintenance-operator
     values:
@@ -76,14 +76,14 @@ releases:
     hooks:
       - events: [ "preapply" ]
         command: "./apply-crds.sh"
-        args: ["oci://ghcr.io/mellanox/maintenance-operator-chart", "0.2.0"]
+        args: ["oci://ghcr.io/mellanox/maintenance-operator-chart", "0.3.0"]
         showlogs: true
 
   - name: argo-cd
     namespace: dpf-operator-system
     createNamespace: true
     chart: argoproj/argo-cd
-    version: 7.8.2
+    version: 9.4.1
     timeout: 600
     labels:
       app: argo-cd
@@ -98,12 +98,29 @@ releases:
         command: "kubectl"
         args: ["wait", "--for=condition=ready", "--timeout=300s", "pod", "-l", "app.kubernetes.io/name=argocd-application-controller", "-n", "dpf-operator-system"]
         showlogs: true
+      # Ensure a sync is done of all applications. This is e.g. required when upgrading ArgoCD from v2 to v3 which includes changing the tracking strategy (if not configured otherwise).
+      # Without a sync, ArgoCD may not delete resources because of the missing tracking information.
+      # TODO: delete after v26.4.0 is released
+      - events: [ "postsync" ]
+        command: "/bin/bash"
+        args:
+        - -c
+        - |
+          FOUND_APPLICATIONS=0
+          for app in $(kubectl get application -n dpf-operator-system -o name); do
+            kubectl patch $app -n dpf-operator-system --type=merge -p '{"operation":{"initiatedBy":{"username":"helmfile"},"sync":{"syncStrategy":{"hook":{}}}}}'
+            FOUND_APPLICATIONS=1
+          done
+          if [ $FOUND_APPLICATIONS -eq 1 ]; then
+            kubectl wait application --all -n dpf-operator-system --for=jsonpath='{.status.operationState.phase}'=Succeeded --timeout=300s
+          fi
+        showlogs: true
 
   - name: node-feature-discovery
     namespace: dpf-operator-system
     createNamespace: true
     chart: node-feature-discovery/node-feature-discovery
-    version: 0.17.1
+    version: 0.18.3
     labels:
       app: node-feature-discovery
     values:
@@ -111,7 +128,7 @@ releases:
     hooks:
       - events: [ "preapply" ]
         command: "./apply-crds.sh"
-        args: ["node-feature-discovery/node-feature-discovery", "0.17.1"]
+        args: ["node-feature-discovery/node-feature-discovery", "0.18.3"]
         showlogs: true
 
   - name: local-path-provisioner
