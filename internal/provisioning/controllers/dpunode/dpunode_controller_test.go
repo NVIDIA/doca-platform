@@ -1185,6 +1185,91 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 		})
 	})
 
+	Context("dpuDeviceToDPUNodeReq", func() {
+		var (
+			reconciler *DPUNodeReconciler
+		)
+
+		BeforeEach(func() {
+			reconciler = &DPUNodeReconciler{}
+		})
+
+		It("should return request for DPUDevice with DPUNodeName label", func() {
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode",
+					},
+				},
+			}
+
+			requests := reconciler.dpuDeviceToDPUNodeReq(context.Background(), dpuDevice)
+			Expect(requests).To(HaveLen(1))
+			Expect(requests[0].Name).To(Equal("test-dpunode"))
+			Expect(requests[0].Namespace).To(Equal("test-namespace"))
+		})
+
+		It("should return nil when DPUDevice has no labels", func() {
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice",
+					Namespace: "test-namespace",
+				},
+			}
+
+			requests := reconciler.dpuDeviceToDPUNodeReq(context.Background(), dpuDevice)
+			Expect(requests).To(BeNil())
+		})
+
+		It("should return nil when DPUDevice has empty DPUNodeName label", func() {
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "",
+					},
+				},
+			}
+
+			requests := reconciler.dpuDeviceToDPUNodeReq(context.Background(), dpuDevice)
+			Expect(requests).To(BeNil())
+		})
+
+		It("should return nil when DPUDevice has labels but no DPUNodeName label", func() {
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						"some-other-label": "some-value",
+					},
+				},
+			}
+
+			requests := reconciler.dpuDeviceToDPUNodeReq(context.Background(), dpuDevice)
+			Expect(requests).To(BeNil())
+		})
+
+		It("should use DPUDevice namespace for the request", func() {
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice",
+					Namespace: "custom-namespace",
+					Labels: map[string]string{
+						cutil.DPUNodeNameLabel: "test-dpunode",
+					},
+				},
+			}
+
+			requests := reconciler.dpuDeviceToDPUNodeReq(context.Background(), dpuDevice)
+			Expect(requests).To(HaveLen(1))
+			Expect(requests[0].Namespace).To(Equal("custom-namespace"))
+		})
+	})
+
 	Context("clearDPURebootedConditions", func() {
 		var (
 			reconciler *DPUNodeReconciler
