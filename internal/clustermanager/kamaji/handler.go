@@ -64,6 +64,12 @@ import (
 const (
 	kubernetesNodeRoleMaster       = "node-role.kubernetes.io/master"
 	kubernetesNodeRoleControlPlane = "node-role.kubernetes.io/control-plane"
+
+	// Kube-apiserver security configuration (exported for tests)
+	// TLSCipherSuites defines the allowed TLS cipher suites for kube-apiserver
+	TLSCipherSuites = "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305"
+	// AdmissionPlugins defines the enabled admission plugins for kube-apiserver
+	AdmissionPlugins = "NamespaceLifecycle,LimitRanger,ServiceAccount,AlwaysPullImages,MutatingAdmissionWebhook,ValidatingAdmissionWebhook,ResourceQuota,PodSecurity,PodNodeSelector,NodeRestriction,EventRateLimit"
 )
 
 var (
@@ -166,6 +172,67 @@ func (cm *clusterHandler) Type() string {
 	return string(provisioningv1.KamajiCluster)
 }
 
+// reconcileConfigMap is a generic helper to reconcile ConfigMaps, eliminating code duplication
+func (cm *clusterHandler) reconcileConfigMap(ctx context.Context, dc *provisioningv1.DPUCluster,
+	cmName string, expectedCMFunc func(*provisioningv1.DPUCluster, *runtime.Scheme) (*corev1.ConfigMap, error),
+	resourceType string) error {
+	logger := log.FromContext(ctx)
+	nn := kamajiTCPName(dc)
+
+	configMap := &corev1.ConfigMap{}
+	if err := cm.Client.Get(ctx, types.NamespacedName{Name: cmName, Namespace: nn.Namespace}, configMap); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to get %s configmap, err: %v", resourceType, err)
+		}
+
+		// ConfigMap doesn't exist, create it
+		expectedCM, err := expectedCMFunc(dc, cm.Scheme)
+		if err != nil {
+			return fmt.Errorf("failed to generate %s configmap, err: %v", resourceType, err)
+		}
+		if err := cm.Client.Create(ctx, expectedCM); err != nil {
+			return fmt.Errorf("failed to create %s configmap, err: %v", resourceType, err)
+		}
+		logger.V(3).Info("created configmap", "type", resourceType, "name", cmName)
+	}
+	return nil
+}
+
+func (cm *clusterHandler) reconcileAuditPolicyConfigMap(ctx context.Context, dc *provisioningv1.DPUCluster) error {
+	nn := kamajiTCPName(dc)
+	return cm.reconcileConfigMap(ctx, dc, fmt.Sprintf("%s-audit-policy", nn.Name),
+		expectedAuditPolicyConfigMap, "audit policy")
+}
+
+func (cm *clusterHandler) reconcileEventRateLimitConfigMap(ctx context.Context, dc *provisioningv1.DPUCluster) error {
+	nn := kamajiTCPName(dc)
+	return cm.reconcileConfigMap(ctx, dc, fmt.Sprintf("%s-eventratelimit", nn.Name),
+		expectedEventRateLimitConfigMap, "eventratelimit")
+}
+
+// getClusterCondition determines the cluster status condition based on TCP status
+func (cm *clusterHandler) getClusterCondition(tcp *kamajiv1.TenantControlPlane, dc *provisioningv1.DPUCluster) *metav1.Condition {
+	tcpStatus := tcp.Status.Kubernetes.Version.Status
+	if tcpStatus == nil || (*tcpStatus != kamajiv1.VersionReady && *tcpStatus != kamajiv1.VersionUpgrading) {
+		return cutil.NewCondition(string(provisioningv1.ConditionCreated), fmt.Errorf("creating cluster"), "ClusterNotReady", "")
+	}
+
+	if *tcpStatus == kamajiv1.VersionUpgrading {
+		return cutil.NewCondition(string(provisioningv1.ConditionUpgraded), fmt.Errorf("upgrading control plane"), "", "")
+	}
+
+	// Check if upgrade just completed
+	for _, cond := range dc.Status.Conditions {
+		if cond.Type == string(provisioningv1.ConditionUpgraded) &&
+			*tcpStatus == kamajiv1.VersionReady &&
+			cond.Status == metav1.ConditionFalse {
+			return cutil.NewCondition(string(provisioningv1.ConditionUpgraded), nil, "Upgraded", "")
+		}
+	}
+
+	return cutil.NewCondition(string(provisioningv1.ConditionCreated), nil, "Created", "")
+}
+
 func (cm *clusterHandler) reconcileKeepalived(ctx context.Context, dc *provisioningv1.DPUCluster, nodePort int32) (*metav1.Condition, error) {
 	if dc.Spec.ClusterEndpoint == nil || dc.Spec.ClusterEndpoint.Keepalived == nil || nodePort == 0 {
 		return nil, nil
@@ -245,7 +312,6 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 	nn := kamajiTCPName(dc)
 	svc := &corev1.Service{}
 	svcCreated, tcpCreated := true, true
-	upgradeNeeded, isUpgraded := false, false
 	if err := cm.Client.Get(ctx, nn, svc); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return "", 0, nil, fmt.Errorf("failed to get service, err: %v", err)
@@ -260,14 +326,22 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 		tcpCreated = false
 	}
 
-	// Check if DPFOperatorConfig upgrade is in progress
-	if tcp.Spec.Kubernetes.Version != cutil.KubernetesVersion {
-		upgradeNeeded = true
+	// Reconcile audit policy ConfigMap
+	if err := cm.reconcileAuditPolicyConfigMap(ctx, dc); err != nil {
+		return "", 0, nil, err
+	}
+
+	// Reconcile EventRateLimit ConfigMap
+	if err := cm.reconcileEventRateLimitConfigMap(ctx, dc); err != nil {
+		return "", 0, nil, err
 	}
 
 	if !svcCreated && !tcpCreated {
 		if err := cm.Client.Create(ctx, expectedService(dc)); err != nil {
 			return "", 0, nil, fmt.Errorf("failed to create service, err: %v", err)
+		}
+		if err := cm.Client.Get(ctx, nn, svc); err != nil {
+			return "", 0, nil, fmt.Errorf("failed to get service after creation, err: %v", err)
 		}
 	}
 	var nodePort int32
@@ -292,7 +366,7 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 		}
 	} else {
 		nodePort = tcp.Spec.NetworkProfile.Port
-		if upgradeNeeded {
+		if tcp.Spec.Kubernetes.Version != cutil.KubernetesVersion {
 			logger.V(1).Info("need to upgrade TCP", "tcp", tcp.Name)
 			// Use retry logic to handle conflicts when the object has been modified
 			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -317,28 +391,8 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 		}
 	}
 
-	tcpStatus := tcp.Status.Kubernetes.Version.Status
-	if tcpStatus == nil || (*tcpStatus != kamajiv1.VersionReady && *tcpStatus != kamajiv1.VersionUpgrading) {
-		return "", nodePort, cutil.NewCondition(string(provisioningv1.ConditionCreated), fmt.Errorf("creating cluster"), "ClusterNotReady", ""), nil
-	}
-	// Add for upgrade control plane
-	if *tcpStatus == kamajiv1.VersionUpgrading {
-		return adminKubeconfigName(dc), nodePort, cutil.NewCondition(string(provisioningv1.ConditionUpgraded), fmt.Errorf("upgrading control plane"), "", ""), nil
-	}
-
-	for _, cond := range dc.Status.Conditions {
-		if cond.Type == string(provisioningv1.ConditionUpgraded) {
-			if *tcpStatus == kamajiv1.VersionReady && cond.Status == metav1.ConditionFalse {
-				isUpgraded = true
-				break
-			}
-		}
-	}
-	if isUpgraded {
-		return adminKubeconfigName(dc), nodePort, cutil.NewCondition(string(provisioningv1.ConditionUpgraded), nil, "Upgraded", ""), nil
-	}
-
-	return adminKubeconfigName(dc), nodePort, cutil.NewCondition(string(provisioningv1.ConditionCreated), nil, "Created", ""), nil
+	condition := cm.getClusterCondition(tcp, dc)
+	return adminKubeconfigName(dc), nodePort, condition, nil
 }
 
 func (cm *clusterHandler) reconcileMonitoring(ctx context.Context, dc *provisioningv1.DPUCluster, nodePort int32) error {
@@ -671,6 +725,70 @@ func expectedService(dc *provisioningv1.DPUCluster) *corev1.Service {
 	return svc
 }
 
+func expectedAuditPolicyConfigMap(dc *provisioningv1.DPUCluster, scheme *runtime.Scheme) (*corev1.ConfigMap, error) {
+	nn := kamajiTCPName(dc)
+	auditPolicy := `# Log all requests at the Metadata level.
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+- level: Metadata
+`
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-audit-policy", nn.Name),
+			Namespace: nn.Namespace,
+			Labels: map[string]string{
+				"tenant.clastix.io":                   nn.Name,
+				provisioningv1.DPUClusterNameLabelKey: dc.Name,
+			},
+		},
+		Data: map[string]string{
+			"audit-policy.yaml": auditPolicy,
+		},
+	}
+	if err := controllerutil.SetOwnerReference(dc, cm, scheme); err != nil {
+		return nil, fmt.Errorf("failed to set owner reference, err: %v", err)
+	}
+	return cm, nil
+}
+
+func expectedEventRateLimitConfigMap(dc *provisioningv1.DPUCluster, scheme *runtime.Scheme) (*corev1.ConfigMap, error) {
+	nn := kamajiTCPName(dc)
+	eventRateLimitConfig := `apiVersion: apiserver.config.k8s.io/v1
+kind: AdmissionConfiguration
+plugins:
+- name: EventRateLimit
+  configuration:
+    apiVersion: eventratelimit.admission.k8s.io/v1alpha1
+    kind: Configuration
+    limits:
+    - type: Namespace
+      qps: 500
+      burst: 1000
+      cacheSize: 2000
+    - type: User
+      qps: 500
+      burst: 1000
+`
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-eventratelimit", nn.Name),
+			Namespace: nn.Namespace,
+			Labels: map[string]string{
+				"tenant.clastix.io":                   nn.Name,
+				provisioningv1.DPUClusterNameLabelKey: dc.Name,
+			},
+		},
+		Data: map[string]string{
+			"eventratelimit.yaml": eventRateLimitConfig,
+		},
+	}
+	if err := controllerutil.SetOwnerReference(dc, cm, scheme); err != nil {
+		return nil, fmt.Errorf("failed to set owner reference, err: %v", err)
+	}
+	return cm, nil
+}
+
 func expectedTenantControlPlane(dc *provisioningv1.DPUCluster, scheme *runtime.Scheme, nodePort int32) (*kamajiv1.TenantControlPlane, error) {
 	nn := kamajiTCPName(dc)
 	tcp := &kamajiv1.TenantControlPlane{
@@ -737,6 +855,79 @@ func expectedTenantControlPlane(dc *provisioningv1.DPUCluster, scheme *runtime.S
 							},
 						},
 					},
+					ExtraArgs: &kamajiv1.ControlPlaneExtraArgs{
+						APIServer: []string{
+							"--audit-log-path=/var/log/kubernetes/audit.log",
+							"--audit-policy-file=/etc/kubernetes/audit-policy.yaml",
+							"--audit-log-maxage=30",
+							"--audit-log-maxbackup=10",
+							"--audit-log-maxsize=100",
+							// It can be set to true if the RBAC is enabled. refer to https://kubespray.io/#/docs/operations/hardening
+							"--anonymous-auth=true",
+							"--profiling=false",
+							fmt.Sprintf("--tls-cipher-suites=%s", TLSCipherSuites),
+							"--request-timeout=120s",
+							"--admission-control-config-file=/etc/kubernetes/eventratelimit/eventratelimit.yaml",
+						},
+						ControllerManager: []string{
+							"--profiling=false",
+						},
+						Scheduler: []string{
+							"--profiling=false",
+						},
+					},
+					// Add volumes for audit policy and eventratelimit
+					AdditionalVolumes: []corev1.Volume{
+						{
+							Name: "audit-policy",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: fmt.Sprintf("%s-audit-policy", nn.Name),
+									},
+								},
+							},
+						},
+						{
+							Name: "audit-log",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: fmt.Sprintf("/var/log/kubernetes/kamaji/%s", nn.Name),
+									Type: ptr.To(corev1.HostPathDirectoryOrCreate),
+								},
+							},
+						},
+						{
+							Name: "eventratelimit-config",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: fmt.Sprintf("%s-eventratelimit", nn.Name),
+									},
+								},
+							},
+						},
+					},
+					// Add volume mounts for API server
+					AdditionalVolumeMounts: &kamajiv1.AdditionalVolumeMounts{
+						APIServer: []corev1.VolumeMount{
+							{
+								Name:      "audit-policy",
+								MountPath: "/etc/kubernetes/audit-policy.yaml",
+								SubPath:   "audit-policy.yaml",
+								ReadOnly:  true,
+							},
+							{
+								Name:      "audit-log",
+								MountPath: "/var/log/kubernetes",
+							},
+							{
+								Name:      "eventratelimit-config",
+								MountPath: "/etc/kubernetes/eventratelimit",
+								ReadOnly:  true,
+							},
+						},
+					},
 				},
 				Service: kamajiv1.ServiceSpec{
 					AdditionalMetadata: kamajiv1.AdditionalMetadata{
@@ -754,8 +945,17 @@ func expectedTenantControlPlane(dc *provisioningv1.DPUCluster, scheme *runtime.S
 					PreferredAddressTypes: []kamajiv1.KubeletPreferredAddressType{kamajiv1.NodeInternalIP, kamajiv1.NodeHostName, kamajiv1.NodeExternalIP},
 				},
 				AdmissionControllers: kamajiv1.AdmissionControllers{
-					"ResourceQuota",
+					"NamespaceLifecycle",
 					"LimitRanger",
+					"ServiceAccount",
+					"AlwaysPullImages",
+					"MutatingAdmissionWebhook",
+					"ValidatingAdmissionWebhook",
+					"ResourceQuota",
+					"PodSecurity",
+					"PodNodeSelector",
+					"NodeRestriction",
+					"EventRateLimit",
 				},
 			},
 			Addons: kamajiv1.AddonsSpec{

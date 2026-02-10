@@ -51,6 +51,10 @@ var _ = Describe("DPF System tests - Provisioning", Labels{provisioningLabel}, O
 		VerifyProvisioning(ctx, input)
 	})
 
+	It("Verify Kamaji control plane ExtraArgs", func() {
+		VerifyKamajiControlPlaneExtraArgs(ctx, input)
+	})
+
 	It("Delete all provisioning resources", func() {
 		if skipCleanup {
 			Skip("Skipping deprovisioning tests because skipCleanup is enabled")
