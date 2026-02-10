@@ -235,6 +235,7 @@ write_files:
         [Service]
         Environment="KUBELET_KUBECONFIG_ARGS=--bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf"
         Environment="KUBELET_CONFIG_ARGS=--config=/var/lib/kubelet/config.yaml"
+        Environment="KUBELET_EXTRA_ARGS=--protect-kernel-defaults=true --seccomp-default=true --streaming-connection-idle-timeout=5m0s --event-qps=50"
         EnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env
         EnvironmentFile=-/etc/default/kubelet
         ExecStart=

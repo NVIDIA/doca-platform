@@ -281,6 +281,32 @@ var (
 				Expect(err).NotTo(HaveOccurred())
 				Expect(string(got)).Should(ContainSubstring("pre_bmc_components_update"))
 			})
+
+			It("should generate bf.cfg with kubelet security parameters in systemd service", func() {
+				got, err := Generate(flavor, "test-dpu", "kubeadm join", false, "", string(provisioningv1.InstallViaGNOI), 1500, 2)
+				Expect(err).NotTo(HaveOccurred())
+
+				yamlData := extractYAML(got)
+				parsed := &CloudConfig{}
+				Expect(yaml.Unmarshal(yamlData, parsed)).To(Succeed())
+
+				By("Verifying kubelet service file contains KUBELET_EXTRA_ARGS")
+				found := searchFileContent(parsed, "/etc/systemd/system/kubelet.service.d/10-bf.conf", "KUBELET_EXTRA_ARGS")
+				Expect(found).To(BeTrue(), "Expected KUBELET_EXTRA_ARGS in kubelet service file")
+
+				By("Verifying all four kubelet security parameters are present")
+				found = searchFileContent(parsed, "/etc/systemd/system/kubelet.service.d/10-bf.conf", "--protect-kernel-defaults=true")
+				Expect(found).To(BeTrue(), "Expected --protect-kernel-defaults=true parameter")
+
+				found = searchFileContent(parsed, "/etc/systemd/system/kubelet.service.d/10-bf.conf", "--seccomp-default=true")
+				Expect(found).To(BeTrue(), "Expected --seccomp-default=true parameter")
+
+				found = searchFileContent(parsed, "/etc/systemd/system/kubelet.service.d/10-bf.conf", "--streaming-connection-idle-timeout=5m0s")
+				Expect(found).To(BeTrue(), "Expected --streaming-connection-idle-timeout=5m0s parameter")
+
+				found = searchFileContent(parsed, "/etc/systemd/system/kubelet.service.d/10-bf.conf", "--event-qps=50")
+				Expect(found).To(BeTrue(), "Expected --event-qps=50 parameter")
+			})
 		})
 
 		Describe("multi-nvconfig support", func() {

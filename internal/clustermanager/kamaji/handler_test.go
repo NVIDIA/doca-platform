@@ -17,6 +17,8 @@ limitations under the License.
 package nvidia
 
 import (
+	"fmt"
+
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	testutils "github.com/nvidia/doca-platform/test/utils"
@@ -736,6 +738,149 @@ var _ = Describe("Kamaji Handler - Defaults and Secrets", func() {
 			secrets, err := handler.copyImagePullSecrets(ctx, tenantNS.Name)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(secrets).To(ConsistOf("exists"))
+		})
+	})
+})
+
+var _ = Describe("Kamaji Handler - TenantControlPlane Creation", func() {
+	Context("When calling expectedTenantControlPlane", func() {
+		It("should create TenantControlPlane with correct kube-apiserver ExtraArgs", func() {
+			dpuCluster := &provisioningv1.DPUCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cluster",
+					Namespace: "test-ns",
+				},
+				Spec: provisioningv1.DPUClusterSpec{
+					Type:     string(provisioningv1.KamajiCluster),
+					MaxNodes: 100,
+				},
+			}
+			nodePort := int32(30443)
+
+			tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, nodePort)
+
+			By("Verifying TenantControlPlane was created without error")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tcp).NotTo(BeNil())
+
+			By("Verifying TenantControlPlane metadata")
+			Expect(tcp.Name).To(Equal("test-cluster"))
+			Expect(tcp.Namespace).To(Equal("test-ns"))
+			Expect(tcp.Labels["tenant.clastix.io"]).To(Equal("test-cluster"))
+			Expect(tcp.Labels[provisioningv1.DPUClusterNameLabelKey]).To(Equal("test-cluster"))
+
+			By("Verifying ExtraArgs are set correctly")
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs).NotTo(BeNil())
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).NotTo(BeEmpty())
+
+			By("Verifying audit log parameters")
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--audit-log-path=/var/log/kubernetes/audit.log"))
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--audit-policy-file=/etc/kubernetes/audit-policy.yaml"))
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--audit-log-maxage=30"))
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--audit-log-maxbackup=10"))
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--audit-log-maxsize=100"))
+
+			By("Verifying security parameters")
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--anonymous-auth=true"))
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--profiling=false"))
+
+			By("Verifying TLS cipher suites parameter")
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement(fmt.Sprintf("--tls-cipher-suites=%s", TLSCipherSuites)))
+
+			By("Verifying request timeout parameter")
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--request-timeout=120s"))
+
+			By("Verifying ControllerManager and Scheduler ExtraArgs are initialized")
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.ControllerManager).NotTo(BeNil())
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.Scheduler).NotTo(BeNil())
+
+		})
+
+		It("should create TenantControlPlane with correct kube-controller-manager ExtraArgs", func() {
+			dpuCluster := &provisioningv1.DPUCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cluster-cm",
+					Namespace: "test-ns",
+				},
+				Spec: provisioningv1.DPUClusterSpec{
+					Type:     string(provisioningv1.KamajiCluster),
+					MaxNodes: 100,
+				},
+			}
+			nodePort := int32(30443)
+
+			tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, nodePort)
+
+			By("Verifying TenantControlPlane was created without error")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tcp).NotTo(BeNil())
+
+			By("Verifying ControllerManager ExtraArgs are set correctly")
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs).NotTo(BeNil())
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.ControllerManager).NotTo(BeEmpty())
+
+			By("Verifying controller-manager profiling parameter")
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.ControllerManager).To(ContainElement("--profiling=false"))
+
+		})
+
+		It("should create TenantControlPlane with correct kube-scheduler ExtraArgs", func() {
+			dpuCluster := &provisioningv1.DPUCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cluster-sched",
+					Namespace: "test-ns",
+				},
+				Spec: provisioningv1.DPUClusterSpec{
+					Type:     string(provisioningv1.KamajiCluster),
+					MaxNodes: 100,
+				},
+			}
+			nodePort := int32(30443)
+
+			tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, nodePort)
+
+			By("Verifying TenantControlPlane was created without error")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tcp).NotTo(BeNil())
+
+			By("Verifying Scheduler ExtraArgs are set correctly")
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs).NotTo(BeNil())
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.Scheduler).NotTo(BeEmpty())
+
+			By("Verifying scheduler profiling parameter")
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.Scheduler).To(ContainElement("--profiling=false"))
+
+		})
+
+		It("should create TenantControlPlane with all ExtraArgs configured", func() {
+			dpuCluster := &provisioningv1.DPUCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cluster-all",
+					Namespace: "test-ns",
+				},
+				Spec: provisioningv1.DPUClusterSpec{
+					Type:     string(provisioningv1.KamajiCluster),
+					MaxNodes: 100,
+				},
+			}
+			nodePort := int32(30443)
+
+			tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, nodePort)
+
+			By("Verifying TenantControlPlane was created without error")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tcp).NotTo(BeNil())
+
+			By("Verifying all ExtraArgs components are present")
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs).NotTo(BeNil())
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(HaveLen(10))
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.ControllerManager).To(HaveLen(1))
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.Scheduler).To(HaveLen(1))
+
+			By("Verifying profiling is disabled for all components")
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--profiling=false"))
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.ControllerManager).To(ContainElement("--profiling=false"))
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.Scheduler).To(ContainElement("--profiling=false"))
 		})
 	})
 })
