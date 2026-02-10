@@ -290,28 +290,27 @@ func VerifyProvisioning(ctx context.Context, input *systemTestInput) {
 	Eventually(func(g Gomega) {
 		// Check Deployments with argocd instance label
 		deployments := &appsv1.DeploymentList{}
-		g.Expect(dpuClusterClient[0].List(ctx, deployments, client.HasLabels{argoCDInstanceLabel})).To(Succeed())
+		g.Expect(dpuClusterClient[0].List(ctx, deployments)).To(Succeed())
 
 		found := map[string]bool{}
 		for i := range deployments.Items {
-			instanceLabel := deployments.Items[i].GetLabels()[argoCDInstanceLabel]
-			By(fmt.Sprintf("Found Deployment with argocd instance: %s", instanceLabel))
-			g.Expect(instanceLabel).NotTo(BeEmpty())
-			found[instanceLabel] = true
+			trackingIDAnnotation := deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]
+			By(fmt.Sprintf("Found Deployment with argocd tracking id: %s", trackingIDAnnotation))
+			g.Expect(trackingIDAnnotation).NotTo(BeEmpty())
+			found[trackingIDAnnotation] = true
 		}
 
 		// Check DaemonSets with argocd instance label
 		provInput := getProvisionInput(input)
 		daemonsets := &appsv1.DaemonSetList{}
 		g.Expect(dpuClusterClient[0].List(ctx, daemonsets,
-			client.HasLabels{argoCDInstanceLabel},
 			client.InNamespace(provInput.dpuClusters[0].GetNamespace()))).To(Succeed())
 
 		for i := range daemonsets.Items {
-			instanceLabel := daemonsets.Items[i].GetLabels()[argoCDInstanceLabel]
-			By(fmt.Sprintf("Found DaemonSet with argocd instance: %s", instanceLabel))
-			g.Expect(instanceLabel).NotTo(BeEmpty())
-			found[instanceLabel] = true
+			trackingIDAnnotation := daemonsets.Items[i].GetLabels()[argoCDTrackingIDAnnotation]
+			By(fmt.Sprintf("Found DaemonSet with argocd tracking id: %s", trackingIDAnnotation))
+			g.Expect(trackingIDAnnotation).NotTo(BeEmpty())
+			found[trackingIDAnnotation] = true
 		}
 
 		// Verify expected DPUServices are deployed

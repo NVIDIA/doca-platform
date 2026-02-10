@@ -501,19 +501,21 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 	By("Checking that DPUService objects have been mirrored to the DPUClusters")
 	Eventually(func(g Gomega) {
 		deployments := &appsv1.DeploymentList{}
-		g.Expect(dpuClusterClient[0].List(ctx, deployments, client.HasLabels{argoCDInstanceLabel})).To(Succeed())
+		g.Expect(dpuClusterClient[0].List(ctx, deployments)).To(Succeed())
 		found := map[string]bool{}
 		for i := range deployments.Items {
-			g.Expect(deployments.Items[i].GetLabels()).To(HaveKey(argoCDInstanceLabel))
-			g.Expect(deployments.Items[i].GetLabels()[argoCDInstanceLabel]).NotTo(Equal(""))
-			found[deployments.Items[i].GetLabels()[argoCDInstanceLabel]] = true
+			if _, hasAnnotation := deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]; hasAnnotation {
+				g.Expect(deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]).NotTo(Equal(""))
+				found[deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]] = true
+			}
 		}
 		daemonsets := appsv1.DaemonSetList{}
-		g.Expect(dpuClusterClient[0].List(ctx, &daemonsets, client.HasLabels{argoCDInstanceLabel}, client.InNamespace(input.dpuClusters[0].GetNamespace()))).To(Succeed())
+		g.Expect(dpuClusterClient[0].List(ctx, &daemonsets, client.InNamespace(input.dpuClusters[0].GetNamespace()))).To(Succeed())
 		for i := range daemonsets.Items {
-			g.Expect(daemonsets.Items[i].GetLabels()).To(HaveKey(argoCDInstanceLabel))
-			g.Expect(daemonsets.Items[i].GetLabels()[argoCDInstanceLabel]).NotTo(Equal(""))
-			found[daemonsets.Items[i].GetLabels()[argoCDInstanceLabel]] = true
+			if _, hasAnnotation := daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]; hasAnnotation {
+				g.Expect(daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]).NotTo(Equal(""))
+				found[daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]] = true
+			}
 		}
 
 		// Expect each of the following to have been created by the operator.
