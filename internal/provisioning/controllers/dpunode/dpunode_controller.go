@@ -785,6 +785,8 @@ func (r *DPUNodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(predicate.LabelChangedPredicate{})).
 		Watches(&provisioningv1.DPU{},
 			handler.EnqueueRequestsFromMapFunc(r.dpuToDPUNodeReq)).
+		Watches(&provisioningv1.DPUDevice{},
+			handler.EnqueueRequestsFromMapFunc(r.dpuDeviceToDPUNodeReq)).
 		Watches(&operatorv1.DPFOperatorConfig{},
 			handler.EnqueueRequestsFromMapFunc(r.dpfOperatorConfigToDPUNodeReq)).
 		// Watch ConfigMaps for script reboot method changes
@@ -866,6 +868,24 @@ func (r *DPUNodeReconciler) dpuToDPUNodeReq(ctx context.Context, resource client
 		NamespacedName: types.NamespacedName{
 			Name:      dpu.Spec.DPUNodeName,
 			Namespace: dpu.Namespace,
+		},
+	}}
+}
+
+// dpuDeviceToDPUNodeReq maps DPUDevice changes to the owning DPUNode.
+// This ensures the DPUNode controller is notified when DPUDevices are deleted,
+// so that the DPUNode finalizer can be removed promptly instead of waiting
+// for the periodic cache resync.
+func (r *DPUNodeReconciler) dpuDeviceToDPUNodeReq(_ context.Context, resource client.Object) []reconcile.Request {
+	dpuDevice := resource.(*provisioningv1.DPUDevice)
+	dpuNodeName, ok := dpuDevice.Labels[cutil.DPUNodeNameLabel]
+	if !ok || dpuNodeName == "" {
+		return nil
+	}
+	return []reconcile.Request{{
+		NamespacedName: types.NamespacedName{
+			Name:      dpuNodeName,
+			Namespace: dpuDevice.Namespace,
 		},
 	}}
 }
