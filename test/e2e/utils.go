@@ -121,7 +121,7 @@ var (
 const (
 	configName                 = "dpfoperatorconfig"
 	dpfOperatorSystemNamespace = "dpf-operator-system"
-	argoCDInstanceLabel        = "argocd.argoproj.io/instance"
+	argoCDTrackingIDAnnotation = "argocd.argoproj.io/tracking-id"
 	// ngcPullSecretName is the name of the secret used to pull images from NGC
 	ngcPullSecretName = "ngc-pull-secret"
 	// dpfPullSecretName is the name of the secret that is set in hack/scripts/create-artefact-secrets.sh

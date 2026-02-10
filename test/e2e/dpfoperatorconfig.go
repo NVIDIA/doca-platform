@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -235,10 +236,17 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 			nameForCluster := fmt.Sprintf("%s-%s", clusterName, name)
 			tracker.By(nameForCluster, "verifying overrides for %s", nameForCluster)
 			deployments := appsv1.DeploymentList{}
-			g.Expect(c.List(ctx, &deployments,
-				client.MatchingLabels{argoCDInstanceLabel: nameForCluster})).To(Succeed())
-			g.Expect(deployments.Items).To(HaveLen(1))
-			deployment := deployments.Items[0]
+			g.Expect(c.List(ctx, &deployments)).To(Succeed())
+
+			var matchingDeployments []appsv1.Deployment
+			for _, deploy := range deployments.Items {
+				if strings.HasPrefix(deploy.GetAnnotations()[argoCDTrackingIDAnnotation], nameForCluster) {
+					matchingDeployments = append(matchingDeployments, deploy)
+				}
+			}
+
+			g.Expect(matchingDeployments).To(HaveLen(1))
+			deployment := matchingDeployments[0]
 			for _, container := range deployment.Spec.Template.Spec.Containers {
 				g.Expect(container.Image).To(ContainSubstring(dummyRegistryName))
 				g.Expect(container.Resources).To(BeEquivalentTo(expectedDummyResources))
@@ -261,10 +269,17 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 			nameForCluster := fmt.Sprintf("%s-%s", input.dpuClusters[0].Name, name)
 			tracker.By(nameForCluster, "verifying overrides for %s", nameForCluster)
 			daemonSets := appsv1.DaemonSetList{}
-			g.Expect(dpuClusterClient[0].List(ctx, &daemonSets,
-				client.MatchingLabels{argoCDInstanceLabel: nameForCluster})).To(Succeed())
-			g.Expect(daemonSets.Items).To(HaveLen(1))
-			daemonSet := daemonSets.Items[0]
+			g.Expect(dpuClusterClient[0].List(ctx, &daemonSets)).To(Succeed())
+
+			var matchingDaemonSets []appsv1.DaemonSet
+			for _, ds := range daemonSets.Items {
+				if strings.HasPrefix(ds.GetAnnotations()[argoCDTrackingIDAnnotation], nameForCluster) {
+					matchingDaemonSets = append(matchingDaemonSets, ds)
+				}
+			}
+
+			g.Expect(matchingDaemonSets).To(HaveLen(1))
+			daemonSet := matchingDaemonSets[0]
 			for _, container := range daemonSet.Spec.Template.Spec.Containers {
 				g.Expect(container.Image).To(ContainSubstring(dummyRegistryName))
 				g.Expect(container.Resources).To(BeEquivalentTo(expectedDummyResources))
@@ -487,10 +502,17 @@ func ValidateDPFOperatorPathConfiguration(ctx context.Context, input *systemTest
 		for name := range dpuServiceDaemonSetsWithPathChanges {
 			daemonSets := appsv1.DaemonSetList{}
 			nameForCluster := fmt.Sprintf("%s-%s", input.dpuClusters[0].Name, name)
-			g.Expect(dpuClusterClient[0].List(ctx, &daemonSets,
-				client.MatchingLabels{argoCDInstanceLabel: nameForCluster})).To(Succeed())
-			g.Expect(daemonSets.Items).To(HaveLen(1))
-			volumes := daemonSets.Items[0].Spec.Template.Spec.Volumes
+			g.Expect(dpuClusterClient[0].List(ctx, &daemonSets)).To(Succeed())
+
+			var matchingDaemonSets []appsv1.DaemonSet
+			for _, ds := range daemonSets.Items {
+				if strings.HasPrefix(ds.GetAnnotations()[argoCDTrackingIDAnnotation], nameForCluster) {
+					matchingDaemonSets = append(matchingDaemonSets, ds)
+				}
+			}
+
+			g.Expect(matchingDaemonSets).To(HaveLen(1))
+			volumes := matchingDaemonSets[0].Spec.Template.Spec.Volumes
 			switch name {
 			case operatorv1.SFCControllerName:
 				g.Expect(volumeNameHasPath("ovs", volumes, filepath.Join(modifiedOVSRunPath))).To(BeTrue())
@@ -513,11 +535,11 @@ func ValidateDPFOperatorPathConfiguration(ctx context.Context, input *systemTest
 
 				// Validate that skipCNIConfigInstallation is working correctly
 				// Since we set modifiedFlannelSkipCNIConfig = false, the install-cni init container should be present
-				g.Expect(daemonSets.Items[0].Spec.Template.Spec.InitContainers).To(HaveLen(2), "Flannel should have 2 init containers when skipCNIConfigInstallation is false")
+				g.Expect(matchingDaemonSets[0].Spec.Template.Spec.InitContainers).To(HaveLen(2), "Flannel should have 2 init containers when skipCNIConfigInstallation is false")
 
 				// Find the install-cni init container
 				var foundInstallCNI bool
-				for _, initContainer := range daemonSets.Items[0].Spec.Template.Spec.InitContainers {
+				for _, initContainer := range matchingDaemonSets[0].Spec.Template.Spec.InitContainers {
 					if initContainer.Name == "install-cni" {
 						foundInstallCNI = true
 						// Verify it has the expected command
