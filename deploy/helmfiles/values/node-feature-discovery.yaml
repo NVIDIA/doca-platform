@@ -10,6 +10,16 @@ master:
           - matchExpressions:
               - key: "node-role.kubernetes.io/control-plane"
                 operator: Exists
+  tolerations:
+  # Note: beginning with v0.18.3 the master toleration was dropped from the chart's default values.yaml.
+  - key: "node-role.kubernetes.io/master"
+    operator: "Equal"
+    value: ""
+    effect: "NoSchedule"
+  - key: "node-role.kubernetes.io/control-plane"
+    operator: "Equal"
+    value: ""
+    effect: "NoSchedule"
 worker:
   enable: true
   hostNetwork: true

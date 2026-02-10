@@ -21,12 +21,12 @@ The following table lists all required and optional Helm chart dependencies with
 
 | Helm Chart               | Version | Description                                                                                    | Required | Post/Pre-installation |
 |--------------------------|---------|------------------------------------------------------------------------------------------------|----------|-----------------------|
-| [cert-manager]           | v1.18.1 | Certificate management for Kubernetes, provides automatic TLS certificate issuance and renewal | ✅        | Pre-installation      |
-| [argo-cd]                | 7.8.2   | GitOps continuous delivery tool for Kubernetes, necessary for DPUService integration           | ✅        | Pre-installation      |
-| [node-feature-discovery] | 0.17.1  | Discovers and advertises hardware features and capabilities of DPUs in the cluster             | ✅        | Pre-installation      |
-| [maintenance-operator]   | 0.2.0   | Manages node maintenance operations and ensures graceful handling of node updates              | ✅        | Pre-installation      |
+| [cert-manager]           | v1.19.3 | Certificate management for Kubernetes, provides automatic TLS certificate issuance and renewal | ✅        | Pre-installation      |
+| [argo-cd]                | 9.4.1   | GitOps continuous delivery tool for Kubernetes, necessary for DPUService integration           | ✅        | Pre-installation      |
+| [node-feature-discovery] | 0.18.3  | Discovers and advertises hardware features and capabilities of DPUs in the cluster             | ✅        | Pre-installation      |
+| [maintenance-operator]   | 0.2.3   | Manages node maintenance operations and ensures graceful handling of node updates              | ✅        | Pre-installation      |
 | [kamaji]                 | 1.2.0   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | ❌        | Pre-installation      |
-| [local-path-provisioner] | 0.0.31  | Provides a local storage provisioner for Kubernetes, used for Kamaji etcd storage              | ❌        | Pre-installation      |
+| [local-path-provisioner] | 0.0.34  | Provides a local storage provisioner for Kubernetes, used for Kamaji etcd storage              | ❌        | Pre-installation      |
 | [kube-state-metrics]     | 5.25.1  | Exposes DPF Operator related objects as metrics                                                | ❌        | Post-installation     |
 | [kube-prometheus-stack]  | 80.4.1  | Complete monitoring stack with Prometheus and Grafana for collecting and visualizing metrics   | ❌        | Post-installation     |
 
@@ -181,6 +181,16 @@ master:
           - matchExpressions:
               - key: "node-role.kubernetes.io/control-plane"
                 operator: Exists
+  tolerations:
+  # Note: beginning with v0.18.3 the master toleration was dropped from the chart's default values.yaml.
+  - key: "node-role.kubernetes.io/master"
+    operator: "Equal"
+    value: ""
+    effect: "NoSchedule"
+  - key: "node-role.kubernetes.io/control-plane"
+    operator: "Equal"
+    value: ""
+    effect: "NoSchedule"
 worker:
   enable: true
   hostNetwork: true
