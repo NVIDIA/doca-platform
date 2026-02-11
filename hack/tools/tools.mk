@@ -51,6 +51,20 @@ ifeq ($(TOOL_ARCH),arm64)
   LYCHEE_ARCH_LINUX = aarch64
 endif
 
+ifeq ($(TOOL_OS),linux)
+  TRIVY_OS = Linux
+else ifeq ($(TOOL_OS),darwin)
+  TRIVY_OS = macOS
+endif
+
+ifeq ($(TOOL_ARCH),x86_64)
+  TRIVY_ARCH = 64bit
+else ifeq ($(TOOL_ARCH),arm)
+  TRIVY_ARCH = ARM
+else ifeq ($(TOOL_ARCH),arm64)
+  TRIVY_ARCH = ARM64
+endif
+
 ## Tool Versions
 YQ_VERSION ?= v4.45.1
 HELM_VER ?= v3.18.3
@@ -82,6 +96,7 @@ CODE_GENERATOR_VERSION ?= v0.31.3
 NGC_VERSION ?= 3.64.4
 SHFMT_VERSION ?= v3.11.0
 CHECKOV_VERSION ?= sha256:675d68b0c9043041727bccab8318485118d80531700ec55ed266146bb71c34b8 # version 3.2.497
+TRIVY_VERSION ?= 0.69.0
 
 ## Tool Binaries
 export YQ = $(TOOLSDIR)/yq-$(YQ_VERSION)
@@ -115,6 +130,7 @@ DEEPCOPY_GEN ?= $(TOOLSDIR)/deepcopy-gen-$(CODE_GENERATOR_VERSION)
 NGC_DIR ?= $(TOOLSDIR)/ngc-$(NGC_VERSION)
 NGC ?= $(NGC_DIR)/ngc-cli/ngc
 SHFMT ?= $(TOOLSDIR)/shfmt-$(SHFMT_VERSION)
+TRIVY ?= $(TOOLSDIR)/trivy-$(TRIVY_VERSION)
 
 ##@ Tools
 
@@ -292,7 +308,7 @@ $(KIND): | $(TOOLSDIR)
 	$Q curl -sSL https://kind.sigs.k8s.io/dl/$(KIND_VER)/kind-$(TOOL_OS)-$(KIND_ARCH) -o $(KIND)
 	$Q chmod +x $(KIND)
 
-# lychee is used to run a local Kubernetes cluster in Docker.
+# lychee is used to check links in documentation.
 .PHONY: lychee
 lychee: $(LYCHEE) ## Download lychee locally if necessary.
 	@$(MAKE) tools-path TOOL=lychee VERSION=$(LYCHEE_VER)
@@ -314,6 +330,20 @@ else
 	$Q echo "lychee is only available for linux and arm64 MacOS"
 	$Q exit 1
 endif
+
+# trivy is used to scan container images for vulnerabilities.
+.PHONY: trivy
+trivy: $(TRIVY) ## Download trivy locally if necessary.
+	@$(MAKE) tools-path TOOL=trivy VERSION=$(TRIVY_VERSION)
+$(TRIVY): | $(TOOLSDIR)
+	$Q echo "Installing trivy-$(TRIVY_VERSION) to $(TOOLSDIR)"
+	$Q curl -s -S -L -o $(TOOLSDIR)/trivy.tar.gz "https://github.com/aquasecurity/trivy/releases/download/v$(TRIVY_VERSION)/trivy_$(TRIVY_VERSION)_$(TRIVY_OS)-$(TRIVY_ARCH).tar.gz"
+	$Q mkdir -p "$(TOOLSDIR)/trivy-$(TRIVY_VERSION)-tmp"
+	$Q tar -xf "$(TOOLSDIR)/trivy.tar.gz" -C "$(TOOLSDIR)/trivy-$(TRIVY_VERSION)-tmp" trivy
+	$Q mv "$(TOOLSDIR)/trivy-$(TRIVY_VERSION)-tmp/trivy" $(TRIVY)
+	$Q rm "$(TOOLSDIR)/trivy.tar.gz"
+	$Q rm -rf "$(TOOLSDIR)/trivy-$(TRIVY_VERSION)-tmp"
+	$Q chmod +x "$(TRIVY)"
 
 # helm-docs is used to generate helm chart documentation
 helm-docs: $(HELM_DOCS)
