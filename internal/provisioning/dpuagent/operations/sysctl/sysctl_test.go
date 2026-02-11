@@ -70,11 +70,12 @@ var _ = Describe("Sysctl Operation", func() {
 			By(fmt.Sprintf("tempDir: %s", tempDir))
 			applied := false
 			operation := &SetParams{
-				etcDirectory: filepath.Join(tempDir, "etc"),
-				applyParams:  func() error { applied = true; return nil },
+				etcDirectory:              filepath.Join(tempDir, "etc"),
+				kernelParametersDirectory: filepath.Join(tempDir, "proc", "sys"),
+				applyParams:               func() error { applied = true; return nil },
 			}
 			By("create mock kernel parameters")
-			createMockKernelParameters(filepath.Join(tempDir, "proc", "sys"), []string{
+			createMockKernelParameters(operation.kernelParametersDirectory, []string{
 				"net.ipv4.ip_forward=0",
 				"net.bridge.bridge-nf-call-iptables=0",
 				"net.bridge.bridge-nf-call-ip6tables=0",
@@ -102,14 +103,44 @@ net.bridge.bridge-nf-call-ip6tables=1
 			Expect(applied).To(BeTrue())
 		})
 
+		It("should skip update when all sysctl parameters are already correctly set", func() {
+			applied := false
+			operation := &SetParams{
+				etcDirectory:              filepath.Join(tempDir, "etc"),
+				kernelParametersDirectory: filepath.Join(tempDir, "proc", "sys"),
+				applyParams:               func() error { applied = true; return nil },
+			}
+			By("create mock kernel parameters with correct values")
+			createMockKernelParameters(operation.kernelParametersDirectory, []string{
+				"net.ipv4.ip_forward=1",
+				"net.bridge.bridge-nf-call-iptables=1",
+				"net.bridge.bridge-nf-call-ip6tables=1",
+			})
+			Expect(os.MkdirAll(filepath.Join(operation.etcDirectory, "sysctl.d"), 0755)).To(Succeed())
+
+			By("execute operation")
+			err := operation.Execute(ctx, &operations.Context{
+				DPUFlavor: provisioningv1.DPUFlavor{},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verify that applyParams is NOT called since no update is needed")
+			Expect(applied).To(BeFalse())
+
+			By("verify that sysctl.conf is NOT created since no update is needed")
+			_, err = os.Stat(filepath.Join(operation.etcDirectory, "sysctl.conf"))
+			Expect(os.IsNotExist(err)).To(BeTrue())
+		})
+
 		It("should write user params to /etc/sysctl.d/99-dpf.conf", func() {
 			applied := false
 			operation := &SetParams{
-				etcDirectory: filepath.Join(tempDir, "etc"),
-				applyParams:  func() error { applied = true; return nil },
+				etcDirectory:              filepath.Join(tempDir, "etc"),
+				kernelParametersDirectory: filepath.Join(tempDir, "proc", "sys"),
+				applyParams:               func() error { applied = true; return nil },
 			}
 			By("create mock kernel parameters")
-			createMockKernelParameters(filepath.Join(tempDir, "proc", "sys"), []string{
+			createMockKernelParameters(operation.kernelParametersDirectory, []string{
 				"net.ipv4.ip_forward=1",
 				"net.bridge.bridge-nf-call-iptables=1",
 				"net.bridge.bridge-nf-call-ip6tables=1",
@@ -153,6 +184,90 @@ kernel.panic_on_oops=1
 
 			By("verify that applyParams is called")
 			Expect(applied).To(BeTrue())
+		})
+	})
+
+	Context("appendMandatoryParamsToConf", func() {
+		It("should skip params that already exist in sysctl.conf with exact match", func() {
+			operation := &SetParams{
+				etcDirectory: filepath.Join(tempDir, "etc"),
+			}
+			Expect(os.MkdirAll(operation.etcDirectory, 0755)).To(Succeed())
+
+			By("create sysctl.conf with existing params")
+			existingContent := `net.ipv4.ip_forward=1
+net.bridge.bridge-nf-call-iptables=1
+`
+			Expect(os.WriteFile(filepath.Join(operation.etcDirectory, "sysctl.conf"), []byte(existingContent), 0644)).To(Succeed())
+
+			By("append params where some already exist")
+			err := operation.appendMandatoryParamsToConf([]string{
+				"net.ipv4.ip_forward=1",                 // already exists, should skip
+				"net.bridge.bridge-nf-call-iptables=1",  // already exists, should skip
+				"net.bridge.bridge-nf-call-ip6tables=1", // new, should append
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verify that only new params are appended")
+			content, err := os.ReadFile(filepath.Join(operation.etcDirectory, "sysctl.conf"))
+			Expect(err).NotTo(HaveOccurred())
+			expectedContent := `net.ipv4.ip_forward=1
+net.bridge.bridge-nf-call-iptables=1
+net.bridge.bridge-nf-call-ip6tables=1
+`
+			Expect(string(content)).To(Equal(expectedContent))
+		})
+
+		It("should append params with same key but different value", func() {
+			operation := &SetParams{
+				etcDirectory: filepath.Join(tempDir, "etc"),
+			}
+			Expect(os.MkdirAll(operation.etcDirectory, 0755)).To(Succeed())
+
+			By("create sysctl.conf with params having different values")
+			existingContent := `net.ipv4.ip_forward=0
+`
+			Expect(os.WriteFile(filepath.Join(operation.etcDirectory, "sysctl.conf"), []byte(existingContent), 0644)).To(Succeed())
+
+			By("append params with new values")
+			err := operation.appendMandatoryParamsToConf([]string{
+				"net.ipv4.ip_forward=1", // same key, different value, should append
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verify that new value is appended (sysctl uses the last value)")
+			content, err := os.ReadFile(filepath.Join(operation.etcDirectory, "sysctl.conf"))
+			Expect(err).NotTo(HaveOccurred())
+			expectedContent := `net.ipv4.ip_forward=0
+net.ipv4.ip_forward=1
+`
+			Expect(string(content)).To(Equal(expectedContent))
+		})
+
+		It("should create sysctl.conf if it does not exist", func() {
+			operation := &SetParams{
+				etcDirectory: filepath.Join(tempDir, "etc"),
+			}
+			Expect(os.MkdirAll(operation.etcDirectory, 0755)).To(Succeed())
+
+			By("verify sysctl.conf does not exist")
+			_, err := os.Stat(filepath.Join(operation.etcDirectory, "sysctl.conf"))
+			Expect(os.IsNotExist(err)).To(BeTrue())
+
+			By("append params to non-existent sysctl.conf")
+			err = operation.appendMandatoryParamsToConf([]string{
+				"net.ipv4.ip_forward=1",
+				"net.bridge.bridge-nf-call-iptables=1",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verify that sysctl.conf is created with all params")
+			content, err := os.ReadFile(filepath.Join(operation.etcDirectory, "sysctl.conf"))
+			Expect(err).NotTo(HaveOccurred())
+			expectedContent := `net.ipv4.ip_forward=1
+net.bridge.bridge-nf-call-iptables=1
+`
+			Expect(string(content)).To(Equal(expectedContent))
 		})
 	})
 
