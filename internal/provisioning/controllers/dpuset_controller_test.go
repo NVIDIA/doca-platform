@@ -122,10 +122,10 @@ var _ = Describe("DPUSet", func() {
 				Name:      name,
 				Labels: map[string]string{
 					// these labels should have been added by the DPUNode controller.
-					cutil.DPUDevicePCIAddressLabel: pciAddress,
-					cutil.DPUDeviceNumOfPFsLabel:   "2",
-					cutil.DPUDevicePF0NameLabel:    "pf0",
-					cutil.DPUNodeNameLabel:         dpuNodeName,
+					cutil.DPUDevicePCIAddressLabel:  pciAddress,
+					cutil.DPUDeviceNumOfPFsLabel:    "2",
+					cutil.DPUDevicePF0NameLabel:     "pf0",
+					provisioningv1.DPUNodeNameLabel: dpuNodeName,
 				},
 			},
 			Spec: provisioningv1.DPUDeviceSpec{
