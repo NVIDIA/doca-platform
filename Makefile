@@ -67,16 +67,13 @@ GO_VERSION ?= $(shell awk '/^go /{print $$2}' go.mod | awk -F '.' '{print $$1 ".
 # See the following issue for more details: https://github.com/golang/go/issues/61229#issuecomment-1988965927
 GO_TEST_ARGS ?= -race -ldflags=-linkmode=internal
 
-# CONTAINER_TOOL defines the container tool to be used for building images.
-# Be aware that the target commands are only tested with Docker which is
-# scaffolded by default. However, you might want to replace it to use other
-# tools. (i.e. podman)
-CONTAINER_TOOL ?= docker
-
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
+
+# Contains all image references we expect to push.
+ALL_CONTAINER_IMAGES ?= $(shell awk '/Image:/{print $$2}' < $(RELEASE_FILE))
 
 ##@ General
 
@@ -683,6 +680,11 @@ verify-helmchart-operator: helm-package-operator helm $(ARTIFACTS_RENDERED_HELM_
 	$Q RENDERED_HELM_CHART="$(ARTIFACTS_RENDERED_HELM_CHARTS_DIR)/dpf-operator-$(TAG).yaml" \
 	  HELM_CHART_NAME="dpf-operator" \
 	  hack/scripts/validate-helmchart-checkov.sh
+
+.PHONY: verify-container-images
+verify-container-images: generate-manifests-release-defaults $(TRIVY) ## Verify container images
+	$Q TRIVY=$(TRIVY) hack/scripts/verify-container-images.sh \
+	 $(ALL_CONTAINER_IMAGES)
 
 .PHONY: lint-helm
 lint-helm: lint-helm-dpu-networking lint-helm-dummydpuservice lint-helm-storage
