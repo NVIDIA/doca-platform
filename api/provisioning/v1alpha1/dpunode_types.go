@@ -70,6 +70,12 @@ const (
 	// DPUNodeScriptConfigMapVersionAnnotation stores the ResourceVersion of the ConfigMap
 	// used to create the last script reboot job. Used to detect ConfigMap changes for auto-retry.
 	DPUNodeScriptConfigMapVersionAnnotation = "provisioning.dpu.nvidia.com/dpunode-script-configmap-version"
+	// DPUNodeNameLabel is the label added to the DPU Kubernetes Node that indicates the name of
+	// the DPUNode that this DPU belongs to.
+	DPUNodeNameLabel = "provisioning.dpu.nvidia.com/dpunode-name"
+	// DPUNodeNamespaceLabel is the label added to the DPU Kubernetes Node that indicates
+	// the namespace of the DPUNode that this DPU belongs to.
+	DPUNodeNamespaceLabel = "provisioning.dpu.nvidia.com/dpunode-namespace"
 )
 
 func (ct DPUNodeConditionType) String() string {

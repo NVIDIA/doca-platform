@@ -56,8 +56,6 @@ const (
 	DPUSetNameLabel = DPUProvisioningPrefix + "dpuset-name"
 	// DPUSetNamespaceLabel is the label that indicates the namespace of the DPUSet.
 	DPUSetNamespaceLabel = DPUProvisioningPrefix + "dpuset-namespace"
-	// DPUNodeNameLabel is the label that indicates the name of the DPUNode the DPU is associated with.
-	DPUNodeNameLabel = DPUProvisioningPrefix + "dpunode-name"
 	// DPUDeviceNameLabel is the label that indicates the name of the DPUDevice the DPU is associated with.
 	DPUDeviceNameLabel = DPUProvisioningPrefix + "dpudevice-name"
 	// DPUDevicePCIAddressLabel is the label that indicates the PCI address of the DPU device.
@@ -84,8 +82,10 @@ const (
 	LastAppliedLabelsOnDPUKey = DPUProvisioningPrefix + "last-applied-labels-on-dpu"
 	// ProvisioningComponentLabelKey is the label for the component of the DPU.
 	ProvisioningComponentLabelKey = DPUProvisioningPrefix + "component"
-	// HostNameDPULabelKey is the label added to the DPU Kubernetes Node that indicates the hostname of the host that
-	// this DPU belongs to.
+	// HostNameDPULabelKey is the label added to the DPU Kubernetes Node that indicates the hostname
+	// of the host that this DPU belongs to.
+	// Deprecated: This field is deprecated and will be removed with v26.7.0. Use provisioningv1.DPUNodeNameLabel and
+	// provisioningv1.DPUNodeNamespaceLabel instead.
 	HostNameDPULabelKey = DPUProvisioningPrefix + "host"
 	// SkipDpuProvisioningLabel is the label used to skip DPU provisioning
 	SkipDpuProvisioningLabel = DPUProvisioningPrefix + "skip-dpu-provisioning"

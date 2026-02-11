@@ -18,7 +18,6 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -78,7 +77,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "normal-device-1",
 					Namespace: namespace,
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "normal-dpunode",
+						provisioningv1.DPUNodeNameLabel: "normal-dpunode",
 					},
 				},
 			}
@@ -88,7 +87,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "normal-device-2",
 					Namespace: namespace,
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "normal-dpunode",
+						provisioningv1.DPUNodeNameLabel: "normal-dpunode",
 					},
 				},
 			}
@@ -99,7 +98,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "deleting-device-1",
 					Namespace: namespace,
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "deleting-dpunode",
+						provisioningv1.DPUNodeNameLabel: "deleting-dpunode",
 					},
 				},
 			}
@@ -109,7 +108,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "deleting-device-2",
 					Namespace: namespace,
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "deleting-dpunode",
+						provisioningv1.DPUNodeNameLabel: "deleting-dpunode",
 					},
 				},
 			}
@@ -177,7 +176,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "device-1",
 					Namespace: namespace,
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "dpunode-1",
+						provisioningv1.DPUNodeNameLabel: "dpunode-1",
 					},
 				},
 			}
@@ -187,7 +186,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "device-2",
 					Namespace: namespace,
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "dpunode-2",
+						provisioningv1.DPUNodeNameLabel: "dpunode-2",
 					},
 				},
 			}
@@ -250,7 +249,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "device-1",
 					Namespace: namespace,
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "deleting-node-1",
+						provisioningv1.DPUNodeNameLabel: "deleting-node-1",
 					},
 				},
 			}
@@ -260,7 +259,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "device-2",
 					Namespace: namespace,
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "deleting-node-2",
+						provisioningv1.DPUNodeNameLabel: "deleting-node-2",
 					},
 				},
 			}
@@ -324,7 +323,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "normal-device",
 					Namespace: namespace,
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "labeled-node",
+						provisioningv1.DPUNodeNameLabel: "labeled-node",
 					},
 				},
 			}
@@ -334,7 +333,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "deleting-device",
 					Namespace: namespace,
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "deleting-labeled-node",
+						provisioningv1.DPUNodeNameLabel: "deleting-labeled-node",
 					},
 				},
 			}
@@ -399,8 +398,8 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "normal-device-with-label",
 					Namespace: namespace,
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "normal-node",
-						"device-type":          "accelerator",
+						provisioningv1.DPUNodeNameLabel: "normal-node",
+						"device-type":                   "accelerator",
 					},
 				},
 			}
@@ -410,7 +409,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "normal-device-without-label",
 					Namespace: namespace,
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "normal-node",
+						provisioningv1.DPUNodeNameLabel: "normal-node",
 					},
 				},
 			}
@@ -420,8 +419,8 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "deleting-device-with-label",
 					Namespace: namespace,
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "deleting-node",
-						"device-type":          "accelerator",
+						provisioningv1.DPUNodeNameLabel: "deleting-node",
+						"device-type":                   "accelerator",
 					},
 				},
 			}
@@ -483,7 +482,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "device",
 					Namespace: namespace,
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "recently-deleted-node",
+						provisioningv1.DPUNodeNameLabel: "recently-deleted-node",
 					},
 				},
 			}

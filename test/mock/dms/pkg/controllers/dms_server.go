@@ -119,8 +119,8 @@ func (r *DMSServerReconciler) createDPUDeviceForDPUNode(ctx context.Context, dpu
 			Name:      fmt.Sprintf("%s-device", dpuNode.Name),
 			Namespace: dpfOperatorSystemNamespace,
 			Labels: map[string]string{
-				cutil.DPUNodeNameLabel:         dpuNode.Name,
-				cutil.DPUDevicePCIAddressLabel: "0000-00-00",
+				provisioningv1.DPUNodeNameLabel: dpuNode.Name,
+				cutil.DPUDevicePCIAddressLabel:  "0000-00-00",
 			},
 		},
 		Spec: provisioningv1.DPUDeviceSpec{
@@ -194,7 +194,7 @@ func (r *DMSServerReconciler) createNodeForDPU(ctx context.Context, dpuNode *pro
 	log := ctrllog.FromContext(ctx)
 	// Find the DPUDevices associated with the DPUNode
 	dpus := &provisioningv1.DPUList{}
-	if err := r.Client.List(ctx, dpus, client.MatchingLabels(map[string]string{cutil.DPUNodeNameLabel: dpuNode.Name})); err != nil {
+	if err := r.Client.List(ctx, dpus, client.MatchingLabels(map[string]string{provisioningv1.DPUNodeNameLabel: dpuNode.Name})); err != nil {
 		return err
 	}
 	// Find the DPU associated with the DPUDevices.

@@ -1136,15 +1136,23 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 				hostname = a.Address
 			}
 		}
-		hostNodeName := dpuClusterNode.GetLabels()[util.HostNameDPULabelKey]
-		// If one of address, hostname or nodeName is missing, we skip this Node.
+		dpuNodeName, exists := dpuClusterNode.Labels[provisioningv1.DPUNodeNameLabel]
+		if !exists {
+			// Fall back to deprecated HostNameDPULabel for backward compatibility
+			dpuNodeName, exists = dpuClusterNode.Labels[util.HostNameDPULabelKey]
+			if !exists {
+				log.Error(fmt.Errorf("DPUNode reference to which the node %s in the DPUCluster belongs to not found", dpuClusterNode.Name), "Failed to get DPUNode reference for node in DPUCluster")
+				continue
+			}
+		}
+		// If one of address, hostname or dpuNodeRef is missing, we skip this Node.
 		// We need all information to create a valid Endpoint.
-		if address == "" || hostname == "" || hostNodeName == "" {
+		if address == "" || hostname == "" || dpuNodeName == "" {
 			log.Info("Skipping Node because it has no address or hostname",
 				"Node", klog.KObj(&dpuClusterNode),
 				"address", address,
 				"hostname", hostname,
-				"nodeName", hostNodeName,
+				"dpuNodeName", dpuNodeName,
 			)
 			continue
 		}
@@ -1155,7 +1163,7 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 				Ready: ptr.To(true),
 			},
 			Hostname: &hostname,
-			NodeName: &hostNodeName,
+			NodeName: &dpuNodeName,
 		})
 	}
 
@@ -1848,9 +1856,12 @@ type nodeEventHandler struct {
 func (p *nodeEventHandler) handleNodeEventHelper(ctx context.Context, node *corev1.Node, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
 	log := ctrllog.FromContext(ctx)
 
-	if _, exists := node.Labels[util.HostNameDPULabelKey]; !exists {
-		log.Error(fmt.Errorf("host name not found for node %s", node.Name), "Failed to get host name for node")
-		return
+	// Check for new DPUNodeNameLabel first, fall back to deprecated HostNameDPULabelKey for backward compatibility
+	if _, exists := node.Labels[provisioningv1.DPUNodeNameLabel]; !exists {
+		if _, exists := node.Labels[util.HostNameDPULabelKey]; !exists {
+			log.Error(fmt.Errorf("DPUNode reference label not found for node %s", node.Name), "Failed to get DPUNode reference for node")
+			return
+		}
 	}
 
 	if len(node.Status.Addresses) == 0 {

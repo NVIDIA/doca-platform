@@ -24,6 +24,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/dpuservice"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
@@ -550,7 +551,7 @@ func createHBNService(ctx context.Context, testClient client.Client, node1InDPUC
 func getDPUClusterNodesInOrder(ctx context.Context, client client.Client, dpuClusterClient client.Client) (string, string) {
 	worker1, _ := getTwoWorkerNodeNames(ctx, client)
 	dpuNode1, dpuNode2 := getTwoNodes(ctx, dpuClusterClient)
-	if dpuNode1.ObjectMeta.Labels["provisioning.dpu.nvidia.com/host"] == worker1 {
+	if dpuNode1.ObjectMeta.Labels[provisioningv1.DPUNodeNameLabel] == worker1 {
 		return dpuNode1.Name, dpuNode2.Name
 	} else {
 		return dpuNode2.Name, dpuNode1.Name

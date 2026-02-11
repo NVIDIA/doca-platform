@@ -545,10 +545,11 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx context.Context, input
 	dpuClusterNodes := &corev1.NodeList{}
 	Expect(dpuClusterClient[0].List(ctx, dpuClusterNodes)).To(Succeed())
 
-	// Create a map from DPU cluster node name to host node name using the provisioning.dpu.nvidia.com/host label
+	// Create a map from DPU cluster node name to DPUNode name using the DPUNodeNameLabel label
 	dpuClusterNodeToHostNodeMap := make(map[string]string)
 	for _, node := range dpuClusterNodes.Items {
-		if hostNodeName, ok := node.Labels["provisioning.dpu.nvidia.com/host"]; ok {
+		// The host name and the dpuNode must match as the dpuNode represents the host node.
+		if hostNodeName, ok := node.Labels[provisioningv1.DPUNodeNameLabel]; ok {
 			dpuClusterNodeToHostNodeMap[node.Name] = hostNodeName
 		}
 	}
