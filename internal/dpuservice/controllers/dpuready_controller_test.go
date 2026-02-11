@@ -21,7 +21,6 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	sfcsetcontroller "github.com/nvidia/doca-platform/internal/servicechainset/controllers"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
@@ -56,6 +55,7 @@ const (
 	service1Name  string = "service1"
 	service2Name  string = "service2"
 	service3Name  string = "service3"
+	testNamespace string = "test-namespace"
 )
 
 // setDPUServiceChainReadyStatus sets the Ready condition on a ServiceChain
@@ -198,6 +198,7 @@ func getDPUNodeMaintenanceObjects(namespace, requestor1, requestor2, requestor3 
 var _ = Describe("DPUReadyReconciler", func() {
 	var (
 		workerNode       *corev1.Node
+		dpuNode          *provisioningv1.DPUNode
 		testNS           *corev1.Namespace
 		dpu              *provisioningv1.DPU
 		dpuCluster       provisioningv1.DPUCluster
@@ -215,7 +216,6 @@ var _ = Describe("DPUReadyReconciler", func() {
 
 		By("Creating the namespace for the test")
 		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "dpuready-testns-"}}
-
 		Expect(testClient.Create(ctx, testNS)).To(Succeed())
 		DeferCleanup(testClient.Delete, ctx, testNS)
 
@@ -263,13 +263,28 @@ var _ = Describe("DPUReadyReconciler", func() {
 		Expect(testClient.Create(ctx, workerNode)).To(Succeed())
 		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, workerNode)
 
+		By("Creating a DPUNode")
+		dpuNode = &provisioningv1.DPUNode{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      nodeName,
+				Namespace: testNS.Name,
+			},
+		}
+		Expect(testClient.Create(ctx, dpuNode)).To(Succeed())
+		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuNode)
+
+		By("Setting DPUNode KubeNodeRef")
+		dpuNode.Status.KubeNodeRef = ptr.To(workerNode.Name)
+		Expect(testClient.Status().Update(ctx, dpuNode)).To(Succeed())
+
 		By("Creating a Node in the DPUCluster")
 		nodeInDPUCluster := &corev1.Node{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: dpu.Name,
 				Labels: map[string]string{
-					cutil.HostNameDPULabelKey: workerNode.Name,
-					dpuEnabledLabelKey:        dpuEnabledLabelValue,
+					provisioningv1.DPUNodeNameLabel:      dpuNode.Name,
+					provisioningv1.DPUNodeNamespaceLabel: testNS.Name,
+					dpuEnabledLabelKey:                   dpuEnabledLabelValue,
 				},
 			},
 			Status: corev1.NodeStatus{
@@ -391,9 +406,9 @@ var _ = Describe("DPUReadyReconciler", func() {
 
 			By("Triggering node reconcile")
 			Eventually(func(g Gomega) {
-				updatedNode := &corev1.Node{}
-				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
-				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
+				updatedDPUNode := &provisioningv1.DPUNode{}
+				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: dpuNode.Name, Namespace: testNS.Name}, updatedDPUNode)).To(Succeed())
+				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedDPUNode)).To(Succeed())
 			}).WithTimeout(5 * time.Second).Should(Succeed())
 
 			By("Verifying the requestor was removed from DPUNodeMaintenance")
@@ -1605,7 +1620,8 @@ var _ = Describe("DPUReadyReconciler", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: dpu2.Name,
 					Labels: map[string]string{
-						cutil.HostNameDPULabelKey: workerNode.Name,
+						provisioningv1.DPUNodeNameLabel:      dpuNode.Name,
+						provisioningv1.DPUNodeNamespaceLabel: testNS.Name,
 					},
 				},
 				Status: corev1.NodeStatus{
@@ -1775,7 +1791,8 @@ var _ = Describe("DPUReadyReconciler", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: dpu2.Name,
 					Labels: map[string]string{
-						cutil.HostNameDPULabelKey: workerNode.Name,
+						provisioningv1.DPUNodeNameLabel:      dpuNode.Name,
+						provisioningv1.DPUNodeNamespaceLabel: testNS.Name,
 					},
 				},
 				Status: corev1.NodeStatus{
@@ -2431,13 +2448,13 @@ var _ = Describe("podPredicate", func() {
 
 var _ = Describe("podEventHandler", func() {
 	var (
-		handler      *podEventHandler
-		queue        workqueue.TypedRateLimitingInterface[ctrl.Request]
-		hostNodeName string
+		handler     *podEventHandler
+		queue       workqueue.TypedRateLimitingInterface[ctrl.Request]
+		dpuNodeName string
 	)
 
 	BeforeEach(func() {
-		hostNodeName = "host-node" // nolint:goconst
+		dpuNodeName = "dpu-node" // nolint:goconst
 		handler = &podEventHandler{
 			client: testClient,
 		}
@@ -2457,7 +2474,8 @@ var _ = Describe("podEventHandler", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "dpu-node",
 					Labels: map[string]string{
-						cutil.HostNameDPULabelKey: hostNodeName,
+						provisioningv1.DPUNodeNameLabel:      dpuNodeName,
+						provisioningv1.DPUNodeNamespaceLabel: testNamespace,
 					},
 				},
 			}
@@ -2476,7 +2494,7 @@ var _ = Describe("podEventHandler", func() {
 			}
 
 			// Call the helper
-			enqueueHostNodeFromDPUNode(ctx, handler.client, pod.Spec.NodeName, queue)
+			enqueueDPUNodeFromNodeInDPUCluster(ctx, handler.client, pod.Spec.NodeName, testNamespace, queue)
 
 			// Verify the host node was enqueued
 			Eventually(func() bool {
@@ -2486,7 +2504,7 @@ var _ = Describe("podEventHandler", func() {
 				}
 				defer queue.Done(item)
 
-				return item.Name == hostNodeName && item.Namespace == ""
+				return item.Name == dpuNodeName && item.Namespace == testNamespace
 			}).Should(BeTrue())
 		})
 
@@ -2503,7 +2521,7 @@ var _ = Describe("podEventHandler", func() {
 			}
 
 			// Call the helper
-			enqueueHostNodeFromDPUNode(ctx, handler.client, pod.Spec.NodeName, queue)
+			enqueueDPUNodeFromNodeInDPUCluster(ctx, handler.client, pod.Spec.NodeName, testNamespace, queue)
 
 			// Verify nothing was enqueued
 			Consistently(func() int {
@@ -2536,7 +2554,7 @@ var _ = Describe("podEventHandler", func() {
 			}
 
 			// Call the helper
-			enqueueHostNodeFromDPUNode(ctx, handler.client, pod.Spec.NodeName, queue)
+			enqueueDPUNodeFromNodeInDPUCluster(ctx, handler.client, pod.Spec.NodeName, testNamespace, queue)
 
 			// Verify nothing was enqueued
 			Consistently(func() int {
@@ -2552,7 +2570,8 @@ var _ = Describe("podEventHandler", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "dpu-node",
 					Labels: map[string]string{
-						cutil.HostNameDPULabelKey: hostNodeName,
+						provisioningv1.DPUNodeNameLabel:      dpuNodeName,
+						provisioningv1.DPUNodeNamespaceLabel: testNamespace,
 					},
 				},
 			}
@@ -2587,7 +2606,7 @@ var _ = Describe("podEventHandler", func() {
 				}
 				defer queue.Done(item)
 
-				return item.Name == hostNodeName && item.Namespace == ""
+				return item.Name == dpuNodeName && item.Namespace == testNamespace
 			}).Should(BeTrue())
 		})
 
@@ -2622,7 +2641,8 @@ var _ = Describe("podEventHandler", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "dpu-node",
 					Labels: map[string]string{
-						cutil.HostNameDPULabelKey: hostNodeName,
+						provisioningv1.DPUNodeNameLabel:      dpuNodeName,
+						provisioningv1.DPUNodeNamespaceLabel: testNamespace,
 					},
 				},
 			}
@@ -2656,7 +2676,7 @@ var _ = Describe("podEventHandler", func() {
 				}
 				defer queue.Done(item)
 
-				return item.Name == hostNodeName && item.Namespace == ""
+				return item.Name == dpuNodeName && item.Namespace == testNamespace
 			}).Should(BeTrue())
 		})
 
@@ -2738,7 +2758,8 @@ var _ = Describe("podEventHandler", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "dpu-node",
 					Labels: map[string]string{
-						cutil.HostNameDPULabelKey: hostNodeName,
+						provisioningv1.DPUNodeNameLabel:      dpuNodeName,
+						provisioningv1.DPUNodeNamespaceLabel: testNamespace,
 					},
 				},
 			}
@@ -2772,7 +2793,7 @@ var _ = Describe("podEventHandler", func() {
 				}
 				defer queue.Done(item)
 
-				return item.Name == hostNodeName && item.Namespace == ""
+				return item.Name == dpuNodeName && item.Namespace == testNamespace
 			}).Should(BeTrue())
 		})
 
@@ -2824,14 +2845,14 @@ var _ = Describe("podEventHandler", func() {
 
 var _ = Describe("serviceChainEventHandler", func() {
 	var (
-		handler      *serviceChainEventHandler
-		queue        workqueue.TypedRateLimitingInterface[ctrl.Request]
-		hostNodeName string
-		nodeName     string
+		handler     *serviceChainEventHandler
+		queue       workqueue.TypedRateLimitingInterface[ctrl.Request]
+		dpuNodeName string
+		nodeName    string
 	)
 
 	BeforeEach(func() {
-		hostNodeName = "host-node" // nolint:goconst
+		dpuNodeName = "dpu-node" // nolint:goconst
 		nodeName = "dpu-node"
 		handler = &serviceChainEventHandler{
 			client: testClient,
@@ -2852,7 +2873,8 @@ var _ = Describe("serviceChainEventHandler", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: nodeName,
 					Labels: map[string]string{
-						cutil.HostNameDPULabelKey: hostNodeName,
+						provisioningv1.DPUNodeNameLabel:      dpuNodeName,
+						provisioningv1.DPUNodeNamespaceLabel: testNamespace,
 					},
 				},
 			}
@@ -2871,7 +2893,7 @@ var _ = Describe("serviceChainEventHandler", func() {
 			}
 
 			// Call the helper
-			enqueueHostNodeFromDPUNode(ctx, handler.client, *serviceChain.Spec.Node, queue)
+			enqueueDPUNodeFromNodeInDPUCluster(ctx, handler.client, *serviceChain.Spec.Node, testNamespace, queue)
 
 			// Verify the host node was enqueued
 			Eventually(func() bool {
@@ -2881,7 +2903,7 @@ var _ = Describe("serviceChainEventHandler", func() {
 				}
 				defer queue.Done(item)
 
-				return item.Name == hostNodeName && item.Namespace == ""
+				return item.Name == dpuNodeName && item.Namespace == testNamespace
 			}).Should(BeTrue())
 		})
 
@@ -2899,7 +2921,7 @@ var _ = Describe("serviceChainEventHandler", func() {
 			}
 
 			// Call the helper
-			enqueueHostNodeFromDPUNode(ctx, handler.client, *serviceChain.Spec.Node, queue)
+			enqueueDPUNodeFromNodeInDPUCluster(ctx, handler.client, *serviceChain.Spec.Node, testNamespace, queue)
 
 			// Verify nothing was enqueued
 			Consistently(func() int {
@@ -2932,7 +2954,7 @@ var _ = Describe("serviceChainEventHandler", func() {
 			}
 
 			// Call the helper
-			enqueueHostNodeFromDPUNode(ctx, handler.client, *serviceChain.Spec.Node, queue)
+			enqueueDPUNodeFromNodeInDPUCluster(ctx, handler.client, *serviceChain.Spec.Node, testNamespace, queue)
 
 			// Verify nothing was enqueued
 			Consistently(func() int {
@@ -2948,7 +2970,8 @@ var _ = Describe("serviceChainEventHandler", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: nodeName,
 					Labels: map[string]string{
-						cutil.HostNameDPULabelKey: hostNodeName,
+						provisioningv1.DPUNodeNameLabel:      dpuNodeName,
+						provisioningv1.DPUNodeNamespaceLabel: testNamespace,
 					},
 				},
 			}
@@ -2982,7 +3005,7 @@ var _ = Describe("serviceChainEventHandler", func() {
 				}
 				defer queue.Done(item)
 
-				return item.Name == hostNodeName && item.Namespace == ""
+				return item.Name == dpuNodeName && item.Namespace == testNamespace
 			}).Should(BeTrue())
 		})
 
@@ -3016,7 +3039,8 @@ var _ = Describe("serviceChainEventHandler", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: nodeName,
 					Labels: map[string]string{
-						cutil.HostNameDPULabelKey: hostNodeName,
+						provisioningv1.DPUNodeNameLabel:      dpuNodeName,
+						provisioningv1.DPUNodeNamespaceLabel: testNamespace,
 					},
 				},
 			}
@@ -3051,7 +3075,7 @@ var _ = Describe("serviceChainEventHandler", func() {
 				}
 				defer queue.Done(item)
 
-				return item.Name == hostNodeName && item.Namespace == ""
+				return item.Name == dpuNodeName && item.Namespace == testNamespace
 			}).Should(BeTrue())
 		})
 
@@ -3086,7 +3110,8 @@ var _ = Describe("serviceChainEventHandler", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: nodeName,
 					Labels: map[string]string{
-						cutil.HostNameDPULabelKey: hostNodeName,
+						provisioningv1.DPUNodeNameLabel:      dpuNodeName,
+						provisioningv1.DPUNodeNamespaceLabel: testNamespace,
 					},
 				},
 			}
@@ -3120,7 +3145,7 @@ var _ = Describe("serviceChainEventHandler", func() {
 				}
 				defer queue.Done(item)
 
-				return item.Name == hostNodeName && item.Namespace == ""
+				return item.Name == dpuNodeName && item.Namespace == testNamespace
 			}).Should(BeTrue())
 		})
 
@@ -3154,7 +3179,8 @@ var _ = Describe("serviceChainEventHandler", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: nodeName,
 					Labels: map[string]string{
-						cutil.HostNameDPULabelKey: hostNodeName,
+						provisioningv1.DPUNodeNameLabel:      dpuNodeName,
+						provisioningv1.DPUNodeNamespaceLabel: testNamespace,
 					},
 				},
 			}
@@ -3188,7 +3214,7 @@ var _ = Describe("serviceChainEventHandler", func() {
 				}
 				defer queue.Done(item)
 
-				return item.Name == hostNodeName && item.Namespace == ""
+				return item.Name == dpuNodeName && item.Namespace == testNamespace
 			}).Should(BeTrue())
 		})
 

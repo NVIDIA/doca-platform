@@ -265,7 +265,7 @@ var _ = Describe("DPU", func() {
 				Namespace: namespace,
 				Name:      name,
 				Labels: map[string]string{
-					cutil.DPUNodeNameLabel: DefaultNode,
+					provisioningv1.DPUNodeNameLabel: DefaultNode,
 				},
 			},
 			Spec: provisioningv1.DPUDeviceSpec{

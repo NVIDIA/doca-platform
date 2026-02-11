@@ -26,7 +26,6 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	testutils "github.com/nvidia/doca-platform/test/utils"
@@ -129,8 +128,9 @@ var _ = Describe("DPUService Controller", func() {
 					Name: "dpu-node-1",
 					Labels: map[string]string{
 						// key is the nodeSelector used in the DPUService.
-						"key":                    "dpu-node-1",
-						util.HostNameDPULabelKey: "node-1",
+						"key":                                "dpu-node-1",
+						provisioningv1.DPUNodeNameLabel:      "node-1",
+						provisioningv1.DPUNodeNamespaceLabel: "test-namespace",
 					},
 				},
 			}
@@ -142,8 +142,9 @@ var _ = Describe("DPUService Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "dpu-node-2",
 					Labels: map[string]string{
-						"non-matching":           "random",
-						util.HostNameDPULabelKey: "node-2",
+						"non-matching":                       "random",
+						provisioningv1.DPUNodeNameLabel:      "node-2",
+						provisioningv1.DPUNodeNamespaceLabel: "test-namespace",
 					},
 				},
 			}
@@ -2618,7 +2619,8 @@ func newTestNode(name, hostNodeName string) *corev1.Node {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
-				util.HostNameDPULabelKey: hostNodeName,
+				provisioningv1.DPUNodeNameLabel:      hostNodeName,
+				provisioningv1.DPUNodeNamespaceLabel: "test-namespace",
 			},
 		},
 		Status: corev1.NodeStatus{
@@ -2653,7 +2655,7 @@ var _ = Describe("nodeEventHandler", func() {
 		Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, dpfOperatorConfig))).To(Succeed())
 		DeferCleanup(testClient.Delete, ctx, dpfOperatorConfig)
 
-		hostNodeName = "host-node" // nolint:goconst
+		hostNodeName = "test-namespace_host-node" // nolint:goconst
 		handler = &nodeEventHandler{
 			hostClient: testManager.GetClient(), // Use the manager's client which has the indexers registered
 		}
@@ -2704,7 +2706,8 @@ var _ = Describe("nodeEventHandler", func() {
 			DeferCleanup(testClient.Delete, ctx, dpuService)
 
 			node := newTestNode("dpu-node-no-label", hostNodeName)
-			delete(node.Labels, util.HostNameDPULabelKey)
+			delete(node.Labels, provisioningv1.DPUNodeNameLabel)
+			delete(node.Labels, provisioningv1.DPUNodeNamespaceLabel)
 			node.Labels["other-key"] = "value"
 
 			Consistently(func() int {

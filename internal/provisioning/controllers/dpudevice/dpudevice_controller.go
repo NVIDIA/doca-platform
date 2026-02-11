@@ -157,7 +157,7 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 			for _, dpu := range dpuNode.Spec.DPUs {
 				if strings.EqualFold(dpu.Name, dpuDevice.Name) {
 					conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceNodeAttached)
-					dpuDevice.Labels[cutil.DPUNodeNameLabel] = dpuNode.Name
+					dpuDevice.Labels[provisioningv1.DPUNodeNameLabel] = dpuNode.Name
 					dpuNodeFound = true
 					break
 				}

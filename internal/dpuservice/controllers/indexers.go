@@ -34,6 +34,8 @@ const (
 	dpuNodeNameField = "spec.dpuNodeName"
 	// dpuNodeMaintenanceDPUNodeNameField is the field indexer for DPUNodeMaintenance resources by DPUNode name
 	dpuNodeMaintenanceDPUNodeNameField = "spec.dpuNodeName"
+	// dpuNodeKubeNodeRefField is the field indexer for DPUNode resources by KubeNodeRef
+	dpuNodeKubeNodeRefField = "status.kubeNodeRef"
 	// dpuServiceDeployInClusterField is the field indexer for DPUService resources by deployment location (true for in cluster, false for DPU)
 	dpuServiceDeployInClusterField = "spec.deployInCluster"
 	// dpuServiceConfigPortsField is the field indexer for DPUService resources by whether ConfigPorts is set
@@ -58,6 +60,17 @@ func SetupIndexers(ctx context.Context, mgr ctrl.Manager) error {
 		return []string{dpuNodeMaintenance.Spec.DPUNodeName}
 	}); err != nil {
 		return fmt.Errorf("failed to register indexer for DPUNodeMaintenance CR: %w", err)
+	}
+
+	// Set up the index for DPUNode lookups by KubeNodeRef
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &provisioningv1.DPUNode{}, dpuNodeKubeNodeRefField, func(obj client.Object) []string {
+		dpuNode := obj.(*provisioningv1.DPUNode)
+		if dpuNode.Status.KubeNodeRef == nil {
+			return nil
+		}
+		return []string{*dpuNode.Status.KubeNodeRef}
+	}); err != nil {
+		return fmt.Errorf("failed to register indexer for DPUNode KubeNodeRef: %w", err)
 	}
 
 	// Set up the index for DPUService lookups by deployInCluster
