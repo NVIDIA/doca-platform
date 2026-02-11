@@ -170,7 +170,7 @@ func createDPUNodeMaintenance(ctx context.Context, k8sClient client.Client, name
 			Name:      name,
 			Namespace: dpu.Namespace,
 			Labels: map[string]string{
-				cutil.DPUNodeNameLabel: dpu.Spec.DPUNodeName,
+				provisioningv1.DPUNodeNameLabel: dpu.Spec.DPUNodeName,
 			},
 			Annotations: map[string]string{
 				// this annotation is only used to store the service additional requestors

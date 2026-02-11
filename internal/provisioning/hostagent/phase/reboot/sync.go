@@ -29,7 +29,6 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
@@ -291,7 +290,7 @@ func (r *Handler) getDPUNodeWithClient(ctx context.Context) (*provisioningv1.DPU
 func (r *Handler) listDPUWithClient(ctx context.Context) ([]provisioningv1.DPU, error) {
 	dpus := &provisioningv1.DPUList{}
 	if err := r.List(ctx, dpus, client.MatchingLabels{
-		cutil.DPUNodeNameLabel: r.getNodeNameFunc(),
+		provisioningv1.DPUNodeNameLabel: r.getNodeNameFunc(),
 	}); err != nil {
 		return nil, fmt.Errorf("failed to list DPUs, err: %v", err)
 	}
