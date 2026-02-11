@@ -93,6 +93,9 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 		Spec: corev1.PodSpec{
 			ServiceAccountName: DMSServiceAccountName,
 			HostNetwork:        true,
+			// HostPID is required so the hostagent can use nsenter to execute
+			// host binaries (e.g. nmstatectl) from the host's mount namespace.
+			HostPID:            true,
 			DNSPolicy:          corev1.DNSClusterFirstWithHostNet,
 			PriorityClassName:  SystemNodeCriticalPriorityClass,
 			Containers: []corev1.Container{
