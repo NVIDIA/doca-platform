@@ -1200,7 +1200,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Name:      "test-dpudevice",
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
 					},
 				},
 			}
@@ -1229,7 +1229,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Name:      "test-dpudevice",
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "",
+						provisioningv1.DPUNodeNameLabel: "",
 					},
 				},
 			}
@@ -1259,7 +1259,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Name:      "test-dpudevice",
 					Namespace: "custom-namespace",
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
 					},
 				},
 			}
@@ -2555,7 +2555,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Name:      "test-dpu-1",
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
 					},
 				},
 				Spec: provisioningv1.DPUSpec{
@@ -2567,7 +2567,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Name:      "test-dpu-2",
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
 					},
 				},
 				Spec: provisioningv1.DPUSpec{
@@ -2623,7 +2623,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Name:      "test-dpudevice-1",
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
 					},
 				},
 				Spec: provisioningv1.DPUDeviceSpec{},
@@ -2633,7 +2633,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Name:      "test-dpudevice-2",
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
 					},
 				},
 				Spec: provisioningv1.DPUDeviceSpec{},
@@ -2718,7 +2718,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Namespace:  "test-namespace",
 					Finalizers: []string{"some-other-finalizer"}, // This prevents immediate deletion
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
 					},
 				},
 				Spec: provisioningv1.DPUDeviceSpec{},
@@ -2760,7 +2760,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Namespace:  "test-namespace",
 					Finalizers: []string{"test-finalizer"}, // Prevent immediate deletion in fake client
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
 					},
 				},
 				Spec: provisioningv1.DPUSpec{
@@ -2835,7 +2835,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Name:      "test-dpu",
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
 					},
 				},
 				Spec: provisioningv1.DPUSpec{
@@ -2850,7 +2850,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Name:      "test-dpudevice",
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
 					},
 				},
 				Spec: provisioningv1.DPUDeviceSpec{},
@@ -2903,7 +2903,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Name:      "test-dpu-1",
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode-1",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode-1",
 					},
 				},
 				Spec: provisioningv1.DPUSpec{
@@ -2915,7 +2915,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Name:      "test-dpu-2",
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode-2",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode-2",
 					},
 				},
 				Spec: provisioningv1.DPUSpec{
@@ -3067,7 +3067,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Name:      "test-dpudevice",
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
 					},
 				},
 				Spec: provisioningv1.DPUDeviceSpec{},
@@ -3235,7 +3235,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Name:      "test-dpunode",
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
 					},
 				},
 				Status: provisioningv1.DPUNodeStatus{
@@ -3254,7 +3254,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 					Name:      "test-dpu",
 					Namespace: "test-namespace",
 					Labels: map[string]string{
-						cutil.DPUNodeNameLabel: "test-dpunode",
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
 					},
 				},
 				Spec: provisioningv1.DPUSpec{

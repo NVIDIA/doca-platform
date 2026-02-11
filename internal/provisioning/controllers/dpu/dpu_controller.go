@@ -321,7 +321,7 @@ func (r *DPUReconciler) dpuNodeToDPU(ctx context.Context, obj client.Object) []r
 	dpuNode := obj.(*provisioningv1.DPUNode)
 	dpuList := provisioningv1.DPUList{}
 	if err := r.ctrlCtx.Client.List(ctx, &dpuList,
-		client.MatchingLabels{cutil.DPUNodeNameLabel: dpuNode.Name},
+		client.MatchingLabels{provisioningv1.DPUNodeNameLabel: dpuNode.Name},
 		client.InNamespace(dpuNode.Namespace)); err != nil {
 		log.FromContext(ctx).Error(fmt.Errorf("failed to list DPUs, err: %v", err), "")
 		return nil

@@ -171,7 +171,7 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 	// Delete the NodeEffectInProgress condition if there is no DPUNodeMaintenance for this DPUNode
 	dpunodemaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
 	dpunodemaintenanceExists := true
-	if err := r.List(ctx, dpunodemaintenanceList, client.MatchingLabels{cutil.DPUNodeNameLabel: dpuNode.Name}); err != nil {
+	if err := r.List(ctx, dpunodemaintenanceList, client.MatchingLabels{provisioningv1.DPUNodeNameLabel: dpuNode.Name}); err != nil {
 		return ctrl.Result{}, err
 	}
 	if len(dpunodemaintenanceList.Items) == 0 {
@@ -197,7 +197,7 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 func (r *DPUNodeReconciler) handleDeletionAndFinalizer(ctx context.Context, dpuNode *provisioningv1.DPUNode) error {
 	if !dpuNode.DeletionTimestamp.IsZero() {
 		dpus := &provisioningv1.DPUList{}
-		if err := r.List(ctx, dpus, client.MatchingLabels{cutil.DPUNodeNameLabel: dpuNode.Name}); err != nil {
+		if err := r.List(ctx, dpus, client.MatchingLabels{provisioningv1.DPUNodeNameLabel: dpuNode.Name}); err != nil {
 			return err
 		}
 		for _, dpu := range dpus.Items {
@@ -206,7 +206,7 @@ func (r *DPUNodeReconciler) handleDeletionAndFinalizer(ctx context.Context, dpuN
 			}
 		}
 		dpuDevices := &provisioningv1.DPUDeviceList{}
-		if err := r.List(ctx, dpuDevices, client.MatchingLabels{cutil.DPUNodeNameLabel: dpuNode.Name}); err != nil {
+		if err := r.List(ctx, dpuDevices, client.MatchingLabels{provisioningv1.DPUNodeNameLabel: dpuNode.Name}); err != nil {
 			return err
 		}
 		if len(dpuDevices.Items) == 0 {
@@ -280,7 +280,7 @@ func (r *DPUNodeReconciler) noneDPUInNodeEffectOrRebooting(ctx context.Context, 
 		}
 
 		dpus := &provisioningv1.DPUList{}
-		if err := r.List(ctx, dpus, client.MatchingLabels{cutil.DPUNodeNameLabel: dpuNode.Name}); err != nil {
+		if err := r.List(ctx, dpus, client.MatchingLabels{provisioningv1.DPUNodeNameLabel: dpuNode.Name}); err != nil {
 			return err
 		}
 		if len(dpus.Items) == 0 {
@@ -878,7 +878,7 @@ func (r *DPUNodeReconciler) dpuToDPUNodeReq(ctx context.Context, resource client
 // for the periodic cache resync.
 func (r *DPUNodeReconciler) dpuDeviceToDPUNodeReq(_ context.Context, resource client.Object) []reconcile.Request {
 	dpuDevice := resource.(*provisioningv1.DPUDevice)
-	dpuNodeName, ok := dpuDevice.Labels[cutil.DPUNodeNameLabel]
+	dpuNodeName, ok := dpuDevice.Labels[provisioningv1.DPUNodeNameLabel]
 	if !ok || dpuNodeName == "" {
 		return nil
 	}

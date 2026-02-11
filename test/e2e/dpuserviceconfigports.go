@@ -26,7 +26,6 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/dummydpuservice"
-	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -124,7 +123,7 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) 
 func getDPUIPForHost(ctx context.Context, c client.Client, nodeName string) (string, error) {
 	var dpuList provisioningv1.DPUList
 	if err := c.List(ctx, &dpuList, client.MatchingLabels{
-		cutil.DPUNodeNameLabel: nodeName,
+		provisioningv1.DPUNodeNameLabel: nodeName,
 	}); err != nil {
 		return "", err
 	}

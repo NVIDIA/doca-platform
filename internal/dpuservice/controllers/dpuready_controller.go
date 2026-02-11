@@ -40,11 +40,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -52,8 +54,10 @@ import (
 
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list
+// +kubebuilder:rbac:groups=operator.dpu.nvidia.com,resources=dpfoperatorconfigs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuservices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus,verbs=get;list;watch
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodemaintenances,verbs=get;list;watch;update;patch
 
 type DPUReadyReconciler struct {
@@ -82,7 +86,7 @@ const (
 
 // SetupWithManager configures the controller with the manager and sets up required indexes and predicates
 func (r *DPUReadyReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	p := predicate.NewPredicateFuncs(func(o client.Object) bool {
+	nodePredicate := predicate.NewPredicateFuncs(func(o client.Object) bool {
 		node, ok := o.(*corev1.Node)
 		if !ok {
 			return false
@@ -105,7 +109,8 @@ func (r *DPUReadyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	})
 
 	c, err := ctrl.NewControllerManagedBy(mgr).
-		For(&corev1.Node{}, builder.WithPredicates(p)).
+		For(&provisioningv1.DPUNode{}).
+		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.nodeToDPUNodeReq), builder.WithPredicates(nodePredicate)).
 		Build(r)
 	if err != nil {
 		return err
@@ -114,33 +119,54 @@ func (r *DPUReadyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return nil
 }
 
-// Reconcile handles the reconciliation of Node objects for DPU readiness
-func (r *DPUReadyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	node := corev1.Node{}
+// nodeToDPUNodeReq maps Node changes to DPUNode reconcile requests using the KubeNodeRef index
+func (r *DPUReadyReconciler) nodeToDPUNodeReq(ctx context.Context, obj client.Object) []reconcile.Request {
+	node := obj.(*corev1.Node)
 	log := ctrllog.FromContext(ctx)
-	log.Info("Reconciling node", "node", req.Name)
-	if err := r.Get(ctx, req.NamespacedName, &node); err != nil {
+
+	dpuNodeList := &provisioningv1.DPUNodeList{}
+	if err := r.List(ctx, dpuNodeList, client.MatchingFields{dpuNodeKubeNodeRefField: node.Name}); err != nil {
+		log.Error(err, "Failed to list DPUNodes for node", "node", node.Name)
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(dpuNodeList.Items))
+	for _, dpuNode := range dpuNodeList.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: client.ObjectKeyFromObject(&dpuNode),
+		})
+	}
+	return requests
+}
+
+// Reconcile handles the reconciliation of DPUNode objects for DPU readiness
+func (r *DPUReadyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	dpuNode := provisioningv1.DPUNode{}
+	log := ctrllog.FromContext(ctx)
+	log.Info("Reconciling DPUNode", "dpuNode", req.NamespacedName)
+	if err := r.Get(ctx, req.NamespacedName, &dpuNode); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// Return early if the object is getting deleted
-	if !node.ObjectMeta.DeletionTimestamp.IsZero() {
+	if !dpuNode.ObjectMeta.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}
 
-	return r.reconcile(ctx, &node)
+	return r.reconcile(ctx, &dpuNode)
 }
 
 type reconcileScope struct {
-	node           *corev1.Node
+	dpuNode        *provisioningv1.DPUNode
+	node           *corev1.Node // nil in zero-trust mode
 	dpuList        []provisioningv1.DPU
 	dpuServiceList *dpuservicev1.DPUServiceList
 }
 
-func (r *DPUReadyReconciler) newReconcileScope(ctx context.Context, node *corev1.Node) (*reconcileScope, error) {
-	dpuList, err := r.getDPUsByNodeName(ctx, node.Name)
+func (r *DPUReadyReconciler) newReconcileScope(ctx context.Context, dpuNode *provisioningv1.DPUNode) (*reconcileScope, error) {
+	dpuList, err := r.getDPUsByDPUNode(ctx, dpuNode)
 	if err != nil {
-		return nil, fmt.Errorf("could not get the dpunode from node: %w", err)
+		return nil, fmt.Errorf("could not get the DPUs for DPUNode: %w", err)
 	}
 
 	dpuServiceList := &dpuservicev1.DPUServiceList{}
@@ -150,15 +176,25 @@ func (r *DPUReadyReconciler) newReconcileScope(ctx context.Context, node *corev1
 		return nil, fmt.Errorf("failed to list DPUServices: %w", err)
 	}
 
+	// Fetch the corev1.Node only if KubeNodeRef is set (host-trusted mode)
+	var node *corev1.Node
+	if name := ptr.Deref(dpuNode.Status.KubeNodeRef, ""); name != "" {
+		node = &corev1.Node{}
+		if err := r.Get(ctx, client.ObjectKey{Name: name}, node); err != nil {
+			return nil, fmt.Errorf("failed to get Node %s: %w", name, err)
+		}
+	}
+
 	return &reconcileScope{
+		dpuNode:        dpuNode,
 		node:           node,
 		dpuList:        dpuList,
 		dpuServiceList: dpuServiceList,
 	}, nil
 }
 
-func (r *DPUReadyReconciler) reconcile(ctx context.Context, node *corev1.Node) (ctrl.Result, error) {
-	scope, err := r.newReconcileScope(ctx, node)
+func (r *DPUReadyReconciler) reconcile(ctx context.Context, dpuNode *provisioningv1.DPUNode) (ctrl.Result, error) {
+	scope, err := r.newReconcileScope(ctx, dpuNode)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -178,6 +214,11 @@ func (r *DPUReadyReconciler) reconcile(ctx context.Context, node *corev1.Node) (
 // It returns the list of ready DPUServices
 func (r *DPUReadyReconciler) reconcileDPUReadyTaints(ctx context.Context, scope *reconcileScope) error {
 	if r.DisableDPUReadyTaints {
+		return nil
+	}
+
+	// Skip taint operations in zero-trust mode (when there's no corev1.Node)
+	if scope.node == nil {
 		return nil
 	}
 
@@ -203,7 +244,7 @@ func (r *DPUReadyReconciler) reconcileDPUReadyTaints(ctx context.Context, scope 
 }
 
 func (r *DPUReadyReconciler) reconcileDPUNodeMaintenance(ctx context.Context, scope *reconcileScope) error {
-	dpuNodeMaintenances, err := r.getDPUNodeMaintenanceObjects(ctx, scope.node)
+	dpuNodeMaintenances, err := r.getDPUNodeMaintenanceObjects(ctx, scope.dpuNode)
 	if err != nil {
 		return fmt.Errorf("failed to get DPUNodeMaintenance objects: %w", err)
 	}
@@ -213,7 +254,7 @@ func (r *DPUReadyReconciler) reconcileDPUNodeMaintenance(ctx context.Context, sc
 	}
 
 	if err := r.patchDPUNodeMaintenanceObjects(ctx, scope, dpuNodeMaintenances); err != nil {
-		return fmt.Errorf("failed to patch DPUNodeMaintenance objects for node %s: %w", scope.node.Name, err)
+		return fmt.Errorf("failed to patch DPUNodeMaintenance objects for DPUNode %s: %w", scope.dpuNode.Name, err)
 	}
 
 	return nil
@@ -306,10 +347,10 @@ func (r *DPUReadyReconciler) getCriticalDPUServiceList(dpuServiceList *dpuservic
 	return criticalDPUServices
 }
 
-func (r *DPUReadyReconciler) getDPUNodeMaintenanceObjects(ctx context.Context, node *corev1.Node) ([]*provisioningv1.DPUNodeMaintenance, error) {
-	// Get all the DPUNodeMaintenance objects related to this node
+func (r *DPUReadyReconciler) getDPUNodeMaintenanceObjects(ctx context.Context, dpuNode *provisioningv1.DPUNode) ([]*provisioningv1.DPUNodeMaintenance, error) {
+	// Get all the DPUNodeMaintenance objects related to this DPUNode
 	dpuNodeMaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
-	if err := r.Client.List(ctx, dpuNodeMaintenanceList, client.MatchingFields{dpuNodeMaintenanceDPUNodeNameField: node.Name}); err != nil {
+	if err := r.Client.List(ctx, dpuNodeMaintenanceList, client.MatchingFields{dpuNodeMaintenanceDPUNodeNameField: dpuNode.Name}); err != nil {
 		return nil, fmt.Errorf("failed to list DPUNodeMaintenance objects: %w", err)
 	}
 
@@ -319,7 +360,7 @@ func (r *DPUReadyReconciler) getDPUNodeMaintenanceObjects(ctx context.Context, n
 			readyObjects = append(readyObjects, &dpuNodeMaintenanceList.Items[i])
 		}
 	}
-	// Return early if there are no DPUNodeMaintenance objects for this node
+	// Return early if there are no DPUNodeMaintenance objects for this DPUNode
 	if len(readyObjects) == 0 {
 		return nil, nil
 	}
@@ -327,19 +368,16 @@ func (r *DPUReadyReconciler) getDPUNodeMaintenanceObjects(ctx context.Context, n
 	return readyObjects, nil
 }
 
-// getDPUsByNodeName retrieves the DPU objects associated with a given host node name
-func (r *DPUReadyReconciler) getDPUsByNodeName(ctx context.Context, nodeName string) ([]provisioningv1.DPU, error) {
+// getDPUsByDPUNode retrieves the DPU objects associated with a given DPUNode
+func (r *DPUReadyReconciler) getDPUsByDPUNode(ctx context.Context, dpuNode *provisioningv1.DPUNode) ([]provisioningv1.DPU, error) {
 	selector := dpuselector.New(dpuselector.WithIndexerField{FieldName: dpuNodeNameField})
-	dpus, err := selector.ListDPUsForNode(ctx, r.Client, &provisioningv1.DPUNode{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: nodeName,
-		}})
+	dpus, err := selector.ListDPUsForNode(ctx, r.Client, dpuNode)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(dpus) == 0 {
-		return nil, fmt.Errorf("no DPU found for node name %s", nodeName)
+		return nil, fmt.Errorf("no DPU found for DPUNode %s", dpuNode.Name)
 	}
 
 	return dpus, nil
@@ -694,10 +732,15 @@ func isCriticalServiceReady(servicesStatus map[string]bool, criticalServices []d
 
 // WatchServicePods sets up watches for service pods in DPU clusters that have a service id label
 func (r *DPUReadyReconciler) WatchServicePods(ctx context.Context, c client.Client, cluster client.ObjectKey) (dpucluster.Watcher, error) {
+	// This is done once per DPUCluster during registration.
+	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, r.Client)
+	if err != nil {
+		return nil, err
+	}
 	return dpucluster.NewWatcher(dpucluster.WatcherOptions{
 		Name:         "dpuready-pod-watcher",
 		Kind:         &corev1.Pod{},
-		EventHandler: &podEventHandler{client: c},
+		EventHandler: &podEventHandler{client: c, dpuNodeDefaultNamespace: dpfOperatorConfig.Namespace},
 		Predicates: []predicate.Predicate{
 			// filter only pods with DPFServiceIDLabelKey (critical service pods)
 			newLabelPredicate(),
@@ -713,10 +756,14 @@ func (r *DPUReadyReconciler) WatchServicePods(ctx context.Context, c client.Clie
 
 // WatchServiceChains sets up watches for ServiceChain objects in DPU clusters
 func (r *DPUReadyReconciler) WatchServiceChains(ctx context.Context, c client.Client, cluster client.ObjectKey) (dpucluster.Watcher, error) {
+	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, r.Client)
+	if err != nil {
+		return nil, err
+	}
 	return dpucluster.NewWatcher(dpucluster.WatcherOptions{
 		Name:         "dpuready-servicechain-watcher",
 		Kind:         &dpuservicev1.ServiceChain{},
-		EventHandler: &serviceChainEventHandler{client: c},
+		EventHandler: &serviceChainEventHandler{client: c, dpuNodeDefaultNamespace: dpfOperatorConfig.Namespace},
 		Watcher:      r.controller,
 	}), nil
 }
@@ -779,35 +826,49 @@ func getPodReadyCondition(pod *corev1.Pod) corev1.ConditionStatus {
 	return corev1.ConditionUnknown
 }
 
-// enqueueHostNodeFromDPUNode retrieves the host node name from the DPU node labels and enqueues a request
-func enqueueHostNodeFromDPUNode(ctx context.Context, c client.Client, dpuNodeName string, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+// enqueueDPUNodeFromNodeInDPUCluster retrieves the dpuNode name from the DPU node labels and enqueues a request
+// for the corresponding DPUNode.
+func enqueueDPUNodeFromNodeInDPUCluster(ctx context.Context, c client.Client, nodeName string, dpuNodeDefaultNamespace string, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
 	log := ctrllog.FromContext(ctx)
 
 	// Get the node from the DPU cluster
 	node := &corev1.Node{}
-	if err := c.Get(ctx, client.ObjectKey{Name: dpuNodeName}, node); err != nil {
-		log.Error(err, "Failed to get node from DPU cluster", "name", dpuNodeName)
+	if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, node); err != nil {
+		log.Error(err, "Failed to get node from DPU cluster", "name", nodeName)
 		return
 	}
 
-	// Find the host node name from the node labels
-	host, exists := node.Labels[cutil.HostNameDPULabelKey]
+	// Use new DPUNodeNameLabel and DPUNodeNamespaceLabel, fall back to deprecated HostNameDPULabelKey for backward compatibility
+	dpuNodeName, exists := node.Labels[provisioningv1.DPUNodeNameLabel]
+	dpuNodeNamespace := node.Labels[provisioningv1.DPUNodeNamespaceLabel]
 	if !exists {
-		log.Error(fmt.Errorf("host name not found for node %s", node.Name), "Failed to get host name for node")
-		return
+		dpuNodeName, exists = node.Labels[cutil.HostNameDPULabelKey]
+		if !exists {
+			log.Error(fmt.Errorf("DPUNode reference to which the node %s in the DPUCluster belongs to not found", node.Name), "Failed to get DPUNode reference for node in DPUCluster")
+			return
+		}
+		dpuNodeNamespace = dpuNodeDefaultNamespace
 	}
 
-	enqueueRequests([]reconcile.Request{{NamespacedName: client.ObjectKey{Name: host}}}, q)
+	// Enqueue request for DPUNode
+	enqueueRequests([]reconcile.Request{{NamespacedName: client.ObjectKey{
+		Namespace: dpuNodeNamespace,
+		Name:      dpuNodeName,
+	}}}, q)
 }
 
 // podEventHandler is a handler for pod events
 type podEventHandler struct {
 	client client.Client
+	// dpuNodeDefaultNamespace is the default namespace where to look for the DPUNode.
+	// Name and namespace labels are expected on dpucluster corev1.Node objects.
+	// It can happen that only the name label is present, in which case the default namespace is used.
+	dpuNodeDefaultNamespace string
 }
 
 func (p *podEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
 	if pod, ok := e.Object.(*corev1.Pod); ok {
-		enqueueHostNodeFromDPUNode(ctx, p.client, pod.Spec.NodeName, q)
+		enqueueDPUNodeFromNodeInDPUCluster(ctx, p.client, pod.Spec.NodeName, p.dpuNodeDefaultNamespace, q)
 	} else {
 		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a Pod but got a %T", e.Object), "Failed to convert object")
 	}
@@ -815,7 +876,7 @@ func (p *podEventHandler) Create(ctx context.Context, e event.CreateEvent, q wor
 
 func (p *podEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
 	if pod, ok := e.ObjectNew.(*corev1.Pod); ok {
-		enqueueHostNodeFromDPUNode(ctx, p.client, pod.Spec.NodeName, q)
+		enqueueDPUNodeFromNodeInDPUCluster(ctx, p.client, pod.Spec.NodeName, p.dpuNodeDefaultNamespace, q)
 	} else {
 		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a Pod but got a %T", e.ObjectNew), "Failed to convert object")
 	}
@@ -823,7 +884,7 @@ func (p *podEventHandler) Update(ctx context.Context, e event.UpdateEvent, q wor
 
 func (p *podEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
 	if pod, ok := e.Object.(*corev1.Pod); ok {
-		enqueueHostNodeFromDPUNode(ctx, p.client, pod.Spec.NodeName, q)
+		enqueueDPUNodeFromNodeInDPUCluster(ctx, p.client, pod.Spec.NodeName, p.dpuNodeDefaultNamespace, q)
 	} else {
 		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a Pod but got a %T", e.Object), "Failed to convert object")
 	}
@@ -837,12 +898,16 @@ func (p *podEventHandler) Generic(ctx context.Context, e event.GenericEvent, q w
 // serviceChainEventHandler is a handler for ServiceChain events
 type serviceChainEventHandler struct {
 	client client.Client
+	// dpuNodeDefaultNamespace is the default namespace where to look for the DPUNode.
+	// Name and namespace labels are expected on dpucluster corev1.Node objects.
+	// It can happen that only the name label is present, in which case the default namespace is used.
+	dpuNodeDefaultNamespace string
 }
 
 func (s *serviceChainEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
 	if sc, ok := e.Object.(*dpuservicev1.ServiceChain); ok {
 		if sc.Spec.Node != nil {
-			enqueueHostNodeFromDPUNode(ctx, s.client, *sc.Spec.Node, q)
+			enqueueDPUNodeFromNodeInDPUCluster(ctx, s.client, *sc.Spec.Node, s.dpuNodeDefaultNamespace, q)
 		}
 	} else {
 		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a ServiceChain but got a %T", e.Object), "Failed to convert object")
@@ -852,7 +917,7 @@ func (s *serviceChainEventHandler) Create(ctx context.Context, e event.CreateEve
 func (s *serviceChainEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
 	if sc, ok := e.ObjectNew.(*dpuservicev1.ServiceChain); ok {
 		if sc.Spec.Node != nil {
-			enqueueHostNodeFromDPUNode(ctx, s.client, *sc.Spec.Node, q)
+			enqueueDPUNodeFromNodeInDPUCluster(ctx, s.client, *sc.Spec.Node, s.dpuNodeDefaultNamespace, q)
 		}
 	} else {
 		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a ServiceChain but got a %T", e.ObjectNew), "Failed to convert object")
@@ -862,7 +927,7 @@ func (s *serviceChainEventHandler) Update(ctx context.Context, e event.UpdateEve
 func (s *serviceChainEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
 	if sc, ok := e.Object.(*dpuservicev1.ServiceChain); ok {
 		if sc.Spec.Node != nil {
-			enqueueHostNodeFromDPUNode(ctx, s.client, *sc.Spec.Node, q)
+			enqueueDPUNodeFromNodeInDPUCluster(ctx, s.client, *sc.Spec.Node, s.dpuNodeDefaultNamespace, q)
 		}
 	} else {
 		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a ServiceChain but got a %T", e.Object), "Failed to convert object")
@@ -872,7 +937,7 @@ func (s *serviceChainEventHandler) Delete(ctx context.Context, e event.DeleteEve
 func (s *serviceChainEventHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
 	if sc, ok := e.Object.(*dpuservicev1.ServiceChain); ok {
 		if sc.Spec.Node != nil {
-			enqueueHostNodeFromDPUNode(ctx, s.client, *sc.Spec.Node, q)
+			enqueueDPUNodeFromNodeInDPUCluster(ctx, s.client, *sc.Spec.Node, s.dpuNodeDefaultNamespace, q)
 		}
 	} else {
 		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a ServiceChain but got a %T", e.Object), "Failed to convert object")

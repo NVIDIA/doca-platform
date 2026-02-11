@@ -71,7 +71,7 @@ func ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster(ctx context.Co
 			//nolint:staticcheck // Using deprecated field until it's removed
 			NodeSelector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"kubernetes.io/hostname": dpuDevices.Items[i].Labels["provisioning.dpu.nvidia.com/dpunode-name"],
+					"kubernetes.io/hostname": dpuDevices.Items[i].Labels[provisioningv1.DPUNodeNameLabel],
 				},
 			},
 		}
@@ -108,7 +108,7 @@ func ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster(ctx context.Co
 	By("Verifying DPUs joined the correct clusters")
 	for i, dpuCluster := range input.dpuClusters {
 		dpuDevice := &dpuDevices.Items[i]
-		expectedHost := dpuDevice.Labels["provisioning.dpu.nvidia.com/dpunode-name"]
+		expectedHost := dpuDevice.Labels[provisioningv1.DPUNodeNameLabel]
 		By(fmt.Sprintf("Verifying DPU from DPUDevice %s (host: %s) joined DPUCluster %s", dpuDevice.Name, expectedHost, dpuCluster.Name))
 
 		Eventually(func(g Gomega) {
@@ -118,9 +118,9 @@ func ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster(ctx context.Co
 			g.Expect(nodes.Items).To(HaveLen(1), fmt.Sprintf("DPUCluster %s should have exactly 1 node", dpuCluster.Name))
 
 			node := nodes.Items[0]
-			hostLabel, exists := node.Labels["provisioning.dpu.nvidia.com/host"]
-			g.Expect(exists).To(BeTrue(), fmt.Sprintf("Node %s in DPUCluster %s must have label provisioning.dpu.nvidia.com/host", node.Name, dpuCluster.Name))
-			g.Expect(hostLabel).To(Equal(expectedHost), fmt.Sprintf("Node %s in DPUCluster %s must have host label value %s", node.Name, dpuCluster.Name, expectedHost))
+			dpuNodeLabel, exists := node.Labels[provisioningv1.DPUNodeNameLabel]
+			g.Expect(exists).To(BeTrue(), fmt.Sprintf("Node %s in DPUCluster %s must have label %s", node.Name, dpuCluster.Name, provisioningv1.DPUNodeNameLabel))
+			g.Expect(dpuNodeLabel).To(Equal(expectedHost), fmt.Sprintf("Node %s in DPUCluster %s must have host label value %s", node.Name, dpuCluster.Name, expectedHost))
 		}).WithTimeout(5 * time.Minute).Should(Succeed())
 	}
 }

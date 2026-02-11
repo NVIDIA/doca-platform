@@ -142,7 +142,7 @@ func (n *NodeManager) initDPUDevices() ([]*provisioningv1.DPUDevice, error) {
 				Name:      dpuDeviceCRName(device),
 				Namespace: hostutil.DPFNamespace,
 				Labels: map[string]string{
-					cutil.DPUNodeNameLabel: nodeName,
+					provisioningv1.DPUNodeNameLabel: nodeName,
 				},
 			},
 			Spec: provisioningv1.DPUDeviceSpec{

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
 	"github.com/nvidia/doca-platform/test/utils/dpuservice"
 	"github.com/nvidia/doca-platform/test/utils/metrics"
@@ -366,7 +367,7 @@ func getDPUNodesInOrder(ctx context.Context, input *systemTestInput) (corev1.Nod
 	worker1, _ := getTwoWorkerNodeNames(ctx, input.client)
 	dpuNodes := getDPUClusterNodes(ctx, dpuClusterClient[0])
 	Expect(dpuNodes).To(HaveLen(2))
-	if dpuNodes[0].ObjectMeta.Labels["provisioning.dpu.nvidia.com/host"] == worker1 {
+	if dpuNodes[0].ObjectMeta.Labels[provisioningv1.DPUNodeNameLabel] == worker1 {
 		return dpuNodes[0], dpuNodes[1]
 	} else {
 		return dpuNodes[1], dpuNodes[0]

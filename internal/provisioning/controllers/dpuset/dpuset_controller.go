@@ -354,9 +354,9 @@ func (r *DPUSetReconciler) getDPUDeviceMap(ctx context.Context, dpuSet *provisio
 		selector := deviceSelector.DeepCopySelector()
 		// Select DPUDevices belonging to the given DPUNode
 		// DPUNodeNameLabel is required. Lack of it means many other labels are also missing, creating DPU for such DPUDevice ends up with failure
-		nodeReq, err := labels.NewRequirement(cutil.DPUNodeNameLabel, selection.Equals, []string{node.Name})
+		nodeReq, err := labels.NewRequirement(provisioningv1.DPUNodeNameLabel, selection.Equals, []string{node.Name})
 		if err != nil {
-			return nil, fmt.Errorf("invalid requirement for key %s: %w", cutil.DPUNodeNameLabel, err)
+			return nil, fmt.Errorf("invalid requirement for key %s: %w", provisioningv1.DPUNodeNameLabel, err)
 		}
 		selector = selector.Add(*nodeReq)
 		listOptions := client.ListOptions{
@@ -392,15 +392,15 @@ func (r *DPUSetReconciler) GetDPUsMap(ctx context.Context, dpuSet *provisioningv
 
 func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuDevice *provisioningv1.DPUDevice) error {
 	logger := log.FromContext(ctx)
-	dpuNodeName, ok := dpuDevice.Labels[cutil.DPUNodeNameLabel]
+	dpuNodeName, ok := dpuDevice.Labels[provisioningv1.DPUNodeNameLabel]
 	if !ok {
-		return fmt.Errorf("missing label %s on DPUDevice %s", cutil.DPUNodeNameLabel, dpuDevice.Name)
+		return fmt.Errorf("missing label %s on DPUDevice %s", provisioningv1.DPUNodeNameLabel, dpuDevice.Name)
 	}
 	labels := map[string]string{
-		cutil.DPUSetNameLabel:      dpuSet.Name,
-		cutil.DPUSetNamespaceLabel: dpuSet.Namespace,
-		cutil.DPUDeviceNameLabel:   dpuDevice.Name,
-		cutil.DPUNodeNameLabel:     dpuNodeName,
+		cutil.DPUSetNameLabel:           dpuSet.Name,
+		cutil.DPUSetNamespaceLabel:      dpuSet.Namespace,
+		cutil.DPUDeviceNameLabel:        dpuDevice.Name,
+		provisioningv1.DPUNodeNameLabel: dpuNodeName,
 	}
 	for k, v := range dpuSet.Labels {
 		labels[k] = v
@@ -418,7 +418,8 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 			clusterNodeLabels[k] = v
 		}
 	}
-	clusterNodeLabels[cutil.HostNameDPULabelKey] = dpuNodeName
+	clusterNodeLabels[provisioningv1.DPUNodeNameLabel] = dpuNodeName
+	clusterNodeLabels[provisioningv1.DPUNodeNamespaceLabel] = dpuDevice.Namespace
 	clusterNodeLabels[release.DPFVersionLabelKey] = release.DPFVersion()
 
 	dpu := &provisioningv1.DPU{
