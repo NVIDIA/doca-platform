@@ -520,7 +520,7 @@ func (c *Client) AddBridge(ctx context.Context, bridgeConfig BridgeConfig) error
 
 // DeleteBridge deletes a bridge from OVSDB.
 // OVSDB automatically garbage collects orphaned ports and interfaces when a bridge is deleted.
-// The bridge reference is also automatically removed from Open_vSwitch.Bridges.
+// The bridge reference should first be removed from Open_vSwitch.Bridges.
 // This matches the behavior of `ovs-vsctl del-br`.
 func (c *Client) DeleteBridge(ctx context.Context, name string) error {
 	// Get the bridge
@@ -533,13 +533,31 @@ func (c *Client) DeleteBridge(ctx context.Context, name string) error {
 		return fmt.Errorf("failed to get bridge %s: %v", name, err)
 	}
 
-	// Delete the bridge itself (OVSDB handles parent reference cleanup automatically)
+	// Open_vSwitch.bridges holds a set of Bridge UUIDs. The Bridge row cannot be deleted
+	// while its UUID is still in that set. We must remove it first, then delete the bridge.
+	ovsRow, err := c.GetOpenVSwitch(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get Open_vSwitch row: %v", err)
+	}
+	mutateOps, err := c.Where(ovsRow).Mutate(
+		ovsRow,
+		model.Mutation{
+			Field:   &ovsRow.Bridges,
+			Mutator: ovsdb.MutateOperationDelete,
+			Value:   []string{bridge.UUID},
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create mutate operations for bridge %s: %v", name, err)
+	}
+
 	deleteBridgeOps, err := c.Where(bridge).Delete()
 	if err != nil {
 		return fmt.Errorf("failed to create delete operations for bridge %s: %v", name, err)
 	}
 
-	return c.executeDeleteOperations(ctx, deleteBridgeOps, name)
+	operations := append(mutateOps, deleteBridgeOps...)
+	return c.executeDeleteOperations(ctx, operations, name)
 }
 
 func (c *Client) executeDeleteOperations(ctx context.Context, operations []ovsdb.Operation, bridgeName string) error {

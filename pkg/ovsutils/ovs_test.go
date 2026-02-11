@@ -877,6 +877,81 @@ var _ = Describe("OVSUtils", func() {
 				Expect(err.Error()).To(ContainSubstring("failed to get bridge"))
 			})
 
+			It("should fail when GetOpenVSwitch fails", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						bridge := model.(*ovsmodel.Bridge)
+						bridge.UUID = bridgeUUID
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					Return(errors.New("list failed"))
+
+				err := client.DeleteBridge(ctx, "br-test")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to get Open_vSwitch row"))
+			})
+
+			It("should fail when Mutate returns error", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						bridge := model.(*ovsmodel.Bridge)
+						bridge.UUID = bridgeUUID
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]*ovsmodel.OpenvSwitch)
+						*ptr = []*ovsmodel.OpenvSwitch{{UUID: "ovs-uuid"}}
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any()).
+					Return(nil, errors.New("mutate failed"))
+
+				err := client.DeleteBridge(ctx, "br-test")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to create mutate operations"))
+			})
+
+			It("should fail when Delete returns error", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						bridge := model.(*ovsmodel.Bridge)
+						bridge.UUID = bridgeUUID
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]*ovsmodel.OpenvSwitch)
+						*ptr = []*ovsmodel.OpenvSwitch{{UUID: "ovs-uuid"}}
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI).
+					Times(2)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
+				mockConditionalAPI.EXPECT().
+					Delete().
+					Return(nil, errors.New("delete failed"))
+
+				err := client.DeleteBridge(ctx, "br-test")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to create delete operations"))
+			})
+
 			It("should delete bridge with no ports", func() {
 				// Mock Get for bridge
 				mockOVSClient.EXPECT().
@@ -884,20 +959,27 @@ var _ = Describe("OVSUtils", func() {
 					DoAndReturn(func(ctx context.Context, model interface{}) error {
 						bridge := model.(*ovsmodel.Bridge)
 						bridge.UUID = bridgeUUID
-						bridge.Ports = []string{} // No ports
+						bridge.Ports = []string{}
 						return nil
 					})
-
-				// Mock Where for bridge deletion
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]*ovsmodel.OpenvSwitch)
+						*ptr = []*ovsmodel.OpenvSwitch{{UUID: "ovs-uuid"}}
+						return nil
+					})
+				// Mock Where for bridge mutation and deletion
 				mockOVSClient.EXPECT().
 					Where(gomock.Any()).
-					Return(mockConditionalAPI)
-
+					Return(mockConditionalAPI).
+					Times(2)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
 				mockConditionalAPI.EXPECT().
 					Delete().
 					Return([]ovsdb.Operation{}, nil)
-
-				// Mock Transact
 				mockOVSClient.EXPECT().
 					Transact(gomock.Any(), gomock.Any()).
 					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
@@ -916,12 +998,21 @@ var _ = Describe("OVSUtils", func() {
 						bridge.Ports = []string{"port-uuid-1"} // Ports exist but will be GC'd
 						return nil
 					})
-
-				// Mock Where for bridge deletion
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]*ovsmodel.OpenvSwitch)
+						*ptr = []*ovsmodel.OpenvSwitch{{UUID: "ovs-uuid"}}
+						return nil
+					})
+				// Mock Where for bridge mutation and deletion
 				mockOVSClient.EXPECT().
 					Where(gomock.Any()).
-					Return(mockConditionalAPI)
-
+					Return(mockConditionalAPI).
+					Times(2)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
 				mockConditionalAPI.EXPECT().
 					Delete().
 					Return([]ovsdb.Operation{}, nil)
@@ -945,12 +1036,21 @@ var _ = Describe("OVSUtils", func() {
 						bridge.Ports = []string{}
 						return nil
 					})
-
-				// Mock Where for bridge deletion
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]*ovsmodel.OpenvSwitch)
+						*ptr = []*ovsmodel.OpenvSwitch{{UUID: "ovs-uuid"}}
+						return nil
+					})
+				// Mock Where for bridge mutation and deletion
 				mockOVSClient.EXPECT().
 					Where(gomock.Any()).
-					Return(mockConditionalAPI)
-
+					Return(mockConditionalAPI).
+					Times(2)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
 				mockConditionalAPI.EXPECT().
 					Delete().
 					Return([]ovsdb.Operation{}, nil)
