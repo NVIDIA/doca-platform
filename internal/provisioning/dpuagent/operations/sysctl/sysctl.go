@@ -78,8 +78,9 @@ func (s *CheckParams) Execute(execCtx context.Context, optCtx *operations.Contex
 }
 
 type SetParams struct {
-	etcDirectory string
-	applyParams  func() error
+	etcDirectory              string
+	kernelParametersDirectory string
+	applyParams               func() error
 }
 
 func (s *SetParams) Name() string {
@@ -102,8 +103,19 @@ func (s *SetParams) Execute(execCtx context.Context, optCtx *operations.Context)
 	if s.etcDirectory == "" {
 		s.etcDirectory = defaultEtcDirectory
 	}
-	// To maintain consistent behavior with old cloud-init versions,
-	// append mandatory parameters to sysctl.conf regardless of whether they match the current values.
+	if s.kernelParametersDirectory == "" {
+		s.kernelParametersDirectory = defaultKernelParametersDirectory
+	}
+	allParams := append(mandatoryParams, optCtx.DPUFlavor.Spec.Sysctl.Parameters...)
+	needUpdate, err := isUpdateRequired(s.kernelParametersDirectory, allParams)
+	if err != nil {
+		return fmt.Errorf("failed to check if sysctl parameters need update: %w", err)
+	}
+	if len(needUpdate) == 0 {
+		klog.Infof("No sysctl parameters need update")
+		return nil
+	}
+
 	if err := s.appendMandatoryParamsToConf(mandatoryParams); err != nil {
 		return fmt.Errorf("failed to append mandatory params to sysctl.conf: %w", err)
 	}
