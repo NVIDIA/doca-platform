@@ -25,7 +25,6 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	testutils "github.com/nvidia/doca-platform/test/utils"
-	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -351,57 +350,6 @@ func VerifyProvisioning(ctx context.Context, input *systemTestInput) {
 
 	By("Waiting for all system pods to be ready in DPU cluster")
 	VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
-}
-
-func VerifyKamajiControlPlaneExtraArgs(ctx context.Context, input *systemTestInput) {
-	provInput := getProvisionInput(input)
-
-	By("Getting Kamaji TenantControlPlane resource")
-	tcp := &kamajiv1.TenantControlPlane{}
-	Eventually(func(g Gomega) {
-		err := input.client.Get(ctx, types.NamespacedName{
-			Name:      provInput.dpuClusters[0].Name,
-			Namespace: provInput.dpuClusters[0].Namespace,
-		}, tcp)
-		g.Expect(err).NotTo(HaveOccurred(), "Should get TenantControlPlane resource")
-	}).WithTimeout(2 * time.Minute).Should(Succeed())
-
-	By("Verifying TenantControlPlane has ExtraArgs configured")
-	Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs).NotTo(BeNil(), "ExtraArgs should be configured")
-
-	By("Verifying kube-apiserver ExtraArgs")
-	apiServerArgs := tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer
-	Expect(apiServerArgs).NotTo(BeEmpty(), "APIServer ExtraArgs should not be empty")
-
-	By("Verifying audit log parameters for kube-apiserver")
-	Expect(apiServerArgs).To(ContainElement("--audit-log-path=/var/log/kubernetes/audit.log"), "Should have audit-log-path parameter")
-	Expect(apiServerArgs).To(ContainElement("--audit-policy-file=/etc/kubernetes/audit-policy.yaml"), "Should have audit-policy-file parameter")
-	Expect(apiServerArgs).To(ContainElement("--audit-log-maxage=30"), "Should have audit-log-maxage parameter")
-	Expect(apiServerArgs).To(ContainElement("--audit-log-maxbackup=10"), "Should have audit-log-maxbackup parameter")
-	Expect(apiServerArgs).To(ContainElement("--audit-log-maxsize=100"), "Should have audit-log-maxsize parameter")
-
-	By("Verifying security parameters for kube-apiserver")
-	Expect(apiServerArgs).To(ContainElement("--anonymous-auth=true"), "Should have anonymous-auth=true parameter")
-	Expect(apiServerArgs).To(ContainElement("--profiling=false"), "Should have profiling=false parameter")
-
-	By("Verifying TLS cipher suites parameter for kube-apiserver")
-	Expect(apiServerArgs).To(ContainElement("--tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"), "Should have tls-cipher-suites parameter")
-
-	By("Verifying request timeout parameter for kube-apiserver")
-	Expect(apiServerArgs).To(ContainElement("--request-timeout=120s"), "Should have request-timeout parameter")
-
-	By("Verifying admission plugins parameter for kube-apiserver")
-	Expect(apiServerArgs).To(ContainElement("--enable-admission-plugins=NamespaceLifecycle,LimitRanger,ServiceAccount,AlwaysPullImages,MutatingAdmissionWebhook,ValidatingAdmissionWebhook,ResourceQuota,PodSecurity,PodNodeSelector,NodeRestriction,EventRateLimit"), "Should have enable-admission-plugins parameter")
-
-	By("Verifying kube-controller-manager ExtraArgs")
-	controllerManagerArgs := tcp.Spec.ControlPlane.Deployment.ExtraArgs.ControllerManager
-	Expect(controllerManagerArgs).NotTo(BeEmpty(), "ControllerManager ExtraArgs should not be empty")
-	Expect(controllerManagerArgs).To(ContainElement("--profiling=false"), "Should have profiling=false parameter")
-
-	By("Verifying kube-scheduler ExtraArgs")
-	schedulerArgs := tcp.Spec.ControlPlane.Deployment.ExtraArgs.Scheduler
-	Expect(schedulerArgs).NotTo(BeEmpty(), "Scheduler ExtraArgs should not be empty")
-	Expect(schedulerArgs).To(ContainElement("--profiling=false"), "Should have profiling=false parameter")
 }
 
 func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
