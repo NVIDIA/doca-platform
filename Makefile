@@ -627,7 +627,7 @@ lint: golangci-lint ## Run golangci-lint linter & yamllint
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	GOOS=linux $(GOLANGCI_LINT) run --fix
 
-VERIFY_TARGETS ?= generate copyright md-links shfmt crdify helmchart-all
+VERIFY_TARGETS ?= generate copyright md-links shfmt crdify manifests-all
 
 .PHONY: verify
 verify: $(addprefix verify-,$(VERIFY_TARGETS)) ## Run all verify-* targets
@@ -661,25 +661,128 @@ export CRDIFY_CRD_DIR = $(patsubst $(PROJECT_DIR)/%,%,$(CRDDIR))
 verify-crdify: binary-dpfdev ## Verify that the CRDs are valid
 	hack/scripts/crd-validation.sh
 
-ARTIFACTS_RENDERED_HELM_CHARTS_DIR ?= $(ARTIFACTS_DIR)/rendered-helm-charts
-$(ARTIFACTS_RENDERED_HELM_CHARTS_DIR): $(ARTIFACTS_DIR)
-	@mkdir -p $(ARTIFACTS_RENDERED_HELM_CHARTS_DIR)
+ARTIFACTS_RENDERED_MANIFESTS_DIR ?= $(ARTIFACTS_DIR)/rendered-manifests
+$(ARTIFACTS_RENDERED_MANIFESTS_DIR): $(ARTIFACTS_DIR)
+	@mkdir -p $(ARTIFACTS_RENDERED_MANIFESTS_DIR)
 
-VERIFY_HELMCHART_TARGETS ?= operator # Not yet enabled charts: dpu-networking ovn-kubernetes ovn-kubernetes-resource-injector dummydpuservice
+# Not yet enabled charts: dpu-networking ovn-kubernetes ovn-kubernetes-resource-injector
+VERIFY_MANIFEST_TARGETS ?= operator dpu-networking kamaji-keepalived storage-host-snap-csi-plugin storage-host-snap-host-controller storage-dpu-snap-node-driver storage-dpu-block-storage-vendor-dpu-plugin storage-dpu-fs-storage-vendor-dpu-plugin storage-dpu-nfs-storage-vendor-dpu-plugin storage-dpu-doca-snap
 
-.PHONY: verify-helmchart-all
-verify-helmchart-all: $(addprefix verify-helmchart-,$(VERIFY_HELMCHART_TARGETS)) ## Run all verify-helmchart-* targets
+verify-manifests-all: $(addprefix verify-manifest-,$(VERIFY_MANIFEST_TARGETS)) verify-manifests-operator-embedded-all ## Run all verify-manifest-* targets
 
 # Note: This simulates setting the correct digest for the image by using the @sha256:X syntax which is requirement to comply with CKV_K8S_15 and CKV_K8S_43.
-.PHONY: verify-helmchart-operator
-verify-helmchart-operator: helm-package-operator helm $(ARTIFACTS_RENDERED_HELM_CHARTS_DIR) binary-dpfdev ## Run helmchart verification for dpf-operator
+.PHONY: verify-manifest-operator
+verify-manifest-operator: helm-package-operator helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for dpf-operator
 	$Q $(HELM) template dpf-operator $(CHARTSDIR)/dpf-operator-$(TAG).tgz -n dpf-operator \
 	 --set controllerManager.image.tag=$(TAG)@sha256:A \
-	 --set kamajiEtcdDefrag.image=ghcr.io/ahrtr/etcd-defrag@sha256:B \
-	  > $(ARTIFACTS_RENDERED_HELM_CHARTS_DIR)/dpf-operator-$(TAG).yaml
-	$Q RENDERED_HELM_CHART="$(ARTIFACTS_RENDERED_HELM_CHARTS_DIR)/dpf-operator-$(TAG).yaml" \
-	  HELM_CHART_NAME="dpf-operator" \
-	  hack/scripts/validate-helmchart-checkov.sh
+	 --set controllerManager.resources.limits.cpu=200m \
+	 --set controllerManager.resources.limits.memory=256Mi \
+	 --set kamajiEtcdDefrag.resources.limits.cpu=200m \
+	 --set kamajiEtcdDefrag.resources.limits.memory=256Mi \
+	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpf-operator-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpf-operator-$(TAG).yaml" \
+	  MANIFEST_NAME="dpf-operator" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-dpu-networking
+verify-manifest-dpu-networking: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking chart
+	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
+	  --set flannel.enabled=true \
+	  --set multus.enabled=true \
+	  --set sriov-device-plugin.enabled=true \
+	  --set nvidia-k8s-ipam.enabled=true \
+	  --set ovs-cni.enabled=true \
+	  --set servicechainset-controller.enabled=true \
+	  --set sfc-controller.enabled=true \
+	  --set cni-installer.enabled=true \
+	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-$(TAG).yaml" \
+	  MANIFEST_NAME="dpu-networking" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+# Note: The sed strip Go template variables from the embedded controller manifest to allow Checkov scanning.
+# If this gets too complex we should do a go templating approach.
+.PHONY: verify-manifest-kamaji-keepalived
+verify-manifest-kamaji-keepalived: $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for kamaji-keepalived
+	$Q sed -E -e 's/\{\{\.[^}]+\}\}/placeholder/g' -e '/\{\{[^}]+\}\}/d' \
+		internal/clustermanager/kamaji/manifests/keepalived.yaml > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/kamaji-keepalived.yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/kamaji-keepalived.yaml" \
+	  MANIFEST_NAME="kamaji-keepalived" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+VERIFY_OPERATOR_EMBEDDED_MANIFESTS ?= bfb-registry cni-installer dpu-detector dpuservice-controller flannel kamaji-cluster-manager multus nv-k8s-ipam ovs-cni provisioning-controller servicefunctionchainset-controller sfc-controller sriov-device-plugin static-cluster-manager
+
+verify-manifests-operator-embedded-all: $(addprefix verify-manifest-operator-embedded-,$(VERIFY_OPERATOR_EMBEDDED_MANIFESTS)) ## Run manifest verification for manifests embedded into dpf-operator
+
+.PHONY: verify-manifest-operator-embedded-%
+verify-manifest-operator-embedded-%: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev
+	$Q RENDERED_MANIFEST="$(PROJECT_DIR)/internal/operator/inventory/manifests/$*.yaml" \
+	  MANIFEST_NAME="$*" \
+	  hack/scripts/validate-manifest-checkov.sh || true
+
+.PHONY: verify-manifest-storage-host-snap-csi-plugin
+verify-manifest-storage-host-snap-csi-plugin: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's host snap-csi-plugin component
+	$Q $(HELM) template dpuservices/storage/chart \
+	  --set host.snapCsiPlugin.enabled=true \
+	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-host-snap-csi-plugin-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-host-snap-csi-plugin-$(TAG).yaml" \
+	  MANIFEST_NAME="storage-host-snap-csi-plugin" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-storage-host-snap-host-controller
+verify-manifest-storage-host-snap-host-controller: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's host snap-host-controller component
+	$Q $(HELM) template dpuservices/storage/chart \
+	 --set host.snapHostController.enabled=true \
+	 --set host.snapHostController.config.targetNamespace=storage-system \
+	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-host-snap-host-controller-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-host-snap-host-controller-$(TAG).yaml" \
+	  MANIFEST_NAME="storage-host-snap-host-controller" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-storage-dpu-snap-node-driver
+verify-manifest-storage-dpu-snap-node-driver: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's dpu snap-node-driver component
+	$Q $(HELM) template dpuservices/storage/chart \
+	 --set dpu.snapNodeDriver.enabled=true \
+	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-snap-node-driver-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-snap-node-driver-$(TAG).yaml" \
+	  MANIFEST_NAME="storage-dpu-snap-node-driver" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-storage-dpu-block-storage-vendor-dpu-plugin
+verify-manifest-storage-dpu-block-storage-vendor-dpu-plugin: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's dpu block-storage-vendor-dpu-plugin component
+	$Q $(HELM) template dpuservices/storage/chart \
+	 --set dpu.blockStorageVendorDpuPlugin.enabled=true \
+	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-block-storage-vendor-dpu-plugin-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-block-storage-vendor-dpu-plugin-$(TAG).yaml" \
+	  MANIFEST_NAME="storage-dpu-block-storage-vendor-dpu-plugin" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-storage-dpu-fs-storage-vendor-dpu-plugin
+verify-manifest-storage-dpu-fs-storage-vendor-dpu-plugin: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's dpu fs-storage-vendor-dpu-plugin component
+	$Q $(HELM) template dpuservices/storage/chart \
+	 --set dpu.fsStorageVendorDpuPlugin.enabled=true \
+	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-fs-storage-vendor-dpu-plugin-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-fs-storage-vendor-dpu-plugin-$(TAG).yaml" \
+	  MANIFEST_NAME="storage-dpu-fs-storage-vendor-dpu-plugin" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-storage-dpu-nfs-storage-vendor-dpu-plugin
+verify-manifest-storage-dpu-nfs-storage-vendor-dpu-plugin: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's dpu nfs-storage-vendor-dpu-plugin component
+	$Q $(HELM) template dpuservices/storage/chart \
+	 --set dpu.nfsStorageVendorDpuPlugin.enabled=true \
+	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-nfs-storage-vendor-dpu-plugin-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-nfs-storage-vendor-dpu-plugin-$(TAG).yaml" \
+	  MANIFEST_NAME="storage-dpu-nfs-storage-vendor-dpu-plugin" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-storage-dpu-doca-snap
+verify-manifest-storage-dpu-doca-snap: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's dpu doca-snap component
+	$Q $(HELM) template dpuservices/storage/chart \
+	 --set dpu.docaSnap.enabled=true \
+	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-doca-snap-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-doca-snap-$(TAG).yaml" \
+	  MANIFEST_NAME="storage-dpu-doca-snap" \
+	  hack/scripts/validate-manifest-checkov.sh
 
 .PHONY: verify-container-images
 verify-container-images: generate-manifests-release-defaults $(TRIVY) ## Verify container images
