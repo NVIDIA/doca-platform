@@ -16,6 +16,10 @@
 
 set -euo pipefail
 
+if [[ "${TRACE-0}" == "1" ]]; then
+	set -o xtrace
+fi
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Add the projects bin/ dir to PATH to find dpfdev binary
@@ -23,17 +27,17 @@ export PATH="$script_dir/../../bin:$PATH"
 # Add the projects hack/tools/bin/ dir to PATH to find yq binary
 export PATH="$script_dir/../../hack/tools/bin:$PATH"
 
-: ${RENDERED_HELM_CHART:?RENDERED_HELM_CHART variable is not set}
-: ${HELM_CHART_NAME:?HELM_CHART_NAME variable is not set}
+: ${RENDERED_MANIFEST:?variable is not set}
+: ${MANIFEST_NAME:?variable is not set}
 
 # Optional environment variables with defaults
 ARTIFACTS=${ARTIFACTS:-"$script_dir/../../artifacts"}
 CHECKOV_CONFIG="${CHECKOV_CONFIG:-"$script_dir/../../.checkov.yaml"}"
 CHECKOV_REPORT_DIRECTORY="${ARTIFACTS}/checkov-reports"
-CHECKOV_REPORT_FILE="${CHECKOV_REPORT_DIRECTORY}/${HELM_CHART_NAME}.json"
+CHECKOV_REPORT_FILE="${CHECKOV_REPORT_DIRECTORY}/${MANIFEST_NAME}.json"
 
-# The directory to mount when running checkov so the rendered helm chart is available.
-VOLUME_MOUNT_DIRECTORY="$(dirname "${RENDERED_HELM_CHART}")"
+# The directory to mount when running checkov so the rendered manifest is available.
+VOLUME_MOUNT_DIRECTORY="$(dirname "${RENDERED_MANIFEST}")"
 
 if ! command -v dpfdev &> /dev/null; then
 	echo 'Error: dpfdev could not be found in the tools PATH. Install it via `make dpfdev-binary` first.'
@@ -51,20 +55,20 @@ rm -f "${CHECKOV_REPORT_FILE}"
 
 validation_failed=0
 
-# Run checkov for the helm chart
+# Run checkov for the manifest
 make checkov-run CHECKOV_DATA_DIR="${VOLUME_MOUNT_DIRECTORY}" \
 	CHECKOV_CHECKS="$(yq '.checks | join ","' < "${CHECKOV_CONFIG}")" \
-	CHECKOV_COMMAND="-f /data/$(basename "${RENDERED_HELM_CHART}") --framework kubernetes --output json" \
+	CHECKOV_COMMAND="-f /data/$(basename "${RENDERED_MANIFEST}") --framework kubernetes --output json" \
 	CHECKOV_OUTPUT_FILE="${CHECKOV_REPORT_FILE}"
 
 # Run dpfdev checkov to analyze the checkov report and filter out excluded findings
-dpfdev checkov --chart-name "${HELM_CHART_NAME}" --config "${CHECKOV_CONFIG}" --report "${CHECKOV_REPORT_FILE}"
+dpfdev checkov --chart-name "${MANIFEST_NAME}" --config "${CHECKOV_CONFIG}" --report "${CHECKOV_REPORT_FILE}"
 
 if [ $? -ne 0 ]; then
-	echo "❌ checkov helm chart validation failed for ${HELM_CHART_NAME}"
+	echo "❌ checkov manifest validation failed for ${MANIFEST_NAME}"
 	exit 1
 fi
 
-echo "✅ checkov helm chart validation completed."
+echo "✅ checkov manifest validation completed for ${MANIFEST_NAME}"
 
 exit 0
