@@ -26,5 +26,3 @@ limitations under the License.
 //
 //nolint:unused
 package v1alpha1
-
-// TODO: (killianmuldoon) replace the argoCD vendored types with an unstructured representation and a group of accessors when we have a good idea of which fields we need.

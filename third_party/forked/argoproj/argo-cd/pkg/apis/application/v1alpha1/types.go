@@ -16,12 +16,18 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/nvidia/doca-platform/third_party/forked/argoproj/gitops-engine/pkg/health"
+	synccommon "github.com/nvidia/doca-platform/third_party/forked/argoproj/gitops-engine/pkg/sync/common"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/watch"
 )
+
+// Note: Application and ApplicationSet share the same field structure (TypeMeta, ObjectMeta, spec, status)
+// for frontend abstraction (AbstractApplication), but spec and status have different types.
+// Operation is Application-specific and not present in ApplicationSet.
 
 // Application is a definition of Application resource.
 // +genclient
@@ -31,12 +37,13 @@ import (
 // +kubebuilder:printcolumn:name="Sync Status",type=string,JSONPath=`.status.sync.status`
 // +kubebuilder:printcolumn:name="Health Status",type=string,JSONPath=`.status.health.status`
 // +kubebuilder:printcolumn:name="Revision",type=string,JSONPath=`.status.sync.revision`,priority=10
+// +kubebuilder:printcolumn:name="Project",type=string,JSONPath=`.spec.project`,priority=10
 type Application struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata" protobuf:"bytes,1,opt,name=metadata"`
-	Spec              ApplicationSpec   `json:"spec" protobuf:"bytes,2,opt,name=spec"`
-	Status            ApplicationStatus `json:"status,omitempty" protobuf:"bytes,3,opt,name=status"`
-	Operation         *Operation        `json:"operation,omitempty" protobuf:"bytes,4,opt,name=operation"`
+	metav1.TypeMeta   `json:",inline"`                                       // Common: shared with ApplicationSet
+	metav1.ObjectMeta `json:"metadata" protobuf:"bytes,1,opt,name=metadata"` // Common: shared with ApplicationSet
+	Spec              ApplicationSpec                                        `json:"spec" protobuf:"bytes,2,opt,name=spec"`                     // Common: shared with ApplicationSet (different type)
+	Status            ApplicationStatus                                      `json:"status,omitempty" protobuf:"bytes,3,opt,name=status"`       // Common: shared with ApplicationSet (different type)
+	Operation         *Operation                                             `json:"operation,omitempty" protobuf:"bytes,4,opt,name=operation"` // Application-only: not in ApplicationSet
 }
 
 // ApplicationSpec represents desired application state. Contains link to repository with application definition and additional parameters link definition revision.
@@ -63,11 +70,12 @@ type ApplicationSpec struct {
 
 	// Sources is a reference to the location of the application's manifests or chart
 	Sources ApplicationSources `json:"sources,omitempty" protobuf:"bytes,8,opt,name=sources"`
+
+	// SourceHydrator provides a way to push hydrated manifests back to git before syncing them to the cluster.
+	SourceHydrator *SourceHydrator `json:"sourceHydrator,omitempty" protobuf:"bytes,9,opt,name=sourceHydrator"`
 }
 
 type IgnoreDifferences []ResourceIgnoreDifferences
-
-type TrackingMethod string
 
 // ResourceIgnoreDifferences contains resource filter and list of json paths which should be ignored during comparison with live state.
 type ResourceIgnoreDifferences struct {
@@ -115,6 +123,8 @@ type ApplicationSource struct {
 	Chart string `json:"chart,omitempty" protobuf:"bytes,12,opt,name=chart"`
 	// Ref is reference to another source within sources field. This field will not be used if used with a `source` tag.
 	Ref string `json:"ref,omitempty" protobuf:"bytes,13,opt,name=ref"`
+	// Name is used to refer to a source and is displayed in the UI. It is used in multi-source Applications.
+	Name string `json:"name,omitempty" protobuf:"bytes,14,opt,name=name"`
 }
 
 // ApplicationSources contains list of required information about the sources of an application
@@ -130,12 +140,72 @@ const (
 	ApplicationSourceTypePlugin    ApplicationSourceType = "Plugin"
 )
 
+// SourceHydrator specifies a dry "don't repeat yourself" source for manifests, a sync source from which to sync
+// hydrated manifests, and an optional hydrateTo location to act as a "staging" aread for hydrated manifests.
+type SourceHydrator struct {
+	// DrySource specifies where the dry "don't repeat yourself" manifest source lives.
+	DrySource DrySource `json:"drySource" protobuf:"bytes,1,name=drySource"`
+	// SyncSource specifies where to sync hydrated manifests from.
+	SyncSource SyncSource `json:"syncSource" protobuf:"bytes,2,name=syncSource"`
+	// HydrateTo specifies an optional "staging" location to push hydrated manifests to. An external system would then
+	// have to move manifests to the SyncSource, e.g. by pull request.
+	HydrateTo *HydrateTo `json:"hydrateTo,omitempty" protobuf:"bytes,3,opt,name=hydrateTo"`
+}
+
+// DrySource specifies a location for dry "don't repeat yourself" manifest source information.
+type DrySource struct {
+	// RepoURL is the URL to the git repository that contains the application manifests
+	RepoURL string `json:"repoURL" protobuf:"bytes,1,name=repoURL"`
+	// TargetRevision defines the revision of the source to hydrate
+	TargetRevision string `json:"targetRevision" protobuf:"bytes,2,name=targetRevision"`
+	// Path is a directory path within the Git repository where the manifests are located
+	Path string `json:"path" protobuf:"bytes,3,name=path"`
+	// Helm specifies helm specific options
+	Helm *ApplicationSourceHelm `json:"helm,omitempty" protobuf:"bytes,4,opt,name=helm"`
+	// Kustomize specifies kustomize specific options
+	Kustomize *ApplicationSourceKustomize `json:"kustomize,omitempty" protobuf:"bytes,5,opt,name=kustomize"`
+	// Directory specifies path/directory specific options
+	Directory *ApplicationSourceDirectory `json:"directory,omitempty" protobuf:"bytes,6,opt,name=directory"`
+	// Plugin specifies config management plugin specific options
+	Plugin *ApplicationSourcePlugin `json:"plugin,omitempty" protobuf:"bytes,7,opt,name=plugin"`
+}
+
+// SyncSource specifies a location from which hydrated manifests may be synced. RepoURL is assumed based on the
+// associated DrySource config in the SourceHydrator.
+type SyncSource struct {
+	// TargetBranch is the branch from which hydrated manifests will be synced.
+	// If HydrateTo is not set, this is also the branch to which hydrated manifests are committed.
+	TargetBranch string `json:"targetBranch" protobuf:"bytes,1,name=targetBranch"`
+	// Path is a directory path within the git repository where hydrated manifests should be committed to and synced
+	// from. The Path should never point to the root of the repo. If hydrateTo is set, this is just the path from which
+	// hydrated manifests will be synced.
+	//
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern=`^.{2,}|[^./]$`
+	Path string `json:"path" protobuf:"bytes,2,name=path"`
+}
+
+// HydrateTo specifies a location to which hydrated manifests should be pushed as a "staging area" before being moved to
+// the SyncSource. The RepoURL and Path are assumed based on the associated SyncSource config in the SourceHydrator.
+type HydrateTo struct {
+	// TargetBranch is the branch to which hydrated manifests should be committed
+	TargetBranch string `json:"targetBranch" protobuf:"bytes,1,name=targetBranch"`
+}
+
 // RefreshType specifies how to refresh the sources of a given application
 type RefreshType string
 
 const (
 	RefreshTypeNormal RefreshType = "normal"
 	RefreshTypeHard   RefreshType = "hard"
+)
+
+type HydrateType string
+
+const (
+	// HydrateTypeNormal is a normal hydration
+	HydrateTypeNormal HydrateType = "normal"
 )
 
 type RefTarget struct {
@@ -170,6 +240,18 @@ type ApplicationSourceHelm struct {
 	// ValuesObject specifies Helm values to be passed to helm template, defined as a map. This takes precedence over Values.
 	// +kubebuilder:pruning:PreserveUnknownFields
 	ValuesObject *runtime.RawExtension `json:"valuesObject,omitempty" protobuf:"bytes,10,opt,name=valuesObject"`
+	// Namespace is an optional namespace to template with. If left empty, defaults to the app's destination namespace.
+	Namespace string `json:"namespace,omitempty" protobuf:"bytes,11,opt,name=namespace"`
+	// KubeVersion specifies the Kubernetes API version to pass to Helm when templating manifests. By default, Argo CD
+	// uses the Kubernetes version of the target cluster.
+	KubeVersion string `json:"kubeVersion,omitempty" protobuf:"bytes,12,opt,name=kubeVersion"`
+	// APIVersions specifies the Kubernetes resource API versions to pass to Helm when templating manifests. By default,
+	// Argo CD uses the API versions of the target cluster. The format is [group/]version/kind.
+	APIVersions []string `json:"apiVersions,omitempty" protobuf:"bytes,13,opt,name=apiVersions"`
+	// SkipTests skips test manifest installation step (Helm's --skip-tests).
+	SkipTests bool `json:"skipTests,omitempty" protobuf:"bytes,14,opt,name=skipTests"`
+	// SkipSchemaValidation skips JSON schema validation (Helm's --skip-schema-validation)
+	SkipSchemaValidation bool `json:"skipSchemaValidation,omitempty" protobuf:"bytes,15,opt,name=skipSchemaValidation"`
 }
 
 // HelmParameter is a parameter that's passed to helm template during manifest generation
@@ -224,6 +306,18 @@ type ApplicationSourceKustomize struct {
 	Patches KustomizePatches `json:"patches,omitempty" protobuf:"bytes,12,opt,name=patches"`
 	// Components specifies a list of kustomize components to add to the kustomization before building
 	Components []string `json:"components,omitempty" protobuf:"bytes,13,rep,name=components"`
+	// IgnoreMissingComponents prevents kustomize from failing when components do not exist locally by not appending them to kustomization file
+	IgnoreMissingComponents bool `json:"ignoreMissingComponents,omitempty" protobuf:"bytes,17,opt,name=ignoreMissingComponents"`
+	// LabelWithoutSelector specifies whether to apply common labels to resource selectors or not
+	LabelWithoutSelector bool `json:"labelWithoutSelector,omitempty" protobuf:"bytes,14,opt,name=labelWithoutSelector"`
+	// KubeVersion specifies the Kubernetes API version to pass to Helm when templating manifests. By default, Argo CD
+	// uses the Kubernetes version of the target cluster.
+	KubeVersion string `json:"kubeVersion,omitempty" protobuf:"bytes,15,opt,name=kubeVersion"`
+	// APIVersions specifies the Kubernetes resource API versions to pass to Helm when templating manifests. By default,
+	// Argo CD uses the API versions of the target cluster. The format is [group/]version/kind.
+	APIVersions []string `json:"apiVersions,omitempty" protobuf:"bytes,16,opt,name=apiVersions"`
+	// LabelIncludeTemplates specifies whether to apply common labels to resource templates or not
+	LabelIncludeTemplates bool `json:"labelIncludeTemplates,omitempty" protobuf:"bytes,18,opt,name=labelIncludeTemplates"`
 }
 
 type KustomizeReplica struct {
@@ -314,7 +408,7 @@ type ApplicationSourcePluginParameter struct {
 	// Name is the name identifying a parameter.
 	Name string `json:"name,omitempty" protobuf:"bytes,1,opt,name=name"`
 	// String_ is the value of a string type parameter.
-	String_ *string `json:"string,omitempty" protobuf:"bytes,5,opt,name=string"`
+	String_ *string `json:"string,omitempty" protobuf:"bytes,5,opt,name=string"` //nolint:revive //FIXME(var-naming)
 	// Map is the value of a map type parameter.
 	*OptionalMap `json:",omitempty" protobuf:"bytes,3,rep,name=map"`
 	// Array is the value of an array type parameter.
@@ -339,15 +433,12 @@ type ApplicationDestination struct {
 	Namespace string `json:"namespace,omitempty" protobuf:"bytes,2,opt,name=namespace"`
 	// Name is an alternate way of specifying the target cluster by its symbolic name. This must be set if Server is not set.
 	Name string `json:"name,omitempty" protobuf:"bytes,3,opt,name=name"`
-
-	// nolint:govet
-	isServerInferred bool `json:"-"`
 }
 
 type ResourceHealthLocation string
 
 var (
-	ResourceHealthLocationInline  ResourceHealthLocation = ""
+	ResourceHealthLocationInline  ResourceHealthLocation
 	ResourceHealthLocationAppTree ResourceHealthLocation = "appTree"
 )
 
@@ -358,7 +449,7 @@ type ApplicationStatus struct {
 	// Sync contains information about the application's current sync status
 	Sync SyncStatus `json:"sync,omitempty" protobuf:"bytes,2,opt,name=sync"`
 	// Health contains information about the application's current health status
-	Health HealthStatus `json:"health,omitempty" protobuf:"bytes,3,opt,name=health"`
+	Health AppHealthStatus `json:"health,omitempty" protobuf:"bytes,3,opt,name=health"`
 	// History contains information about the application's sync history
 	History RevisionHistories `json:"history,omitempty" protobuf:"bytes,4,opt,name=history"`
 	// Conditions is a list of currently observed application conditions
@@ -380,7 +471,55 @@ type ApplicationStatus struct {
 	SourceTypes []ApplicationSourceType `json:"sourceTypes,omitempty" protobuf:"bytes,12,opt,name=sourceTypes"`
 	// ControllerNamespace indicates the namespace in which the application controller is located
 	ControllerNamespace string `json:"controllerNamespace,omitempty" protobuf:"bytes,13,opt,name=controllerNamespace"`
+	// SourceHydrator stores information about the current state of source hydration
+	SourceHydrator SourceHydratorStatus `json:"sourceHydrator,omitempty" protobuf:"bytes,14,opt,name=sourceHydrator"`
 }
+
+// SourceHydratorStatus contains information about the current state of source hydration
+type SourceHydratorStatus struct {
+	// LastSuccessfulOperation holds info about the most recent successful hydration
+	LastSuccessfulOperation *SuccessfulHydrateOperation `json:"lastSuccessfulOperation,omitempty" protobuf:"bytes,1,opt,name=lastSuccessfulOperation"`
+	// CurrentOperation holds the status of the hydrate operation
+	CurrentOperation *HydrateOperation `json:"currentOperation,omitempty" protobuf:"bytes,2,opt,name=currentOperation"`
+}
+
+// HydrateOperation contains information about the most recent hydrate operation
+type HydrateOperation struct {
+	// StartedAt indicates when the hydrate operation started
+	StartedAt metav1.Time `json:"startedAt,omitempty" protobuf:"bytes,1,opt,name=startedAt"`
+	// FinishedAt indicates when the hydrate operation finished
+	FinishedAt *metav1.Time `json:"finishedAt,omitempty" protobuf:"bytes,2,opt,name=finishedAt"`
+	// Phase indicates the status of the hydrate operation
+	Phase HydrateOperationPhase `json:"phase" protobuf:"bytes,3,opt,name=phase"`
+	// Message contains a message describing the current status of the hydrate operation
+	Message string `json:"message" protobuf:"bytes,4,opt,name=message"`
+	// DrySHA holds the resolved revision (sha) of the dry source as of the most recent reconciliation
+	DrySHA string `json:"drySHA,omitempty" protobuf:"bytes,5,opt,name=drySHA"`
+	// HydratedSHA holds the resolved revision (sha) of the hydrated source as of the most recent reconciliation
+	HydratedSHA string `json:"hydratedSHA,omitempty" protobuf:"bytes,6,opt,name=hydratedSHA"`
+	// SourceHydrator holds the hydrator config used for the hydrate operation
+	SourceHydrator SourceHydrator `json:"sourceHydrator,omitempty" protobuf:"bytes,7,opt,name=sourceHydrator"`
+}
+
+// SuccessfulHydrateOperation contains information about the most recent successful hydrate operation
+type SuccessfulHydrateOperation struct {
+	// DrySHA holds the resolved revision (sha) of the dry source as of the most recent reconciliation
+	DrySHA string `json:"drySHA,omitempty" protobuf:"bytes,5,opt,name=drySHA"`
+	// HydratedSHA holds the resolved revision (sha) of the hydrated source as of the most recent reconciliation
+	HydratedSHA string `json:"hydratedSHA,omitempty" protobuf:"bytes,6,opt,name=hydratedSHA"`
+	// SourceHydrator holds the hydrator config used for the hydrate operation
+	SourceHydrator SourceHydrator `json:"sourceHydrator,omitempty" protobuf:"bytes,7,opt,name=sourceHydrator"`
+}
+
+// HydrateOperationPhase indicates the status of a hydrate operation
+// +kubebuilder:validation:Enum=Hydrating;Failed;Hydrated
+type HydrateOperationPhase string
+
+const (
+	HydrateOperationPhaseHydrating HydrateOperationPhase = "Hydrating"
+	HydrateOperationPhaseFailed    HydrateOperationPhase = "Failed"
+	HydrateOperationPhaseHydrated  HydrateOperationPhase = "Hydrated"
+)
 
 // JWTTokens represents a list of JWT tokens
 type JWTTokens struct {
@@ -413,8 +552,7 @@ type SyncOperationResource struct {
 	Kind      string `json:"kind" protobuf:"bytes,2,opt,name=kind"`
 	Name      string `json:"name" protobuf:"bytes,3,opt,name=name"`
 	Namespace string `json:"namespace,omitempty" protobuf:"bytes,4,opt,name=namespace"`
-	// nolint:govet
-	Exclude bool `json:"-"`
+	Exclude   bool   `json:"-"`
 }
 
 // RevisionHistories is a array of history, oldest first and newest last
@@ -446,17 +584,16 @@ type SyncOperation struct {
 	// Revisions is the list of revision (Git) or chart version (Helm) which to sync each source in sources field for the application to
 	// If omitted, will use the revision specified in app spec.
 	Revisions []string `json:"revisions,omitempty" protobuf:"bytes,11,opt,name=revisions"`
+	// SelfHealAttemptsCount contains the number of auto-heal attempts
+	SelfHealAttemptsCount int64 `json:"autoHealAttemptsCount,omitempty" protobuf:"bytes,12,opt,name=autoHealAttemptsCount"`
 }
 
 // OperationState contains information about state of a running operation
 type OperationState struct {
 	// Operation is the original requested operation
 	Operation Operation `json:"operation" protobuf:"bytes,1,opt,name=operation"`
-
-	// TODO: (killianmuldoon) Need to see if this is a safe change. This is a field we have to import from the rest of argo so we change the type.
-	// Changed synccommon.OperationPhase to string.
 	// Phase is the current phase of the operation
-	Phase string `json:"phase" protobuf:"bytes,2,opt,name=phase"`
+	Phase synccommon.OperationPhase `json:"phase" protobuf:"bytes,2,opt,name=phase"`
 	// Message holds any pertinent messages when attempting to perform operation (typically errors).
 	Message string `json:"message,omitempty" protobuf:"bytes,3,opt,name=message"`
 	// SyncResult is the result of a Sync operation
@@ -500,6 +637,8 @@ type RetryStrategy struct {
 	Limit int64 `json:"limit,omitempty" protobuf:"bytes,1,opt,name=limit"`
 	// Backoff controls how to backoff on subsequent retries of failed syncs
 	Backoff *Backoff `json:"backoff,omitempty" protobuf:"bytes,2,opt,name=backoff,casttype=Backoff"`
+	// Refresh indicates if the latest revision should be used on retry instead of the initial one (default: false)
+	Refresh bool `json:"refresh,omitempty" protobuf:"bytes,3,opt,name=refresh"`
 }
 
 // Backoff is the backoff strategy to use on subsequent retries for failing syncs
@@ -520,6 +659,8 @@ type SyncPolicyAutomated struct {
 	SelfHeal bool `json:"selfHeal,omitempty" protobuf:"bytes,2,opt,name=selfHeal"`
 	// AllowEmpty allows apps have zero live resources (default: false)
 	AllowEmpty bool `json:"allowEmpty,omitempty" protobuf:"bytes,3,opt,name=allowEmpty"`
+	// Enable allows apps to explicitly control automated sync
+	Enabled *bool `json:"enabled,omitempty" protobuf:"bytes,4,opt,name=enabled"`
 }
 
 // SyncStrategy controls the manner in which a sync is performed
@@ -546,14 +687,48 @@ type SyncStrategyHook struct {
 	SyncStrategyApply `json:",inline" protobuf:"bytes,1,opt,name=syncStrategyApply"`
 }
 
-// RevisionMetadata contains metadata for a specific revision in a Git repository
+// CommitMetadata contains metadata about a commit that is related in some way to another commit.
+type CommitMetadata struct {
+	// Author is the author of the commit, i.e. `git show -s --format=%an <%ae>`.
+	// Must be formatted according to RFC 5322 (mail.Address.String()).
+	// Comes from the Argocd-reference-commit-author trailer.
+	Author string `json:"author,omitempty" protobuf:"bytes,1,opt,name=author"`
+	// Date is the date of the commit, formatted as by `git show -s --format=%aI` (RFC 3339).
+	// It can also be an empty string if the date is unknown.
+	// Comes from the Argocd-reference-commit-date trailer.
+	Date string `json:"date,omitempty" protobuf:"bytes,2,opt,name=date"`
+	// Subject is the commit message subject line, i.e. `git show -s --format=%s`.
+	// Comes from the Argocd-reference-commit-subject trailer.
+	Subject string `json:"subject,omitempty" protobuf:"bytes,3,opt,name=subject"`
+	// Body is the commit message body minus the subject line, i.e. `git show -s --format=%b`.
+	// Comes from the Argocd-reference-commit-body trailer.
+	Body string `json:"body,omitempty" protobuf:"bytes,4,opt,name=body"`
+	// SHA is the commit hash.
+	// Comes from the Argocd-reference-commit-sha trailer.
+	SHA string `json:"sha,omitempty" protobuf:"bytes,5,opt,name=sha"`
+	// RepoURL is the URL of the repository where the commit is located.
+	// Comes from the Argocd-reference-commit-repourl trailer.
+	// This value is not validated and should not be used to construct UI links unless it is properly
+	// validated and/or sanitized first.
+	RepoURL string `json:"repoUrl,omitempty" protobuf:"bytes,6,opt,name=repoUrl"`
+}
+
+// RevisionReference contains a reference to a some information that is related in some way to another commit. For now,
+// it supports only references to a commit. In the future, it may support other types of references.
+type RevisionReference struct {
+	// Commit contains metadata about the commit that is related in some way to another commit.
+	Commit *CommitMetadata `json:"commit,omitempty" protobuf:"bytes,1,opt,name=commit"`
+}
+
+// RevisionMetadata contains metadata for a specific revision in a Git repository. This field is used by the
+// Source Hydrator feature which may be removed in the future.
 type RevisionMetadata struct {
 	// who authored this revision,
 	// typically their name and email, e.g. "John Doe <john_doe@my-company.com>",
 	// but might not match this example
 	Author string `json:"author,omitempty" protobuf:"bytes,1,opt,name=author"`
 	// Date specifies when the revision was authored
-	Date metav1.Time `json:"date" protobuf:"bytes,2,opt,name=date"`
+	Date *metav1.Time `json:"date" protobuf:"bytes,2,opt,name=date"`
 	// Tags specifies any tags currently attached to the revision
 	// Floating tags can move from one revision to another
 	Tags []string `json:"tags,omitempty" protobuf:"bytes,3,opt,name=tags"`
@@ -561,6 +736,19 @@ type RevisionMetadata struct {
 	Message string `json:"message,omitempty" protobuf:"bytes,4,opt,name=message"`
 	// SignatureInfo contains a hint on the signer if the revision was signed with GPG, and signature verification is enabled.
 	SignatureInfo string `json:"signatureInfo,omitempty" protobuf:"bytes,5,opt,name=signatureInfo"`
+	// References contains references to information that's related to this commit in some way.
+	References []RevisionReference `json:"references,omitempty" protobuf:"bytes,6,opt,name=references"`
+}
+
+// OCIMetadata contains metadata for a specific revision in an OCI repository
+type OCIMetadata struct {
+	CreatedAt   string `json:"createdAt,omitempty" protobuf:"bytes,1,opt,name=createdAt"`
+	Authors     string `json:"authors,omitempty" protobuf:"bytes,2,opt,name=authors"`
+	ImageURL    string `json:"imageUrl,omitempty" protobuf:"bytes,3,opt,name=imageUrl"`
+	DocsURL     string `json:"docsUrl,omitempty" protobuf:"bytes,4,opt,name=docsUrl"`
+	SourceURL   string `json:"sourceUrl,omitempty" protobuf:"bytes,5,opt,name=sourceUrl"`
+	Version     string `json:"version,omitempty" protobuf:"bytes,6,opt,name=version"`
+	Description string `json:"description,omitempty" protobuf:"bytes,7,opt,name=description"`
 }
 
 // ChartDetails contains helm chart metadata for a specific version
@@ -599,25 +787,20 @@ type ResourceResult struct {
 	// Namespace specifies the target namespace of the resource
 	Namespace string `json:"namespace" protobuf:"bytes,4,opt,name=namespace"`
 	// Name specifies the name of the resource
-	Name    string `json:"name" protobuf:"bytes,5,opt,name=name"`
+	Name string `json:"name" protobuf:"bytes,5,opt,name=name"`
+	// Status holds the final result of the sync. Will be empty if the resources is yet to be applied/pruned and is always zero-value for hooks
+	Status synccommon.ResultCode `json:"status,omitempty" protobuf:"bytes,6,opt,name=status"`
+	// Message contains an informational or error message for the last sync OR operation
 	Message string `json:"message,omitempty" protobuf:"bytes,7,opt,name=message"`
 	// HookType specifies the type of the hook. Empty for non-hook resources
-
-	// TODO: (killianmuldoon) Need to see if this is a safe change. This is a field we have to import from the rest of argo so we change the type.
-	// The following are changed from the upstream implementation.
-	// Status -> string
-	// HookType -> string
-	// HookPhase -> string
-	// SyncPhase -> string
-	// Status holds the final result of the sync. Will be empty if the resources is yet to be applied/pruned and is always zero-value for hooks
-	Status string `json:"status,omitempty" protobuf:"bytes,6,opt,name=status"`
-	// Message contains an informational or error message for the last sync OR operation
-	HookType string `json:"hookType,omitempty" protobuf:"bytes,8,opt,name=hookType"`
+	HookType synccommon.HookType `json:"hookType,omitempty" protobuf:"bytes,8,opt,name=hookType"`
 	// HookPhase contains the state of any operation associated with this resource OR hook
 	// This can also contain values for non-hook resources.
-	HookPhase string `json:"hookPhase,omitempty" protobuf:"bytes,9,opt,name=hookPhase"`
+	HookPhase synccommon.OperationPhase `json:"hookPhase,omitempty" protobuf:"bytes,9,opt,name=hookPhase"`
 	// SyncPhase indicates the particular phase of the sync that this result was acquired in
-	SyncPhase string `json:"syncPhase,omitempty" protobuf:"bytes,10,opt,name=syncPhase"`
+	SyncPhase synccommon.SyncPhase `json:"syncPhase,omitempty" protobuf:"bytes,10,opt,name=syncPhase"`
+	// Images contains the images related to the ResourceResult
+	Images []string `json:"images,omitempty" protobuf:"bytes,11,opt,name=images"`
 }
 
 // ResourceResults defines a list of resource results for a given operation
@@ -677,31 +860,10 @@ type SyncStatusCode string
 const (
 	// SyncStatusCodeUnknown indicates that the status of a sync could not be reliably determined
 	SyncStatusCodeUnknown SyncStatusCode = "Unknown"
-	// SyncStatusCodeOutOfSync indicates that desired and live states match
+	// SyncStatusCodeSynced indicates that desired and live states match
 	SyncStatusCodeSynced SyncStatusCode = "Synced"
 	// SyncStatusCodeOutOfSync indicates that there is a drift between desired and live states
 	SyncStatusCodeOutOfSync SyncStatusCode = "OutOfSync"
-)
-
-// Copied from: https://github.com/argoproj/gitops-engine/blob/55bb49480a68ca9653b88ddbbc66584d52267081/pkg/health/health.go
-// Represents resource health status
-type HealthStatusCode string
-
-const (
-	// Indicates that health assessment failed and actual health status is unknown
-	HealthStatusUnknown HealthStatusCode = "Unknown"
-	// Progressing health status means that resource is not healthy but still have a chance to reach healthy state
-	HealthStatusProgressing HealthStatusCode = "Progressing"
-	// Resource is 100% healthy
-	HealthStatusHealthy HealthStatusCode = "Healthy"
-	// Assigned to resources that are suspended or paused. The typical example is a
-	// [suspended](https://kubernetes.io/docs/tasks/job/automated-tasks-with-cron-jobs/#suspend) CronJob.
-	HealthStatusSuspended HealthStatusCode = "Suspended"
-	// Degrade status is used if resource status indicates failure or resource could not reach healthy state
-	// within some timeout.
-	HealthStatusDegraded HealthStatusCode = "Degraded"
-	// Indicates that resource is missing in the cluster.
-	HealthStatusMissing HealthStatusCode = "Missing"
 )
 
 // ApplicationConditionType represents type of application condition. Type name has following convention:
@@ -765,12 +927,28 @@ type SyncStatus struct {
 	Revisions []string `json:"revisions,omitempty" protobuf:"bytes,4,opt,name=revisions"`
 }
 
-// HealthStatus contains information about the currently observed health state of an application or resource
+// AppHealthStatus contains information about the currently observed health state of an application
+type AppHealthStatus struct {
+	// Status holds the status code of the application
+	Status health.HealthStatusCode `json:"status,omitempty" protobuf:"bytes,1,opt,name=status"`
+	// Message is a human-readable informational message describing the health status
+	//
+	// Deprecated: this field is not used and will be removed in a future release.
+	Message string `json:"message,omitempty" protobuf:"bytes,2,opt,name=message"`
+	// LastTransitionTime is the time the HealthStatus was set or updated
+	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty" protobuf:"bytes,3,opt,name=lastTransitionTime"`
+}
+
+// HealthStatus contains information about the currently observed health state of a resource
 type HealthStatus struct {
-	// Status holds the status code of the application or resource
-	Status HealthStatusCode `json:"status,omitempty" protobuf:"bytes,1,opt,name=status"`
+	// Status holds the status code of the resource
+	Status health.HealthStatusCode `json:"status,omitempty" protobuf:"bytes,1,opt,name=status"`
 	// Message is a human-readable informational message describing the health status
 	Message string `json:"message,omitempty" protobuf:"bytes,2,opt,name=message"`
+	// LastTransitionTime is the time the HealthStatus was set or updated
+	//
+	// Deprecated: this field is not used and will be removed in a future release.
+	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty" protobuf:"bytes,3,opt,name=lastTransitionTime"`
 }
 
 // InfoItem contains arbitrary, human readable information about an application
@@ -781,43 +959,59 @@ type InfoItem struct {
 	Value string `json:"value,omitempty" protobuf:"bytes,2,opt,name=value"`
 }
 
-// ResourceNetworkingInfo holds networking resource related information
-// TODO: describe members of this type
+// ResourceNetworkingInfo holds networking-related information for a resource.
 type ResourceNetworkingInfo struct {
-	TargetLabels map[string]string            `json:"targetLabels,omitempty" protobuf:"bytes,1,opt,name=targetLabels"`
-	TargetRefs   []ResourceRef                `json:"targetRefs,omitempty" protobuf:"bytes,2,opt,name=targetRefs"`
-	Labels       map[string]string            `json:"labels,omitempty" protobuf:"bytes,3,opt,name=labels"`
-	Ingress      []corev1.LoadBalancerIngress `json:"ingress,omitempty" protobuf:"bytes,4,opt,name=ingress"`
-	// ExternalURLs holds list of URLs which should be available externally. List is populated for ingress resources using rules hostnames.
+	// TargetLabels represents labels associated with the target resources that this resource communicates with.
+	TargetLabels map[string]string `json:"targetLabels,omitempty" protobuf:"bytes,1,opt,name=targetLabels"`
+	// TargetRefs contains references to other resources that this resource interacts with, such as Services or Pods.
+	TargetRefs []ResourceRef `json:"targetRefs,omitempty" protobuf:"bytes,2,opt,name=targetRefs"`
+	// Labels holds the labels associated with this networking resource.
+	Labels map[string]string `json:"labels,omitempty" protobuf:"bytes,3,opt,name=labels"`
+	// Ingress provides information about external access points (e.g., load balancer ingress) for this resource.
+	Ingress []corev1.LoadBalancerIngress `json:"ingress,omitempty" protobuf:"bytes,4,opt,name=ingress"`
+	// ExternalURLs holds a list of URLs that should be accessible externally.
+	// This field is typically populated for Ingress resources based on their hostname rules.
 	ExternalURLs []string `json:"externalURLs,omitempty" protobuf:"bytes,5,opt,name=externalURLs"`
 }
 
-// TODO: describe this type
+// HostResourceInfo represents resource usage details for a specific resource type on a host.
 type HostResourceInfo struct {
-	ResourceName         corev1.ResourceName `json:"resourceName,omitempty" protobuf:"bytes,1,name=resourceName"`
-	RequestedByApp       int64               `json:"requestedByApp,omitempty" protobuf:"bytes,2,name=requestedByApp"`
-	RequestedByNeighbors int64               `json:"requestedByNeighbors,omitempty" protobuf:"bytes,3,name=requestedByNeighbors"`
-	Capacity             int64               `json:"capacity,omitempty" protobuf:"bytes,4,name=capacity"`
+	// ResourceName specifies the type of resource (e.g., CPU, memory, storage).
+	ResourceName corev1.ResourceName `json:"resourceName,omitempty" protobuf:"bytes,1,name=resourceName"`
+	// RequestedByApp indicates the total amount of this resource requested by the application running on the host.
+	RequestedByApp int64 `json:"requestedByApp,omitempty" protobuf:"bytes,2,name=requestedByApp"`
+	// RequestedByNeighbors indicates the total amount of this resource requested by other workloads on the same host.
+	RequestedByNeighbors int64 `json:"requestedByNeighbors,omitempty" protobuf:"bytes,3,name=requestedByNeighbors"`
+	// Capacity represents the total available capacity of this resource on the host.
+	Capacity int64 `json:"capacity,omitempty" protobuf:"bytes,4,name=capacity"`
 }
 
-// HostInfo holds host name and resources metrics
-// TODO: describe purpose of this type
-// TODO: describe members of this type
+// HostInfo holds metadata and resource usage metrics for a specific host in the cluster.
 type HostInfo struct {
-	Name          string                `json:"name,omitempty" protobuf:"bytes,1,name=name"`
-	ResourcesInfo []HostResourceInfo    `json:"resourcesInfo,omitempty" protobuf:"bytes,2,name=resourcesInfo"`
-	SystemInfo    corev1.NodeSystemInfo `json:"systemInfo,omitempty" protobuf:"bytes,3,opt,name=systemInfo"`
+	// Name is the hostname or node name in the Kubernetes cluster.
+	Name string `json:"name,omitempty" protobuf:"bytes,1,name=name"`
+	// ResourcesInfo provides a list of resource usage details for different resource types on this host.
+	ResourcesInfo []HostResourceInfo `json:"resourcesInfo,omitempty" protobuf:"bytes,2,name=resourcesInfo"`
+	// SystemInfo contains detailed system-level information about the host, such as OS, kernel version, and architecture.
+	SystemInfo corev1.NodeSystemInfo `json:"systemInfo,omitempty" protobuf:"bytes,3,opt,name=systemInfo"`
+	// Labels holds the labels attached to the host.
+	Labels map[string]string `json:"labels,omitempty" protobuf:"bytes,4,opt,name=labels"`
 }
 
-// ApplicationTree holds nodes which belongs to the application
-// TODO: describe purpose of this type
+// ApplicationTree represents the hierarchical structure of resources associated with an Argo CD application.
 type ApplicationTree struct {
-	// Nodes contains list of nodes which either directly managed by the application and children of directly managed nodes.
+	// Nodes contains a list of resources that are either directly managed by the application
+	// or are children of directly managed resources.
 	Nodes []ResourceNode `json:"nodes,omitempty" protobuf:"bytes,1,rep,name=nodes"`
-	// OrphanedNodes contains if or orphaned nodes: nodes which are not managed by the app but in the same namespace. List is populated only if orphaned resources enabled in app project.
+	// OrphanedNodes contains resources that exist in the same namespace as the application
+	// but are not managed by it. This list is populated only if orphaned resource tracking
+	// is enabled in the application's project settings.
 	OrphanedNodes []ResourceNode `json:"orphanedNodes,omitempty" protobuf:"bytes,2,rep,name=orphanedNodes"`
-	// Hosts holds list of Kubernetes nodes that run application related pods
+	// Hosts provides a list of Kubernetes nodes that are running pods related to the application.
 	Hosts []HostInfo `json:"hosts,omitempty" protobuf:"bytes,3,rep,name=hosts"`
+	// ShardsCount represents the total number of shards the application tree is split into.
+	// This is used to distribute resource processing across multiple shards.
+	ShardsCount int64 `json:"shardsCount,omitempty" protobuf:"bytes,4,opt,name=shardsCount"`
 }
 
 // ApplicationSummary contains information about URLs and container images used by an application
@@ -838,55 +1032,86 @@ type ResourceRef struct {
 	UID       string `json:"uid,omitempty" protobuf:"bytes,6,opt,name=uid"`
 }
 
-// ResourceNode contains information about live resource and its children
-// TODO: describe members of this type
+// ResourceNode contains information about a live Kubernetes resource and its relationships with other resources.
 type ResourceNode struct {
-	ResourceRef     `json:",inline" protobuf:"bytes,1,opt,name=resourceRef"`
-	ParentRefs      []ResourceRef           `json:"parentRefs,omitempty" protobuf:"bytes,2,opt,name=parentRefs"`
-	Info            []InfoItem              `json:"info,omitempty" protobuf:"bytes,3,opt,name=info"`
-	NetworkingInfo  *ResourceNetworkingInfo `json:"networkingInfo,omitempty" protobuf:"bytes,4,opt,name=networkingInfo"`
-	ResourceVersion string                  `json:"resourceVersion,omitempty" protobuf:"bytes,5,opt,name=resourceVersion"`
-	Images          []string                `json:"images,omitempty" protobuf:"bytes,6,opt,name=images"`
-	Health          *HealthStatus           `json:"health,omitempty" protobuf:"bytes,7,opt,name=health"`
-	CreatedAt       *metav1.Time            `json:"createdAt,omitempty" protobuf:"bytes,8,opt,name=createdAt"`
+	// ResourceRef uniquely identifies the resource using its group, kind, namespace, and name.
+	ResourceRef `json:",inline" protobuf:"bytes,1,opt,name=resourceRef"`
+	// ParentRefs lists the parent resources that reference this resource.
+	// This helps in understanding ownership and hierarchical relationships.
+	ParentRefs []ResourceRef `json:"parentRefs,omitempty" protobuf:"bytes,2,opt,name=parentRefs"`
+	// Info provides additional metadata or annotations about the resource.
+	Info []InfoItem `json:"info,omitempty" protobuf:"bytes,3,opt,name=info"`
+	// NetworkingInfo contains details about the resource's networking attributes,
+	// such as ingress information and external URLs.
+	NetworkingInfo *ResourceNetworkingInfo `json:"networkingInfo,omitempty" protobuf:"bytes,4,opt,name=networkingInfo"`
+	// ResourceVersion indicates the version of the resource, used to track changes.
+	ResourceVersion string `json:"resourceVersion,omitempty" protobuf:"bytes,5,opt,name=resourceVersion"`
+	// Images lists container images associated with the resource.
+	// This is primarily useful for pods and other workload resources.
+	Images []string `json:"images,omitempty" protobuf:"bytes,6,opt,name=images"`
+	// Health represents the health status of the resource (e.g., Healthy, Degraded, Progressing).
+	Health *HealthStatus `json:"health,omitempty" protobuf:"bytes,7,opt,name=health"`
+	// CreatedAt records the timestamp when the resource was created.
+	CreatedAt *metav1.Time `json:"createdAt,omitempty" protobuf:"bytes,8,opt,name=createdAt"`
 }
 
-// ResourceStatus holds the current sync and health status of a resource
-// TODO: describe members of this type
+// ResourceStatus holds the current synchronization and health status of a Kubernetes resource.
 type ResourceStatus struct {
-	Group           string         `json:"group,omitempty" protobuf:"bytes,1,opt,name=group"`
-	Version         string         `json:"version,omitempty" protobuf:"bytes,2,opt,name=version"`
-	Kind            string         `json:"kind,omitempty" protobuf:"bytes,3,opt,name=kind"`
-	Namespace       string         `json:"namespace,omitempty" protobuf:"bytes,4,opt,name=namespace"`
-	Name            string         `json:"name,omitempty" protobuf:"bytes,5,opt,name=name"`
-	Status          SyncStatusCode `json:"status,omitempty" protobuf:"bytes,6,opt,name=status"`
-	Health          *HealthStatus  `json:"health,omitempty" protobuf:"bytes,7,opt,name=health"`
-	Hook            bool           `json:"hook,omitempty" protobuf:"bytes,8,opt,name=hook"`
-	RequiresPruning bool           `json:"requiresPruning,omitempty" protobuf:"bytes,9,opt,name=requiresPruning"`
-	SyncWave        int64          `json:"syncWave,omitempty" protobuf:"bytes,10,opt,name=syncWave"`
+	// Group represents the API group of the resource (e.g., "apps" for Deployments).
+	Group string `json:"group,omitempty" protobuf:"bytes,1,opt,name=group"`
+	// Version indicates the API version of the resource (e.g., "v1", "v1beta1").
+	Version string `json:"version,omitempty" protobuf:"bytes,2,opt,name=version"`
+	// Kind specifies the type of the resource (e.g., "Deployment", "Service").
+	Kind string `json:"kind,omitempty" protobuf:"bytes,3,opt,name=kind"`
+	// Namespace defines the Kubernetes namespace where the resource is located.
+	Namespace string `json:"namespace,omitempty" protobuf:"bytes,4,opt,name=namespace"`
+	// Name is the unique name of the resource within the namespace.
+	Name string `json:"name,omitempty" protobuf:"bytes,5,opt,name=name"`
+	// Status represents the synchronization state of the resource (e.g., Synced, OutOfSync).
+	Status SyncStatusCode `json:"status,omitempty" protobuf:"bytes,6,opt,name=status"`
+	// Health indicates the health status of the resource (e.g., Healthy, Degraded, Progressing).
+	Health *HealthStatus `json:"health,omitempty" protobuf:"bytes,7,opt,name=health"`
+	// Hook is true if the resource is used as a lifecycle hook in an Argo CD application.
+	Hook bool `json:"hook,omitempty" protobuf:"bytes,8,opt,name=hook"`
+	// RequiresPruning is true if the resource needs to be pruned (deleted) as part of synchronization.
+	RequiresPruning bool `json:"requiresPruning,omitempty" protobuf:"bytes,9,opt,name=requiresPruning"`
+	// SyncWave determines the order in which resources are applied during a sync operation.
+	// Lower values are applied first.
+	SyncWave int64 `json:"syncWave,omitempty" protobuf:"bytes,10,opt,name=syncWave"`
+	// RequiresDeletionConfirmation is true if the resource requires explicit user confirmation before deletion.
+	RequiresDeletionConfirmation bool `json:"requiresDeletionConfirmation,omitempty" protobuf:"bytes,11,opt,name=requiresDeletionConfirmation"`
 }
 
-// ResourceDiff holds the diff of a live and target resource object
-// TODO: describe members of this type
+// ResourceDiff holds the diff between a live and target resource object in Argo CD.
+// It is used to compare the desired state (from Git/Helm) with the actual state in the cluster.
 type ResourceDiff struct {
-	Group     string `json:"group,omitempty" protobuf:"bytes,1,opt,name=group"`
-	Kind      string `json:"kind,omitempty" protobuf:"bytes,2,opt,name=kind"`
+	// Group represents the API group of the resource (e.g., "apps" for Deployments).
+	Group string `json:"group,omitempty" protobuf:"bytes,1,opt,name=group"`
+	// Kind represents the Kubernetes resource kind (e.g., "Deployment", "Service").
+	Kind string `json:"kind,omitempty" protobuf:"bytes,2,opt,name=kind"`
+	// Namespace specifies the namespace where the resource exists.
 	Namespace string `json:"namespace,omitempty" protobuf:"bytes,3,opt,name=namespace"`
-	Name      string `json:"name,omitempty" protobuf:"bytes,4,opt,name=name"`
-	// TargetState contains the JSON serialized resource manifest defined in the Git/Helm
+	// Name is the name of the resource.
+	Name string `json:"name,omitempty" protobuf:"bytes,4,opt,name=name"`
+	// TargetState contains the JSON-serialized resource manifest as defined in the Git/Helm repository.
 	TargetState string `json:"targetState,omitempty" protobuf:"bytes,5,opt,name=targetState"`
-	// TargetState contains the JSON live resource manifest
+	// LiveState contains the JSON-serialized resource manifest of the resource currently running in the cluster.
 	LiveState string `json:"liveState,omitempty" protobuf:"bytes,6,opt,name=liveState"`
-	// Diff contains the JSON patch between target and live resource
-	// Deprecated: use NormalizedLiveState and PredictedLiveState to render the difference
+	// Diff contains the JSON patch representing the difference between the live and target resource.
+	// Deprecated: Use NormalizedLiveState and PredictedLiveState instead to compute differences.
 	Diff string `json:"diff,omitempty" protobuf:"bytes,7,opt,name=diff"`
-	Hook bool   `json:"hook,omitempty" protobuf:"bytes,8,opt,name=hook"`
-	// NormalizedLiveState contains JSON serialized live resource state with applied normalizations
+	// Hook indicates whether this resource is a hook resource (e.g., pre-sync or post-sync hooks).
+	Hook bool `json:"hook,omitempty" protobuf:"bytes,8,opt,name=hook"`
+	// NormalizedLiveState contains the JSON-serialized live resource state after applying normalizations.
+	// Normalizations may include ignoring irrelevant fields like timestamps or defaults applied by Kubernetes.
 	NormalizedLiveState string `json:"normalizedLiveState,omitempty" protobuf:"bytes,9,opt,name=normalizedLiveState"`
-	// PredictedLiveState contains JSON serialized resource state that is calculated based on normalized and target resource state
+	// PredictedLiveState contains the JSON-serialized resource state that Argo CD predicts based on the
+	// combination of the normalized live state and the desired target state.
 	PredictedLiveState string `json:"predictedLiveState,omitempty" protobuf:"bytes,10,opt,name=predictedLiveState"`
-	ResourceVersion    string `json:"resourceVersion,omitempty" protobuf:"bytes,11,opt,name=resourceVersion"`
-	Modified           bool   `json:"modified,omitempty" protobuf:"bytes,12,opt,name=modified"`
+	// ResourceVersion is the Kubernetes resource version, which helps in tracking changes.
+	ResourceVersion string `json:"resourceVersion,omitempty" protobuf:"bytes,11,opt,name=resourceVersion"`
+	// Modified indicates whether the live resource has changes compared to the target resource.
+	Modified bool `json:"modified,omitempty" protobuf:"bytes,12,opt,name=modified"`
 }
 
 // ConnectionStatus represents the status indicator for a connection to a remote resource
@@ -921,10 +1146,10 @@ type Cluster struct {
 	Name string `json:"name" protobuf:"bytes,2,opt,name=name"`
 	// Config holds cluster information for connecting to a cluster
 	Config ClusterConfig `json:"config" protobuf:"bytes,3,opt,name=config"`
-	// DEPRECATED: use Info.ConnectionState field instead.
+	// Deprecated: use Info.ConnectionState field instead.
 	// ConnectionState contains information about cluster connection state
 	ConnectionState ConnectionState `json:"connectionState,omitempty" protobuf:"bytes,4,opt,name=connectionState"`
-	// DEPRECATED: use Info.ServerVersion field instead.
+	// Deprecated: use Info.ServerVersion field instead.
 	// The server version
 	ServerVersion string `json:"serverVersion,omitempty" protobuf:"bytes,5,opt,name=serverVersion"`
 	// Holds list of namespaces which are accessible in that cluster. Cluster level resources will be ignored if namespace list is not empty.
@@ -943,6 +1168,11 @@ type Cluster struct {
 	Labels map[string]string `json:"labels,omitempty" protobuf:"bytes,12,opt,name=labels"`
 	// Annotations for cluster secret metadata
 	Annotations map[string]string `json:"annotations,omitempty" protobuf:"bytes,13,opt,name=annotations"`
+
+	// The embedded metav1.ObjectMeta field is purely here to please the informer when converting from a v1.Secret to a Cluster.
+	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
+	// +optional
+	metav1.ObjectMeta `json:"-,omitempty"`
 }
 
 // ClusterInfo contains information about the cluster
@@ -1007,7 +1237,7 @@ type ExecProviderConfig struct {
 }
 
 // ClusterConfig is the configuration attributes. This structure is subset of the go-client
-// rest.Config with annotations added for marshaling.
+// rest.Config with annotations added for marshalling.
 type ClusterConfig struct {
 	// Server requires Basic authentication
 	Username string `json:"username,omitempty" protobuf:"bytes,1,opt,name=username"`
@@ -1026,6 +1256,12 @@ type ClusterConfig struct {
 
 	// ExecProviderConfig contains configuration for an exec provider
 	ExecProviderConfig *ExecProviderConfig `json:"execProviderConfig,omitempty" protobuf:"bytes,6,opt,name=execProviderConfig"`
+
+	// DisableCompression bypasses automatic GZip compression requests to the server.
+	DisableCompression bool `json:"disableCompression,omitempty" protobuf:"bytes,7,opt,name=disableCompression"`
+
+	// ProxyURL is the URL to the proxy to be used for all requests send to the server
+	ProxyUrl string `json:"proxyUrl,omitempty" protobuf:"bytes,8,opt,name=proxyUrl"` //nolint:revive //FIXME(var-naming)
 }
 
 // TLSClientConfig contains settings to enable transport layer security
@@ -1047,12 +1283,16 @@ type TLSClientConfig struct {
 	CAData []byte `json:"caData,omitempty" protobuf:"bytes,5,opt,name=caData"`
 }
 
-// KnownTypeField contains mapping between CRD field and known Kubernetes type.
-// This is mainly used for unit conversion in unknown resources (e.g. 0.1 == 100mi)
-// TODO: Describe the members of this type
+// KnownTypeField contains a mapping between a Custom Resource Definition (CRD) field
+// and a well-known Kubernetes type. This mapping is primarily used for unit conversions
+// in resources where the type is not explicitly defined (e.g., converting "0.1" to "100m" for CPU requests).
 type KnownTypeField struct {
+	// Field represents the JSON path to the specific field in the CRD that requires type conversion.
+	// Example: "spec.resources.requests.cpu"
 	Field string `json:"field,omitempty" protobuf:"bytes,1,opt,name=field"`
-	Type  string `json:"type,omitempty" protobuf:"bytes,2,opt,name=type"`
+	// Type specifies the expected Kubernetes type for the field, such as "cpu" or "memory".
+	// This helps in converting values between different formats (e.g., "0.1" to "100m" for CPU).
+	Type string `json:"type,omitempty" protobuf:"bytes,2,opt,name=type"`
 }
 
 // OverrideIgnoreDiff contains configurations about how fields should be ignored during diffs between
@@ -1067,48 +1307,72 @@ type OverrideIgnoreDiff struct {
 	ManagedFieldsManagers []string `json:"managedFieldsManagers" protobuf:"bytes,3,opt,name=managedFieldsManagers"`
 }
 
+type rawResourceOverride struct {
+	HealthLua             string           `json:"health.lua,omitempty"`
+	UseOpenLibs           bool             `json:"health.lua.useOpenLibs,omitempty"`
+	Actions               string           `json:"actions,omitempty"`
+	IgnoreDifferences     string           `json:"ignoreDifferences,omitempty"`
+	IgnoreResourceUpdates string           `json:"ignoreResourceUpdates,omitempty"`
+	KnownTypeFields       []KnownTypeField `json:"knownTypeFields,omitempty"`
+}
+
 // ResourceOverride holds configuration to customize resource diffing and health assessment
-// TODO: describe the members of this type
 type ResourceOverride struct {
-	HealthLua             string             `protobuf:"bytes,1,opt,name=healthLua"`
-	UseOpenLibs           bool               `protobuf:"bytes,5,opt,name=useOpenLibs"`
-	Actions               string             `protobuf:"bytes,3,opt,name=actions"`
-	IgnoreDifferences     OverrideIgnoreDiff `protobuf:"bytes,2,opt,name=ignoreDifferences"`
+	// HealthLua contains a Lua script that defines custom health checks for the resource.
+	HealthLua string `protobuf:"bytes,1,opt,name=healthLua"`
+	// UseOpenLibs indicates whether to use open-source libraries for the resource.
+	UseOpenLibs bool `protobuf:"bytes,5,opt,name=useOpenLibs"`
+	// Actions defines the set of actions that can be performed on the resource, as a Lua script.
+	Actions string `protobuf:"bytes,3,opt,name=actions"`
+	// IgnoreDifferences contains configuration for which differences should be ignored during the resource diffing.
+	IgnoreDifferences OverrideIgnoreDiff `protobuf:"bytes,2,opt,name=ignoreDifferences"`
+	// IgnoreResourceUpdates holds configuration for ignoring updates to specific resource fields.
 	IgnoreResourceUpdates OverrideIgnoreDiff `protobuf:"bytes,6,opt,name=ignoreResourceUpdates"`
-	KnownTypeFields       []KnownTypeField   `protobuf:"bytes,4,opt,name=knownTypeFields"`
+	// KnownTypeFields lists fields for which unit conversions should be applied.
+	KnownTypeFields []KnownTypeField `protobuf:"bytes,4,opt,name=knownTypeFields"`
 }
 
-// TODO: describe this type
-// TODO: describe members of this type
+// ResourceActions holds the set of actions that can be applied to a resource.
+// It defines custom Lua scripts for discovery and action execution, as well as options
+// for merging built-in actions with custom ones.
 type ResourceActions struct {
-	ActionDiscoveryLua string                     `json:"discovery.lua,omitempty" yaml:"discovery.lua,omitempty" protobuf:"bytes,1,opt,name=actionDiscoveryLua"`
-	Definitions        []ResourceActionDefinition `json:"definitions,omitempty" protobuf:"bytes,2,rep,name=definitions"`
+	// ActionDiscoveryLua contains a Lua script for discovering actions.
+	ActionDiscoveryLua string `json:"discovery.lua,omitempty" yaml:"discovery.lua,omitempty" protobuf:"bytes,1,opt,name=actionDiscoveryLua"`
+	// Definitions holds the list of action definitions available for the resource.
+	Definitions []ResourceActionDefinition `json:"definitions,omitempty" protobuf:"bytes,2,rep,name=definitions"`
+	// MergeBuiltinActions indicates whether built-in actions should be merged with custom actions.
+	MergeBuiltinActions bool `json:"mergeBuiltinActions,omitempty" yaml:"mergeBuiltinActions,omitempty" protobuf:"bytes,3,opt,name=mergeBuiltinActions"`
 }
 
-// TODO: describe this type
-// TODO: describe members of this type
+// ResourceActionDefinition defines an individual action that can be executed on a resource.
+// It includes a name for the action and a Lua script that defines the action's behavior.
 type ResourceActionDefinition struct {
-	Name      string `json:"name" protobuf:"bytes,1,opt,name=name"`
+	// Name is the identifier for the action.
+	Name string `json:"name" protobuf:"bytes,1,opt,name=name"`
+	// ActionLua contains the Lua script that defines the behavior of the action.
 	ActionLua string `json:"action.lua" yaml:"action.lua" protobuf:"bytes,2,opt,name=actionLua"`
 }
 
-// TODO: describe this type
-// TODO: describe members of this type
+// ResourceAction represents an individual action that can be performed on a resource.
+// It includes parameters, an optional disabled flag, an icon for display, and a name for the action.
 type ResourceAction struct {
-	Name        string                `json:"name,omitempty" protobuf:"bytes,1,opt,name=name"`
-	Params      []ResourceActionParam `json:"params,omitempty" protobuf:"bytes,2,rep,name=params"`
-	Disabled    bool                  `json:"disabled,omitempty" protobuf:"varint,3,opt,name=disabled"`
-	IconClass   string                `json:"iconClass,omitempty" protobuf:"bytes,4,opt,name=iconClass"`
-	DisplayName string                `json:"displayName,omitempty" protobuf:"bytes,5,opt,name=displayName"`
+	// Name is the name or identifier for the action.
+	Name string `json:"name,omitempty" protobuf:"bytes,1,opt,name=name"`
+	// Params contains the parameters required to execute the action.
+	Params []ResourceActionParam `json:"params,omitempty" protobuf:"bytes,2,rep,name=params"`
+	// Disabled indicates whether the action is disabled.
+	Disabled bool `json:"disabled,omitempty" protobuf:"varint,3,opt,name=disabled"`
+	// IconClass specifies the CSS class for the action's icon.
+	IconClass string `json:"iconClass,omitempty" protobuf:"bytes,4,opt,name=iconClass"`
+	// DisplayName provides a user-friendly name for the action.
+	DisplayName string `json:"displayName,omitempty" protobuf:"bytes,5,opt,name=displayName"`
 }
 
-// TODO: describe this type
-// TODO: describe members of this type
+// ResourceActionParam represents a parameter for a resource action.
+// It includes a name, value, type, and an optional default value for the parameter.
 type ResourceActionParam struct {
-	Name    string `json:"name,omitempty" protobuf:"bytes,1,opt,name=name"`
-	Value   string `json:"value,omitempty" protobuf:"bytes,2,opt,name=value"`
-	Type    string `json:"type,omitempty" protobuf:"bytes,3,opt,name=type"`
-	Default string `json:"default,omitempty" protobuf:"bytes,4,opt,name=default"`
+	// Name is the name of the parameter.
+	Name string `json:"name,omitempty" protobuf:"bytes,1,opt,name=name"`
 }
 
 // OrphanedResourcesMonitorSettings holds settings of orphaned resources monitoring
@@ -1139,11 +1403,12 @@ type AppProjectSpec struct {
 	// Destinations contains list of destinations available for deployment
 	Destinations []ApplicationDestination `json:"destinations,omitempty" protobuf:"bytes,2,name=destination"`
 	// Description contains optional project description
+	// +kubebuilder:validation:MaxLength=255
 	Description string `json:"description,omitempty" protobuf:"bytes,3,opt,name=description"`
 	// Roles are user defined RBAC roles associated with this project
 	Roles []ProjectRole `json:"roles,omitempty" protobuf:"bytes,4,rep,name=roles"`
 	// ClusterResourceWhitelist contains list of whitelisted cluster level resources
-	ClusterResourceWhitelist []metav1.GroupKind `json:"clusterResourceWhitelist,omitempty" protobuf:"bytes,5,opt,name=clusterResourceWhitelist"`
+	ClusterResourceWhitelist []ClusterResourceRestrictionItem `json:"clusterResourceWhitelist,omitempty" protobuf:"bytes,5,opt,name=clusterResourceWhitelist"`
 	// NamespaceResourceBlacklist contains list of blacklisted namespace level resources
 	NamespaceResourceBlacklist []metav1.GroupKind `json:"namespaceResourceBlacklist,omitempty" protobuf:"bytes,6,opt,name=namespaceResourceBlacklist"`
 	// OrphanedResources specifies if controller should monitor orphaned resources of apps in this project
@@ -1155,11 +1420,22 @@ type AppProjectSpec struct {
 	// SignatureKeys contains a list of PGP key IDs that commits in Git must be signed with in order to be allowed for sync
 	SignatureKeys []SignatureKey `json:"signatureKeys,omitempty" protobuf:"bytes,10,opt,name=signatureKeys"`
 	// ClusterResourceBlacklist contains list of blacklisted cluster level resources
-	ClusterResourceBlacklist []metav1.GroupKind `json:"clusterResourceBlacklist,omitempty" protobuf:"bytes,11,opt,name=clusterResourceBlacklist"`
+	ClusterResourceBlacklist []ClusterResourceRestrictionItem `json:"clusterResourceBlacklist,omitempty" protobuf:"bytes,11,opt,name=clusterResourceBlacklist"`
 	// SourceNamespaces defines the namespaces application resources are allowed to be created in
 	SourceNamespaces []string `json:"sourceNamespaces,omitempty" protobuf:"bytes,12,opt,name=sourceNamespaces"`
 	// PermitOnlyProjectScopedClusters determines whether destinations can only reference clusters which are project-scoped
 	PermitOnlyProjectScopedClusters bool `json:"permitOnlyProjectScopedClusters,omitempty" protobuf:"bytes,13,opt,name=permitOnlyProjectScopedClusters"`
+	// DestinationServiceAccounts holds information about the service accounts to be impersonated for the application sync operation for each destination.
+	DestinationServiceAccounts []ApplicationDestinationServiceAccount `json:"destinationServiceAccounts,omitempty" protobuf:"bytes,14,name=destinationServiceAccounts"`
+}
+
+// ClusterResourceRestrictionItem is a cluster resource that is restricted by the project's whitelist or blacklist
+type ClusterResourceRestrictionItem struct {
+	Group string `json:"group" protobuf:"bytes,1,opt,name=group"`
+	Kind  string `json:"kind" protobuf:"bytes,2,opt,name=kind"`
+	// Name is the name of the restricted resource. Glob patterns using Go's filepath.Match syntax are supported.
+	// Unlike the group and kind fields, if no name is specified, all resources of the specified group/kind are matched.
+	Name string `json:"name,omitempty" protobuf:"bytes,3,opt,name=name"`
 }
 
 // SyncWindows is a collection of sync windows in this project
@@ -1183,6 +1459,10 @@ type SyncWindow struct {
 	ManualSync bool `json:"manualSync,omitempty" protobuf:"bytes,7,opt,name=manualSync"`
 	// TimeZone of the sync that will be applied to the schedule
 	TimeZone string `json:"timeZone,omitempty" protobuf:"bytes,8,opt,name=timeZone"`
+	// UseAndOperator use AND operator for matching applications, namespaces and clusters instead of the default OR operator
+	UseAndOperator bool `json:"andOperator,omitempty" protobuf:"bytes,9,opt,name=andOperator"`
+	// Description of the sync that will be applied to the schedule, can be used to add any information such as a ticket number for example
+	Description string `json:"description,omitempty" protobuf:"bytes,10,opt,name=description"`
 }
 
 // ProjectRole represents a role that has access to a project
@@ -1225,10 +1505,38 @@ type HelmOptions struct {
 	ValuesFileSchemes []string `protobuf:"bytes,1,opt,name=valuesFileSchemes"`
 }
 
+// KustomizeVersion holds information about additional Kustomize versions
+type KustomizeVersion struct {
+	// Name holds Kustomize version name
+	Name string `protobuf:"bytes,1,opt,name=name"`
+	// Path holds the corresponding binary path
+	Path string `protobuf:"bytes,2,opt,name=path"`
+	// BuildOptions that are specific to a Kustomize version
+	BuildOptions string `protobuf:"bytes,3,opt,name=buildOptions"`
+}
+
 // KustomizeOptions are options for kustomize to use when building manifests
 type KustomizeOptions struct {
 	// BuildOptions is a string of build parameters to use when calling `kustomize build`
 	BuildOptions string `protobuf:"bytes,1,opt,name=buildOptions"`
+
 	// BinaryPath holds optional path to kustomize binary
+	//
+	// Deprecated: Use settings.Settings instead. See: settings.Settings.KustomizeVersions.
+	// If this field is set, it will be used as the Kustomize binary path.
+	// Otherwise, Versions is used.
 	BinaryPath string `protobuf:"bytes,2,opt,name=binaryPath"`
+
+	// Versions is a list of Kustomize versions and their corresponding binary paths and build options.
+	Versions []KustomizeVersion `protobuf:"bytes,3,rep,name=versions"`
+}
+
+// ApplicationDestinationServiceAccount holds information about the service account to be impersonated for the application sync operation.
+type ApplicationDestinationServiceAccount struct {
+	// Server specifies the URL of the target cluster's Kubernetes control plane API.
+	Server string `json:"server" protobuf:"bytes,1,opt,name=server"`
+	// Namespace specifies the target namespace for the application's resources.
+	Namespace string `json:"namespace,omitempty" protobuf:"bytes,2,opt,name=namespace"`
+	// DefaultServiceAccount to be used for impersonation during the sync operation
+	DefaultServiceAccount string `json:"defaultServiceAccount" protobuf:"bytes,3,opt,name=defaultServiceAccount"`
 }

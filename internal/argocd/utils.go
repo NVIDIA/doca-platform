@@ -23,8 +23,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	argoapplication "github.com/nvidia/doca-platform/third_party/api/argocd/api/application"
-	argov1 "github.com/nvidia/doca-platform/third_party/api/argocd/api/application/v1alpha1"
+	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -41,8 +40,8 @@ func GetApplicationName(clusterName, dpuServiceName string) string {
 func NewAppProject(namespace, name string, clusters []types.NamespacedName) *argov1.AppProject {
 	project := argov1.AppProject{
 		TypeMeta: metav1.TypeMeta{
-			Kind:       argoapplication.AppProjectKind,
-			APIVersion: fmt.Sprintf("%v/%v", argoapplication.Group, argoapplication.Version),
+			Kind:       argov1.AppProjectSchemaGroupVersionKind.Kind,
+			APIVersion: argov1.AppProjectSchemaGroupVersionKind.GroupVersion().Identifier(),
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -59,7 +58,7 @@ func NewAppProject(namespace, name string, clusters []types.NamespacedName) *arg
 			Destinations: nil,
 			Description:  "Installing DPU Services",
 			Roles:        nil,
-			ClusterResourceWhitelist: []metav1.GroupKind{
+			ClusterResourceWhitelist: []argov1.ClusterResourceRestrictionItem{
 				// Required to deploy Cluster-scoped resources to the DPU cluster.
 				{Group: "*", Kind: "*"},
 			},
@@ -88,8 +87,8 @@ func NewAppProject(namespace, name string, clusters []types.NamespacedName) *arg
 func NewApplication(namespace, projectName string, dpuService *dpuservicev1.DPUService, values *runtime.RawExtension, clusterName string) *argov1.Application {
 	return &argov1.Application{
 		TypeMeta: metav1.TypeMeta{
-			Kind:       argoapplication.ApplicationKind,
-			APIVersion: fmt.Sprintf("%v/%v", argoapplication.Group, argoapplication.Version),
+			Kind:       argov1.ApplicationSchemaGroupVersionKind.Kind,
+			APIVersion: argov1.ApplicationSchemaGroupVersionKind.GroupVersion().Identifier(),
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			// TODO: Revisit this naming to include the namespace of the cluster
