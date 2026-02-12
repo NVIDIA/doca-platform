@@ -18,7 +18,12 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
@@ -136,6 +141,85 @@ func EnsureNamespace(ctx context.Context, c client.Client, namespace string) err
 		if !apierrors.IsAlreadyExists(err) {
 			return err
 		}
+	}
+	return nil
+}
+
+// DownloadFile downloads a file from a URL to a destination file.
+func DownloadFile(ctx context.Context, url string, dst string, fileMode os.FileMode) error {
+	if _, err := os.Stat(dst); err == nil {
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	tempFile, err := os.CreateTemp(filepath.Dir(dst), filepath.Base(dst)+"-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tempFile.Name()) //nolint: errcheck
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to get: %s status: %d", url, resp.StatusCode)
+	}
+	defer resp.Body.Close() //nolint: errcheck
+
+	expectedSize := resp.ContentLength
+	var totalWritten int64 = 0
+
+	buf := make([]byte, 128*1024*1024)
+copyLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("download canceled")
+		default:
+			n, err := resp.Body.Read(buf)
+			if err != nil && err != io.EOF {
+				if errors.Is(err, context.Canceled) {
+					return ctx.Err()
+				}
+				return fmt.Errorf("failed to read from source file: %w", err)
+			}
+			if n == 0 {
+				break copyLoop
+			}
+			if _, writeErr := tempFile.Write(buf[:n]); writeErr != nil {
+				return writeErr
+			}
+			totalWritten += int64(n)
+		}
+	}
+
+	// Validate downloaded file size against Content-Length header from this GET response.
+	// This detects truncated downloads caused by network failures or connection drops.
+	// Only validate when Content-Length is positive (known size).
+	// Skip validation when Content-Length is -1 (not set) or 0 (empty) since we can't reliably verify.
+	// If validation fails, the function returns an error and the deferred os.Remove() cleans up
+	// the temporary file, ensuring no partial/corrupted file is left at the destination.
+	if expectedSize > 0 && totalWritten != expectedSize {
+		return fmt.Errorf("downloaded file size mismatch: expected %d bytes, got %d bytes", expectedSize, totalWritten)
+	}
+
+	// Close the temp file before renaming
+	if err := tempFile.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempFile.Name(), dst); err != nil {
+		return err
+	}
+	if err := os.Chmod(dst, fileMode); err != nil {
+		return err
 	}
 	return nil
 }
