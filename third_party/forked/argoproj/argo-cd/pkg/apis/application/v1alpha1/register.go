@@ -14,7 +14,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"github.com/nvidia/doca-platform/third_party/api/argocd/api/application"
+	"github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"

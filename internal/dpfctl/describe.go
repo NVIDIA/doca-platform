@@ -31,9 +31,10 @@ import (
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
-	"github.com/nvidia/doca-platform/third_party/api/argocd/api/application"
-	argov1 "github.com/nvidia/doca-platform/third_party/api/argocd/api/application/v1alpha1"
 	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
+	"github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application"
+	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
+	argohealth "github.com/nvidia/doca-platform/third_party/forked/argoproj/gitops-engine/pkg/health"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -764,7 +765,7 @@ func argoStatusResourcesToConditions(status argov1.ApplicationStatus) []metav1.C
 		LastTransitionTime: *lastTransitionTime,
 		Reason:             "Success",
 	}
-	if status.Health.Status != argov1.HealthStatusHealthy || len(status.Conditions) > 0 {
+	if status.Health.Status != argohealth.HealthStatusHealthy || len(status.Conditions) > 0 {
 		cond.Status = metav1.ConditionFalse
 		cond.Reason = string(status.Health.Status)
 		if len(status.Conditions) > 0 {
