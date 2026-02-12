@@ -31,7 +31,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/metrics"
-	argov1 "github.com/nvidia/doca-platform/third_party/api/argocd/api/application/v1alpha1"
+	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
