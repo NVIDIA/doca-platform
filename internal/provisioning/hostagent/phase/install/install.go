@@ -28,6 +28,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	utils "github.com/nvidia/doca-platform/internal/utils"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -120,7 +121,7 @@ func (h *Handler) download(ctx context.Context, filename string, dst string) err
 		return err
 	}
 	logger.Info("start downloading", "url", httpURL, "dst", dst)
-	origErr := hostutil.DownloadFile(ctx, httpURL, dst, 0644)
+	origErr := utils.DownloadFile(ctx, httpURL, dst, 0644)
 	if origErr == nil {
 		logger.Info("download finished", "url", filename, "dst", dst)
 		return nil
@@ -204,7 +205,7 @@ func (h *Handler) downloadWithBFBRegistryServiceEnv(ctx context.Context, filenam
 		return err
 	}
 	logger.Info("workaround 1: download with bfb-register service address read from env", "url", httpURL, "dst", dst)
-	err = hostutil.DownloadFile(ctx, httpURL, dst, 0644)
+	err = utils.DownloadFile(ctx, httpURL, dst, 0644)
 	if err != nil {
 		logger.Error(fmt.Errorf("workaround 1 failed to download file: %w", err), "url", httpURL, "dst", dst)
 	}
@@ -238,7 +239,7 @@ func (h *Handler) downloadWithKubernetesAPIServerVIP(ctx context.Context, filena
 		return err
 	}
 	logger.Info("workaround 2: download with kubernetesAPIServerVIP read from env KUBERNETES_SERVICE_HOST", "kubernetesAPIServerVIP", kubernetesAPIServerVIP, "httpURL", httpURL)
-	err = hostutil.DownloadFile(ctx, httpURL, dst, 0644)
+	err = utils.DownloadFile(ctx, httpURL, dst, 0644)
 	if err != nil {
 		logger.Error(fmt.Errorf("workaround 2 failed to download file: %w", err), "url", httpURL, "dst", dst)
 	}

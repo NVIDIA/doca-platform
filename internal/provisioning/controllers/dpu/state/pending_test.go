@@ -29,13 +29,14 @@ import (
 
 var _ = Describe("DPU: pending", func() {
 	var (
-		defaultDPUName       = "dpu-pending-test"
-		defaultBFBName       = "bfb-pending-test"
-		defaultDPUFlavorName = "dpu-flavor-pending-test"
+		defaultDPUName               = "dpu-pending-test"
+		defaultBFBName               = "bfb-pending-test"
+		defaultDPUFlavorName         = "dpu-flavor-pending-test"
+		defaultBlueFieldSoftwareName = "bluefield-software-pending-test"
 	)
 
 	Context("successful cases", func() {
-		It("should transition to DPUNodeEffect", func() {
+		It("should transition to DPUNodeEffect with Unknown DpuType", func() {
 			bfb := bfbObj(defaultBFBName)
 			createObject(bfb)
 			patch := client.MergeFrom(bfb.DeepCopy())
@@ -76,6 +77,61 @@ var _ = Describe("DPU: pending", func() {
 						HaveField("Reason", provisioningv1.DPUCondDPUFlavorExists.String()),
 					),
 				))
+				Expect(status.BFBFile).To(Equal("/bfb/bfb-file.bfb"))
+				Expect(dpuMap.CanProceed(dutil.DPUID("test-dpu"))).To(HaveOccurred())
+			})
+		})
+
+		It("should transition to DPUNodeEffect with BlueField4 and DPUDevice", func() {
+			blueFieldSoftware := blueFieldSoftwareObj(defaultBlueFieldSoftwareName)
+			createObject(blueFieldSoftware)
+			patch := client.MergeFrom(blueFieldSoftware.DeepCopy())
+			blueFieldSoftware.Status.Phase = provisioningv1.BlueFieldSoftwareReady
+			Expect(k8sClient.Status().Patch(ctx, blueFieldSoftware, patch)).To(Succeed())
+
+			dpuFlavor := dpuFlavorObj(defaultDPUFlavorName)
+			createObject(dpuFlavor)
+
+			// Create DPUDevice as mock DMS would do
+			dpuDevice := dpuDeviceObj("dpu-device-pending-test")
+			dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField4
+			createObject(dpuDevice)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.BlueFieldSoftware = blueFieldSoftware.Name
+			dpu.Spec.DPUFlavor = dpuFlavor.Name
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Status.Phase = provisioningv1.DPUPending
+			dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+
+			runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
+				dpuMap := dutil.NewDPUInProvisioningMap(1)
+				status, err := state.Pending(ctx, dpu,
+					&dutil.ControllerContext{
+						Client: k8sClient,
+						Options: dutil.DPUOptions{
+							DPUInstallInterface: string(installInterface),
+						},
+						DPUInProvisioningMap: dpuMap,
+					},
+				)
+				Expect(err).To(Succeed())
+				Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffect))
+				Expect(status.Conditions).Should(ContainElements(
+					And(
+						HaveField("Type", provisioningv1.DPUCondBlueFieldSoftwareReady.String()),
+						HaveField("Status", metav1.ConditionTrue),
+						HaveField("Reason", provisioningv1.DPUCondBlueFieldSoftwareReady.String()),
+					),
+					And(
+						HaveField("Type", provisioningv1.DPUCondDPUFlavorExists.String()),
+						HaveField("Status", metav1.ConditionTrue),
+						HaveField("Reason", provisioningv1.DPUCondDPUFlavorExists.String()),
+					),
+				))
+				// BlueField4 uses PLDM-based installation with OS ISO, not BFB files
+				// so BFBFile should remain empty
+				Expect(status.BFBFile).To(BeEmpty())
 				Expect(dpuMap.CanProceed(dutil.DPUID("test-dpu"))).To(HaveOccurred())
 			})
 		})
@@ -90,6 +146,7 @@ var _ = Describe("DPU: pending", func() {
 			dpu.Spec.BFB = "not-existing-bfb"
 			dpu.Spec.DPUFlavor = dpuFlavor.Name
 			dpu.Status.Phase = provisioningv1.DPUPending
+			dpu.Status.DPUType = provisioningv1.DPUTypeBlueField3
 			runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
 				status, err := state.Pending(ctx, dpu,
 					&dutil.ControllerContext{
@@ -124,6 +181,7 @@ var _ = Describe("DPU: pending", func() {
 		dpu.Spec.BFB = bfb.Name
 		dpu.Spec.DPUFlavor = "not-existing-dpu-flavor"
 		dpu.Status.Phase = provisioningv1.DPUPending
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField3
 		runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
 			status, err := state.Pending(ctx, dpu,
 				&dutil.ControllerContext{
@@ -145,6 +203,36 @@ var _ = Describe("DPU: pending", func() {
 		})
 	})
 
+	It("should retry if BlueFieldSoftware is not found", func() {
+		blueFieldSoftware := blueFieldSoftwareObj(defaultBlueFieldSoftwareName)
+		createObject(blueFieldSoftware)
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		dpu.Spec.BlueFieldSoftware = blueFieldSoftware.Name
+		dpu.Spec.BlueFieldSoftware = "not-existing-blue-field-software"
+		dpu.Status.Phase = provisioningv1.DPUPending
+		runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
+			status, err := state.Pending(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(installInterface),
+					},
+				},
+			)
+			Expect(err).To(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondBlueFieldSoftwareReady.String()),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", "BlueFieldSoftwareNotFound"),
+				),
+			))
+		})
+	})
+
 	It("should retry if BFB is not ready", func() {
 		bfb := bfbObj(defaultBFBName)
 		createObject(bfb)
@@ -156,6 +244,7 @@ var _ = Describe("DPU: pending", func() {
 		dpu.Spec.BFB = bfb.Name
 		dpu.Spec.DPUFlavor = dpuFlavor.Name
 		dpu.Status.Phase = provisioningv1.DPUPending
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField3
 		runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
 			status, err := state.Pending(ctx, dpu,
 				&dutil.ControllerContext{
