@@ -1,0 +1,393 @@
+/*
+Copyright 2026 NVIDIA
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package state
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sync"
+
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	butil "github.com/nvidia/doca-platform/internal/provisioning/controllers/bluefieldsoftware/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/events"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
+	utils "github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/pkg/conditions"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+)
+
+const (
+	// maxDownloadRetries is the maximum number of retry attempts for a download
+	maxDownloadRetries = 3
+)
+
+var (
+	// downloadRetryCounter tracks the number of retry attempts per component
+	// Key format: "namespace/name/componentType"
+	downloadRetryCounter     = sync.Map{}
+	downloadRetryCounterLock sync.Mutex
+)
+
+type blueFieldSoftwareDownloadingState struct {
+	bfs      *provisioningv1.BlueFieldSoftware
+	recorder record.EventRecorder
+}
+
+func (st *blueFieldSoftwareDownloadingState) Handle(ctx context.Context, _ client.Client) error {
+	if isDeleting(st.bfs) {
+		st.cancelAllDownloads()
+		st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareDeleting
+		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
+			conditions.ReasonAwaitingDeletion, "BlueFieldSoftware is being deleted")
+		return nil
+	}
+
+	componentsToDownload := st.getComponentsToDownload()
+	if len(componentsToDownload) == 0 {
+		return st.markAllComponentsReady()
+	}
+
+	allCompleted, lastError := st.processComponents(ctx, componentsToDownload)
+	if !allCompleted {
+		return lastError
+	}
+
+	return st.markAllComponentsReady()
+}
+
+func (st *blueFieldSoftwareDownloadingState) markAllComponentsReady() error {
+	st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareReady
+	msg := fmt.Sprintf("Download BlueFieldSoftware: (%s/%s) successful", st.bfs.Namespace, st.bfs.Name)
+	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, msg)
+	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
+	return nil
+}
+
+func (st *blueFieldSoftwareDownloadingState) processComponents(ctx context.Context, components []componentInfo) (bool, error) {
+	allCompleted := true
+	var lastError error
+
+	for _, component := range components {
+		completed, err := st.processComponent(ctx, component)
+		if err != nil {
+			return false, err
+		}
+		if !completed {
+			allCompleted = false
+		}
+	}
+
+	return allCompleted, lastError
+}
+
+func (st *blueFieldSoftwareDownloadingState) processComponent(ctx context.Context, component componentInfo) (bool, error) {
+	componentURL := component.URL
+	componentType := component.ComponentType
+
+	if !isURL(componentURL) {
+		st.updateComponentStatus(componentType, componentURL)
+		return true, nil
+	}
+
+	taskName := butil.GenerateComponentTaskName(*st.bfs, componentType)
+	if taskFuture, ok := butil.DownloadingTaskMap.Load(taskName); ok {
+		return st.handleExistingTask(taskFuture, taskName, componentType, componentURL)
+	}
+
+	return st.handleNewDownload(ctx, componentType, componentURL, taskName)
+}
+
+func (st *blueFieldSoftwareDownloadingState) handleExistingTask(taskFuture interface{}, taskName string, componentType butil.ComponentType, componentURL string) (bool, error) {
+	result := taskFuture.(*future.Future)
+	if result.GetState() != future.Ready {
+		return false, nil
+	}
+
+	butil.DownloadingTaskMap.Delete(taskName + "cancel")
+	butil.DownloadingTaskMap.Delete(taskName)
+
+	if _, err := result.GetResult(); err != nil {
+		return false, st.handleDownloadError(err, componentType)
+	}
+
+	st.updateComponentStatus(componentType, componentURL)
+	return true, nil
+}
+
+func (st *blueFieldSoftwareDownloadingState) handleDownloadError(err error, componentType butil.ComponentType) error {
+	if errors.Is(err, context.Canceled) {
+		st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareDeleting
+		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
+			conditions.ReasonAwaitingDeletion, conditions.ConditionMessage(fmt.Sprintf("BlueFieldSoftware %s download canceled, deletion in progress", componentType)))
+		st.clearRetryCounter(componentType)
+		return nil
+	}
+
+	retryKey := st.getRetryKey(componentType)
+	currentRetries := st.getRetryCount(retryKey)
+
+	if currentRetries < maxDownloadRetries {
+		st.incrementRetryCounter(retryKey)
+		msg := fmt.Sprintf("Download component %s: (%s/%s) failed with error: %s. Retry attempt %d/%d",
+			componentType, st.bfs.Namespace, st.bfs.Name, err.Error(), currentRetries+1, maxDownloadRetries)
+		st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, msg)
+		st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareDownloading
+		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
+			conditions.ReasonRetrying, conditions.ConditionMessage(msg))
+		// Clear the failed task so it can be retried
+		taskName := butil.GenerateComponentTaskName(*st.bfs, componentType)
+		butil.DownloadingTaskMap.Delete(taskName)
+		butil.DownloadingTaskMap.Delete(taskName + "cancel")
+		return nil
+	}
+
+	// Max retries reached
+	st.clearRetryCounter(componentType)
+	msg := fmt.Sprintf("Download component %s: (%s/%s) failed after %d attempts with error: %s",
+		componentType, st.bfs.Namespace, st.bfs.Name, maxDownloadRetries, err.Error())
+	st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, msg)
+	st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareError
+	conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
+		conditions.ReasonFailure, conditions.ConditionMessage(msg))
+	return err
+}
+
+func (st *blueFieldSoftwareDownloadingState) handleNewDownload(ctx context.Context, componentType butil.ComponentType, componentURL, taskName string) (bool, error) {
+	fileName := butil.DefaultComponentFilename(st.bfs, componentType)
+	filePath := generateComponentFilePath(fileName)
+
+	exist, err := isFileExist(filePath)
+	if err != nil {
+		return false, st.handleFileCheckError(err, componentType)
+	}
+
+	if exist {
+		st.updateComponentStatus(componentType, componentURL)
+		return true, nil
+	}
+
+	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, fmt.Sprintf("Starting download component %s: (%s/%s)", componentType, st.bfs.Namespace, st.bfs.Name))
+
+	st.startDownload(ctx, componentType, componentURL, fileName, taskName)
+	return false, nil
+}
+
+func (st *blueFieldSoftwareDownloadingState) handleFileCheckError(err error, componentType butil.ComponentType) error {
+	st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareError
+	msg := fmt.Sprintf("Check component file %s: (%s/%s) failed with error: %s",
+		componentType, st.bfs.Namespace, st.bfs.Name, err.Error())
+	st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, msg)
+	conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
+		conditions.ReasonError, conditions.ConditionMessage(err.Error()))
+	return err
+}
+
+func (st *blueFieldSoftwareDownloadingState) startDownload(ctx context.Context, componentType butil.ComponentType, componentURL, fileName, taskName string) {
+	task := butil.ComponentDownloadTask{
+		TaskName:      taskName,
+		URL:           componentURL,
+		FileName:      fileName,
+		ComponentName: string(componentType),
+		UID:           st.bfs.UID,
+	}
+
+	taskCtx, cancel := context.WithCancel(ctx)
+	butil.DownloadingTaskMap.Store(taskName+"cancel", cancel)
+	downloadComponent(taskCtx, task)
+}
+
+type componentInfo struct {
+	URL           string
+	ComponentType butil.ComponentType
+}
+
+func (st *blueFieldSoftwareDownloadingState) getComponentsToDownload() []componentInfo {
+	var components []componentInfo
+
+	// Check FwBundleURL
+	if st.bfs.Spec.PldmFwBundle != "" && st.bfs.Status.DownloadedComponents.PldmFwBundle != st.bfs.Spec.PldmFwBundle {
+		components = append(components, componentInfo{
+			URL:           st.bfs.Spec.PldmFwBundle,
+			ComponentType: butil.ComponentTypeFwBundle,
+		})
+	}
+
+	// Check OSISO
+	if st.bfs.Spec.OsIso != "" && st.bfs.Status.DownloadedComponents.OsIso != st.bfs.Spec.OsIso {
+		components = append(components, componentInfo{
+			URL:           st.bfs.Spec.OsIso,
+			ComponentType: butil.ComponentTypeOSISO,
+		})
+	}
+
+	// Check TmpFwComponents (optional)
+	if st.bfs.Spec.TmpFwComponents != nil {
+		tc := st.bfs.Spec.TmpFwComponents
+		if tc.BmcErot != "" && st.bfs.Status.DownloadedComponents.BmcErot != tc.BmcErot {
+			components = append(components, componentInfo{
+				URL:           tc.BmcErot,
+				ComponentType: butil.ComponentTypeBMCEROT,
+			})
+		}
+		if tc.BmcFw != "" && st.bfs.Status.DownloadedComponents.BmcFw != tc.BmcFw {
+			components = append(components, componentInfo{
+				URL:           tc.BmcFw,
+				ComponentType: butil.ComponentTypeBMC,
+			})
+		}
+		if tc.AstraNicFw != "" && st.bfs.Status.DownloadedComponents.AstraNicFw != tc.AstraNicFw {
+			components = append(components, componentInfo{
+				URL:           tc.AstraNicFw,
+				ComponentType: butil.ComponentTypeNIC,
+			})
+		}
+		if tc.GraceErot != "" && st.bfs.Status.DownloadedComponents.GraceErot != tc.GraceErot {
+			components = append(components, componentInfo{
+				URL:           tc.GraceErot,
+				ComponentType: butil.ComponentTypeGRACEEROT,
+			})
+		}
+		if tc.GraceFw != "" && st.bfs.Status.DownloadedComponents.GraceFw != tc.GraceFw {
+			components = append(components, componentInfo{
+				URL:           tc.GraceFw,
+				ComponentType: butil.ComponentTypeGRACEFW,
+			})
+		}
+	}
+
+	return components
+}
+
+func (st *blueFieldSoftwareDownloadingState) updateComponentStatus(componentType butil.ComponentType, value string) {
+	switch componentType {
+	case butil.ComponentTypeFwBundle:
+		st.bfs.Status.DownloadedComponents.PldmFwBundle = value
+	case butil.ComponentTypeOSISO:
+		st.bfs.Status.DownloadedComponents.OsIso = value
+	case butil.ComponentTypeBMCEROT:
+		st.bfs.Status.DownloadedComponents.BmcErot = value
+	case butil.ComponentTypeBMC:
+		st.bfs.Status.DownloadedComponents.BmcFw = value
+	case butil.ComponentTypeNIC:
+		st.bfs.Status.DownloadedComponents.AstraNicFw = value
+	case butil.ComponentTypeGRACEEROT:
+		st.bfs.Status.DownloadedComponents.GraceErot = value
+	case butil.ComponentTypeGRACEFW:
+		st.bfs.Status.DownloadedComponents.GraceFw = value
+	}
+	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, fmt.Sprintf("Component %s downloaded successfully", componentType))
+	// Clear retry counter on successful download
+	st.clearRetryCounter(componentType)
+}
+
+func (st *blueFieldSoftwareDownloadingState) cancelAllDownloads() {
+	componentsToCancel := []butil.ComponentType{
+		butil.ComponentTypeFwBundle,
+		butil.ComponentTypeOSISO,
+		butil.ComponentTypeBMCEROT,
+		butil.ComponentTypeBMC,
+		butil.ComponentTypeNIC,
+		butil.ComponentTypeGRACEEROT,
+		butil.ComponentTypeGRACEFW,
+	}
+
+	for _, componentType := range componentsToCancel {
+		taskName := butil.GenerateComponentTaskName(*st.bfs, componentType)
+		if cancelFunc, ok := butil.DownloadingTaskMap.Load(taskName + "cancel"); ok {
+			cancelFunc.(context.CancelFunc)()
+			butil.DownloadingTaskMap.Delete(taskName)
+			butil.DownloadingTaskMap.Delete(taskName + "cancel")
+		}
+	}
+}
+
+func downloadComponent(ctx context.Context, task butil.ComponentDownloadTask) {
+	downloader := future.New(func() (any, error) {
+		return executeComponentDownload(ctx, task)
+	}, nil)
+	butil.DownloadingTaskMap.Store(task.TaskName, downloader)
+}
+
+func executeComponentDownload(ctx context.Context, task butil.ComponentDownloadTask) (any, error) {
+	logger := log.FromContext(ctx)
+	logger.V(3).Info("ComponentDownload", "start downloading", task.ComponentName, "url", task.URL)
+
+	componentFile := generateComponentFilePath(task.FileName)
+	if err := utils.DownloadFile(ctx, task.URL, componentFile, 0644); err != nil {
+		return nil, err
+	}
+
+	logger.V(3).Info("ComponentDownload", "finish", task.ComponentName)
+	return true, nil
+}
+
+func isFileExist(filePath string) (bool, error) {
+	_, err := os.Stat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		} else {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func isURL(str string) bool {
+	u, err := url.Parse(str)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https")
+}
+
+func generateComponentFilePath(fileName string) string {
+	return filepath.Join(string(os.PathSeparator), cutil.BFBBaseDir, "components", fileName)
+}
+
+// getRetryKey generates a unique key for tracking retry attempts
+func (st *blueFieldSoftwareDownloadingState) getRetryKey(componentType butil.ComponentType) string {
+	return fmt.Sprintf("%s/%s/%s", st.bfs.Namespace, st.bfs.Name, componentType)
+}
+
+// getRetryCount retrieves the current retry count for a component
+func (st *blueFieldSoftwareDownloadingState) getRetryCount(retryKey string) int {
+	if val, ok := downloadRetryCounter.Load(retryKey); ok {
+		return val.(int)
+	}
+	return 0
+}
+
+// incrementRetryCounter increments the retry counter for a component
+func (st *blueFieldSoftwareDownloadingState) incrementRetryCounter(retryKey string) {
+	downloadRetryCounterLock.Lock()
+	defer downloadRetryCounterLock.Unlock()
+	currentCount := st.getRetryCount(retryKey)
+	downloadRetryCounter.Store(retryKey, currentCount+1)
+}
+
+// clearRetryCounter clears the retry counter for a component
+func (st *blueFieldSoftwareDownloadingState) clearRetryCounter(componentType butil.ComponentType) {
+	retryKey := st.getRetryKey(componentType)
+	downloadRetryCounter.Delete(retryKey)
+}

@@ -59,6 +59,8 @@ const (
 	ReasonFailure ConditionReason = "Failure"
 	// ReasonSuccess is the success reason.
 	ReasonSuccess ConditionReason = "Success"
+	// ReasonRetrying indicates that the operation is being retried after a failure.
+	ReasonRetrying ConditionReason = "Retrying"
 )
 
 // ConditionMessage is the message type for the conditions.
@@ -175,6 +177,7 @@ func SetSummary(obj GetSet) {
 var reasonSeverity = map[ConditionReason]int{
 	ReasonAwaitingDeletion: 3,
 	ReasonFailure:          2,
+	ReasonRetrying:         1,
 	ReasonPending:          1,
 }
 

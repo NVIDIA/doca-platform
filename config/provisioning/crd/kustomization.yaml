@@ -11,6 +11,7 @@ resources:
 - bases/provisioning.dpu.nvidia.com_dpunodes.yaml
 - bases/provisioning.dpu.nvidia.com_dpudiscoveries.yaml
 - bases/provisioning.dpu.nvidia.com_dpunodemaintenances.yaml
+- bases/provisioning.dpu.nvidia.com_bluefieldsoftwares.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patches:
