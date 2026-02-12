@@ -35,7 +35,8 @@ import (
 	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
-	argov1 "github.com/nvidia/doca-platform/third_party/api/argocd/api/application/v1alpha1"
+	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
+	argohealth "github.com/nvidia/doca-platform/third_party/forked/argoproj/gitops-engine/pkg/health"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	multusTypes "gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/types"
@@ -692,7 +693,7 @@ func (r *DPUServiceReconciler) summary(ctx context.Context, dpuService *dpuservi
 		healthStatus := app.Status.Health.Status
 
 		// Skip applications that are synced and healthy.
-		if syncStatus == argov1.SyncStatusCodeSynced && healthStatus == argov1.HealthStatusHealthy {
+		if syncStatus == argov1.SyncStatusCodeSynced && healthStatus == argohealth.HealthStatusHealthy {
 			continue
 		}
 
