@@ -76,25 +76,26 @@ const (
 type DPUConditionType string
 
 const (
-	DPUCondInitialized           DPUConditionType = "Initialized"
-	DPUCondPending               DPUConditionType = "Pending"
-	DPUCondBFBReady              DPUConditionType = "BFBReady"
-	DPUCondDPUFlavorExists       DPUConditionType = "DPUFlavorExists"
-	DPUCondNodeEffectReady       DPUConditionType = "NodeEffectReady"
-	DPUCondBFBPrepared           DPUConditionType = "BFBPrepared"
-	DPUCondInterfaceInitialized  DPUConditionType = "InterfaceInitialized"
-	DPUCondFWConfigured          DPUConditionType = "FWConfigured"
-	DPUCondBFBTransferred        DPUConditionType = "BFBTransferred"
-	DPUCondOSInstalled           DPUConditionType = "OSInstalled"
-	DPUCondCheckedHostRebootNeed DPUConditionType = "CheckedHostRebootNeed"
-	DPUConditionHostPowerCycle   DPUConditionType = "HostPowerCycle"
-	DPUCondRebooted              DPUConditionType = "Rebooted"
-	DPUCondHostNetworkReady      DPUConditionType = "HostNetworkReady"
-	DPUCondDPUClusterReady       DPUConditionType = "DPUClusterReady"
-	DPUCondNodeEffectRemoved     DPUConditionType = "NodeEffectRemoved"
-	DPUCondDeleting              DPUConditionType = "Deleting"
-	DPUCondReady                 DPUConditionType = "Ready"
-	DPUCondError                 DPUConditionType = "Error"
+	DPUCondInitialized            DPUConditionType = "Initialized"
+	DPUCondPending                DPUConditionType = "Pending"
+	DPUCondBFBReady               DPUConditionType = "BFBReady"
+	DPUCondBlueFieldSoftwareReady DPUConditionType = "BlueFieldSoftwareReady"
+	DPUCondDPUFlavorExists        DPUConditionType = "DPUFlavorExists"
+	DPUCondNodeEffectReady        DPUConditionType = "NodeEffectReady"
+	DPUCondBFBPrepared            DPUConditionType = "BFBPrepared"
+	DPUCondInterfaceInitialized   DPUConditionType = "InterfaceInitialized"
+	DPUCondFWConfigured           DPUConditionType = "FWConfigured"
+	DPUCondBFBTransferred         DPUConditionType = "BFBTransferred"
+	DPUCondOSInstalled            DPUConditionType = "OSInstalled"
+	DPUCondCheckedHostRebootNeed  DPUConditionType = "CheckedHostRebootNeed"
+	DPUConditionHostPowerCycle    DPUConditionType = "HostPowerCycle"
+	DPUCondRebooted               DPUConditionType = "Rebooted"
+	DPUCondHostNetworkReady       DPUConditionType = "HostNetworkReady"
+	DPUCondDPUClusterReady        DPUConditionType = "DPUClusterReady"
+	DPUCondNodeEffectRemoved      DPUConditionType = "NodeEffectRemoved"
+	DPUCondDeleting               DPUConditionType = "Deleting"
+	DPUCondReady                  DPUConditionType = "Ready"
+	DPUCondError                  DPUConditionType = "Error"
 )
 
 type DPUInfoConditionType string
@@ -164,6 +165,10 @@ type DPUSpec struct {
 	// Specifies name of the bfb CR to use for this DPU
 	// +required
 	BFB string `json:"bfb"`
+
+	// Specifies the name of the BlueFieldSoftware CR to use for this DPU
+	// +optional
+	BlueFieldSoftware string `json:"blueFieldSoftware,omitempty"`
 
 	// The serial number of the DPU
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="Value is immutable"

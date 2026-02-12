@@ -303,6 +303,7 @@ rules:
   - provisioning.dpu.nvidia.com
   resources:
   - bfbs/finalizers
+  - bluefieldsoftwares/finalizers
   - dpuclusters/finalizers
   - dpudevices/finalizers
   - dpudiscoveries/finalizers
@@ -317,6 +318,7 @@ rules:
   - provisioning.dpu.nvidia.com
   resources:
   - bfbs/status
+  - bluefieldsoftwares/status
   - dpuclusters/status
   - dpudevices/status
   - dpudiscoveries/status
@@ -328,6 +330,18 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - bluefieldsoftwares
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
