@@ -1,16 +1,3 @@
-/*
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-	http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
 package v1alpha1
 
 import (
@@ -19,7 +6,7 @@ import (
 
 // RepoCreds holds the definition for repository credentials
 type RepoCreds struct {
-	// URL is the URL that this credentials matches to
+	// URL is the URL to which these credentials match
 	URL string `json:"url" protobuf:"bytes,1,opt,name=url"`
 	// Username for authenticating at the repo server
 	Username string `json:"username,omitempty" protobuf:"bytes,2,opt,name=username"`
@@ -41,14 +28,22 @@ type RepoCreds struct {
 	GitHubAppEnterpriseBaseURL string `json:"githubAppEnterpriseBaseUrl,omitempty" protobuf:"bytes,10,opt,name=githubAppEnterpriseBaseUrl"`
 	// EnableOCI specifies whether helm-oci support should be enabled for this repo
 	EnableOCI bool `json:"enableOCI,omitempty" protobuf:"bytes,11,opt,name=enableOCI"`
-	// Type specifies the type of the repoCreds. Can be either "git" or "helm. "git" is assumed if empty or absent.
+	// Type specifies the type of the repoCreds. Can be either "git", "helm" or "oci". "git" is assumed if empty or absent.
 	Type string `json:"type,omitempty" protobuf:"bytes,12,opt,name=type"`
 	// GCPServiceAccountKey specifies the service account key in JSON format to be used for getting credentials to Google Cloud Source repos
 	GCPServiceAccountKey string `json:"gcpServiceAccountKey,omitempty" protobuf:"bytes,13,opt,name=gcpServiceAccountKey"`
 	// Proxy specifies the HTTP/HTTPS proxy used to access repos at the repo server
 	Proxy string `json:"proxy,omitempty" protobuf:"bytes,19,opt,name=proxy"`
 	// ForceHttpBasicAuth specifies whether Argo CD should attempt to force basic auth for HTTP connections
-	ForceHttpBasicAuth bool `json:"forceHttpBasicAuth,omitempty" protobuf:"bytes,20,opt,name=forceHttpBasicAuth"`
+	ForceHttpBasicAuth bool `json:"forceHttpBasicAuth,omitempty" protobuf:"bytes,20,opt,name=forceHttpBasicAuth"` //nolint:revive //FIXME(var-naming)
+	// NoProxy specifies a list of targets where the proxy isn't used, applies only in cases where the proxy is applied
+	NoProxy string `json:"noProxy,omitempty" protobuf:"bytes,23,opt,name=noProxy"`
+	// UseAzureWorkloadIdentity specifies whether to use Azure Workload Identity for authentication
+	UseAzureWorkloadIdentity bool `json:"useAzureWorkloadIdentity,omitempty" protobuf:"bytes,24,opt,name=useAzureWorkloadIdentity"`
+	// BearerToken contains the bearer token used for Git BitBucket Data Center auth at the repo server
+	BearerToken string `json:"bearerToken,omitempty" protobuf:"bytes,25,opt,name=bearerToken"`
+	// InsecureOCIForceHttp specifies whether the connection to the repository uses TLS at _all_. If true, no TLS. This flag is applicable for OCI repos only.
+	InsecureOCIForceHttp bool `json:"insecureOCIForceHttp,omitempty" protobuf:"bytes,26,opt,name=insecureOCIForceHttp"` //nolint:revive //FIXME(var-naming)
 }
 
 // Repository is a repository holding application configurations
@@ -63,7 +58,7 @@ type Repository struct {
 	SSHPrivateKey string `json:"sshPrivateKey,omitempty" protobuf:"bytes,4,opt,name=sshPrivateKey"`
 	// ConnectionState contains information about the current state of connection to the repository server
 	ConnectionState ConnectionState `json:"connectionState,omitempty" protobuf:"bytes,5,opt,name=connectionState"`
-	// InsecureIgnoreHostKey should not be used anymore, Insecure is favored
+	// InsecureIgnoreHostKey should not be used anymore, Insecure is favoured
 	// Used only for Git repos
 	InsecureIgnoreHostKey bool `json:"insecureIgnoreHostKey,omitempty" protobuf:"bytes,6,opt,name=insecureIgnoreHostKey"`
 	// Insecure specifies whether the connection to the repository ignores any errors when verifying TLS certificates or SSH host keys
@@ -92,12 +87,22 @@ type Repository struct {
 	GitHubAppEnterpriseBaseURL string `json:"githubAppEnterpriseBaseUrl,omitempty" protobuf:"bytes,18,opt,name=githubAppEnterpriseBaseUrl"`
 	// Proxy specifies the HTTP/HTTPS proxy used to access the repo
 	Proxy string `json:"proxy,omitempty" protobuf:"bytes,19,opt,name=proxy"`
-	// Reference between project and repository that allow you automatically to be added as item inside SourceRepos project entity
+	// Reference between project and repository that allows it to be automatically added as an item inside SourceRepos project entity
 	Project string `json:"project,omitempty" protobuf:"bytes,20,opt,name=project"`
 	// GCPServiceAccountKey specifies the service account key in JSON format to be used for getting credentials to Google Cloud Source repos
 	GCPServiceAccountKey string `json:"gcpServiceAccountKey,omitempty" protobuf:"bytes,21,opt,name=gcpServiceAccountKey"`
 	// ForceHttpBasicAuth specifies whether Argo CD should attempt to force basic auth for HTTP connections
-	ForceHttpBasicAuth bool `json:"forceHttpBasicAuth,omitempty" protobuf:"bytes,22,opt,name=forceHttpBasicAuth"`
+	ForceHttpBasicAuth bool `json:"forceHttpBasicAuth,omitempty" protobuf:"bytes,22,opt,name=forceHttpBasicAuth"` //nolint:revive //FIXME(var-naming)
+	// NoProxy specifies a list of targets where the proxy isn't used, applies only in cases where the proxy is applied
+	NoProxy string `json:"noProxy,omitempty" protobuf:"bytes,23,opt,name=noProxy"`
+	// UseAzureWorkloadIdentity specifies whether to use Azure Workload Identity for authentication
+	UseAzureWorkloadIdentity bool `json:"useAzureWorkloadIdentity,omitempty" protobuf:"bytes,24,opt,name=useAzureWorkloadIdentity"`
+	// BearerToken contains the bearer token used for Git BitBucket Data Center auth at the repo server
+	BearerToken string `json:"bearerToken,omitempty" protobuf:"bytes,25,opt,name=bearerToken"`
+	// InsecureOCIForceHttp specifies whether the connection to the repository uses TLS at _all_. If true, no TLS. This flag is applicable for OCI repos only.
+	InsecureOCIForceHttp bool `json:"insecureOCIForceHttp,omitempty" protobuf:"bytes,26,opt,name=insecureOCIForceHttp"` //nolint:revive //FIXME(var-naming)
+	// Depth specifies the depth for shallow clones. A value of 0 or omitting the field indicates a full clone.
+	Depth int64 `json:"depth,omitempty" protobuf:"bytes,27,opt,name=depth"`
 }
 
 // Repositories defines a list of Repository configurations
@@ -146,7 +151,7 @@ type GnuPGPublicKey struct {
 	Owner string `json:"owner,omitempty" protobuf:"bytes,3,opt,name=owner"`
 	// Trust holds the level of trust assigned to this key
 	Trust string `json:"trust,omitempty" protobuf:"bytes,4,opt,name=trust"`
-	// SubType holds the key's sub type (e.g. rsa4096)
+	// SubType holds the key's subtype (e.g. rsa4096)
 	SubType string `json:"subType,omitempty" protobuf:"bytes,5,opt,name=subType"`
 	// KeyData holds the raw key data, in base64 encoded format
 	KeyData string `json:"keyData,omitempty" protobuf:"bytes,6,opt,name=keyData"`
