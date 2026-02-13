@@ -48,6 +48,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -329,12 +330,87 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, secret))).ToNot(HaveOccurred())
 	}
 
+	// Create NodePort service for bfb-registry BEFORE creating DPFOperatorConfig
+	// This allows DPFOperatorConfig to be configured with the NodePort address from the start
+	if isGinkgoLabelApplied(zeroTrustLabel) {
+		By("create NodePort service for bfb-registry (before DPFOperatorConfig)")
+		// Use nodePort 30080 (configurable if needed)
+		nodePort := int32(30080)
+
+		// Create NodePort service targeting bfb-registry pods
+		// Selector matches the labels that bfb-registry DaemonSet pods will have
+		bfbRegistryNodePortService := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "bfb-registry-nodeport",
+				Namespace: input.systemNamespace,
+				Labels:    testutils.AfterAllCleanupLabels,
+			},
+			Spec: corev1.ServiceSpec{
+				Type: corev1.ServiceTypeNodePort,
+				Selector: map[string]string{
+					"app.kubernetes.io/part-of": "bfb-registry",
+					"dpu.nvidia.com/component":  "bfb-registry",
+				},
+				Ports: []corev1.ServicePort{
+					{
+						Name:       "http",
+						Port:       8080,
+						TargetPort: intstr.FromInt32(8080),
+						Protocol:   corev1.ProtocolTCP,
+						NodePort:   nodePort,
+					},
+				},
+			},
+		}
+		Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, bfbRegistryNodePortService))).NotTo(HaveOccurred())
+
+		By("verify NodePort service is available and has NodePort assigned")
+		Eventually(func(g Gomega) {
+			createdService := &corev1.Service{}
+			g.Expect(testClient.Get(ctx, client.ObjectKey{
+				Namespace: input.systemNamespace,
+				Name:      "bfb-registry-nodeport"},
+				createdService)).To(Succeed())
+			// Verify the service has NodePort assigned
+			g.Expect(createdService.Spec.Ports).ToNot(BeEmpty())
+			g.Expect(createdService.Spec.Ports[0].NodePort).To(Equal(nodePort),
+				"NodePort service should have NodePort %d assigned", nodePort)
+		}).WithTimeout(30 * time.Second).Should(Succeed())
+	}
+
 	By("create the DPFOperatorConfig for the system")
 	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, input.operatorConfig))).NotTo(HaveOccurred())
 
 	if isGinkgoLabelApplied(zeroTrustLabel) {
 		By("Deploy DPUDiscovery for ZeroTrust")
 		CreateDPUDiscovery(ctx, input)
+
+		By("verify NodePort service has endpoints after bfb-registry is deployed")
+		// Wait for bfb-registry pods to be created and verify they match the NodePort service selector
+		Eventually(func(g Gomega) {
+			// Check for pods matching the bfb-registry selector
+			pods := &corev1.PodList{}
+			g.Expect(testClient.List(ctx, pods,
+				client.InNamespace(input.systemNamespace),
+				client.MatchingLabels(map[string]string{
+					"app.kubernetes.io/part-of": "bfb-registry",
+					"dpu.nvidia.com/component":  "bfb-registry",
+				}))).To(Succeed())
+			// Verify at least one pod is running and ready
+			g.Expect(pods.Items).ToNot(BeEmpty(), "bfb-registry pods should exist")
+			hasReadyPod := false
+			for _, pod := range pods.Items {
+				if pod.Status.Phase == corev1.PodRunning {
+					for _, condition := range pod.Status.Conditions {
+						if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+							hasReadyPod = true
+							break
+						}
+					}
+				}
+			}
+			g.Expect(hasReadyPod).To(BeTrue(), "At least one bfb-registry pod should be running and ready")
+		}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 	}
 
 	By("ensure the DPF controllers are running and ready")
