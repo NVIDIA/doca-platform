@@ -198,16 +198,6 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 		}
 	}
 
-	if !dpu.DeletionTimestamp.IsZero() || dpu.Spec.DPUNodeName == "" {
-		// Remove DpuDevice finalizer when DPU is being deleted
-		if !dpu.DeletionTimestamp.IsZero() {
-			if err := r.removeDpuDeviceFinalizer(ctx, dpu); err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to remove DpuDevice finalizer %w", err)
-			}
-		}
-		// Skip reboot check during deletion or if no DPUNode specified
-	}
-
 	// This is to cache the DPUs that are created with the cluster field set in their manifests, such DPUs will not go through the Allocate() procedure in Initialization phase
 	// PS: Users are able to create DPUs without DPUSets, which is not officially supported but also not forbidden. If the cluster field is empty, a DPUCluster will be allocated for it as usual.
 	r.ctrlCtx.ClusterAllocator.SaveAssignedDPU(dpu)
@@ -263,26 +253,6 @@ func (r *DPUReconciler) addDpuDeviceFinalizer(ctx context.Context, dpu *provisio
 		controllerutil.AddFinalizer(dpuDevice, provisioningv1.DPUDeviceFinalizer)
 		if err := r.ctrlCtx.Client.Update(ctx, dpuDevice); err != nil {
 			return fmt.Errorf("failed to add DpuDevice finalizer: %w", err)
-		}
-	}
-	return nil
-}
-
-// removeDpuDeviceFinalizer removes the DpuDevice finalizer when DPU is being deleted
-func (r *DPUReconciler) removeDpuDeviceFinalizer(ctx context.Context, dpu *provisioningv1.DPU) error {
-	dpuDevice := &provisioningv1.DPUDevice{}
-	if err := r.ctrlCtx.Client.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
-		if apierrors.IsNotFound(err) {
-			// DpuDevice not found, this is expected in some cases
-			return nil
-		}
-		return fmt.Errorf("failed to get DpuDevice %s: %w", dpu.Spec.DPUDeviceName, err)
-	}
-
-	if controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.DPUDeviceFinalizer) {
-		controllerutil.RemoveFinalizer(dpuDevice, provisioningv1.DPUDeviceFinalizer)
-		if err := r.ctrlCtx.Client.Update(ctx, dpuDevice); err != nil {
-			return fmt.Errorf("failed to remove DpuDevice finalizer: %w", err)
 		}
 	}
 	return nil
