@@ -55,11 +55,12 @@ const (
 )
 
 var (
-	dpuClusterClient      []client.Client
-	dpuClusterRestConfig  []*rest.Config
-	dpuClusterRestClient  []*rest.RESTClient
-	hostClusterRESTClient *rest.RESTClient
-	metricsURI            string
+	dpuClusterClient             []client.Client
+	dpuClusterRestConfig         []*rest.Config
+	dpuClusterRestClient         []*rest.RESTClient
+	dpuClusterClientsInitialized bool // tracks if getDPUClusterClients was called (must only be called once)
+	hostClusterRESTClient        *rest.RESTClient
+	metricsURI                   string
 	// helmRegistry holds the Helm registry in which the artifacts used in e2e are pushed
 	helmRegistry = ""
 	// tag holds the tag which the artifacts used in e2e are using

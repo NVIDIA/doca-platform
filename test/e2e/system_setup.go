@@ -57,7 +57,8 @@ import (
 )
 
 type ProvisionDPUClustersInput struct {
-	numberOfNodesPerCluster int
+	numberOfDPUNodes        int
+	numberOfDPUsPerNode     int
 	dpuClusterPrerequisites []client.Object
 	dpuClusters             []*provisioningv1.DPUCluster
 	dpuFlavor               *provisioningv1.DPUFlavor
@@ -104,6 +105,7 @@ type systemTestInput struct {
 	ipPoolDPUServiceIPAM          *dpuservicev1.DPUServiceIPAM
 	dpuServiceCredentialRequest   *dpuservicev1.DPUServiceCredentialRequest
 	numberOfDPUNodes              int
+	numberOfDPUsPerNode           int
 	useExternalNodeReboot         bool
 	pullSecretNames               []string
 	client                        client.Client
@@ -271,11 +273,17 @@ func (t *systemTestInput) applyConfig(conf config) {
 	t.dpuServiceCredentialRequest = dpuServiceCredentialRequest
 
 	t.numberOfDPUNodes = conf.NumberOfDPUNodes
+	t.numberOfDPUsPerNode = conf.NumberOfDPUsPerNode
 	t.useExternalNodeReboot = conf.UseExternalNodeReboot
 }
 
 func (t *systemTestInput) hasDpuNodes() bool {
 	return t.numberOfDPUNodes > 0
+}
+
+// totalDPUs returns the total number of DPUs (nodes * DPUs per node)
+func (t *systemTestInput) totalDPUs() int {
+	return t.numberOfDPUNodes * t.numberOfDPUsPerNode
 }
 
 type DeployDPFSystemComponentsInput struct {
@@ -608,7 +616,9 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 
 // VerifyDPUClusterWithNodes waits and verifies if the DPUCluster has nodes meaning that there were DPUs provisioned. In
 // addition verifies that the DPUs become ready.
+// Note: Each DPU joins the DPU cluster as a separate K8s node, so the number of nodes in the DPU cluster equals totalDPUs.
 func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersInput) {
+	expectedDPUs := input.numberOfDPUNodes * input.numberOfDPUsPerNode
 	tracker := NewByTracker()
 
 	if isGinkgoLabelApplied(zeroTrustLabel) {
@@ -619,17 +629,16 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 	Eventually(func(g Gomega) {
 		nodes := &corev1.NodeList{}
 		g.Expect(dpuClusterClient[0].List(ctx, nodes)).ToNot(HaveOccurred())
-		nodeKey := fmt.Sprintf("%d/%d", len(nodes.Items), input.numberOfNodesPerCluster)
-		tracker.By(nodeKey, "Checking that the number of nodes %d is equal to %d", len(nodes.Items), input.numberOfNodesPerCluster)
-		g.Expect(nodes.Items).To(HaveLen(input.numberOfNodesPerCluster))
+		nodeKey := fmt.Sprintf("%d/%d", len(nodes.Items), expectedDPUs)
+		tracker.By(nodeKey, "Checking that the number of nodes %d is equal to %d", len(nodes.Items), expectedDPUs)
+		g.Expect(nodes.Items).To(HaveLen(expectedDPUs))
 	}).WithTimeout(45 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 
 	// Verify DPUs are ready
 	Eventually(func(g Gomega) {
 		dpus := &provisioningv1.DPUList{}
 		g.Expect(input.client.List(ctx, dpus)).ToNot(HaveOccurred())
-		g.Expect(dpus.Items).To(HaveLen(input.numberOfNodesPerCluster))
-
+		g.Expect(dpus.Items).To(HaveLen(expectedDPUs))
 		for _, dpu := range dpus.Items {
 			dpuStatusKey := fmt.Sprintf("%s/%v", dpu.Name, dpu.Status.Phase)
 			tracker.By(dpuStatusKey, "DPU %s dpu.Status.Phase=%v", dpu.Name, dpu.Status.Phase)
@@ -652,7 +661,7 @@ func RebootAndVerifyDPU(ctx context.Context, input ProvisionDPUClustersInput) {
 	By("Wait for DPUs to reach DPURebooting state in ZeroTrust")
 	Eventually(func(g Gomega) {
 		g.Expect(input.client.List(ctx, dpus)).ToNot(HaveOccurred())
-		g.Expect(dpus.Items).To(HaveLen(input.numberOfNodesPerCluster))
+		g.Expect(dpus.Items).To(HaveLen(input.numberOfDPUNodes * input.numberOfDPUsPerNode))
 
 		for _, dpu := range dpus.Items {
 			dpuStatusKey := fmt.Sprintf("%s/%v", dpu.Name, dpu.Status.Phase)
@@ -687,7 +696,7 @@ func RebootAndVerifyDPU(ctx context.Context, input ProvisionDPUClustersInput) {
 
 	By("Waiting for SSH connectivity to all hosts after reboot")
 	Eventually(func(g Gomega) {
-		for i := 0; i < input.numberOfNodesPerCluster; i++ {
+		for i := 0; i < input.numberOfDPUNodes; i++ {
 			nodeName := fmt.Sprintf("worker%d", i+1)
 			By(fmt.Sprintf("Checking SSH connectivity for %s", nodeName))
 
@@ -890,7 +899,17 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 }
 
 // getDPUClusterClients retrieves the DPUCluster clients for all clusters in the input.
+// This function must only be called once per test suite as it reinitializes global client connections.
 func getDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) {
+	if dpuClusterClientsInitialized {
+		warningMsg := "WARNING: getDPUClusterClients called multiple times - " +
+			"skipping reinitialization (this may indicate a test structure issue)"
+		GinkgoWriter.Println(warningMsg)
+		AddReportEntry("Multiple getDPUClusterClients calls", warningMsg, ReportEntryVisibilityFailureOrVerbose)
+		return
+	}
+	dpuClusterClientsInitialized = true
+
 	// Pre-initialize the global slices with the correct size
 	numClusters := len(input.dpuClusters)
 	dpuClusterClient = make([]client.Client, numClusters)

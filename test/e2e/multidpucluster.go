@@ -36,10 +36,19 @@ import (
 
 // ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster creates a DPUDeployment where each DPU joins a different cluster
 func ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster(ctx context.Context, input *systemTestInput) {
+	expectedTotalDPUs := input.totalDPUs()
+
+	By("Verifying preconditions: number of clusters equals total DPUs")
+	Expect(input.dpuClusters).To(HaveLen(expectedTotalDPUs),
+		fmt.Sprintf("This test requires one DPUCluster per DPU. Expected %d clusters for %d nodes * %d DPUs/node",
+			expectedTotalDPUs, input.numberOfDPUNodes, input.numberOfDPUsPerNode))
+
 	By("Getting DPUDevices")
 	dpuDevices := &provisioningv1.DPUDeviceList{}
 	Expect(input.client.List(ctx, dpuDevices)).To(Succeed())
-	Expect(dpuDevices.Items).To(HaveLen(2))
+	Expect(dpuDevices.Items).To(HaveLen(expectedTotalDPUs),
+		fmt.Sprintf("Expected %d DPUDevices (%d nodes * %d DPUs/node)",
+			expectedTotalDPUs, input.numberOfDPUNodes, input.numberOfDPUsPerNode))
 
 	By("Creating DPUServiceNAD")
 	nadName := "brsfc-no-ipam"

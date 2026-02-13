@@ -30,4 +30,5 @@ dpuServiceVPCOVNController: "../objects/application/vpc/dpuservice-vpc-ovn-contr
 dpuServiceVPCOVNNode: "../objects/application/vpc/dpuservice-vpc-ovn-node.yaml"
 dhcpDaemonSet: "../objects/application/vpc/dhcp.yaml"
 numberOfDPUNodes: 2
+numberOfDPUsPerNode: 1
 useExternalNodeReboot: true
