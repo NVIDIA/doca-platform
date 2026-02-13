@@ -666,7 +666,7 @@ $(ARTIFACTS_RENDERED_MANIFESTS_DIR): $(ARTIFACTS_DIR)
 	@mkdir -p $(ARTIFACTS_RENDERED_MANIFESTS_DIR)
 
 # Not yet enabled charts: dpu-networking ovn-kubernetes ovn-kubernetes-resource-injector
-VERIFY_MANIFEST_TARGETS ?= operator dpu-networking kamaji-keepalived storage-host-snap-csi-plugin storage-host-snap-host-controller storage-dpu-snap-node-driver storage-dpu-block-storage-vendor-dpu-plugin storage-dpu-fs-storage-vendor-dpu-plugin storage-dpu-nfs-storage-vendor-dpu-plugin storage-dpu-doca-snap
+VERIFY_MANIFEST_TARGETS ?= operator dpu-networking kamaji-keepalived vpc-ovn-host vpc-ovn-dpu vpc-ovs-flow-controllers vpc-ovs-dhcp-agent storage-host-snap-csi-plugin storage-host-snap-host-controller storage-dpu-snap-node-driver storage-dpu-block-storage-vendor-dpu-plugin storage-dpu-fs-storage-vendor-dpu-plugin storage-dpu-nfs-storage-vendor-dpu-plugin storage-dpu-doca-snap
 
 verify-manifests-all: $(addprefix verify-manifest-,$(VERIFY_MANIFEST_TARGETS)) verify-manifests-operator-embedded-all ## Run all verify-manifest-* targets
 
@@ -698,6 +698,46 @@ verify-manifest-dpu-networking: helm-package-dpu-networking helm $(ARTIFACTS_REN
 	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-$(TAG).yaml" \
 	  MANIFEST_NAME="dpu-networking" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-vpc-ovn-host
+verify-manifest-vpc-ovn-host: $(VPC_DIR) helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the vpc-ovn chart's controller
+	$Q @cd $(VPC_DIR); $(MAKE) helm-package-all-vpc-ovn
+	$Q $(HELM) template $(CHARTSDIR)/dpf-vpc-ovn-$(TAG).tgz \
+	 --set host.vpcOVNController.enabled=true \
+	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovn-host-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovn-host-$(TAG).yaml" \
+	  MANIFEST_NAME="vpc-ovn-host" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-vpc-ovn-dpu
+verify-manifest-vpc-ovn-dpu: $(VPC_DIR) helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the vpc-ovn chart's node
+	$Q @cd $(VPC_DIR); $(MAKE) helm-package-all-vpc-ovn
+	$Q $(HELM) template $(CHARTSDIR)/dpf-vpc-ovn-$(TAG).tgz \
+	 --set dpu.vpcOVNNode.enabled=true \
+	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovn-dpu-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovn-dpu-$(TAG).yaml" \
+	  MANIFEST_NAME="vpc-ovn-dpu" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-vpc-ovs-flow-controllers
+verify-manifest-vpc-ovs-flow-controllers: $(VPC_DIR) helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the vpc-ovs chart's flow controllers
+	$Q @cd $(VPC_DIR); $(MAKE) helm-package-all-vpc-ovs
+	$Q $(HELM) template $(CHARTSDIR)/dpf-vpc-ovs-$(TAG).tgz \
+	 --set vpcOVSFlowController.enabled=true \
+	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovs-flow-controllers-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovs-flow-controllers-$(TAG).yaml" \
+	  MANIFEST_NAME="vpc-ovs-flow-controllers" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-vpc-ovs-dhcp-agent
+verify-manifest-vpc-ovs-dhcp-agent: $(VPC_DIR) helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the vpc-ovs chart's dhcp agent
+	$Q @cd $(VPC_DIR); $(MAKE) helm-package-all-vpc-ovs
+	$Q $(HELM) template $(CHARTSDIR)/dpf-vpc-ovs-$(TAG).tgz \
+	 --set vpcOVSDHCPAgent.enabled=true \
+	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovs-dhcp-agent-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovs-dhcp-agent-$(TAG).yaml" \
+	  MANIFEST_NAME="vpc-ovs-dhcp-agent" \
 	  hack/scripts/validate-manifest-checkov.sh
 
 # Note: The sed strip Go template variables from the embedded controller manifest to allow Checkov scanning.
