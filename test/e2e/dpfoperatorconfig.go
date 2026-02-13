@@ -746,18 +746,20 @@ func ValidateDPFOperatorConfigCleanupPrerequisites(ctx context.Context, input *s
 	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
 
 	if input.hasDpuNodes() {
-		By(fmt.Sprintf("verify ServiceInterface is created in %d nodes", input.numberOfDPUNodes))
+		By(fmt.Sprintf("verify ServiceInterface is created in %d nodes", input.totalDPUs()))
 		Eventually(func(g Gomega) {
-			// Expect ServiceInterface for standalone DPUServiceInterface to be created
+			// Expect ServiceInterface for standalone DPUServiceInterface to be created.
+			// ServiceInterface objects are created per K8s node in the DPU cluster, and each DPU device
+			// becomes a separate K8s node, so the count equals totalDPUs() (nodes * DPUs per node).
 			standaloneServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
 			g.Expect(dpuClusterClient[0].List(ctx, standaloneServiceInterfaceList, client.InNamespace(dpuServiceInterfaceNamespace))).To(Succeed())
-			g.Expect(standaloneServiceInterfaceList.Items).To(HaveLen(input.numberOfDPUNodes))
+			g.Expect(standaloneServiceInterfaceList.Items).To(HaveLen(input.totalDPUs()))
 
 			// Expect ServiceInterface for DPUDeployment owned DPUServiceInterface to exist
 			for _, serviceInterfaceLabels := range dpuDeploymentOwnedServiceInterfaceLabels {
 				dpudeploymentOwnedServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
 				g.Expect(dpuClusterClient[0].List(ctx, dpudeploymentOwnedServiceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
-				g.Expect(dpudeploymentOwnedServiceInterfaceList.Items).To(HaveLen(input.numberOfDPUNodes))
+				g.Expect(dpudeploymentOwnedServiceInterfaceList.Items).To(HaveLen(input.totalDPUs()))
 			}
 		}).WithTimeout(2 * time.Minute).Should(Succeed())
 	}

@@ -460,16 +460,17 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 
 	By("Verifying DPUs are provisioned")
 	VerifyDPUClusterWithNodes(ctx, ProvisionDPUClustersInput{
-		numberOfNodesPerCluster: input.numberOfDPUNodes,
-		client:                  input.client,
-		HostRebootScript:        input.HostRebootScript,
+		numberOfDPUNodes:    input.numberOfDPUNodes,
+		numberOfDPUsPerNode: input.numberOfDPUsPerNode,
+		client:              input.client,
+		HostRebootScript:    input.HostRebootScript,
 	})
 
-	By(fmt.Sprintf("verify ServiceInterface is created in %d nodes", input.numberOfDPUNodes))
+	By(fmt.Sprintf("verify ServiceInterface is created in %d nodes", input.totalDPUs()))
 	Eventually(func(g Gomega) {
 		serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
 		g.Expect(dpuClusterClient[0].List(ctx, serviceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
-		g.Expect(serviceInterfaceList.Items).To(HaveLen(input.numberOfDPUNodes))
+		g.Expect(serviceInterfaceList.Items).To(HaveLen(input.totalDPUs()))
 	}).WithTimeout(15 * time.Minute).WithPolling(120 * time.Second).Should(Succeed())
 }
 
@@ -536,7 +537,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx context.Context, input
 		g.Expect(dpuClusterClient[0].List(ctx, podList,
 			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
 			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-		g.Expect(podList.Items).To(HaveLen(input.numberOfDPUNodes))
+		g.Expect(podList.Items).To(HaveLen(input.totalDPUs()))
 		initialPods = podList.Items
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 
@@ -605,7 +606,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx context.Context, input
 		g.Expect(dpuClusterClient[0].List(ctx, podList,
 			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
 			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-		g.Expect(podList.Items).To(HaveLen(input.numberOfDPUNodes))
+		g.Expect(podList.Items).To(HaveLen(input.totalDPUs()))
 
 		// Verify that the old pod on the drained node is replaced with a new one
 		foundOldPodOnDrainedNode := false
@@ -697,7 +698,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx context.Context, input
 		g.Expect(dpuClusterClient[0].List(ctx, podList,
 			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
 			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-		g.Expect(podList.Items).To(HaveLen(input.numberOfDPUNodes))
+		g.Expect(podList.Items).To(HaveLen(input.totalDPUs()))
 
 		// Verify all pods have the new label
 		for _, pod := range podList.Items {
@@ -845,7 +846,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade(ctx context.Context, 
 		serviceChainList := &dpuservicev1.ServiceChainList{}
 		g.Expect(dpuClusterClient[0].List(ctx, serviceChainList,
 			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-		g.Expect(serviceChainList.Items).To(HaveLen(input.numberOfDPUNodes))
+		g.Expect(serviceChainList.Items).To(HaveLen(input.totalDPUs()))
 		initialServiceChains = serviceChainList.Items
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 
@@ -928,7 +929,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade(ctx context.Context, 
 			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 
 		// Verify that we have service chains on both nodes
-		g.Expect(serviceChainList.Items).To(HaveLen(input.numberOfDPUNodes))
+		g.Expect(serviceChainList.Items).To(HaveLen(input.totalDPUs()))
 
 		// Track which nodes have new vs old service chains
 		foundOldServiceChainOnDrainedNode := false
@@ -1021,7 +1022,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade(ctx context.Context, 
 		serviceChainList := &dpuservicev1.ServiceChainList{}
 		g.Expect(dpuClusterClient[0].List(ctx, serviceChainList,
 			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-		g.Expect(serviceChainList.Items).To(HaveLen(input.numberOfDPUNodes))
+		g.Expect(serviceChainList.Items).To(HaveLen(input.totalDPUs()))
 
 		// Verify all ServiceChains have the new MTU
 		for _, serviceChain := range serviceChainList.Items {

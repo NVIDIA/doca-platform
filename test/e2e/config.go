@@ -57,6 +57,7 @@ type config struct {
 	DPUServiceConfiguration           string   `json:"dpuServiceConfiguration"`
 	DPUClusterPrerequisiteObjectPaths []string `json:"dpuClusterPrerequisiteObjectPath"`
 	NumberOfDPUNodes                  int      `json:"numberOfDPUNodes"`
+	NumberOfDPUsPerNode               int      `json:"numberOfDPUsPerNode,omitempty"`
 	UseExternalNodeReboot             bool     `json:"useExternalNodeReboot,omitempty"`
 }
 

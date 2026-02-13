@@ -36,22 +36,126 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// getProvisionInput builds ProvisionDPUClustersInput from systemTestInput
-func getProvisionInput(input *systemTestInput) ProvisionDPUClustersInput {
-	return ProvisionDPUClustersInput{
-		numberOfNodesPerCluster: input.numberOfDPUNodes,
-		dpuClusterPrerequisites: input.additionalProvisioningObjects,
-		dpuClusters:             input.dpuClusters,
-		dpuSet:                  input.dpuSet,
-		bfb:                     input.bfb,
-		dpuFlavor:               input.dpuFlavor,
-		client:                  input.client,
-		bfbImageURL:             input.bfbImageURL,
-		restConfig:              input.restConfig,
+// skipDPUClusterDeletionInProvisioningTest avoids a known race: if the test deletes
+// DPUCluster before DPUServices (and their Argo CD Applications) finish cleanup,
+// Applications cannot reach the cluster (no route to host), DPUServices get stuck
+// with finalizers, and AfterSuite cannot delete DPFOperatorConfig.
+// Set to false once the deletion ordering is fixed in the product.
+// RM: 4869399
+const skipDPUClusterDeletionInProvisioningTest = true
+
+// ProvisioningExpected holds all expected counts for provisioning tests
+type ProvisioningExpected struct {
+	DPUNodes      int
+	DPUsPerNode   int
+	TotalDPUs     int
+	DPUClusters   int
+	DPUSets       int
+	DPUFlavors    int
+	BFBs          int
+	Prerequisites int
+	DPUServices   int
+}
+
+// provisioningExpected is the centralized expected values for the current test
+var provisioningExpected ProvisioningExpected
+
+// initProvisioningExpected initializes the expected counts from input
+func initProvisioningExpected(input *systemTestInput) {
+	provisioningExpected = ProvisioningExpected{
+		DPUNodes:      input.numberOfDPUNodes,
+		DPUsPerNode:   input.numberOfDPUsPerNode,
+		TotalDPUs:     input.totalDPUs(),
+		DPUClusters:   1, // Provisioning tests create one DPUCluster
+		DPUSets:       1, // Provisioning tests create one DPUSet
+		BFBs:          1, // Provisioning tests create one BFB
+		Prerequisites: len(input.additionalProvisioningObjects),
+		DPUServices:   6, // Multus, Flannel, SRIOV, NVIPAM, OVS-CNI, SFC-Controller
 	}
+
+	provisioningExpected.DPUFlavors = 1 // DPUFlavor is always required
+}
+
+// printProvisioningConfiguration prints the expected test configuration
+func printProvisioningConfiguration(input *systemTestInput) {
+	By("========== PROVISIONING TEST CONFIGURATION ==========")
+	By(fmt.Sprintf("  DPU Nodes:           %d", provisioningExpected.DPUNodes))
+	By(fmt.Sprintf("  DPUs per Node:       %d", provisioningExpected.DPUsPerNode))
+	By(fmt.Sprintf("  Total Expected DPUs: %d", provisioningExpected.TotalDPUs))
+	By(fmt.Sprintf("  DPU Clusters:        %d", provisioningExpected.DPUClusters))
+	By(fmt.Sprintf("  DPU Sets:            %d", provisioningExpected.DPUSets))
+	By(fmt.Sprintf("  BFBs:                %d", provisioningExpected.BFBs))
+	By(fmt.Sprintf("  DPU Flavors:         %d", provisioningExpected.DPUFlavors))
+	By(fmt.Sprintf("  Prerequisites:       %d", provisioningExpected.Prerequisites))
+	By(fmt.Sprintf("  DPU Services:        %d", provisioningExpected.DPUServices))
+	By(fmt.Sprintf("  DPU Flavor Name:     %s", input.dpuFlavor.Name))
+	By("=====================================================")
+}
+
+// VerifyDPUServicesDeployed verifies that the expected DPUServices are deployed in the DPU cluster.
+// This function can be reused across different test files (provisioning, system_setup, etc.)
+func VerifyDPUServicesDeployed(ctx context.Context, clusterClient client.Client, namespace string) {
+	By("Verifying DPUServices deployed")
+	servicesTracker := NewByTracker()
+	Eventually(func(g Gomega) {
+		// Check Deployments with argocd instance annotation
+		deployments := &appsv1.DeploymentList{}
+		g.Expect(dpuClusterClient[0].List(ctx, deployments)).To(Succeed())
+		found := map[string]bool{}
+		for i := range deployments.Items {
+			if _, hasAnnotation := deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]; hasAnnotation {
+				g.Expect(deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]).NotTo(Equal(""))
+				found[deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]] = true
+			}
+		}
+
+		// Check DaemonSets with argocd instance annotation
+		daemonsets := appsv1.DaemonSetList{}
+		g.Expect(dpuClusterClient[0].List(ctx, &daemonsets, client.InNamespace(input.dpuClusters[0].GetNamespace()))).To(Succeed())
+		for i := range daemonsets.Items {
+			if _, hasAnnotation := daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]; hasAnnotation {
+				g.Expect(daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]).NotTo(Equal(""))
+				found[daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]] = true
+			}
+		}
+
+		// Count found services
+		foundCount := 0
+		serviceNames := []string{
+			operatorv1.MultusName.String(),
+			operatorv1.FlannelName.String(),
+			operatorv1.SRIOVDevicePluginName.String(),
+			operatorv1.NVIPAMName.String(),
+			operatorv1.OVSCNIName.String(),
+			operatorv1.SFCControllerName.String(),
+		}
+		for _, svcName := range serviceNames {
+			for key := range found {
+				if strings.Contains(key, svcName) {
+					foundCount++
+					break
+				}
+			}
+		}
+		servicesTracker.By(fmt.Sprintf("%d", foundCount),
+			"DPUServices deployed [%d/%d]", foundCount, provisioningExpected.DPUServices)
+
+		// Verify expected DPUServices are deployed
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.MultusName.String())), "Multus should be deployed")
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.FlannelName.String())), "Flannel should be deployed")
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SRIOVDevicePluginName.String())), "SRIOV should be deployed")
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.NVIPAMName.String())), "NVIPAM should be deployed")
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.OVSCNIName.String())), "OVS-CNI should be deployed")
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SFCControllerName.String())), "SFC-Controller should be deployed")
+	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 }
 
 func BeforeProvisioning(ctx context.Context, input *systemTestInput) {
+	// Initialize expected counts from input
+	initProvisioningExpected(input)
+
+	// Print test configuration at the start
+	printProvisioningConfiguration(input)
 	By("Verifying DPU nodes are available for provisioning tests")
 	Expect(input.hasDpuNodes()).To(BeTrue(),
 		"SETUP ERROR: No DPU nodes found in cluster. "+
@@ -89,10 +193,8 @@ func BeforeProvisioning(ctx context.Context, input *systemTestInput) {
 }
 
 func CreateProvisioningDPUCluster(ctx context.Context, input *systemTestInput) {
-	By("Creating prerequisite objects for DPU cluster")
-	provInput := getProvisionInput(input)
-
-	for _, obj := range provInput.dpuClusterPrerequisites {
+	// Create prerequisite objects
+	for i, obj := range input.additionalProvisioningObjects {
 		// Deep copy to avoid mutating the shared original object
 		objCopy := obj.DeepCopyObject().(client.Object)
 		objCopy.SetLabels(testutils.AfterAllCleanupLabels)
@@ -104,23 +206,22 @@ func CreateProvisioningDPUCluster(ctx context.Context, input *systemTestInput) {
 		}, existing)
 
 		if apierrors.IsNotFound(err) {
-			By(fmt.Sprintf("Creating prerequisite %s %s/%s",
-				objCopy.GetObjectKind().GroupVersionKind().Kind,
+			By(fmt.Sprintf("Creating prerequisite [%d/%d] %s/%s",
+				i+1, provisioningExpected.Prerequisites,
 				objCopy.GetNamespace(),
 				objCopy.GetName()))
 			Expect(input.client.Create(ctx, objCopy)).To(Succeed())
 		} else {
-			By(fmt.Sprintf("Prerequisite %s %s/%s already exists",
-				objCopy.GetObjectKind().GroupVersionKind().Kind,
+			By(fmt.Sprintf("Prerequisite [%d/%d] %s/%s already exists",
+				i+1, provisioningExpected.Prerequisites,
 				objCopy.GetNamespace(),
 				objCopy.GetName()))
 			Expect(err).To(Succeed(), "Failed to check existing prerequisite")
 		}
 	}
 
-	By("Creating DPUCluster object")
 	// Deep copy to avoid mutating the shared original object
-	dpuCluster := provInput.dpuClusters[0].DeepCopy()
+	dpuCluster := input.dpuClusters[0].DeepCopy()
 	dpuCluster.SetLabels(testutils.AfterAllCleanupLabels)
 
 	By(fmt.Sprintf("Creating DPUCluster %s/%s",
@@ -132,37 +233,42 @@ func CreateProvisioningDPUCluster(ctx context.Context, input *systemTestInput) {
 	Eventually(func(g Gomega) {
 		clusters := &provisioningv1.DPUClusterList{}
 		g.Expect(input.client.List(ctx, clusters)).To(Succeed())
-		g.Expect(clusters.Items).To(HaveLen(1), "Expected exactly one DPU cluster")
+		g.Expect(clusters.Items).To(HaveLen(provisioningExpected.DPUClusters),
+			fmt.Sprintf("Expected %d DPU cluster(s)", provisioningExpected.DPUClusters))
 	}).WithTimeout(1 * time.Minute).Should(Succeed())
 
-	By("Waiting for DPU cluster to reach Ready phase")
+	By("Waiting for DPUCluster to reach Ready phase")
+	clusterTracker := NewByTracker()
 	Eventually(func(g Gomega) {
 		clusters := &provisioningv1.DPUClusterList{}
 		g.Expect(input.client.List(ctx, clusters)).To(Succeed())
-		g.Expect(clusters.Items).To(HaveLen(1), "Expected exactly one DPU cluster")
+		g.Expect(clusters.Items).To(HaveLen(provisioningExpected.DPUClusters))
 
 		cluster := clusters.Items[0]
-		By(fmt.Sprintf("DPU cluster %s Phase: %s", cluster.Name, cluster.Status.Phase))
+		clusterTracker.By(cluster.Name+string(cluster.Status.Phase),
+			"DPUCluster %s Phase: %s", cluster.Name, cluster.Status.Phase)
 		g.Expect(cluster.Status.Phase).To(Equal(provisioningv1.PhaseReady),
 			"DPU cluster should reach Ready phase")
 	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 	By("Creating DPU cluster client connection")
-	getDPUClusterClients(ctx, getProvisionInput(input))
+	// getDPUClusterClients requires ProvisionDPUClustersInput (defined in system_setup.go)
+	getDPUClusterClients(ctx, ProvisionDPUClustersInput{
+		dpuClusters: input.dpuClusters,
+		client:      input.client,
+		restConfig:  input.restConfig,
+	})
 
-	By("Creating BFB object")
-	provInput = getProvisionInput(input)
+	bfb := input.bfb.DeepCopy()
+	bfb.SetLabels(testutils.AfterAllCleanupLabels)
 
-	// Override BFB URL if environment variable is set
-	if provInput.bfbImageURL != "" {
-		By(fmt.Sprintf("Overriding BFB URL with: %s", provInput.bfbImageURL))
-		provInput.bfb.Spec.URL = provInput.bfbImageURL
+	// Override BFB URL if environment variable is set (on the copy, not the original)
+	if input.bfbImageURL != "" {
+		By(fmt.Sprintf("Overriding BFB URL with: %s", input.bfbImageURL))
+		bfb.Spec.URL = input.bfbImageURL
 	}
-
+	By(fmt.Sprintf("Creating BFB %s/%s", bfb.GetNamespace(), bfb.GetName()))
 	Eventually(func(g Gomega) {
-		bfb := provInput.bfb.DeepCopy()
-		bfb.SetLabels(testutils.AfterAllCleanupLabels)
-		By(fmt.Sprintf("Creating BFB %s/%s", bfb.GetNamespace(), bfb.GetName()))
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, bfb))).To(Succeed())
 	}).WithTimeout(10 * time.Second).Should(Succeed())
 
@@ -170,51 +276,50 @@ func CreateProvisioningDPUCluster(ctx context.Context, input *systemTestInput) {
 	Eventually(func(g Gomega) {
 		bfb := &provisioningv1.BFB{}
 		g.Expect(input.client.Get(ctx, types.NamespacedName{
-			Name:      provInput.bfb.Name,
-			Namespace: provInput.bfb.Namespace,
+			Name:      input.bfb.Name,
+			Namespace: input.bfb.Namespace,
 		}, bfb)).To(Succeed(), "BFB should be created")
 	}).WithTimeout(1 * time.Minute).Should(Succeed())
 
 	By("Waiting for BFB to reach Ready phase")
+	bfbTracker := NewByTracker()
 	Eventually(func(g Gomega) {
 		bfb := &provisioningv1.BFB{}
 		g.Expect(input.client.Get(ctx, types.NamespacedName{
-			Name:      provInput.bfb.Name,
-			Namespace: provInput.bfb.Namespace,
+			Name:      input.bfb.Name,
+			Namespace: input.bfb.Namespace,
 		}, bfb)).To(Succeed())
-		By(fmt.Sprintf("BFB %s Phase: %s", bfb.Name, bfb.Status.Phase))
+		bfbTracker.By(bfb.Name+string(bfb.Status.Phase),
+			"BFB %s Phase: %s", bfb.Name, bfb.Status.Phase)
 		g.Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBReady),
 			"BFB should reach Ready phase")
 	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 }
 
 func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
-	provInput := getProvisionInput(input)
+	// DPUFlavor is required for provisioning - fail fast if missing
+	Expect(input.dpuFlavor).NotTo(BeNil(), "dpuFlavor is required - check test configuration")
 
-	if provInput.dpuFlavor != nil {
-		By("Creating DPUFlavor object (prerequisite for DPUSet)")
-		Eventually(func(g Gomega) {
-			dpuFlavor := provInput.dpuFlavor.DeepCopy()
-			dpuFlavor.SetLabels(testutils.AfterAllCleanupLabels)
-			By(fmt.Sprintf("Creating DPUFlavor %s/%s", dpuFlavor.GetNamespace(), dpuFlavor.GetName()))
-			g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuFlavor))).To(Succeed())
-		}).WithTimeout(60 * time.Second).Should(Succeed())
-
-		By("Verifying DPUFlavor exists")
-		Eventually(func(g Gomega) {
-			dpuFlavor := &provisioningv1.DPUFlavor{}
-			g.Expect(input.client.Get(ctx, types.NamespacedName{
-				Name:      provInput.dpuFlavor.Name,
-				Namespace: provInput.dpuFlavor.Namespace,
-			}, dpuFlavor)).To(Succeed(), "DPUFlavor should be created")
-		}).WithTimeout(1 * time.Minute).Should(Succeed())
-	}
-
-	By("Creating DPUSet")
+	dpuFlavor := input.dpuFlavor.DeepCopy()
+	dpuFlavor.SetLabels(testutils.AfterAllCleanupLabels)
+	By(fmt.Sprintf("Creating DPUFlavor %s/%s", dpuFlavor.GetNamespace(), dpuFlavor.GetName()))
 	Eventually(func(g Gomega) {
-		dpuset := provInput.dpuSet.DeepCopy()
-		dpuset.SetLabels(testutils.AfterAllCleanupLabels)
-		By(fmt.Sprintf("Creating DPUSet %s/%s", dpuset.GetNamespace(), dpuset.GetName()))
+		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuFlavor))).To(Succeed())
+	}).WithTimeout(60 * time.Second).Should(Succeed())
+
+	By("Verifying DPUFlavor exists")
+	Eventually(func(g Gomega) {
+		dpuFlavor := &provisioningv1.DPUFlavor{}
+		g.Expect(input.client.Get(ctx, types.NamespacedName{
+			Name:      input.dpuFlavor.Name,
+			Namespace: input.dpuFlavor.Namespace,
+		}, dpuFlavor)).To(Succeed(), "DPUFlavor should be created")
+	}).WithTimeout(1 * time.Minute).Should(Succeed())
+
+	dpuset := input.dpuSet.DeepCopy()
+	dpuset.SetLabels(testutils.AfterAllCleanupLabels)
+	By(fmt.Sprintf("Creating DPUSet %s/%s", dpuset.GetNamespace(), dpuset.GetName()))
+	Eventually(func(g Gomega) {
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuset))).To(Succeed())
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 
@@ -222,15 +327,16 @@ func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
 	Eventually(func(g Gomega) {
 		dpusets := &provisioningv1.DPUSetList{}
 		g.Expect(input.client.List(ctx, dpusets)).To(Succeed())
-		g.Expect(dpusets.Items).To(HaveLen(1), "Expected exactly one DPUSet")
+		g.Expect(dpusets.Items).To(HaveLen(provisioningExpected.DPUSets),
+			fmt.Sprintf("Expected %d DPUSet(s)", provisioningExpected.DPUSets))
 	}).WithTimeout(2 * time.Minute).Should(Succeed())
 
 	By("Waiting for DPUSet controller to create DPU objects")
 	Eventually(func(g Gomega) {
 		dpus := &provisioningv1.DPUList{}
 		g.Expect(input.client.List(ctx, dpus)).To(Succeed())
-		g.Expect(dpus.Items).To(HaveLen(provInput.numberOfNodesPerCluster),
-			fmt.Sprintf("Expected %d DPU objects", provInput.numberOfNodesPerCluster))
+		g.Expect(dpus.Items).To(HaveLen(provisioningExpected.TotalDPUs),
+			fmt.Sprintf("Expected %d DPU objects, found %d", provisioningExpected.TotalDPUs, len(dpus.Items)))
 
 		for _, dpu := range dpus.Items {
 			By(fmt.Sprintf("DPU %s created with Phase: %s", dpu.Name, dpu.Status.Phase))
@@ -240,37 +346,54 @@ func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
 	}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
 	By("Waiting for DPU nodes to join the DPU cluster as K8s Nodes")
+	nodesTracker := NewByTracker()
+	dpuPhaseTracker := NewByTracker()
 	Eventually(func(g Gomega) {
+		// Track DPU phases during node joining
+		dpus := &provisioningv1.DPUList{}
+		g.Expect(input.client.List(ctx, dpus)).To(Succeed())
+		for _, dpu := range dpus.Items {
+			dpuPhaseTracker.By(dpu.Name+string(dpu.Status.Phase), "DPU %s: %s", dpu.Name, dpu.Status.Phase)
+		}
+
 		nodes := &corev1.NodeList{}
 		g.Expect(dpuClusterClient[0].List(ctx, nodes)).To(Succeed(), "Should be able to list nodes in DPU cluster")
 
-		g.Expect(nodes.Items).To(HaveLen(provInput.numberOfNodesPerCluster),
-			fmt.Sprintf("DPU cluster should have %d K8s nodes", provInput.numberOfNodesPerCluster))
+		nodeKey := fmt.Sprintf("%d/%d", len(nodes.Items), provisioningExpected.TotalDPUs)
+		nodesTracker.By(nodeKey, "K8s nodes in DPU cluster [%d/%d]", len(nodes.Items), provisioningExpected.TotalDPUs)
+		g.Expect(nodes.Items).To(HaveLen(provisioningExpected.TotalDPUs),
+			fmt.Sprintf("DPU cluster should have %d K8s nodes, found %d", provisioningExpected.TotalDPUs, len(nodes.Items)))
 	}).WithTimeout(45 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
 	By("Waiting for all DPU objects to reach Ready phase")
+	dpuTracker := NewByTracker()
 	Eventually(func(g Gomega) {
 		dpus := &provisioningv1.DPUList{}
 		g.Expect(input.client.List(ctx, dpus)).To(Succeed())
-		g.Expect(dpus.Items).To(HaveLen(provInput.numberOfNodesPerCluster))
+		g.Expect(dpus.Items).To(HaveLen(provisioningExpected.TotalDPUs))
 
 		readyCount := 0
 		for _, dpu := range dpus.Items {
-			By(fmt.Sprintf("DPU %s Phase: %s", dpu.Name, dpu.Status.Phase))
 			if dpu.Status.Phase == provisioningv1.DPUReady {
 				readyCount++
 			}
 		}
 
-		g.Expect(readyCount).To(Equal(provInput.numberOfNodesPerCluster),
-			fmt.Sprintf("All %d DPUs should reach Ready phase", provInput.numberOfNodesPerCluster))
+		dpuKey := fmt.Sprintf("%d/%d", readyCount, provisioningExpected.TotalDPUs)
+		dpuTracker.By(dpuKey, "DPUs Ready [%d/%d]", readyCount, provisioningExpected.TotalDPUs)
+		for _, dpu := range dpus.Items {
+			dpuTracker.By(string(dpu.Status.Phase)+dpu.Name, "DPU %s Phase: %s", dpu.Name, dpu.Status.Phase)
+		}
+
+		g.Expect(readyCount).To(Equal(provisioningExpected.TotalDPUs),
+			fmt.Sprintf("All %d DPUs should reach Ready phase, only %d ready", provisioningExpected.TotalDPUs, readyCount))
 	}).WithTimeout(30 * time.Minute).WithPolling(30 * time.Second).Should(Succeed())
 }
 
 func VerifyProvisioning(ctx context.Context, input *systemTestInput) {
-	provInput := getProvisionInput(input)
-	deploymentName := fmt.Sprintf("in-cluster-%s", getServiceChainSetControllerDPUServiceName(provInput.dpuClusters[0].Name, provInput.dpuClusters[0].Namespace))
-	By(fmt.Sprintf("Checking %s deployment", deploymentName))
+	deploymentName := fmt.Sprintf("in-cluster-%s", getServiceChainSetControllerDPUServiceName(input.dpuClusters[0].Name, input.dpuClusters[0].Namespace))
+	deploymentTracker := NewByTracker()
+	By(fmt.Sprintf("Verifying Deployment %s/%s", dpfOperatorSystemNamespace, deploymentName))
 	Eventually(func(g Gomega) {
 		serviceSetDeployment := &appsv1.Deployment{}
 		g.Expect(input.client.Get(ctx, client.ObjectKey{
@@ -278,73 +401,43 @@ func VerifyProvisioning(ctx context.Context, input *systemTestInput) {
 			Name:      deploymentName,
 		}, serviceSetDeployment)).To(Succeed())
 
-		By(fmt.Sprintf("%s: Ready=%d/%d",
-			deploymentName,
+		deploymentTracker.By(fmt.Sprintf("%d/%d", serviceSetDeployment.Status.ReadyReplicas, *serviceSetDeployment.Spec.Replicas),
+			"Deployment %s Replicas [%d/%d]", deploymentName,
 			serviceSetDeployment.Status.ReadyReplicas,
-			*serviceSetDeployment.Spec.Replicas))
+			*serviceSetDeployment.Spec.Replicas)
 		g.Expect(serviceSetDeployment.Status.ReadyReplicas).To(Equal(*serviceSetDeployment.Spec.Replicas),
 			fmt.Sprintf("%s should be ready", deploymentName))
 	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
-	By("Checking that DPUService objects have been deployed to DPUCluster")
-	Eventually(func(g Gomega) {
-		// Check Deployments with argocd instance label
-		deployments := &appsv1.DeploymentList{}
-		g.Expect(dpuClusterClient[0].List(ctx, deployments)).To(Succeed())
+	// Use shared function to verify DPUServices are deployed
+	VerifyDPUServicesDeployed(ctx, dpuClusterClient[0], input.dpuClusters[0].GetNamespace())
 
-		found := map[string]bool{}
-		for i := range deployments.Items {
-			trackingIDAnnotation := deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]
-			By(fmt.Sprintf("Found Deployment with argocd tracking id: %s", trackingIDAnnotation))
-			g.Expect(trackingIDAnnotation).NotTo(BeEmpty())
-			found[trackingIDAnnotation] = true
-		}
-
-		// Check DaemonSets with argocd instance label
-		provInput := getProvisionInput(input)
-		daemonsets := &appsv1.DaemonSetList{}
-		g.Expect(dpuClusterClient[0].List(ctx, daemonsets,
-			client.InNamespace(provInput.dpuClusters[0].GetNamespace()))).To(Succeed())
-
-		for i := range daemonsets.Items {
-			trackingIDAnnotation := daemonsets.Items[i].GetLabels()[argoCDTrackingIDAnnotation]
-			By(fmt.Sprintf("Found DaemonSet with argocd tracking id: %s", trackingIDAnnotation))
-			g.Expect(trackingIDAnnotation).NotTo(BeEmpty())
-			found[trackingIDAnnotation] = true
-		}
-
-		// Verify expected DPUServices are deployed
-		By("Verifying expected DPUServices: Multus, Flannel, SRIOV, NVIPAM, OVS-CNI, SFC-Controller")
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.MultusName.String())), "Multus should be deployed")
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.FlannelName.String())), "Flannel should be deployed")
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SRIOVDevicePluginName.String())), "SRIOV should be deployed")
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.NVIPAMName.String())), "NVIPAM should be deployed")
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.OVSCNIName.String())), "OVS-CNI should be deployed")
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SFCControllerName.String())), "SFC-Controller should be deployed")
-	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
-
-	By("Checking DPUSet status has accurate DPU statistics")
-
+	By("Verifying DPUSet statistics")
+	dpuSetTracker := NewByTracker()
 	Eventually(func(g Gomega) {
 		dpusets := &provisioningv1.DPUSetList{}
 		g.Expect(input.client.List(ctx, dpusets)).To(Succeed())
-		g.Expect(dpusets.Items).To(HaveLen(1))
+		g.Expect(dpusets.Items).To(HaveLen(provisioningExpected.DPUSets),
+			fmt.Sprintf("Expected %d DPUSet(s)", provisioningExpected.DPUSets))
 
 		dpuset := dpusets.Items[0]
-		totalDPUs := 0
+		actualTotalDPUs := 0
 		readyDPUs := 0
 
 		for phase, count := range dpuset.Status.DPUStatistics {
-			totalDPUs += count
-			By(fmt.Sprintf("DPUSet %s - Phase %s: %d DPUs", dpuset.Name, phase, count))
+			actualTotalDPUs += count
 			if phase == provisioningv1.DPUReady {
 				readyDPUs = count
 			}
 		}
 
-		g.Expect(totalDPUs).To(Equal(provInput.numberOfNodesPerCluster),
+		dpuSetTracker.By(fmt.Sprintf("%d/%d", readyDPUs, provisioningExpected.TotalDPUs),
+			"DPUSet %s/%s Ready [%d/%d]",
+			dpuset.GetNamespace(), dpuset.GetName(), readyDPUs, provisioningExpected.TotalDPUs)
+
+		g.Expect(actualTotalDPUs).To(Equal(provisioningExpected.TotalDPUs),
 			"DPUSet should track all DPUs")
-		g.Expect(readyDPUs).To(Equal(provInput.numberOfNodesPerCluster),
+		g.Expect(readyDPUs).To(Equal(provisioningExpected.TotalDPUs),
 			"All DPUs should be in Ready phase")
 	}).WithTimeout(2 * time.Minute).Should(Succeed())
 
@@ -353,18 +446,20 @@ func VerifyProvisioning(ctx context.Context, input *systemTestInput) {
 }
 
 func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
-	provInput := getProvisionInput(input)
+	By("========== DEPROVISIONING ==========")
+	By(fmt.Sprintf("  DPUs to remove:      %d", provisioningExpected.TotalDPUs))
+	By(fmt.Sprintf("  Prerequisites:       %d", provisioningExpected.Prerequisites))
+	By("=====================================")
 
-	By("Deleting DPUSet resource")
+	By(fmt.Sprintf("Deleting DPUSet %s/%s", input.dpuSet.Namespace, input.dpuSet.Name))
 	Eventually(func(g Gomega) {
 		dpuset := &provisioningv1.DPUSet{}
 		err := input.client.Get(ctx, types.NamespacedName{
-			Name:      provInput.dpuSet.Name,
-			Namespace: provInput.dpuSet.Namespace,
+			Name:      input.dpuSet.Name,
+			Namespace: input.dpuSet.Namespace,
 		}, dpuset)
 
 		if apierrors.IsNotFound(err) {
-			By("DPUSet already deleted")
 			return
 		}
 		g.Expect(err).To(Succeed())
@@ -372,66 +467,71 @@ func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
 	}).WithTimeout(1 * time.Minute).Should(Succeed())
 
 	By("Waiting for DPUSet to be deleted")
+	dpuSetDeleteTracker := NewByTracker()
 	Eventually(func(g Gomega) {
 		dpusets := &provisioningv1.DPUSetList{}
 		g.Expect(input.client.List(ctx, dpusets)).To(Succeed())
+		dpuSetDeleteTracker.By(fmt.Sprintf("%d", len(dpusets.Items)),
+			"DPUSets remaining [%d]", len(dpusets.Items))
 		g.Expect(dpusets.Items).To(BeEmpty(), "DPUSet should be deleted")
 	}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
-	By("Waiting for DPU objects to be removed")
+	By("Waiting for DPU objects to be deleted")
+	dpuDeleteTracker := NewByTracker()
 	Eventually(func(g Gomega) {
 		dpus := &provisioningv1.DPUList{}
 		g.Expect(input.client.List(ctx, dpus)).To(Succeed())
+		dpuDeleteTracker.By(fmt.Sprintf("%d", len(dpus.Items)),
+			"DPUs remaining [%d]", len(dpus.Items))
 		g.Expect(dpus.Items).To(BeEmpty(),
 			"All DPU objects should be cleaned up after DPUSet deletion")
 	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
-	By("Verifying K8s nodes are removed from DPU cluster")
+	By("Waiting for K8s nodes to be removed from DPU cluster")
+	nodesDeleteTracker := NewByTracker()
 	Eventually(func(g Gomega) {
 		nodes := &corev1.NodeList{}
 		g.Expect(dpuClusterClient[0].List(ctx, nodes)).To(Succeed())
+		nodesDeleteTracker.By(fmt.Sprintf("%d", len(nodes.Items)),
+			"K8s nodes remaining [%d]", len(nodes.Items))
 		g.Expect(nodes.Items).To(BeEmpty(),
 			"DPU cluster should have no nodes after deprovisioning")
 	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
-	if provInput.dpuFlavor != nil {
-		By("Deleting DPUFlavor resource")
-		Eventually(func(g Gomega) {
-			dpuFlavor := &provisioningv1.DPUFlavor{}
-			err := input.client.Get(ctx, types.NamespacedName{
-				Name:      provInput.dpuFlavor.Name,
-				Namespace: provInput.dpuFlavor.Namespace,
-			}, dpuFlavor)
+	By(fmt.Sprintf("Deleting DPUFlavor %s/%s", input.dpuFlavor.Namespace, input.dpuFlavor.Name))
+	Eventually(func(g Gomega) {
+		dpuFlavor := &provisioningv1.DPUFlavor{}
+		err := input.client.Get(ctx, types.NamespacedName{
+			Name:      input.dpuFlavor.Name,
+			Namespace: input.dpuFlavor.Namespace,
+		}, dpuFlavor)
 
-			if apierrors.IsNotFound(err) {
-				By("DPUFlavor already deleted")
-				return
-			}
-			g.Expect(err).To(Succeed())
-			g.Expect(input.client.Delete(ctx, dpuFlavor)).To(Succeed())
-		}).WithTimeout(1 * time.Minute).Should(Succeed())
+		if apierrors.IsNotFound(err) {
+			return
+		}
+		g.Expect(err).To(Succeed())
+		g.Expect(input.client.Delete(ctx, dpuFlavor)).To(Succeed())
+	}).WithTimeout(1 * time.Minute).Should(Succeed())
 
-		By("Waiting for DPUFlavor to be deleted")
-		Eventually(func(g Gomega) {
-			dpuFlavor := &provisioningv1.DPUFlavor{}
-			err := input.client.Get(ctx, types.NamespacedName{
-				Name:      provInput.dpuFlavor.Name,
-				Namespace: provInput.dpuFlavor.Namespace,
-			}, dpuFlavor)
-			g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "DPUFlavor should be deleted")
-		}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
-	}
+	By("Waiting for DPUFlavor to be deleted")
+	Eventually(func(g Gomega) {
+		dpuFlavor := &provisioningv1.DPUFlavor{}
+		err := input.client.Get(ctx, types.NamespacedName{
+			Name:      input.dpuFlavor.Name,
+			Namespace: input.dpuFlavor.Namespace,
+		}, dpuFlavor)
+		g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "DPUFlavor should be deleted")
+	}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
-	By("Deleting BFB resource")
+	By(fmt.Sprintf("Deleting BFB %s/%s", input.bfb.Namespace, input.bfb.Name))
 	Eventually(func(g Gomega) {
 		bfb := &provisioningv1.BFB{}
 		err := input.client.Get(ctx, types.NamespacedName{
-			Name:      provInput.bfb.Name,
-			Namespace: provInput.bfb.Namespace,
+			Name:      input.bfb.Name,
+			Namespace: input.bfb.Namespace,
 		}, bfb)
 
 		if apierrors.IsNotFound(err) {
-			By("BFB already deleted")
 			return
 		}
 		g.Expect(err).To(Succeed())
@@ -442,96 +542,72 @@ func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
 	Eventually(func(g Gomega) {
 		bfb := &provisioningv1.BFB{}
 		err := input.client.Get(ctx, types.NamespacedName{
-			Name:      provInput.bfb.Name,
-			Namespace: provInput.bfb.Namespace,
+			Name:      input.bfb.Name,
+			Namespace: input.bfb.Namespace,
 		}, bfb)
 		g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "BFB should be deleted")
 	}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
-	By("Deleting DPUCluster resource")
-	Eventually(func(g Gomega) {
-		cluster := &provisioningv1.DPUCluster{}
-		err := input.client.Get(ctx, types.NamespacedName{
-			Name:      provInput.dpuClusters[0].Name,
-			Namespace: provInput.dpuClusters[0].Namespace,
-		}, cluster)
-
-		if apierrors.IsNotFound(err) {
-			By("DPUCluster already deleted")
-			return
-		}
-		g.Expect(err).To(Succeed())
-		g.Expect(input.client.Delete(ctx, cluster)).To(Succeed())
-	}).WithTimeout(1 * time.Minute).Should(Succeed())
-
-	By("Waiting for DPUCluster to be deleted")
-	Eventually(func(g Gomega) {
-		clusters := &provisioningv1.DPUClusterList{}
-		g.Expect(input.client.List(ctx, clusters)).To(Succeed())
-		g.Expect(clusters.Items).To(BeEmpty(), "DPUCluster should be deleted")
-	}).WithTimeout(15 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
-
-	By("Deleting prerequisite objects")
-	for _, obj := range provInput.dpuClusterPrerequisites {
+	if !skipDPUClusterDeletionInProvisioningTest {
+		By(fmt.Sprintf("Deleting DPUCluster %s/%s", input.dpuClusters[0].Namespace, input.dpuClusters[0].Name))
 		Eventually(func(g Gomega) {
-			existing := obj.DeepCopyObject().(client.Object)
+			cluster := &provisioningv1.DPUCluster{}
 			err := input.client.Get(ctx, types.NamespacedName{
-				Namespace: obj.GetNamespace(),
-				Name:      obj.GetName(),
-			}, existing)
+				Name:      input.dpuClusters[0].Name,
+				Namespace: input.dpuClusters[0].Namespace,
+			}, cluster)
 
 			if apierrors.IsNotFound(err) {
 				return
 			}
 			g.Expect(err).To(Succeed())
-			g.Expect(input.client.Delete(ctx, existing)).To(Succeed())
+			g.Expect(input.client.Delete(ctx, cluster)).To(Succeed())
 		}).WithTimeout(1 * time.Minute).Should(Succeed())
+
+		By("Waiting for DPUCluster to be deleted")
+		clusterDeleteTracker := NewByTracker()
+		Eventually(func(g Gomega) {
+			clusters := &provisioningv1.DPUClusterList{}
+			g.Expect(input.client.List(ctx, clusters)).To(Succeed())
+			clusterDeleteTracker.By(fmt.Sprintf("%d", len(clusters.Items)),
+				"DPUClusters remaining [%d]", len(clusters.Items))
+			g.Expect(clusters.Items).To(BeEmpty(), "DPUCluster should be deleted")
+		}).WithTimeout(15 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	} else {
+		By("Skipping DPUCluster deletion (RM: 4869399 - DPUCluster/DPUService deletion race; cluster left for DPFOperatorConfig teardown)")
 	}
 
-	By("Waiting for prerequisite objects to be deleted")
-	Eventually(func(g Gomega) {
-		for _, obj := range provInput.dpuClusterPrerequisites {
-			existing := obj.DeepCopyObject().(client.Object)
-			err := input.client.Get(ctx, types.NamespacedName{
-				Namespace: obj.GetNamespace(),
-				Name:      obj.GetName(),
-			}, existing)
-			g.Expect(apierrors.IsNotFound(err)).To(BeTrue(),
-				fmt.Sprintf("Prerequisite %s/%s should be deleted",
-					obj.GetNamespace(), obj.GetName()))
-		}
-	}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	// Delete prerequisite objects and wait for deletion
+	if len(input.additionalProvisioningObjects) > 0 {
+		By(fmt.Sprintf("Deleting %d prerequisite objects", len(input.additionalProvisioningObjects)))
+		Expect(testutils.CleanupAndWait(ctx, input.client, input.additionalProvisioningObjects...)).To(Succeed())
+	}
 
-	By("Verifying no DPU-related resources remain")
+	By("Verifying cleanup complete")
 	Eventually(func(g Gomega) {
-		By("Checking DPUSets are cleaned up")
 		dpusets := &provisioningv1.DPUSetList{}
 		g.Expect(input.client.List(ctx, dpusets)).To(Succeed())
 		g.Expect(dpusets.Items).To(BeEmpty(), "No DPUSets should remain")
 
-		By("Checking DPU objects are cleaned up")
 		dpus := &provisioningv1.DPUList{}
 		g.Expect(input.client.List(ctx, dpus)).To(Succeed())
 		g.Expect(dpus.Items).To(BeEmpty(), "No DPU objects should remain")
 
-		By("Checking BFBs are cleaned up")
 		bfbs := &provisioningv1.BFBList{}
 		g.Expect(input.client.List(ctx, bfbs)).To(Succeed())
 		g.Expect(bfbs.Items).To(BeEmpty(), "No BFBs should remain")
 
-		By("Checking DPUClusters are cleaned up")
-		clusters := &provisioningv1.DPUClusterList{}
-		g.Expect(input.client.List(ctx, clusters)).To(Succeed())
-		g.Expect(clusters.Items).To(BeEmpty(), "No DPUClusters should remain")
+		if !skipDPUClusterDeletionInProvisioningTest {
+			clusters := &provisioningv1.DPUClusterList{}
+			g.Expect(input.client.List(ctx, clusters)).To(Succeed())
+			g.Expect(clusters.Items).To(BeEmpty(), "No DPUClusters should remain")
+		}
 
-		if provInput.dpuFlavor != nil {
-			By("Checking DPUFlavors are cleaned up")
-			flavors := &provisioningv1.DPUFlavorList{}
-			g.Expect(input.client.List(ctx, flavors, client.InNamespace(provInput.dpuFlavor.Namespace))).To(Succeed())
-			for _, flavor := range flavors.Items {
-				g.Expect(flavor.Name).NotTo(Equal(provInput.dpuFlavor.Name),
-					"DPUFlavor should be deleted")
-			}
+		flavors := &provisioningv1.DPUFlavorList{}
+		g.Expect(input.client.List(ctx, flavors, client.InNamespace(input.dpuFlavor.Namespace))).To(Succeed())
+		for _, flavor := range flavors.Items {
+			g.Expect(flavor.Name).NotTo(Equal(input.dpuFlavor.Name),
+				"DPUFlavor should be deleted")
 		}
 	}).WithTimeout(2 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 

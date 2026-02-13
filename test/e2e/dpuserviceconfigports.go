@@ -40,6 +40,15 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) 
 		Skip("Skip DPUService ConfigPorts test as there are no DPU nodes")
 	}
 
+	// ConfigPorts feature has documented limitations (Dec 2025 design agreement):
+	// - Works only in Host Trusted mode
+	// - Works only with single DPU per node
+	// - Works only with single DPUCluster
+	// See: "ConfigPorts limitations" design document for details.
+	if input.numberOfDPUsPerNode > 1 {
+		Skip("Skip DPUService ConfigPorts test: feature does not support multiple DPUs per node")
+	}
+
 	By("Creating a DPUService with ConfigPorts")
 	dpuService := input.dpuService.DeepCopy()
 	dpuService.Name = "dummydpuservice"
