@@ -419,6 +419,130 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
     resource: Deployment.dpf-operator-system.static-cm-controller-manager
 
+  ## VPC chart components
+
+  vpc-ovn-host:
+  # TODO: Fix these findings or document the exclusion properly.
+  - check_id: CKV_K8S_11 # CPU limits should be set
+    resource: Deployment.default.release-name-vpc-ovn-controller
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/cpu
+  - check_id: CKV_K8S_13 # Memory limits should be set
+    resource: Deployment.default.release-name-vpc-ovn-controller
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/memory
+  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
+    resource: Deployment.default.release-name-vpc-ovn-controller
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+      - spec/template/spec/containers/[0]/imagePullPolicy
+  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
+    resource: Deployment.default.release-name-vpc-ovn-controller
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: Deployment.default.release-name-vpc-ovn-controller
+  - check_id: CKV_K8S_43 # Image should use digest
+    resource: Deployment.default.release-name-vpc-ovn-controller
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+
+  vpc-ovn-dpu:
+  # TODO: Fix these findings or document the exclusion properly.
+  - check_id: CKV_K8S_11 # CPU limits should be set
+    resource: DaemonSet.default.release-name-vpc-ovn-node
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/cpu
+  - check_id: CKV_K8S_13 # Memory limits should be set
+    resource: DaemonSet.default.release-name-vpc-ovn-node
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/memory
+  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
+    resource: DaemonSet.default.release-name-vpc-ovn-node
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+      - spec/template/spec/containers/[0]/imagePullPolicy
+  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
+    resource: DaemonSet.default.release-name-vpc-ovn-node
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.release-name-vpc-ovn-node
+  - check_id: CKV_K8S_43 # Image should use digest
+    resource: DaemonSet.default.release-name-vpc-ovn-node
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
+    resource: DaemonSet.default.release-name-vpc-ovn-node
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/livenessProbe
+  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
+    resource: DaemonSet.default.release-name-vpc-ovn-node
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/readinessProbe
+
+  vpc-ovs-flow-controllers:
+  # TODO: Fix these findings or document the exclusion properly.
+  - check_id: CKV_K8S_11 # CPU limits should be set
+    resource: DaemonSet.default.release-name-vpc-ovs-flow-controller
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/cpu
+  - check_id: CKV_K8S_13 # Memory limits should be set
+    resource: DaemonSet.default.release-name-vpc-ovs-flow-controller
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/memory
+  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
+    resource: DaemonSet.default.release-name-vpc-ovs-flow-controller
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+      - spec/template/spec/containers/[0]/imagePullPolicy
+  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
+    resource: DaemonSet.default.release-name-vpc-ovs-flow-controller
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.release-name-vpc-ovs-flow-controller
+  - check_id: CKV_K8S_43 # Image should use digest
+    resource: DaemonSet.default.release-name-vpc-ovs-flow-controller
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
+    resource: DaemonSet.default.release-name-vpc-ovs-flow-controller
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/livenessProbe
+  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
+    resource: DaemonSet.default.release-name-vpc-ovs-flow-controller
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/readinessProbe
+
+  vpc-ovs-dhcp-agent:
+  # TODO: Fix these findings or document the exclusion properly.
+  - check_id: CKV_K8S_11 # CPU limits should be set
+    resource: DaemonSet.default.release-name-vpc-ovs-dhcp-agent
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/cpu
+  - check_id: CKV_K8S_13 # Memory limits should be set
+    resource: DaemonSet.default.release-name-vpc-ovs-dhcp-agent
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/memory
+  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
+    resource: DaemonSet.default.release-name-vpc-ovs-dhcp-agent
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+      - spec/template/spec/containers/[0]/imagePullPolicy
+  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
+    resource: DaemonSet.default.release-name-vpc-ovs-dhcp-agent
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.release-name-vpc-ovs-dhcp-agent
+  - check_id: CKV_K8S_43 # Image should use digest
+    resource: DaemonSet.default.release-name-vpc-ovs-dhcp-agent
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
+    resource: DaemonSet.default.release-name-vpc-ovs-dhcp-agent
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/livenessProbe
+  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
+    resource: DaemonSet.default.release-name-vpc-ovs-dhcp-agent
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/readinessProbe
+
+  ## Storage chart components
+
   storage-host-snap-csi-plugin:
   # TODO: Fix these findings or document the exclusion properly.
   - check_id: CKV_K8S_11 # CPU limits should be set
