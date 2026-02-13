@@ -44,14 +44,11 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
-	// FinalizerName is the name of the finalizer used for DPUDevice resources
-	FinalizerName           = "provisioning.dpu.nvidia.com/dpudevice-protection"
 	BMCMinSupportedVersion  = "BF-24.10-17"
 	DPUDeviceControllerName = "dpudevice"
 )
@@ -86,28 +83,6 @@ func (r *DPUDeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// Error reading the object - requeue the request.
 		log.Error(err, "Failed to get DPUDevice")
 		return ctrl.Result{}, err
-	}
-
-	// Check if the DPUDevice is being deleted
-	if !dpuDevice.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, dpuDevice)
-	}
-
-	// Add finalizer if it doesn't exist
-	if !controllerutil.ContainsFinalizer(dpuDevice, FinalizerName) {
-		controllerutil.AddFinalizer(dpuDevice, FinalizerName)
-		if err := r.Update(ctx, dpuDevice); err != nil {
-			if apierrors.IsConflict(err) {
-				// Object was modified, requeue to retry with latest version
-				log.Info("Conflict while adding finalizer, requeuing")
-				return ctrl.Result{Requeue: true}, nil
-			}
-			log.Error(err, "Failed to add finalizer")
-			return ctrl.Result{}, err
-		}
-		// Finalizer was added successfully, requeue to continue with reconciliation
-		log.Info("Finalizer added successfully, requeuing")
-		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// Reconcile the DPUDevice
@@ -497,49 +472,6 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 	return nil
 }
 
-// reconcileDelete handles the deletion of DPUDevice
-func (r *DPUDeviceReconciler) reconcileDelete(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (ctrl.Result, error) {
-	log := log.FromContext(ctx)
-	log.Info("Reconciling DPUDevice deletion")
-
-	// Check if finalizer is present
-	if !controllerutil.ContainsFinalizer(dpuDevice, FinalizerName) {
-		return ctrl.Result{}, nil
-	}
-
-	// Check if there are any DPUs using this DpuDevice
-	dpusUsingDevice, err := r.findDPUsUsingDevice(ctx, dpuDevice)
-	if err != nil {
-		log.Error(err, "Failed to check for DPUs using this device")
-		return ctrl.Result{}, err
-	}
-
-	if len(dpusUsingDevice) > 0 {
-		log.Info("Cannot delete DpuDevice, there are DPUs still using it", "dpus", dpusUsingDevice)
-		// Don't remove the finalizer, requeue to check again later
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-	}
-
-	// Perform cleanup operations here
-	// For example, release hardware resources, clean up BMC connections, etc.
-	log.Info("Performing cleanup operations for DPUDevice")
-
-	// Remove finalizer
-	controllerutil.RemoveFinalizer(dpuDevice, FinalizerName)
-	if err := r.Update(ctx, dpuDevice); err != nil {
-		if apierrors.IsConflict(err) {
-			// Object was modified, requeue to retry with latest version
-			log.Info("Conflict while removing finalizer, requeuing")
-			return ctrl.Result{Requeue: true}, nil
-		}
-		log.Error(err, "Failed to remove finalizer")
-		return ctrl.Result{}, err
-	}
-
-	log.Info("DPUDevice deletion completed")
-	return ctrl.Result{}, nil
-}
-
 // setUpMTLS sets up BMC mTLS in the same way as https://github.com/openbmc/bmcweb/blob/master/scripts/generate_auth_certificates.py
 func (r *DPUDeviceReconciler) setUpMTLS(ctx context.Context, dpudevice *provisioningv1.DPUDevice, basicAuthClient *rfclient.Client) (bool, error) {
 	caSecret := &corev1.Secret{}
@@ -691,24 +623,6 @@ func (r *DPUDeviceReconciler) createCR(ctx context.Context, dpudevice *provision
 		return err
 	}
 	return r.Client.Create(ctx, cr)
-}
-
-// findDPUsUsingDevice finds all DPUs that are using the specified DpuDevice
-func (r *DPUDeviceReconciler) findDPUsUsingDevice(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) ([]provisioningv1.DPU, error) {
-	dpuList := &provisioningv1.DPUList{}
-	err := r.List(ctx, dpuList, client.InNamespace(dpuDevice.Namespace))
-	if err != nil {
-		return nil, fmt.Errorf("failed to list DPUs: %w", err)
-	}
-
-	var dpusUsingDevice []provisioningv1.DPU
-	for _, dpu := range dpuList.Items {
-		if dpu.Spec.DPUDeviceName == dpuDevice.Name {
-			dpusUsingDevice = append(dpusUsingDevice, dpu)
-		}
-	}
-
-	return dpusUsingDevice, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

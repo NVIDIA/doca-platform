@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	dpustate "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
@@ -174,6 +175,12 @@ func Deleting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contr
 	state := dpu.Status.DeepCopy()
 
 	ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
+
+	if err := dpustate.RemoveDpuDeviceFinalizer(ctx, dpu, ctrlCtx); err != nil {
+		err = fmt.Errorf("failed to remove DpuDevice finalizer: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDeleting.String(), err, "RemoveDpuDeviceFinalizerError", err.Error()))
+		return *state, err
+	}
 
 	controllerutil.RemoveFinalizer(dpu, provisioningv1.DPUFinalizer)
 	if err := ctrlCtx.Update(ctx, dpu); err != nil {
