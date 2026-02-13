@@ -162,7 +162,7 @@ func TestE2E(t *testing.T) {
 	g := NewWithT(t)
 	defer GinkgoRecover()
 	var err error
-	_, err = fmt.Fprintf(GinkgoWriter, "Starting dpf-operator suite\n")
+	_, err = fmt.Fprintf(GinkgoWriter, "E2E Tests Suite starting...\n\n")
 	Expect(err).ToNot(HaveOccurred())
 	ctrl.SetLogger(klog.Background())
 
@@ -188,6 +188,14 @@ func TestE2E(t *testing.T) {
 	if testKubeconfig == "" {
 		testKubeconfig = filepath.Join(home, ".kube/config")
 	}
+
+	// Effective configuration
+	_, _ = fmt.Fprintf(GinkgoWriter, "E2E Test Configuration:\n")
+	_, _ = fmt.Fprintf(GinkgoWriter, "  configPath: %s\n", configPath)
+	_, _ = fmt.Fprintf(GinkgoWriter, "  testKubeconfig: %s\n", testKubeconfig)
+	_, _ = fmt.Fprintf(GinkgoWriter, "  numberOfDPUNodes: %d\n", conf.NumberOfDPUNodes)
+	_, _ = fmt.Fprintf(GinkgoWriter, "  numberOfDPUsPerNode: %d\n", conf.NumberOfDPUsPerNode)
+	_, _ = fmt.Fprintf(GinkgoWriter, "  useExternalNodeReboot: %v\n", conf.UseExternalNodeReboot)
 
 	// Create a client to use throughout the test.
 	restConfig, err = clientcmd.BuildConfigFromFlags("", testKubeconfig)
