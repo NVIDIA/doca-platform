@@ -21,3 +21,4 @@ dpuService: "../objects/application/dpuservice.yaml"
 dpuServiceHBN: "../objects/application/dpuservicehbn.yaml"
 dpuServiceTemplate: "../objects/application/dpuservicetemplate.yaml"
 numberOfDPUNodes: 0
+numberOfDPUsPerNode: 0

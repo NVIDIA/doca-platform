@@ -398,7 +398,8 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 
 func getProvisionDPUClustersInput() ProvisionDPUClustersInput {
 	return ProvisionDPUClustersInput{
-		numberOfNodesPerCluster: input.numberOfDPUNodes,
+		numberOfDPUNodes:        input.numberOfDPUNodes,
+		numberOfDPUsPerNode:     input.numberOfDPUsPerNode,
 		dpuClusterPrerequisites: input.additionalProvisioningObjects,
 		dpuClusters:             input.dpuClusters,
 		dpuSet:                  input.dpuSet,
