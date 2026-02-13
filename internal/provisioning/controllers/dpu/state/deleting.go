@@ -43,6 +43,12 @@ func Deleting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contr
 	ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
 	ctrlCtx.ClusterAllocator.ReleaseDPU(dpu)
 
+	if err := RemoveDpuDeviceFinalizer(ctx, dpu, ctrlCtx); err != nil {
+		err = fmt.Errorf("failed to remove DpuDevice finalizer: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDeleting.String(), err, "RemoveDpuDeviceFinalizerError", err.Error()))
+		return *state, err
+	}
+
 	if err := RemoveRequestorFromDPUNodeMaintenance(ctx, dpu, ctrlCtx); err != nil {
 		err = fmt.Errorf("failed to remove requestor from dpunodemaintenance: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDeleting.String(), err, "RemoveRequestorFromDPUNodeMaintenanceError", err.Error()))
@@ -130,6 +136,27 @@ func Deleting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contr
 	}
 
 	return *state, nil
+}
+
+// RemoveDpuDeviceFinalizer removes the DpuDevice finalizer when DPU is being deleted.
+// Exported so mock.Deleting can reuse it for tests that expect finalizer removal.
+func RemoveDpuDeviceFinalizer(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) error {
+	dpuDevice := &provisioningv1.DPUDevice{}
+	if err := ctrlCtx.Client.Get(ctx, crclient.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
+		if apierrors.IsNotFound(err) {
+			// DpuDevice not found, this is expected in some cases
+			return nil
+		}
+		return fmt.Errorf("failed to get DpuDevice %s: %w", dpu.Spec.DPUDeviceName, err)
+	}
+
+	if controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.DPUDeviceFinalizer) {
+		controllerutil.RemoveFinalizer(dpuDevice, provisioningv1.DPUDeviceFinalizer)
+		if err := ctrlCtx.Client.Update(ctx, dpuDevice); err != nil {
+			return fmt.Errorf("failed to remove DpuDevice finalizer: %w", err)
+		}
+	}
+	return nil
 }
 
 func deleteNode(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU) error {
