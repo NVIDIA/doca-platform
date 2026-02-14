@@ -33,7 +33,6 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
 	"github.com/Masterminds/sprig/v3"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -151,12 +150,6 @@ func shouldTriggerAdditionalReboot(ctx context.Context, dpuNode *provisioningv1.
 	}
 	if cmd == reboot.Skip {
 		return true, nil
-	}
-	conds := append([]metav1.Condition(nil), dpu.Status.Conditions...) // shallow copy
-	for _, cond := range conds {
-		if cond.Type == string(provisioningv1.DPUCondFWConfigured) && cond.Message == string(provisioningv1.DPUCondMessageModeUpdate) {
-			return true, nil
-		}
 	}
 	return false, nil
 }

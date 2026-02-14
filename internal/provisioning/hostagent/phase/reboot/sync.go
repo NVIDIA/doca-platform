@@ -29,6 +29,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
@@ -125,6 +126,12 @@ func (r *Handler) reboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, d
 			runPowerCycle = true
 			break
 		}
+		// run power cycle if the DPU is transitioning from NicMode to DpuMode
+		_, interfaceInitializedCondition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondInterfaceInitialized))
+		if interfaceInitializedCondition != nil && interfaceInitializedCondition.Message == string(provisioningv1.DPUCondMessageModeUpdate) {
+			runPowerCycle = true
+			break
+		}
 	}
 	if runPowerCycle {
 		if err := r.runPowerCycle(dpuNode, rebootNow); err != nil {
@@ -167,22 +174,12 @@ func (r *Handler) runSLR(ctx context.Context, toBeRebooted []provisioningv1.DPU)
 	results := sync.Map{}
 	group := sync.WaitGroup{}
 	for i, dpu := range toBeRebooted {
-		// skip shutdown ARM if the DPU mode is updated from NIC mode to DPU mode
-		skipShutdownARM := false
-		for _, cond := range dpu.Status.Conditions {
-			if cond.Type == string(provisioningv1.DPUCondFWConfigured) && cond.Message == string(provisioningv1.DPUCondMessageModeUpdate) {
-				klog.Infof("Skip shutdown ARM for DPU %s", dpu.Name)
-				skipShutdownARM = true
-				break
-			}
-		}
-		if !skipShutdownARM {
-			group.Add(1)
-			go func(index int, rebootingDPU provisioningv1.DPU, dev hostutil.Device) {
-				defer group.Done()
-				results.Store(index, r.shutDownARM(ctx, rebootingDPU, dev))
-			}(i, dpu, devs[i])
-		}
+		group.Add(1)
+		go func(index int, rebootingDPU provisioningv1.DPU, dev hostutil.Device) {
+			defer group.Done()
+			results.Store(index, r.shutDownARM(ctx, rebootingDPU, dev))
+		}(i, dpu, devs[i])
+
 	}
 	group.Wait()
 

@@ -28,9 +28,11 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/filesystem"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -108,6 +110,16 @@ func (s *fileSystemStore) IsRebootFinished(dpu *provisioningv1.DPU) (bool, error
 	if err != nil {
 		return false, fmt.Errorf("failed to read current boot ID, err: %v", err)
 	}
+
+	// check if the DPU finished rebooting for mode transition case(NIC->DPU mode)
+	_, rebootFinishedCondition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondRebooted))
+	if rebootFinishedCondition != nil && rebootFinishedCondition.Status == metav1.ConditionTrue && rebootFinishedCondition.Message == string(provisioningv1.DPUCondMessageRebootFinishedForModeUpdate) {
+		// delete the reboot request file when DPU finished rebooting for mode update
+		// so that the DPU can be rebooted again for normal provisioning process
+		s.deleteFileIgnoreError(s.rebootRequestFileName(dpu))
+		return true, nil
+	}
+
 	return dpuBootID != string(currentBootID), nil
 }
 
