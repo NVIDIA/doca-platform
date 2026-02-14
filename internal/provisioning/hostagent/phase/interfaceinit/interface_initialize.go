@@ -49,6 +49,27 @@ func NewHandler(client client.Client, getDevice func(string) (hostutil.Device, b
 }
 
 func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisioningv1.DPUStatus, ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	pciAddressForQueryMode := filepath.Base(hostutil.NewPCIHelper(*dpu.Spec.PCIAddress).PF(0).Path())
+	mode, err := hostutil.GetDPUMode(ctx, pciAddressForQueryMode)
+	if err != nil {
+		hostutil.NewCondition(condition).Failure(err, "FailedToGetDPUMode").Set(&dpu.Status.Conditions)
+		return dpu.Status, ctrl.Result{}, err
+	}
+	dpu.Status.DPUMode = mode
+	if mode == provisioningv1.DpuMode {
+		logger.Info(fmt.Sprintf("DPU %s successfully set to DpuMode", dpu.Name))
+	} else {
+		logger.Info(fmt.Sprintf("DPU %s is in NicMode. Setting DPU mode to DpuMode", dpu.Name))
+		if err := hostutil.SetDPUMode(pciAddressForQueryMode); err != nil {
+			hostutil.NewCondition(condition).Failure(err, "FailedToSetDPUMode").Set(&dpu.Status.Conditions)
+			return dpu.Status, ctrl.Result{}, err
+		}
+		logger.Info(fmt.Sprintf("DPU %s is in NicMode. Set DPU mode to DpuMode, requires host power cycle", dpu.Name))
+		hostutil.NewCondition(condition).Success(string(provisioningv1.DPUCondMessageModeUpdate)).Set(&dpu.Status.Conditions)
+		return dpu.Status, ctrl.Result{}, nil
+	}
+
 	capacityResult, err := h.canSatisfy(ctx, dpu)
 	if err != nil {
 		hostutil.NewCondition(condition).Failure(err, "FailedToCheckCapacity").Set(&dpu.Status.Conditions)

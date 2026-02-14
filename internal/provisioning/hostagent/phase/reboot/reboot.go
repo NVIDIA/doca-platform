@@ -24,6 +24,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -78,7 +79,13 @@ func (r *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 	}
 	if finished {
 		logger.Info("Reboot finished")
-		hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
+		_, interfaceInitializedCondition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondInterfaceInitialized))
+		if interfaceInitializedCondition != nil && interfaceInitializedCondition.Message == string(provisioningv1.DPUCondMessageModeUpdate) {
+			// set the condition to success for DPU mode transition case(NIC->DPU mode)
+			hostutil.NewCondition(condition).Success(string(provisioningv1.DPUCondMessageRebootFinishedForModeUpdate)).Set(&dpu.Status.Conditions)
+		} else {
+			hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
+		}
 	}
 	return dpu.Status, ctrl.Result{}, nil
 }

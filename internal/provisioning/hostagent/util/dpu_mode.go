@@ -23,17 +23,13 @@ import (
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-
-	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 func GetDPUMode(ctx context.Context, pciAddress string) (provisioningv1.DpuModeType, error) {
-	logger := log.FromContext(ctx)
 	cmd := fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure --address 127.0.0.1:9339 --target %s get --path /nvidia/mode/config/mode", pciAddress)
 	if stdout, stderr, err := RunBash(cmd); err != nil {
 		return "", fmt.Errorf("failed to run cmd: %s, err: %w, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
 	} else {
-		logger.Info(fmt.Sprintf("Get mode of %s output: %s", pciAddress, stdout.String()))
 		// dmsc outputs the mode in a pretty weird format:
 		//[
 		//	{
