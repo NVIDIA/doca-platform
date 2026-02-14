@@ -51,7 +51,6 @@ func NewHandler(client client.Client, getDevice func(string) (hostutil.Device, b
 }
 
 func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisioningv1.DPUStatus, ctrl.Result, error) {
-	logger := log.FromContext(ctx)
 	dev, ok := h.GetDevice(dpu.Spec.SerialNumber)
 	if !ok {
 		return dpu.Status, ctrl.Result{}, fmt.Errorf("device not found")
@@ -86,24 +85,7 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 		return dpu.Status, ctrl.Result{}, err
 	}
 
-	mode, err := hostutil.GetDPUMode(ctx, pciAddress)
-	if err != nil {
-		hostutil.NewCondition(condition).Failure(err, "FailedToGetDPUMode").Set(&dpu.Status.Conditions)
-		return dpu.Status, ctrl.Result{}, err
-	}
-	if mode == provisioningv1.DpuMode {
-		hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
-	} else {
-		logger.Info("Setting DPU mode to DPU", "current mode", mode, "pciAddress", pciAddress)
-		if err := hostutil.SetDPUMode(pciAddress); err != nil {
-			hostutil.NewCondition(condition).Failure(err, "FailedToSetDPUMode").Set(&dpu.Status.Conditions)
-			return dpu.Status, ctrl.Result{}, err
-		}
-		// DPUCondReasonModeUpdate is the reason for updating the DPU mode in hostagent interface
-		// which will be used to select the way of host rebooting in rebooting phase.
-		hostutil.NewCondition(condition).Success(string(provisioningv1.DPUCondMessageModeUpdate)).Set(&dpu.Status.Conditions)
-		logger.Info("Successfully set DPU mode", "PCI Address", pciAddress)
-	}
+	hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
 	return dpu.Status, ctrl.Result{}, nil
 }
 
