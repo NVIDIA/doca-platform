@@ -109,6 +109,8 @@ type DPUConditionMessage string
 const (
 	// DPUCondMessageModeUpdate is the message for updating the DPU mode in gNOI interface
 	DPUCondMessageModeUpdate DPUConditionMessage = "DPU switches from NIC mode to DPU mode"
+	// DPUCondMessageRebootFinishedForModeUpdate is the message for rebooting the DPU for mode update
+	DPUCondMessageRebootFinishedForModeUpdate DPUConditionMessage = "Reboot finished for DPU mode update"
 )
 
 type DPUInstallInterfaceType string

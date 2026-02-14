@@ -32,9 +32,18 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 		state.Phase = provisioningv1.DPUDeleting
 		return *state, nil
 	}
-	_, condition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondInterfaceInitialized))
-	if condition != nil && condition.Status == metav1.ConditionTrue {
-		state.Phase = provisioningv1.DPUConfigFWParameters
+	_, interfaceInitializedCondition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondInterfaceInitialized))
+	_, rebootCondition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondRebooted))
+	// checking the reboot condition is nil to make sure the controller get the latest DPU object(removing rebooting condition for NIC->DPU mode transition case)
+	// In any case, the DPU should not include rebooting conditions at this phase.
+	if interfaceInitializedCondition != nil && interfaceInitializedCondition.Status == metav1.ConditionTrue &&
+		rebootCondition == nil {
+		// If the DPU is in NicMode, we need to set it to DpuMode and reboot（make DPU mode to be active） before the DPU provisioning process.
+		if interfaceInitializedCondition.Message == string(provisioningv1.DPUCondMessageModeUpdate) {
+			state.Phase = provisioningv1.DPURebooting
+		} else {
+			state.Phase = provisioningv1.DPUConfigFWParameters
+		}
 	}
 	return *state, nil
 }

@@ -43,6 +43,28 @@ const (
 	DPUNodeNameEnvVar           string = "DPUNODE_NAME"
 )
 
+// handleRebootedCondition checks if the rebooting was triggered by mode update and transitions
+// to the appropriate phase accordingly.
+func handleRebootedCondition(dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus) provisioningv1.DPUStatus {
+	_, interfaceInitializedCondition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondInterfaceInitialized))
+	_, osInstalledCondition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondOSInstalled))
+	// If this rebooting is triggered by the mode update, we need to move to InitializeInterface phase back.
+	// For this case, the OSInstalled condition should not be set.
+	// We check OSInstalled condition to double-check to make sure moving to InitializeInterface phase is correct.
+	if interfaceInitializedCondition != nil && interfaceInitializedCondition.Message == string(provisioningv1.DPUCondMessageModeUpdate) &&
+		osInstalledCondition == nil {
+		// Remove the outdated conditions.
+		meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondRebooted.String())
+		meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondInterfaceInitialized.String())
+		state.RequiredReset = nil
+		state.Phase = provisioningv1.DPUInitializeInterface
+		return *state
+	} else {
+		state.Phase = provisioningv1.DPUHostNetworkConfiguration
+		return *state
+	}
+}
+
 func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 
@@ -86,9 +108,10 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 	}
 
 	if dpuNode.Spec.NodeRebootMethod.GNOI != nil || dpuNode.Spec.NodeRebootMethod.HostAgent != nil { //nolint:staticcheck
-		_, condition := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondRebooted))
-		if condition != nil && condition.Status == metav1.ConditionTrue {
-			state.Phase = provisioningv1.DPUHostNetworkConfiguration
+		_, rebootCondition := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondRebooted))
+
+		if rebootCondition != nil && rebootCondition.Status == metav1.ConditionTrue {
+			return handleRebootedCondition(dpu, state), nil
 		}
 		return *state, nil
 	} else if dpuNode.Spec.NodeRebootMethod.External != nil || dpuNode.Spec.NodeRebootMethod.Script != nil {
@@ -109,8 +132,7 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 				logger.Info(fmt.Sprintf("DPU %s moves to DPU Cluster Configuration phase", dpu.Name))
 
 			} else {
-				state.Phase = provisioningv1.DPUHostNetworkConfiguration
-				logger.Info(fmt.Sprintf("DPU %s moves to Host Network Configuration phase", dpu.Name))
+				return handleRebootedCondition(dpu, state), nil
 			}
 		}
 		return *state, nil
