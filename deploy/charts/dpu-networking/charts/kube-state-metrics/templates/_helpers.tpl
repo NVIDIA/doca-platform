@@ -1,16 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "servicechain.name" -}}
+{{- define "kube-state-metrics.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
-We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
-If release name contains chart name it will be used as a full name.
 */}}
-{{- define "servicechain.fullname" -}}
+{{- define "kube-state-metrics.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -26,19 +24,18 @@ If release name contains chart name it will be used as a full name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "servicechain.chart" -}}
+{{- define "kube-state-metrics.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "servicechain.labels" -}}
-helm.sh/chart: {{ include "servicechain.chart" . }}
-{{ include "servicechain.selectorLabels" . }}
+{{- define "kube-state-metrics.labels" -}}
+helm.sh/chart: {{ include "kube-state-metrics.chart" . }}
+{{ include "kube-state-metrics.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-dpu.nvidia.com/component: servicechainset-controller-manager
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
@@ -46,7 +43,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels
 */}}
-{{- define "servicechain.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "servicechain.name" . }}
+{{- define "kube-state-metrics.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "kube-state-metrics.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}

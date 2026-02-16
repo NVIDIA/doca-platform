@@ -887,3 +887,35 @@ func (c *NodeSRIOVDevicePluginControllerConfiguration) GetResources() map[Contai
 		ControllerManagerContainer: c.Controller.GetResource(),
 	}
 }
+
+type KubeStateMetricsConfiguration struct {
+	BaseComponentConfig `json:",inline"`
+	HelmComponentConfig `json:",inline"`
+
+	// KubeStateMetrics contains the configuration for the kube-state-metrics component.
+	// It contains the image for kube-state-metrics and its resource requirements.
+	// +optional
+	KubeStateMetrics *DefaultOverridesConfiguration `json:"kubeStateMetrics,omitempty"`
+}
+
+func (c *KubeStateMetricsConfiguration) Name() string {
+	return KubeStateMetricsName.String()
+}
+
+// GetImages returns a map of container names to their images
+func (c *KubeStateMetricsConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.KubeStateMetrics != nil {
+		images[KubeStateMetricsContainer] = c.KubeStateMetrics.GetImage()
+	}
+	return images
+}
+
+func (c *KubeStateMetricsConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.KubeStateMetrics == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		KubeStateMetricsContainer: c.KubeStateMetrics.GetResource(),
+	}
+}
