@@ -1128,13 +1128,11 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 
 	endpoints := []discoveryv1.Endpoint{}
 	for _, dpuClusterNode := range dpuClusterNodes {
-		var hostname, address string
+		var address string
 		for _, a := range dpuClusterNode.Status.Addresses {
 			switch a.Type {
 			case corev1.NodeInternalIP:
 				address = a.Address
-			case corev1.NodeHostName:
-				hostname = a.Address
 			}
 		}
 		dpuNodeName, exists := dpuClusterNode.Labels[provisioningv1.DPUNodeNameLabel]
@@ -1146,13 +1144,11 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 				continue
 			}
 		}
-		// If one of address, hostname or dpuNodeRef is missing, we skip this Node.
 		// We need all information to create a valid Endpoint.
-		if address == "" || hostname == "" || dpuNodeName == "" {
-			log.Info("Skipping Node because it has no address or hostname",
+		if address == "" || dpuNodeName == "" {
+			log.Info("Skipping Node because it has no address or dpuNodeName",
 				"Node", klog.KObj(&dpuClusterNode),
 				"address", address,
-				"hostname", hostname,
 				"dpuNodeName", dpuNodeName,
 			)
 			continue
@@ -1163,7 +1159,6 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 			Conditions: discoveryv1.EndpointConditions{
 				Ready: ptr.To(true),
 			},
-			Hostname: &hostname,
 			NodeName: &dpuNodeName,
 		})
 	}
@@ -1299,9 +1294,6 @@ func (r *DPUServiceReconciler) convertEndpointSliceToSubsets(endpointSlice *disc
 		for _, address := range endpoint.Addresses {
 			endpointAddress := corev1.EndpointAddress{
 				IP: address,
-			}
-			if endpoint.Hostname != nil {
-				endpointAddress.Hostname = *endpoint.Hostname
 			}
 			if endpoint.NodeName != nil {
 				endpointAddress.NodeName = endpoint.NodeName
