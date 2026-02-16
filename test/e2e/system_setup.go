@@ -81,38 +81,38 @@ type ProvisionDPUClustersInput struct {
 // - Provides all necessary objects and configuration for test execution
 // - Depends on `config` struct for file paths and basic configuration
 type systemTestInput struct {
-	namespace                     string
-	config                        *operatorv1.DPFOperatorConfig
-	pvc                           *corev1.PersistentVolumeClaim
-	additionalProvisioningObjects []client.Object
-	dpuClusters                   []*provisioningv1.DPUCluster
-	dpuFlavor                     *provisioningv1.DPUFlavor
-	dpuDiscovery                  *provisioningv1.DPUDiscovery
-	dpuService                    *dpuservicev1.DPUService
-	dpuServiceHBN                 *dpuservicev1.DPUService
-	dpuServiceInterface           *dpuservicev1.DPUServiceInterface
-	dpuServiceInterfaceTemplate   *dpuservicev1.DPUServiceInterface
-	dpuServiceChain               *dpuservicev1.DPUServiceChain
-	dpuServiceChainTemplate       *dpuservicev1.DPUServiceChain
-	bfb                           *provisioningv1.BFB
-	dpuSet                        *provisioningv1.DPUSet
-	dpuDeployment                 *dpuservicev1.DPUDeployment
-	dpuServiceConfiguration       *dpuservicev1.DPUServiceConfiguration
-	dpuServiceTemplate            *dpuservicev1.DPUServiceTemplate
-	dpuServiceIPAMTemplate        *dpuservicev1.DPUServiceIPAM
-	dpuServiceNAD                 *dpuservicev1.DPUServiceNAD
-	cidrDPUServiceIPAM            *dpuservicev1.DPUServiceIPAM
-	ipPoolDPUServiceIPAM          *dpuservicev1.DPUServiceIPAM
-	dpuServiceCredentialRequest   *dpuservicev1.DPUServiceCredentialRequest
-	numberOfDPUNodes              int
-	numberOfDPUsPerNode           int
-	useExternalNodeReboot         bool
-	pullSecretNames               []string
-	client                        client.Client
-	skipCleanup                   bool
-	bfbImageURL                   string
-	restConfig                    *rest.Config
-	HostRebootScript              string
+	namespace                   string
+	config                      *operatorv1.DPFOperatorConfig
+	pvc                         *corev1.PersistentVolumeClaim
+	dpuClusterPrerequisites     []client.Object
+	dpuClusters                 []*provisioningv1.DPUCluster
+	dpuFlavor                   *provisioningv1.DPUFlavor
+	dpuDiscovery                *provisioningv1.DPUDiscovery
+	dpuService                  *dpuservicev1.DPUService
+	dpuServiceHBN               *dpuservicev1.DPUService
+	dpuServiceInterface         *dpuservicev1.DPUServiceInterface
+	dpuServiceInterfaceTemplate *dpuservicev1.DPUServiceInterface
+	dpuServiceChain             *dpuservicev1.DPUServiceChain
+	dpuServiceChainTemplate     *dpuservicev1.DPUServiceChain
+	bfb                         *provisioningv1.BFB
+	dpuSet                      *provisioningv1.DPUSet
+	dpuDeployment               *dpuservicev1.DPUDeployment
+	dpuServiceConfiguration     *dpuservicev1.DPUServiceConfiguration
+	dpuServiceTemplate          *dpuservicev1.DPUServiceTemplate
+	dpuServiceIPAMTemplate      *dpuservicev1.DPUServiceIPAM
+	dpuServiceNAD               *dpuservicev1.DPUServiceNAD
+	cidrDPUServiceIPAM          *dpuservicev1.DPUServiceIPAM
+	ipPoolDPUServiceIPAM        *dpuservicev1.DPUServiceIPAM
+	dpuServiceCredentialRequest *dpuservicev1.DPUServiceCredentialRequest
+	numberOfDPUNodes            int
+	numberOfDPUsPerNode         int
+	useExternalNodeReboot       bool
+	pullSecretNames             []string
+	client                      client.Client
+	skipCleanup                 bool
+	bfbImageURL                 string
+	restConfig                  *rest.Config
+	HostRebootScript            string
 }
 
 func (t *systemTestInput) applySDNConfig(conf config) {
@@ -226,7 +226,7 @@ func (t *systemTestInput) applyConfig(conf config) {
 	for _, path := range conf.DPUClusterPrerequisiteObjectPaths {
 		dpuClusterPrerequisiteObjects = append(dpuClusterPrerequisiteObjects, unstructuredFromFile(path))
 	}
-	t.additionalProvisioningObjects = dpuClusterPrerequisiteObjects
+	t.dpuClusterPrerequisites = dpuClusterPrerequisiteObjects
 
 	dpuServiceTemplate := &dpuservicev1.DPUServiceTemplate{}
 	tmp := unstructuredFromFile(conf.DPUServiceTemplatePath)

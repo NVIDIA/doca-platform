@@ -400,7 +400,7 @@ func getProvisionDPUClustersInput() ProvisionDPUClustersInput {
 	return ProvisionDPUClustersInput{
 		numberOfDPUNodes:        input.numberOfDPUNodes,
 		numberOfDPUsPerNode:     input.numberOfDPUsPerNode,
-		dpuClusterPrerequisites: input.additionalProvisioningObjects,
+		dpuClusterPrerequisites: input.dpuClusterPrerequisites,
 		dpuClusters:             input.dpuClusters,
 		dpuSet:                  input.dpuSet,
 		bfb:                     input.bfb,
