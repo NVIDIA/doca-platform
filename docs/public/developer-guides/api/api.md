@@ -208,6 +208,7 @@ _Appears in:_
 - [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
 - [FlannelConfiguration](#flannelconfiguration)
 - [KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)
+- [KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
 - [NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)
@@ -407,6 +408,7 @@ _Appears in:_
 - [DPUDetectorConfiguration](#dpudetectorconfiguration)
 - [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
 - [KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)
+- [KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)
 - [MultusConfiguration](#multusconfiguration)
 - [NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)
 - [OVSCNIConfiguration](#ovscniconfiguration)
@@ -508,6 +510,7 @@ _Appears in:_
 - [CNIInstallerConfiguration](#cniinstallerconfiguration)
 - [FlannelConfiguration](#flannelconfiguration)
 - [HelmComponentConfig](#helmcomponentconfig)
+- [KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
 - [OVSCNIConfiguration](#ovscniconfiguration)
@@ -528,6 +531,7 @@ _Appears in:_
 _Appears in:_
 - [CNIInstallerConfiguration](#cniinstallerconfiguration)
 - [FlannelConfiguration](#flannelconfiguration)
+- [KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
 - [OVSCNIConfiguration](#ovscniconfiguration)
@@ -657,6 +661,24 @@ _Appears in:_
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Kamaji Cluster Manager component.<br />It contains the image for the controller and its resource requirements. |  |  |
 
 
+#### KubeStateMetricsConfiguration
+
+
+
+
+
+
+
+_Appears in:_
+- [MonitoringConfiguration](#monitoringconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
+| `kubeStateMetrics` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | KubeStateMetrics contains the configuration for the kube-state-metrics component.<br />It contains the image for kube-state-metrics and its resource requirements. |  |  |
+
+
 #### MonitoringConfiguration
 
 
@@ -670,7 +692,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `enabled` _boolean_ | Enabled controls whether monitoring resources are installed.<br />When enabled, the controller:<br />- Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics. |  |  |
+| `disabled` _boolean_ | Disabled controls whether monitoring resources are installed.<br />When enabled (default), the controller:<br />- Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.<br />- Deploys kube-state-metrics as a DPUService to expose metrics for custom resources. |  |  |
+| `kubeStateMetrics` _[KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)_ | KubeStateMetrics is the configuration for kube-state-metrics |  |  |
 
 
 #### MultusConfiguration

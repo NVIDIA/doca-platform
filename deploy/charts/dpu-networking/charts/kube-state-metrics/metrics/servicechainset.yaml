@@ -1,0 +1,85 @@
+- groupVersionKind:
+    group: svc.dpu.nvidia.com
+    kind: ServiceChainSet
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: servicechainset
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a ServiceChainSet.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            name:
+              - metadata
+              - name
+    - name: status_conditions
+      help: The condition of a ServiceChainSet.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: status_condition_last_transition_time
+      help: The condition last transition time of a ServiceChainSet.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge
+    - name: status_number_applied
+      help: The number of nodes where the service chain is applied and is supposed to be applied.
+      each:
+        gauge:
+          path:
+            - status
+            - numberApplied
+          nilIsZero: true
+        type: Gauge
+    - name: status_number_ready
+      help: The number of nodes where the service chain is applied and ready.
+      each:
+        gauge:
+          path:
+            - status
+            - numberReady
+          nilIsZero: true
+        type: Gauge

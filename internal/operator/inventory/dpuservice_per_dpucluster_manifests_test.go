@@ -224,9 +224,9 @@ spec:
 													"tag":        "v0.1.0",
 												},
 											},
-											"serviceAccount": map[string]interface{}{
-												"name": "servicechainset-controller-73923044a5",
-											},
+										},
+										"serviceAccount": map[string]interface{}{
+											"name": "servicechainset-controller-73923044a5",
 										},
 										"deployHostManifests": true,
 										"enabled":             true,
@@ -476,9 +476,9 @@ spec:
 													"tag":        "v0.1.0",
 												},
 											},
-											"serviceAccount": map[string]interface{}{
-												"name": "servicechainset-controller-73923044a5",
-											},
+										},
+										"serviceAccount": map[string]interface{}{
+											"name": "servicechainset-controller-73923044a5",
 										},
 										"deployHostManifests": true,
 										"enabled":             true,
@@ -582,9 +582,9 @@ spec:
 													"tag":        "v0.1.0",
 												},
 											},
-											"serviceAccount": map[string]interface{}{
-												"name": "servicechainset-controller-1bdc412401",
-											},
+										},
+										"serviceAccount": map[string]interface{}{
+											"name": "servicechainset-controller-1bdc412401",
 										},
 										"deployHostManifests": true,
 										"enabled":             true,
@@ -862,9 +862,9 @@ spec:
 													"tag":        "v1.2.3",
 												},
 											},
-											"serviceAccount": map[string]interface{}{
-												"name": "servicechainset-controller-73923044a5",
-											},
+										},
+										"serviceAccount": map[string]interface{}{
+											"name": "servicechainset-controller-73923044a5",
 										},
 										"deployHostManifests": true,
 										"enabled":             true,
