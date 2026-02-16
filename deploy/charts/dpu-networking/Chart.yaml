@@ -37,6 +37,10 @@ dependencies:
     version: v0.27.2
     repository: https://flannel-io.github.io/flannel
     condition: flannel.enabled
+  - name: kube-state-metrics
+    version: "0.1.0"
+    repository: file://charts/kube-state-metrics
+    condition: kube-state-metrics.enabled
 annotations:
   dpfVersion: ""
   created: ""

@@ -50,10 +50,3 @@ Selector labels
 app.kubernetes.io/name: {{ include "servicechain.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
-
-{{/*
-Create the name of the service account to use
-*/}}
-{{- define "servicechain.serviceAccountName" -}}
-{{- required "A service account name (.Values.controllerManager.serviceAccount.name) is required" .Values.controllerManager.serviceAccount.name }}
-{{- end }}

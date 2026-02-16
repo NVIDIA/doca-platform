@@ -1,0 +1,26 @@
+# This variable controls whether the manifests that are required in the DPUCluster should be deployed or not
+deployDPUManifests: false
+# This variable controls whether the manifests that are required in the host cluster should be deployed or not
+deployHostManifests: false
+
+image:
+  repository: registry.k8s.io/kube-state-metrics/kube-state-metrics
+  pullPolicy: IfNotPresent
+  tag: "v2.18.0"
+
+serviceAccount:
+  name: null
+imagePullSecrets: []
+volumes: []
+env: []
+volumeMounts: []
+rbac:
+  serviceAccounts: []
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi

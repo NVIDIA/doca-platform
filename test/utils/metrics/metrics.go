@@ -23,8 +23,13 @@ import (
 	"slices"
 	"strings"
 
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // GetKSMMetrics Returns all unique metrics names mapped to metrics prefix
@@ -84,4 +89,33 @@ func addMetricToMap(metricMap map[string][]string, fullName string) map[string][
 
 func GetMetricsURI(serviceName string, namespace string, port int, endpoint string) string {
 	return fmt.Sprintf("/api/v1/namespaces/%s/services/%s:%d/proxy%s", namespace, serviceName, port, endpoint)
+}
+
+// GetKSMMetricsURIForDPUCluster finds the kube-state-metrics DPUService for a specific DPUCluster
+// and returns the metrics URI for that service.
+func GetKSMMetricsURIForDPUCluster(ctx context.Context, c client.Client, dpuCluster *provisioningv1.DPUCluster, namespace string, port int, endpoint string) (string, error) {
+	// List all kube-state-metrics DPUServices
+	dpuServiceList := &dpuservicev1.DPUServiceList{}
+	if err := c.List(ctx, dpuServiceList,
+		client.InNamespace(namespace),
+		client.MatchingLabels{
+			operatorv1.DPFComponentLabelKey:            operatorv1.KubeStateMetricsName.String(),
+			provisioningv1.DPUClusterNameLabelKey:      dpuCluster.Name,
+			provisioningv1.DPUClusterNamespaceLabelKey: dpuCluster.Namespace,
+		}); err != nil {
+		return "", fmt.Errorf("failed to list DPUServices: %w", err)
+	}
+
+	if len(dpuServiceList.Items) == 0 {
+		return "", fmt.Errorf("no kube-state-metrics DPUService found for DPUCluster %s/%s", dpuCluster.Namespace, dpuCluster.Name)
+	}
+
+	if len(dpuServiceList.Items) > 1 {
+		return "", fmt.Errorf("multiple kube-state-metrics DPUServices found for DPUCluster %s/%s", dpuCluster.Namespace, dpuCluster.Name)
+	}
+
+	// The service name is prefixed with "in-cluster-" for in-cluster DPUServices
+	dpuServiceName := dpuServiceList.Items[0].Name
+	serviceName := fmt.Sprintf("in-cluster-%s", dpuServiceName)
+	return GetMetricsURI(serviceName, namespace, port, endpoint), nil
 }

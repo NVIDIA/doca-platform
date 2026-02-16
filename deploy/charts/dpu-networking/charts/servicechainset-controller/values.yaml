@@ -24,9 +24,9 @@ controllerManager:
         cpu: 10m
         memory: 64Mi
   replicas: 1
-  serviceAccount:
-    name: null
-    annotations: {}
+serviceAccount:
+  annotations: {}
+  name: null
 imagePullSecrets: []
 volumes: []
 env: []

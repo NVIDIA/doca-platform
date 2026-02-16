@@ -25,11 +25,11 @@ DPF uses the following components:
 | NVIDIA Maintenance Operator | Community (OSS) | ghcr.io/mellanox                                                   | maintenance-operator                          | v0.2.3  |          |
 | NVIDIA Network Operator     | Community (OSS) | nvcr.io/nvidia/cloud-native                                        | network-operator                              | v25.7.0 |          |
 | Node Feature Discovery      | Community (OSS) | registry.k8s.io/nfd                                                | node-feature-discovery                        | v0.18.3 |          |
-| SR-IOV Device Plugin        | Community (OSS) | ghcr.io/k8snetworkplumbingwg                                       | sriov-network-device-plugin                   | v3.11.0  |          |
+| SR-IOV Device Plugin        | Community (OSS) | ghcr.io/k8snetworkplumbingwg                                       | sriov-network-device-plugin                   | v3.11.0 |          |
 | Etcd Defrag                 | Community (OSS) | ghcr.io/ahrtr                                                      | etcd-defrag                                   | v0.22.0 | Optional |
 | Kamaji                      | Community (OSS) | ghcr.io/clastix                                                    | kamaji                                        | v1.34.0 | Optional |
 | Local Path Provisioner      | Community (OSS) | docker.io/rancher                                                  | local-path-provisioner                        | v0.0.34 | Optional |
-| Kube State Metrics          | Community (OSS) | registry.k8s.io/kube-state-metrics                                 | kube-state-metrics                            | v2.13.0 | Optional |
+| Kube State Metrics          | Community (OSS) | registry.k8s.io/kube-state-metrics                                 | kube-state-metrics                            | v2.18.0 | Optional |
 | Prometheus                  | Community (OSS) | quay.io/prometheus                                                 | prometheus                                    | v2.54.1 | Optional |
 | Grafana                     | Community (OSS) | docker.io/grafana                                                  | grafana                                       | 11.1.0  | Optional |
 

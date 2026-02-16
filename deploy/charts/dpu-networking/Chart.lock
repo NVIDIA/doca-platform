@@ -23,5 +23,8 @@ dependencies:
 - name: flannel
   repository: https://flannel-io.github.io/flannel
   version: v0.27.2
-digest: sha256:162165b352cd68159714b238949c53dee7f68c2ada1017f1e92e038e4de5ef63
-generated: "2025-09-03T16:57:04.01374067+02:00"
+- name: kube-state-metrics
+  repository: file://charts/kube-state-metrics
+  version: 0.1.0
+digest: sha256:9ef39521a6dbf0d4463bb03a12a83bcac5d5d8cb92a039a727332ea05b60a094
+generated: "2026-01-20T19:33:22.843337+01:00"

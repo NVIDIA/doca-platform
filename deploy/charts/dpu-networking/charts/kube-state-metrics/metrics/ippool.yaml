@@ -1,0 +1,57 @@
+- groupVersionKind:
+    group: nv-ipam.nvidia.com
+    kind: IPPool
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: ippool
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about an IPPool.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            name:
+              - metadata
+              - name
+            subnet:
+              - spec
+              - subnet
+            gateway:
+              - spec
+              - gateway
+            per_node_block_size:
+              - spec
+              - perNodeBlockSize
+    - name: allocation_info
+      help: Information about IP block allocations per node.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            node_name:
+              - nodeName
+            start_ip:
+              - startIP
+            end_ip:
+              - endIP
+          path:
+            - status
+            - allocations
