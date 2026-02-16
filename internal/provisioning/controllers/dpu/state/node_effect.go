@@ -44,11 +44,6 @@ func NodeEffect(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 
 	nodeEffect := dpu.Spec.NodeEffect
 
-	if nodeEffect.IsNoEffect() {
-		logger.V(3).Info(fmt.Sprintf("NodeEffect is set to \"NoEffect\" for node: %s", dpu.Spec.DPUNodeName))
-		return handleNodeEffectCompletion(ctx, state, "NoEffect")
-	}
-
 	// Check for the presence of the specified Node
 	dpuNode := &provisioningv1.DPUNode{}
 	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUNodeName}, dpuNode); err != nil {

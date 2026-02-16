@@ -47,6 +47,7 @@ import (
 const (
 	// DPUNodeMaintenanceControllerName is the name of the DPUNodeMaintenance controller
 	DPUNodeMaintenanceControllerName = "dpunodemaintenance"
+	defaultMaxUnavailableDPUNodes    = int32(50)
 )
 
 // DPUNodeMaintenanceReconciler reconciles a DPUNodeMaintenance object
@@ -121,8 +122,14 @@ func (r *DPUNodeMaintenanceReconciler) ensureStatusDefaults(dpunodemaintenance *
 	if dpunodemaintenance.Status.MultiDPUOperationsSyncWaitTime == nil {
 		dpunodemaintenance.Status.MultiDPUOperationsSyncWaitTime = &metav1.Duration{Duration: r.Options.MultiDPUOperationsSyncWaitTime}
 	}
-	if dpunodemaintenance.Status.MaxUnavailableDPUNodes == nil {
-		dpunodemaintenance.Status.MaxUnavailableDPUNodes = &r.Options.MaxUnavailableDPUNodes
+	// Status.MaxUnavailableDPUNodes has validation Minimum=1.
+	// Reconciler options may be unset (zero value) in some test harnesses, so fallback to controller default.
+	defaultMaxUnavailable := r.Options.MaxUnavailableDPUNodes
+	if defaultMaxUnavailable < 1 {
+		defaultMaxUnavailable = defaultMaxUnavailableDPUNodes
+	}
+	if dpunodemaintenance.Status.MaxUnavailableDPUNodes == nil || *dpunodemaintenance.Status.MaxUnavailableDPUNodes < 1 {
+		dpunodemaintenance.Status.MaxUnavailableDPUNodes = &defaultMaxUnavailable
 	}
 }
 
@@ -185,6 +192,18 @@ func (r *DPUNodeMaintenanceReconciler) reconcile(ctx context.Context, dpunodemai
 	shouldProceed, result, err := r.checkMaxUnavailableAndSyncWaitTime(ctx, dpunodemaintenance, dpuNode)
 	if !shouldProceed {
 		return result, err
+	}
+
+	// NoEffect - immediately mark as applied since there's nothing to do on the node.
+	// The DPUNodeMaintenance CR still exists so DPUDeployment can rely on it
+	// to coordinate DPU service readiness before transitioning the DPU to ready.
+	if nodeEffect.IsNoEffect() {
+		conditions.AddTrue(dpunodemaintenance, provisioningv1.ConditionNodeEffectApplied)
+		r.Recorder.Eventf(dpunodemaintenance, corev1.EventTypeNormal, "NodeEffectApplied", "NoEffect - no action needed on the node")
+		if err := r.updateDPUNodeEffectInProgress(ctx, dpunodemaintenance.Namespace, dpunodemaintenance.Spec.DPUNodeName, metav1.ConditionTrue, "NodeEffectInProgress", ""); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	var nodeEffectError error
