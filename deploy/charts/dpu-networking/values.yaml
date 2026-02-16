@@ -18,3 +18,5 @@ sfc-controller:
     enabled: false
 cni-installer:
     enabled: false
+kube-state-metrics:
+    enabled: false

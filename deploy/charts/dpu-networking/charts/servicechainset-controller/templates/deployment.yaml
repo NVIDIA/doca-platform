@@ -78,7 +78,7 @@ spec:
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
       securityContext:
         runAsNonRoot: true
-      serviceAccountName: {{ include "servicechain.serviceAccountName" . }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
       terminationGracePeriodSeconds: 10
       tolerations:
       - operator: Exists

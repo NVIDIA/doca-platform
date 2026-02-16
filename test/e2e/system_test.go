@@ -65,6 +65,9 @@ func SetInput() {
 					Disable: ptr.To(false),
 				},
 			},
+			Monitoring: &operatorv1.MonitoringConfiguration{
+				Disabled: ptr.To(false),
+			},
 			ImagePullSecrets: []string{dpfPullSecretName, "pull-secret-extra"},
 		},
 	}
@@ -244,8 +247,14 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 	})
 
 	Context("KSM Metrics Collection", Labels{zeroTrustLabel}, func() {
-		It("validate DPF metrics services are accessible", func() {
-			VerifyKSMMetricsCollection(ctx)
+		It("validate host cluster kube-state-metrics is accessible", func() {
+			VerifyHostKSMMetricsCollection(ctx)
+		})
+		It("validate DPU cluster kube-state-metrics is accessible", func() {
+			By("Waiting for DPU cluster kube-state-metrics to be ready")
+			VerifyClusterPods(ctx, input.client, []string{"in-cluster-kube-state-metrics"})
+			By("Validating DPU cluster kube-state-metrics accessibility")
+			VerifyDPUKSMMetricsCollection(ctx, input)
 		})
 	})
 

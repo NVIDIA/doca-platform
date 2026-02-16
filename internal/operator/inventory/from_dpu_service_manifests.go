@@ -57,6 +57,7 @@ var dpuNetworkingSubCharts = map[operatorv1.ComponentName]bool{
 	operatorv1.NVIPAMName:               true,
 	operatorv1.SFCControllerName:        true,
 	operatorv1.CNIInstallerName:         true,
+	operatorv1.KubeStateMetricsName:     true,
 }
 
 func (f *fromDPUService) Name() operatorv1.ComponentName {
@@ -358,7 +359,7 @@ func perClusterEdits(chartName string, secretName string, serviceAccountName str
 
 	edits = append(edits,
 		dpuServiceInClusterEdit(true),
-		dpuServiceAddValueEdit(serviceAccountName, chartName, "controllerManager", "serviceAccount", "name"),
+		dpuServiceAddValueEdit(serviceAccountName, chartName, "serviceAccount", "name"),
 		dpuServiceAddValueEdit(true, chartName, "deployHostManifests"),
 		dpuServiceAddValueEdit(tokenfileVolume, chartName, "volumes"),
 		dpuServiceAddValueEdit(envVars, chartName, "env"),

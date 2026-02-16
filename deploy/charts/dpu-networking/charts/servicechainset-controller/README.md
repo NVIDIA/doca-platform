@@ -19,13 +19,13 @@ A Helm chart for Kubernetes
 | controllerManager.manager.resources.requests.cpu | string | `"10m"` |  |
 | controllerManager.manager.resources.requests.memory | string | `"64Mi"` |  |
 | controllerManager.replicas | int | `1` |  |
-| controllerManager.serviceAccount.annotations | object | `{}` |  |
-| controllerManager.serviceAccount.name | string | `nil` |  |
 | deployDPUManifests | bool | `false` |  |
 | deployHostManifests | bool | `false` |  |
 | env | list | `[]` |  |
 | imagePullSecrets | list | `[]` |  |
 | rbac.serviceAccounts | list | `[]` |  |
+| serviceAccount.annotations | object | `{}` |  |
+| serviceAccount.name | string | `nil` |  |
 | volumeMounts | list | `[]` |  |
 | volumes | list | `[]` |  |
 

@@ -63,6 +63,15 @@ func newServiceChainSetControllerObjects(data []byte) *dpuServicePerDPUClusterOb
 	}
 }
 
+func newKubeStateMetricsObjects(data []byte) *dpuServicePerDPUClusterObjects {
+	return &dpuServicePerDPUClusterObjects{
+		data:               data,
+		templateDPUService: fromDPUService{name: operatorv1.KubeStateMetricsName},
+		componentName:      operatorv1.KubeStateMetricsName,
+		rbacAndCRDsName:    operatorv1.KubeStateMetricsRBACName,
+	}
+}
+
 func (p *dpuServicePerDPUClusterObjects) Name() operatorv1.ComponentName {
 	return p.componentName
 }

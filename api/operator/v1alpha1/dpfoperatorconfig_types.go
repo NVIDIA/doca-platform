@@ -195,11 +195,16 @@ type DPFOperatorConfigSpec struct {
 
 // MonitoringConfiguration defines the configuration for monitoring resources.
 type MonitoringConfiguration struct {
-	// Enabled controls whether monitoring resources are installed.
-	// When enabled, the controller:
+	// Disabled controls whether monitoring resources are installed.
+	// When enabled (default), the controller:
 	// - Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.
+	// - Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.
 	// +optional
-	Enabled *bool `json:"enabled,omitempty"`
+	Disabled *bool `json:"disabled,omitempty"`
+
+	// KubeStateMetrics is the configuration for kube-state-metrics
+	// +optional
+	KubeStateMetrics *KubeStateMetricsConfiguration `json:"kubeStateMetrics,omitempty"`
 }
 
 // DPFOperatorConfigStatus defines the observed state of DPFOperatorConfig
@@ -260,5 +265,5 @@ func (c *DPFOperatorConfig) IsNewConfig() bool {
 }
 
 func (c *DPFOperatorConfig) MonitoringEnabled() bool {
-	return c.Spec.Monitoring != nil && c.Spec.Monitoring.Enabled != nil && *c.Spec.Monitoring.Enabled
+	return c.Spec.Monitoring == nil || c.Spec.Monitoring.Disabled == nil || !*c.Spec.Monitoring.Disabled
 }

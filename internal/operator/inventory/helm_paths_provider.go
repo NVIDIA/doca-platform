@@ -123,6 +123,13 @@ func helmPaths() helmPathsProvider {
 					Resources:  []string{"cniInstaller", "resources"},
 				},
 			},
+			operatorv1.KubeStateMetricsName: {
+				operatorv1.KubeStateMetricsContainer: {
+					Repository: []string{"image", "repository"},
+					Tag:        []string{"image", "tag"},
+					Resources:  []string{"resources"},
+				},
+			},
 		},
 	}
 }

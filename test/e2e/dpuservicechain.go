@@ -91,6 +91,33 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *systemTestInput)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
+
+	By("wait for ServiceChainSet and ServiceInterfaceSet to be created in DPU clusters")
+	Eventually(func(g Gomega) {
+		scs := &dpuservicev1.ServiceChainSet{}
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Name: dpuServiceChainName, Namespace: dpuServiceInterfaceNamespace}, scs)).To(Succeed())
+		sis := &dpuservicev1.ServiceInterfaceSet{}
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Name: dpuServiceInterfaceName, Namespace: dpuServiceInterfaceNamespace}, sis)).To(Succeed())
+	}).WithTimeout(300 * time.Second).Should(Succeed())
+
+	// TODO: add validation for ServiceChain and ServiceInterface metrics when DPU nodes are present
+	By("verify ServiceChainSet, ServiceInterfaceSet metrics in DPU cluster KSM")
+	expectedDPUMetricsNames := map[string][]string{
+		"servicechainset":     {"created", "info", "status_conditions", "status_condition_last_transition_time", "status_number_applied", "status_number_ready"},
+		"serviceinterfaceset": {"created", "info", "status_conditions", "status_condition_last_transition_time", "status_number_applied", "status_number_ready"},
+	}
+
+	Eventually(func(g Gomega) {
+		g.Expect(input.dpuClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
+		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.client, input.dpuClusters[0], dpfOperatorSystemNamespace, 8080, "/metrics")
+		g.Expect(err).NotTo(HaveOccurred(), "Failed to get KSM metrics URI for DPUCluster")
+		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
+
+		// Use hostClusterRESTClient because in-cluster KSM runs on the management cluster
+		actualMetricsNames := metrics.GetKSMMetrics(ctx, hostClusterRESTClient, dpuKSMMetricsURI)
+		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
+		g.Expect(metrics.VerifyMetrics(expectedDPUMetricsNames, actualMetricsNames)).To(BeEmpty())
+	}).WithTimeout(10 * time.Second).Should(Succeed())
 }
 
 func ValidateDPUServiceChainDeletion(ctx context.Context, input *systemTestInput) {

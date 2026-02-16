@@ -28,13 +28,32 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func VerifyKSMMetricsCollection(ctx context.Context) {
-	By("verify KMS metrics endpoint is accessible")
+func VerifyHostKSMMetricsCollection(ctx context.Context) {
+	By("verify host cluster kube-state-metrics endpoint is accessible")
 	Eventually(func(g Gomega) {
 		request := hostClusterRESTClient.Get().AbsPath(metricsURI)
 		response, err := request.DoRaw(ctx)
 		g.Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Request %s failed with err: %v", metricsURI, err))
 		g.Expect(response).NotTo(BeNil(), fmt.Sprintf("Metrics api is not accessible by url %s ", metricsURI))
+	}).WithTimeout(30 * time.Second).Should(Succeed())
+}
+
+func VerifyDPUKSMMetricsCollection(ctx context.Context, input *systemTestInput) {
+	By("verify DPU cluster kube-state-metrics endpoint is accessible")
+	Eventually(func(g Gomega) {
+		// Get the KSM metrics URI for the first DPUCluster
+		// Note: The in-cluster kube-state-metrics service runs on the management cluster,
+		// not on the DPU cluster. It connects remotely to collect DPU cluster metrics.
+		g.Expect(input.dpuClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
+		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.client, input.dpuClusters[0], dpfOperatorSystemNamespace, 8080, "/metrics")
+		g.Expect(err).NotTo(HaveOccurred(), "Failed to get KSM metrics URI for DPUCluster")
+		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
+
+		// Use hostClusterRESTClient because the in-cluster KSM service runs on the management cluster
+		request := hostClusterRESTClient.Get().AbsPath(dpuKSMMetricsURI)
+		response, err := request.DoRaw(ctx)
+		g.Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Request %s failed with err: %v", dpuKSMMetricsURI, err))
+		g.Expect(response).NotTo(BeNil(), fmt.Sprintf("Metrics api is not accessible by url %s ", dpuKSMMetricsURI))
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
 

@@ -1,0 +1,16 @@
+{{ if .Values.deployHostManifests }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kube-state-metrics.fullname" . }}-custom-resource-state
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-state-metrics.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    spec:
+      resources:
+        {{- range $path, $_ := .Files.Glob "metrics/*.yaml" }}
+        {{- $.Files.Get $path | nindent 6 }}
+        {{- end }}
+{{- end }}

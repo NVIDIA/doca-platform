@@ -1,0 +1,57 @@
+- groupVersionKind:
+    group: nv-ipam.nvidia.com
+    kind: CIDRPool
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: cidrpool
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a CIDRPool.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            name:
+              - metadata
+              - name
+            cidr:
+              - spec
+              - cidr
+            gateway_index:
+              - spec
+              - gatewayIndex
+            per_node_network_prefix:
+              - spec
+              - perNodeNetworkPrefix
+    - name: allocation_info
+      help: Information about CIDR prefix allocations per node.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            node_name:
+              - nodeName
+            prefix:
+              - prefix
+            gateway:
+              - gateway
+          path:
+            - status
+            - allocations
