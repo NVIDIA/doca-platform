@@ -339,7 +339,8 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		g.Expect(dpuClusterClient[0].List(ctx, nodes)).To(Succeed())
 		By(fmt.Sprintf("Expected number of nodes %d to equal %d", len(nodes.Items), 0))
 		g.Expect(nodes.Items).To(BeEmpty())
-	}).WithTimeout(10 * time.Minute).Should(Succeed())
+		// The timeout is so long here because for Zero Trust provisioning takes longer
+	}).WithTimeout(45 * time.Minute).Should(Succeed())
 
 	By("create DPUServiceIPAM to be used by dpuDeployment")
 	dpuServiceIPAM := input.ipPoolDPUServiceIPAM.DeepCopy()
