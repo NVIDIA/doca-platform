@@ -1,0 +1,96 @@
+{{ if .Values.deployHostManifests }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kube-state-metrics.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-state-metrics.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 100%
+  selector:
+    matchLabels:
+      {{- include "kube-state-metrics.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kube-state-metrics.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: "node-role.kubernetes.io/master"
+                    operator: Exists
+              - matchExpressions:
+                  - key: "node-role.kubernetes.io/control-plane"
+                    operator: Exists
+      containers:
+      - name: kube-state-metrics
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          readOnlyRootFilesystem: true
+        args:
+        - --port=8080
+        - --custom-resource-state-config-file=/etc/customresourcestate/config.yaml
+        ports:
+        - name: http-metrics
+          containerPort: 8080
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http-metrics
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http-metrics
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+        {{- with .Values.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        env:
+        {{- with .Values.env }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        volumeMounts:
+        - name: customresourcestate-config
+          mountPath: /etc/customresourcestate
+          readOnly: true
+        {{- with .Values.volumeMounts }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      volumes:
+      - name: customresourcestate-config
+        configMap:
+          name: {{ include "kube-state-metrics.fullname" . }}-custom-resource-state
+      {{- with .Values.volumes }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+{{ end }}

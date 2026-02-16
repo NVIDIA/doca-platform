@@ -52,6 +52,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.DPUDetectorName:            false,
 			operatorv1.KamajiClusterManagerName:   false,
 			operatorv1.CNIInstallerName:           false,
+			operatorv1.KubeStateMetricsName:       false,
 
 			// Static cluster manager is disabled by default.
 			operatorv1.StaticClusterManagerName: true,
@@ -82,6 +83,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.SFCControllerName:        defaults.DPUNetworkingHelmChart,
 			operatorv1.ServiceSetControllerName: defaults.DPUNetworkingHelmChart,
 			operatorv1.CNIInstallerName:         defaults.DPUNetworkingHelmChart,
+			operatorv1.KubeStateMetricsName:     defaults.DPUNetworkingHelmChart,
 		},
 		SFCController: SFCControllerVariables{
 			SecureFlowDeletionTimeout: 0 * time.Second,
@@ -347,6 +349,19 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 		}
 		if dp.DefaultResourcePrefix != nil {
 			variables.NodeSRIOVDevicePluginController.DefaultResourcePrefix = *dp.DefaultResourcePrefix
+		}
+	}
+
+	// Configure kube-state-metrics based on monitoring configuration
+	if !config.MonitoringEnabled() {
+		// If monitoring is disabled, disable kube-state-metrics
+		variables.DisableSystemComponents[operatorv1.KubeStateMetricsName] = true
+	} else {
+		// If monitoring is enabled, enable kube-state-metrics by default
+		variables.DisableSystemComponents[operatorv1.KubeStateMetricsName] = false
+		// Check if kube-state-metrics is explicitly disabled
+		if config.Spec.Monitoring != nil && config.Spec.Monitoring.KubeStateMetrics != nil && config.Spec.Monitoring.KubeStateMetrics.Disabled() {
+			variables.DisableSystemComponents[operatorv1.KubeStateMetricsName] = true
 		}
 	}
 

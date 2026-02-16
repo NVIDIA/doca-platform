@@ -77,15 +77,41 @@ func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *systemTestInput) 
 	dpuServiceIPAM := testutils.GenerateDPUObj("switched-application-metrics", dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
-	By("verify DPUServiceIPAM metrics in KSM")
-	expectedMetricsNames := map[string][]string{
+	By("verify DPUServiceIPAM metrics in host cluster KSM")
+	expectedHostMetricsNames := map[string][]string{
 		"dpuserviceipam": {"created", "info", "status_conditions", "status_condition_last_transition_time"}, //  "network_info", "subnet_info" missed
 	}
 	Eventually(func(g Gomega) {
 		actualMetricsNames := metrics.GetKSMMetrics(ctx, hostClusterRESTClient, metricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
-		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
+		g.Expect(metrics.VerifyMetrics(expectedHostMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
+
+	By("wait for IPPool to be created in DPU clusters")
+	Eventually(func(g Gomega) {
+		ipPools := &nvipamv1.IPPoolList{}
+		g.Expect(dpuClusterClient[0].List(ctx, ipPools, client.MatchingLabels{
+			"dpu.nvidia.com/dpuserviceipam-name":      dpuServiceIPAM.GetName(),
+			"dpu.nvidia.com/dpuserviceipam-namespace": dpuServiceIPAM.GetNamespace(),
+		})).To(Succeed())
+		g.Expect(ipPools.Items).ToNot(BeEmpty())
+	}).WithTimeout(180 * time.Second).Should(Succeed())
+
+	By("verify IPPool metrics in DPU cluster KSM")
+	expectedDPUMetricsNames := map[string][]string{
+		"ippool": {"created", "info", "allocation_info"},
+	}
+	Eventually(func(g Gomega) {
+		g.Expect(input.dpuClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
+		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.client, input.dpuClusters[0], dpfOperatorSystemNamespace, 8080, "/metrics")
+		g.Expect(err).NotTo(HaveOccurred(), "Failed to get KSM metrics URI for DPUCluster")
+		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
+
+		// Use hostClusterRESTClient because in-cluster KSM runs on the management cluster
+		actualMetricsNames := metrics.GetKSMMetrics(ctx, hostClusterRESTClient, dpuKSMMetricsURI)
+		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
+		g.Expect(metrics.VerifyMetrics(expectedDPUMetricsNames, actualMetricsNames)).To(BeEmpty())
+	}).WithTimeout(10 * time.Second).Should(Succeed())
 }
 
 func ValidateDPUServiceIPAMMetricsDeletion(ctx context.Context, input *systemTestInput) {
@@ -130,6 +156,22 @@ func ValidateDPUServiceIPAMCreationCidrSplit(ctx context.Context, input *systemT
 
 		// TODO: Check that NVIPAM has reconciled the resources and status reflects that.
 	}).WithTimeout(180 * time.Second).Should(Succeed())
+
+	By("verify CIDRPool metrics in DPU cluster KSM")
+	expectedCIDRPoolMetricsNames := map[string][]string{
+		"cidrpool": {"created", "info", "allocation_info"},
+	}
+	Eventually(func(g Gomega) {
+		g.Expect(input.dpuClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
+		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.client, input.dpuClusters[0], dpfOperatorSystemNamespace, 8080, "/metrics")
+		g.Expect(err).NotTo(HaveOccurred(), "Failed to get KSM metrics URI for DPUCluster")
+		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
+
+		// Use hostClusterRESTClient because in-cluster KSM runs on the management cluster
+		actualMetricsNames := metrics.GetKSMMetrics(ctx, hostClusterRESTClient, dpuKSMMetricsURI)
+		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
+		g.Expect(metrics.VerifyMetrics(expectedCIDRPoolMetricsNames, actualMetricsNames)).To(BeEmpty())
+	}).WithTimeout(10 * time.Second).Should(Succeed())
 }
 
 func ValidateDPUServiceIPAMDeletionCidrSplit(ctx context.Context, input *systemTestInput) {
