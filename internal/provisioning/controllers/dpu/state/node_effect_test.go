@@ -39,28 +39,104 @@ var _ = Describe("DPU: Node Effect", func() {
 
 	Context("successful cases", func() {
 		It("NoEffect", func() {
+			node := nodeObj(defaultNodeName)
+			createObject(node)
+
+			dpuNode := dpuNodeObj(node.Name)
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
 			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
+			dpu.Spec.DPUNodeName = dpuNode.Name
 			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{NoEffect: ptr.To(true)},
 			}
+			createObject(dpu)
+			patch = client.MergeFrom(dpu.DeepCopy())
 			dpu.Status.Phase = provisioningv1.DPUNodeEffect
+			Expect(k8sClient.Status().Patch(ctx, dpu, patch)).To(Succeed())
 
-			runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
-				status, err := state.NodeEffect(ctx, dpu,
-					&dutil.ControllerContext{
-						Client: k8sClient,
+			By("first run, should create dpunodemaintenance CR")
+			status, err := state.NodeEffect(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
 					},
-				)
-				Expect(err).To(Succeed())
-				Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface))
-				Expect(status.Conditions).Should(ContainElements(
-					And(
-						HaveField("Type", provisioningv1.DPUCondNodeEffectReady.String()),
-						HaveField("Status", metav1.ConditionTrue),
-						HaveField("Reason", "NoEffect"),
-					),
-				))
-			})
+				},
+			)
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffect))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondNodeEffectReady.String()),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", "CreatedDPUNodeMaintenance"),
+				),
+			))
+			dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
+			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+			Expect(err).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Namespace: dpu.Namespace,
+				Name:      dpunodemaintenanceName,
+			}, dpunodemaintenance)).To(Succeed())
+			By("verify NodeMaintenance CR has NoEffect set and DPU as requestor")
+			Expect(dpunodemaintenance.Spec.NodeEffect.IsNoEffect()).To(BeTrue())
+			Expect(dpunodemaintenance.Spec.Requestor).To(ContainElements(dpu.Name))
+
+			By("second run, should return NodeEffectInProgress")
+			status, err = state.NodeEffect(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffect))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondNodeEffectReady.String()),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", "NodeEffectInProgress"),
+				),
+			))
+
+			By("when dpunodemaintenance is ready, should transition to the next phase")
+			patch = client.MergeFrom(dpunodemaintenance.DeepCopy())
+			dpunodemaintenance.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(provisioningv1.ConditionNodeEffectApplied),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "NodeEffectApplied",
+					ObservedGeneration: dpunodemaintenance.Generation,
+				},
+			}
+			Expect(k8sClient.Status().Patch(ctx, dpunodemaintenance, patch)).To(Succeed())
+
+			status, err = state.NodeEffect(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondNodeEffectReady.String()),
+					HaveField("Status", metav1.ConditionTrue),
+					HaveField("Reason", "NodeEffectCompleted"),
+				),
+			))
 		})
 
 		It("Drain(K8s)", func() {
@@ -426,7 +502,18 @@ var _ = Describe("DPU: Node Effect", func() {
 
 	Context("Post-Provisioning Node Effect", func() {
 		It("should transition to DPUClusterConfig when PostProvisioningNodeEffect is true and NoEffect completes", func() {
+			node := nodeObj(defaultNodeName)
+			createObject(node)
+
+			dpuNode := dpuNodeObj(node.Name)
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
 			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUDeviceName = "not-used"
+			dpu.Spec.DPUNodeName = dpuNode.Name
 			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
@@ -435,10 +522,52 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu.Status.Phase = provisioningv1.DPUNodeEffect
 			dpu.Status.PostProvisioningNodeEffect = ptr.To(true)
 
+			By("first run, should create dpunodemaintenance CR")
+			status, err := state.NodeEffect(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffect))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondNodeEffectReady.String()),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", "CreatedDPUNodeMaintenance"),
+				),
+			))
+
+			dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
+			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+			Expect(err).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Namespace: dpu.Namespace,
+				Name:      dpunodemaintenanceName,
+			}, dpunodemaintenance)).To(Succeed())
+
+			patch = client.MergeFrom(dpunodemaintenance.DeepCopy())
+			dpunodemaintenance.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(provisioningv1.ConditionNodeEffectApplied),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "NodeEffectApplied",
+					ObservedGeneration: dpunodemaintenance.Generation,
+				},
+			}
+			Expect(k8sClient.Status().Patch(ctx, dpunodemaintenance, patch)).To(Succeed())
+
 			runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
 				status, err := state.NodeEffect(ctx, dpu,
 					&dutil.ControllerContext{
 						Client: k8sClient,
+						Options: dutil.DPUOptions{
+							DPUInstallInterface: string(installInterface),
+						},
 					},
 				)
 				Expect(err).To(Succeed())
@@ -448,7 +577,7 @@ var _ = Describe("DPU: Node Effect", func() {
 					And(
 						HaveField("Type", provisioningv1.DPUCondNodeEffectReady.String()),
 						HaveField("Status", metav1.ConditionTrue),
-						HaveField("Reason", "NoEffect"),
+						HaveField("Reason", "NodeEffectCompleted"),
 					),
 				))
 			})
