@@ -75,6 +75,18 @@ var _ = Describe("InstallationService", func() {
 		address = "localhost:11029"
 		installationService = NewInstallationService(k8sClient, address)
 		Expect(installationService.Start(false)).To(Succeed())
+		// Start() runs the server in a goroutine; wait until it is listening to avoid connection refused.
+		Eventually(func() error {
+			resp, err := http.Get(fmt.Sprintf("http://%s/healthz", address))
+			if err != nil {
+				return err
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("healthz returned %d", resp.StatusCode)
+			}
+			return nil
+		}).WithTimeout(5 * time.Second).WithPolling(50 * time.Millisecond).Should(Succeed())
 	})
 
 	AfterEach(func() {
