@@ -313,8 +313,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		It("delete the DPUServices and check that the applications are cleaned up", Labels{zeroTrustLabel}, func() {
 			ValidateDPUServiceDeletion(ctx, input)
 		})
-		// Skipped for ZeroTrust due to the bug #4835281
-		It("verify that the ImagePullSecrets have been synced correctly and cleaned up", func() {
+		It("verify that the ImagePullSecrets have been synced correctly and cleaned up", Labels{zeroTrustLabel}, func() {
 			ValidateImagePullSecretsSync(ctx, input)
 		})
 	})
@@ -356,8 +355,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		It("verify overrides path setting for system DPUServices", Labels{zeroTrustLabel}, func() {
 			ValidateDPFOperatorPathConfiguration(ctx, input)
 		})
-		// This test triggers reprovisioning, which might disrupt other tests relying on provisioned nodes. Skip for ZeroTrust due to bug #4835281
-		It("Change the MaxDPUParallelInstallations in the operatorConfig and verify that the provisioning controller is restarted", func() {
+		It("Change the MaxDPUParallelInstallations in the operatorConfig and verify that the provisioning controller is restarted", Labels{zeroTrustLabel}, func() {
 			ValidateDPFOperatorMaxDPUParallelInstallations(ctx, input)
 		})
 		It("Change the flannel podCIDR in the operatorConfig and check that it is set", Labels{zeroTrustLabel}, func() {
@@ -380,11 +378,10 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			By("should validate DPUDeployment and underlying objects creation")
 			ValidateDPUDeploymentFullCreation(ctx, input)
 		})
-		// TODO: remove requiresNodesLabel when the bug #4835281 is fixed
-		It("should validate DPUDeployment becomes ready", Labels{requiresNodesLabel, zeroTrustLabel}, func() {
+		It("should validate DPUDeployment becomes ready", Labels{zeroTrustLabel}, func() {
 			VerifyDPUDeploymentIsReady(ctx, input)
 		})
-		// Disruptive upgrade checks are not valid for ZeroTrust due to the bug #4835281
+		// Disruptive upgrade checks are not valid for ZeroTrust
 		It("should validate DPUDeployment disruptive upgrade of standard DPUServices", func() {
 			ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx, input)
 		})
