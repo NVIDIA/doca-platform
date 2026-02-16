@@ -111,40 +111,9 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 	}
 
 	// 1. Check if the DPUDevice is attached to a DpuNode
-	condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceNodeAttached)
-	if condition == nil || condition.Status == metav1.ConditionFalse {
-		dpuNodeList := &provisioningv1.DPUNodeList{}
-		err := r.List(ctx, dpuNodeList, client.InNamespace(dpuDevice.Namespace))
-		if err != nil {
-			log.Error(err, "Failed to list DPUNode")
-			return ctrl.Result{}, err
-		}
-		if len(dpuNodeList.Items) == 0 {
-			log.Info("No DPUNode found, skipping reconciliation")
-			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceNodeAttached,
-				conditions.ReasonPending,
-				conditions.ConditionMessage("No DPUNode found"))
-			return ctrl.Result{}, nil
-		}
-
-		dpuNodeFound := false
-		for _, dpuNode := range dpuNodeList.Items {
-			for _, dpu := range dpuNode.Spec.DPUs {
-				if strings.EqualFold(dpu.Name, dpuDevice.Name) {
-					conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceNodeAttached)
-					dpuDevice.Labels[provisioningv1.DPUNodeNameLabel] = dpuNode.Name
-					dpuNodeFound = true
-					break
-				}
-			}
-		}
-
-		if !dpuNodeFound {
-			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceNodeAttached,
-				conditions.ReasonPending,
-				conditions.ConditionMessage("No DPUNode found"))
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
+	shouldContinue, result, err := r.checkDPUNodeAttachment(ctx, dpuDevice)
+	if !shouldContinue {
+		return result, err
 	}
 
 	// 2. For GNOI case skip reconsiliation for now
@@ -156,31 +125,11 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 
 	dpuInstallInterface := dpfOperatorConfig.Spec.ProvisioningController.InstallInterface
 
-	if dpuInstallInterface == nil || dpuInstallInterface.InstallViaHostAgent != nil {
+	//nolint:staticcheck // SA1019: InstallViaGNOI is deprecated but still supported for backward compatibility
+	if dpuInstallInterface == nil || dpuInstallInterface.InstallViaHostAgent != nil || dpuInstallInterface.InstallViaGNOI != nil {
 		conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
 		conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceReady)
-		if dpuDevice.Status.PCIAddress != nil {
-			dpuDevice.Labels[cutil.DPUDevicePCIAddressLabel] = *dpuDevice.Status.PCIAddress
-		}
-		//nolint:staticcheck
-		if dpuDevice.Spec.PSID != nil {
-			dpuDevice.Labels[cutil.DPUDevicePSIDLabel] = *dpuDevice.Spec.PSID
-		}
-		//nolint:staticcheck
-		if dpuDevice.Spec.OPN != nil {
-			dpuDevice.Labels[cutil.DPUDeviceOPNLabel] = *dpuDevice.Spec.OPN
-		}
-		if dpuDevice.Spec.NumberOfPFs != nil {
-			dpuDevice.Labels[cutil.DPUDeviceNumOfPFsLabel] = fmt.Sprintf("%d", *dpuDevice.Spec.NumberOfPFs)
-		}
-		if dpuDevice.Status.PF0Name != nil {
-			dpuDevice.Labels[cutil.DPUDevicePF0NameLabel] = *dpuDevice.Status.PF0Name
-		} else if dpuDevice.Spec.PF0Name != nil { //nolint:staticcheck
-			dpuDevice.Labels[cutil.DPUDevicePF0NameLabel] = *dpuDevice.Spec.PF0Name //nolint:staticcheck
-		}
-		if dpuDevice.Spec.BMCIP != nil {
-			dpuDevice.Labels[cutil.DPUDeviceBMCIPLabel] = *dpuDevice.Spec.BMCIP
-		}
+		setDPUDeviceLabels(dpuDevice)
 		return ctrl.Result{}, nil
 	}
 
@@ -203,7 +152,7 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		return ctrl.Result{}, err
 	}
 
-	condition = conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized)
+	condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized)
 	if condition == nil || condition.Status == metav1.ConditionFalse {
 		if err := r.initializeDPUDevice(ctx, dpuDevice); err != nil {
 			log.Error(err, "Failed to initialize DPUDevice")
@@ -235,6 +184,78 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 
 	log.Info("DPUDevice reconciled successfully", "dpuDevice", dpuDevice.Name)
 	return ctrl.Result{}, nil
+}
+
+// checkDPUNodeAttachment checks if the DPUDevice is attached to a DPUNode. Returns whether the caller
+// should continue reconciliation, and the result/error to return if not.
+func (r *DPUDeviceReconciler) checkDPUNodeAttachment(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (bool, ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceNodeAttached)
+	if condition != nil && condition.Status != metav1.ConditionFalse {
+		return true, ctrl.Result{}, nil
+	}
+
+	dpuNodeList := &provisioningv1.DPUNodeList{}
+	err := r.List(ctx, dpuNodeList, client.InNamespace(dpuDevice.Namespace))
+	if err != nil {
+		log.Error(err, "Failed to list DPUNode")
+		return false, ctrl.Result{}, err
+	}
+	if len(dpuNodeList.Items) == 0 {
+		log.Info("No DPUNode found, skipping reconciliation")
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceNodeAttached,
+			conditions.ReasonPending,
+			conditions.ConditionMessage("No DPUNode found"))
+		return false, ctrl.Result{}, nil
+	}
+
+	dpuNodeFound := false
+	for _, dpuNode := range dpuNodeList.Items {
+		for _, dpu := range dpuNode.Spec.DPUs {
+			if strings.EqualFold(dpu.Name, dpuDevice.Name) {
+				conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceNodeAttached)
+				dpuDevice.Labels[provisioningv1.DPUNodeNameLabel] = dpuNode.Name
+				dpuNodeFound = true
+				break
+			}
+		}
+	}
+
+	if !dpuNodeFound {
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceNodeAttached,
+			conditions.ReasonPending,
+			conditions.ConditionMessage("No DPUNode found"))
+		return false, ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	return true, ctrl.Result{}, nil
+}
+
+// setDPUDeviceLabels sets device-specific labels on the DPUDevice from its spec and status fields.
+func setDPUDeviceLabels(dpuDevice *provisioningv1.DPUDevice) {
+	if dpuDevice.Status.PCIAddress != nil {
+		dpuDevice.Labels[cutil.DPUDevicePCIAddressLabel] = *dpuDevice.Status.PCIAddress
+	}
+	//nolint:staticcheck
+	if dpuDevice.Spec.PSID != nil {
+		dpuDevice.Labels[cutil.DPUDevicePSIDLabel] = *dpuDevice.Spec.PSID
+	}
+	//nolint:staticcheck
+	if dpuDevice.Spec.OPN != nil {
+		dpuDevice.Labels[cutil.DPUDeviceOPNLabel] = *dpuDevice.Spec.OPN
+	}
+	if dpuDevice.Spec.NumberOfPFs != nil {
+		dpuDevice.Labels[cutil.DPUDeviceNumOfPFsLabel] = fmt.Sprintf("%d", *dpuDevice.Spec.NumberOfPFs)
+	}
+	if dpuDevice.Status.PF0Name != nil {
+		dpuDevice.Labels[cutil.DPUDevicePF0NameLabel] = *dpuDevice.Status.PF0Name
+	} else if dpuDevice.Spec.PF0Name != nil { //nolint:staticcheck
+		dpuDevice.Labels[cutil.DPUDevicePF0NameLabel] = *dpuDevice.Spec.PF0Name //nolint:staticcheck
+	}
+	if dpuDevice.Spec.BMCIP != nil {
+		dpuDevice.Labels[cutil.DPUDeviceBMCIPLabel] = *dpuDevice.Spec.BMCIP
+	}
 }
 
 // Updates BMC firmware if needed and returns the task ID, also sets up the TLS client
