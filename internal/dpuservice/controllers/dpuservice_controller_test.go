@@ -178,7 +178,6 @@ var _ = Describe("DPUService Controller", func() {
 
 			expectedEndpointSliceEndpoint := []discoveryv1.Endpoint{{
 				Addresses:  []string{"192.168.1.10"},
-				Hostname:   ptr.To("dpu-node-1"),
 				NodeName:   ptr.To("node-1"),
 				Conditions: discoveryv1.EndpointConditions{Ready: ptr.To(true)},
 			}}
@@ -281,7 +280,6 @@ var _ = Describe("DPUService Controller", func() {
 
 			expectedEndpointSliceEndpoint = append(expectedEndpointSliceEndpoint, discoveryv1.Endpoint{
 				Addresses:  []string{"192.168.1.11"},
-				Hostname:   ptr.To("dpu-node-2"),
 				NodeName:   ptr.To("node-2"),
 				Conditions: discoveryv1.EndpointConditions{Ready: ptr.To(true)},
 			})
