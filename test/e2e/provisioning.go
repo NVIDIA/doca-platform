@@ -69,7 +69,7 @@ func initProvisioningExpected(input *systemTestInput) {
 		DPUClusters:   1, // Provisioning tests create one DPUCluster
 		DPUSets:       1, // Provisioning tests create one DPUSet
 		BFBs:          1, // Provisioning tests create one BFB
-		Prerequisites: len(input.additionalProvisioningObjects),
+		Prerequisites: len(input.dpuClusterPrerequisites),
 		DPUServices:   6, // Multus, Flannel, SRIOV, NVIPAM, OVS-CNI, SFC-Controller
 	}
 
@@ -194,7 +194,7 @@ func BeforeProvisioning(ctx context.Context, input *systemTestInput) {
 
 func CreateProvisioningDPUCluster(ctx context.Context, input *systemTestInput) {
 	// Create prerequisite objects
-	for i, obj := range input.additionalProvisioningObjects {
+	for i, obj := range input.dpuClusterPrerequisites {
 		// Deep copy to avoid mutating the shared original object
 		objCopy := obj.DeepCopyObject().(client.Object)
 		objCopy.SetLabels(testutils.AfterAllCleanupLabels)
@@ -573,14 +573,16 @@ func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
 				"DPUClusters remaining [%d]", len(clusters.Items))
 			g.Expect(clusters.Items).To(BeEmpty(), "DPUCluster should be deleted")
 		}).WithTimeout(15 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+
+		// Delete prerequisite objects (TenantControlPlane, nodeport Service) only when deleting DPUCluster.
+		// When DPUCluster deletion is skipped (RM 4869399), leaving these in place keeps the kubeconfig secret
+		// so DPFOperatorConfig and DPUServices can complete teardown in AfterSuite.
+		if len(input.dpuClusterPrerequisites) > 0 {
+			By(fmt.Sprintf("Deleting %d prerequisite objects", len(input.dpuClusterPrerequisites)))
+			Expect(testutils.CleanupAndWait(ctx, input.client, input.dpuClusterPrerequisites...)).To(Succeed())
+		}
 	} else {
 		By("Skipping DPUCluster deletion (RM: 4869399 - DPUCluster/DPUService deletion race; cluster left for DPFOperatorConfig teardown)")
-	}
-
-	// Delete prerequisite objects and wait for deletion
-	if len(input.additionalProvisioningObjects) > 0 {
-		By(fmt.Sprintf("Deleting %d prerequisite objects", len(input.additionalProvisioningObjects)))
-		Expect(testutils.CleanupAndWait(ctx, input.client, input.additionalProvisioningObjects...)).To(Succeed())
 	}
 
 	By("Verifying cleanup complete")
