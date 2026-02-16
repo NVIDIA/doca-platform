@@ -594,6 +594,8 @@ func GenerateDPUNodeMaintenanceObjectName(dpuNodeName string, nodeEffect *provis
 		}
 		hash := sha256.Sum256(data)
 		return fmt.Sprintf("%s-cl-%s", dpuNodeName, fmt.Sprintf("%x", hash)[:8]), nil
+	case nodeEffect.IsNoEffect():
+		return fmt.Sprintf("%s-noeffect", dpuNodeName), nil
 	}
 	return "", fmt.Errorf("invalid node effect type: %v", nodeEffect.String())
 }

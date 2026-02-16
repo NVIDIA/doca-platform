@@ -276,6 +276,18 @@ var _ = Describe("Util", func() {
 			Expect(name).To(HaveLen(len("test-node-taint-") + 8)) // 8 char hash
 		})
 
+		It("should generate name for NoEffect", func() {
+			noEffect := true
+			nodeEffect := &provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{
+					NoEffect: &noEffect,
+				},
+			}
+			name, err := GenerateDPUNodeMaintenanceObjectName("test-node", nodeEffect)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(name).To(Equal("test-node-noeffect"))
+		})
+
 		It("should generate name for CustomLabel effect with hash", func() {
 			nodeEffect := &provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
