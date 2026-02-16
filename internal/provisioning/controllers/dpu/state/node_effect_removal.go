@@ -54,71 +54,61 @@ func NodeEffectRemoval(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *du
 		return *state, nil
 	}
 
-	if !dpu.Spec.NodeEffect.IsNoEffect() {
-		dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
-		if err != nil {
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "FailedGetGenerateDPUNodeMaintenanceObjectName", err.Error()))
+	dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+	if err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "FailedGetGenerateDPUNodeMaintenanceObjectName", err.Error()))
+		return *state, err
+	}
+
+	dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
+	key := types.NamespacedName{Namespace: dpu.Namespace, Name: dpunodemaintenanceName}
+	if err := ctrlCtx.Client.Get(ctx, key, dpunodemaintenance); err != nil {
+		if apierrors.IsNotFound(err) {
+			cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondNodeEffectRemoved, "", ""))
+			state.Phase = provisioningv1.DPUReady
+			return *state, nil
+		} else {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "FailedGetDPUNodeMaintenanceObject", err.Error()))
 			return *state, err
 		}
-
-		dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
-		key := types.NamespacedName{Namespace: dpu.Namespace, Name: dpunodemaintenanceName}
-		if err := ctrlCtx.Client.Get(ctx, key, dpunodemaintenance); err != nil {
-			if apierrors.IsNotFound(err) {
-				cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondNodeEffectRemoved, "", ""))
-				state.Phase = provisioningv1.DPUReady
-				return *state, nil
-			} else {
-				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "FailedGetDPUNodeMaintenanceObject", err.Error()))
-				return *state, err
-			}
-		} else {
-			if err := RemoveRequestorFromDPUNodeMaintenance(ctx, dpu, ctrlCtx); err != nil {
-				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "FailedRemoveRequestor", err.Error()))
-				return *state, err
-			}
-			err := fmt.Errorf("node effect removal is in progress")
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "NodeEffectRemovalInProgress", err.Error()))
-		}
 	} else {
-		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondNodeEffectRemoved, "", ""))
-		state.Phase = provisioningv1.DPUReady
-		return *state, nil
+		if err := RemoveRequestorFromDPUNodeMaintenance(ctx, dpu, ctrlCtx); err != nil {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "FailedRemoveRequestor", err.Error()))
+			return *state, err
+		}
+		err := fmt.Errorf("node effect removal is in progress")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "NodeEffectRemovalInProgress", err.Error()))
 	}
 	return *state, nil
 }
 
 func RemoveRequestorFromDPUNodeMaintenance(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) error {
-	if !dpu.Spec.NodeEffect.IsNoEffect() {
-		dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
-		if err != nil {
-			return err
-		}
-
-		dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
-		key := types.NamespacedName{Namespace: dpu.Namespace, Name: dpunodemaintenanceName}
-		return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			if err := ctrlCtx.Client.Get(ctx, key, dpunodemaintenance); err != nil {
-				if !apierrors.IsNotFound(err) {
-					return err
-				}
-				// If DPUNodeMaintenance object doesn't exist, return nil
-				return nil
-			}
-			// mutate obj.Spec.Requestor
-			newRequestors := []string{}
-			for _, r := range dpunodemaintenance.Spec.Requestor {
-				if r != dpu.Name {
-					newRequestors = append(newRequestors, r)
-				}
-			}
-			if len(newRequestors) != len(dpunodemaintenance.Spec.Requestor) {
-				dpunodemaintenance.Spec.Requestor = newRequestors
-				return ctrlCtx.Client.Update(ctx, dpunodemaintenance)
-			}
-			return nil
-		})
+	dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+	if err != nil {
+		return err
 	}
 
-	return nil
+	dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
+	key := types.NamespacedName{Namespace: dpu.Namespace, Name: dpunodemaintenanceName}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := ctrlCtx.Client.Get(ctx, key, dpunodemaintenance); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
+			// If DPUNodeMaintenance object doesn't exist, return nil
+			return nil
+		}
+		// mutate obj.Spec.Requestor
+		newRequestors := []string{}
+		for _, r := range dpunodemaintenance.Spec.Requestor {
+			if r != dpu.Name {
+				newRequestors = append(newRequestors, r)
+			}
+		}
+		if len(newRequestors) != len(dpunodemaintenance.Spec.Requestor) {
+			dpunodemaintenance.Spec.Requestor = newRequestors
+			return ctrlCtx.Client.Update(ctx, dpunodemaintenance)
+		}
+		return nil
+	})
 }

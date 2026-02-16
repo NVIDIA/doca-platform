@@ -305,8 +305,8 @@ func (r *DPUReconciler) dpuNodeToDPU(ctx context.Context, obj client.Object) []r
 
 func (r *DPUReconciler) UpdateDPUNodeMaintenanceRequestors(ctx context.Context, dpu *provisioningv1.DPU, client client.Client) error {
 	logger := log.FromContext(ctx)
-	// if NodeEffect is nil or NoEffect, there's no need to update the DPUNodeMaintenanceRequestors
-	if dpu.Spec.NodeEffect == nil || dpu.Spec.NodeEffect.IsNoEffect() {
+	// if NodeEffect is nil, there's no DPUNodeMaintenance CR to update
+	if dpu.Spec.NodeEffect == nil {
 		return nil
 	}
 	dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
