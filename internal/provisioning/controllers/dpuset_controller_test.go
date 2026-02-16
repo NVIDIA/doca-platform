@@ -38,6 +38,7 @@ import (
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 var _ = Describe("DPUSet", func() {
@@ -466,6 +467,13 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(1))
 				// in dpuset-controller, DPUs are named after the corresponding DPUDevices.
 				g.Expect(dpuList.Items[0].Name).To(Equal(cutil.GenerateDPUName(testDPUNode.Name, testDPUDevice.Name)))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("checking DPU controller reconcile added finalizer to DPUDevice")
+			dpuDeviceFetched := &provisioningv1.DPUDevice{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testDPUDevice), dpuDeviceFetched)).To(Succeed())
+				g.Expect(controllerutil.ContainsFinalizer(dpuDeviceFetched, provisioningv1.DPUDeviceFinalizer)).To(BeTrue())
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
 			By("trying to remove the DPUDevice")
