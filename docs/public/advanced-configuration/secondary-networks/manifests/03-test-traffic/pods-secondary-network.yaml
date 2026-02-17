@@ -2,19 +2,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: secondary-cni-pod-deployment
+  name: secondary-network-pod-deployment
   namespace: default
   labels:
-    app: secondary-cni-pod
+    app: secondary-network-pod
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: secondary-cni-pod
+      app: secondary-network-pod
   template:
     metadata:
       labels:
-        app: secondary-cni-pod
+        app: secondary-network-pod
       annotations:
         k8s.v1.cni.cncf.io/networks: sriov-bf3-p0-vfs
     spec:
@@ -24,7 +24,7 @@ spec:
           whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
-              app: secondary-cni-pod
+              app: secondary-network-pod
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -32,7 +32,7 @@ spec:
               podAffinityTerm:
                 labelSelector:
                   matchLabels:
-                    app: secondary-cni-pod
+                    app: secondary-network-pod
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: netshoot
@@ -53,6 +53,4 @@ spec:
               add:
                 - NET_ADMIN
             privileged: true
-      nodeSelector:
-        feature.node.kubernetes.io/dpu-enabled: "true"
 
