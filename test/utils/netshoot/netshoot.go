@@ -374,7 +374,7 @@ func runRDMAClient(restClient **rest.RESTClient, restConfig **rest.Config, names
 	// The timeout here needs to be higher than 30 because in case the client used is tunneled, and is broken, it has an
 	// internal timeout of 30s to re-create itself.
 	execCommandEventually(restClient, restConfig, namespace, podName, []string{"ib_write_bw", serverIP, "--out_json", fmt.Sprintf("--out_json_file=%s", fileName)}, 120*time.Second, 5*time.Second, DefaultErrorParser)
-	output := execCommandEventually(restClient, restConfig, namespace, podName, []string{"cat", fileName}, 30*time.Second, 5*time.Second, DefaultErrorParser)
+	output := execCommandEventually(restClient, restConfig, namespace, podName, []string{"cat", fileName}, 120*time.Second, 5*time.Second, DefaultErrorParser)
 	return output
 }
 
