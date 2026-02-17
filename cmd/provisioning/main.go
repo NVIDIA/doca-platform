@@ -380,6 +380,10 @@ func setupWebhooks(mgr ctrl.Manager, dpuInstallInterface string) {
 		setupLog.Error(err, "unable to create webhook", "webhook", "DPUNode")
 		os.Exit(1)
 	}
+	if err := (&provisioningwebhooks.DPUDiscoveryValidator{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "DPUDiscovery")
+		os.Exit(1)
+	}
 }
 
 func setupCSRController(mgr ctrl.Manager, clientConfig *rest.Config) {
