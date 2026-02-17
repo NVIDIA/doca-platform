@@ -1,19 +1,19 @@
 ---
-title: "Secondary CNI support for HBN-OVNK use case"
+title: "Secondary Network support for HBN-OVNK use case"
 ---
 
 [TOC]
 
-This section covers an **advanced configuration** of the secondary CNI feature of the
+This section covers an **advanced configuration** of the secondary network feature of the
 [Host Based Networking and OVN Kubernetes](../../user-guides/host-trusted/use-cases/hbn-ovnk/README.md)
-use case. Enabling and configuring this feature allows for the creation of pods with secondary networks
-which are also accelerated by OVN Kubernetes as the secondary CNI.
+use case. Enabling and configuring this feature allows for the creation of pods with multiple network interfaces,
+where the secondary networks are also accelerated by OVN Kubernetes.
 
 
 Before proceeding with this advanced configuration, please ensure you have reviewed the
 [Host Based Networking and OVN Kubernetes](../../user-guides/host-trusted/use-cases/hbn-ovnk/README.md)
 configuration guide first and completed that first. This advanced configuration builds upon that setup
-and provides additional steps to enable secondary cni support.
+and provides additional steps to enable secondary network support.
 
 
 ## 1. Upgrade OVN Kubernetes from the Helm Chart
@@ -37,7 +37,7 @@ nodeWithoutDPUManifests:
   enabled: true
 controlPlaneManifests:
   enabled: true
-  ovnMultiNetworkEnable: true # enables secondary CNI/network support
+  ovnMultiNetworkEnable: true # enables secondary network support (default)
 nodeWithDPUManifests:
   enabled: true
   nodeMgmtPortNetdev: $DPU_P0_VF1
@@ -92,7 +92,7 @@ spec:
         enabled: true
       dpuManifests:
         enabled: true
-        ovnMultiNetworkEnable: true # enables secondary CNI/network support
+        ovnMultiNetworkEnable: true # enables secondary network support (default)
         nodeMgmtPortNetdev: $DPU_P0_VF1
       leaseNamespace: "ovn-kubernetes"
       gatewayOpts: "--gateway-interface=br-dpu"

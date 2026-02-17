@@ -4,7 +4,7 @@ nodeWithoutDPUManifests:
   enabled: true
 controlPlaneManifests:
   enabled: true
-  ovnMultiNetworkEnable: true # enables secondary CNI/network support
+  ovnMultiNetworkEnable: true # enables secondary network support (default)
 nodeWithDPUManifests:
   enabled: true
   nodeMgmtPortNetdev: $DPU_P0_VF1
