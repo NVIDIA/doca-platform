@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // These tests are written in BDD-style using Ginkgo framework. Refer to
@@ -123,6 +124,14 @@ var _ = Describe("Allocator", func() {
 	})
 
 	AfterEach(func() {
+		By("deleting DPUs in the namespace so the shared DPU controller does not reconcile them")
+		Expect(k8sClient.DeleteAllOf(ctx, &provisioningv1.DPU{}, client.InNamespace(testNS.Name))).To(Succeed())
+		Eventually(func(g Gomega) {
+			dpuList := &provisioningv1.DPUList{}
+			g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name))).To(Succeed())
+			g.Expect(dpuList.Items).To(BeEmpty())
+		}).WithTimeout(10 * time.Second).Should(Succeed())
+
 		By("deleting the namespace")
 		Expect(k8sClient.Delete(ctx, testNS)).To(Succeed())
 		cancel()
