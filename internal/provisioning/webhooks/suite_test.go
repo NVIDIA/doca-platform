@@ -111,6 +111,9 @@ var _ = BeforeSuite(func() {
 	err = (&DPUNode{Client: k8sClient}).SetupWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = (&DPUDiscoveryValidator{}).SetupWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
 	// +kubebuilder:scaffold:webhook
 
 	go func() {

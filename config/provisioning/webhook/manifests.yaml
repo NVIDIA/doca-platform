@@ -96,6 +96,26 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /validate-provisioning-dpu-nvidia-com-v1alpha1-dpudiscovery
+  failurePolicy: Fail
+  name: vdpudiscovery.kb.io
+  rules:
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - dpudiscoveries
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /validate-provisioning-dpu-nvidia-com-v1alpha1-dpuflavor
   failurePolicy: Fail
   name: vdpuflavor.kb.io
