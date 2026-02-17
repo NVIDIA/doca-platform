@@ -213,6 +213,9 @@ var _ = BeforeSuite(func() {
 	err = (&provisioningwebhooks.DPUNode{Client: k8sManager.GetClient()}).SetupWebhookWithManager(k8sManager)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = (&provisioningwebhooks.DPUDiscoveryValidator{}).SetupWebhookWithManager(k8sManager)
+	Expect(err).NotTo(HaveOccurred())
+
 	dpuclusterReconciler := &dpucluster.DPUClusterReconciler{
 		Client:    k8sManager.GetClient(),
 		Scheme:    k8sManager.GetScheme(),
