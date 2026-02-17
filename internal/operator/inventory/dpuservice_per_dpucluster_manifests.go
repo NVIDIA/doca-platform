@@ -410,6 +410,14 @@ func (p *dpuServicePerDPUClusterObjects) areDPUServiceCredentialRequestsReady(ct
 // IsReadyForUpgrade reports the readiness of the objects. It returns an error when any of the resources is not
 // ready.
 func (p *dpuServicePerDPUClusterObjects) IsReadyForUpgrade(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig) error {
+	shouldSkip, err := ShouldSkipUpgradeCheck(p.Name(), *config.Status.Version)
+	if err != nil {
+		return fmt.Errorf("determine if component %s should skip upgrade check: %w", p.Name(), err)
+	}
+	if shouldSkip {
+		return nil
+	}
+
 	var errs []error
 
 	// List DPUClusters to determine expected count
@@ -421,6 +429,8 @@ func (p *dpuServicePerDPUClusterObjects) IsReadyForUpgrade(ctx context.Context, 
 
 	isUpgradeFromLastReleasedGA := operatorutils.IsUpgradeFromLastReleasedGA(*config.Status.Version)
 
+	// TODO: Remove after v26.4.0. This conditional exists because the ServiceChainSet controller
+	// changed from a single DPUService to a per-DPUCluster DPUService.
 	if isUpgradeFromLastReleasedGA {
 		// if we're upgrading from the last released GA, we only need to check the legacy DPUService. This works
 		// because the templateDPUService has the same component name as the legacy DPUService.
