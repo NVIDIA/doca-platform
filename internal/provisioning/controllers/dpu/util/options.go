@@ -54,6 +54,9 @@ type DPUOptions struct {
 	// ZeroTrustInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
 	// Default: 45 minutes
 	ZeroTrustInstallTimeout time.Duration
+	// NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
+	// Default: 30 minutes
+	NodeEffectRemovalTimeout time.Duration
 }
 
 type ControllerContext struct {

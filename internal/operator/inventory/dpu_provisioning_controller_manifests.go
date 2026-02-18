@@ -40,11 +40,12 @@ import (
 
 const (
 	// DPFProvisioningControllerName is the helm value for the Provisioning Controllers component name.
-	DPFProvisioningControllerName = "dpf-provisioning-controller-manager"
-	bfbVolumeName                 = "bfb-volume"
-	webhookServiceName            = "dpf-provisioning-webhook-service"
-	customBFConfigFileName        = "bf.cfg.template"
-	customBFConfigVolumeName      = "bf-cfg-template"
+	DPFProvisioningControllerName  = "dpf-provisioning-controller-manager"
+	bfbVolumeName                  = "bfb-volume"
+	webhookServiceName             = "dpf-provisioning-webhook-service"
+	customBFConfigFileName         = "bf.cfg.template"
+	customBFConfigVolumeName       = "bf-cfg-template"
+	errManagerContainerNotFoundFmt = "container %q not found in Provisioning Controller deployment"
 )
 
 var _ Component = &provisioningControllerObjects{}
@@ -218,6 +219,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setMultiDPUOperationsSyncWaitTime,
 			p.setMaxUnavailableDPUNodes,
 			p.setZeroTrustInstallTimeout,
+			p.setNodeEffectRemovalTimeout,
 			p.setResources,
 			p.setBFBRegistryAddress,
 			p.setReplicas,
@@ -390,7 +392,7 @@ func (p *provisioningControllerObjects) validateDeployment(obj *unstructured.Uns
 	}
 	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	return nil
 }
@@ -412,7 +414,7 @@ func (p *provisioningControllerObjects) setBFBPersistentVolumeClaim(deploy *apps
 	vol.PersistentVolumeClaim.ClaimName = vars.DPFProvisioningController.BFBPersistentVolumeClaimName
 	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	return setFlags(c, fmt.Sprintf("--bfb-pvc=%s", vol.PersistentVolumeClaim.ClaimName))
 }
@@ -432,7 +434,7 @@ func (p *provisioningControllerObjects) setKubernetesAPIServerEnvVars(deploy *ap
 	}
 	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	return setFlags(c, fmt.Sprintf("--dms-pod-envs=%s", strings.Join(envVars, ",")))
 }
@@ -440,7 +442,7 @@ func (p *provisioningControllerObjects) setKubernetesAPIServerEnvVars(deploy *ap
 func (p *provisioningControllerObjects) setMaxDPUParallelInstallations(deploy *appsv1.Deployment, vars Variables) error {
 	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	if vars.DPFProvisioningController.MaxDPUParallelInstallations == nil {
 		return nil
@@ -451,7 +453,7 @@ func (p *provisioningControllerObjects) setMaxDPUParallelInstallations(deploy *a
 func (p *provisioningControllerObjects) setImagePullSecrets(deploy *appsv1.Deployment, vars Variables) error {
 	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	if len(vars.ImagePullSecrets) == 0 {
 		return nil
@@ -462,7 +464,7 @@ func (p *provisioningControllerObjects) setImagePullSecrets(deploy *appsv1.Deplo
 func (p *provisioningControllerObjects) setCustomCASecretName(deploy *appsv1.Deployment, vars Variables) error {
 	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	if vars.DPFProvisioningController.CustomCASecretName == nil {
 		return nil
@@ -473,7 +475,7 @@ func (p *provisioningControllerObjects) setCustomCASecretName(deploy *appsv1.Dep
 func (p *provisioningControllerObjects) setInstallInterface(deploy *appsv1.Deployment, vars Variables) error {
 	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	if vars.DPFProvisioningController.InstallInterface == nil ||
 		vars.DPFProvisioningController.InstallInterface.InstallViaGNOI != nil || //nolint:staticcheck
@@ -492,7 +494,7 @@ func (p *provisioningControllerObjects) setInstallInterface(deploy *appsv1.Deplo
 func (p *provisioningControllerObjects) setBFBRegistryAddress(deploy *appsv1.Deployment, vars Variables) error {
 	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	if vars.DPFProvisioningController.Registry != nil && vars.DPFProvisioningController.Registry.Address != nil {
 		return setFlags(c, fmt.Sprintf("--bfb-registry=%s", *vars.DPFProvisioningController.Registry.Address))
@@ -510,7 +512,7 @@ func (p *provisioningControllerObjects) setDMSTimeout(deploy *appsv1.Deployment,
 	}
 	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	return setFlags(c, fmt.Sprintf("--dms-timeout=%d", *vars.DPFProvisioningController.DMSTimeout))
 }
@@ -518,7 +520,7 @@ func (p *provisioningControllerObjects) setDMSTimeout(deploy *appsv1.Deployment,
 func (p *provisioningControllerObjects) setDefaultImageNames(deploy *appsv1.Deployment, vars Variables) error {
 	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	defaults := release.NewDefaults()
 	err := defaults.Parse()
@@ -540,7 +542,7 @@ func (p *provisioningControllerObjects) setDefaultImageNames(deploy *appsv1.Depl
 func (p *provisioningControllerObjects) setMultiDPUOperationsSyncWaitTime(deploy *appsv1.Deployment, vars Variables) error {
 	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	return setFlags(c, fmt.Sprintf("--multi-dpu-operations-sync-wait-time=%s", vars.DPFProvisioningController.MultiDPUOperationsSyncWaitTime.String()))
 }
@@ -548,7 +550,7 @@ func (p *provisioningControllerObjects) setMultiDPUOperationsSyncWaitTime(deploy
 func (p *provisioningControllerObjects) setMaxUnavailableDPUNodes(deploy *appsv1.Deployment, vars Variables) error {
 	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	if vars.DPFProvisioningController.MaxUnavailableDPUNodes == nil {
 		return nil
@@ -569,12 +571,23 @@ func (p *provisioningControllerObjects) setReplicas(deploy *appsv1.Deployment, v
 func (p *provisioningControllerObjects) setZeroTrustInstallTimeout(deploy *appsv1.Deployment, vars Variables) error {
 	c := getManagerContainer(deploy)
 	if c == nil {
-		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	if vars.DPFProvisioningController.ZeroTrustInstallTimeout == nil {
 		return nil
 	}
 	return setFlags(c, fmt.Sprintf("--zero-trust-install-timeout=%s", vars.DPFProvisioningController.ZeroTrustInstallTimeout.Duration.String()))
+}
+
+func (p *provisioningControllerObjects) setNodeEffectRemovalTimeout(deploy *appsv1.Deployment, vars Variables) error {
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
+	}
+	if vars.DPFProvisioningController.NodeEffectRemovalTimeout == nil {
+		return nil
+	}
+	return setFlags(c, fmt.Sprintf("--node-effect-removal-timeout=%s", vars.DPFProvisioningController.NodeEffectRemovalTimeout.Duration.String()))
 }
 
 // IsReadyForUpgrade reports the readiness of the provisioning controller objects. It returns an error when the number of Replicas in
