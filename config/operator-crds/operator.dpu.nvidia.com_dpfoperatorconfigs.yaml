@@ -1250,6 +1250,14 @@ spec:
                     format: duration
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
+                  nodeEffectRemovalTimeout:
+                    default: 30m
+                    description: |-
+                      NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
+                      If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state.
+                    format: duration
+                    pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
+                    type: string
                   registry:
                     description: Registry is the configuration for the BFB Registry
                     properties:

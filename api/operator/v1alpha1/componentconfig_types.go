@@ -113,6 +113,15 @@ type ProvisioningControllerConfiguration struct {
 	// +kubebuilder:validation:Format=duration
 	// +optional
 	ZeroTrustInstallTimeout *metav1.Duration `json:"zeroTrustInstallTimeout,omitempty"`
+
+	// NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
+	// If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state.
+	// +kubebuilder:default="30m"
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
+	// +kubebuilder:validation:Format=duration
+	// +optional
+	NodeEffectRemovalTimeout *metav1.Duration `json:"nodeEffectRemovalTimeout,omitempty"`
 }
 
 func (c *ProvisioningControllerConfiguration) Name() string {
