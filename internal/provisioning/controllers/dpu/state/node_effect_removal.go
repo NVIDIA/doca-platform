@@ -19,11 +19,13 @@ package state
 import (
 	"context"
 	"fmt"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
+	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -76,10 +78,42 @@ func NodeEffectRemoval(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *du
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "FailedRemoveRequestor", err.Error()))
 			return *state, err
 		}
+
+		// Check timeout only when the DPUNodeMaintenance still has requestors (not in deletion).
+		// If it is in deletion phase, the normal flow will either succeed or fail on its own.
+		if dpunodemaintenance.DeletionTimestamp.IsZero() {
+			if err := checkNodeEffectRemovalTimeout(state, ctrlCtx.Options.NodeEffectRemovalTimeout, logger); err != nil {
+				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "NodeEffectRemovalTimeout", err.Error()))
+				state.Phase = provisioningv1.DPUError
+				return *state, nil
+			}
+		}
+
 		err := fmt.Errorf("node effect removal is in progress")
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "NodeEffectRemovalInProgress", err.Error()))
 	}
 	return *state, nil
+}
+
+// checkNodeEffectRemovalTimeout checks if the Node Effect Removal phase has exceeded the configured timeout.
+// Returns an error if timeout is exceeded, nil otherwise.
+func checkNodeEffectRemovalTimeout(state *provisioningv1.DPUStatus, timeout time.Duration, logger logr.Logger) error {
+	if timeout <= 0 {
+		return nil
+	}
+
+	_, cond := cutil.GetDPUCondition(state, provisioningv1.DPUCondNodeEffectRemoved.String())
+	if cond == nil {
+		return nil
+	}
+
+	elapsed := time.Since(cond.LastTransitionTime.Time)
+	if elapsed <= timeout {
+		return nil
+	}
+
+	logger.Info("Node effect removal timeout exceeded", "elapsed", elapsed, "timeout", timeout)
+	return fmt.Errorf("node effect removal timeout exceeded: %v > %v", elapsed, timeout)
 }
 
 func RemoveRequestorFromDPUNodeMaintenance(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) error {
