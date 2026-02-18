@@ -67,7 +67,7 @@ A Helm chart for DPF storage subsystem
 | dpu.snapNodeDriver.tolerations | list | `[]` |  |
 | host.snapCsiPlugin.controller.affinity | object | `{}` |  |
 | host.snapCsiPlugin.controller.externalAttacher.image.repository | string | `"registry.k8s.io/sig-storage/csi-attacher"` |  |
-| host.snapCsiPlugin.controller.externalAttacher.image.tag | string | `"v4.10.0"` |  |
+| host.snapCsiPlugin.controller.externalAttacher.image.tag | string | `"v4.11.0"` |  |
 | host.snapCsiPlugin.controller.externalAttacher.imagePullPolicy | string | `"IfNotPresent"` |  |
 | host.snapCsiPlugin.controller.externalAttacher.resources | object | `{}` |  |
 | host.snapCsiPlugin.controller.externalAttacher.securityContext.allowPrivilegeEscalation | bool | `false` |  |
@@ -78,7 +78,7 @@ A Helm chart for DPF storage subsystem
 | host.snapCsiPlugin.controller.externalProvisioner.securityContext.allowPrivilegeEscalation | bool | `false` |  |
 | host.snapCsiPlugin.controller.imagePullSecrets | list | `[]` |  |
 | host.snapCsiPlugin.controller.livenessProbe.image.repository | string | `"registry.k8s.io/sig-storage/livenessprobe"` |  |
-| host.snapCsiPlugin.controller.livenessProbe.image.tag | string | `"v2.17.0"` |  |
+| host.snapCsiPlugin.controller.livenessProbe.image.tag | string | `"v2.18.0"` |  |
 | host.snapCsiPlugin.controller.livenessProbe.imagePullPolicy | string | `"IfNotPresent"` |  |
 | host.snapCsiPlugin.controller.livenessProbe.resources | object | `{}` |  |
 | host.snapCsiPlugin.controller.livenessProbe.securityContext.allowPrivilegeEscalation | bool | `false` |  |
@@ -113,12 +113,12 @@ A Helm chart for DPF storage subsystem
 | host.snapCsiPlugin.node.imagePullSecrets | list | `[]` |  |
 | host.snapCsiPlugin.node.kubeletDir | string | `"/var/lib/kubelet"` |  |
 | host.snapCsiPlugin.node.livenessProbe.image.repository | string | `"registry.k8s.io/sig-storage/livenessprobe"` |  |
-| host.snapCsiPlugin.node.livenessProbe.image.tag | string | `"v2.17.0"` |  |
+| host.snapCsiPlugin.node.livenessProbe.image.tag | string | `"v2.18.0"` |  |
 | host.snapCsiPlugin.node.livenessProbe.imagePullPolicy | string | `"IfNotPresent"` |  |
 | host.snapCsiPlugin.node.livenessProbe.resources | object | `{}` |  |
 | host.snapCsiPlugin.node.livenessProbe.securityContext.allowPrivilegeEscalation | bool | `false` |  |
 | host.snapCsiPlugin.node.nodeDriverRegistrar.image.repository | string | `"registry.k8s.io/sig-storage/csi-node-driver-registrar"` |  |
-| host.snapCsiPlugin.node.nodeDriverRegistrar.image.tag | string | `"v2.15.0"` |  |
+| host.snapCsiPlugin.node.nodeDriverRegistrar.image.tag | string | `"v2.16.0"` |  |
 | host.snapCsiPlugin.node.nodeDriverRegistrar.imagePullPolicy | string | `"IfNotPresent"` |  |
 | host.snapCsiPlugin.node.nodeDriverRegistrar.resources | object | `{}` |  |
 | host.snapCsiPlugin.node.nodeDriverRegistrar.securityContext.allowPrivilegeEscalation | bool | `false` |  |
