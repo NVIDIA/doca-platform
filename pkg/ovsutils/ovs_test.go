@@ -458,13 +458,17 @@ var _ = Describe("OVSUtils", func() {
 	Describe("BridgeConfig", func() {
 		It("should support all fields", func() {
 			secureMode := failModeSecure
+			internalName := "br0-int"
 			config := BridgeConfig{
-				Name:         "br-test",
-				DatapathType: "system",
-				FailMode:     &secureMode,
+				Name:                  "br-test",
+				InternalInterfaceName: &internalName,
+				DatapathType:          "system",
+				FailMode:              &secureMode,
 			}
 
 			Expect(config.Name).To(Equal("br-test"))
+			Expect(config.InternalInterfaceName).NotTo(BeNil())
+			Expect(*config.InternalInterfaceName).To(Equal("br0-int"))
 			Expect(config.DatapathType).To(Equal("system"))
 			Expect(config.FailMode).NotTo(BeNil())
 			Expect(*config.FailMode).To(Equal(failModeSecure))
@@ -606,6 +610,12 @@ var _ = Describe("OVSUtils", func() {
 		})
 
 		Describe("AddBridge", func() {
+			var mockConditionalAPI *MockConditionalAPI
+
+			BeforeEach(func() {
+				mockConditionalAPI = NewMockConditionalAPI(mockCtrl)
+			})
+
 			DescribeTable("should handle bridge existence checks",
 				func(getError error, expectError bool, errorSubstring string) {
 					mockOVSClient.EXPECT().
@@ -627,6 +637,95 @@ var _ = Describe("OVSUtils", func() {
 				Entry("when bridge already exists (idempotent)", nil, false, ""),
 				Entry("when Get returns non-ErrNotFound error", errors.New("database connection lost"), true, "failed to get bridge"),
 			)
+
+			It("should fail when InternalInterfaceName exceeds 15 characters", func() {
+				longName := "sixteen-char-name!!"
+				config := BridgeConfig{
+					Name:                  "br-test",
+					InternalInterfaceName: &longName,
+					DatapathType:          "system",
+				}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+
+				err := client.AddBridge(ctx, config)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("exceeds maximum length"))
+			})
+
+			It("should fail when bridge name exceeds 15 characters and InternalInterfaceName is not set", func() {
+				config := BridgeConfig{
+					Name:         "bridge-name-too-long",
+					DatapathType: "system",
+				}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+
+				err := client.AddBridge(ctx, config)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("15"))
+				Expect(err.Error()).To(ContainSubstring("exceeds maximum length"))
+			})
+
+			It("should use InternalInterfaceName for port and interface when set", func() {
+				var createdPort *ovsmodel.Port
+				var createdIface *ovsmodel.Interface
+
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+				mockOVSClient.EXPECT().
+					Create(gomock.Any()).
+					DoAndReturn(func(models ...interface{}) ([]ovsdb.Operation, error) {
+						// First Create is bridge
+						return []ovsdb.Operation{}, nil
+					})
+				mockOVSClient.EXPECT().
+					Create(gomock.Any()).
+					DoAndReturn(func(models ...interface{}) ([]ovsdb.Operation, error) {
+						port := models[0].(*ovsmodel.Port)
+						createdPort = port
+						return []ovsdb.Operation{}, nil
+					})
+				mockOVSClient.EXPECT().
+					Create(gomock.Any()).
+					DoAndReturn(func(models ...interface{}) ([]ovsdb.Operation, error) {
+						iface := models[0].(*ovsmodel.Interface)
+						createdIface = iface
+						return []ovsdb.Operation{}, nil
+					})
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]*ovsmodel.OpenvSwitch)
+						*ptr = []*ovsmodel.OpenvSwitch{{UUID: "ovs-uuid"}}
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				brShort := "br-short"
+				config := BridgeConfig{
+					Name:                  "br-very-long-bridge-name",
+					InternalInterfaceName: &brShort,
+					DatapathType:          "system",
+				}
+				err := client.AddBridge(ctx, config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(createdPort).NotTo(BeNil())
+				Expect(createdPort.Name).To(Equal("br-short"))
+				Expect(createdIface).NotTo(BeNil())
+				Expect(createdIface.Name).To(Equal("br-short"))
+			})
 		})
 
 		Describe("AddPort", func() {
