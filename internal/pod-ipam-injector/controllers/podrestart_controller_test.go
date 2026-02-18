@@ -881,12 +881,12 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					},
 				)
 
-				By("Get fresh copy before updating status to avoid conflicts")
-				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
-
-				By("Set pod to Running state")
-				pod.Status.Phase = corev1.PodRunning
-				Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+				By("Set pod to Running state (retry on conflict if controller updates pod)")
+				Eventually(func(g Gomega) {
+					g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
+					pod.Status.Phase = corev1.PodRunning
+					g.Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+				}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
 
 				By("Verify ServiceChain has correct node")
 				Eventually(func(g Gomega) {
@@ -905,8 +905,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				}).WithTimeout(5 * time.Second).Should(Succeed())
 
 				By("Trigger ServiceChain reconciliation to check for pod restart")
-				// Update the ServiceChain to trigger reconciliation
-				serviceChain.Spec.Switches[0].ServiceMTU = ptr.To(1600) // Change MTU to trigger reconciliation
+				serviceChain.Spec.Switches[0].ServiceMTU = ptr.To(1600)
 				Expect(testClient.Patch(ctx, serviceChain, client.Merge)).To(Succeed())
 
 				By("Verify pod is eventually deleted due to digest mismatch")
