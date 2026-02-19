@@ -29,7 +29,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
-	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -39,8 +38,8 @@ import (
 )
 
 //nolint:dupl
-var _ = Describe("DPF Upgrade tests", Labels{dpfUpgradeTestLabel}, func() {
-	Context("should pass", Labels{requiresNodesLabel}, Serial, Ordered, func() {
+var _ = Describe("DPF Upgrade tests", Labels{Domain.DPFUpgrade}, func() {
+	Context("should pass", Labels{Domain.RequiresNodes}, Serial, Ordered, func() {
 		It("create DPFOperatorConfig", func() {
 			SystemSetupBeforeSuite()
 			By("Pre provisioning DPU cluster setup")
@@ -66,7 +65,7 @@ var _ = Describe("DPF Upgrade tests", Labels{dpfUpgradeTestLabel}, func() {
 			Expect(input.client.Create(ctx, dpuServiceConfiguration2)).To(Succeed())
 
 			dpuServiceIPAM := input.ipPoolDPUServiceIPAM.DeepCopy()
-			dpuServiceIPAM.SetLabels(testutils.AfterAllCleanupLabels)
+			dpuServiceIPAM.SetLabels(CleanupScope.Suite)
 			dpuServiceIPAM.SetName("dpudeployment-ipam-pool1")
 			dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
 			// Remove selectors so it applies to all nodes
@@ -143,8 +142,8 @@ var _ = Describe("DPF Upgrade tests", Labels{dpfUpgradeTestLabel}, func() {
 	})
 })
 
-var _ = Describe("DPF Upgrade validation", Labels{dpfUpgradeValidationTestLabel}, func() {
-	Context("should pass", Labels{requiresNodesLabel}, Serial, Ordered, func() {
+var _ = Describe("DPF Upgrade validation", Labels{Domain.DPFUpgradeValidation}, func() {
+	Context("should pass", Labels{Domain.RequiresNodes}, Serial, Ordered, func() {
 		It("validate rollout is done and pre-upgrade validation successful", func() {
 			By("validating pre-upgrade conditions")
 			validatePreUpgradeConditions(ctx, input)
@@ -283,7 +282,7 @@ func collectGenerations(configMapName string) {
 	configMap := &corev1.ConfigMap{}
 	configMap.SetName(configMapName)
 	configMap.SetNamespace(dpfOperatorSystemNamespace)
-	configMap.SetLabels(testutils.AfterAllCleanupLabels)
+	configMap.SetLabels(CleanupScope.Suite)
 	configMap.Data = map[string]string{
 		"generations.json": string(genData),
 	}

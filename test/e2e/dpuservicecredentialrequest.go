@@ -82,7 +82,7 @@ func ValidateDPUServiceCredentialRequestMetrics(ctx context.Context, input *syst
 }
 
 func ValidateDPUServiceCredentialRequestDeletion(ctx context.Context, input *systemTestInput) {
-	if input.skipCleanup {
+	if input.cleanupFlags.SkipCleanup {
 		Skip("Skip cleanup resources")
 	}
 

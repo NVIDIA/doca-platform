@@ -25,7 +25,7 @@ func SNAPBeforeSuite() {
 }
 
 //nolint:dupl
-var _ = Describe("DPF SNAP tests", Labels{dpfSystemLabel, snapLabel}, func() {
+var _ = Describe("DPF SNAP tests", Labels{Domain.DPFSystem, Domain.SNAP}, func() {
 
 	BeforeEach(func() {
 		By("Placeholder for the SNAP BeforeEach test condition check/action")
@@ -34,6 +34,6 @@ var _ = Describe("DPF SNAP tests", Labels{dpfSystemLabel, snapLabel}, func() {
 		By("Placeholder for the SNAP AfterEach test condition check/action/cleanup")
 	})
 
-	Context("Placeholder for the SNAP tests", Labels{requiresNodesLabel}, Serial, func() {
+	Context("Placeholder for the SNAP tests", Labels{Domain.RequiresNodes}, Serial, func() {
 	})
 })

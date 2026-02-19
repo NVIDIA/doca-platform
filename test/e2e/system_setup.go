@@ -33,7 +33,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/dpfctl"
 	operatorutils "github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
-	testutils "github.com/nvidia/doca-platform/test/utils"
+	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils/collector"
 	"github.com/nvidia/doca-platform/test/utils/tunnel"
 
@@ -109,7 +109,7 @@ type systemTestInput struct {
 	useExternalNodeReboot       bool
 	pullSecretNames             []string
 	client                      client.Client
-	skipCleanup                 bool
+	cleanupFlags                *cleanup.CleanupFlags
 	bfbImageURL                 string
 	restConfig                  *rest.Config
 	HostRebootScript            string
@@ -322,7 +322,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		pvc := input.ProvisioningControllerPVC.DeepCopy()
 		pvc.SetName(input.operatorConfig.Spec.ProvisioningController.BFBPersistentVolumeClaimName)
 		pvc.SetNamespace(input.systemNamespace)
-		pvc.SetLabels(testutils.AfterAllCleanupLabels)
+		pvc.SetLabels(CleanupScope.Suite)
 		Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, pvc))).NotTo(HaveOccurred())
 	}
 
@@ -332,7 +332,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      secretName,
 				Namespace: input.systemNamespace,
-				Labels:    testutils.AfterAllCleanupLabels,
+				Labels:    CleanupScope.Suite,
 			},
 		}
 		Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, secret))).ToNot(HaveOccurred())
@@ -340,7 +340,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 
 	// Create NodePort service for bfb-registry BEFORE creating DPFOperatorConfig
 	// This allows DPFOperatorConfig to be configured with the NodePort address from the start
-	if isGinkgoLabelApplied(zeroTrustLabel) {
+	if isGinkgoLabelApplied(Domain.ZeroTrust) {
 		By("create NodePort service for bfb-registry (before DPFOperatorConfig)")
 		// Use nodePort 30080 (configurable if needed)
 		nodePort := int32(30080)
@@ -351,7 +351,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "bfb-registry-nodeport",
 				Namespace: input.systemNamespace,
-				Labels:    testutils.AfterAllCleanupLabels,
+				Labels:    CleanupScope.Suite,
 			},
 			Spec: corev1.ServiceSpec{
 				Type: corev1.ServiceTypeNodePort,
@@ -389,7 +389,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 	By("create the DPFOperatorConfig for the system")
 	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, input.operatorConfig))).NotTo(HaveOccurred())
 
-	if isGinkgoLabelApplied(zeroTrustLabel) {
+	if isGinkgoLabelApplied(Domain.ZeroTrust) {
 		By("Deploy DPUDiscovery for ZeroTrust")
 		CreateDPUDiscovery(ctx, input)
 
@@ -491,7 +491,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) {
 	By("create prerequisites objects for DPUClusters")
 	for _, obj := range input.dpuClusterPrerequisites {
-		obj.SetLabels(testutils.AfterAllCleanupLabels)
+		obj.SetLabels(CleanupScope.Suite)
 		// We need to check if object already exists before creating. client.IgnoreAlreadyExists does not work in this case as the error will be "port is already allocated"
 		existing := obj.DeepCopyObject().(client.Object)
 		err := input.client.Get(ctx, types.NamespacedName{
@@ -513,7 +513,7 @@ func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) 
 		dpuClusterLabels := map[string]string{
 			"svc.dpu.nvidia.com/cluster": dpuCluster.Name,
 		}
-		maps.Copy(dpuClusterLabels, testutils.AfterAllCleanupLabels)
+		maps.Copy(dpuClusterLabels, CleanupScope.Suite)
 		dpuCluster.SetLabels(dpuClusterLabels)
 		By(fmt.Sprintf("Creating DPU Cluster %s/%s", dpuCluster.GetNamespace(), dpuCluster.GetName()))
 		Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuCluster))).NotTo(HaveOccurred())
@@ -545,7 +545,7 @@ func ProvisionBFBAndDPUFlavor(ctx context.Context, input ProvisionDPUClustersInp
 	Eventually(func(g Gomega) {
 		By("creating the BFB")
 		bfb := input.bfb.DeepCopy()
-		bfb.SetLabels(testutils.AfterAllCleanupLabels)
+		bfb.SetLabels(CleanupScope.Suite)
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, bfb))).NotTo(HaveOccurred())
 	}).WithTimeout(10 * time.Second).Should(Succeed())
 
@@ -556,7 +556,7 @@ func ProvisionBFBAndDPUFlavor(ctx context.Context, input ProvisionDPUClustersInp
 		}
 		By("Creating the DPUFlavor")
 		dpuFlavor := input.dpuFlavor.DeepCopy()
-		dpuFlavor.SetLabels(testutils.AfterAllCleanupLabels)
+		dpuFlavor.SetLabels(CleanupScope.Suite)
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuFlavor))).NotTo(HaveOccurred())
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 
@@ -578,7 +578,7 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 		By("Creating the DPUSet")
 		dpuset := input.dpuSet.DeepCopy()
 		// TODO: Test the cleanup of the node related to the DPU.
-		dpuset.SetLabels(testutils.AfterAllCleanupLabels)
+		dpuset.SetLabels(CleanupScope.Suite)
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuset))).NotTo(HaveOccurred())
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 
@@ -631,7 +631,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 	expectedDPUs := input.numberOfDPUNodes * input.numberOfDPUsPerNode
 	tracker := NewByTracker()
 
-	if isGinkgoLabelApplied(zeroTrustLabel) {
+	if isGinkgoLabelApplied(Domain.ZeroTrust) {
 		RebootAndVerifyDPU(ctx, input)
 	}
 
@@ -829,7 +829,7 @@ func CreateDPUDiscovery(ctx context.Context, input DeployDPFSystemComponentsInpu
 	Expect(input.dpuDiscovery).NotTo(BeNil(), "dpuDiscovery config is required for ZeroTrust")
 	discovery := input.dpuDiscovery.DeepCopy()
 	discovery.SetNamespace(input.systemNamespace)
-	discovery.SetLabels(testutils.AfterAllCleanupLabels)
+	discovery.SetLabels(CleanupScope.Suite)
 
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, discovery))).NotTo(HaveOccurred())
 
@@ -953,7 +953,7 @@ func unstructuredFromFile(path string) *unstructured.Unstructured {
 	Expect(err).ToNot(HaveOccurred())
 	obj := &unstructured.Unstructured{}
 	Expect(yaml.Unmarshal(data, obj)).To(Succeed())
-	obj.SetLabels(testutils.AfterAllCleanupLabels)
+	obj.SetLabels(CleanupScope.Suite)
 	return obj
 }
 
