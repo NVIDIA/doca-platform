@@ -197,7 +197,7 @@ func CreateProvisioningDPUCluster(ctx context.Context, input *systemTestInput) {
 	for i, obj := range input.dpuClusterPrerequisites {
 		// Deep copy to avoid mutating the shared original object
 		objCopy := obj.DeepCopyObject().(client.Object)
-		objCopy.SetLabels(testutils.AfterAllCleanupLabels)
+		objCopy.SetLabels(CleanupScope.Suite)
 
 		existing := objCopy.DeepCopyObject().(client.Object)
 		err := input.client.Get(ctx, types.NamespacedName{
@@ -222,7 +222,7 @@ func CreateProvisioningDPUCluster(ctx context.Context, input *systemTestInput) {
 
 	// Deep copy to avoid mutating the shared original object
 	dpuCluster := input.dpuClusters[0].DeepCopy()
-	dpuCluster.SetLabels(testutils.AfterAllCleanupLabels)
+	dpuCluster.SetLabels(CleanupScope.Suite)
 
 	By(fmt.Sprintf("Creating DPUCluster %s/%s",
 		dpuCluster.GetNamespace(),
@@ -260,7 +260,7 @@ func CreateProvisioningDPUCluster(ctx context.Context, input *systemTestInput) {
 	})
 
 	bfb := input.bfb.DeepCopy()
-	bfb.SetLabels(testutils.AfterAllCleanupLabels)
+	bfb.SetLabels(CleanupScope.Suite)
 
 	// Override BFB URL if environment variable is set (on the copy, not the original)
 	if input.bfbImageURL != "" {
@@ -301,7 +301,7 @@ func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
 	Expect(input.dpuFlavor).NotTo(BeNil(), "dpuFlavor is required - check test configuration")
 
 	dpuFlavor := input.dpuFlavor.DeepCopy()
-	dpuFlavor.SetLabels(testutils.AfterAllCleanupLabels)
+	dpuFlavor.SetLabels(CleanupScope.Suite)
 	By(fmt.Sprintf("Creating DPUFlavor %s/%s", dpuFlavor.GetNamespace(), dpuFlavor.GetName()))
 	Eventually(func(g Gomega) {
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuFlavor))).To(Succeed())
@@ -317,7 +317,7 @@ func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
 	}).WithTimeout(1 * time.Minute).Should(Succeed())
 
 	dpuset := input.dpuSet.DeepCopy()
-	dpuset.SetLabels(testutils.AfterAllCleanupLabels)
+	dpuset.SetLabels(CleanupScope.Suite)
 	By(fmt.Sprintf("Creating DPUSet %s/%s", dpuset.GetNamespace(), dpuset.GetName()))
 	Eventually(func(g Gomega) {
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuset))).To(Succeed())

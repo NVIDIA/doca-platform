@@ -23,7 +23,7 @@ import (
 )
 
 //nolint:dupl
-var _ = Describe("DPF System tests - Multi DPUCluster", Labels{multiDPUClusterLabel}, Ordered, func() {
+var _ = Describe("DPF System tests - Multi DPUCluster", Labels{Domain.MultiDPUCluster}, Ordered, func() {
 	BeforeAll(func() {
 		if input.numberOfDPUNodes != 2 {
 			Skip("Skip test as exactly 2 nodes are required for multi DPUCluster testing")

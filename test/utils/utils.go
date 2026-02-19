@@ -34,6 +34,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -50,24 +51,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// Cleanup labels used across e2e tests
-var (
-	AfterAllCleanupLabels  = map[string]string{"dpf-operator-e2e-test-cleanup": "true"}
-	AfterEachCleanupLabels = map[string]string{"between-tests-cleanup": "true"}
-)
-
 // GenerateDPUObj sets the name, namespace, and labels on a given client.Object.
-// Optionally, customLabels can be provided to override the default cleanup labels.
-// AfterAllCleanupLabels are always merged into the final label set.
+// Default is It scope cleanup labels; if customLabels provided, they replace the default.
 func GenerateDPUObj[T client.Object](name, ns string, obj T, customLabels ...map[string]string) T {
 	obj.SetName(name)
 	obj.SetNamespace(ns)
-	labels := AfterEachCleanupLabels
+	// Default to It scope labels; replace with customLabels if provided
+	labels := cleanup.CleanupLabels.It
 	if len(customLabels) > 0 {
 		labels = customLabels[0]
-	}
-	for k, v := range AfterAllCleanupLabels {
-		labels[k] = v
 	}
 	obj.SetLabels(labels)
 	return obj

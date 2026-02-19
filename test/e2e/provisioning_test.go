@@ -26,14 +26,14 @@ func ProvisioningBeforeSuite() {
 }
 
 //nolint:dupl
-var _ = Describe("DPF System tests - Provisioning", Labels{provisioningLabel}, Ordered, func() {
+var _ = Describe("DPF System tests - Provisioning", Labels{Domain.Provisioning}, Ordered, func() {
 	BeforeAll(func() {
 		BeforeProvisioning(ctx, input)
 	})
 
 	AfterAll(func() {
 		By("Cleaning up test suite resources")
-		if skipCleanup {
+		if cleanupFlags.SkipCleanup {
 			By("Skip cleanup")
 			return
 		}
@@ -52,7 +52,7 @@ var _ = Describe("DPF System tests - Provisioning", Labels{provisioningLabel}, O
 	})
 
 	It("Delete all provisioning resources", func() {
-		if skipCleanup {
+		if cleanupFlags.SkipCleanup {
 			Skip("Skipping deprovisioning tests because skipCleanup is enabled")
 		}
 		DeleteProvisioning(ctx, input)

@@ -45,7 +45,7 @@ func ValidateDPUServiceIPAMCreationInvalid(ctx context.Context, input *systemTes
 		},
 	}
 	dpuServiceIPAM.SetGroupVersionKind(dpuservicev1.DPUServiceIPAMGroupVersionKind)
-	dpuServiceIPAM.SetLabels(testutils.AfterEachCleanupLabels)
+	dpuServiceIPAM.SetLabels(CleanupScope.It)
 	err := input.client.Create(ctx, dpuServiceIPAM)
 	Expect(err).To(HaveOccurred())
 	fmt.Printf("Error creating the DPUServiceIPAM CR: %v\n", err)
@@ -116,7 +116,7 @@ func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *systemTestInput) 
 
 func ValidateDPUServiceIPAMMetricsDeletion(ctx context.Context, input *systemTestInput) {
 	dpuServiceIPAMWithIPPoolName := "switched-application-delete"
-	if input.skipCleanup {
+	if input.cleanupFlags.SkipCleanup {
 		Skip("Skip cleanup resources")
 	}
 
@@ -175,7 +175,7 @@ func ValidateDPUServiceIPAMCreationCidrSplit(ctx context.Context, input *systemT
 }
 
 func ValidateDPUServiceIPAMDeletionCidrSplit(ctx context.Context, input *systemTestInput) {
-	if input.skipCleanup {
+	if input.cleanupFlags.SkipCleanup {
 		Skip("Skip cleanup resources")
 	}
 	dpuServiceIPAMWithCIDRPoolName := "routed-application-delete"
