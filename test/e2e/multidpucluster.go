@@ -24,7 +24,6 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
-	"github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -53,7 +52,7 @@ func ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster(ctx context.Co
 	By("Creating DPUServiceNAD")
 	nadName := "brsfc-no-ipam"
 	dpuServiceNAD := constructDPUServiceNAD(nadName, "dpf-operator-system", 1500)
-	dpuServiceNAD.Labels = utils.AfterAllCleanupLabels
+	dpuServiceNAD.Labels = CleanupScope.Suite
 	Expect(input.client.Create(ctx, dpuServiceNAD)).To(Succeed())
 
 	By("Creating DPUServiceTemplate")
@@ -148,7 +147,7 @@ func ValidateDPUServiceIPAMInL2ModeForMultiDPUCluster(ctx context.Context, input
 	}
 	dpuServiceIPAMTemplate := input.ipPoolDPUServiceIPAM.DeepCopy()
 	dpuServiceIPAMTemplate.SetNamespace(dpfOperatorSystemNamespace)
-	dpuServiceIPAMTemplate.Labels = utils.AfterAllCleanupLabels
+	dpuServiceIPAMTemplate.Labels = CleanupScope.Suite
 	dpuServiceIPAMTemplate.Spec.ObjectMeta.Labels = poolLabel
 	dpuServiceIPAMTemplate.Spec.NodeSelector = nil
 	By("Creating DPUServiceIPAM for the first cluster")
@@ -260,7 +259,7 @@ func ValidateDPUServiceIPAMInL3ModeForMultiDPUCluster(ctx context.Context, input
 	}
 	dpuServiceIPAMTemplate := input.cidrDPUServiceIPAM.DeepCopy()
 	dpuServiceIPAMTemplate.SetNamespace(dpfOperatorSystemNamespace)
-	dpuServiceIPAMTemplate.Labels = utils.AfterAllCleanupLabels
+	dpuServiceIPAMTemplate.Labels = CleanupScope.Suite
 	dpuServiceIPAMTemplate.Spec.ObjectMeta.Labels = poolLabel
 	dpuServiceIPAMTemplate.Spec.NodeSelector = nil
 

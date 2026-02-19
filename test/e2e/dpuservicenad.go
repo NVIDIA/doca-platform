@@ -61,7 +61,7 @@ func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *systemTestIn
 	createTestNamespace(ctx, input.client, namespace)
 
 	By("Copy image pull secret to namespace " + namespace)
-	CopySecretToNamespace(ctx, input.client, dpfPullSecretName, dpfOperatorSystemNamespace, namespace, utils.AfterEachCleanupLabels)
+	CopySecretToNamespace(ctx, input.client, dpfPullSecretName, dpfOperatorSystemNamespace, namespace, CleanupScope.It)
 
 	By("Create DPUServiceNAD")
 	dpuServiceNAD := constructDPUServiceNAD(dpuServiceNADName, namespace, mtu)
@@ -122,7 +122,7 @@ func constructDPUServiceNAD(name, namespace string, mtu int) *dpuservicev1.DPUSe
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels:    utils.AfterEachCleanupLabels,
+			Labels:    CleanupScope.It,
 		},
 		Spec: dpuservicev1.DPUServiceNADSpec{
 			ResourceType: "sf",
@@ -139,7 +139,7 @@ func constructDPUServiceInterface(name, namespace, serviceName string, network s
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels:    utils.AfterEachCleanupLabels,
+			Labels:    CleanupScope.It,
 		},
 	}
 	dpuServiceInterface.Spec.Template.Spec.Template.ObjectMeta.Labels = serviceInterfaceLabels
@@ -158,7 +158,7 @@ func constructDPUServiceChain(name, namespace string, mtu int, serviceInterfaceL
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels:    utils.AfterEachCleanupLabels,
+			Labels:    CleanupScope.It,
 		},
 	}
 	dpuServiceChain.Spec.Template.Spec.Template.Spec.Switches = []dpuservicev1.Switch{
@@ -182,7 +182,7 @@ func constructDummyDPUServiceObject(serviceName, namespace, interfaceName string
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceName,
 			Namespace: namespace,
-			Labels:    utils.AfterEachCleanupLabels,
+			Labels:    CleanupScope.It,
 		},
 	}
 

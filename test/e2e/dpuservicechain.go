@@ -121,7 +121,7 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *systemTestInput)
 }
 
 func ValidateDPUServiceChainDeletion(ctx context.Context, input *systemTestInput) {
-	if input.skipCleanup {
+	if input.cleanupFlags.SkipCleanup {
 		Skip("Skip cleanup resources")
 	}
 	dpuServiceInterfaceName := "pf0-vf2-delete"

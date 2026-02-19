@@ -27,7 +27,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
-	"github.com/nvidia/doca-platform/test/utils"
+	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
 	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
 
@@ -53,6 +53,45 @@ const (
 	// SDNTestPriority is the test priority for the "DPF System tests - SDN" test suite.
 	SDNTestPriority = 100
 )
+
+// CleanupScope is an alias for cleanup.CleanupLabels for ease of use
+var CleanupScope = cleanup.CleanupLabels
+
+// TestDomain defines test label domains for categorizing e2e tests
+type TestDomain struct {
+	DPFSystem            string // DPFSystem test suite (e2e, provisioning-e2e)
+	Scale                string // Scale test suite
+	SDN                  string // SDN test suite
+	SNAP                 string // SNAP test suite
+	Provisioning         string // Provisioning test suite
+	RequiresNodes        string // Tests that require at least 1 DPU to be provisioned
+	L2Connectivity       string // Tests that require L2 connectivity between nodes
+	DPFUpgrade           string // Upgrade test suite
+	DPFUpgradeValidation string // Upgrade validation test suite
+	ExternalTest         string // External test scripts (DPF precondition setup)
+	OVNKPrimary          string // Tests that need OVNK as primary CNI
+	DPFVPCOVN            string // VPC OVN test suite
+	MultiDPUCluster      string // Multi DPUCluster setup tests
+	ZeroTrust            string // Zero Trust mode in DPFOperatorConfig on the BeforeSuite stage
+}
+
+// Domain is the global instance of test label domains
+var Domain = TestDomain{
+	DPFSystem:            "DPFSystem",
+	Scale:                "SCALE",
+	SDN:                  "SDN",
+	SNAP:                 "SNAP",
+	Provisioning:         "Provisioning",
+	RequiresNodes:        "RequiresNodes",
+	L2Connectivity:       "L2Connectivity",
+	DPFUpgrade:           "DPFUpgrade",
+	DPFUpgradeValidation: "DPFUpgradeValidation",
+	ExternalTest:         "ExternalTest",
+	OVNKPrimary:          "OVNKPrimary",
+	DPFVPCOVN:            "DPFVPCOVN",
+	MultiDPUCluster:      "MultiDPUCluster",
+	ZeroTrust:            "ZeroTrust",
+}
 
 var (
 	dpuClusterClient             []client.Client
@@ -101,6 +140,7 @@ var (
 		&corev1.ServiceList{},
 		&corev1.PodList{},
 		&corev1.SecretList{},
+		&corev1.ConfigMapList{},
 		&vpcv1.DPUVirtualNetworkList{},
 		&vpcv1.DPUVPCList{},
 		&vpcv1.IsolationClassList{},
@@ -127,36 +167,6 @@ const (
 	ngcPullSecretName = "ngc-pull-secret"
 	// dpfPullSecretName is the name of the secret that is set in hack/scripts/create-artefact-secrets.sh
 	dpfPullSecretName = "dpf-pull-secret"
-	// scaleLabel is used to mark the tests related to the Scale test suite
-	scaleLabel = "SCALE"
-	// dpfSystemLabel is used to mark the tests related to the DPFSystem test suite, ex: e2e, provisioning-e2e
-	dpfSystemLabel = "DPFSystem"
-	// multiDPUCluster is used to mark the tests related to testing the DPF in a multi DPUCluster setup
-	multiDPUClusterLabel = "MultiDPUCluster"
-	// sdnLabel is used to mark the tests related to the SDN test suite, ex: sdn
-	sdnLabel = "SDN"
-	// snapLabel is used to mark the tests related to the SNAP test suite, ex: snap
-	snapLabel = "SNAP"
-	// provisioningLabel is used to mark the tests related to the Provisioning test suite, ex: provisioning
-	provisioningLabel = "Provisioning"
-	// requiresNodesLabel is used to mark the tests that has steps require at least 1 DPU to be provisioned to get the correct signal. Such tests should still pass without any DPU.
-	requiresNodesLabel = "RequiresNodes"
-	// l2ConnectivityLabel is used to mark the tests that require L2 connectivity between nodes
-	l2ConnectivityLabel = "L2Connectivity"
-	// dpfUpgradeTestLabel is used to mark the tests related to the upgrade test suite.
-	dpfUpgradeTestLabel = "DPFUpgrade"
-	// dpfUpgradeTestLabel is used to mark the tests related to the upgrade test suite.
-	dpfUpgradeValidationTestLabel = "DPFUpgradeValidation"
-	// externalTestLabel is used run DPF precondition (DPFOperator, DPFComponents and DPUProvisioning). Run external test as a part of the suite.
-	externalTestLabel = "ExternalTest"
-	// ovnkPrimaryLabel is used to mark the tests that need to run with OVNK as primary CNI.
-	ovnkPrimaryLabel = "OVNKPrimary"
-	// ovnkHbnLabel is used to mark the tests that need to run with OVNK as primary CNI while having HBN deployed alongside it.
-	ovnkHbnLabel = "OVNKHBN"
-	// dpfVPCTestLabel is used to mark the tests related to the VPC OVN test suite.
-	dpfVPCTestLabel = "DPFVPCOVN"
-	// zeroTrustLabel is used to apply Zero Trust mode in DPFOperatorConfig on the BeforeSuite stage. Also is used to mark the tests  that can run in ZT mode.
-	zeroTrustLabel = "ZeroTrust"
 )
 
 // EventuallyCheckReadyStatusCondition checks for the Ready condition on any object having a Status.Conditions[...].Type == "Ready" field
@@ -197,8 +207,8 @@ func (b *ByTracker) By(key string, format string, args ...interface{}) {
 func createTestNamespace(ctx context.Context, testClient client.Client, namespace string) {
 	testNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
 	cleanupLabels := make(map[string]string)
-	maps.Copy(cleanupLabels, utils.AfterEachCleanupLabels)
-	maps.Copy(cleanupLabels, utils.AfterAllCleanupLabels)
+	maps.Copy(cleanupLabels, CleanupScope.It)
+	maps.Copy(cleanupLabels, CleanupScope.Suite)
 	testNS.SetLabels(cleanupLabels)
 	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, testNS))).To(Succeed())
 }
