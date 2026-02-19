@@ -55,6 +55,10 @@ var ErrDPUClusterNotConnected = fmt.Errorf("dpu cluster is not connected")
 // The function should return a Watcher that will be used to watch for events for the given cluster.
 type GetWatcherCallback func(ctx context.Context, c client.Client, cluster client.ObjectKey) (Watcher, error)
 
+// GetIndexerCallback is called when a cache for a dpu cluster is created.
+// The function should add field indexes to the cache before it is started.
+type GetIndexerCallback func(ctx context.Context, cache cache.Cache) error
+
 type Options struct {
 	// hostClient is the client for the host cluster. It is used to fetch the
 	// kubeconfig secret.
@@ -63,6 +67,10 @@ type Options struct {
 	// getWatcherCallbacks is a list of functions that are called when a client for a dpu cluster is created.
 	// The functions should return a Watcher that will be used to watch for events for the given cluster.
 	getWatcherCallbacks []GetWatcherCallback
+
+	// getIndexerCallbacks is a list of functions that are called when a cache for a dpu cluster is created.
+	// The functions should add field indexes to the cache before it is started.
+	getIndexerCallbacks []GetIndexerCallback
 
 	// initialSyncTimeout is the timeout used when waiting for the cache to sync after cache start.
 	initialSyncTimeout time.Duration
@@ -217,6 +225,15 @@ type OptionGetWatcherCallbacks struct {
 
 func (o OptionGetWatcherCallbacks) Apply(options *Options) {
 	options.getWatcherCallbacks = o.GetWatcherCallbacks
+}
+
+// OptionGetIndexerCallbacks is a list of functions that are called when a cache for a dpu cluster is created.
+type OptionGetIndexerCallbacks struct {
+	GetIndexerCallbacks []GetIndexerCallback
+}
+
+func (o OptionGetIndexerCallbacks) Apply(options *Options) {
+	options.getIndexerCallbacks = o.GetIndexerCallbacks
 }
 
 // Watcher is an interface that can start a Watch.
