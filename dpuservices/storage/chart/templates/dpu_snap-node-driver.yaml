@@ -34,6 +34,7 @@ spec:
           {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
+      automountServiceAccountToken: false
       {{- with .Values.dpu.snapNodeDriver.imagePullSecrets | default .Values.imagePullSecrets | default list }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -74,6 +75,9 @@ spec:
               {{- . | nindent 14 }}
           {{- end }}
           volumeMounts:
+            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              name: kube-api-access
+              readOnly: true
             - name: plugins
               mountPath: /var/lib/nvidia/storage/snap/plugins
               mountPropagation: "HostToContainer"
@@ -83,6 +87,23 @@ spec:
           securityContext:
             {{- toYaml .Values.dpu.snapNodeDriver.securityContext | nindent 12 }}
       volumes:
+        - name: kube-api-access
+          projected:
+            defaultMode: 420
+            sources:
+            - serviceAccountToken:
+                path: token
+            - configMap:
+                items:
+                - key: ca.crt
+                  path: ca.crt
+                name: kube-root-ca.crt
+            - downwardAPI:
+                items:
+                - fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.namespace
+                  path: namespace
         - name: plugins
           hostPath:
             path: /var/lib/nvidia/storage/snap/plugins

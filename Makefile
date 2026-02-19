@@ -764,6 +764,27 @@ verify-manifest-operator-embedded-%: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) bi
 verify-manifest-storage-host-snap-csi-plugin: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's host snap-csi-plugin component
 	$Q $(HELM) template dpuservices/storage/chart \
 	  --set host.snapCsiPlugin.enabled=true \
+	  --set host.snapCsiPlugin.controller.plugin.resources.limits.cpu=1m \
+	  --set host.snapCsiPlugin.controller.plugin.resources.limits.memory=1Mi \
+	  --set host.snapCsiPlugin.controller.externalProvisioner.resources.limits.cpu=1m \
+	  --set host.snapCsiPlugin.controller.externalProvisioner.resources.limits.memory=1Mi \
+	  --set host.snapCsiPlugin.controller.externalAttacher.resources.limits.cpu=1m \
+	  --set host.snapCsiPlugin.controller.externalAttacher.resources.limits.memory=1Mi \
+	  --set host.snapCsiPlugin.controller.livenessProbe.resources.limits.cpu=1m \
+	  --set host.snapCsiPlugin.controller.livenessProbe.resources.limits.memory=1Mi \
+	  --set host.snapCsiPlugin.node.plugin.resources.limits.cpu=1m \
+	  --set host.snapCsiPlugin.node.plugin.resources.limits.memory=1Mi \
+	  --set host.snapCsiPlugin.node.livenessProbe.resources.limits.cpu=1m \
+	  --set host.snapCsiPlugin.node.livenessProbe.resources.limits.memory=1Mi \
+      --set serviceDaemonSet.resources.cpu=1m \
+      --set serviceDaemonSet.resources.memory=1Mi \
+      --set host.snapCsiPlugin.controller.plugin.image.tag=c@sha256:d \
+      --set host.snapCsiPlugin.controller.externalProvisioner.image.tag=c@sha256:d \
+      --set host.snapCsiPlugin.controller.externalAttacher.image.tag=c@sha256:d \
+      --set host.snapCsiPlugin.controller.livenessProbe.image.tag=c@sha256:d \
+      --set host.snapCsiPlugin.node.plugin.image.tag=c@sha256:d \
+      --set host.snapCsiPlugin.node.livenessProbe.image.tag=c@sha256:d \
+      --set host.snapCsiPlugin.node.nodeDriverRegistrar.image.tag=c@sha256:d \
 	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-host-snap-csi-plugin-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-host-snap-csi-plugin-$(TAG).yaml" \
 	  MANIFEST_NAME="storage-host-snap-csi-plugin" \
@@ -774,6 +795,9 @@ verify-manifest-storage-host-snap-host-controller: helm $(ARTIFACTS_RENDERED_MAN
 	$Q $(HELM) template dpuservices/storage/chart \
 	 --set host.snapHostController.enabled=true \
 	 --set host.snapHostController.config.targetNamespace=storage-system \
+	 --set host.snapHostController.resources.limits.cpu=1m \
+	 --set host.snapHostController.resources.limits.memory=1Mi \
+	 --set host.snapHostController.image.tag=c@sha256:d \
 	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-host-snap-host-controller-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-host-snap-host-controller-$(TAG).yaml" \
 	  MANIFEST_NAME="storage-host-snap-host-controller" \
@@ -783,6 +807,10 @@ verify-manifest-storage-host-snap-host-controller: helm $(ARTIFACTS_RENDERED_MAN
 verify-manifest-storage-dpu-snap-node-driver: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's dpu snap-node-driver component
 	$Q $(HELM) template dpuservices/storage/chart \
 	 --set dpu.snapNodeDriver.enabled=true \
+	 --set serviceDaemonSet.resources.cpu=1m \
+	 --set serviceDaemonSet.resources.memory=1Mi \
+	 --set dpu.snapNodeDriver.image.tag=c@sha256:d \
+	 --set dpu.snapNodeDriver.podSecurityContext.runAsNonRoot=false \
 	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-snap-node-driver-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-snap-node-driver-$(TAG).yaml" \
 	  MANIFEST_NAME="storage-dpu-snap-node-driver" \
@@ -792,6 +820,10 @@ verify-manifest-storage-dpu-snap-node-driver: helm $(ARTIFACTS_RENDERED_MANIFEST
 verify-manifest-storage-dpu-block-storage-vendor-dpu-plugin: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's dpu block-storage-vendor-dpu-plugin component
 	$Q $(HELM) template dpuservices/storage/chart \
 	 --set dpu.blockStorageVendorDpuPlugin.enabled=true \
+	 --set serviceDaemonSet.resources.cpu=1m \
+	 --set serviceDaemonSet.resources.memory=1Mi \
+	 --set dpu.blockStorageVendorDpuPlugin.image.tag=c@sha256:d \
+	 --set dpu.blockStorageVendorDpuPlugin.podSecurityContext.runAsNonRoot=false \
 	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-block-storage-vendor-dpu-plugin-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-block-storage-vendor-dpu-plugin-$(TAG).yaml" \
 	  MANIFEST_NAME="storage-dpu-block-storage-vendor-dpu-plugin" \
@@ -801,6 +833,10 @@ verify-manifest-storage-dpu-block-storage-vendor-dpu-plugin: helm $(ARTIFACTS_RE
 verify-manifest-storage-dpu-fs-storage-vendor-dpu-plugin: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's dpu fs-storage-vendor-dpu-plugin component
 	$Q $(HELM) template dpuservices/storage/chart \
 	 --set dpu.fsStorageVendorDpuPlugin.enabled=true \
+	 --set serviceDaemonSet.resources.cpu=1m \
+	 --set serviceDaemonSet.resources.memory=1Mi \
+	 --set dpu.fsStorageVendorDpuPlugin.image.tag=c@sha256:d \
+	 --set dpu.fsStorageVendorDpuPlugin.podSecurityContext.runAsNonRoot=false \
 	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-fs-storage-vendor-dpu-plugin-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-fs-storage-vendor-dpu-plugin-$(TAG).yaml" \
 	  MANIFEST_NAME="storage-dpu-fs-storage-vendor-dpu-plugin" \
@@ -810,6 +846,10 @@ verify-manifest-storage-dpu-fs-storage-vendor-dpu-plugin: helm $(ARTIFACTS_RENDE
 verify-manifest-storage-dpu-nfs-storage-vendor-dpu-plugin: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's dpu nfs-storage-vendor-dpu-plugin component
 	$Q $(HELM) template dpuservices/storage/chart \
 	 --set dpu.nfsStorageVendorDpuPlugin.enabled=true \
+	 --set serviceDaemonSet.resources.cpu=1m \
+	 --set serviceDaemonSet.resources.memory=1Mi \
+	 --set dpu.nfsStorageVendorDpuPlugin.image.repository=a/b:c@sha256:d \
+	 --set dpu.nfsStorageVendorDpuPlugin.podSecurityContext.runAsNonRoot=false \
 	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-nfs-storage-vendor-dpu-plugin-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-nfs-storage-vendor-dpu-plugin-$(TAG).yaml" \
 	  MANIFEST_NAME="storage-dpu-nfs-storage-vendor-dpu-plugin" \
@@ -819,6 +859,9 @@ verify-manifest-storage-dpu-nfs-storage-vendor-dpu-plugin: helm $(ARTIFACTS_REND
 verify-manifest-storage-dpu-doca-snap: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's dpu doca-snap component
 	$Q $(HELM) template dpuservices/storage/chart \
 	 --set dpu.docaSnap.enabled=true \
+	 --set dpu.docaSnap.podSecurityContext.runAsNonRoot=false \
+	 --set serviceDaemonSet.resources.cpu=1m \
+	 --set serviceDaemonSet.resources.memory=1Mi \
 	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-doca-snap-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-doca-snap-$(TAG).yaml" \
 	  MANIFEST_NAME="storage-dpu-doca-snap" \
