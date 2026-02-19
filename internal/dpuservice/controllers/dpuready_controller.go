@@ -62,8 +62,9 @@ import (
 
 type DPUReadyReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	controller controller.Controller
+	Scheme      *runtime.Scheme
+	controller  controller.Controller
+	RemoteCache *dpucluster.RemoteCache
 
 	// DisableDPUReadyTaints, if set to true, will disable the addition of DPU-ready taints to nodes.
 	DisableDPUReadyTaints bool
@@ -108,9 +109,31 @@ func (r *DPUReadyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return true
 	})
 
+	dpuPredicate := predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldDPU, ok := e.ObjectOld.(*provisioningv1.DPU)
+			if !ok {
+				return false
+			}
+			newDPU, ok := e.ObjectNew.(*provisioningv1.DPU)
+			if !ok {
+				return false
+			}
+			// Trigger on phase changes to update taints/maintenance
+			return oldDPU.Status.Phase != newDPU.Status.Phase
+		},
+		CreateFunc: func(e event.CreateEvent) bool {
+			return false // Don't reconcile on DPU creation
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return false // Don't reconcile on DPU deletion
+		},
+	}
+
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&provisioningv1.DPUNode{}).
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.nodeToDPUNodeReq), builder.WithPredicates(nodePredicate)).
+		Watches(&provisioningv1.DPU{}, handler.EnqueueRequestsFromMapFunc(r.dpuToDPUNodeReq), builder.WithPredicates(dpuPredicate)).
 		Build(r)
 	if err != nil {
 		return err
@@ -119,13 +142,26 @@ func (r *DPUReadyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return nil
 }
 
-// nodeToDPUNodeReq maps Node changes to DPUNode reconcile requests using the KubeNodeRef index
+// dpuToDPUNodeReq maps DPU changes to DPUNode reconcile requests
+func (r *DPUReadyReconciler) dpuToDPUNodeReq(ctx context.Context, obj client.Object) []reconcile.Request {
+	dpu := obj.(*provisioningv1.DPU)
+	return []reconcile.Request{{
+		NamespacedName: types.NamespacedName{
+			Namespace: dpu.Namespace,
+			Name:      dpu.Spec.DPUNodeName,
+		},
+	}}
+}
+
+// nodeToDPUNodeReq maps Node changes from management cluster to DPUNode reconcile requests using the KubeNodeRef index
 func (r *DPUReadyReconciler) nodeToDPUNodeReq(ctx context.Context, obj client.Object) []reconcile.Request {
 	node := obj.(*corev1.Node)
 	log := ctrllog.FromContext(ctx)
 
 	dpuNodeList := &provisioningv1.DPUNodeList{}
-	if err := r.List(ctx, dpuNodeList, client.MatchingFields{dpuNodeKubeNodeRefField: node.Name}); err != nil {
+	if err := r.List(ctx, dpuNodeList,
+		client.MatchingFields{dpuNodeKubeNodeRefField: node.Name},
+	); err != nil {
 		log.Error(err, "Failed to list DPUNodes for node", "node", node.Name)
 		return nil
 	}
@@ -350,7 +386,9 @@ func (r *DPUReadyReconciler) getCriticalDPUServiceList(dpuServiceList *dpuservic
 func (r *DPUReadyReconciler) getDPUNodeMaintenanceObjects(ctx context.Context, dpuNode *provisioningv1.DPUNode) ([]*provisioningv1.DPUNodeMaintenance, error) {
 	// Get all the DPUNodeMaintenance objects related to this DPUNode
 	dpuNodeMaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
-	if err := r.Client.List(ctx, dpuNodeMaintenanceList, client.MatchingFields{dpuNodeMaintenanceDPUNodeNameField: dpuNode.Name}); err != nil {
+	if err := r.Client.List(ctx, dpuNodeMaintenanceList,
+		client.MatchingFields{dpuNodeMaintenanceDPUNodeNameField: dpuNode.Name},
+	); err != nil {
 		return nil, fmt.Errorf("failed to list DPUNodeMaintenance objects: %w", err)
 	}
 
@@ -450,14 +488,17 @@ func statusesAggregation(allDPUStatuses []map[string]bool) map[string]bool {
 
 func (r *DPUReadyReconciler) getServiceChainsStatusPerDPU(ctx context.Context, dpu *provisioningv1.DPU, dpuServiceChainList *dpuservicev1.DPUServiceChainList) (map[string]bool, error) {
 	log := ctrllog.FromContext(ctx)
-	dpuClusterClient, err := dpucluster.K8sClusterToDPUClusterConfig(r.Client, &(dpu.Spec.Cluster)).Client(ctx)
+	clusterKey := client.ObjectKey{
+		Namespace: dpu.Spec.Cluster.Namespace,
+		Name:      dpu.Spec.Cluster.Name,
+	}
+	dpuClusterClient, err := r.RemoteCache.GetClient(clusterKey)
 	if err != nil {
-		return nil, fmt.Errorf("could not get the kubeconfig for the dpucluster: %w", err)
+		return nil, fmt.Errorf("could not get cached client for dpucluster: %w", err)
 	}
 
 	dpuNode := &corev1.Node{}
-	err = dpuClusterClient.Get(ctx, types.NamespacedName{Name: dpu.Name}, dpuNode)
-	if err != nil {
+	if err := dpuClusterClient.Get(ctx, types.NamespacedName{Name: dpu.Name}, dpuNode); err != nil {
 		return nil, fmt.Errorf("failed to get the dpu node %s: %w", dpu.Name, err)
 	}
 
@@ -532,21 +573,25 @@ func (r *DPUReadyReconciler) getServiceChainsStatusPerDPU(ctx context.Context, d
 // Services are considered ready if they have running and ready pods on the DPU.
 func (r *DPUReadyReconciler) getServicesStatusPerDPU(ctx context.Context, dpu *provisioningv1.DPU, dpuServiceList *dpuservicev1.DPUServiceList) (map[string]bool, error) {
 	log := ctrllog.FromContext(ctx)
-	dpuClusterClient, _, err := dpucluster.K8sClusterToDPUClusterConfig(r.Client, &(dpu.Spec.Cluster)).Clientset(ctx)
+	clusterKey := client.ObjectKey{
+		Namespace: dpu.Spec.Cluster.Namespace,
+		Name:      dpu.Spec.Cluster.Name,
+	}
+	dpuClusterClient, err := r.RemoteCache.GetClient(clusterKey)
 	if err != nil {
-		return nil, fmt.Errorf("could not get the kubeconfig for the dpucluster: %w", err)
+		return nil, fmt.Errorf("could not get cached client for dpucluster: %w", err)
 	}
 
-	// get all running pods on the dpuNode
-	podList, err := dpuClusterClient.CoreV1().Pods("").List(ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("spec.nodeName=%s", dpu.Name),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list pods on the node %s: %w", dpu.Name, err)
+	// Get all pods (filtered by label selector in cache config, then filter by node name)
+	podList := &corev1.PodList{}
+	if err := dpuClusterClient.List(ctx, podList,
+		client.MatchingFields{nodeNameField: dpu.Name},
+	); err != nil {
+		return nil, fmt.Errorf("failed to list pods: %w", err)
 	}
 
-	dpuNode, err := dpuClusterClient.CoreV1().Nodes().Get(ctx, dpu.Name, metav1.GetOptions{})
-	if err != nil {
+	dpuNode := &corev1.Node{}
+	if err := dpuClusterClient.Get(ctx, client.ObjectKey{Name: dpu.Name}, dpuNode); err != nil {
 		return nil, fmt.Errorf("failed to get the dpu node %s: %w", dpu.Name, err)
 	}
 

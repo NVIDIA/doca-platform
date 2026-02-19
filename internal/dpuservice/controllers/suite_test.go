@@ -126,10 +126,16 @@ var _ = BeforeSuite(func() {
 		dpucluster.OptionHostClient{Client: testManager.GetClient()},
 		dpucluster.OptionScheme{Scheme: testManager.GetScheme()},
 		dpucluster.OptionUserAgent{UserAgent: "dpu-service-controller"},
+		dpucluster.OptionGetIndexerCallbacks{
+			GetIndexerCallbacks: []dpucluster.GetIndexerCallback{
+				SetupCacheIndexers,
+			},
+		},
 		dpucluster.OptionDisableFor{DisableFor: []client.Object{
 			&corev1.ConfigMap{},
 			&corev1.Secret{},
-		}})
+		}},
+	)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = SetupIndexers(ctx, testManager)
@@ -155,8 +161,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&DPUReadyReconciler{
-		Client: testManager.GetClient(),
-		Scheme: testManager.GetScheme(),
+		Client:      testManager.GetClient(),
+		Scheme:      testManager.GetScheme(),
+		RemoteCache: remoteCache,
 	}).SetupWithManager(testManager)
 	Expect(err).ToNot(HaveOccurred())
 

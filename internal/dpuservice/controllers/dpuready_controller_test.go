@@ -26,6 +26,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
+	"github.com/fluxcd/pkg/runtime/patch"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -227,6 +228,11 @@ var _ = Describe("DPUReadyReconciler", func() {
 		Expect(testClient.Create(ctx, &dpuCluster)).To(Succeed())
 		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, kamajiSecret)
 		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, &dpuCluster)
+
+		By("Mark the DPUCluster as ready that the remoteCache treats it as ready")
+		patcher := patch.NewSerialPatcher(&dpuCluster, testClient)
+		dpuCluster.Status.Phase = provisioningv1.PhaseReady
+		Expect(patcher.Patch(ctx, &dpuCluster, patch.WithFieldOwner("test"))).To(Succeed())
 
 		dpuClusterClient, err = dpucluster.NewConfig(testClient, &dpuCluster).Client(ctx)
 		Expect(err).ToNot(HaveOccurred())

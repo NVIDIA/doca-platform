@@ -124,6 +124,13 @@ func createCachedClient(ctx context.Context, config *rest.Config, httpClient *ht
 		return nil, nil, fmt.Errorf("error creating cache: %w", err)
 	}
 
+	// Add field indexes before starting the cache
+	for _, getIndexer := range opts.getIndexerCallbacks {
+		if err := getIndexer(ctx, remoteCache); err != nil {
+			return nil, nil, fmt.Errorf("error adding field indexes: %w", err)
+		}
+	}
+
 	// Create the client for the cluster.
 	cachedClient, err := client.New(config, client.Options{
 		Scheme:     opts.scheme,
