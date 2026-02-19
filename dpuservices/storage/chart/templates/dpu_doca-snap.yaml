@@ -38,6 +38,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      automountServiceAccountToken: false
       securityContext:
         {{- toYaml .Values.dpu.docaSnap.podSecurityContext | nindent 8 }}
       restartPolicy: {{ .Values.dpu.docaSnap.restartPolicy }}
@@ -93,6 +94,13 @@ spec:
           volumeMounts:
             - name: workdir
               mountPath: /var/tmp
+          {{- with toYaml .Values.serviceDaemonSet.resources }}
+          resources:
+            limits:
+              {{- . | nindent 14 }}
+            requests:
+              {{- . | nindent 14 }}
+          {{- end }}
       containers:
         - name: doca-snap
           image: "{{ .Values.dpu.docaSnap.image.repository }}:{{ .Values.dpu.docaSnap.image.tag }}"
