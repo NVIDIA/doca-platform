@@ -1,0 +1,5 @@
+vulnerabilities:
+  - statement: Codepath of CVE is not used / Not affected
+    id: CVE-2026-25804
+    paths:
+      - "sfc-controller"
