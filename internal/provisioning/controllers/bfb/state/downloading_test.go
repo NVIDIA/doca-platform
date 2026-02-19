@@ -19,6 +19,7 @@ package state
 import (
 	"context"
 	"errors"
+	"os"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	butil "github.com/nvidia/doca-platform/internal/provisioning/controllers/bfb/util"
@@ -182,6 +183,46 @@ var _ = Describe("BFB Downloading State Error Handling", func() {
 
 				// Check that a warning event was recorded
 				Eventually(recorder.Events).Should(Receive(ContainSubstring("invalid BFB file structure")))
+			})
+
+			It("should transition from Downloading to Error when BFB has no software inventory JSON", func() {
+				cleanupDownloadTasks(bfb)
+
+				// In-memory blob that does NOT contain "This JSON represents" / "Members@odata.count",
+				// so VersionFromBFBFile returns "software inventory JSON not found in BFB".
+				blob := []byte("generic rhcos bfb image content without embedded software inventory\n")
+				tmp, err := os.CreateTemp("", "bfb-no-inventory-*.bfb")
+				Expect(err).NotTo(HaveOccurred())
+				tmpPath := tmp.Name()
+				defer func() { _ = os.Remove(tmpPath) }()
+				_, err = tmp.Write(blob)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(tmp.Close()).NotTo(HaveOccurred())
+
+				st := &bfbDownloadingState{
+					bfb:      bfb,
+					recorder: recorder,
+					checkBFB: func(fileName string) (bool, error) {
+						return true, nil // File exists
+					},
+					versionBFB: func(filename string) (*provisioningv1.BFBVersions, error) {
+						return butil.VersionFromBFBFile(tmpPath)
+					},
+				}
+				err = st.Handle(ctx, nil)
+
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("software inventory JSON not found in BFB"))
+				Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBError),
+					"should transition from Downloading to Error when version inventory is missing")
+
+				downloadedCond := conditions.Get(bfb, provisioningv1.BFBCondDownloaded)
+				Expect(downloadedCond).NotTo(BeNil())
+				Expect(downloadedCond.Status).To(Equal(metav1.ConditionFalse))
+				Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonFailure)))
+				Expect(downloadedCond.Message).To(ContainSubstring("software inventory JSON not found in BFB"))
+
+				Eventually(recorder.Events).Should(Receive(ContainSubstring("software inventory JSON not found in BFB")))
 			})
 		})
 
