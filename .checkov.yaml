@@ -544,49 +544,13 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
   ## Storage chart components
 
   storage-host-snap-csi-plugin:
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: DaemonSet.default.release-name-snap-csi-plugin-node
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: Deployment.default.release-name-snap-csi-plugin-controller
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: DaemonSet.default.release-name-snap-csi-plugin-node
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: Deployment.default.release-name-snap-csi-plugin-controller
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: DaemonSet.default.release-name-snap-csi-plugin-node
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: Deployment.default.release-name-snap-csi-plugin-controller
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.release-name-snap-csi-plugin-node
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: Deployment.default.release-name-snap-csi-plugin-controller
+  # Note: image tag including digest and resource limits can be set via values.
+  # Some containers need to run as root. SecurityContext is configurable.
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
     resource: DaemonSet.default.release-name-snap-csi-plugin-node
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
     resource: Deployment.default.release-name-snap-csi-plugin-controller
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: DaemonSet.default.release-name-snap-csi-plugin-node
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: Deployment.default.release-name-snap-csi-plugin-controller
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
+  # Containers do not provide a liveness or readiness probe.
   - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
     resource: DaemonSet.default.release-name-snap-csi-plugin-node
     evaluated_keys:
@@ -604,55 +568,14 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
     evaluated_keys:
       - spec/template/spec/containers/[0]/readinessProbe
 
-  storage-host-snap-host-controller:
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: Deployment.default.release-name-snap-host-controller-controller
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: Deployment.default.release-name-snap-host-controller-controller
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: Deployment.default.release-name-snap-host-controller-controller
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: Deployment.default.release-name-snap-host-controller-controller
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: Deployment.default.release-name-snap-host-controller-controller
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: Deployment.default.release-name-snap-host-controller-controller
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
+  storage-host-snap-host-controller: []
 
   storage-dpu-snap-node-driver:
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: DaemonSet.default.release-name-snap-node-driver
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: DaemonSet.default.release-name-snap-node-driver
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: DaemonSet.default.release-name-snap-node-driver
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: DaemonSet.default.release-name-snap-node-driver
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.release-name-snap-node-driver
+  # Note: image tag including digest, pod securityContext and resource limits can be set via values.
+  # The controller needs to run as root.
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
     resource: DaemonSet.default.release-name-snap-node-driver
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: DaemonSet.default.release-name-snap-node-driver
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
+  # Pod does not provide a liveness or readiness probe.
   - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
     resource: DaemonSet.default.release-name-snap-node-driver
     evaluated_keys:
@@ -663,30 +586,11 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
       - spec/template/spec/containers/[0]/readinessProbe
 
   storage-dpu-block-storage-vendor-dpu-plugin:
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: DaemonSet.default.release-name-block-storage-vendor-dpu-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: DaemonSet.default.release-name-block-storage-vendor-dpu-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: DaemonSet.default.release-name-block-storage-vendor-dpu-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: DaemonSet.default.release-name-block-storage-vendor-dpu-plugin
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.release-name-block-storage-vendor-dpu-plugin
+  # Note: image tag including digest, pod securityContext and resource limits can be set via values.
+  # Container needs to run as root.
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
     resource: DaemonSet.default.release-name-block-storage-vendor-dpu-plugin
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: DaemonSet.default.release-name-block-storage-vendor-dpu-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
+  # Pod does not provide a liveness or readiness probe.
   - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
     resource: DaemonSet.default.release-name-block-storage-vendor-dpu-plugin
     evaluated_keys:
@@ -697,30 +601,11 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
       - spec/template/spec/containers/[0]/readinessProbe
 
   storage-dpu-fs-storage-vendor-dpu-plugin:
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: DaemonSet.default.release-name-fs-storage-vendor-dpu-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: DaemonSet.default.release-name-fs-storage-vendor-dpu-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: DaemonSet.default.release-name-fs-storage-vendor-dpu-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: DaemonSet.default.release-name-fs-storage-vendor-dpu-plugin
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.release-name-fs-storage-vendor-dpu-plugin
+  # Note: image tag including digest, pod securityContext and resource limits can be set via values.
+  # Container needs to run as root.
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
     resource: DaemonSet.default.release-name-fs-storage-vendor-dpu-plugin
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: DaemonSet.default.release-name-fs-storage-vendor-dpu-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
+  # Pod does not provide a liveness or readiness probe.
   - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
     resource: DaemonSet.default.release-name-fs-storage-vendor-dpu-plugin
     evaluated_keys:
@@ -731,30 +616,12 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
       - spec/template/spec/containers/[0]/readinessProbe
 
   storage-dpu-nfs-storage-vendor-dpu-plugin:
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: DaemonSet.default.release-name-nfs-storage-vendor-dpu-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: DaemonSet.default.release-name-nfs-storage-vendor-dpu-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: DaemonSet.default.release-name-nfs-storage-vendor-dpu-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: DaemonSet.default.release-name-nfs-storage-vendor-dpu-plugin
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.release-name-nfs-storage-vendor-dpu-plugin
+  # Note: image tag including digest, pod securityContext and resource limits
+  # can be set via values.
+  # Container needs to run as root.
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
     resource: DaemonSet.default.release-name-nfs-storage-vendor-dpu-plugin
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: DaemonSet.default.release-name-nfs-storage-vendor-dpu-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
+  # Pod does not provide a liveness or readiness probe.
   - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
     resource: DaemonSet.default.release-name-nfs-storage-vendor-dpu-plugin
     evaluated_keys:
@@ -765,30 +632,11 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
       - spec/template/spec/containers/[0]/readinessProbe
 
   storage-dpu-doca-snap:
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: DaemonSet.default.release-name-doca-snap
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: DaemonSet.default.release-name-doca-snap
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: DaemonSet.default.release-name-doca-snap
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: DaemonSet.default.release-name-doca-snap
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.release-name-doca-snap
+  # Note: pod securityContext and resource limits can be set via values.
+  # Containers need to run as root, but its also configurable.
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
     resource: DaemonSet.default.release-name-doca-snap
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: DaemonSet.default.release-name-doca-snap
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
+  # Pod does not provide a liveness or readiness probe.
   - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
     resource: DaemonSet.default.release-name-doca-snap
     evaluated_keys:

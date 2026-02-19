@@ -24,6 +24,7 @@ spec:
       annotations:
         {{- toYaml .Values.host.snapHostController.podAnnotations | nindent 8 }}
     spec:
+      automountServiceAccountToken: false
       {{- with .Values.host.snapHostController.imagePullSecrets | default .Values.imagePullSecrets}}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -57,6 +58,10 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.host.snapHostController.resources | nindent 12 }}
+          volumeMounts:
+          - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+            name: kube-api-access
+            readOnly: true
       terminationGracePeriodSeconds: 10
       {{- with .Values.host.snapHostController.nodeSelector | default dict }}
       nodeSelector:
@@ -70,6 +75,24 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      volumes:
+      - name: kube-api-access
+        projected:
+          defaultMode: 420
+          sources:
+          - serviceAccountToken:
+              path: token
+          - configMap:
+              items:
+              - key: ca.crt
+                path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace
 
 ---
 apiVersion: v1
