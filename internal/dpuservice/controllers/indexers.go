@@ -24,8 +24,10 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -41,7 +43,10 @@ const (
 	// dpuServiceConfigPortsField is the field indexer for DPUService resources by whether ConfigPorts is set
 	dpuServiceConfigPortsField = "spec.configPorts"
 	// dpuServiceInterfacesField is the field indexer for DPUService resources by interfaces
-	dpuServiceInterfacesField = ".metadata.interfaces"
+	dpuServiceInterfacesField = "spec.interfaces"
+
+	// nodeNameField is the field indexer for Pod resources by Node name
+	nodeNameField = "spec.nodeName"
 )
 
 // SetupIndexers initializes all field indexers required by the DPU service controllers
@@ -99,6 +104,21 @@ func SetupIndexers(ctx context.Context, mgr ctrl.Manager) error {
 		return []string{strconv.FormatBool(dpuService.Spec.ConfigPorts != nil)}
 	}); err != nil {
 		return fmt.Errorf("failed to register indexer for DPUService ConfigPorts field: %w", err)
+	}
+
+	return nil
+}
+
+func SetupCacheIndexers(ctx context.Context, cache cache.Cache) error {
+	// Set up index for Pod lookups by the Node name
+	if err := cache.IndexField(ctx, &corev1.Pod{}, nodeNameField, func(obj client.Object) []string {
+		pod := obj.(*corev1.Pod)
+		if pod.Spec.NodeName == "" {
+			return nil
+		}
+		return []string{pod.Spec.NodeName}
+	}); err != nil {
+		return fmt.Errorf("failed to add spec.nodeName index for pods: %w", err)
 	}
 
 	return nil
