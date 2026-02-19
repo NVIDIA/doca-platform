@@ -22,6 +22,7 @@ spec:
       annotations:
         {{- toYaml .Values.host.snapCsiPlugin.controller.podAnnotations | nindent 8 }}
     spec:
+      automountServiceAccountToken: false
       {{- with .Values.host.snapCsiPlugin.controller.imagePullSecrets | default .Values.imagePullSecrets | default list }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -58,6 +59,9 @@ spec:
           resources:
             {{- toYaml .Values.host.snapCsiPlugin.controller.plugin.resources | nindent 12 }}
           volumeMounts:
+            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              name: kube-api-access
+              readOnly: true
             - name: socket-dir
               mountPath: /csi
         - name: external-provisioner
@@ -70,6 +74,9 @@ spec:
             - "--leader-election-namespace={{ .Release.Namespace }}"
           imagePullPolicy: {{ .Values.host.snapCsiPlugin.controller.externalProvisioner.imagePullPolicy }}
           volumeMounts:
+            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              name: kube-api-access
+              readOnly: true
             - mountPath: /csi
               name: socket-dir
           resources: {{- toYaml .Values.host.snapCsiPlugin.controller.externalProvisioner.resources | nindent 12 }}
@@ -83,6 +90,9 @@ spec:
             - "--leader-election-namespace={{ .Release.Namespace }}"
           imagePullPolicy: {{ .Values.host.snapCsiPlugin.controller.externalAttacher.imagePullPolicy }}
           volumeMounts:
+            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              name: kube-api-access
+              readOnly: true
             - mountPath: /csi
               name: socket-dir
           resources: {{- toYaml .Values.host.snapCsiPlugin.controller.externalAttacher.resources | nindent 12 }}
@@ -98,6 +108,23 @@ spec:
               mountPath: /csi
           resources: {{- toYaml .Values.host.snapCsiPlugin.controller.livenessProbe.resources | nindent 12 }}
       volumes:
+        - name: kube-api-access
+          projected:
+            defaultMode: 420
+            sources:
+            - serviceAccountToken:
+                path: token
+            - configMap:
+                items:
+                - key: ca.crt
+                  path: ca.crt
+                name: kube-root-ca.crt
+            - downwardAPI:
+                items:
+                - fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.namespace
+                  path: namespace
         - name: socket-dir
           emptyDir: { }
       serviceAccountName: {{ include "snap-csi-plugin.serviceAccountName" . }}
@@ -236,6 +263,7 @@ spec:
           {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
+      automountServiceAccountToken: false
       {{- with .Values.host.snapCsiPlugin.node.imagePullSecrets | default .Values.imagePullSecrets | default list }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -284,6 +312,9 @@ spec:
             timeoutSeconds: 10
             periodSeconds: 30
           volumeMounts:
+            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              name: kube-api-access
+              readOnly: true
             - name: socket-dir
               mountPath: /csi
             - name: pods-mount-dir
@@ -343,6 +374,23 @@ spec:
               {{- . | nindent 14 }}
           {{- end }}
       volumes:
+        - name: kube-api-access
+          projected:
+            defaultMode: 420
+            sources:
+            - serviceAccountToken:
+                path: token
+            - configMap:
+                items:
+                - key: ca.crt
+                  path: ca.crt
+                name: kube-root-ca.crt
+            - downwardAPI:
+                items:
+                - fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.namespace
+                  path: namespace
         - name: host
           hostPath:
             path: /
