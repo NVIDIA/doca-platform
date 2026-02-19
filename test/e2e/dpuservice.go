@@ -99,7 +99,7 @@ func ValidateDPUServiceMetrics(ctx context.Context, input *systemTestInput) {
 }
 
 func ValidateDPUServiceDeletion(ctx context.Context, input *systemTestInput) {
-	if input.skipCleanup {
+	if input.cleanupFlags.SkipCleanup {
 		Skip("Skip cleanup resources")
 	}
 	dpuServiceNamespace = "dpu-test-ns-delete"

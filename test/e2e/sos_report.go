@@ -116,7 +116,7 @@ func runSOSJob(ctx context.Context, c client.Client, nodeName string, kubeconfig
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
 			Namespace: namespace,
-			Labels:    testutils.AfterEachCleanupLabels,
+			Labels:    CleanupScope.It,
 		},
 		Spec: batchv1.JobSpec{
 			Completions:             ptr.To(int32(1)),
@@ -256,7 +256,7 @@ func createKubeconfigSecret(ctx context.Context, c client.Client, namespace, nam
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels:    testutils.AfterEachCleanupLabels,
+			Labels:    CleanupScope.It,
 		},
 		Data: map[string][]byte{
 			"kubeconfig": data,

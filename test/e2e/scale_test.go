@@ -28,9 +28,9 @@ import (
 )
 
 //nolint:dupl
-var _ = Describe("DPF scale tests", Labels{scaleLabel}, func() {
+var _ = Describe("DPF scale tests", Labels{Domain.Scale}, func() {
 
-	Context("Validate DPU Operator Cleanup", Labels{requiresNodesLabel}, Serial, Ordered, func() {
+	Context("Validate DPU Operator Cleanup", Labels{Domain.RequiresNodes}, Serial, Ordered, func() {
 		It("should validate DPU Operator Cleanup", func() {
 			ValidateDPUDeploymentFullCreation(ctx, input)
 		})

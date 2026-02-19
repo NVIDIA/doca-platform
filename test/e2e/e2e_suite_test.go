@@ -30,7 +30,8 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
-	testutils "github.com/nvidia/doca-platform/test/utils"
+	"github.com/nvidia/doca-platform/test/e2e/cleanup"
+	"github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/metrics"
 	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
@@ -38,9 +39,7 @@ import (
 
 	netattdefv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	. "github.com/onsi/ginkgo/v2"
-	"github.com/onsi/ginkgo/v2/types"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/kubernetes"
@@ -52,15 +51,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func init() {
-	flag.StringVar(&testKubeconfig, "e2e.testKubeconfig", "", "path to the testKubeconfig file")
-	flag.StringVar(&configPath, "e2e.config", "", "path to the configuration file")
-	flag.StringVar(&externalTest, "e2e.externalTestScript", "", "path to the external test file, script will be called in between BeforeSuite setup and AfterSuite cleanup")
-	flag.StringVar(&HostRebootScript, "e2e.hostRebootScript", "", "path to the host reboot script file, script will be called as a part of dpu provisioning for the ZeroTrust suite")
-
-	getEnvVariables()
-}
-
 // These variables can be set from the environment when running the DPF tests.
 var (
 	configPath string
@@ -69,9 +59,6 @@ var (
 	// artifactsDir is the path where test artifacts will be stored.
 	artifactsDir string
 
-	// skipCleanup indicates whether to skip the cleanup of resources created during the e2e test run.
-	// When set to true, resources will not be removed after the test completes.
-	skipCleanup = false
 	// collectResources indicates whether to collect logs an objects after an e2e test run.
 	collectResources = true
 	// externalTest path used to run external tests scripts
@@ -82,24 +69,41 @@ var (
 	enableSOSReports = false
 )
 
+var (
+	// cleanupFlags holds all flags to control skip cleanup behavior
+	cleanupFlags   *cleanup.CleanupFlags
+	cleanupTracker *cleanup.Tracker
+	testClient     client.Client
+	restConfig     *rest.Config
+	clientset      *kubernetes.Clientset
+	ctx            = ctrl.SetupSignalHandler()
+	conf           *config
+)
+
+func init() {
+	testing.Init() // Initialize Go test flags (required for Go 1.24+)
+	flag.StringVar(&testKubeconfig, "e2e.testKubeconfig", "", "path to the testKubeconfig file")
+	flag.StringVar(&configPath, "e2e.config", "", "path to the configuration file")
+	flag.StringVar(&externalTest, "e2e.externalTestScript", "", "path to the external test file, script will be called in between BeforeSuite setup and AfterSuite cleanup")
+	flag.StringVar(&HostRebootScript, "e2e.hostRebootScript", "", "path to the host reboot script file, script will be called as a part of dpu provisioning for the ZeroTrust suite")
+
+	// Register cleanup flags and get handle for it
+	cleanupFlags = cleanup.NewCleanupFlagsFromCLI()
+
+	getEnvVariables()
+}
+
 func getEnvVariables() {
-	if v, found := os.LookupEnv("E2E_SKIP_CLEANUP"); found {
-		var err error
-		skipCleanup, err = strconv.ParseBool(v)
-		if err != nil {
-			panic(fmt.Errorf("string must be a bool: %v", err))
-		}
-	}
 	if url, found := os.LookupEnv("BFB_IMAGE_URL"); found {
 		var err error
-		bfbImageURL, err = testutils.ResolveBFBImageURL(url)
+		bfbImageURL, err = utils.ResolveBFBImageURL(url)
 		if err != nil {
 			panic(err)
 		}
 	}
 	if url, found := os.LookupEnv("HBN_IMAGE_URL"); found {
 		var err error
-		hbnImageURL, err = testutils.ResolveHBNImageURL(url)
+		hbnImageURL, err = utils.ResolveHBNImageURL(url)
 		if err != nil {
 			panic(err)
 		}
@@ -147,14 +151,6 @@ func getEnvVariables() {
 		artifactsDir = filepath.Join(filepath.Dir(basePath), "../../artifacts")
 	}
 }
-
-var (
-	testClient client.Client
-	restConfig *rest.Config
-	clientset  *kubernetes.Clientset
-	ctx        = ctrl.SetupSignalHandler()
-	conf       *config
-)
 
 // Run e2e tests using the Ginkgo runner.
 func TestE2E(t *testing.T) {
@@ -217,16 +213,23 @@ func TestE2E(t *testing.T) {
 	metricsURI = metrics.GetMetricsURI("kube-state-metrics", dpfOperatorSystemNamespace, 8080, "/metrics")
 	g.Expect(metricsURI).NotTo(BeEmpty())
 
-	RunSpecs(t, "e2e suite")
+	// Auto-enable fail-fast when skip-cleanup-on-failure flag is set
+	suiteConfig, _ := GinkgoConfiguration()
+	if cleanupFlags.SkipCleanupOnFailure {
+		suiteConfig.FailFast = true
+		_, _ = fmt.Fprintf(GinkgoWriter, "Auto-enabled fail-fast mode (skip-cleanup-on-failure flag detected)\n")
+	}
+
+	RunSpecs(t, "e2e suite", suiteConfig)
 }
 
 func skipProvisioning() bool {
 	labelFilter := GinkgoLabelFilter()
-	hasDpfSystemLabel := strings.Contains(labelFilter, dpfSystemLabel)
-	hasNotDpfSystemLabel := strings.Contains(labelFilter, "!"+dpfSystemLabel)
-	hasNotProvisioningLabel := strings.Contains(labelFilter, "!"+provisioningLabel)
-	isScaleSelected := Label(scaleLabel).MatchesLabelFilter(labelFilter)
-	isExternalSelected := Label(externalTestLabel).MatchesLabelFilter(labelFilter)
+	hasDpfSystemLabel := strings.Contains(labelFilter, Domain.DPFSystem)
+	hasNotDpfSystemLabel := strings.Contains(labelFilter, "!"+Domain.DPFSystem)
+	hasNotProvisioningLabel := strings.Contains(labelFilter, "!"+Domain.Provisioning)
+	isScaleSelected := Label(Domain.Scale).MatchesLabelFilter(labelFilter)
+	isExternalSelected := Label(Domain.ExternalTest).MatchesLabelFilter(labelFilter)
 
 	return (!hasDpfSystemLabel || hasNotDpfSystemLabel || hasNotProvisioningLabel) && !isScaleSelected && !isExternalSelected
 }
@@ -235,25 +238,29 @@ var _ = BeforeSuite(func() {
 	By("Set input")
 	SetInput()
 
-	By("Cleaning up objects created during recent tests")
-	if Label(dpfUpgradeValidationTestLabel).MatchesLabelFilter(GinkgoLabelFilter()) {
+	// Initialize cleanup flags here as Ginkgo has parsed CLI arguments before BeforeSuite runs
+	cleanupFlags.Init()
+
+	cleanupTracker = cleanup.NewTracker(utils.CleanupWithLabelAndWait, cleanupFlags, ctx, testClient, resourcesToDelete)
+
+	// Upgrade validation tests skip cleanup to preserve resources from previous test run
+	if Label(Domain.DPFUpgradeValidation).MatchesLabelFilter(GinkgoLabelFilter()) {
 		return
 	}
-	if !skipCleanup {
-		Expect(testutils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(testutils.AfterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
-		Expect(testutils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(testutils.AfterAllCleanupLabels), resourcesToDelete...)).To(Succeed())
-	}
 
-	labelFilter := GinkgoLabelFilter()
+	By("Checking for resources from previous test runs...")
+	cleanupTracker.WarnIfStaleResources()
+
+	By("Performing before suite cleanup")
+	cleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.BeforeSuite)
 
 	// Label filter examples supported:
-	//(dpfSystemLabel) -> all test with dpfSystemLabel running. SDN, SNAP included
-	//(scaleLabel) -> Only scaleLabel tests running
-	//(dpfSystemLabel && !sdnLabel) -> test with dpfSystemLabel, excluding sdnLabel running
-	//(dpfSystemLabel && sdnLabel) -> only SDN tests running
-	//(externalTestLabel) -> only prepares DPF environment and involves tests with externalTestLabel
-	//(provisioningLabel) -> only provisioning tests, operator deployed but no pre-provisioning
-	By(fmt.Sprintf("Run BeforeSuite based on label selector: %v ", labelFilter))
+	//(Domain.DPFSystem) -> all test with Domain.DPFSystem running. SDN, SNAP included
+	//(Domain.Scale) -> Only Domain.Scale tests running
+	//(Domain.DPFSystem && !Domain.SDN) -> test with Domain.DPFSystem, excluding Domain.SDN running
+	//(Domain.DPFSystem && Domain.SDN) -> only SDN tests running
+	//(Domain.ExternalTest) -> only prepares DPF environment and involves tests with Domain.ExternalTest
+	By(fmt.Sprintf("Run BeforeSuite based on label selector: %v ", GinkgoLabelFilter()))
 
 	if !skipProvisioning() {
 		SystemSetupBeforeSuite()
@@ -268,9 +275,9 @@ var _ = BeforeSuite(func() {
 		ProvisionDPUSet(ctx, provInput)
 	}
 
-	// Apply the ProvisioningBeforeSuite setup if directly specified provisioningLabel
+	// Apply the ProvisioningBeforeSuite setup if directly specified Provisioning label
 	// !skipProvisioning() branch should not be executed in provisioning-only tests
-	if isGinkgoLabelApplied(provisioningLabel) {
+	if isGinkgoLabelApplied(Domain.Provisioning) {
 		// SystemSetupBeforeSuite must run first to deploy the DPF operator and system components
 		// Provisioning tests need the operator running but will provision DPUs from scratch (no pre-provisioning)
 		SystemSetupBeforeSuite()
@@ -278,32 +285,29 @@ var _ = BeforeSuite(func() {
 	}
 
 	// Apply the SDNBeforeSuite setup if not directly specified !SDN
-	if !strings.Contains(labelFilter, "!"+sdnLabel) {
+	if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.SDN) {
 		SDNBeforeSuite()
 	}
 	// Apply the SNAPBeforeSuite setup if not directly specified !SNAP
-	if !strings.Contains(labelFilter, "!"+snapLabel) {
+	if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.SNAP) {
 		SNAPBeforeSuite()
 	}
 
 	// Apply the VPCOVNBeforeSuite BeforeSuite setup
-	if !strings.Contains(labelFilter, "!"+dpfVPCTestLabel) {
+	if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.DPFVPCOVN) {
 		VPCOVNBeforeSuite()
 	}
 })
 
-var _ = AfterSuite(func() {
-	if skipCleanup {
-		return
-	}
-	By("JustAfterSuite: Tests finished, cleaning up DPF operator config")
-	DeleteDPFOperatorConfig(ctx, testClient)
+var _ = ReportBeforeEach(func(spec SpecReport) {
+	// Detect entering scopes and perform "before" cleanup
+	cleanupTracker.HandleScopeLifecycle(&spec, cleanup.GinkgoHook.BeforeEach)
 })
 
+// reportAfterEach collects diagnostics when a test fails
+// This is called directly by some tests (e.g., VPC tests) for explicit failure reporting
 func reportAfterEach(spec SpecReport) {
-	// Check if the test failed
 	if spec.Failed() {
-		// Collect and print logs (you can also write to a file or another sink)
 		By(fmt.Sprintf("ReportAfterEach: Test %q failed. Collecting resources and logs for the clusters", spec.FullText()))
 		collectInput := collectResourcesInput{
 			collectResources: collectResources,
@@ -314,7 +318,6 @@ func reportAfterEach(spec SpecReport) {
 		}
 		err := collectKubernetesResources(ctx, collectInput, "failed_tests/"+spec.LeafNodeText)
 		if err != nil {
-			// Don't fail the test if the log collector fails - just print the errors.
 			GinkgoLogr.Error(err, "failed to collect resources and logs for the clusters")
 		}
 
@@ -326,23 +329,25 @@ func reportAfterEach(spec SpecReport) {
 			}
 		}
 	}
-	if skipCleanup {
-		return
-	}
-
-	// Cleanup objects for a spec that ran. Ignore Skipped or Pending specs.
-	if !spec.State.Is(types.SpecStateSkipped) && !spec.State.Is(types.SpecStatePending) {
-		By("Cleaning up objects created during the test")
-		Expect(testutils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(testutils.AfterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
-	}
 }
 
 var _ = ReportAfterEach(func(spec SpecReport) {
+	// Collect diagnostics on failure (resources, logs, SOS reports)
 	reportAfterEach(spec)
+
+	// Handle scope lifecycle and cleanup
+	cleanupTracker.HandleScopeLifecycle(&spec, cleanup.GinkgoHook.AfterEach)
 })
 
-var _ = ReportAfterSuite("My Suite", func(report Report) {
-	// Collect and print logs (you can also write to a file or another sink)
+var _ = AfterSuite(func() {
+	// Cleanup DPF operator config before resource collection
+	if !cleanupFlags.SkipSuiteCleanupAfter {
+		DeleteDPFOperatorConfig(ctx, testClient)
+	} else {
+		By("Skipping AfterSuite cleanup (DPF operator config)")
+	}
+
+	// Collect resources after DPF cleanup to capture what remains
 	By("Collecting resources and logs for the clusters after suite")
 	collectInput := collectResourcesInput{
 		collectResources: collectResources,
@@ -353,20 +358,16 @@ var _ = ReportAfterSuite("My Suite", func(report Report) {
 	}
 	err := collectKubernetesResources(ctx, collectInput, "final")
 	if err != nil {
-		// Don't fail the test if the log collector fails - just print the errors.
+		// Don't fail the test if resource collection fails - just print the errors
 		GinkgoLogr.Error(err, "failed to collect resources and logs for the clusters")
 	}
 
-	if skipCleanup {
-		return
-	}
-	By("cleaning up objects created during the test suite execution")
-	Expect(testutils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(testutils.AfterEachCleanupLabels), resourcesToDelete...)).To(Succeed())
-	Expect(testutils.CleanupWithLabelAndWait(ctx, testClient, labels.SelectorFromSet(testutils.AfterAllCleanupLabels), resourcesToDelete...)).To(Succeed())
+	By("Performing final suite cleanup")
+	cleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.AfterSuite)
 })
 
 func validateFlags() {
-	if isGinkgoLabelApplied(zeroTrustLabel) {
+	if isGinkgoLabelApplied(Domain.ZeroTrust) {
 		if len(HostRebootScript) == 0 {
 			panic("This script must be provided when ZeroTrust label is present")
 		}

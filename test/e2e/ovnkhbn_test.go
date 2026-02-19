@@ -21,7 +21,7 @@ import (
 )
 
 //nolint:dupl
-var _ = Describe("DPF System tests - OVNK HBN", Labels{ovnkHbnLabel, requiresNodesLabel}, func() {
+var _ = Describe("DPF System tests - OVNK HBN", Labels{Domain.OVNKPrimary, Domain.RequiresNodes}, func() {
 	BeforeEach(func() {
 		By("wait for OVNK HBN deployment to be ready")
 		WaitForOVNKHBNDeploymentReady(ctx, input)

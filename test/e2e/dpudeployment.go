@@ -55,7 +55,7 @@ func ValidateDPUDeploymentCreation(ctx context.Context, input *systemTestInput) 
 
 	By("creating the dpudeployment")
 	dpuDeployment := generateDPUDeployment(input, "")
-	dpuDeployment.SetLabels(testutils.AfterEachCleanupLabels)
+	dpuDeployment.SetLabels(CleanupScope.It)
 	Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
 
 	By("checking that the underlying objects are created")
@@ -68,7 +68,7 @@ func ValidateDPUDeploymentMetrics(ctx context.Context, input *systemTestInput) {
 	By("create DPUDeployment for metrics")
 	createDeploymentDependencies(ctx, input, "metrics")
 	dpuDeployment := generateDPUDeployment(input, "metrics")
-	dpuDeployment.SetLabels(testutils.AfterEachCleanupLabels)
+	dpuDeployment.SetLabels(CleanupScope.It)
 	Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
 
 	By("verify DPUDeployment and DPUServiceInterface metrics are in KSM")
@@ -344,7 +344,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 
 	By("create DPUServiceIPAM to be used by dpuDeployment")
 	dpuServiceIPAM := input.ipPoolDPUServiceIPAM.DeepCopy()
-	dpuServiceIPAM.SetLabels(testutils.AfterAllCleanupLabels)
+	dpuServiceIPAM.SetLabels(CleanupScope.Suite)
 	dpuServiceIPAM.SetName("dpudeployment-ipam-pool1")
 	dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
 	// Remove selectors so it applies to all nodes
@@ -368,18 +368,18 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 	Expect(input.client.Create(ctx, dpuServiceConfiguration2)).To(Succeed())
 
 	inClusterDPUServiceTemplate := input.dpuServiceTemplate.DeepCopy()
-	inClusterDPUServiceTemplate.SetLabels(testutils.AfterAllCleanupLabels)
+	inClusterDPUServiceTemplate.SetLabels(CleanupScope.Suite)
 	inClusterDPUServiceTemplate.SetName("dpudeployment-example-in-cluster-servicetemplate")
 	inClusterDPUServiceTemplate.Spec.DeploymentServiceName = "example-in-cluster"
 
 	inClusterDPUServiceConfiguration := input.dpuServiceConfiguration.DeepCopy()
-	inClusterDPUServiceConfiguration.SetLabels(testutils.AfterAllCleanupLabels)
+	inClusterDPUServiceConfiguration.SetLabels(CleanupScope.Suite)
 	inClusterDPUServiceConfiguration.SetName("dpudeployment-example-in-cluster-serviceconfiguration")
 	inClusterDPUServiceConfiguration.Spec.Interfaces = nil
 	inClusterDPUServiceConfiguration.Spec.DeploymentServiceName = "example-in-cluster"
 	inClusterDPUServiceConfiguration.Spec.ServiceConfiguration.DeployInCluster = ptr.To(true)
 
-	dpuDeployment := testutils.GenerateDPUObj("dpf-dpudeployment", input.dpuDeployment.DeepCopy().Namespace, input.dpuDeployment.DeepCopy(), testutils.AfterAllCleanupLabels)
+	dpuDeployment := testutils.GenerateDPUObj("dpf-dpudeployment", input.dpuDeployment.DeepCopy().Namespace, input.dpuDeployment.DeepCopy(), CleanupScope.Suite)
 	// Intentionally using deprecated field, e2e tests will be updated once we have removed the deprecated field. Unit
 	// tests cover the new field, e2e tests cover the old field since there is no more unit test coverage for the deprecated field.
 	//nolint:staticcheck
@@ -392,7 +392,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		ServiceConfiguration: "dpudeployment-example-serviceconfiguration-2",
 	}
 
-	if !isGinkgoLabelApplied(zeroTrustLabel) {
+	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
 		Expect(input.client.Create(ctx, inClusterDPUServiceTemplate)).To(Succeed())
 		Expect(input.client.Create(ctx, inClusterDPUServiceConfiguration)).To(Succeed())
 		dpuDeployment.Spec.Services["example-in-cluster"] = dpuservicev1.DPUDeploymentServiceConfiguration{
@@ -449,7 +449,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		serviceInterfaceLabels = dpuServiceInterfaceList.Items[0].Spec.Template.Spec.Template.Labels
 	}, time.Second*300, time.Millisecond*250).Should(Succeed())
 
-	if Label(scaleLabel).MatchesLabelFilter(GinkgoLabelFilter()) {
+	if Label(Domain.Scale).MatchesLabelFilter(GinkgoLabelFilter()) {
 		// mock-DMS / scale scenario: serviceChains and ServiceInterfaces cannot
 		// reach ready state in mock-dms nodes
 		return
@@ -1061,7 +1061,7 @@ func generateDPUServiceTemplate(input *systemTestInput, nameDiff string) *dpuser
 		nameDiff = "-" + nameDiff
 	}
 	dpuServiceTemplate := input.dpuServiceTemplate.DeepCopy()
-	dpuServiceTemplate.SetLabels(testutils.AfterAllCleanupLabels)
+	dpuServiceTemplate.SetLabels(CleanupScope.Suite)
 	dpuServiceTemplate.SetName(dpuServiceTemplate.GetName() + nameDiff)
 	dpuServiceTemplate.Spec.DeploymentServiceName += nameDiff
 	return dpuServiceTemplate
@@ -1086,7 +1086,7 @@ func generateServiceConfiguration(input *systemTestInput, nameDiff string) *dpus
 		nameDiff = "-" + nameDiff
 	}
 	dpuServiceConfiguration := input.dpuServiceConfiguration.DeepCopy()
-	dpuServiceConfiguration.SetLabels(testutils.AfterAllCleanupLabels)
+	dpuServiceConfiguration.SetLabels(CleanupScope.Suite)
 	dpuServiceConfiguration.SetName(dpuServiceConfiguration.GetName() + nameDiff)
 	dpuServiceConfiguration.Spec.DeploymentServiceName += nameDiff
 	return dpuServiceConfiguration
@@ -1097,7 +1097,7 @@ func generateDPUDeployment(input *systemTestInput, nameDiff string) *dpuservicev
 		nameDiff = "-" + nameDiff
 	}
 	dpuDeployment := input.dpuDeployment.DeepCopy()
-	dpuDeployment.SetLabels(testutils.AfterAllCleanupLabels)
+	dpuDeployment.SetLabels(CleanupScope.Suite)
 	dpuDeployment.SetName(dpuDeployment.GetName() + nameDiff)
 	currentSpecService := dpuDeployment.Spec.Services
 
