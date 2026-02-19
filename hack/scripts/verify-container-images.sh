@@ -25,6 +25,7 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 : ${TRIVY:?variable is not set, should point to the trivy binary}
+TRIVYIGNORE=${TRIVYIGNORE:-${script_dir}/trivyignore.yaml}
 ARTIFACTS=${ARTIFACTS:-"$script_dir/../../artifacts"}
 REPORT_DIRECTORY="${ARTIFACTS}/trivy"
 
@@ -39,7 +40,10 @@ for IMAGE in $@; do
 	image_name=$(basename $IMAGE)
 
 	set +e
-	"${TRIVY}" image -q --exit-code 1 --scanners vuln --ignore-unfixed --severity MEDIUM,HIGH,CRITICAL "${IMAGE}" 2>&1 | tee "${REPORT_DIRECTORY}/${image_name}.txt"
+	"${TRIVY}" image -q --exit-code 1 --scanners vuln \
+		--ignore-unfixed --severity MEDIUM,HIGH,CRITICAL \
+		--ignorefile "${TRIVYIGNORE}" \
+		"${IMAGE}" 2>&1 | tee "${REPORT_DIRECTORY}/${image_name}.txt"
 	trivy_scan_result=${PIPESTATUS[0]}
 	set -e
 
