@@ -233,6 +233,11 @@ func main() {
 		dpucluster.OptionScheme{Scheme: mgr.GetScheme()},
 		dpucluster.OptionUserAgent{UserAgent: "dpuservice-controller"},
 		dpucluster.OptionSyncPeriod{SyncPeriod: syncPeriod},
+		dpucluster.OptionGetIndexerCallbacks{
+			GetIndexerCallbacks: []dpucluster.GetIndexerCallback{
+				dpuservicecontroller.SetupCacheIndexers,
+			},
+		},
 		dpucluster.OptionGetWatcherCallbacks{
 			GetWatcherCallbacks: []dpucluster.GetWatcherCallback{
 				dpuReadyReconciler.WatchServicePods,
@@ -258,6 +263,7 @@ func main() {
 	}
 
 	// Set remote cache to reconcilers that need it
+	dpuReadyReconciler.RemoteCache = rc
 	dpuServiceReconciler.RemoteCache = rc
 
 	if err = (&dpuservicechaincontroller.DPUServiceInterfaceReconciler{

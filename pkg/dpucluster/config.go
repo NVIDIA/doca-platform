@@ -28,7 +28,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -317,19 +316,4 @@ func GetConfigs(ctx context.Context, c client.Client) ([]*Config, error) {
 		configs = append(configs, config)
 	}
 	return configs, nil
-}
-
-// K8sClusterToDPUClusterConfig converts a provisioningv1.K8sCluster to a provisioningv1.DPUCluster.
-// It is used to further fetch/list objects from the DPUCluster.
-func K8sClusterToDPUClusterConfig(c client.Reader, cluster *provisioningv1.K8sCluster) *Config {
-	dpucluster := &provisioningv1.DPUCluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cluster.Name,
-			Namespace: cluster.Namespace,
-		},
-		Spec: provisioningv1.DPUClusterSpec{
-			Kubeconfig: fmt.Sprintf("%s-admin-kubeconfig", cluster.Name),
-		},
-	}
-	return NewConfig(c, dpucluster)
 }
