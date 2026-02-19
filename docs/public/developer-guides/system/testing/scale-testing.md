@@ -83,8 +83,7 @@ export REGISTRY=$YOUR_REGISTRY
 export TAG=$YOUR_TAG
 export IMAGE_PULL_KEY=$YOUR_IMAGE_KEY
 export NODE_MEMORY=16g #adjust as per your system limits
-export E2E_TEST_ARGS="-ginkgo.label-filter=SCALE -e2e.config=config-scale.yaml"
-export E2E_SKIP_CLEANUP=true
+export E2E_TEST_ARGS="-e2e.skip-cleanup -ginkgo.label-filter=SCALE -e2e.config=config-scale.yaml"
 
 
 make clean-test-env generate test-release-e2e-quick test-env-e2e test-deploy-operator-helm test-deploy-mock-dms test-e2e

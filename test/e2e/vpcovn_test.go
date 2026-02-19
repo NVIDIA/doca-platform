@@ -41,14 +41,14 @@ func VPCOVNBeforeSuite() {
 }
 
 //nolint:dupl
-var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, Ordered, func() {
+var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}, Ordered, func() {
 	var (
 		dpuNode1 corev1.Node
 		dpuNode2 corev1.Node
 	)
 	BeforeAll(func() {
 		for _, label := range CurrentSpecReport().Labels() {
-			if label != requiresNodesLabel {
+			if label != Domain.RequiresNodes {
 				continue
 			}
 
@@ -56,8 +56,8 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 				Skip("Skip test as there are not multiple nodes")
 			}
 
-			// Provisioning is skipped if the test is labels with !provisioningLabel
-			if !strings.Contains(GinkgoLabelFilter(), "!"+provisioningLabel) {
+			// Provisioning is skipped if the test is labels with !Domain.Provisioning
+			if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.Provisioning) {
 				By("Waiting for provisioning")
 				VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 				By("Waiting for DPU cluster pods to be ready")
@@ -73,7 +73,7 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 	})
 
 	AfterAll(func() {
-		if skipCleanup {
+		if cleanupFlags.SkipCleanup {
 			By("VPC OVN: Skip cleanup for VPC OVN tests")
 			return
 		}
@@ -87,7 +87,7 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 	// This is the default interface name for the VFs
 	vfDefaultInterfaceName := "net1"
 
-	Context("pre-requisite services and objects", Labels{requiresNodesLabel}, Ordered, func() {
+	Context("pre-requisite services and objects", Labels{Domain.RequiresNodes}, Ordered, func() {
 		It("create dpu vpc ovn vtep DPUServiceIPAM", func() {
 			createVtepDPUServiceIPAM(ctx, input)
 		})
@@ -174,7 +174,7 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 	hostPf0Vf2 := "enp8s0f0v2"
 	hostPf0Vf3 := "enp8s0f0v3"
 
-	Context("single virtual network, same and cross node traffic", Labels{requiresNodesLabel}, Ordered, func() {
+	Context("single virtual network, same and cross node traffic", Labels{Domain.RequiresNodes}, Ordered, func() {
 
 		var (
 			pf0vf2Worker1MacAddress string
@@ -387,7 +387,7 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 		})
 	})
 
-	Context("two virtual networks, same and cross node traffic", Labels{requiresNodesLabel}, Ordered, func() {
+	Context("two virtual networks, same and cross node traffic", Labels{Domain.RequiresNodes}, Ordered, func() {
 
 		var (
 			pf0vf2Worker1MacAddress string
@@ -603,7 +603,7 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 		})
 	})
 
-	Context("different VPCs", Labels{requiresNodesLabel}, Ordered, func() {
+	Context("different VPCs", Labels{Domain.RequiresNodes}, Ordered, func() {
 
 		var (
 			pf0vf2Worker1MacAddress string
@@ -817,7 +817,7 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 		})
 	})
 
-	Context("ServiceInterface type Service", Labels{requiresNodesLabel}, Ordered, func() {
+	Context("ServiceInterface type Service", Labels{Domain.RequiresNodes}, Ordered, func() {
 
 		var (
 			pf0vf2Worker1MacAddress string
@@ -1047,7 +1047,7 @@ var _ = Describe("VPC OVN testcases", Labels{dpfSystemLabel, dpfVPCTestLabel}, O
 	})
 
 	// Note: this Context should always run last as it modifies VPC prerequiesites DPUServiceChain
-	Context("virtual network to external network traffic ", Labels{requiresNodesLabel}, Ordered, func() {
+	Context("virtual network to external network traffic ", Labels{Domain.RequiresNodes}, Ordered, func() {
 
 		var (
 			pf0vf2Worker1MacAddress string
