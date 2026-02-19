@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+//nolint:goconst
 package e2e
 
 import (
@@ -632,6 +633,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 	tracker := NewByTracker()
 
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+		ProcessDPUNodeMaintenanceHold(ctx, input)
 		RebootAndVerifyDPU(ctx, input)
 	}
 
@@ -656,6 +658,68 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 		}
 	}).WithTimeout(20 * time.Minute).Should(Succeed())
 
+}
+
+// isDPUNodeMaintenanceOnHold returns true if the DPUNodeMaintenance waits for hold to be released
+func isDPUNodeMaintenanceOnHold(dpuNodeMaintenance *provisioningv1.DPUNodeMaintenance) bool {
+	val, exists := dpuNodeMaintenance.Annotations["provisioning.dpu.nvidia.com/wait-for-external-nodeeffect"]
+	return exists && val == "true"
+}
+
+// releaseDPUNodeMaintenanceHold releases the hold for the given DPUNodeMaintenance
+func releaseDPUNodeMaintenanceHold(ctx context.Context, c client.Client, dpuNodeMaintenance *provisioningv1.DPUNodeMaintenance) error {
+	current := &provisioningv1.DPUNodeMaintenance{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(dpuNodeMaintenance), current); err != nil {
+		return err
+	}
+	patch := client.MergeFrom(current.DeepCopy())
+	if current.Annotations == nil {
+		current.Annotations = make(map[string]string)
+	}
+	current.Annotations["provisioning.dpu.nvidia.com/wait-for-external-nodeeffect"] = "false"
+
+	if err := c.Patch(ctx, current, patch); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ProcessDPUNodeMaintenanceHold waits for DPUNodeMaintenance CRs to have the hold annotation set to "true"
+// and then patches them to "false" to allow DPU provisioning to continue.
+// This simulates an external system completing the node effect in a non-K8s environment.
+func ProcessDPUNodeMaintenanceHold(ctx context.Context, input ProvisionDPUClustersInput) {
+	By("Processing DPUNodeMaintenance with Node Effect Hold")
+	tracker := NewByTracker()
+
+	expectedDPUs := input.numberOfDPUNodes * input.numberOfDPUsPerNode
+
+	// Wait for DPUNodeMaintenance CRs to exist with hold annotation set to "true"
+	var dpuNodeMaintenanceList *provisioningv1.DPUNodeMaintenanceList
+	Eventually(func(g Gomega) {
+		dpuNodeMaintenanceList = &provisioningv1.DPUNodeMaintenanceList{}
+		g.Expect(input.client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+		// Count how many have the hold annotation set to "true"
+		holdCount := 0
+		for i := range dpuNodeMaintenanceList.Items {
+			if isDPUNodeMaintenanceOnHold(&dpuNodeMaintenanceList.Items[i]) {
+				holdCount++
+			}
+		}
+
+		holdKey := fmt.Sprintf("%d/%d", holdCount, expectedDPUs)
+		tracker.By(holdKey, "Found %d/%d DPUNodeMaintenance CRs with hold annotation set to true", holdCount, expectedDPUs)
+		g.Expect(holdCount).To(Equal(expectedDPUs), "All DPUs should have DPUNodeMaintenance with hold annotation set to true")
+	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+	// Patch all DPUNodeMaintenance CRs to set hold annotation to "false"
+	By("Setting hold annotation to false on all DPUNodeMaintenance CRs to allow provisioning to continue")
+	for i := range dpuNodeMaintenanceList.Items {
+		if isDPUNodeMaintenanceOnHold(&dpuNodeMaintenanceList.Items[i]) {
+			Eventually(releaseDPUNodeMaintenanceHold).WithArguments(ctx, input.client, &dpuNodeMaintenanceList.Items[i]).WithTimeout(30 * time.Second).Should(Succeed())
+			By(fmt.Sprintf("Released hold on DPUNodeMaintenance %s", dpuNodeMaintenanceList.Items[i].Name))
+		}
+	}
 }
 
 // RebootAndVerifyDPU waits and verifies that the DPUs expecting reboot, triggers node and dpu reboot via power cycle

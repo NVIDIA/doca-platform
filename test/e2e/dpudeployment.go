@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+//nolint:goconst,gocyclo,dupl
 package e2e
 
 import (
@@ -38,6 +39,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	machineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -494,9 +496,9 @@ func VerifyDPUDeploymentIsReady(ctx context.Context, input *systemTestInput) {
 	}).WithTimeout(15 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 }
 
-// ValidateDPUDeploymentDPUServiceDisruptiveUpgrade validates that DPUDeployment disruptive upgrade flow for standard
-// DPUServices works as expected
-func ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx context.Context, input *systemTestInput) {
+// ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain validates that DPUDeployment disruptive upgrade flow for
+// standard DPUService works as expected with node effect drain which is the recommendation for Host Trusted
+func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx context.Context, input *systemTestInput) {
 	if input.numberOfDPUNodes != 2 {
 		// Test assumes that there are exactly 2 host nodes to match the DPU cluster
 		Skip("Skip test as there are not exactly 2 nodes")
@@ -719,6 +721,257 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgrade(ctx context.Context, input
 	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
 }
 
+// ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold validates that DPUDeployment disruptive upgrade flow for
+// standard DPUService works as expected with hold node effect which is the recommendation for Zero Trust
+func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, input *systemTestInput) {
+	if input.numberOfDPUNodes != 2 {
+		// Test assumes that there are exactly 2 DPUNodes
+		Skip("Skip test as there are not exactly 2 DPUNodes")
+	}
+
+	By("Patching the provisioning controller to apply node effect sequentially")
+	dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
+	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, dpfOperatorConfig)).To(Succeed())
+	originalDPFOperatorConfig := dpfOperatorConfig.DeepCopy()
+
+	// Set MaxUnavailableDPUNodes to 1 to ensure only one node is upgraded at a time
+	if dpfOperatorConfig.Spec.ProvisioningController == nil {
+		dpfOperatorConfig.Spec.ProvisioningController = &operatorv1.ProvisioningControllerConfiguration{}
+	}
+	dpfOperatorConfig.Spec.ProvisioningController.MaxUnavailableDPUNodes = ptr.To(int32(1))
+	Expect(input.client.Patch(ctx, dpfOperatorConfig, client.MergeFrom(originalDPFOperatorConfig))).To(Succeed())
+
+	By("Validating that the DPFOperatorConfig is ready for the current generation")
+	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
+
+	By("Getting the existing DPUDeployment")
+	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
+	dpuDeployment := &dpuservicev1.DPUDeployment{}
+	dpuDeployment.SetName("dpf-dpudeployment")
+	dpuDeployment.SetNamespace(dpfOperatorSystemNamespace)
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+
+	By("Getting the DPUServiceConfiguration for example service")
+	dpuServiceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
+	dpuServiceConfiguration.SetName("dpudeployment-example-serviceconfiguration")
+	dpuServiceConfiguration.SetNamespace(dpfOperatorSystemNamespace)
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuServiceConfiguration), dpuServiceConfiguration)).To(Succeed())
+
+	serviceIDForExample := "dpudeployment_dpf-dpudeployment_example"
+
+	By("Getting the mapping between DPUs and DPUNodes")
+	// Get all DPUs in the system
+	dpuList := &provisioningv1.DPUList{}
+	Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+	// Create a map from DPU name to DPUNode name
+	dpuToDPUNodeMap := make(map[string]string)
+	for _, dpu := range dpuList.Items {
+		dpuToDPUNodeMap[dpu.Name] = dpu.Spec.DPUNodeName
+	}
+
+	By("Modifying the DPUServiceConfiguration by adding an extra label")
+	originalDPUServiceConfiguration := dpuServiceConfiguration.DeepCopy()
+	if dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels == nil {
+		dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = make(map[string]string)
+	}
+	dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels["test-disruptive-upgrade-zt"] = "true"
+	Expect(input.client.Patch(ctx, dpuServiceConfiguration, client.MergeFrom(originalDPUServiceConfiguration))).To(Succeed())
+
+	By("Checking that DPUNodeMaintenance is created with hold annotation set to true")
+	var dpuUnderNodeEffect string
+	var inProgressDPUNodeMaintenance *provisioningv1.DPUNodeMaintenance
+	Eventually(func(g Gomega) {
+		// Get all DPUNodeMaintenance objects
+		dpuNodeMaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
+		g.Expect(input.client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+		// Find the DPUNodeMaintenance with hold annotation set to "true"
+		for i, dpuNodeMaintenance := range dpuNodeMaintenanceList.Items {
+			if isDPUNodeMaintenanceOnHold(&dpuNodeMaintenanceList.Items[i]) {
+				// Verify this DPUNode is targeted by our DPUDeployment
+				// Intentionally using deprecated field, e2e tests will be updated once we have removed the deprecated field. Unit
+				// tests cover the new field, e2e tests cover the old field since there is no more unit test coverage for the deprecated field.
+				//nolint:staticcheck
+				labelSelectorForNodes, err := utils.LabelSelectorAsSelector(dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector)
+				g.Expect(err).ToNot(HaveOccurred())
+
+				dpuNode := &provisioningv1.DPUNode{}
+				err = input.client.Get(ctx, client.ObjectKey{Name: dpuNodeMaintenance.Spec.DPUNodeName, Namespace: dpuNodeMaintenance.Namespace}, dpuNode)
+				if err == nil && labelSelectorForNodes.Matches(labels.Set(dpuNode.Labels)) {
+					dpuUnderNodeEffect = dpuNodeMaintenance.Spec.DPUNodeName
+					inProgressDPUNodeMaintenance = &dpuNodeMaintenanceList.Items[i]
+					break
+				}
+			}
+		}
+		g.Expect(dpuUnderNodeEffect).ToNot(BeEmpty(), "At least one DPUNode should have DPUNodeMaintenance with hold annotation set to true")
+	}).WithTimeout(5 * time.Minute).Should(Succeed())
+
+	By("Verifying pods are NOT updated while hold annotation is true")
+	Consistently(func(g Gomega) {
+		podList := &corev1.PodList{}
+		g.Expect(dpuClusterClient[0].List(ctx, podList,
+			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
+			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+		// Verify no pods have the new label yet (update hasn't started)
+		for _, pod := range podList.Items {
+			_, hasNewLabel := pod.Labels["test-disruptive-upgrade-zt"]
+			g.Expect(hasNewLabel).To(BeFalse(), "Pods should not be updated while hold annotation is true")
+		}
+	}).WithTimeout(30 * time.Second).WithPolling(5 * time.Second).Should(Succeed())
+
+	By("Simulating user action: setting hold annotation to false to allow update")
+	Eventually(releaseDPUNodeMaintenanceHold).WithArguments(ctx, input.client, inProgressDPUNodeMaintenance).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Checking that the pod on the DPU belonging to the DPUNode under node effect is now updated")
+	var newPod *corev1.Pod
+	Eventually(func(g Gomega) {
+		podList := &corev1.PodList{}
+		g.Expect(dpuClusterClient[0].List(ctx, podList,
+			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
+			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(podList.Items).To(HaveLen(input.totalDPUs()))
+
+		// Track pods on DPU belonging to DPUNode under node effect (should transition from old to new)
+		foundOldPodOnDPUUnderNodeEffect := false
+		foundNewPodOnDPUUnderNodeEffect := false
+		// Track pods on DPUs not under node effect (should remain old, not yet upgraded)
+		foundOldPodOnDPUNotUnderNodeEffect := false
+		foundNewPodOnDPUNotUnderNodeEffect := false
+
+		for _, pod := range podList.Items {
+			// Find the DPUNode that this pod belongs to
+			dpuName := pod.Spec.NodeName
+			podDPUNodeName, dpuNodeExists := dpuToDPUNodeMap[dpuName]
+			g.Expect(dpuNodeExists).To(BeTrue())
+
+			// Check if pod has the new label (new pod) or not (old pod)
+			_, podHasNewLabel := pod.Labels["test-disruptive-upgrade-zt"]
+			podIsOnDPUNodeUnderNodeEffect := podDPUNodeName == dpuUnderNodeEffect
+
+			switch {
+			case podIsOnDPUNodeUnderNodeEffect && podHasNewLabel:
+				foundNewPodOnDPUUnderNodeEffect = true
+				newPod = &pod
+			case podIsOnDPUNodeUnderNodeEffect && !podHasNewLabel:
+				foundOldPodOnDPUUnderNodeEffect = true
+			case !podIsOnDPUNodeUnderNodeEffect && podHasNewLabel:
+				foundNewPodOnDPUNotUnderNodeEffect = true
+			case !podIsOnDPUNodeUnderNodeEffect && !podHasNewLabel:
+				foundOldPodOnDPUNotUnderNodeEffect = true
+			}
+		}
+
+		// DPUNode under node effect should have new pod, not old pod
+		g.Expect(foundOldPodOnDPUUnderNodeEffect).To(BeFalse(), "Old pod without new label should be removed from DPU belonging to DPUNode under node effect")
+		g.Expect(foundNewPodOnDPUUnderNodeEffect).To(BeTrue(), "New pod with new label should exist on DPU belonging to DPUNode under node effect")
+		// DPUNodes not under node effect should have old pods, not new pods
+		g.Expect(foundOldPodOnDPUNotUnderNodeEffect).To(BeTrue(), "Old pod without new label should still exist on DPUs belonging to DPUNodes not under node effect")
+		g.Expect(foundNewPodOnDPUNotUnderNodeEffect).To(BeFalse(), "New pod with new label should not exist on DPUs belonging to DPUNodes not under node effect yet")
+	}).WithTimeout(10 * time.Minute).Should(Succeed())
+
+	By("Verifying the new pod becomes ready on the DPUNode under node effect")
+	Eventually(func(g Gomega) {
+		gotPod := &corev1.Pod{}
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKeyFromObject(newPod), gotPod)).To(Succeed())
+
+		// Verify pod is ready
+		isPodReady := false
+		for _, condition := range gotPod.Status.Conditions {
+			if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+				isPodReady = true
+				break
+			}
+		}
+		g.Expect(isPodReady).To(BeTrue(), "New pod should become ready after hold annotation was set to false")
+	}).WithTimeout(15 * time.Minute).Should(Succeed())
+
+	By("Verifying the DPU(s) for the updated DPUNode become ready")
+	Eventually(func(g Gomega) {
+		dpus := &provisioningv1.DPUList{}
+		g.Expect(input.client.List(ctx, dpus, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+		// Find the DPU(s) belonging to the DPUNode that was updated and verify they're ready
+		foundDPU := false
+		for _, dpu := range dpus.Items {
+			if dpu.Spec.DPUNodeName == dpuUnderNodeEffect {
+				foundDPU = true
+				g.Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPUReady),
+					fmt.Sprintf("DPU %s should be ready after pod is ready", dpu.Name))
+			}
+		}
+		g.Expect(foundDPU).To(BeTrue(), "Should find one DPU that is ready for the DPUNode")
+	}).WithTimeout(5 * time.Minute).Should(Succeed())
+
+	By("Finding and releasing the next DPUNode with hold annotation to complete the upgrade")
+	// Since MaxUnavailableDPUNodes=1, the next node should now have a dpuNodeMaintenance with hold=true
+	var secondMaintenanceWithHold *provisioningv1.DPUNodeMaintenance
+	Eventually(func(g Gomega) {
+		dpuNodeMaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
+		g.Expect(input.client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		// We expect only a single DPUNodeMaintenance left
+		g.Expect(dpuNodeMaintenanceList.Items).To(HaveLen(1))
+
+		if isDPUNodeMaintenanceOnHold(&dpuNodeMaintenanceList.Items[0]) {
+			secondMaintenanceWithHold = &dpuNodeMaintenanceList.Items[0]
+		}
+		g.Expect(secondMaintenanceWithHold).ToNot(BeNil(), "Second DPUNode should have DPUNodeMaintenance with hold annotation set to true")
+	}).WithTimeout(5 * time.Minute).Should(Succeed())
+
+	By("Simulating user action: Setting hold annotation to false on the second DPUNode")
+	Eventually(releaseDPUNodeMaintenanceHold).WithArguments(ctx, input.client, secondMaintenanceWithHold).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Verifying that the DPUDeployment becomes ready")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+		g.Expect(conditions.IsTrue(dpuDeployment, conditions.TypeReady)).To(BeTrue())
+	}).WithTimeout(15 * time.Minute).Should(Succeed())
+
+	By("Verifying all pods are running the new configuration")
+	Eventually(func(g Gomega) {
+		podList := &corev1.PodList{}
+		g.Expect(dpuClusterClient[0].List(ctx, podList,
+			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
+			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(podList.Items).To(HaveLen(input.totalDPUs()))
+
+		// Verify all pods have the new label
+		for _, pod := range podList.Items {
+			g.Expect(pod.Labels).To(HaveKeyWithValue("test-disruptive-upgrade-zt", "true"))
+		}
+	}).WithTimeout(5 * time.Minute).Should(Succeed())
+
+	By("Verifying that all DPUs are ready")
+	Eventually(func(g Gomega) {
+		dpus := &provisioningv1.DPUList{}
+		g.Expect(input.client.List(ctx, dpus, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+		readyDPUs := 0
+		for _, dpu := range dpus.Items {
+			if dpu.Status.Phase == provisioningv1.DPUReady {
+				readyDPUs++
+			}
+		}
+
+		g.Expect(readyDPUs).To(Equal(input.totalDPUs()),
+			fmt.Sprintf("expected all %d DPUs to be ready, but only %d are ready",
+				input.totalDPUs(), readyDPUs))
+	}).WithTimeout(5 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+
+	By("Reverting the DPFOperatorConfig to its original setting")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
+		resetConfig := dpfOperatorConfig.DeepCopy()
+		resetConfig.Spec = originalDPFOperatorConfig.Spec
+		g.Expect(input.client.Patch(ctx, resetConfig, client.MergeFrom(dpfOperatorConfig))).To(Succeed())
+	}).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Validating that the DPFOperatorConfig is ready for the current generation")
+	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
+}
+
 // ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade validates that DPUDeployment disruptive upgrade flow for
 // in-cluster DPUServices works as expected
 func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Context, input *systemTestInput) {
@@ -795,7 +1048,7 @@ func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Conte
 	By("verifying that a new DPUService is created")
 	newInClusterService := waitForNewInClusterDPUService(ctx, input.client, dpuDeployment.Namespace, parentLabel, originalInClusterService.Name)
 
-	By("verifying that all target DPUs went through maintenance (NodeEffectReady completed and NodeEffectRemoved)")
+	By("verifying that all target DPUs went through dpuNodeMaintenance (NodeEffectReady completed and NodeEffectRemoved)")
 	verifyDPUsCompletedMaintenance(ctx, input.client, nodesInfo.dpuNodeNames, initialNodeEffectStates)
 
 	By("verifying that pods were recreated")
@@ -808,9 +1061,9 @@ func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Conte
 	}).WithTimeout(15 * time.Minute).Should(Succeed())
 }
 
-// ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade validates that DPUDeployment disruptive upgrade flow for
-// DPUServiceChain works as expected
-func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade(ctx context.Context, input *systemTestInput) {
+// ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain validates that DPUDeployment disruptive upgrade flow for
+// DPUServiceChain works as expected with drain node effect which is the recommendation for Host Trusted
+func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx context.Context, input *systemTestInput) {
 	if input.numberOfDPUNodes != 2 {
 		// Test assumes that there are exactly 2 host nodes to match the DPU cluster
 		Skip("Skip test as there are not exactly 2 nodes")
@@ -1048,6 +1301,227 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgrade(ctx context.Context, 
 	}).WithTimeout(2 * time.Minute).Should(Succeed())
 }
 
+// ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold validates that DPUDeployment disruptive upgrade flow for
+// DPUServiceChain works as expected with hold node effect which is the default recommendation for Zero Trust
+func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Context, input *systemTestInput) {
+	if input.numberOfDPUNodes != 2 {
+		// Test assumes that there are exactly 2 DPUNodes
+		Skip("Skip test as there are not exactly 2 DPUNodes")
+	}
+
+	By("Patching the provisioning controller to apply node effect sequentially")
+	dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
+	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, dpfOperatorConfig)).To(Succeed())
+	originalDPFOperatorConfig := dpfOperatorConfig.DeepCopy()
+
+	// Set MaxUnavailableDPUNodes to 1 to ensure only one node is upgraded at a time
+	if dpfOperatorConfig.Spec.ProvisioningController == nil {
+		dpfOperatorConfig.Spec.ProvisioningController = &operatorv1.ProvisioningControllerConfiguration{}
+	}
+	dpfOperatorConfig.Spec.ProvisioningController.MaxUnavailableDPUNodes = ptr.To(int32(1))
+	Expect(input.client.Patch(ctx, dpfOperatorConfig, client.MergeFrom(originalDPFOperatorConfig))).To(Succeed())
+
+	By("Validating that the DPFOperatorConfig is ready for the current generation")
+	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
+
+	By("Getting the existing DPUDeployment")
+	dpuDeployment := &dpuservicev1.DPUDeployment{}
+	dpuDeployment.SetName("dpf-dpudeployment")
+	dpuDeployment.SetNamespace(dpfOperatorSystemNamespace)
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+
+	By("Creating mapping from DPU to DPUNode")
+	dpuList := &provisioningv1.DPUList{}
+	Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+	// Create a map from DPU name to DPUNode name
+	dpuToDPUNodeMap := make(map[string]string)
+	for _, dpu := range dpuList.Items {
+		dpuToDPUNodeMap[dpu.Name] = dpu.Spec.DPUNodeName
+	}
+
+	By("Modifying the DPUDeployment ServiceChains by changing ServiceMTU")
+	originalDPUDeployment := dpuDeployment.DeepCopy()
+	newMTU := 1300
+	dpuDeployment.Spec.ServiceChains.Switches[0].ServiceMTU = &newMTU
+	Expect(input.client.Patch(ctx, dpuDeployment, client.MergeFrom(originalDPUDeployment))).To(Succeed())
+
+	By("Checking that DPUNodeMaintenance is created with hold annotation set to true")
+	var dpuNodeUnderNodeEffect string
+	var inProgressDPUNodeMaintenance *provisioningv1.DPUNodeMaintenance
+	Eventually(func(g Gomega) {
+		dpuNodeMaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
+		g.Expect(input.client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+		for i, dpuNodeMaintenance := range dpuNodeMaintenanceList.Items {
+			if isDPUNodeMaintenanceOnHold(&dpuNodeMaintenanceList.Items[i]) {
+				// Intentionally using deprecated field, e2e tests will be updated once we have removed the deprecated field. Unit
+				// tests cover the new field, e2e tests cover the old field since there is no more unit test coverage for the deprecated field.
+				//nolint:staticcheck
+				labelSelectorForNodes, err := utils.LabelSelectorAsSelector(dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector)
+				g.Expect(err).ToNot(HaveOccurred())
+
+				dpuNode := &provisioningv1.DPUNode{}
+				err = input.client.Get(ctx, client.ObjectKey{Name: dpuNodeMaintenance.Spec.DPUNodeName, Namespace: dpuNodeMaintenance.Namespace}, dpuNode)
+				if err == nil && labelSelectorForNodes.Matches(labels.Set(dpuNode.Labels)) {
+					dpuNodeUnderNodeEffect = dpuNodeMaintenance.Spec.DPUNodeName
+					inProgressDPUNodeMaintenance = &dpuNodeMaintenanceList.Items[i]
+					break
+				}
+			}
+		}
+		g.Expect(dpuNodeUnderNodeEffect).ToNot(BeEmpty(), "At least one DPUNode should have DPUNodeMaintenance with hold annotation set to true")
+	}).WithTimeout(5 * time.Minute).Should(Succeed())
+
+	By("Verifying ServiceChains are NOT updated while hold annotation is true")
+	Consistently(func(g Gomega) {
+		serviceChainList := &dpuservicev1.ServiceChainList{}
+		g.Expect(dpuClusterClient[0].List(ctx, serviceChainList,
+			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+		// Verify no ServiceChains have the new MTU yet (update hasn't started)
+		for _, serviceChain := range serviceChainList.Items {
+			if serviceChain.Spec.Switches[0].ServiceMTU != nil {
+				g.Expect(*serviceChain.Spec.Switches[0].ServiceMTU).ToNot(Equal(1300), "ServiceChains should not be updated while hold annotation is true")
+			}
+		}
+	}).WithTimeout(30 * time.Second).WithPolling(5 * time.Second).Should(Succeed())
+
+	By("Simulating user action: setting hold annotation to false to allow update")
+	Eventually(releaseDPUNodeMaintenanceHold).WithArguments(ctx, input.client, inProgressDPUNodeMaintenance).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Checking that the ServiceChain on the DPU under node effect is updated")
+	var newServiceChain *dpuservicev1.ServiceChain
+	Eventually(func(g Gomega) {
+		serviceChainList := &dpuservicev1.ServiceChainList{}
+		g.Expect(dpuClusterClient[0].List(ctx, serviceChainList,
+			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(serviceChainList.Items).To(HaveLen(input.totalDPUs()))
+
+		// Track ServiceChains on DPUs under and not under node effect
+		foundOldServiceChainOnDPUUnderNodeEffect := false
+		foundNewServiceChainOnDPUUnderNodeEffect := false
+		foundOldServiceChainOnDPUNotUnderNodeEffect := false
+		foundNewServiceChainOnDPUNotUnderNodeEffect := false
+
+		for _, serviceChain := range serviceChainList.Items {
+			serviceChainDPUNodeName, dpuNodeExists := dpuToDPUNodeMap[*serviceChain.Spec.Node]
+			g.Expect(dpuNodeExists).To(BeTrue())
+
+			// Check if this is a new ServiceChain (has the new MTU)
+			hasNewMTU := serviceChain.Spec.Switches[0].ServiceMTU != nil && *serviceChain.Spec.Switches[0].ServiceMTU == 1300
+			serviceChainIsOnDPUUnderNodeEffect := serviceChainDPUNodeName == dpuNodeUnderNodeEffect
+
+			switch {
+			case serviceChainIsOnDPUUnderNodeEffect && hasNewMTU:
+				foundNewServiceChainOnDPUUnderNodeEffect = true
+				newServiceChain = &serviceChain
+			case serviceChainIsOnDPUUnderNodeEffect && !hasNewMTU:
+				foundOldServiceChainOnDPUUnderNodeEffect = true
+			case !serviceChainIsOnDPUUnderNodeEffect && hasNewMTU:
+				foundNewServiceChainOnDPUNotUnderNodeEffect = true
+			case !serviceChainIsOnDPUUnderNodeEffect && !hasNewMTU:
+				foundOldServiceChainOnDPUNotUnderNodeEffect = true
+			}
+		}
+
+		// DPU under node effect should have new ServiceChain, not old ServiceChain
+		g.Expect(foundOldServiceChainOnDPUUnderNodeEffect).To(BeFalse(), "Old ServiceChain should be removed from DPU under node effect")
+		g.Expect(foundNewServiceChainOnDPUUnderNodeEffect).To(BeTrue(), "New ServiceChain should exist on DPU under node effect")
+		// DPUs not under node effect should have old ServiceChains, not new ServiceChains
+		g.Expect(foundOldServiceChainOnDPUNotUnderNodeEffect).To(BeTrue(), "Old ServiceChain should still exist on DPUs not under node effect")
+		g.Expect(foundNewServiceChainOnDPUNotUnderNodeEffect).To(BeFalse(), "New ServiceChain should not exist on DPUs not under node effect yet")
+	}).WithTimeout(10 * time.Minute).Should(Succeed())
+
+	By("Verifying the new ServiceChain becomes ready")
+	Eventually(func(g Gomega) {
+		gotServiceChain := &dpuservicev1.ServiceChain{}
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKeyFromObject(newServiceChain), gotServiceChain)).To(Succeed())
+		g.Expect(conditions.IsTrue(gotServiceChain, conditions.TypeReady)).To(BeTrue(), "New ServiceChain should become ready after hold annotation was set to false")
+	}).WithTimeout(15 * time.Minute).Should(Succeed())
+
+	By("Verifying the DPU(s) for the updated DPUNode become ready")
+	Eventually(func(g Gomega) {
+		dpus := &provisioningv1.DPUList{}
+		g.Expect(input.client.List(ctx, dpus, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+		foundDPU := false
+		for _, dpu := range dpus.Items {
+			if dpu.Spec.DPUNodeName == dpuNodeUnderNodeEffect {
+				foundDPU = true
+				g.Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPUReady),
+					fmt.Sprintf("DPU %s should be ready after ServiceChain is ready", dpu.Name))
+			}
+		}
+		g.Expect(foundDPU).To(BeTrue(), "Should find at least one DPU for the updated DPUNode")
+	}).WithTimeout(5 * time.Minute).Should(Succeed())
+
+	By("Finding and releasing the next DPUNode with hold annotation to complete the upgrade")
+	var secondMaintenanceWithHold *provisioningv1.DPUNodeMaintenance
+	Eventually(func(g Gomega) {
+		dpuNodeMaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
+		g.Expect(input.client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		// We expect only a single DPUNodeMaintenance left
+		g.Expect(dpuNodeMaintenanceList.Items).To(HaveLen(1))
+
+		if isDPUNodeMaintenanceOnHold(&dpuNodeMaintenanceList.Items[0]) {
+			secondMaintenanceWithHold = &dpuNodeMaintenanceList.Items[0]
+		}
+		g.Expect(secondMaintenanceWithHold).ToNot(BeNil(), "Second DPUNode should have DPUNodeMaintenance with hold annotation set to true")
+	}).WithTimeout(5 * time.Minute).Should(Succeed())
+
+	By("Setting hold annotation to false on the second DPUNode")
+	Eventually(releaseDPUNodeMaintenanceHold).WithArguments(ctx, input.client, secondMaintenanceWithHold).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Verifying that the DPUDeployment becomes ready")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+		g.Expect(conditions.IsTrue(dpuDeployment, conditions.TypeReady)).To(BeTrue())
+	}).WithTimeout(15 * time.Minute).Should(Succeed())
+
+	By("Verifying all ServiceChains are running the new configuration")
+	Eventually(func(g Gomega) {
+		serviceChainList := &dpuservicev1.ServiceChainList{}
+		g.Expect(dpuClusterClient[0].List(ctx, serviceChainList,
+			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(serviceChainList.Items).To(HaveLen(input.totalDPUs()))
+
+		for _, serviceChain := range serviceChainList.Items {
+			g.Expect(serviceChain.Spec.Switches).To(HaveLen(1))
+			g.Expect(serviceChain.Spec.Switches[0].ServiceMTU).ToNot(BeNil())
+			g.Expect(*serviceChain.Spec.Switches[0].ServiceMTU).To(Equal(1300))
+		}
+	}).WithTimeout(5 * time.Minute).Should(Succeed())
+
+	By("Verifying that all DPUs are ready")
+	Eventually(func(g Gomega) {
+		dpus := &provisioningv1.DPUList{}
+		g.Expect(input.client.List(ctx, dpus, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+		readyDPUs := 0
+		for _, dpu := range dpus.Items {
+			if dpu.Status.Phase == provisioningv1.DPUReady {
+				readyDPUs++
+			}
+		}
+
+		g.Expect(readyDPUs).To(Equal(input.totalDPUs()),
+			fmt.Sprintf("expected all %d DPUs to be ready, but only %d are ready",
+				input.totalDPUs(), readyDPUs))
+	}).WithTimeout(5 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+
+	By("Reverting the DPFOperatorConfig to its original setting")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
+		resetConfig := dpfOperatorConfig.DeepCopy()
+		resetConfig.Spec = originalDPFOperatorConfig.Spec
+		g.Expect(input.client.Patch(ctx, resetConfig, client.MergeFrom(dpfOperatorConfig))).To(Succeed())
+	}).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Validating that the DPFOperatorConfig is ready for the current generation")
+	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
+}
+
 func createDeploymentDependencies(ctx context.Context, input *systemTestInput, nameDiff string) {
 	dpuServiceTemplate := generateDPUServiceTemplate(input, nameDiff)
 	useDummyDPUServiceChart(dpuServiceTemplate)
@@ -1261,7 +1735,7 @@ func waitForNewInClusterDPUService(ctx context.Context, c client.Client, namespa
 	return newInClusterService
 }
 
-// dpuMaintenanceCompleted checks if a DPU has completed its maintenance cycle
+// dpuMaintenanceCompleted checks if a DPU has completed its dpuNodeMaintenance cycle
 func dpuMaintenanceCompleted(dpu provisioningv1.DPU, initialStates map[string]dpuNodeEffectState) bool {
 	initialState, hadInitialState := initialStates[dpu.Name]
 	nodeEffectReadyCompleted := false
@@ -1286,7 +1760,7 @@ func dpuMaintenanceCompleted(dpu provisioningv1.DPU, initialStates map[string]dp
 	return nodeEffectReadyCompleted && nodeEffectRemoved
 }
 
-// verifyDPUsCompletedMaintenance verifies that all target DPUs completed their maintenance cycle
+// verifyDPUsCompletedMaintenance verifies that all target DPUs completed their dpuNodeMaintenance cycle
 func verifyDPUsCompletedMaintenance(ctx context.Context, c client.Client, dpuNodeNames []string, initialStates map[string]dpuNodeEffectState) {
 	Eventually(func(g Gomega) {
 		dpusCompletedMaintenance := make(map[string]struct{})
@@ -1306,7 +1780,7 @@ func verifyDPUsCompletedMaintenance(ctx context.Context, c client.Client, dpuNod
 		}
 
 		g.Expect(dpusCompletedMaintenance).To(HaveLen(len(dpuNodeNames)),
-			fmt.Sprintf("expected all %d target DPUNodes' DPUs to complete maintenance cycle (NodeEffectReady=True with reason=NodeEffectCompleted and NodeEffectRemoved updated), but only %d did",
+			fmt.Sprintf("expected all %d target DPUNodes' DPUs to complete dpuNodeMaintenance cycle (NodeEffectReady=True with reason=NodeEffectCompleted and NodeEffectRemoved updated), but only %d did",
 				len(dpuNodeNames), len(dpusCompletedMaintenance)))
 	}).WithTimeout(15 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 }

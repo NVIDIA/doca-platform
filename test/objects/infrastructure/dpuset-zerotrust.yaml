@@ -19,4 +19,4 @@ spec:
       bfb:
         name: "bf-bundle"
       nodeEffect:
-        noEffect: true
+        hold: true
