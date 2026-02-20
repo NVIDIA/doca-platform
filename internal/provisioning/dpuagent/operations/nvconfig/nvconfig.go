@@ -19,22 +19,27 @@ package nvconfig
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
+	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 
+	"github.com/Masterminds/semver/v3"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 )
 
 const (
-	CondNVConfigApplied   = "NVConfigApplied"
-	defaultMstDevicesPath = "/dev/mst"
+	CondNVConfigApplied = "NVConfigApplied"
+	minMftVersion       = "4.35.1"
+
+	pciPrefix       = "pci/"
+	flavourPhysical = "physical"
 )
 
 type GetLatestDPU struct {
@@ -66,8 +71,10 @@ func (g *GetLatestDPU) Execute(execCtx context.Context, optCtx *operations.Conte
 }
 
 type ConfigureNVConfig struct {
-	mstDevicesPath string
-	runBash        func(cmd string) (bytes.Buffer, bytes.Buffer, error)
+	runBash             func(cmd string) (bytes.Buffer, bytes.Buffer, error)
+	getMlxconfigVersion func() (string, error)
+	getDevlinkPort      func() (string, error)
+	getUplinkName       func(pci string) (string, error)
 }
 
 func (n *ConfigureNVConfig) Name() string {
@@ -79,10 +86,6 @@ func (n *ConfigureNVConfig) ConditionType() string {
 }
 
 func (n *ConfigureNVConfig) ShouldSkip(ctx *operations.Context) bool {
-	if len(ctx.DPUFlavor.Spec.NVConfig) == 0 {
-		klog.Infof("NVConfig not specified in DPUFlavor, skip")
-		return true
-	}
 	if ctx.LatestDPU == nil {
 		klog.Error("Latest DPU not retrieved, will return error during execution. (this should never happen)")
 		return false
@@ -109,54 +112,213 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 		return fmt.Errorf("latest DPU not retrieved")
 	}
 
-	if n.mstDevicesPath == "" {
-		n.mstDevicesPath = defaultMstDevicesPath
-	}
-	// List all MST devices
-	devices, err := filepath.Glob(filepath.Join(n.mstDevicesPath, "*"))
-	if err != nil {
-		return fmt.Errorf("failed to list MST devices: %w", err)
-	}
-	if len(devices) == 0 {
-		return fmt.Errorf("no MST devices found in %s", n.mstDevicesPath)
-	}
-
 	if n.runBash == nil {
 		n.runBash = bash.Run
 	}
-	// Reset NVConfig on all devices to defaults
-	for _, dev := range devices {
-		klog.Infof("Resetting NVConfig on device %s to defaults", dev)
-		cmdStr := fmt.Sprintf("mlxconfig -d %s -y reset", dev)
-		if _, stderr, err := n.runBash(cmdStr); err != nil {
-			return fmt.Errorf("failed to reset NVConfig on device %s: %w, stderr: %s", dev, err, stderr.String())
+
+	// 1.Get PCI -> netdev map.
+	pciToNetdev, err := n.pciToNetdevMap()
+	if err != nil {
+		return fmt.Errorf("get devices from devlink: %w", err)
+	}
+	if len(pciToNetdev) == 0 {
+		return fmt.Errorf("no physical ports from devlink (p0/p1)")
+	}
+
+	// 2. Build PCI -> NVConfig parameters map.
+	nvconfigs := optCtx.DPUFlavor.Spec.NVConfig
+	pciToParams := pciToNVConfig(nvconfigs, pciToNetdev)
+
+	// 3. Order PCIs to move reset-only (empty params) on top of the list to run first
+	// because mlxconfig reset can impact previously set config.
+	type pciParams struct{ pci, params string }
+	ordered := make([]pciParams, 0, len(pciToParams))
+	for pci, params := range pciToParams {
+		if params == "" {
+			ordered = append(ordered, pciParams{pci: pci, params: params})
+		}
+	}
+	for pci, params := range pciToParams {
+		if params != "" {
+			ordered = append(ordered, pciParams{pci: pci, params: params})
 		}
 	}
 
-	// Apply device-specific NVConfig configurations
-	for _, nvconfig := range optCtx.DPUFlavor.Spec.NVConfig {
-		params := strings.Join(nvconfig.Parameters, " ")
-		device := "*"
-		if nvconfig.Device != nil {
-			device = *nvconfig.Device
-		}
-
-		if device == "*" || device == "" {
-			// Apply to all devices
-			for _, dev := range devices {
-				klog.Infof("Setting NVConfig on device %s: %s", dev, params)
-				cmdStr := fmt.Sprintf("mlxconfig -d %s -y set %s", dev, params)
-				if _, stderr, err := n.runBash(cmdStr); err != nil {
-					return fmt.Errorf("failed to set NVConfig on device %s: %w, stderr: %s", dev, err, stderr.String())
+	// 4. Execute mlxconfig.
+	// Get version and decide flow next to usage:
+	// legacy = reset+set, new = set --with_default [params].
+	version, err := n.mlxconfigVersion()
+	if err != nil {
+		return fmt.Errorf("failed to get mlxconfig (MFT) version: %w", err)
+	}
+	klog.Infof("mlxconfig (MFT) version: %s", version.String())
+	minVer, err := semver.NewVersion(minMftVersion)
+	if err != nil {
+		return fmt.Errorf("invalid min MFT version constant %q: %w", minMftVersion, err)
+	}
+	legacyFlow := version.LessThan(minVer)
+	for _, pair := range ordered {
+		pci, params := pair.pci, pair.params
+		klog.Infof("Setting NVConfig params on device %s: %s", pci, params)
+		if legacyFlow {
+			if err := n.runMlxconfig(pci, "reset", ""); err != nil {
+				return err
+			}
+			if params != "" {
+				if err := n.runMlxconfig(pci, "set", params); err != nil {
+					return err
 				}
 			}
 		} else {
-			klog.Infof("Setting NVConfig on device %s: %s", device, params)
-			cmdStr := fmt.Sprintf("mlxconfig -d %s -y set %s", device, params)
-			if _, stderr, err := n.runBash(cmdStr); err != nil {
-				return fmt.Errorf("failed to set NVConfig on device %s: %w, stderr: %s", device, err, stderr.String())
+			if params == "" {
+				if err := n.runMlxconfig(pci, "reset", ""); err != nil {
+					return err
+				}
+			} else {
+				if err := n.runMlxconfig(pci, "--with_default set", params); err != nil {
+					return err
+				}
 			}
 		}
 	}
 	return nil
+}
+
+func (n *ConfigureNVConfig) mlxconfigVersion() (*semver.Version, error) {
+	if n.getMlxconfigVersion == nil {
+		n.getMlxconfigVersion = getMlxconfigVersion
+	}
+	output, err := n.getMlxconfigVersion()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mlxconfig version: %w", err)
+	}
+	// Output format: "mlxconfig, mft 4.30.1-8, built on Nov 28 2024..."
+	var ver *semver.Version
+	for _, field := range strings.Fields(output) {
+		field = strings.TrimRight(field, ".,;")
+		ver, err = semver.NewVersion(field)
+		if err == nil && strings.Count(field, ".") >= 2 {
+			return ver, nil
+		}
+	}
+	return nil, fmt.Errorf("failed to extract version from output: %s", output)
+}
+
+// Possible nvconfigs input (per DPUFlavor CRD validation):
+//   - Empty: [] — no config; every PCI gets "" (reset-only).
+//   - Single wildcard: [{ Device: "*", Parameters: [...] }] or [{ Parameters: [...] }] — same params for all devices.
+//   - Single port: [{ Device: "p0", ... }] or [{ Device: "p1", ... }] — only that port gets params; others get "".
+//   - Both ports: [{ Device: "p0", ... }, { Device: "p1", ... }] — each gets its own params (max 2 entries).
+//
+// Note:
+// 1. Wildcard and per-device cannot be mixed.
+// 2. Device values are unique and case-insensitive (e.g. p0, P0, p1).
+// See DPUFlavor CRD validation for more details.
+func pciToNVConfig(nvconfigs []provisioningv1.NVConfig, pciToNetdev map[string]string) map[string]string {
+	out := make(map[string]string, len(pciToNetdev))
+	for pci, netdev := range pciToNetdev {
+		params := ""
+		for _, nc := range nvconfigs {
+			device := "*"
+			if nc.Device != nil {
+				device = strings.ToLower(strings.TrimSpace(*nc.Device))
+			}
+			joined := strings.Join(nc.Parameters, " ")
+			if strings.EqualFold(device, netdev) {
+				params = joined
+				break
+			}
+			if device == "*" {
+				params = joined
+			}
+		}
+		out[pci] = params
+	}
+	return out
+}
+
+// devlinkPortShowJSON is the structure of "devlink port show -j" output.
+type devlinkPortShowJSON struct {
+	Port map[string]devlinkPortEntry `json:"port"`
+}
+
+// devlinkPortEntry is one port entry in devlink port show JSON.
+type devlinkPortEntry struct {
+	Type   string `json:"type"`
+	Netdev string `json:"netdev"`
+	//nolint:misspell // devlink API key is British spelling "flavour"
+	Flavor string `json:"flavour"`
+	Port   *int   `json:"port,omitempty"`
+}
+
+func (n *ConfigureNVConfig) pciToNetdevMap() (map[string]string, error) {
+	if n.getDevlinkPort == nil {
+		n.getDevlinkPort = getDevlinkPort
+	}
+	// 1. Get devlink port show JSON.
+	output, err := n.getDevlinkPort()
+	if err != nil {
+		return nil, err
+	}
+	var out devlinkPortShowJSON
+	if err := json.Unmarshal([]byte(output), &out); err != nil {
+		return nil, fmt.Errorf("devlink port show: parse JSON: %w", err)
+	}
+	if out.Port == nil {
+		return nil, fmt.Errorf("devlink port show: missing \"port\" object")
+	}
+	// 2. Collect unique PCI keys from all pci/... entries.
+	pciToNetdev := make(map[string]string)
+	for key := range out.Port {
+		if !strings.HasPrefix(key, pciPrefix) {
+			continue
+		}
+		rest := strings.TrimPrefix(key, pciPrefix)
+		parts := strings.SplitN(rest, "/", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		pci := parts[0]
+		pciToNetdev[pci] = ""
+	}
+	// 3. Fill value for each PCI using getUplinkName (returns p0/p1 on DPU).
+	if n.getUplinkName == nil {
+		n.getUplinkName = func(pci string) (string, error) { return networkhelper.New().GetUplinkRepresentor(pci) }
+	}
+	for pci := range pciToNetdev {
+		portName, err := n.getUplinkName(pci)
+		if err != nil {
+			return nil, fmt.Errorf("get uplink representor for %s: %w", pci, err)
+		}
+		pciToNetdev[pci] = portName
+	}
+	return pciToNetdev, nil
+}
+
+// runMlxconfig runs an mlxconfig command via bash and returns a wrapped error on failure.
+func (n *ConfigureNVConfig) runMlxconfig(dev, op, args string) error {
+	cmd := strings.TrimSpace(fmt.Sprintf("mlxconfig -d %s -y %s %s", dev, op, args))
+	_, stderr, err := n.runBash(cmd)
+	if err != nil {
+		return fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
+	}
+	return nil
+}
+
+func getMlxconfigVersion() (string, error) {
+	const cmd = "mlxconfig -v"
+	stdout, stderr, err := bash.Run(cmd)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w (stdout: %s, stderr: %s)", cmd, err, stdout.String(), stderr.String())
+	}
+	return stdout.String(), nil
+}
+
+func getDevlinkPort() (string, error) {
+	const cmd = "devlink port show -j"
+	stdout, stderr, err := bash.Run(cmd)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
+	}
+	return stdout.String(), nil
 }
