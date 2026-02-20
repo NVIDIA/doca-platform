@@ -33,6 +33,8 @@ spec:
         resources: {{- toYaml .Values.cniInstaller.resources | nindent 10 }}
         securityContext:
           runAsUser: 0
+          # Needs to run as privileged, otherwise writing to the cnibin direcctory on RHCOS is not permitted due to selinux.
+          privileged: true
         volumeMounts:
         - name: cnibin
           mountPath: /opt/cni/bin
