@@ -70,6 +70,7 @@ type TestDomain struct {
 	DPFUpgradeValidation string // Upgrade validation test suite
 	ExternalTest         string // External test scripts (DPF precondition setup)
 	OVNKPrimary          string // Tests that need OVNK as primary CNI
+	OVNKHBN              string // Tests that need OVNK as primary CNI with HBN deployed alongside
 	DPFVPCOVN            string // VPC OVN test suite
 	MultiDPUCluster      string // Multi DPUCluster setup tests
 	ZeroTrust            string // Zero Trust mode in DPFOperatorConfig on the BeforeSuite stage
@@ -88,6 +89,7 @@ var Domain = TestDomain{
 	DPFUpgradeValidation: "DPFUpgradeValidation",
 	ExternalTest:         "ExternalTest",
 	OVNKPrimary:          "OVNKPrimary",
+	OVNKHBN:              "OVNKHBN",
 	DPFVPCOVN:            "DPFVPCOVN",
 	MultiDPUCluster:      "MultiDPUCluster",
 	ZeroTrust:            "ZeroTrust",
