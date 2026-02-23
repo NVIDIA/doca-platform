@@ -139,7 +139,7 @@ export NODE_SRIOV_DEVICE_PLUGIN_IMAGE=nvcr.io/nvidia/mellanox/sriov-network-devi
 export NODE_SRIOV_DEVICE_PLUGIN_TAG=network-operator-v25.10.0
 
 # VPC dependencies to be able to build/push images and charts
-VPC_REF=275e9b3e2ca6c8148d640edb8a6b6d039e094d2b
+VPC_REF=486e085e355a1e52ce7d2f58e3efa825640169b7
 VPC_DIR=$(REPOSDIR)/ovn-vpc/ovn-vpc-$(VPC_REF)
 # Token used for gitlab reporistory access, usually needed for CI/CD pipelines.
 # dev envs usually have those set in git credentials.
@@ -705,6 +705,9 @@ verify-manifest-vpc-ovn-host: $(VPC_DIR) helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR
 	$Q @cd $(VPC_DIR); $(MAKE) helm-package-all-vpc-ovn
 	$Q $(HELM) template $(CHARTSDIR)/dpf-vpc-ovn-$(TAG).tgz \
 	 --set host.vpcOVNController.enabled=true \
+	 --set host.vpcOVNController.resources.limits.cpu=1m \
+	 --set host.vpcOVNController.resources.limits.memory=1Mi \
+	 --set host.vpcOVNController.image.tag=c@sha256:d \
 	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovn-host-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovn-host-$(TAG).yaml" \
 	  MANIFEST_NAME="vpc-ovn-host" \
@@ -715,6 +718,18 @@ verify-manifest-vpc-ovn-dpu: $(VPC_DIR) helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR)
 	$Q @cd $(VPC_DIR); $(MAKE) helm-package-all-vpc-ovn
 	$Q $(HELM) template $(CHARTSDIR)/dpf-vpc-ovn-$(TAG).tgz \
 	 --set dpu.vpcOVNNode.enabled=true \
+	 --set serviceDaemonSet.resources.cpu=1m \
+	 --set serviceDaemonSet.resources.memory=1Mi \
+	 --set dpu.vpcOVNNode.initContainers.allocator.resources.limits.cpu=1m \
+	 --set dpu.vpcOVNNode.initContainers.allocator.resources.limits.memory=1Mi \
+	 --set dpu.vpcOVNNode.initContainers.vpcOVNDpuProvisioner.resources.limits.cpu=1m \
+	 --set dpu.vpcOVNNode.initContainers.vpcOVNDpuProvisioner.resources.limits.memory=1Mi \
+	 --set dpu.vpcOVNNode.containers.dhcpCNIDaemon.resources.limits.cpu=1m \
+	 --set dpu.vpcOVNNode.containers.dhcpCNIDaemon.resources.limits.memory=1Mi \
+	 --set dpu.vpcOVNNode.initContainers.allocator.image.tag=c@sha256:d \
+	 --set dpu.vpcOVNNode.initContainers.vpcOVNDpuProvisioner.image.tag=c@sha256:d \
+	 --set dpu.vpcOVNNode.containers.vpcOVNNodeController.image.tag=c@sha256:d \
+	 --set dpu.vpcOVNNode.containers.dhcpCNIDaemon.image.tag=c@sha256:d \
 	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovn-dpu-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovn-dpu-$(TAG).yaml" \
 	  MANIFEST_NAME="vpc-ovn-dpu" \
@@ -725,6 +740,9 @@ verify-manifest-vpc-ovs-flow-controllers: $(VPC_DIR) helm $(ARTIFACTS_RENDERED_M
 	$Q @cd $(VPC_DIR); $(MAKE) helm-package-all-vpc-ovs
 	$Q $(HELM) template $(CHARTSDIR)/dpf-vpc-ovs-$(TAG).tgz \
 	 --set vpcOVSFlowController.enabled=true \
+	 --set serviceDaemonSet.resources.cpu=1m \
+	 --set serviceDaemonSet.resources.memory=1Mi \
+	 --set vpcOVSFlowController.containers.vpcOVSFlowController.image.tag=c@sha256:d \
 	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovs-flow-controllers-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovs-flow-controllers-$(TAG).yaml" \
 	  MANIFEST_NAME="vpc-ovs-flow-controllers" \
@@ -735,6 +753,9 @@ verify-manifest-vpc-ovs-dhcp-agent: $(VPC_DIR) helm $(ARTIFACTS_RENDERED_MANIFES
 	$Q @cd $(VPC_DIR); $(MAKE) helm-package-all-vpc-ovs
 	$Q $(HELM) template $(CHARTSDIR)/dpf-vpc-ovs-$(TAG).tgz \
 	 --set vpcOVSDHCPAgent.enabled=true \
+	 --set serviceDaemonSet.resources.cpu=1m \
+	 --set serviceDaemonSet.resources.memory=1Mi \
+	 --set vpcOVSDHCPAgent.containers.vpcOVSDHCPAgent.image.tag=c@sha256:d \
 	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovs-dhcp-agent-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovs-dhcp-agent-$(TAG).yaml" \
 	  MANIFEST_NAME="vpc-ovs-dhcp-agent" \
