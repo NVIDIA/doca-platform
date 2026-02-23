@@ -190,6 +190,7 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 				// Set valid helm values.
 				application.Spec.Source.Helm.ValuesObject = &machineryruntime.RawExtension{Raw: []byte(`{}`)}
 				// Set maximum backoff duration to 1s for the case if it was not yet reconciled or we re-create the application.
+				// Set limit to 0 to ensure that operation is retried.
 				if application.Spec.SyncPolicy == nil {
 					application.Spec.SyncPolicy = &argov1.SyncPolicy{}
 				}
@@ -199,15 +200,29 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 				if application.Spec.SyncPolicy.Retry.Backoff == nil {
 					application.Spec.SyncPolicy.Retry.Backoff = &argov1.Backoff{}
 				}
-				// Set maximum backoff duration to 1s for the existing operation to ensure it is not waiting for a long backoff duration.
+				application.Spec.SyncPolicy.Retry.Limit = 0
 				application.Spec.SyncPolicy.Retry.Backoff.MaxDuration = "1s"
-				if application.Status.OperationState == nil {
-					application.Status.OperationState = &argov1.OperationState{}
+				// Force a new operation
+				application.Operation = &argov1.Operation{
+					InitiatedBy: argov1.OperationInitiator{
+						Username: "ginkgo",
+					},
+					Sync: &argov1.SyncOperation{
+						SyncStrategy: &argov1.SyncStrategy{
+							Hook: &argov1.SyncStrategyHook{},
+						},
+					},
 				}
-				if application.Status.OperationState.Operation.Retry.Backoff == nil {
-					application.Status.OperationState.Operation.Retry.Backoff = &argov1.Backoff{}
+				// Set maximum backoff duration to 1s for the existing operation to ensure it is not waiting for a long backoff duration.
+				// Set limit to 0 to ensure that operation is retried.
+				// But only do so if there actually is an on-going operation.
+				if application.Status.OperationState != nil {
+					if application.Status.OperationState.Operation.Retry.Backoff == nil {
+						application.Status.OperationState.Operation.Retry.Backoff = &argov1.Backoff{}
+					}
+					application.Status.OperationState.Operation.Retry.Backoff.MaxDuration = "1s"
+					application.Status.OperationState.Operation.Retry.Limit = 0
 				}
-				application.Status.OperationState.Operation.Retry.Backoff.MaxDuration = "1s"
 
 				g.Expect(input.client.Patch(ctx, &application, client.MergeFrom(origApp))).To(Succeed())
 				// Delete the application to ensure that we haven't recreated the application in the meantime with the
