@@ -70,7 +70,9 @@ RUN find /etc/apt/sources.list* -type f -exec sed -i \
 # install nfs-common required by the fs-storage-vendor-dpu-plugin
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y -qq --no-install-recommends ${PACKAGES}
+    apt-get update && \
+    apt-get upgrade -y -qq && \
+    apt-get install -y -qq --no-install-recommends ${PACKAGES}
 
 WORKDIR /
 
