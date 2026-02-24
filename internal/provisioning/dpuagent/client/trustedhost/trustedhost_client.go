@@ -37,7 +37,12 @@ import (
 )
 
 const (
-	defaultHostAgentEndpoint = "http://169.254.0.1:11029"
+	// defaultHostAgentEndpoint uses IPv6 link-local address with interface scope.
+	// fe80::1 is the host's address, %tmfifo_net0 specifies the interface (zone ID).
+	// Note: %25 is the URL-encoded form of '%'. In URLs, '%' is a special character
+	// used for percent-encoding (e.g., space = %20), so a literal '%' must be
+	// written as %25. The HTTP client will decode %25 back to '%' when parsing.
+	defaultHostAgentEndpoint = "http://[fe80::1%25tmfifo_net0]:11029"
 	defaultMaxRetries        = 10
 	defaultRetryInterval     = 2 * time.Second
 )
