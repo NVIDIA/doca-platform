@@ -73,7 +73,7 @@ var mockEmulationFunctionList = EmulationFunctionListResponse{
 		PCIBDF:        "26:00.3",
 		VHCAID:        3,
 		VUID:          "MT2323XZ09G2NVMES1D0F0",
-		CtrlID:        "NVMeCtrl3",
+		CtrlID:        "NVMeCtrl_26:00.3",
 		VFs:           []VF{},
 	},
 }
@@ -206,6 +206,23 @@ func (m *MockJSONRPCSnapClient) Call(method string, params map[string]interface{
 		return map[string]interface{}{
 			"status":  "success",
 			"ctrl_id": fmt.Sprintf("NVMeCtrl_%s", params["pci_bdf"]),
+		}, nil
+	case "nvme_function_create":
+		return map[string]interface{}{
+			"vhca_id": 7,
+			"vuid":    "MT2328XZ17DFNVMES1D0F0",
+		}, nil
+	case "nvme_controller_hotplug":
+		return map[string]interface{}{
+			"status": "success",
+		}, nil
+	case "nvme_controller_hotunplug":
+		return map[string]interface{}{
+			"status": "success",
+		}, nil
+	case "nvme_function_destroy":
+		return map[string]interface{}{
+			"status": "success",
 		}, nil
 	default:
 		return nil, fmt.Errorf("unexpected method: %s", method)
@@ -516,7 +533,7 @@ func TestGetPciAddrByCtrlID(t *testing.T) {
 		},
 		{
 			name:        "Hot-plugged PF - should return PF BDF",
-			ctrlID:      "NVMeCtrl3",
+			ctrlID:      "NVMeCtrl_26:00.3",
 			expectedBDF: "26:00.3",
 			expectError: false,
 			hotplug:     true,
@@ -578,44 +595,53 @@ func TestGetNamespaceByDeviceName(t *testing.T) {
 
 func TestCheckNamespaceAttached(t *testing.T) {
 	tests := []struct {
-		name     string
-		nsid     int
-		ctrlID   string
-		expected bool
+		name                    string
+		nsid                    int
+		ctrlID                  string
+		expectedNamespaceExists bool
+		expectedAttachedToCtrl  bool
 	}{
 		{
-			name:     "Valid NSID and attached controller",
-			nsid:     1,
-			ctrlID:   "NVMeCtrl2",
-			expected: true,
+			name:                    "Valid NSID and attached controller",
+			nsid:                    1,
+			ctrlID:                  "NVMeCtrl2",
+			expectedNamespaceExists: true,
+			expectedAttachedToCtrl:  true,
 		},
 		{
-			name:     "Valid NSID but unattached controller",
-			nsid:     1,
-			ctrlID:   "NVMeCtrl3",
-			expected: false,
+			name:                    "Valid NSID but unattached controller",
+			nsid:                    1,
+			ctrlID:                  "NVMeCtrl_26:00.3",
+			expectedNamespaceExists: true,
+			expectedAttachedToCtrl:  false,
 		},
 		{
-			name:     "Invalid NSID with valid controller",
-			nsid:     999,
-			ctrlID:   "NVMeCtrl2",
-			expected: false,
+			name:                    "Invalid NSID with valid controller",
+			nsid:                    999,
+			ctrlID:                  "NVMeCtrl2",
+			expectedNamespaceExists: false,
+			expectedAttachedToCtrl:  false,
 		},
 		{
-			name:     "Invalid NSID with invalid controller",
-			nsid:     999,
-			ctrlID:   "NVMeCtrl3",
-			expected: false,
+			name:                    "Invalid NSID with invalid controller",
+			nsid:                    999,
+			ctrlID:                  "NVMeCtrl_26:00.3",
+			expectedNamespaceExists: false,
+			expectedAttachedToCtrl:  false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			exists := checkNamespaceAttached(tt.nsid, tt.ctrlID, mockNvmeSubsystemList)
+			namespaceExists, attachedToCtrl := checkNamespaceAttached(tt.nsid, tt.ctrlID, mockNvmeSubsystemList)
 
-			if exists != tt.expected {
-				t.Errorf("Test failed: Expected %v, but got %v for NSID %d and Controller %s",
-					tt.expected, exists, tt.nsid, tt.ctrlID)
+			if namespaceExists != tt.expectedNamespaceExists {
+				t.Errorf("Test failed: Expected namespaceExists %v, got %v for NSID %d and Controller %s",
+					tt.expectedNamespaceExists, namespaceExists, tt.nsid, tt.ctrlID)
+			}
+			if attachedToCtrl != tt.expectedAttachedToCtrl {
+				t.Errorf("Test failed: Expected attachedToCtrl %v, got %v for NSID %d and Controller %s",
+					tt.expectedAttachedToCtrl, attachedToCtrl, tt.nsid, tt.ctrlID)
 			}
 		})
 	}
@@ -667,7 +693,7 @@ func TestIsControllerAttachedToNamespace(t *testing.T) {
 		},
 		{
 			name:           "Controller is not attached to namespace",
-			ctrlID:         "NVMeCtrl3",
+			ctrlID:         "NVMeCtrl_26:00.3",
 			nsid:           1,
 			subsystems:     mockNvmeSubsystemList,
 			expectedResult: false,
@@ -944,6 +970,26 @@ func TestGetPCIByVUID(t *testing.T) {
 	}
 }
 
+func TestGetHotplugVUIDByPCIAddress(t *testing.T) {
+	// Success: hotplugged PF at 26:00.3 has VUID MT2323XZ09G2NVMES1D0F0
+	vuid := getHotplugVUIDByPCIAddress("26:00.3", mockEmulationFunctionList)
+	if vuid != "MT2323XZ09G2NVMES1D0F0" {
+		t.Errorf("expected MT2323XZ09G2NVMES1D0F0, got %s", vuid)
+	}
+
+	// Non-hotplugged PF: should not match (26:00.2 is not hotplugged), returns empty
+	vuid = getHotplugVUIDByPCIAddress("26:00.2", mockEmulationFunctionList)
+	if vuid != "" {
+		t.Errorf("expected empty string for non-hotplugged PCI address, got %s", vuid)
+	}
+
+	// Unknown PCI address: returns empty
+	vuid = getHotplugVUIDByPCIAddress("99:99.9", mockEmulationFunctionList)
+	if vuid != "" {
+		t.Errorf("expected empty string for unknown PCI address, got %s", vuid)
+	}
+}
+
 func TestGetPCIForStaticPF(t *testing.T) {
 	// Success: first available PF without controller should be returned
 	bdf, err := getPCIForStaticPF(mockEmulationFunctionList)
@@ -990,5 +1036,141 @@ func TestGetPCIForVF(t *testing.T) {
 	_, err = getPCIForVF(emFuncs)
 	if err == nil {
 		t.Fatalf("expected error when no available VF, got nil")
+	}
+}
+
+func TestNvmeFunctionCreate(t *testing.T) {
+	tests := []struct {
+		name        string
+		expectError bool
+		expectVUID  string
+	}{
+		{
+			name:        "Successfully create NVMe function",
+			expectError: false,
+			expectVUID:  "MT2328XZ17DFNVMES1D0F0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewMockClient()
+
+			vuid, err := NvmeFunctionCreate(client)
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			if vuid != tt.expectVUID {
+				t.Errorf("Expected VUID %s, got %s", tt.expectVUID, vuid)
+			}
+		})
+	}
+}
+
+func TestNvmeControllerHotplug(t *testing.T) {
+	tests := []struct {
+		name        string
+		ctrlID      string
+		expectError bool
+	}{
+		{
+			name:        "Successfully hotplug controller",
+			ctrlID:      "NVMeCtrl1",
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewMockClient()
+
+			err := NvmeControllerHotplug(client, tt.ctrlID)
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestNvmeControllerHotunplug(t *testing.T) {
+	tests := []struct {
+		name        string
+		ctrlID      string
+		expectError bool
+	}{
+		{
+			name:        "Successfully hotunplug controller",
+			ctrlID:      "NVMeCtrl1",
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewMockClient()
+
+			err := NvmeControllerHotunplug(client, tt.ctrlID)
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestNvmeFunctionDestroy(t *testing.T) {
+	tests := []struct {
+		name        string
+		vuid        string
+		expectError bool
+	}{
+		{
+			name:        "Successfully destroy NVMe function",
+			vuid:        "MT2328XZ17DFNVMES1D0F0",
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewMockClient()
+
+			err := NvmeFunctionDestroy(client, tt.vuid)
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+		})
 	}
 }

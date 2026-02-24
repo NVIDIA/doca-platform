@@ -31,18 +31,19 @@ type MockClientForClientFunctions struct {
 
 	// Control flags for different failure scenarios
 	// NVMe related failures
-	shouldFailEmulationList          bool
-	shouldFailSubsystemList          bool
-	shouldFailNamespaceCreate        bool
-	shouldFailControllerCreate       bool
-	shouldFailControllerAttach       bool
-	shouldFailControllerResume       bool
-	shouldFailControllerDetach       bool
-	shouldFailControllerDestroy      bool
-	shouldFailNamespaceDestroy       bool
-	shouldFailEmulationAttach        bool
-	shouldFailEmulationDetach        bool
-	shouldFailEmulationDetachPrepare bool
+	shouldFailEmulationList       bool
+	shouldFailSubsystemList       bool
+	shouldFailNamespaceCreate     bool
+	shouldFailControllerCreate    bool
+	shouldFailControllerAttach    bool
+	shouldFailControllerResume    bool
+	shouldFailControllerDetach    bool
+	shouldFailControllerDestroy   bool
+	shouldFailNamespaceDestroy    bool
+	shouldFailNvmeFunctionCreate  bool
+	shouldFailNvmeFunctionDestroy bool
+	shouldFailControllerHotplug   bool
+	shouldFailControllerHotunplug bool
 
 	// VirtioFS related failures
 	shouldFailTransportGet        bool
@@ -102,21 +103,27 @@ func (m *MockClientForClientFunctions) Call(method string, params map[string]int
 		}
 		return mockEmulationFunctionList, nil
 
-	case "nvme_emulation_device_attach":
-		if m.shouldFailEmulationAttach {
-			return nil, fmt.Errorf("failed to attach NVMe emulation device")
+	case "nvme_function_create":
+		if m.shouldFailNvmeFunctionCreate {
+			return nil, fmt.Errorf("failed to create NVMe function")
 		}
-		return "MT2323XZ09G2NVMES1D0F0", nil
+		return map[string]interface{}{"vuid": "MT2323XZ09G2NVMES1D0F0", "status": "success"}, nil
 
-	case "nvme_emulation_device_detach_prepare":
-		if m.shouldFailEmulationDetachPrepare {
-			return nil, fmt.Errorf("failed to prepare NVMe emulation device detach")
+	case "nvme_function_destroy":
+		if m.shouldFailNvmeFunctionDestroy {
+			return nil, fmt.Errorf("failed to destroy NVMe function")
 		}
 		return map[string]interface{}{"status": "success"}, nil
 
-	case "nvme_emulation_device_detach":
-		if m.shouldFailEmulationDetach {
-			return nil, fmt.Errorf("failed to detach NVMe emulation device")
+	case "nvme_controller_hotplug":
+		if m.shouldFailControllerHotplug {
+			return nil, fmt.Errorf("failed to hotplug controller")
+		}
+		return map[string]interface{}{"status": "success"}, nil
+
+	case "nvme_controller_hotunplug":
+		if m.shouldFailControllerHotunplug {
+			return nil, fmt.Errorf("failed to hotunplug controller")
 		}
 		return map[string]interface{}{"status": "success"}, nil
 
@@ -401,23 +408,22 @@ func (m *MockClientForClientFunctions) Call(method string, params map[string]int
 
 func TestExposeBlockDevice(t *testing.T) {
 	tests := []struct {
-		name                       string
-		snapProvider               string
-		dpuStatus                  snapstoragev1.VolumeAttachmentStatusDPU
-		spec                       snapstoragev1.VolumeAttachmentSpec
-		parameters                 map[string]string
-		shouldFailEmulationList    bool
-		shouldFailSubsystemList    bool
-		shouldFailNamespaceCreate  bool
-		shouldFailControllerCreate bool
-		shouldFailControllerAttach bool
-		shouldFailControllerResume bool
-		shouldFailEmulationAttach  bool
-		shouldFailEmulationDetach  bool
-		expectError                bool
-		expectedNSID               int
-		expectedPCIBDF             string
-		expectedUUID               string
+		name                         string
+		snapProvider                 string
+		dpuStatus                    snapstoragev1.VolumeAttachmentStatusDPU
+		spec                         snapstoragev1.VolumeAttachmentSpec
+		parameters                   map[string]string
+		shouldFailEmulationList      bool
+		shouldFailSubsystemList      bool
+		shouldFailNamespaceCreate    bool
+		shouldFailControllerCreate   bool
+		shouldFailControllerAttach   bool
+		shouldFailControllerResume   bool
+		shouldFailNvmeFunctionCreate bool
+		expectError                  bool
+		expectedNSID                 int
+		expectedPCIBDF               string
+		expectedUUID                 string
 	}{
 		{
 			name:         "Create new namespace and controller successfully",
@@ -499,8 +505,7 @@ func TestExposeBlockDevice(t *testing.T) {
 		{
 			name: "Use DPU status values with hotplug",
 			dpuStatus: snapstoragev1.VolumeAttachmentStatusDPU{
-				DeviceName:       "test-device",
-				PCIDeviceAddress: "26:00.3",
+				DeviceName: "test-device",
 			},
 			spec: snapstoragev1.VolumeAttachmentSpec{
 				Parameters: map[string]string{},
@@ -514,7 +519,7 @@ func TestExposeBlockDevice(t *testing.T) {
 			expectedPCIBDF: "26:00.3",
 		},
 		{
-			name:      "Emulation device attach failure with hotplug",
+			name:      "NVMe function create failure with hotplug",
 			dpuStatus: snapstoragev1.VolumeAttachmentStatusDPU{DeviceName: "test-device"},
 			spec: snapstoragev1.VolumeAttachmentSpec{
 				FunctionTypeConfig: snapstoragev1.FunctionTypeConfig{
@@ -522,8 +527,8 @@ func TestExposeBlockDevice(t *testing.T) {
 					HotplugFunction: true,
 				},
 			},
-			shouldFailEmulationAttach: true,
-			expectError:               true,
+			shouldFailNvmeFunctionCreate: true,
+			expectError:                  true,
 		},
 	}
 
@@ -536,8 +541,7 @@ func TestExposeBlockDevice(t *testing.T) {
 			rpcClient.shouldFailControllerCreate = tt.shouldFailControllerCreate
 			rpcClient.shouldFailControllerAttach = tt.shouldFailControllerAttach
 			rpcClient.shouldFailControllerResume = tt.shouldFailControllerResume
-			rpcClient.shouldFailEmulationAttach = tt.shouldFailEmulationAttach
-			rpcClient.shouldFailEmulationDetach = tt.shouldFailEmulationDetach
+			rpcClient.shouldFailNvmeFunctionCreate = tt.shouldFailNvmeFunctionCreate
 
 			client := NewClient(rpcClient)
 
@@ -720,18 +724,18 @@ func TestExposeFSDevice(t *testing.T) {
 
 func TestDestroyBlockDevice(t *testing.T) {
 	tests := []struct {
-		name                        string
-		snapProvider                string
-		nsid                        int
-		pciAddr                     string
-		shouldFailEmulationList     bool
-		shouldFailSubsystemList     bool
-		shouldFailControllerDetach  bool
-		shouldFailControllerDestroy bool
-		shouldFailNamespaceDestroy  bool
-		shouldFailEmulationDetach   bool
-		expectError                 bool
-		hotplug                     bool
+		name                          string
+		snapProvider                  string
+		nsid                          int
+		pciAddr                       string
+		shouldFailEmulationList       bool
+		shouldFailSubsystemList       bool
+		shouldFailControllerDetach    bool
+		shouldFailControllerDestroy   bool
+		shouldFailNamespaceDestroy    bool
+		shouldFailNvmeFunctionDestroy bool
+		expectError                   bool
+		hotplug                       bool
 	}{
 		{
 			name:         "Destroy block device successfully",
@@ -795,13 +799,13 @@ func TestDestroyBlockDevice(t *testing.T) {
 			hotplug:                    false,
 		},
 		{
-			name:                      "Emulation detach failure with hotplug",
-			snapProvider:              "test-provider",
-			nsid:                      1,
-			pciAddr:                   "26:00.3",
-			shouldFailEmulationDetach: true,
-			expectError:               true,
-			hotplug:                   true,
+			name:                          "NVMe function destroy failure with hotplug",
+			snapProvider:                  "test-provider",
+			nsid:                          1,
+			pciAddr:                       "26:00.3",
+			shouldFailNvmeFunctionDestroy: true,
+			expectError:                   true,
+			hotplug:                       true,
 		},
 		{
 			name:                    "Emulation list failure with hotplug",
@@ -822,15 +826,6 @@ func TestDestroyBlockDevice(t *testing.T) {
 			hotplug:                 true,
 		},
 		{
-			name:                       "Controller detach failure with hotplug",
-			snapProvider:               "test-provider",
-			nsid:                       1,
-			pciAddr:                    "26:00.3",
-			shouldFailControllerDetach: true,
-			expectError:                true,
-			hotplug:                    true,
-		},
-		{
 			name:                        "Controller destroy failure with hotplug",
 			snapProvider:                "test-provider",
 			nsid:                        1,
@@ -838,24 +833,6 @@ func TestDestroyBlockDevice(t *testing.T) {
 			shouldFailControllerDestroy: true,
 			expectError:                 true,
 			hotplug:                     true,
-		},
-		{
-			name:                       "Namespace destroy failure with hotplug",
-			snapProvider:               "test-provider",
-			nsid:                       1,
-			pciAddr:                    "26:00.3",
-			shouldFailNamespaceDestroy: true,
-			expectError:                true,
-			hotplug:                    true,
-		},
-		{
-			name:                      "Emulation device detach failure with hotplug",
-			snapProvider:              "test-provider",
-			nsid:                      1,
-			pciAddr:                   "26:00.3",
-			shouldFailEmulationDetach: true,
-			expectError:               true,
-			hotplug:                   true,
 		},
 	}
 
@@ -867,7 +844,7 @@ func TestDestroyBlockDevice(t *testing.T) {
 			rpcClient.shouldFailControllerDetach = tt.shouldFailControllerDetach
 			rpcClient.shouldFailControllerDestroy = tt.shouldFailControllerDestroy
 			rpcClient.shouldFailNamespaceDestroy = tt.shouldFailNamespaceDestroy
-			rpcClient.shouldFailEmulationDetach = tt.shouldFailEmulationDetach
+			rpcClient.shouldFailNvmeFunctionDestroy = tt.shouldFailNvmeFunctionDestroy
 
 			client := NewClient(rpcClient)
 
