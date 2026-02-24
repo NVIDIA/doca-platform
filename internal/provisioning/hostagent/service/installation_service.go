@@ -19,30 +19,43 @@ package service
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/service/types"
-	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	restful "github.com/emicklei/go-restful/v3"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	mgmtBridgeName     = "br-dpu-mgmt"
-	mgmtBridgeIP       = "169.254.0.1/16"
-	DefaultServiceIP   = "169.254.0.1"
-	DefaultServicePort = 11029
+	// Host management interface configuration
+	// Using IPv6 link-local address for tmfifo interfaces
+	// fe80::1 is used on the host side, fe80::2 on the DPU side
+	hostMgmtIPv6 = "fe80::1"
+	hostMgmtPort = "11029"
+	// localhostAddr is the address for localhost listener
+	localhostAddr = "localhost:" + hostMgmtPort
+
+	// Prefix for tmfifo network interfaces
+	tmfifoNetPrefix    = "tmfifo_net"
+	localhostIfaceName = "localhost"
+
+	// interfaceScanInterval is how often to scan for new tmfifo_net interfaces
+	interfaceScanInterval = 10 * time.Second
 
 	// debRepoDir contains dpu-agent .deb packages and APT metadata, baked into the image at build time.
 	debRepoDir = "/deb"
@@ -52,12 +65,17 @@ const (
 
 type InstallationService struct {
 	client.Client
-	server *http.Server
+	handler http.Handler
+	// mu protects listeners
+	mu sync.Mutex
+	// listeners maps interface names to their listeners
+	listeners map[string]net.Listener
 }
 
-func NewInstallationService(client client.Client, listenAddr string) *InstallationService {
+func NewInstallationService(client client.Client) *InstallationService {
 	s := &InstallationService{
-		Client: client,
+		Client:    client,
+		listeners: make(map[string]net.Listener),
 	}
 	ws := new(restful.WebService).Path("/")
 	ws.Route(
@@ -80,38 +98,186 @@ func NewInstallationService(client client.Client, listenAddr string) *Installati
 	ws.Route(ws.GET("/rpm/{subpath:*}").To(serveRepoFile(rpmRepoDir)))
 	container := restful.NewContainer()
 	container.Add(ws)
-	s.server = &http.Server{
-		Addr:    listenAddr,
-		Handler: container,
-	}
+	s.handler = container
 	return s
 }
 
-func (s *InstallationService) Start(setupBridge bool) error {
-	if setupBridge {
-		addr, err := netlink.ParseAddr(mgmtBridgeIP)
-		if err != nil {
-			return fmt.Errorf("failed to parse management bridge IP address: %w", err)
+// Start starts the InstallationService HTTP server.
+//
+// The server always listens on localhost:11029 for local access (e.g., debugging, health checks).
+// When setupInterfaces is true, it also sets up IPv6 link-local addresses for each tmfifo_net
+// interface and creates additional listeners bound to each interface.
+//
+// Network topology when setupInterfaces=true:
+//
+//	┌────────────────────────────────────────────────────────────────────────────────────────┐
+//	│                                      HOST                                              │
+//	│                                                                                        │
+//	│                      ┌─────────────────────────────────────┐                           │
+//	│                      │        InstallationService          │                           │
+//	│                      │            (HTTP Server)            │                           │
+//	│                      └──────────────────┬──────────────────┘                           │
+//	│                                         │                                              │
+//	│      ┌──────────────────────────────────┼──────────────────────────────────┐           │
+//	│      │                                  │                                  │           │
+//	│      ▼                                  ▼                                  ▼           │
+//	│ ┌──────────┐                ┌─────────────────────┐            ┌─────────────────────┐ │
+//	│ │localhost │                │     tmfifo_net0     │            │     tmfifo_net1     │ │
+//	│ │ :11029   │                │  ┌───────────────┐  │            │  ┌───────────────┐  │ │
+//	│ └──────────┘                │  │ listener      │  │            │  │ listener      │  │ │
+//	│      │                      │  │ [fe80::1%     │  │            │  │ [fe80::1%     │  │ │
+//	│      │                      │  │ tmfifo_net0]  │  │            │  │ tmfifo_net1]  │  │ │
+//	│      │                      │  │ :11029        │  │            │  │ :11029        │  │ │
+//	│      │                      │  └───────┬───────┘  │            │  └───────┬───────┘  │ │
+//	│      │                      │          │          │            │          │          │ │
+//	│      │                      │  ┌───────┴───────┐  │            │  ┌───────┴───────┐  │ │
+//	│      ▼                      │  │  tmfifo_net0  │  │            │  │  tmfifo_net1  │  │ │
+//	│  Local access               │  │  fe80::1/64   │  │            │  │  fe80::1/64   │  │ │
+//	│  (curl, tests)              │  └───────┬───────┘  │            │  └───────┬───────┘  │ │
+//	│                             └──────────┼──────────┘            └──────────┼──────────┘ │
+//	└────────────────────────────────────────┼──────────────────────────────────┼────────────┘
+//	                                         │        rshim                     │
+//	┌────────────────────────────────────────┼──────────────────────────────────┼────────────┐
+//	│                                        │                                  │            │
+//	│  ┌─────────────────────────────────────┴─────┐  ┌─────────────────────────┴─────────┐  │
+//	│  │               DPU 0                       │  │               DPU 1               │  │
+//	│  │  ┌──────────────────────────────────────┐ │  │  ┌──────────────────────────────┐ │  │
+//	│  │  │            tmfifo_net0               │ │  │  │         tmfifo_net0          │ │  │
+//	│  │  │            fe80::2/64                │ │  │  │         fe80::2/64           │ │  │
+//	│  │  └──────────────────────────────────────┘ │  │  └──────────────────────────────┘ │  │
+//	│  │                                           │  │                                   │  │
+//	│  │  DPU Agent connects to Host via           │  │  DPU Agent connects to Host via   │  │
+//	│  │  [fe80::1%tmfifo_net0]:11029              │  │  [fe80::1%tmfifo_net0]:11029      │  │
+//	│  └───────────────────────────────────────────┘  └───────────────────────────────────┘  │
+//	│                                                                                        │
+//	└────────────────────────────────────────────────────────────────────────────────────────┘
+//
+// Each tmfifo_net interface on the Host uses the same IPv6 link-local address (fe80::1/64).
+// Since fe80 addresses are link-scoped (bound to the interface), they don't conflict.
+// The server binds a listener to each interface using the scope syntax [fe80::1%iface]:port.
+// Each DPU has its own tmfifo_net0 with fe80::2/64, connecting to the Host's fe80::1.
+// This approach eliminates the need for VRF while maintaining proper isolation.
+func (s *InstallationService) Start(setupInterfaces bool) error {
+	// Start background goroutine to periodically scan and create listeners.
+	// wait.Until runs immediately on start, then periodically.
+	// This handles both localhost and tmfifo_net interfaces.
+	go wait.Until(
+		func() { s.scanAndCreateListeners(setupInterfaces) },
+		interfaceScanInterval,
+		wait.NeverStop,
+	)
+
+	if setupInterfaces {
+		// Subscribe to netlink events before starting the goroutine
+		updates := make(chan netlink.LinkUpdate)
+		if err := netlink.LinkSubscribe(updates, wait.NeverStop); err != nil {
+			return fmt.Errorf("failed to subscribe to netlink events: %w", err)
 		}
-		klog.Infof("Setting up management bridge")
-		if err := setupMgmtBridge(addr); err != nil {
-			return fmt.Errorf("failed to setup management bridge: %w", err)
-		}
+		// Watch for interface deletions to close stale listeners
+		go s.watchInterfaceDeletes(updates)
 	}
 
-	klog.Infof("Starting InstallationService server on %s", s.server.Addr)
-	go func() {
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			klog.Fatalf("InstallationService server failed: %v", err)
-		}
-	}()
 	return nil
 }
 
+// watchInterfaceDeletes monitors netlink events for interface deletions.
+// When an interface is deleted, it closes the corresponding listener so that
+// scanAndCreateListeners can recreate it when the interface reappears.
+func (s *InstallationService) watchInterfaceDeletes(updates <-chan netlink.LinkUpdate) {
+	klog.Info("Started watching for interface deletion events")
+	for update := range updates {
+		// RTM_DELLINK indicates interface deletion
+		if update.Header.Type != unix.RTM_DELLINK {
+			continue
+		}
+
+		ifaceName := update.Attrs().Name
+		if !strings.HasPrefix(ifaceName, tmfifoNetPrefix) {
+			continue
+		}
+
+		s.mu.Lock()
+		if listener, exists := s.listeners[ifaceName]; exists {
+			klog.Infof("Interface %s deleted, closing listener", ifaceName)
+			_ = listener.Close()
+			delete(s.listeners, ifaceName)
+		}
+		s.mu.Unlock()
+	}
+}
+
+// scanAndCreateListeners scans for interfaces and creates listeners for them.
+// It handles both localhost (IPv4) and tmfifo_net (IPv6) interfaces.
+func (s *InstallationService) scanAndCreateListeners(setupInterfaces bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Always check localhost listener (IPv4)
+	if _, exists := s.listeners[localhostIfaceName]; !exists {
+		listener, err := net.Listen("tcp", localhostAddr)
+		if err != nil {
+			klog.Warningf("Failed to create localhost listener: %v", err)
+		} else {
+			klog.Infof("Created listener on %s", localhostAddr)
+			s.listeners[localhostIfaceName] = listener
+			go s.serveInterface(listener, localhostIfaceName)
+		}
+	}
+
+	if !setupInterfaces {
+		return
+	}
+
+	// Scan for tmfifo_net interfaces (IPv6)
+	ifaceNames, err := setupMgmtInterfaces()
+	if err != nil {
+		klog.Warningf("Failed to scan management interfaces: %v", err)
+		return
+	}
+
+	for _, ifaceName := range ifaceNames {
+		if _, exists := s.listeners[ifaceName]; exists {
+			continue
+		}
+
+		listenAddr := fmt.Sprintf("[%s%%%s]:%s", hostMgmtIPv6, ifaceName, hostMgmtPort)
+		klog.Infof("Discovered new interface %s, creating listener on %s", ifaceName, listenAddr)
+
+		listener, err := listenTCP6WithRetry(listenAddr)
+		if err != nil {
+			klog.Warningf("Failed to create listener for interface %s: %v", ifaceName, err)
+			continue
+		}
+
+		klog.Infof("Created listener on %s", listenAddr)
+		s.listeners[ifaceName] = listener
+		go s.serveInterface(listener, ifaceName)
+	}
+}
+
+// Stop closes all listeners.
 func (s *InstallationService) Stop() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_ = s.server.Shutdown(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, listener := range s.listeners {
+		_ = listener.Close()
+	}
+}
+
+// serveInterface runs http.Serve for an interface (localhost or tmfifo).
+// On exit, it removes the interface from listeners so scanAndCreateListeners can recreate it.
+func (s *InstallationService) serveInterface(listener net.Listener, ifaceName string) {
+	klog.Infof("Serving interface %s, address %s", ifaceName, listener.Addr())
+	err := http.Serve(listener, s.handler)
+	klog.Warningf("Server on interface %s exited: %v", ifaceName, err)
+
+	// Close the listener
+	_ = listener.Close()
+
+	// Remove from listeners so scanAndCreateListeners can recreate it
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.listeners, ifaceName)
 }
 
 func (s *InstallationService) HealthCheck(req *restful.Request, resp *restful.Response) {
@@ -210,54 +376,85 @@ func serveRepoFile(repoDir string) restful.RouteFunction {
 	}
 }
 
-func setupMgmtBridge(bridgeAddr *netlink.Addr) error {
-	bridge, err := hostutil.CreateBridgeIfNotExists(mgmtBridgeName)
+// setupMgmtInterfaces sets up IPv6 link-local addresses for all tmfifo_net interfaces.
+// Each interface gets the same fe80::1/64 address, which is valid because fe80 addresses
+// are link-scoped and don't conflict across different interfaces.
+// Returns the list of interface names that were set up.
+func setupMgmtInterfaces() ([]string, error) {
+	// Parse the IPv6 link-local address
+	ipv6Addr, err := netlink.ParseAddr(hostMgmtIPv6 + "/64")
 	if err != nil {
-		return fmt.Errorf("failed to create management bridge: %w", err)
+		return nil, fmt.Errorf("failed to parse IPv6 address: %w", err)
 	}
 
-	// Add IP address to management bridge if not already present
-	existingAddrs, err := netlink.AddrList(bridge, netlink.FAMILY_ALL)
-	if err != nil {
-		return fmt.Errorf("failed to get addresses for management bridge: %w", err)
-	}
-	alreadySet := false
-	for _, existing := range existingAddrs {
-		if existing.IPNet.String() == bridgeAddr.IPNet.String() {
-			alreadySet = true
-			break
-		}
-	}
-	if !alreadySet {
-		if err := netlink.AddrAdd(bridge, bridgeAddr); err != nil {
-			return fmt.Errorf("failed to add IP address to management bridge: %w", err)
-		}
-		klog.Infof("Added address %s to management bridge %s", mgmtBridgeIP, mgmtBridgeName)
-	} else {
-		klog.V(3).Infof("Address %s already present on management bridge %s", mgmtBridgeIP, mgmtBridgeName)
-	}
-
-	if err := netlink.LinkSetUp(bridge); err != nil {
-		return fmt.Errorf("failed to set management bridge up: %w", err)
-	}
-
-	// add rshim interfaces to management bridge if not already present
 	links, err := netlink.LinkList()
 	if err != nil {
-		return fmt.Errorf("failed to list network interfaces: %w", err)
+		return nil, fmt.Errorf("failed to list network interfaces: %w", err)
 	}
+
+	ifaceNames := []string{}
 	for _, link := range links {
-		if !strings.HasPrefix(link.Attrs().Name, "tmfifo_net") {
+		if !strings.HasPrefix(link.Attrs().Name, tmfifoNetPrefix) {
 			continue
 		}
-		if link.Attrs().MasterIndex == bridge.Attrs().Index {
+
+		ifaceName := link.Attrs().Name
+
+		// Add IPv6 link-local address to interface if not already present
+		existingAddrs, err := netlink.AddrList(link, netlink.FAMILY_V6)
+		if err != nil {
+			klog.Warningf("Failed to get addresses for %s: %v", ifaceName, err)
 			continue
 		}
-		if err := netlink.LinkSetMaster(link, bridge); err != nil {
-			klog.Warningf("failed to add rshim NIC %s to bridge %s: %v", link.Attrs().Name, mgmtBridgeName, err)
-			continue
+		alreadySet := false
+		for _, existing := range existingAddrs {
+			if existing.IP.Equal(ipv6Addr.IP) {
+				alreadySet = true
+				break
+			}
 		}
-		klog.Infof("Added rshim NIC %s to bridge %s", link.Attrs().Name, mgmtBridgeName)
+		if !alreadySet {
+			if err := netlink.AddrAdd(link, ipv6Addr); err != nil {
+				klog.Warningf("Failed to add IPv6 address to %s: %v", ifaceName, err)
+				continue
+			}
+			klog.Infof("Added address %s/64 to interface %s", hostMgmtIPv6, ifaceName)
+		}
+
+		// Ensure interface is up
+		if link.Attrs().Flags&net.FlagUp == 0 {
+			if err := netlink.LinkSetUp(link); err != nil {
+				klog.Warningf("Failed to set %s up: %v", ifaceName, err)
+				continue
+			}
+			klog.Infof("Set interface %s up", ifaceName)
+		}
+
+		ifaceNames = append(ifaceNames, ifaceName)
 	}
-	return nil
+
+	return ifaceNames, nil
+}
+
+// listenTCP6WithRetry attempts to create a TCP6 listener with retries.
+// This is needed because IPv6 addresses may be in DAD (Duplicate Address Detection)
+// tentative state immediately after being added, during which binding will fail.
+func listenTCP6WithRetry(address string) (net.Listener, error) {
+	var listener net.Listener
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	err := wait.PollUntilContextCancel(ctx, time.Second, true, func(ctx context.Context) (bool, error) {
+		var listenErr error
+		listener, listenErr = net.Listen("tcp6", address)
+		if listenErr != nil {
+			klog.V(2).Infof("Listen on %s failed: %v, retrying...", address, listenErr)
+			return false, nil
+		}
+		return true, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen on %s after retries: %w", address, err)
+	}
+	return listener, nil
 }

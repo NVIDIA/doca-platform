@@ -35,9 +35,10 @@ import (
 )
 
 var _ = Describe("InstallationService", func() {
-	var address string
 	var testNS *corev1.Namespace
 	var installationService *InstallationService
+	// Use the constant from installation_service.go
+	address := localhostAddr
 
 	var createDPU = func(name string, namespace string) *provisioningv1.DPU {
 		dpu := &provisioningv1.DPU{
@@ -72,8 +73,7 @@ var _ = Describe("InstallationService", func() {
 		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "installation-service-testns-"}}
 		Expect(k8sClient.Create(ctx, testNS)).To(Succeed())
 
-		address = "localhost:11029"
-		installationService = NewInstallationService(k8sClient, address)
+		installationService = NewInstallationService(k8sClient)
 		Expect(installationService.Start(false)).To(Succeed())
 		// Start() runs the server in a goroutine; wait until it is listening to avoid connection refused.
 		Eventually(func() error {
