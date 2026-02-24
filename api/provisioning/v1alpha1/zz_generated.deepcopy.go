@@ -1004,6 +1004,11 @@ func (in *DPUInternalStatus) DeepCopyInto(out *DPUInternalStatus) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.RebootMethod != nil {
+		in, out := &in.RebootMethod, &out.RebootMethod
+		*out = new(RebootMethodType)
+		**out = **in
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]v1.Condition, len(*in))
