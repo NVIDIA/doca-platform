@@ -988,8 +988,8 @@ func (in *ProvisioningControllerConfiguration) DeepCopyInto(out *ProvisioningCon
 		*out = new(int32)
 		**out = **in
 	}
-	if in.ZeroTrustInstallTimeout != nil {
-		in, out := &in.ZeroTrustInstallTimeout, &out.ZeroTrustInstallTimeout
+	if in.OSInstallTimeout != nil {
+		in, out := &in.OSInstallTimeout, &out.OSInstallTimeout
 		*out = new(v1.Duration)
 		**out = **in
 	}

@@ -110,7 +110,7 @@ type cliFlags struct {
 	enableDpuDiscovery             bool
 	multiDPUOperationsSyncWaitTime time.Duration
 	maxUnavailableDPUNodes         int32
-	zeroTrustInstallTimeout        time.Duration
+	osInstallTimeout               time.Duration
 	nodeEffectRemovalTimeout       time.Duration
 }
 
@@ -143,7 +143,7 @@ func parseFlags() *cliFlags {
 	fs.BoolVar(&flags.enableDpuDiscovery, "enable-dpu-discovery", true, "Enable autmated DPU discovery")
 	fs.DurationVar(&flags.multiDPUOperationsSyncWaitTime, "multi-dpu-operations-sync-wait-time", 30*time.Second, "The wait time between DPUs sync operations on the same node")
 	fs.Int32Var(&flags.maxUnavailableDPUNodes, "max-unavailable-dpu-nodes", 50, "The maximum number of DPUNodes that are unavailable during the node effect period")
-	fs.DurationVar(&flags.zeroTrustInstallTimeout, "zero-trust-install-timeout", 45*time.Minute, "Maximum time allowed for OS installation in zero-trust mode")
+	fs.DurationVar(&flags.osInstallTimeout, "os-install-timeout", 45*time.Minute, "Maximum time allowed for OS installation in zero-trust mode")
 	fs.DurationVar(&flags.nodeEffectRemovalTimeout, "node-effect-removal-timeout", 30*time.Minute, "Maximum time allowed for the Node Effect Removal phase before transitioning to error")
 
 	logsv1.AddFlags(logOptions, fs)
@@ -238,7 +238,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferen
 		BFBRegistry:                 flags.bfbRegistry,
 		CustomCASecretName:          flags.customCASecretName,
 		MaxDPUParallelInstallations: flags.maxDPUParallelInstallations,
-		ZeroTrustInstallTimeout:     flags.zeroTrustInstallTimeout,
+		OSInstallTimeout:            flags.osInstallTimeout,
 		NodeEffectRemovalTimeout:    flags.nodeEffectRemovalTimeout,
 	}
 

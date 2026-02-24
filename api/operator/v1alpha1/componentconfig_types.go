@@ -105,14 +105,14 @@ type ProvisioningControllerConfiguration struct {
 	// +optional
 	MaxUnavailableDPUNodes *int32 `json:"maxUnavailableDPUNodes,omitempty"`
 
-	// ZeroTrustInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
+	// OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
 	// If the installation exceeds this timeout, the DPU will transition to an error state.
 	// +kubebuilder:default="45m"
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
 	// +kubebuilder:validation:Format=duration
 	// +optional
-	ZeroTrustInstallTimeout *metav1.Duration `json:"zeroTrustInstallTimeout,omitempty"`
+	OSInstallTimeout *metav1.Duration `json:"osInstallTimeout,omitempty"`
 
 	// NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
 	// If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state.
