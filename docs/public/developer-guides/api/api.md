@@ -1895,6 +1895,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `hostRebootRequired` _boolean_ | HostRebootRequired indicates whether the host requires a reboot after the DPU is installed |  |  |
 | `initialBootID` _string_ | InitialBootID is the boot ID of the DPU OS during the first boot |  |  |
+| `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the type of reset/reboot set by the DPU agent<br />See enum values in RebootMethodType.<br />No default is set intentionally: nil means "check not run or not applicable"<br />(e.g. legacy flow, or agent has not run the check yet);<br />a non-nil value means the check ran and this is the result. |  | Enum: [NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset] <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  |  |
 
 
@@ -2584,6 +2585,28 @@ _Appears in:_
 | `hostAgent` _[HostAgent](#hostagent)_ | Use the HostAgent to reboot the host. |  |  |
 | `external` _[External](#external)_ | Reboot the host via an external means, not controlled by the DPU controller. |  |  |
 | `script` _[Script](#script)_ | Reboot the host by executing a custom script. This field defined which ConfigMap store the custom script.<br />The ConfigMap should include a pod template of Job object under the `pod-template` key.<br />That pod template will be put in a Job object to be executed. |  |  |
+
+
+#### RebootMethodType
+
+_Underlying type:_ _string_
+
+RebootMethodType is the type of reset/reboot required after NVConfig or firmware changes.
+Set by the DPU agent. Values align with NVIDIA BlueField Reset and Reboot Procedures (mlxfwreset levels).
+
+_Validation:_
+- Enum: [NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset]
+
+_Appears in:_
+- [DPUInternalStatus](#dpuinternalstatus)
+
+| Field | Description |
+| --- | --- |
+| `NoAction` | RebootMethodNoAction indicates no reset or reboot is required.<br /> |
+| `PowerCycle` | RebootMethodPowerCycle indicates a full server power cycle (cold boot) is required.<br /> |
+| `SystemReboot` | RebootMethodSystemReboot firmware update without full server power cycle.<br /> |
+| `SystemLevelReset` | RebootMethodSystemLevelReset firmware configuration changes to take effect.<br /> |
+| `FirmwareReset` | RebootMethodFirmwareReset driver restart and PCI reset.<br /> |
 
 
 #### RollingUpdateDPU

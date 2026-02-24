@@ -301,6 +301,24 @@ type Firmware struct {
 	UEFI string `json:"uefi,omitempty"`
 }
 
+// RebootMethodType is the type of reset/reboot required after NVConfig or firmware changes.
+// Set by the DPU agent. Values align with NVIDIA BlueField Reset and Reboot Procedures (mlxfwreset levels).
+// +kubebuilder:validation:Enum=NoAction;PowerCycle;SystemReboot;SystemLevelReset;FirmwareReset
+type RebootMethodType string
+
+const (
+	// RebootMethodNoAction indicates no reset or reboot is required.
+	RebootMethodNoAction RebootMethodType = "NoAction"
+	// RebootMethodPowerCycle indicates a full server power cycle (cold boot) is required.
+	RebootMethodPowerCycle RebootMethodType = "PowerCycle"
+	// RebootMethodSystemReboot firmware update without full server power cycle.
+	RebootMethodSystemReboot RebootMethodType = "SystemReboot"
+	// RebootMethodSystemLevelReset firmware configuration changes to take effect.
+	RebootMethodSystemLevelReset RebootMethodType = "SystemLevelReset"
+	// RebootMethodFirmwareReset driver restart and PCI reset.
+	RebootMethodFirmwareReset RebootMethodType = "FirmwareReset"
+)
+
 type DPUInternalStatus struct {
 	// HostRebootRequired indicates whether the host requires a reboot after the DPU is installed
 	// +optional
@@ -308,6 +326,14 @@ type DPUInternalStatus struct {
 
 	// InitialBootID is the boot ID of the DPU OS during the first boot
 	InitialBootID *string `json:"initialBootID,omitempty"`
+
+	// RebootMethod is the type of reset/reboot set by the DPU agent
+	// See enum values in RebootMethodType.
+	// No default is set intentionally: nil means "check not run or not applicable"
+	// (e.g. legacy flow, or agent has not run the check yet);
+	// a non-nil value means the check ran and this is the result.
+	// +optional
+	RebootMethod *RebootMethodType `json:"rebootMethod,omitempty"`
 
 	// Conditions contains the conditions reported from inside the DPU
 	// +optional

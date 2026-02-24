@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -34,39 +35,101 @@ import (
 const (
 	shutdownDelayInSeconds = 5
 	bootIDFile             = "/proc/sys/kernel/random/boot_id"
+	defaultMstDevicesPath  = "/dev/mst"
 )
 
-type CheckHostRebootRequired struct {
+type HandleReboot struct {
+	runBash        func(string) (bytes.Buffer, bytes.Buffer, error)
+	mstDevicesPath string
 }
 
-func (c *CheckHostRebootRequired) Name() string {
-	return "Check Reboot Required"
+func (h *HandleReboot) Name() string {
+	return "Handle Reboot"
 }
 
-func (c *CheckHostRebootRequired) ConditionType() string {
-	return "CheckHostRebootRequired"
+func (h *HandleReboot) ConditionType() string {
+	return "RebootHandled"
 }
 
-func (c *CheckHostRebootRequired) ShouldSkip(ctx *operations.Context) bool {
+func (h *HandleReboot) ShouldSkip(ctx *operations.Context) bool {
 	return false
 }
 
-func (c *CheckHostRebootRequired) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {
+func (h *HandleReboot) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {
 	// Must update status before continuing, because the initialBootID is used to check if the host reboot is required.
 	return true
 }
 
-func (c *CheckHostRebootRequired) Execute(execCtx context.Context, optCtx *operations.Context) error {
+func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Context) error {
+	m, err := h.getRebootMethod(optCtx)
+	if err != nil {
+		return err
+	}
+
+	optCtx.Status.HostRebootRequired = nil
+	optCtx.Status.RebootMethod = nil
+
+	switch *m {
+	case provisioningv1.RebootMethodPowerCycle:
+		return h.execPowerCycle(optCtx)
+	case provisioningv1.RebootMethodSystemReboot:
+		return h.execSystemReboot(optCtx)
+	case provisioningv1.RebootMethodSystemLevelReset:
+		return h.execSystemLevelReset(optCtx)
+	case provisioningv1.RebootMethodFirmwareReset:
+		return h.execFirmwareReset(optCtx)
+	case provisioningv1.RebootMethodNoAction:
+		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
+		optCtx.Status.HostRebootRequired = nil
+		return nil
+	}
+	return fmt.Errorf("unsupported reboot method: %s", *m)
+}
+
+func (h *HandleReboot) execPowerCycle(optCtx *operations.Context) error {
+	optCtx.Status.HostRebootRequired = ptr.To(true)
+	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodPowerCycle)
+	return nil
+}
+
+func (h *HandleReboot) execSystemReboot(optCtx *operations.Context) error {
+	optCtx.Status.HostRebootRequired = ptr.To(true)
+	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodSystemReboot)
+	return nil
+}
+
+func (h *HandleReboot) execSystemLevelReset(optCtx *operations.Context) error {
 	currentRebootID, err := getCurrentRebootID()
 	if err != nil {
 		return fmt.Errorf("failed to read boot ID file: %w", err)
 	}
-	if hasBeenBooted(optCtx.LatestDPU, currentRebootID) {
-		klog.Infof("Host has already been booted, skip checking for host reboot")
-		return nil
-	}
 	optCtx.Status.HostRebootRequired = ptr.To(true)
 	optCtx.Status.InitialBootID = ptr.To(currentRebootID)
+	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodSystemLevelReset)
+	return nil
+}
+
+func (h *HandleReboot) execFirmwareReset(_ *operations.Context) error {
+	mstPath := h.mstDevicesPath
+	if mstPath == "" {
+		mstPath = defaultMstDevicesPath
+	}
+	devices, err := filepath.Glob(filepath.Join(mstPath, "*"))
+	if err != nil {
+		return fmt.Errorf("failed to list MST devices: %w", err)
+	}
+	if len(devices) == 0 {
+		return fmt.Errorf("no MST devices found in %s", mstPath)
+	}
+	devicePath := devices[0]
+	if h.runBash == nil {
+		h.runBash = bash.Run
+	}
+	cmd := fmt.Sprintf("mlxfwreset -d %s -y reset", devicePath)
+	_, stderr, err := h.runBash(cmd)
+	if err != nil {
+		return fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
+	}
 	return nil
 }
 
@@ -110,6 +173,21 @@ func (s *ShutDownArm) Execute(execCtx context.Context, optCtx *operations.Contex
 		return fmt.Errorf("failed to shut down host: %w, stderr: %s", err, stderr.String())
 	}
 	return nil
+}
+
+// getRebootMethod returns the reboot method for this run.
+func (h *HandleReboot) getRebootMethod(optCtx *operations.Context) (*provisioningv1.RebootMethodType, error) {
+	// Hardcode SystemLevelReset for now to represent the legacy flow.
+	// Note: to reproduce legacy flow this function should return nil, nil
+	currentRebootID, err := getCurrentRebootID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read boot ID file: %w", err)
+	}
+	if hasBeenBooted(optCtx.LatestDPU, currentRebootID) {
+		klog.Infof("Host has already been booted, no reboot action")
+		return ptr.To(provisioningv1.RebootMethodNoAction), nil
+	}
+	return ptr.To(provisioningv1.RebootMethodSystemLevelReset), nil
 }
 
 func getCurrentRebootID() (string, error) {
