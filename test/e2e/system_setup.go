@@ -447,19 +447,25 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		gotDPFOperatorConfig := &operatorv1.DPFOperatorConfig{}
 		g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(input.operatorConfig), gotDPFOperatorConfig)).NotTo(HaveOccurred())
 		g.Expect(gotDPFOperatorConfig.Status.Version).NotTo(BeNil())
-		isUpgradeFromLastReleasedGA := operatorutils.IsUpgradeFromLastReleasedGA(*gotDPFOperatorConfig.Status.Version)
+		isCurrentVersionLastReleasedGA := operatorutils.IsUpgradeFromLastReleasedGA(*gotDPFOperatorConfig.Status.Version)
 
 		dpuServices := &dpuservicev1.DPUServiceList{}
 		g.Expect(testClient.List(ctx, dpuServices)).To(Succeed())
 
-		// Validate the expected number of DPUServices by installation phase.
+		itemNames := []string{}
+		for _, item := range dpuServices.Items {
+			itemNames = append(itemNames, item.Name)
+		}
+
+		// Validate the expected number of DPUServices.
 		// If: standard e2e run, or post-upgrade phase of the upgrade test (current branch state).
 		// Else: initial phase of the upgrade test (deployed from the last GA release).
-		// Note: Currently we have the same amount of DPUServices for both releases.
-		if isUpgradeFromLastReleasedGA {
-			g.Expect(dpuServices.Items).To(HaveLen(9))
+		if !isCurrentVersionLastReleasedGA {
+			g.Expect(dpuServices.Items).To(HaveLen(10),
+				"Expected 10 DPUServices, got %d: [%s]", len(dpuServices.Items), strings.Join(itemNames, ", "))
 		} else {
-			g.Expect(dpuServices.Items).To(HaveLen(9))
+			g.Expect(dpuServices.Items).To(HaveLen(9),
+				"Expected 9 DPUServices, got %d: [%s]", len(dpuServices.Items), strings.Join(itemNames, ", "))
 		}
 
 		found := map[string]bool{}
@@ -470,11 +476,12 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		// Validate the expected DPUServices by installation phase.
 		// If: standard e2e run, or post-upgrade phase of the upgrade test (current branch state).
 		// Else: initial phase of the upgrade test (deployed from the last GA release).
-		if isUpgradeFromLastReleasedGA {
-			g.Expect(found).To(HaveKey(operatorv1.ServiceSetControllerName.String()))
-		} else {
+		if !isCurrentVersionLastReleasedGA {
 			g.Expect(found).To(HaveKey(operatorv1.ServiceChainSetCRDsName.String()))
 			g.Expect(found).To(HaveKey(operatorv1.KubeStateMetricsRBACName.String()))
+			g.Expect(found).To(HaveKey(operatorv1.NodeProblemDetectorName.String()))
+		} else {
+			g.Expect(found).To(HaveKey(operatorv1.ServiceSetControllerName.String()))
 		}
 
 		// Expect each of the following to have been created by the operator.
