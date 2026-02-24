@@ -1,0 +1,27 @@
+name: dpu-agent
+arch: arm64
+version: "${VERSION}"
+maintainer: NVIDIA DPF Team <dpf@nvidia.com>
+description: |
+  DOCA Platform Foundation DPU Agent.
+  DPU-side agent for DPF provisioning. Handles DPU configuration including
+  network setup, NVConfig, SF creation, kubelet configuration, and status
+  reporting to the host agent.
+vendor: NVIDIA
+license: Apache-2.0
+section: admin
+priority: optional
+
+contents:
+  - src: ./dpuagent
+    dst: /opt/dpf/dpuagent
+    file_info:
+      mode: 0755
+
+  - src: ./dpu-agent.service
+    dst: /usr/lib/systemd/system/dpu-agent.service
+    file_info:
+      mode: 0644
+
+scripts:
+  preremove: scripts/prerm.sh
