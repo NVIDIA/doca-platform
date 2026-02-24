@@ -24,6 +24,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	noderesourcesv1 "github.com/nvidia/doca-platform/api/noderesources/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
@@ -147,6 +148,7 @@ var (
 		&vpcv1.DPUVPCList{},
 		&vpcv1.IsolationClassList{},
 		&netattdefv1.NetworkAttachmentDefinitionList{},
+		&noderesourcesv1.NodeSRIOVDevicePluginConfigList{},
 	}
 	// systemPodsToVerify is a list of pod name patterns that should be verified in the DPU cluster
 	systemPodsToVerify = []string{
