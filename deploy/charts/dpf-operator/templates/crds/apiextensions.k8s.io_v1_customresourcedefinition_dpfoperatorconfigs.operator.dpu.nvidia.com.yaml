@@ -1334,6 +1334,14 @@ spec:
                     format: duration
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
+                  osInstallTimeout:
+                    default: 45m
+                    description: |-
+                      OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
+                      If the installation exceeds this timeout, the DPU will transition to an error state.
+                    format: duration
+                    pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
+                    type: string
                   registry:
                     description: Registry is the configuration for the BFB Registry
                     properties:
@@ -1361,14 +1369,6 @@ spec:
                     maximum: 3
                     minimum: 1
                     type: integer
-                  zeroTrustInstallTimeout:
-                    default: 45m
-                    description: |-
-                      ZeroTrustInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
-                      If the installation exceeds this timeout, the DPU will transition to an error state.
-                    format: duration
-                    pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
-                    type: string
                 required:
                 - bfbPVCName
                 type: object
