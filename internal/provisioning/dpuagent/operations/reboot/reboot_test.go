@@ -32,7 +32,7 @@ import (
 )
 
 var _ = Describe("Reboot", func() {
-	Context("CheckHostRebootRequired", func() {
+	Context("HandleReboot", func() {
 		It("should reboot the host if DPU ARM has not been booted", func() {
 			dpu := &provisioningv1.DPU{}
 			bootID, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
@@ -41,7 +41,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				LatestDPU: dpu,
 			}
-			reboot := &CheckHostRebootRequired{}
+			reboot := &HandleReboot{}
 			Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
 			Expect(optCtx.Status.HostRebootRequired).NotTo(BeNil())
 			Expect(*optCtx.Status.HostRebootRequired).To(BeTrue())
@@ -68,7 +68,7 @@ var _ = Describe("Reboot", func() {
 					InitialBootID: ptr.To(aDifferentBootID),
 				},
 			}
-			reboot := &CheckHostRebootRequired{}
+			reboot := &HandleReboot{}
 			Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
 			Expect(optCtx.Status.InitialBootID).NotTo(BeNil())
 			Expect(*optCtx.Status.InitialBootID).To(Equal(aDifferentBootID))
