@@ -146,6 +146,9 @@ func (s *InstallationService) UpdateStatus(req *restful.Request, resp *restful.R
 	if request.DPUInfo.InitialBootID != nil {
 		dpu.Status.DPUInternalStatus.InitialBootID = request.DPUInfo.InitialBootID
 	}
+	if request.DPUInfo.RebootMethod != nil {
+		dpu.Status.DPUInternalStatus.RebootMethod = request.DPUInfo.RebootMethod
+	}
 	for _, condition := range request.DPUInfo.Conditions {
 		meta.SetStatusCondition(&dpu.Status.DPUInternalStatus.Conditions, condition)
 	}

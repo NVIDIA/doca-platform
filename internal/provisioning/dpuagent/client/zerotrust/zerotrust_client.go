@@ -71,6 +71,9 @@ func (c *ZerotrustClient) UpdateStatus(ctx context.Context, dpuInfo provisioning
 	if dpuInfo.InitialBootID != nil {
 		latestDPU.Status.DPUInternalStatus.InitialBootID = dpuInfo.InitialBootID
 	}
+	if dpuInfo.RebootMethod != nil {
+		latestDPU.Status.DPUInternalStatus.RebootMethod = dpuInfo.RebootMethod
+	}
 	for _, condition := range dpuInfo.Conditions {
 		meta.SetStatusCondition(&latestDPU.Status.DPUInternalStatus.Conditions, condition)
 	}
