@@ -65,6 +65,12 @@ var _ = Describe("NetplanHelper", func() {
 							DHCP4:     ptr.To(false),
 							LinkLocal: ptr.To([]string{"ipv4"}),
 						},
+						"tmfifo_net0": {
+							DHCP4:     ptr.To(false),
+							DHCP6:     ptr.To(false),
+							LinkLocal: ptr.To([]string{}),
+							Addresses: []string{"fe80::2/64"},
+						},
 					},
 					Bridges: map[string]Bridge{
 						"br-dpu": {
@@ -100,6 +106,12 @@ network:
       dhcp4: false
       link-local:
         - ipv4
+    tmfifo_net0:
+      dhcp4: false
+      dhcp6: false
+      link-local: []
+      addresses:
+        - fe80::2/64
   bridges:
     br-dpu:
       interfaces:

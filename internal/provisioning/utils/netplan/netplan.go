@@ -37,6 +37,7 @@ type Ethernet struct {
 	DHCP4          *bool           `yaml:"dhcp4,omitempty"`
 	DHCP6          *bool           `yaml:"dhcp6,omitempty"`
 	MTU            *int32          `yaml:"mtu,omitempty"`
+	Addresses      []string        `yaml:"addresses,omitempty"`
 	DHCP4Overrides *DHCP4Overrides `yaml:"dhcp4-overrides,omitempty"`
 	// LinkLocal configures the link-local addresses to bring up.
 	// A pointer is used to distinguish between nil (not specified) and empty slice
