@@ -26,5 +26,8 @@ dependencies:
 - name: kube-state-metrics
   repository: file://charts/kube-state-metrics
   version: 0.1.0
-digest: sha256:9ef39521a6dbf0d4463bb03a12a83bcac5d5d8cb92a039a727332ea05b60a094
-generated: "2026-01-20T19:33:22.843337+01:00"
+- name: node-problem-detector
+  repository: file://charts/node-problem-detector
+  version: 0.1.0
+digest: sha256:c8327d638a695b8209e959f64cba3940f0ffdd476ffceab81fbe845ba72e735d
+generated: "2026-02-04T12:35:43.375952+01:00"

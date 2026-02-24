@@ -211,6 +211,7 @@ _Appears in:_
 - [KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
+- [NodeProblemDetectorConfiguration](#nodeproblemdetectorconfiguration)
 - [NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)
 - [OVSCNIConfiguration](#ovscniconfiguration)
 - [ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)
@@ -410,6 +411,7 @@ _Appears in:_
 - [KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)
 - [KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)
 - [MultusConfiguration](#multusconfiguration)
+- [NodeProblemDetectorConfiguration](#nodeproblemdetectorconfiguration)
 - [NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)
 - [OVSCNIConfiguration](#ovscniconfiguration)
 - [ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)
@@ -513,6 +515,7 @@ _Appears in:_
 - [KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
+- [NodeProblemDetectorConfiguration](#nodeproblemdetectorconfiguration)
 - [OVSCNIConfiguration](#ovscniconfiguration)
 - [SFCControllerConfiguration](#sfccontrollerconfiguration)
 - [SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)
@@ -534,6 +537,7 @@ _Appears in:_
 - [KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
+- [NodeProblemDetectorConfiguration](#nodeproblemdetectorconfiguration)
 - [OVSCNIConfiguration](#ovscniconfiguration)
 - [SFCControllerConfiguration](#sfccontrollerconfiguration)
 - [SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)
@@ -676,7 +680,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `kubeStateMetrics` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | KubeStateMetrics contains the configuration for the kube-state-metrics component.<br />It contains the image for kube-state-metrics and its resource requirements. |  |  |
+| `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the kube-state-metrics component.<br />It contains the image for kube-state-metrics and its resource requirements. |  |  |
 
 
 #### MonitoringConfiguration
@@ -692,8 +696,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disabled` _boolean_ | Disabled controls whether monitoring resources are installed.<br />When enabled (default), the controller:<br />- Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.<br />- Deploys kube-state-metrics as a DPUService to expose metrics for custom resources. |  |  |
+| `disabled` _boolean_ | Disabled controls whether monitoring resources are installed.<br />When enabled (default), the controller:<br />- Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.<br />- Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.<br />- Deploys node-problem-detector as a DaemonSet on DPU nodes to detect and report node-level problems. |  |  |
 | `kubeStateMetrics` _[KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)_ | KubeStateMetrics is the configuration for kube-state-metrics |  |  |
+| `nodeProblemDetector` _[NodeProblemDetectorConfiguration](#nodeproblemdetectorconfiguration)_ | NodeProblemDetector is the configuration for node-problem-detector |  |  |
 
 
 #### MultusConfiguration
@@ -783,6 +788,24 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `controlPlaneMTU` _integer_ | ControlPlaneMTU is the MTU value to be set on the management network.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br /> |
 | `highSpeedMTU` _integer_ | HighSpeedMTU is the MTU value to be set on the high-speed interface.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br /> |
+
+
+#### NodeProblemDetectorConfiguration
+
+
+
+
+
+
+
+_Appears in:_
+- [MonitoringConfiguration](#monitoringconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
+| `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the node-problem-detector component.<br />It contains the image for node-problem-detector and its resource requirements. |  |  |
 
 
 #### NodeSRIOVDevicePluginControllerConfiguration
@@ -2566,6 +2589,8 @@ _Appears in:_
 | `force` _boolean_ | Force is the flag to indicate if the node effect should be applied immediately.<br />If true, dpfOperatorConfig.multiDPUOperationsSyncWaitTime and dpfOperatorConfig.maxUnavailableDPUNodes will be ignored when applying node effect for DPUNodeMaintenance CR | false |  |
 | `applyOnLabelChange` _boolean_ | Apply node effect when labels change on the DPU object<br />When set to true, label changes in Ready state will trigger node effect logic | false |  |
 | `nodeMaintenanceAdditionalRequestors` _string array_ | Additional requestors to be added to the NvidiaNodeMaintenance CR when Drain is selected |  |  |
+
+
 
 
 #### NodeRebootMethod

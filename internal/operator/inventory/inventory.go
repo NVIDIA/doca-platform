@@ -69,6 +69,7 @@ type SystemComponents struct {
 	CNIInstaller                    Component
 	NodeSRIOVDevicePluginController Component
 	KubeStateMetrics                Component
+	NodeProblemDetector             Component
 }
 
 // Embed manifests for Kubernetes objects created by the controller.
@@ -120,6 +121,9 @@ var (
 
 	//go:embed manifests/kube-state-metrics.yaml
 	kubeStateMetricsData []byte
+
+	//go:embed manifests/node-problem-detector.yaml
+	nodeProblemDetectorData []byte
 )
 
 // New returns a new SystemComponents inventory with data preloaded but parsing not completed.
@@ -166,6 +170,10 @@ func New() *SystemComponents {
 		NodeSRIOVDevicePluginController: newNodeSRIOVDevicePluginControllerObjects(
 			nodeSRIOVDevicePluginControllerData),
 		KubeStateMetrics: newKubeStateMetricsObjects(kubeStateMetricsData),
+		NodeProblemDetector: &fromDPUService{
+			name: operatorv1.NodeProblemDetectorName,
+			data: nodeProblemDetectorData,
+		},
 	}
 }
 
@@ -181,6 +189,7 @@ func (s *SystemComponents) SystemDPUServices() []Component {
 		s.SfcController,
 		s.CNIInstaller,
 		s.KubeStateMetrics,
+		s.NodeProblemDetector,
 	}
 }
 
@@ -202,6 +211,7 @@ func (s *SystemComponents) AllComponents() []Component {
 		s.CNIInstaller,
 		s.NodeSRIOVDevicePluginController,
 		s.KubeStateMetrics,
+		s.NodeProblemDetector,
 	}
 }
 

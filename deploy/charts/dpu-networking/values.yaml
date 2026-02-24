@@ -20,3 +20,5 @@ cni-installer:
     enabled: false
 kube-state-metrics:
     enabled: false
+node-problem-detector:
+    enabled: false
