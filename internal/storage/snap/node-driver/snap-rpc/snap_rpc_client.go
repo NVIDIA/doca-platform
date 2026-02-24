@@ -25,9 +25,6 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// hotplugCreationDelay is the duration to wait after attaching (plugging) an NVMe device
-const hotplugAttachDelay = 5 * time.Second
-
 // Client defines the interface for managing device operations
 type Client interface {
 	// ExposeBlockDevice exposes a block device on the SNAP controller
@@ -61,10 +58,13 @@ func (c *client) ExposeBlockDevice(dpuStatus snapstoragev1.VolumeAttachmentStatu
 	deviceName := dpuStatus.DeviceName
 	hotplug := spec.FunctionTypeConfig.HotplugFunction
 	functionType := string(spec.FunctionTypeConfig.FunctionType)
+	var vuid string
+	var err error
+
 	if hotplug && dpuStatus.PCIDeviceAddress == "" {
-		vuid, err := NvmeEmulationDeviceAttach(c.rpcClient)
+		vuid, err = NvmeFunctionCreate(c.rpcClient)
 		if err != nil {
-			return 0, "", "", fmt.Errorf("failed to attach NVMe emulation device: %v", err)
+			return 0, "", "", fmt.Errorf("failed to create hotplug NVMe function: %v", err)
 		}
 
 		if parameters == nil {
@@ -92,10 +92,6 @@ func (c *client) ExposeBlockDevice(dpuStatus snapstoragev1.VolumeAttachmentStatu
 	}
 
 	ctrlID := getCtrlByDeviceName(deviceName, subsystems)
-	if err != nil {
-		klog.Errorf("Error retrieving NVMe controllers: %v", err)
-		return nsid, "", currUUID, err
-	}
 
 	emulationFunctions, err := EmulationFunctionList(c.rpcClient)
 	if err != nil {
@@ -130,28 +126,27 @@ func (c *client) ExposeBlockDevice(dpuStatus snapstoragev1.VolumeAttachmentStatu
 		if err != nil {
 			return nsid, pciBDF, currUUID, fmt.Errorf("failed to resume controller: %v", err)
 		}
-
-		klog.Infof("Created new controller: ID=%s, PCI BDF=%s", ctrlID, pciBDF)
 	}
 
-	attempts := 0
-	maxAttempts := 10
-	for pciBDF == "00:00.0" && attempts < maxAttempts {
-		time.Sleep(hotplugAttachDelay)
-		klog.Infof("Waiting for PCI BDF to be available")
-		emulationFunctions, err := EmulationFunctionList(c.rpcClient)
+	if hotplug {
+		err = NvmeControllerHotplug(c.rpcClient, ctrlID)
+		if err != nil {
+			return nsid, pciBDF, currUUID, fmt.Errorf("failed to hotplug controller: %v", err)
+		}
+
+		emulationFunctions, err = EmulationFunctionList(c.rpcClient)
 		if err != nil {
 			klog.Errorf("Failed to retrieve emulation functions: %v", err)
-			return 0, "", "", fmt.Errorf("failed to retrieve emulation functions: %v", err)
+			return nsid, pciBDF, currUUID, fmt.Errorf("failed to retrieve emulation functions: %v", err)
 		}
+
 		pciBDF, err = getPciAddrByCtrlID(ctrlID, emulationFunctions, hotplug)
 		if err != nil {
 			return nsid, "", currUUID, fmt.Errorf("failed to get PCI BDF for controller: %v", err)
 		}
-		attempts++
 	}
 
-	klog.Infof("Final Device State -> NSID=%d, PCI BDF=%s", nsid, pciBDF)
+	klog.Infof("Final Device State -> CTRL ID=%s, NSID=%d, PCI BDF=%s", ctrlID, nsid, pciBDF)
 	return nsid, pciBDF, currUUID, nil
 }
 
@@ -281,37 +276,21 @@ func (c *client) DestroyBlockDevice(nsid int, pciAddr string, hotplug bool) erro
 		return fmt.Errorf("failed to retrieve NVMe subsystems: %v", err)
 	}
 
-	var ctrlID string
-	var vuid string
-
-	if hotplug {
-		ctrlID, vuid, err = getNvmeHotplugByPciAddr(pciAddr, emulationFunctions)
+	ctrlID := getNvmeControllerByPciAddr(pciAddr, emulationFunctions)
+	if ctrlID == "" {
+		klog.Errorf("No controller found for PCI address: %s", pciAddr)
+	} else if hotplug {
+		err = NvmeControllerHotunplug(c.rpcClient, ctrlID)
 		if err != nil {
-			return fmt.Errorf("failed to get hotplugged NVMe device: %v", err)
+			return fmt.Errorf("failed to hotunplug controller: %v", err)
 		}
-		err = NvmeEmulationDeviceDetachPrepare(c.rpcClient, vuid)
-		if err != nil {
-			return fmt.Errorf("failed to prepare NVMe emulation device detach: %v", err)
-		}
-	} else {
-		ctrlID = getNvmeControllerByPciAddr(pciAddr, emulationFunctions)
+		klog.Infof("Successfully hotunplugged controller ID %s", ctrlID)
 	}
 
-	namespaceExists := checkNamespaceAttached(nsid, ctrlID, subsystems)
-	if err != nil {
-		klog.Errorf("Failed to check namespace existence: %v", err)
-		return err
-	}
+	namespaceExists, attachedToCtrl := checkNamespaceAttached(nsid, ctrlID, subsystems)
 
-	if ctrlID == "" && !namespaceExists {
-		klog.Infof("NVMe Controller and namespace not found for PCI Address %s. Skipping detach and destroy.", pciAddr)
-		return nil
-	}
-
-	// Detach the namespace only if both exist
-	if ctrlID == "" || !namespaceExists {
-		klog.Infof("Namespace/Controller does not exist. Skipping detach.")
-	} else {
+	// Detach the namespace only if it exists and is attached to this controller
+	if attachedToCtrl {
 		err = NvmeControllerDetachNs(c.rpcClient, ctrlID, nsid)
 		if err != nil {
 			klog.Errorf("Failed to detach namespace: %v", err)
@@ -320,9 +299,7 @@ func (c *client) DestroyBlockDevice(nsid int, pciAddr string, hotplug bool) erro
 		klog.Infof("Successfully detached namespace ID %d", nsid)
 	}
 
-	if ctrlID == "" {
-		klog.Infof("Controller ID does not exist. Skipping destroy.")
-	} else {
+	if ctrlID != "" {
 		err = NvmeControllerDestroy(c.rpcClient, ctrlID)
 		if err != nil {
 			klog.Errorf("Failed to destroy controller: %v", err)
@@ -331,9 +308,7 @@ func (c *client) DestroyBlockDevice(nsid int, pciAddr string, hotplug bool) erro
 		klog.Infof("Successfully destroyed controller ID %s", ctrlID)
 	}
 
-	if !namespaceExists {
-		klog.Infof("Namespace ID %d does not exist. Skipping detach.", nsid)
-	} else {
+	if namespaceExists {
 		err = NvmeNamespaceDestroy(c.rpcClient, nsid, subsystems)
 		if err != nil {
 			klog.Errorf("Failed to destroy namespace ID %d: %v", nsid, err)
@@ -343,9 +318,13 @@ func (c *client) DestroyBlockDevice(nsid int, pciAddr string, hotplug bool) erro
 	}
 
 	if hotplug {
-		err = NvmeEmulationDeviceDetach(c.rpcClient, vuid)
-		if err != nil {
-			return fmt.Errorf("failed to detach NVMe emulation device: %v", err)
+		vuid := getHotplugVUIDByPCIAddress(pciAddr, emulationFunctions)
+		if vuid != "" {
+			err = NvmeFunctionDestroy(c.rpcClient, vuid)
+			if err != nil {
+				return fmt.Errorf("failed to destroy NVMe function: %v", err)
+			}
+			klog.Infof("Successfully destroyed NVMe function ID %s", vuid)
 		}
 	}
 
