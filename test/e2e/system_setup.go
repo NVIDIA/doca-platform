@@ -439,6 +439,17 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 			Name:      "dpf-provisioning-controller-manager"},
 			dpfProvisioningDeployment)).To(Succeed())
 		g.Expect(dpfProvisioningDeployment.Status.ReadyReplicas).To(Equal(*dpfProvisioningDeployment.Spec.Replicas))
+
+		if !isGinkgoLabelApplied(Domain.ZeroTrust) {
+			// Check the NodeSRIOV Device Plugin controller deployment is up and ready.
+			nodesriovDevicePluginDeployment := &appsv1.Deployment{}
+			g.Expect(testClient.Get(ctx, client.ObjectKey{
+				Namespace: input.systemNamespace,
+				Name:      "dpf-nodesriovdeviceplugin-controller"},
+				nodesriovDevicePluginDeployment)).To(Succeed())
+			g.Expect(nodesriovDevicePluginDeployment.Status.ReadyReplicas).To(Equal(*nodesriovDevicePluginDeployment.Spec.Replicas))
+		}
+
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
 	By("ensure the system DPUServices are created")

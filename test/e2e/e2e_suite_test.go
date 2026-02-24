@@ -27,6 +27,7 @@ import (
 	"testing"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	noderesourcesv1 "github.com/nvidia/doca-platform/api/noderesources/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
@@ -163,6 +164,7 @@ func TestE2E(t *testing.T) {
 	ctrl.SetLogger(klog.Background())
 
 	Expect(dpuservicev1.AddToScheme(scheme.Scheme)).To(Succeed())
+	Expect(noderesourcesv1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(operatorv1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(argov1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(provisioningv1.AddToScheme(scheme.Scheme)).To(Succeed())
