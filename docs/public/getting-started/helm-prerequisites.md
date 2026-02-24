@@ -394,6 +394,11 @@ volumeMounts:
   - mountPath: /etc/customresourcestate
     name: customresourcestate-config
     readOnly: true
+prometheus:
+  monitor:
+    enabled: true
+    http:
+      honorLabels: true
 rbac:
   extraRules:
     - apiGroups:
