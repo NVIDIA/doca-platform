@@ -695,6 +695,7 @@ verify-manifest-dpu-networking: helm-package-dpu-networking helm $(ARTIFACTS_REN
 	  --set servicechainset-controller.enabled=true \
 	  --set sfc-controller.enabled=true \
 	  --set cni-installer.enabled=true \
+	  --set node-problem-detector.enabled=true \
 	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-$(TAG).yaml" \
 	  MANIFEST_NAME="dpu-networking" \

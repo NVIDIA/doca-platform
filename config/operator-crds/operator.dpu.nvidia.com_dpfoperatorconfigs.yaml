@@ -504,24 +504,14 @@ spec:
                       When enabled (default), the controller:
                       - Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.
                       - Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.
+                      - Deploys node-problem-detector as a DaemonSet on DPU nodes to detect and report node-level problems.
                     type: boolean
                   kubeStateMetrics:
                     description: KubeStateMetrics is the configuration for kube-state-metrics
                     properties:
-                      disable:
-                        description: Disable ensures the component is not deployed
-                          when set to true.
-                        type: boolean
-                      helmChart:
+                      daemon:
                         description: |-
-                          HelmChart overrides the helm chart used by the ServiceSet controller.
-                          The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid
-                          OCI registry or a web-based repository.
-                        pattern: ^(oci://|https://).+$
-                        type: string
-                      kubeStateMetrics:
-                        description: |-
-                          KubeStateMetrics contains the configuration for the kube-state-metrics component.
+                          Daemon contains the configuration for the kube-state-metrics component.
                           It contains the image for kube-state-metrics and its resource requirements.
                         properties:
                           image:
@@ -577,6 +567,90 @@ spec:
                                 type: object
                             type: object
                         type: object
+                      disable:
+                        description: Disable ensures the component is not deployed
+                          when set to true.
+                        type: boolean
+                      helmChart:
+                        description: |-
+                          HelmChart overrides the helm chart used by the ServiceSet controller.
+                          The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid
+                          OCI registry or a web-based repository.
+                        pattern: ^(oci://|https://).+$
+                        type: string
+                    type: object
+                  nodeProblemDetector:
+                    description: NodeProblemDetector is the configuration for node-problem-detector
+                    properties:
+                      daemon:
+                        description: |-
+                          Daemon contains the configuration for the node-problem-detector component.
+                          It contains the image for node-problem-detector and its resource requirements.
+                        properties:
+                          image:
+                            description: Image is a reference to a container image.
+                            pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                            type: string
+                          resources:
+                            description: |-
+                              Resources defines the memory and CPU resource requests and limits for the component.
+                              This field is optional, and if not set, the component will use the default resource.
+                            properties:
+                              limits:
+                                description: Limits defines the resource limits for
+                                  the component.
+                                properties:
+                                  cpu:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: CPU is the amount of CPU requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  memory:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: Memory is the amount of Memory requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                type: object
+                              requests:
+                                description: Requests defines the resource requests
+                                  for the component.
+                                properties:
+                                  cpu:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: CPU is the amount of CPU requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  memory:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: Memory is the amount of Memory requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                type: object
+                            type: object
+                        type: object
+                      disable:
+                        description: Disable ensures the component is not deployed
+                          when set to true.
+                        type: boolean
+                      helmChart:
+                        description: |-
+                          HelmChart overrides the helm chart used by the ServiceSet controller.
+                          The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid
+                          OCI registry or a web-based repository.
+                        pattern: ^(oci://|https://).+$
+                        type: string
                     type: object
                 type: object
               multus:

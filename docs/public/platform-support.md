@@ -30,6 +30,7 @@ DPF uses the following components:
 | Kamaji                      | Community (OSS) | ghcr.io/clastix                                                    | kamaji                                        | v1.34.0 | Optional |
 | Local Path Provisioner      | Community (OSS) | docker.io/rancher                                                  | local-path-provisioner                        | v0.0.34 | Optional |
 | Kube State Metrics          | Community (OSS) | registry.k8s.io/kube-state-metrics                                 | kube-state-metrics                            | v2.18.0 | Optional |
+| Node Problem Detector       | Community (OSS) | registry.k8s.io/node-problem-detector                              | node-problem-detector                         | v1.35.1 | Optional |
 | Prometheus                  | Community (OSS) | quay.io/prometheus                                                 | prometheus                                    | v2.54.1 | Optional |
 | Grafana                     | Community (OSS) | docker.io/grafana                                                  | grafana                                       | 11.1.0  | Optional |
 

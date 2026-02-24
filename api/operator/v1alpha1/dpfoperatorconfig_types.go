@@ -199,12 +199,17 @@ type MonitoringConfiguration struct {
 	// When enabled (default), the controller:
 	// - Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.
 	// - Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.
+	// - Deploys node-problem-detector as a DaemonSet on DPU nodes to detect and report node-level problems.
 	// +optional
 	Disabled *bool `json:"disabled,omitempty"`
 
 	// KubeStateMetrics is the configuration for kube-state-metrics
 	// +optional
 	KubeStateMetrics *KubeStateMetricsConfiguration `json:"kubeStateMetrics,omitempty"`
+
+	// NodeProblemDetector is the configuration for node-problem-detector
+	// +optional
+	NodeProblemDetector *NodeProblemDetectorConfiguration `json:"nodeProblemDetector,omitempty"`
 }
 
 // DPFOperatorConfigStatus defines the observed state of DPFOperatorConfig

@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "node-problem-detector.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "node-problem-detector.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "node-problem-detector.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "node-problem-detector.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "node-problem-detector.serviceAccountName" . }}
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      hostNetwork: true
+      hostPID: true
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      containers:
+      - name: node-problem-detector
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        securityContext:
+          privileged: true
+          readOnlyRootFilesystem: false
+          capabilities:
+            add:
+            - SYS_PTRACE
+            - SYS_ADMIN
+            drop:
+            - ALL
+        command:
+        - /node-problem-detector
+        args:
+        - --logtostderr
+        - --config.system-log-monitor=/config/kernel-monitor.json
+        - --config.system-stats-monitor=/config/system-stats-monitor.json
+        - --config.custom-plugin-monitor=/config/dpu-custom-plugin-monitor.json
+        - --prometheus-address=0.0.0.0
+        - --prometheus-port=20257
+        ports:
+        - name: exporter
+          containerPort: 20257
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: exporter
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: exporter
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        {{- with .Values.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: log
+          mountPath: /var/log
+          readOnly: true
+        - name: kmsg
+          mountPath: /dev/kmsg
+          readOnly: true
+        - name: host-sys
+          mountPath: /sys
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "node-problem-detector.fullname" . }}-config
+          defaultMode: 0755
+      - name: log
+        hostPath:
+          path: /var/log
+      - name: kmsg
+        hostPath:
+          path: /dev/kmsg
+      - name: host-sys
+        hostPath:
+          path: /sys
