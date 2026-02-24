@@ -18,6 +18,8 @@ releases:
       app: kube-state-metrics
     values:
       - values/kube-state-metrics.yaml
+    needs:
+      - dpf-operator-system/kube-prometheus-stack
 
   - name: kube-prometheus-stack
     namespace: dpf-operator-system
