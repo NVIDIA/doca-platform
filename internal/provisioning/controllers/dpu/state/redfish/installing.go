@@ -46,7 +46,7 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	}
 
 	// Check for installation timeout
-	if err := checkInstallationTimeout(state, ctrlCtx.Options.ZeroTrustInstallTimeout, logger); err != nil {
+	if err := checkInstallationTimeout(state, ctrlCtx.Options.OSInstallTimeout, logger); err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "InstallationTimeout", err.Error()))
 		state.Phase = provisioningv1.DPUError
 		return *state, nil

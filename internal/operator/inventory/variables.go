@@ -141,7 +141,7 @@ type DPFProvisioningVariables struct {
 	MaxUnavailableDPUNodes         *int32
 	Registry                       *operatorv1.RegistryConfiguration
 	Replicas                       *int32
-	ZeroTrustInstallTimeout        *metav1.Duration
+	OSInstallTimeout               *metav1.Duration
 	NodeEffectRemovalTimeout       *metav1.Duration
 }
 
@@ -256,7 +256,7 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		MaxUnavailableDPUNodes:       config.Spec.ProvisioningController.MaxUnavailableDPUNodes,
 		Registry:                     config.Spec.ProvisioningController.Registry,
 		Replicas:                     config.Spec.ProvisioningController.Replicas,
-		ZeroTrustInstallTimeout:      config.Spec.ProvisioningController.ZeroTrustInstallTimeout,
+		OSInstallTimeout:             config.Spec.ProvisioningController.OSInstallTimeout,
 		NodeEffectRemovalTimeout:     config.Spec.ProvisioningController.NodeEffectRemovalTimeout,
 	}
 	if config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime != nil {
