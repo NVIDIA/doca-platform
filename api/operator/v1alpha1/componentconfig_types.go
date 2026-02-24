@@ -901,10 +901,10 @@ type KubeStateMetricsConfiguration struct {
 	BaseComponentConfig `json:",inline"`
 	HelmComponentConfig `json:",inline"`
 
-	// KubeStateMetrics contains the configuration for the kube-state-metrics component.
+	// Daemon contains the configuration for the kube-state-metrics component.
 	// It contains the image for kube-state-metrics and its resource requirements.
 	// +optional
-	KubeStateMetrics *DefaultOverridesConfiguration `json:"kubeStateMetrics,omitempty"`
+	Daemon *DefaultOverridesConfiguration `json:"daemon,omitempty"`
 }
 
 func (c *KubeStateMetricsConfiguration) Name() string {
@@ -914,17 +914,49 @@ func (c *KubeStateMetricsConfiguration) Name() string {
 // GetImages returns a map of container names to their images
 func (c *KubeStateMetricsConfiguration) GetImages() map[ContainerName]*string {
 	images := make(map[ContainerName]*string)
-	if c.KubeStateMetrics != nil {
-		images[KubeStateMetricsContainer] = c.KubeStateMetrics.GetImage()
+	if c.Daemon != nil {
+		images[KubeStateMetricsContainer] = c.Daemon.GetImage()
 	}
 	return images
 }
 
 func (c *KubeStateMetricsConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
-	if c.KubeStateMetrics == nil {
+	if c.Daemon == nil {
 		return nil
 	}
 	return map[ContainerName]*corev1.ResourceRequirements{
-		KubeStateMetricsContainer: c.KubeStateMetrics.GetResource(),
+		KubeStateMetricsContainer: c.Daemon.GetResource(),
+	}
+}
+
+type NodeProblemDetectorConfiguration struct {
+	BaseComponentConfig `json:",inline"`
+	HelmComponentConfig `json:",inline"`
+
+	// Daemon contains the configuration for the node-problem-detector component.
+	// It contains the image for node-problem-detector and its resource requirements.
+	// +optional
+	Daemon *DefaultOverridesConfiguration `json:"daemon,omitempty"`
+}
+
+func (c *NodeProblemDetectorConfiguration) Name() string {
+	return NodeProblemDetectorName.String()
+}
+
+// GetImages returns a map of container names to their images
+func (c *NodeProblemDetectorConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.Daemon != nil {
+		images[NodeProblemDetectorContainer] = c.Daemon.GetImage()
+	}
+	return images
+}
+
+func (c *NodeProblemDetectorConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.Daemon == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		NodeProblemDetectorContainer: c.Daemon.GetResource(),
 	}
 }

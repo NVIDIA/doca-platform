@@ -100,7 +100,7 @@ func VerifyDPUServicesDeployed(ctx context.Context, clusterClient client.Client,
 	Eventually(func(g Gomega) {
 		// Check Deployments with argocd instance annotation
 		deployments := &appsv1.DeploymentList{}
-		g.Expect(dpuClusterClient[0].List(ctx, deployments)).To(Succeed())
+		g.Expect(clusterClient.List(ctx, deployments)).To(Succeed())
 		found := map[string]bool{}
 		for i := range deployments.Items {
 			if _, hasAnnotation := deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]; hasAnnotation {
@@ -111,7 +111,7 @@ func VerifyDPUServicesDeployed(ctx context.Context, clusterClient client.Client,
 
 		// Check DaemonSets with argocd instance annotation
 		daemonsets := appsv1.DaemonSetList{}
-		g.Expect(dpuClusterClient[0].List(ctx, &daemonsets, client.InNamespace(input.dpuClusters[0].GetNamespace()))).To(Succeed())
+		g.Expect(clusterClient.List(ctx, &daemonsets, client.InNamespace(namespace))).To(Succeed())
 		for i := range daemonsets.Items {
 			if _, hasAnnotation := daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]; hasAnnotation {
 				g.Expect(daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]).NotTo(Equal(""))

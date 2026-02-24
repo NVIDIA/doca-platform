@@ -58,6 +58,7 @@ var dpuNetworkingSubCharts = map[operatorv1.ComponentName]bool{
 	operatorv1.SFCControllerName:        true,
 	operatorv1.CNIInstallerName:         true,
 	operatorv1.KubeStateMetricsName:     true,
+	operatorv1.NodeProblemDetectorName:  true,
 }
 
 func (f *fromDPUService) Name() operatorv1.ComponentName {
@@ -476,6 +477,13 @@ func dpuServiceInClusterEdit(deployInCluster bool) StructuredEdit {
 
 // IsReadyForUpgrade returns an error if the DPUService does not have a Ready status condition and the version is not updated.
 func (f *fromDPUService) IsReadyForUpgrade(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig) error {
+	shouldSkip, err := ShouldSkipUpgradeCheck(f.Name(), *config.Status.Version)
+	if err != nil {
+		return fmt.Errorf("determine if component %s should skip upgrade check: %w", f.Name(), err)
+	}
+	if shouldSkip {
+		return nil
+	}
 	return f.isReady(ctx, c, config.GetNamespace(), false)
 }
 

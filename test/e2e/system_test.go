@@ -257,6 +257,18 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
+	Context("Node Problem Detector", Labels{Domain.ZeroTrust, Domain.RequiresNodes}, func() {
+		It("validate node-problem-detector is reporting DPU-specific node conditions", func() {
+			if !input.hasDpuNodes() {
+				Skip("Skip Node Problem Detector test as there are no DPU nodes")
+			}
+			By("Waiting for node-problem-detector to be ready")
+			VerifyClusterPods(ctx, dpuClusterClient[0], []string{"node-problem-detector"})
+			By("Validating node-problem-detector conditions for DPU nodes")
+			VerifyNodeProblemDetectorConditions(ctx, input)
+		})
+	})
+
 	Context("DPU Service IPAM", Labels{Domain.ZeroTrust}, func() {
 		It("create an invalid DPUServiceIPAM and ensure that the webhook rejects the request", func() {
 			ValidateDPUServiceIPAMCreationInvalid(ctx, input)

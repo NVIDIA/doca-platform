@@ -113,6 +113,49 @@ const (
 	DPUCondMessageRebootFinishedForModeUpdate DPUConditionMessage = "Reboot finished for DPU mode update"
 )
 
+// NodeProblemDetectorConditionType represents Kubernetes Node condition types reported
+// by node-problem-detector that indicate DPU node health. These conditions are monitored
+// on DPUCluster nodes and aggregated into DPU operational readiness.
+type NodeProblemDetectorConditionType string
+
+// Keep in sync with deploy/charts/dpu-networking/charts/node-problem-detector/templates/configmap.yaml
+const (
+	// NPDConditionKernelDeadlock indicates the node is in a kernel deadlock state.
+	NPDConditionKernelDeadlock NodeProblemDetectorConditionType = "KernelDeadlock"
+	// NPDConditionReadonlyFilesystem indicates the filesystem is read-only.
+	NPDConditionReadonlyFilesystem NodeProblemDetectorConditionType = "ReadonlyFilesystem"
+	// NPDConditionOVSvSwitchdHealthy indicates the ovs-vswitchd service is running
+	NPDConditionOVSvSwitchdHealthy NodeProblemDetectorConditionType = "OVSvSwitchdHealthy"
+	// NPDConditionOVSDBHealthy indicates the ovsdb-server service is running
+	NPDConditionOVSDBHealthy NodeProblemDetectorConditionType = "OVSDBHealthy"
+	// NPDConditionOVSHealthy indicates OVS processes have not been OOM killed recently
+	NPDConditionOVSHealthy NodeProblemDetectorConditionType = "OVSHealthy"
+	// NPDConditionDPUModeCorrect indicates DPU is in the correct separated mode
+	NPDConditionDPUModeCorrect NodeProblemDetectorConditionType = "DPUModeCorrect"
+	// NPDConditionUplinkHealthy indicates the physical uplink interface is up
+	NPDConditionUplinkHealthy NodeProblemDetectorConditionType = "UplinkHealthy"
+	// NPDConditionSRIOVHealthy indicates SR-IOV VF representors are present
+	NPDConditionSRIOVHealthy NodeProblemDetectorConditionType = "SRIOVHealthy"
+	// NPDConditionMTUConfigured indicates network MTU is correctly configured
+	NPDConditionMTUConfigured NodeProblemDetectorConditionType = "MTUConfigured"
+)
+
+// GetNodeProblemDetectorConditions returns all expected node-problem-detector condition types
+// that should be present on DPUCluster nodes for health monitoring.
+func GetNodeProblemDetectorConditions() []string {
+	return []string{
+		string(NPDConditionKernelDeadlock),
+		string(NPDConditionReadonlyFilesystem),
+		string(NPDConditionOVSvSwitchdHealthy),
+		string(NPDConditionOVSDBHealthy),
+		string(NPDConditionOVSHealthy),
+		string(NPDConditionDPUModeCorrect),
+		string(NPDConditionUplinkHealthy),
+		string(NPDConditionSRIOVHealthy),
+		string(NPDConditionMTUConfigured),
+	}
+}
+
 type DPUInstallInterfaceType string
 
 const (
