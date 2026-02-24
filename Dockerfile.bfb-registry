@@ -88,6 +88,26 @@ RUN case ${TARGETARCH} in \
           /tmp/lib/${GNU_ARCH}/libcrypt.so* \
           /output/lib/${GNU_ARCH}/
 
+# Stage 1.6: Prepare APT repository with dpu-agent packages
+FROM ${base_image} AS apt-repo-builder
+ARG TARGETARCH
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y -qq --no-install-recommends dpkg-dev createrepo-c
+
+# Copy pre-built dpu-agent packages (passed as build context "packages")
+RUN mkdir -p /deb /rpm
+COPY --from=packages dpu-agent_*_arm64.deb /deb/
+COPY --from=packages dpu-agent-*.aarch64.rpm /rpm/
+
+# Generate APT repository metadata
+WORKDIR /deb
+RUN dpkg-scanpackages -m . > Packages && gzip -k Packages
+
+# Generate YUM/DNF repository metadata
+WORKDIR /rpm
+RUN createrepo_c .
+
 # Stage 2: Create final image based on distroless
 FROM nvcr.io/nvidia/doca/dpf_containers:1.0.2-ubuntu22.04-distroless AS distroless
 
@@ -108,5 +128,9 @@ ENV uid=65532
 # nginx.conf and all the temp files are in the /nginx directory.
 # This approach complies with S6504 because we're only changing ownership of non-executable directories
 COPY --chown=${uid}:${uid} --chmod=700 --from=builder /nginx /nginx
+
+# Copy APT/YUM repositories containing dpu-agent packages
+COPY --from=apt-repo-builder /deb /deb
+COPY --from=apt-repo-builder /rpm /rpm
 
 USER ${uid}:${uid}

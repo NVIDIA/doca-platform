@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -42,6 +43,11 @@ const (
 	mgmtBridgeIP       = "169.254.0.1/16"
 	DefaultServiceIP   = "169.254.0.1"
 	DefaultServicePort = 11029
+
+	// debRepoDir contains dpu-agent .deb packages and APT metadata, baked into the image at build time.
+	debRepoDir = "/deb"
+	// rpmRepoDir contains dpu-agent .rpm packages and YUM metadata, baked into the image at build time.
+	rpmRepoDir = "/rpm"
 )
 
 type InstallationService struct {
@@ -69,6 +75,9 @@ func NewInstallationService(client client.Client, listenAddr string) *Installati
 			Produces(restful.MIME_JSON).
 			To(s.GetObject))
 	ws.Route(ws.GET("/healthz").To(s.HealthCheck))
+	// Package repositories: serve .deb and .rpm packages for DPU provisioning.
+	ws.Route(ws.GET("/deb/{subpath:*}").To(serveRepoFile(debRepoDir)))
+	ws.Route(ws.GET("/rpm/{subpath:*}").To(serveRepoFile(rpmRepoDir)))
 	container := restful.NewContainer()
 	container.Add(ws)
 	s.server = &http.Server{
@@ -174,6 +183,28 @@ func (s *InstallationService) GetObject(req *restful.Request, resp *restful.Resp
 		return
 	}
 	_ = resp.WriteEntity(obj)
+}
+
+// serveRepoFile returns a handler that serves static files from the given repository directory.
+// It sanitizes the requested subpath to prevent directory traversal attacks.
+func serveRepoFile(repoDir string) restful.RouteFunction {
+	return func(req *restful.Request, resp *restful.Response) {
+		subpath := req.PathParameter("subpath")
+
+		cleanPath := filepath.Clean("/" + subpath)
+		if strings.Contains(cleanPath, "..") {
+			resp.WriteHeader(http.StatusForbidden)
+			return
+		}
+		fullPath := filepath.Join(repoDir, cleanPath)
+		if !strings.HasPrefix(fullPath, repoDir) {
+			resp.WriteHeader(http.StatusForbidden)
+			return
+		}
+
+		klog.V(4).Infof("Serving repo file: %s", fullPath)
+		http.ServeFile(resp.ResponseWriter, req.Request, fullPath)
+	}
 }
 
 func setupMgmtBridge(bridgeAddr *netlink.Addr) error {
