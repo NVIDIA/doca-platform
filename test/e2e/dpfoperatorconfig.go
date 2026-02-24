@@ -162,6 +162,16 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 			ResourceComponentConfig: dummyResourceRequirements,
 		},
 	}
+	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
+		modifiedConfig.Spec.NodeSRIOVDevicePluginController = &operatorv1.NodeSRIOVDevicePluginControllerConfiguration{
+			Controller: &operatorv1.DefaultOverridesConfiguration{
+				ImageComponentConfig: operatorv1.ImageComponentConfig{
+					Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.NodeSRIOVDevicePluginControllerName)),
+				},
+				ResourceComponentConfig: dummyResourceRequirements,
+			},
+		}
+	}
 
 	By("updating the DPFOperatorConfig with modified images and resources")
 	Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(originalConfig))).To(Succeed())
@@ -192,6 +202,9 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 	modifiedConfig.Spec.Flannel.Images = &operatorv1.FlannelImages{
 		KubeFlannel: dummyRegistryName + "/kube-flannel:legacy-test",
 		FlannelCNI:  dummyRegistryName + "/flannel-cni:legacy-test",
+	}
+	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
+		modifiedConfig.Spec.NodeSRIOVDevicePluginController.Controller.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.NodeSRIOVDevicePluginControllerName))
 	}
 	Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(configCopy))).To(Succeed())
 
@@ -230,6 +243,10 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 		controller := map[string]bool{
 			inventory.DPFProvisioningControllerName: true,
 			inventory.DPUServiceControllerName:      true,
+		}
+
+		if !isGinkgoLabelApplied(Domain.ZeroTrust) {
+			controller[operatorv1.NodeSRIOVDevicePluginControllerName.String()] = true
 		}
 
 		deployValidation := func(c client.Client, clusterName, name string) {
