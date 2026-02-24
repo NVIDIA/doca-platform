@@ -42,6 +42,7 @@ var (
 	NodeSRIOVDevicePluginControllerName ComponentName = "nodesriovdeviceplugin-controller"
 	KubeStateMetricsName                ComponentName = "kube-state-metrics"
 	KubeStateMetricsRBACName            ComponentName = "kube-state-metrics-rbac"
+	NodeProblemDetectorName             ComponentName = "node-problem-detector"
 )
 
 type ComponentName string
@@ -78,6 +79,8 @@ var (
 	CNIInstallerContainer ContainerName = "cni-installer"
 	// KubeStateMetricsContainer is the default name of the kube-state-metrics container.
 	KubeStateMetricsContainer ContainerName = "kube-state-metrics"
+	// NodeProblemDetectorContainer is the default name of the node-problem-detector container.
+	NodeProblemDetectorContainer ContainerName = "node-problem-detector"
 )
 
 type ContainerName string
@@ -133,6 +136,9 @@ func (c *DPFOperatorConfig) ComponentConfigs() []ComponentConfigurable {
 	}
 	if c.Spec.Monitoring != nil && c.Spec.Monitoring.KubeStateMetrics != nil {
 		out = append(out, c.Spec.Monitoring.KubeStateMetrics)
+	}
+	if c.Spec.Monitoring != nil && c.Spec.Monitoring.NodeProblemDetector != nil {
+		out = append(out, c.Spec.Monitoring.NodeProblemDetector)
 	}
 	return out
 }

@@ -26,6 +26,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 )
 
 func VerifyHostKSMMetricsCollection(ctx context.Context) {
@@ -86,4 +87,34 @@ func ValidateGeneralDPFMetrics(ctx context.Context, input *systemTestInput) {
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
+}
+
+func VerifyNodeProblemDetectorConditions(ctx context.Context, input *systemTestInput) {
+	expectedConditions := provisioningv1.GetNodeProblemDetectorConditions()
+
+	Eventually(func(g Gomega) {
+		for i, dpuCluster := range input.dpuClusters {
+			By(fmt.Sprintf("Checking node conditions in DPUCluster %s", dpuCluster.Name))
+
+			nodes := &corev1.NodeList{}
+			g.Expect(dpuClusterClient[i].List(ctx, nodes)).To(Succeed(),
+				fmt.Sprintf("Failed to list nodes in DPUCluster %s", dpuCluster.Name))
+			g.Expect(nodes.Items).ToNot(BeEmpty(),
+				fmt.Sprintf("No nodes found in DPUCluster %s", dpuCluster.Name))
+
+			for _, node := range nodes.Items {
+				nodeConditions := make(map[string]corev1.ConditionStatus)
+				for _, condition := range node.Status.Conditions {
+					nodeConditions[string(condition.Type)] = condition.Status
+				}
+
+				// Verify each expected condition exists on this node
+				for _, expectedCondition := range expectedConditions {
+					g.Expect(nodeConditions).To(HaveKey(expectedCondition),
+						fmt.Sprintf("Node %s in DPUCluster %s is missing expected condition %s",
+							node.Name, dpuCluster.Name, expectedCondition))
+				}
+			}
+		}
+	}).WithTimeout(120 * time.Second).Should(Succeed())
 }

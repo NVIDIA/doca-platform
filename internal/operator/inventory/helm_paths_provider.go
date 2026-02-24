@@ -130,6 +130,13 @@ func helmPaths() helmPathsProvider {
 					Resources:  []string{"resources"},
 				},
 			},
+			operatorv1.NodeProblemDetectorName: {
+				operatorv1.NodeProblemDetectorContainer: {
+					Repository: []string{"image", "repository"},
+					Tag:        []string{"image", "tag"},
+					Resources:  []string{"resources"},
+				},
+			},
 		},
 	}
 }
