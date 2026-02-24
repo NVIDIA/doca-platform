@@ -86,8 +86,15 @@ var _ = Describe("Netplan", func() {
 			_, err = os.Stat(mockFile)
 			Expect(os.IsNotExist(err)).To(BeTrue())
 
-			_, err = os.Stat(filepath.Join(tempDir, "98-oob-tmfifo.yaml"))
+			tmfifoFile := filepath.Join(tempDir, "98-oob-tmfifo.yaml")
+			_, err = os.Stat(tmfifoFile)
 			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying tmfifo_net0 is configured with IPv6 link-local address")
+			content, err := os.ReadFile(tmfifoFile)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(ContainSubstring("tmfifo_net0"))
+			Expect(string(content)).To(ContainSubstring("fe80::2/64"))
 
 			// 99-dpf-comm-ch.yaml is created only if ZeroTrustMode is false
 			_, err = os.Stat(filepath.Join(tempDir, "99-dpf-comm-ch.yaml"))
@@ -126,8 +133,15 @@ var _ = Describe("Netplan", func() {
 			_, err = os.Stat(mockFile)
 			Expect(os.IsNotExist(err)).To(BeTrue())
 
-			_, err = os.Stat(filepath.Join(tempDir, "98-oob-tmfifo.yaml"))
+			tmfifoFile := filepath.Join(tempDir, "98-oob-tmfifo.yaml")
+			_, err = os.Stat(tmfifoFile)
 			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying tmfifo_net0 is configured with IPv6 link-local address")
+			content, err := os.ReadFile(tmfifoFile)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(ContainSubstring("tmfifo_net0"))
+			Expect(string(content)).To(ContainSubstring("fe80::2/64"))
 
 			_, err = os.Stat(filepath.Join(tempDir, "99-dpf-comm-ch.yaml"))
 			Expect(err).NotTo(HaveOccurred())

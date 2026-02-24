@@ -33,9 +33,14 @@ import (
 )
 
 const (
-	PFMTU                   = 9216
-	hostAgentServiceAddress = "169.254.0.1:11029"
-	defaultNetplanRoot      = "/etc/netplan"
+	PFMTU              = 9216
+	defaultNetplanRoot = "/etc/netplan"
+
+	// tmfifoIPv6 is the fixed IPv6 link-local address for the tmfifo_net0 interface on the DPU.
+	// This IP is used to communicate with the host agent running on the host.
+	// Using fe80::2 on DPU side, fe80::1 on host side.
+	// The DPU agent connects to the host via [fe80::1%tmfifo_net0]:11029.
+	tmfifoIPv6 = "fe80::2/64"
 )
 
 type CheckNetwork struct {
@@ -146,9 +151,14 @@ func (n *ConfigureNetwork) setOOBAndRshimInterface(zeroTrustMode bool, cpMTU int
 		oob.Optional = ptr.To(true)
 	}
 
+	// Configure tmfifo_net0 with a fixed IPv6 link-local address.
+	// Using fe80::2/64 on DPU side to communicate with host's fe80::1.
+	// IPv6 link-local addresses are interface-scoped, so no routing conflicts occur.
 	tmFifo := netplan.Ethernet{
 		DHCP4:     ptr.To(false),
-		LinkLocal: ptr.To([]string{"ipv4"}),
+		DHCP6:     ptr.To(false),
+		LinkLocal: ptr.To([]string{}),
+		Addresses: []string{tmfifoIPv6},
 	}
 
 	config := &netplan.Config{
