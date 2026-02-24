@@ -218,7 +218,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setMaxDPUParallelInstallations,
 			p.setMultiDPUOperationsSyncWaitTime,
 			p.setMaxUnavailableDPUNodes,
-			p.setZeroTrustInstallTimeout,
+			p.setOSInstallTimeout,
 			p.setNodeEffectRemovalTimeout,
 			p.setResources,
 			p.setBFBRegistryAddress,
@@ -568,15 +568,15 @@ func (p *provisioningControllerObjects) setReplicas(deploy *appsv1.Deployment, v
 	return nil
 }
 
-func (p *provisioningControllerObjects) setZeroTrustInstallTimeout(deploy *appsv1.Deployment, vars Variables) error {
+func (p *provisioningControllerObjects) setOSInstallTimeout(deploy *appsv1.Deployment, vars Variables) error {
 	c := getManagerContainer(deploy)
 	if c == nil {
 		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
-	if vars.DPFProvisioningController.ZeroTrustInstallTimeout == nil {
+	if vars.DPFProvisioningController.OSInstallTimeout == nil {
 		return nil
 	}
-	return setFlags(c, fmt.Sprintf("--zero-trust-install-timeout=%s", vars.DPFProvisioningController.ZeroTrustInstallTimeout.Duration.String()))
+	return setFlags(c, fmt.Sprintf("--os-install-timeout=%s", vars.DPFProvisioningController.OSInstallTimeout.Duration.String()))
 }
 
 func (p *provisioningControllerObjects) setNodeEffectRemovalTimeout(deploy *appsv1.Deployment, vars Variables) error {
