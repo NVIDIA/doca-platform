@@ -71,7 +71,7 @@ func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 		&grub.ConfigureKernelCmdLine{},
 		&nvconfig.GetLatestDPU{},
 		&nvconfig.ConfigureNVConfig{},
-		&reboot.CheckHostRebootRequired{},
+		&reboot.HandleReboot{},
 		&reboot.ShutDownArm{},
 		&sfconfig.CreateSF{},
 		&vfmac.SetVFMac{},

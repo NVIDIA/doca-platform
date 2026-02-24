@@ -447,6 +447,20 @@ spec:
                     description: InitialBootID is the boot ID of the DPU OS during
                       the first boot
                     type: string
+                  rebootMethod:
+                    description: |-
+                      RebootMethod is the type of reset/reboot set by the DPU agent
+                      See enum values in RebootMethodType.
+                      No default is set intentionally: nil means "check not run or not applicable"
+                      (e.g. legacy flow, or agent has not run the check yet);
+                      a non-nil value means the check ran and this is the result.
+                    enum:
+                    - NoAction
+                    - PowerCycle
+                    - SystemReboot
+                    - SystemLevelReset
+                    - FirmwareReset
+                    type: string
                 type: object
               dpuMode:
                 allOf:
