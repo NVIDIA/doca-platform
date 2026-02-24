@@ -47,6 +47,28 @@ data:
                 concat_types *;
                 concat_unique off;
             }
+
+            # APT package repository (.deb)
+            location /deb {
+                root /;
+                autoindex on;
+                types {
+                    text/plain                          Packages;
+                    application/gzip                    gz;
+                    application/vnd.debian.binary-package deb;
+                }
+            }
+
+            # YUM/DNF package repository (.rpm)
+            location /rpm {
+                root /;
+                autoindex on;
+                types {
+                    application/x-rpm                   rpm;
+                    application/xml                     xml;
+                    application/gzip                    gz;
+                }
+            }
         }
     }
 kind: ConfigMap

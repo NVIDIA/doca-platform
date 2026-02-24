@@ -1086,6 +1086,34 @@ binary-dpudetector: ## Build the DPU detector binary.
 binary-dpuagent: ## Build the DPU agent binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(DPU_ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(DPUAGENT_BINARY) github.com/nvidia/doca-platform/cmd/dpuagent
 
+# DPU Agent packaging variables
+DPUAGENT_PKG_DIR = $(CURDIR)/internal/provisioning/dpuagent/packaging
+# Strip the leading "v" from TAG: Debian policy requires package versions to start with a digit.
+DPUAGENT_PKG_VERSION = $(subst v,,$(TAG))
+DPUAGENT_DEB = $(LOCALBIN)/dpu-agent_$(DPUAGENT_PKG_VERSION)_arm64.deb
+DPUAGENT_RPM = $(LOCALBIN)/dpu-agent-$(DPUAGENT_PKG_VERSION)-1.aarch64.rpm
+
+.PHONY: deb-dpuagent
+deb-dpuagent: binary-dpuagent $(NFPM) ## Build dpu-agent .deb package.
+	$(Q) cp $(DPUAGENT_BINARY) $(DPUAGENT_PKG_DIR)/dpuagent
+	$(Q) cd $(DPUAGENT_PKG_DIR) && \
+		VERSION=$(DPUAGENT_PKG_VERSION) \
+		$(NFPM) package --packager deb --target $(DPUAGENT_DEB)
+	$(Q) rm -f $(DPUAGENT_PKG_DIR)/dpuagent
+	@echo "Built $(DPUAGENT_DEB)"
+
+.PHONY: rpm-dpuagent
+rpm-dpuagent: binary-dpuagent $(NFPM) ## Build dpu-agent .rpm package.
+	$(Q) cp $(DPUAGENT_BINARY) $(DPUAGENT_PKG_DIR)/dpuagent
+	$(Q) cd $(DPUAGENT_PKG_DIR) && \
+		VERSION=$(DPUAGENT_PKG_VERSION) \
+		$(NFPM) package --packager rpm --target $(DPUAGENT_RPM)
+	$(Q) rm -f $(DPUAGENT_PKG_DIR)/dpuagent
+	@echo "Built $(DPUAGENT_RPM)"
+
+.PHONY: packages-dpuagent
+packages-dpuagent: deb-dpuagent rpm-dpuagent ## Build dpu-agent .deb and .rpm packages.
+
 .PHONY: binary-storage-snap-host-controller
 binary-storage-snap-host-controller: ## Build the snap host controller controller binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/snap-host-controller github.com/nvidia/doca-platform/cmd/storage/snap-host-controller
@@ -1329,7 +1357,7 @@ docker-build-ovs-cni: docker-buildx-setup $(OVS_CNI_DIR) $(ARTIFACTS_DIR) ## Bui
 .PHONY: docker-build-hostdriver # Build a multi-arch image for hostdriver. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-hostdriver: $(addprefix docker-build-hostdriver-for-,$(DPF_SYSTEM_ARCH))
 
-docker-build-hostdriver-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
+docker-build-hostdriver-for-%: docker-buildx-setup $(ARTIFACTS_DIR) packages-dpuagent
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--pull \
@@ -1348,6 +1376,7 @@ docker-build-hostdriver-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 		--build-arg gcflags="$(GO_GCFLAGS)" \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
+		--build-context packages=$(LOCALBIN) \
 		-t $(HOSTDRIVER_IMAGE):$(TAG)-$* \
 		-f Dockerfile.hostdriver \
 		.
@@ -1530,7 +1559,7 @@ docker-create-manifest-for-keepalived:
 .PHONY: docker-build-bfb-registry # Build a multi-arch image for BFB Registry. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-bfb-registry: $(addprefix docker-build-bfb-registry-for-,$(DPF_SYSTEM_ARCH))
 
-docker-build-bfb-registry-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
+docker-build-bfb-registry-for-%: docker-buildx-setup $(ARTIFACTS_DIR) packages-dpuagent
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
@@ -1541,6 +1570,7 @@ docker-build-bfb-registry-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
+		--build-context packages=$(LOCALBIN) \
 		--provenance=false \
 		--platform=linux/$* \
 		--progress=plain \

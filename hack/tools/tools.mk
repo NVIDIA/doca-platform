@@ -97,6 +97,7 @@ NGC_VERSION ?= 3.64.4
 SHFMT_VERSION ?= v3.11.0
 CHECKOV_VERSION ?= sha256:675d68b0c9043041727bccab8318485118d80531700ec55ed266146bb71c34b8 # version 3.2.497
 TRIVY_VERSION ?= 0.69.0
+NFPM_VERSION ?= 2.45.0
 
 ## Tool Binaries
 export YQ = $(TOOLSDIR)/yq-$(YQ_VERSION)
@@ -131,6 +132,7 @@ NGC_DIR ?= $(TOOLSDIR)/ngc-$(NGC_VERSION)
 NGC ?= $(NGC_DIR)/ngc-cli/ngc
 SHFMT ?= $(TOOLSDIR)/shfmt-$(SHFMT_VERSION)
 TRIVY ?= $(TOOLSDIR)/trivy-$(TRIVY_VERSION)
+NFPM ?= $(TOOLSDIR)/nfpm-$(NFPM_VERSION)
 
 ##@ Tools
 
@@ -426,6 +428,19 @@ shfmt: $(SHFMT)
 	@$(MAKE) tools-path TOOL=shfmt VERSION=$(SHFMT_VERSION)
 $(SHFMT): | $(TOOLSDIR)
 	$(call go-install-tool,$(SHFMT),mvdan.cc/sh/v3/cmd/shfmt,$(SHFMT_VERSION))
+
+# nfpm is used to build .deb and .rpm packages for dpu-agent
+# nfpm release tarballs use title-case OS (Linux/Darwin) and uname -m arch (x86_64/arm64).
+NFPM_OS = $(shell uname -s)
+NFPM_ARCH = $(TOOL_ARCH)
+.PHONY: nfpm
+nfpm: $(NFPM) ## Download nfpm locally if necessary.
+	@$(MAKE) tools-path TOOL=nfpm VERSION=$(NFPM_VERSION)
+$(NFPM): | $(TOOLSDIR)
+	$Q echo "Installing nfpm-$(NFPM_VERSION) to $(TOOLSDIR)"
+	$Q curl -fsSL https://github.com/goreleaser/nfpm/releases/download/v$(NFPM_VERSION)/nfpm_$(NFPM_VERSION)_$(NFPM_OS)_$(NFPM_ARCH).tar.gz | tar -xzf - -C $(TOOLSDIR) nfpm
+	$Q mv $(TOOLSDIR)/nfpm $(NFPM)
+	$Q chmod +x $(NFPM)
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary (ideally with version)
