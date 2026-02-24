@@ -67,12 +67,18 @@ func SetInput() {
 			Monitoring: &operatorv1.MonitoringConfiguration{
 				Disabled: ptr.To(false),
 			},
+			NodeSRIOVDevicePluginController: &operatorv1.NodeSRIOVDevicePluginControllerConfiguration{
+				BaseComponentConfig: operatorv1.BaseComponentConfig{
+					Disable: ptr.To(false),
+				},
+			},
 			ImagePullSecrets: []string{dpfPullSecretName, "pull-secret-extra"},
 		},
 	}
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
 		dpfOperatorConfig.Spec.StaticClusterManager.BaseComponentConfig.Disable = ptr.To(true)
 		dpfOperatorConfig.Spec.KamajiClusterManager.BaseComponentConfig.Disable = ptr.To(false)
+		dpfOperatorConfig.Spec.NodeSRIOVDevicePluginController.BaseComponentConfig.Disable = ptr.To(true)
 		By("Get control-plane IP")
 		trustedHostIP := getClusterControlPlaneIP(ctx, testClient)
 		By(fmt.Sprintf("Zero trust mode is applied to operatorConfig with trusted host IP %s", trustedHostIP))
@@ -351,6 +357,21 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 	Context("DPU Service Config Ports", Labels{Domain.RequiresNodes}, Serial, func() {
 		It("expose ConfigPorts via DPUService and test reachability", func() {
 			ValidateDPUServiceConfigPorts(ctx, input)
+		})
+	})
+
+	Context("NodeSRIOVDevicePluginController", func() {
+		It("verify the webhook rejects invalid NodeSRIOVDevicePluginConfig", func() {
+			ValidateNodeSRIOVDevicePluginWebhookRejectsInvalid(ctx, input)
+		})
+		It("verify a valid NodeSRIOVDevicePluginConfig is accepted and can be deleted", func() {
+			ValidateNodeSRIOVDevicePluginConfigValidCreate(ctx, input)
+		})
+	})
+
+	Context("NodeSRIOVDevicePluginController Managed Pods", Labels{Domain.RequiresNodes}, Serial, Ordered, func() {
+		It("verify node SRIOV device plugin management", func() {
+			ValidateNodeSRIOVDevicePluginManagement(ctx, input)
 		})
 	})
 
