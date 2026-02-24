@@ -378,6 +378,82 @@ func NvmeControllerResume(client JSONRPCClient, ctrlID string) error {
 	return nil
 }
 
+// NvmeFunctionCreate creates (attaches/plugs) an NVMe device in POWER_OFF state (not visible to host yet)
+func NvmeFunctionCreate(client JSONRPCClient) (string, error) {
+	result, err := client.Call("nvme_function_create", nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create NVMe function: %v", err)
+	}
+
+	resultBytes, _ := json.MarshalIndent(result, "", "  ")
+	klog.Infof("NVMe function created successfully: %s", string(resultBytes))
+
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("unexpected response format")
+	}
+
+	vuid, ok := resultMap["vuid"].(string)
+	if !ok {
+		return "", fmt.Errorf("vuid not found or not a string in response")
+	}
+
+	return vuid, nil
+}
+
+// NvmeControllerHotplug hot-plugs an NVMe controller to make it visible to the host PCI subsystem
+func NvmeControllerHotplug(client JSONRPCClient, ctrlID string) error {
+	params := map[string]interface{}{
+		"ctrl_id":       ctrlID,
+		"wait_for_done": true,
+	}
+
+	result, err := client.Call("nvme_controller_hotplug", params)
+	if err != nil {
+		return fmt.Errorf("failed to hotplug controller: %v", err)
+	}
+
+	resultBytes, _ := json.MarshalIndent(result, "", "  ")
+	klog.Infof("Controller hotplugged successfully: %s", string(resultBytes))
+
+	return nil
+}
+
+// NvmeControllerHotunplug hot-unplugs an NVMe controller to make it not visible to the host PCI subsystem
+func NvmeControllerHotunplug(client JSONRPCClient, ctrlID string) error {
+	params := map[string]interface{}{
+		"ctrl_id":       ctrlID,
+		"wait_for_done": true,
+	}
+
+	result, err := client.Call("nvme_controller_hotunplug", params)
+	if err != nil {
+		return fmt.Errorf("failed to hotunplug controller: %v", err)
+	}
+
+	resultBytes, _ := json.MarshalIndent(result, "", "  ")
+	klog.Infof("Controller hotunplugged successfully: %s", string(resultBytes))
+
+	return nil
+}
+
+// NvmeFunctionDestroy destroys (detaches/unplugs) an NVMe device
+func NvmeFunctionDestroy(client JSONRPCClient, vuid string) error {
+	params := map[string]interface{}{
+		"vuid": vuid,
+	}
+
+	result, err := client.Call("nvme_function_destroy", params)
+	if err != nil {
+		return fmt.Errorf("failed to destroy NVMe function: %v", err)
+	}
+
+	resultBytes, _ := json.MarshalIndent(result, "", "  ")
+	klog.Infof("NVMe function destroyed successfully: %s", string(resultBytes))
+
+	return nil
+}
+
 // NvmeControllerDestroy destroys an NVMe controller
 func NvmeControllerDestroy(client JSONRPCClient, ctrlID string) error {
 	params := map[string]interface{}{
@@ -443,68 +519,6 @@ func NvmeControllerDetachNs(client JSONRPCClient, ctrlID string, nsid int) error
 	return nil
 }
 
-// NvmeEmulationDeviceAttach attaches (plugs) an NVMe device to the host
-func NvmeEmulationDeviceAttach(client JSONRPCClient) (string, error) {
-	params := map[string]interface{}{
-		"protocol": "nvme",
-	}
-
-	result, err := client.Call("nvme_emulation_device_attach", params)
-	if err != nil {
-		return "", fmt.Errorf("failed to attach NVMe emulation device: %v", err)
-	}
-
-	resultMap, ok := result.(map[string]interface{})
-	if !ok {
-		return "", fmt.Errorf("unexpected response format")
-	}
-
-	vuid, ok := resultMap["vuid"].(string)
-	if !ok {
-		return "", fmt.Errorf("vuid not found or not a string in response")
-	}
-
-	resultBytes, _ := json.MarshalIndent(result, "", "  ")
-	klog.Infof("NVMe emulation device attached successfully: %s", string(resultBytes))
-
-	return vuid, nil
-}
-
-// NvmeEmulationDeviceDetachPrepare prepares to detach (unplug) an NVMe device using its VUID
-func NvmeEmulationDeviceDetachPrepare(client JSONRPCClient, vuid string) error {
-	params := map[string]interface{}{
-		"vuid": vuid,
-	}
-
-	result, err := client.Call("emulation_device_detach_prepare", params)
-	if err != nil {
-		return fmt.Errorf("failed to prepare NVMe emulation device detach: %v", err)
-	}
-
-	resultBytes, _ := json.MarshalIndent(result, "", "  ")
-	klog.Infof("NVMe emulation device detach preparation successful: %s", string(resultBytes))
-
-	return nil
-}
-
-// NvmeEmulationDeviceDetach detaches (unplugs) an NVMe device from the host using its VUID
-func NvmeEmulationDeviceDetach(client JSONRPCClient, vuid string) error {
-	params := map[string]interface{}{
-		"vuid":  vuid,
-		"force": true,
-	}
-
-	result, err := client.Call("emulation_device_detach", params)
-	if err != nil {
-		return fmt.Errorf("failed to detach NVMe emulation device: %v", err)
-	}
-
-	resultBytes, _ := json.MarshalIndent(result, "", "  ")
-	klog.Infof("NVMe emulation device detached successfully: %s", string(resultBytes))
-
-	return nil
-}
-
 // getNvmeControllerByPciAddr returns the controller ID for a given PCI BDF.
 // It first checks Physical Functions, then scans all Virtual Functions belonging
 // to each PF. Returns empty string if no match is found.
@@ -565,13 +579,18 @@ func getNamespaceByDeviceName(deviceName string, subsystems NvmeSubsystemListRes
 	return -1
 }
 
-// checkNamespaceAttached checks if the namespace exists and is attached to the specified controller
-func checkNamespaceAttached(nsid int, ctrlID string, subsystems NvmeSubsystemListResponse) bool {
+// checkNamespaceAttached checks if the namespace exists and if it is attached to the specified controller.
+// Returns: namespaceExists (true if nsid is found in subsystems), attachedToCtrl (true if that namespace is attached to ctrlID).
+func checkNamespaceAttached(nsid int, ctrlID string, subsystems NvmeSubsystemListResponse) (namespaceExists bool, attachedToCtrl bool) {
+	namespaceExists = false
+	attachedToCtrl = false
+
 	for _, subsystem := range subsystems {
 		for _, ns := range subsystem.Namespaces {
 			if ns.NSID != nsid {
 				continue
 			}
+			namespaceExists = true
 
 			// Found matching namespace, now check if it's attached to the controller
 			for _, ctrl := range ns.Controllers {
@@ -582,14 +601,15 @@ func checkNamespaceAttached(nsid int, ctrlID string, subsystems NvmeSubsystemLis
 
 				attachedCtrlID := ctrlMap["ctrl_id"].(string)
 				if attachedCtrlID == ctrlID {
-					return true
+					attachedToCtrl = true
+					return namespaceExists, attachedToCtrl
 				}
 			}
-			return false
+			return namespaceExists, attachedToCtrl
 		}
 	}
 
-	return false
+	return namespaceExists, attachedToCtrl
 }
 
 // getCtrlByDeviceName retrieves the controller ID associated with a given block device name
@@ -648,15 +668,14 @@ func isControllerAttachedToNamespace(ctrlID string, nsid int, subsystems NvmeSub
 	return false
 }
 
-// getNvmeHotplugByPciAddr retrieves the VUID and ctrl_id of a hotplugged NVMe device by PCI address
-func getNvmeHotplugByPciAddr(pciAddr string, emulationFunctions EmulationFunctionListResponse) (string, string, error) {
+// getHotplugVUIDByPCIAddress retrieves the VUID of a hotplugged NVMe device by PCI address
+func getHotplugVUIDByPCIAddress(pciAddress string, emulationFunctions EmulationFunctionListResponse) string {
 	for _, emFunc := range emulationFunctions {
-		if emFunc.EmulationType == NVMeProtocol && emFunc.Hotplugged && emFunc.PCIBDF == pciAddr {
-			return emFunc.CtrlID, emFunc.VUID, nil
+		if emFunc.EmulationType == NVMeProtocol && emFunc.Hotplugged && emFunc.PCIBDF == pciAddress {
+			return emFunc.VUID
 		}
 	}
-
-	return "", "", fmt.Errorf("no hotplugged NVMe device found for PCI address %s", pciAddr)
+	return ""
 }
 
 // getPCIByVUID finds PCI BDF for a hotplugged NVMe device by its VUID
