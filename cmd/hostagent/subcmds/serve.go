@@ -19,7 +19,6 @@ limitations under the License.
 package subcmds
 
 import (
-	"fmt"
 	"os"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -72,7 +71,7 @@ var serveCmd = &cobra.Command{
 			klog.Fatalf("failed to convert VF config to network request: %v", err)
 		}
 
-		if err := service.NewInstallationService(unCachedClient, fmt.Sprintf("%s:%d", service.DefaultServiceIP, service.DefaultServicePort)).Start(true); err != nil {
+		if err := service.NewInstallationService(unCachedClient).Start(true); err != nil {
 			klog.Fatalf("failed to start installation service: %v", err)
 		}
 
