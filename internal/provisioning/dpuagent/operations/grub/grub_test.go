@@ -82,12 +82,22 @@ var _ = Describe("Grub Operation", func() {
 	})
 
 	Context("Execute", func() {
+		var procCmdlinePath string
+
+		// writeFakeCmdline creates a fake /proc/cmdline file with the given content.
+		writeFakeCmdline := func(content string) {
+			procCmdlinePath = filepath.Join(tempDir, "cmdline")
+			Expect(os.WriteFile(procCmdlinePath, []byte(content), 0644)).To(Succeed())
+		}
+
 		It("should write kernel parameters to grub config file", func() {
+			writeFakeCmdline("BOOT_IMAGE=/boot/vmlinuz root=UUID=xxx ro quiet\n")
 			grubConfigDir := filepath.Join(tempDir, "grub.d")
 			updateGrubCalled := false
 
 			operation := &ConfigureKernelCmdLine{
-				grubConfigDir: grubConfigDir,
+				grubConfigDir:   grubConfigDir,
+				procCmdlinePath: procCmdlinePath,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					Expect(cmd).To(Equal("update-grub"))
 					updateGrubCalled = true
@@ -118,11 +128,109 @@ var _ = Describe("Grub Operation", func() {
 			Expect(updateGrubCalled).To(BeTrue())
 		})
 
+		It("should skip if grub config exists and all parameters are already in cmdline", func() {
+			writeFakeCmdline("BOOT_IMAGE=/boot/vmlinuz iommu=pt intel_iommu=on ro quiet\n")
+			grubConfigDir := filepath.Join(tempDir, "grub.d")
+
+			By("pre-create grub config file with expected content")
+			Expect(os.MkdirAll(grubConfigDir, 0755)).To(Succeed())
+			configPath := filepath.Join(grubConfigDir, grubConfigFileName)
+			Expect(os.WriteFile(configPath, []byte("GRUB_CMDLINE_LINUX=\"iommu=pt intel_iommu=on\"\n"), 0644)).To(Succeed())
+
+			operation := &ConfigureKernelCmdLine{
+				grubConfigDir:   grubConfigDir,
+				procCmdlinePath: procCmdlinePath,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					Fail("update-grub should not be called when config exists and params already present")
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+
+			optCtx := &operations.Context{
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						Grub: provisioningv1.DPUFlavorGrub{
+							KernelParameters: []string{"iommu=pt", "intel_iommu=on"},
+						},
+					},
+				},
+			}
+
+			err := operation.Execute(context.Background(), optCtx)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should proceed if params are in cmdline but grub config does not exist", func() {
+			writeFakeCmdline("BOOT_IMAGE=/boot/vmlinuz iommu=pt intel_iommu=on ro quiet\n")
+			grubConfigDir := filepath.Join(tempDir, "grub.d")
+			updateGrubCalled := false
+
+			operation := &ConfigureKernelCmdLine{
+				grubConfigDir:   grubConfigDir,
+				procCmdlinePath: procCmdlinePath,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					updateGrubCalled = true
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+
+			optCtx := &operations.Context{
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						Grub: provisioningv1.DPUFlavorGrub{
+							KernelParameters: []string{"iommu=pt", "intel_iommu=on"},
+						},
+					},
+				},
+			}
+
+			err := operation.Execute(context.Background(), optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updateGrubCalled).To(BeTrue())
+
+			By("verify grub config file was written")
+			configPath := filepath.Join(grubConfigDir, grubConfigFileName)
+			content, err := os.ReadFile(configPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal("GRUB_CMDLINE_LINUX=\"iommu=pt intel_iommu=on\"\n"))
+		})
+
+		It("should proceed if only some parameters are present in cmdline", func() {
+			writeFakeCmdline("BOOT_IMAGE=/boot/vmlinuz iommu=pt ro quiet\n")
+			grubConfigDir := filepath.Join(tempDir, "grub.d")
+			updateGrubCalled := false
+
+			operation := &ConfigureKernelCmdLine{
+				grubConfigDir:   grubConfigDir,
+				procCmdlinePath: procCmdlinePath,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					updateGrubCalled = true
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+
+			optCtx := &operations.Context{
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						Grub: provisioningv1.DPUFlavorGrub{
+							KernelParameters: []string{"iommu=pt", "intel_iommu=on"},
+						},
+					},
+				},
+			}
+
+			err := operation.Execute(context.Background(), optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updateGrubCalled).To(BeTrue())
+		})
+
 		It("should handle single kernel parameter", func() {
+			writeFakeCmdline("BOOT_IMAGE=/boot/vmlinuz ro\n")
 			grubConfigDir := filepath.Join(tempDir, "grub.d")
 
 			operation := &ConfigureKernelCmdLine{
-				grubConfigDir: grubConfigDir,
+				grubConfigDir:   grubConfigDir,
+				procCmdlinePath: procCmdlinePath,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
@@ -148,10 +256,12 @@ var _ = Describe("Grub Operation", func() {
 		})
 
 		It("should return error if update-grub fails", func() {
+			writeFakeCmdline("BOOT_IMAGE=/boot/vmlinuz ro\n")
 			grubConfigDir := filepath.Join(tempDir, "grub.d")
 
 			operation := &ConfigureKernelCmdLine{
-				grubConfigDir: grubConfigDir,
+				grubConfigDir:   grubConfigDir,
+				procCmdlinePath: procCmdlinePath,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					var stderr bytes.Buffer
 					stderr.WriteString("update-grub: command not found")
@@ -176,10 +286,12 @@ var _ = Describe("Grub Operation", func() {
 		})
 
 		It("should create grub config directory if it does not exist", func() {
+			writeFakeCmdline("BOOT_IMAGE=/boot/vmlinuz ro\n")
 			grubConfigDir := filepath.Join(tempDir, "nested", "grub.d")
 
 			operation := &ConfigureKernelCmdLine{
-				grubConfigDir: grubConfigDir,
+				grubConfigDir:   grubConfigDir,
+				procCmdlinePath: procCmdlinePath,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
@@ -202,6 +314,164 @@ var _ = Describe("Grub Operation", func() {
 			info, err := os.Stat(grubConfigDir)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(info.IsDir()).To(BeTrue())
+		})
+
+		It("should proceed with grub update if proc cmdline file does not exist", func() {
+			grubConfigDir := filepath.Join(tempDir, "grub.d")
+			updateGrubCalled := false
+
+			operation := &ConfigureKernelCmdLine{
+				grubConfigDir:   grubConfigDir,
+				procCmdlinePath: filepath.Join(tempDir, "nonexistent-cmdline"),
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					updateGrubCalled = true
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+
+			optCtx := &operations.Context{
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						Grub: provisioningv1.DPUFlavorGrub{
+							KernelParameters: []string{"iommu=pt"},
+						},
+					},
+				},
+			}
+
+			err := operation.Execute(context.Background(), optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updateGrubCalled).To(BeTrue())
+		})
+	})
+})
+
+var _ = Describe("CheckKernelCmdLine Operation", func() {
+	var tempDir string
+
+	BeforeEach(func() {
+		var err error
+		tempDir, err = os.MkdirTemp("", "grub-check-test-*")
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	AfterEach(func() {
+		Expect(os.RemoveAll(tempDir)).To(Succeed())
+	})
+
+	Context("ShouldSkip", func() {
+		It("should not be skipped even if grub configuration is skipped", func() {
+			operation := &CheckKernelCmdLine{}
+			Expect(operation.ShouldSkip(&operations.Context{
+				Options: opts.Options{
+					SkipKernelCmdLine: true,
+				},
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						Grub: provisioningv1.DPUFlavorGrub{
+							KernelParameters: []string{"iommu=pt"},
+						},
+					},
+				},
+			})).To(BeFalse())
+		})
+
+		It("should be skipped if no kernel parameters are specified", func() {
+			operation := &CheckKernelCmdLine{}
+			Expect(operation.ShouldSkip(&operations.Context{
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						Grub: provisioningv1.DPUFlavorGrub{
+							KernelParameters: []string{},
+						},
+					},
+				},
+			})).To(BeTrue())
+		})
+
+		It("should not be skipped if kernel parameters are specified", func() {
+			operation := &CheckKernelCmdLine{}
+			Expect(operation.ShouldSkip(&operations.Context{
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						Grub: provisioningv1.DPUFlavorGrub{
+							KernelParameters: []string{"iommu=pt"},
+						},
+					},
+				},
+			})).To(BeFalse())
+		})
+	})
+
+	Context("Execute", func() {
+		var procCmdlinePath string
+
+		writeFakeCmdline := func(content string) {
+			procCmdlinePath = filepath.Join(tempDir, "cmdline")
+			Expect(os.WriteFile(procCmdlinePath, []byte(content), 0644)).To(Succeed())
+		}
+
+		It("should succeed when all desired parameters are active", func() {
+			writeFakeCmdline("BOOT_IMAGE=/boot/vmlinuz iommu=pt intel_iommu=on ro quiet\n")
+
+			operation := &CheckKernelCmdLine{
+				procCmdlinePath: procCmdlinePath,
+			}
+
+			optCtx := &operations.Context{
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						Grub: provisioningv1.DPUFlavorGrub{
+							KernelParameters: []string{"iommu=pt", "intel_iommu=on"},
+						},
+					},
+				},
+			}
+
+			err := operation.Execute(context.Background(), optCtx)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should return error when some parameters are missing", func() {
+			writeFakeCmdline("BOOT_IMAGE=/boot/vmlinuz iommu=pt ro quiet\n")
+
+			operation := &CheckKernelCmdLine{
+				procCmdlinePath: procCmdlinePath,
+			}
+
+			optCtx := &operations.Context{
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						Grub: provisioningv1.DPUFlavorGrub{
+							KernelParameters: []string{"iommu=pt", "intel_iommu=on"},
+						},
+					},
+				},
+			}
+
+			err := operation.Execute(context.Background(), optCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("not all desired kernel parameters are active"))
+		})
+
+		It("should return error when proc cmdline file does not exist", func() {
+			operation := &CheckKernelCmdLine{
+				procCmdlinePath: filepath.Join(tempDir, "nonexistent-cmdline"),
+			}
+
+			optCtx := &operations.Context{
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						Grub: provisioningv1.DPUFlavorGrub{
+							KernelParameters: []string{"iommu=pt"},
+						},
+					},
+				},
+			}
+
+			err := operation.Execute(context.Background(), optCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("not all desired kernel parameters are active"))
 		})
 	})
 })
