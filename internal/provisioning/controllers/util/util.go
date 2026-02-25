@@ -98,6 +98,8 @@ const (
 	HoldNodeEffectKey = DPUProvisioningPrefix + "wait-for-external-nodeeffect"
 	// TrustedSFCount is the key for the trusted SFC count annotation.
 	TrustedSFCount = DPUProvisioningPrefix + "num-of-trusted-sfs"
+	// SkipBFCFGSizeCheck is the annotation key to skip the bf.cfg size check.
+	SkipBFCFGSizeCheck = DPUProvisioningPrefix + "skip-bfcfg-size-check"
 
 	// TolerationNotReadyKey is the key for the NotReady taint.
 	TolerationNotReadyKey = "node.kubernetes.io/not-ready"
