@@ -27,9 +27,11 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/containerd"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/dns"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/dpumode"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/getdpu"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/grub"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/kernelmodule"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/kubelet"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/laststartuptime"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/netplan"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nvconfig"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/ovsscript"
@@ -58,21 +60,23 @@ type DPUAgent struct {
 func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 	// The DPU Agent executes operations sequentially in the order defined in the slice.
 	operations := []operations.Operation{
-		&sysctl.SetParams{},
-		&sysctl.CheckParams{},
 		&kernelmodule.LoadModule{},
 		&netplan.ConfigureNetwork{},
 		&netplan.CheckNetwork{},
+		&laststartuptime.ReportLastStartupTime{},
+		&getdpu.GetLatestDPU{},
 		&dns.ConfigureDNS{},
 		&staticfiles.VerifyStaticFiles{},
 		&kubelet.RemoveBuiltinKubelet{},
+		&sysctl.SetParams{},
+		&sysctl.CheckParams{},
+		&grub.ConfigureKernelCmdLine{},
 		&containerd.ConfigureContainerd{},
 		&dpumode.EnsureMode{},
-		&grub.ConfigureKernelCmdLine{},
-		&nvconfig.GetLatestDPU{},
 		&nvconfig.ConfigureNVConfig{},
 		&reboot.HandleReboot{},
 		&reboot.ShutDownArm{},
+		&grub.CheckKernelCmdLine{},
 		&sfconfig.CreateSF{},
 		&vfmac.SetVFMac{},
 		&ovsscript.RunOVSScript{},
@@ -121,7 +125,7 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 		})
 		// The only reason for error here is context cancellation
 		if err != nil {
-			return fmt.Errorf("execution of operatior %s aborted: %v", op.Name(), err)
+			return fmt.Errorf("execution of operator %s aborted: %v", op.Name(), err)
 		}
 	}
 	d.updateStatusUntilSuccess(ctx)

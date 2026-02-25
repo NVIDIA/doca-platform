@@ -42,34 +42,6 @@ const (
 	flavourPhysical = "physical"
 )
 
-type GetLatestDPU struct {
-}
-
-func (g *GetLatestDPU) Name() string {
-	return "Get Latest DPU"
-}
-
-func (g *GetLatestDPU) ConditionType() string {
-	return "DPURetrieved"
-}
-
-func (g *GetLatestDPU) ShouldSkip(ctx *operations.Context) bool {
-	return false
-}
-
-func (g *GetLatestDPU) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {
-	return false
-}
-
-func (g *GetLatestDPU) Execute(execCtx context.Context, optCtx *operations.Context) error {
-	dpu := &provisioningv1.DPU{}
-	if err := optCtx.Client.GetObject(execCtx, optCtx.Options.DPUNamespace, optCtx.Options.DPUName, dpu); err != nil {
-		return err
-	}
-	optCtx.LatestDPU = dpu
-	return nil
-}
-
 type ConfigureNVConfig struct {
 	runBash             func(cmd string) (bytes.Buffer, bytes.Buffer, error)
 	getMlxconfigVersion func() (string, error)
