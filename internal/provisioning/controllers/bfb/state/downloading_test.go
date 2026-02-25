@@ -262,6 +262,40 @@ var _ = Describe("BFB Downloading State Error Handling", func() {
 		})
 	})
 
+	Describe("spec.Versions override", func() {
+		Context("when spec.Versions is set and BFB file exists", func() {
+			It("should use spec versions in status and not call versionBFB", func() {
+				cleanupDownloadTasks(bfb)
+				specVersions := &provisioningv1.BFBVersions{
+					BSP:  "99.0.0",
+					DOCA: "99.1.0",
+					UEFI: "99.0.0-1",
+					ATF:  "99.0.0-1",
+				}
+				bfb.Spec.Versions = specVersions
+
+				versionBFBCalled := false
+				st := &bfbDownloadingState{
+					bfb:      bfb,
+					recorder: recorder,
+					checkBFB: func(fileName string) (bool, error) {
+						return true, nil // File exists
+					},
+					versionBFB: func(filename string) (*provisioningv1.BFBVersions, error) {
+						versionBFBCalled = true
+						return nil, errors.New("should not be called")
+					},
+				}
+				err := st.Handle(ctx, nil)
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBReady))
+				Expect(bfb.Status.Versions).To(Equal(*specVersions))
+				Expect(versionBFBCalled).To(BeFalse(), "versionBFB should not be called when spec.Versions is set")
+			})
+		})
+	})
+
 	Describe("Error classification for retry logic", func() {
 		It("checkBFB errors should NOT be retried (ReasonFailure)", func() {
 			st := &bfbDownloadingState{
