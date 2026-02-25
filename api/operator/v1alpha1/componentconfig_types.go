@@ -122,6 +122,13 @@ type ProvisioningControllerConfiguration struct {
 	// +kubebuilder:validation:Format=duration
 	// +optional
 	NodeEffectRemovalTimeout *metav1.Duration `json:"nodeEffectRemovalTimeout,omitempty"`
+
+	// HostAgentDNSPolicy sets the DNS policy for the hostagent pod.
+	// Valid values are 'ClusterFirstWithHostNet', 'ClusterFirst', 'Default' or 'None'.
+	// Defaults to 'ClusterFirstWithHostNet'.
+	// +kubebuilder:validation:Enum=ClusterFirstWithHostNet;ClusterFirst;Default;None
+	// +optional
+	HostAgentDNSPolicy *corev1.DNSPolicy `json:"hostAgentDNSPolicy,omitempty"`
 }
 
 func (c *ProvisioningControllerConfiguration) Name() string {
