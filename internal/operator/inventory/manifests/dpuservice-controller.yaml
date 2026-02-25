@@ -176,6 +176,14 @@ rules:
 - apiGroups:
   - provisioning.dpu.nvidia.com
   resources:
+  - dpus/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
   - dpusets
   verbs:
   - create

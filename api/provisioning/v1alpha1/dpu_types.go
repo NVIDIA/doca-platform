@@ -104,6 +104,24 @@ const (
 	DPUCondArmForceRestarted      DPUConditionType = "ArmForceRestarted"
 )
 
+// DPUOperationalConditionType represents operational readiness condition types
+type DPUOperationalConditionType string
+
+const (
+	// DPUOperationalCondReady is the summary condition indicating overall operational readiness
+	DPUOperationalCondReady DPUOperationalConditionType = "OperationalReady"
+	// DPUOperationalCondNodeProblemsReady indicates whether the DPU node has problems reported by node-problem-detector
+	DPUOperationalCondNodeProblemsReady DPUOperationalConditionType = "NodeProblemsReady"
+	// DPUOperationalCondDPUServiceCriticalPodsReady indicates whether critical DPU service pods are ready
+	DPUOperationalCondDPUServiceCriticalPodsReady DPUOperationalConditionType = "DPUServiceCriticalPodsReady"
+	// DPUOperationalCondDPUServiceNonCriticalPodsReady indicates whether non-critical DPU service pods are ready
+	DPUOperationalCondDPUServiceNonCriticalPodsReady DPUOperationalConditionType = "DPUServiceNonCriticalPodsReady"
+	// DPUOperationalCondDPUServiceInterfacesReady indicates whether DPU service interfaces are ready
+	DPUOperationalCondDPUServiceInterfacesReady DPUOperationalConditionType = "DPUServiceInterfacesReady"
+	// DPUOperationalCondDPUServiceChainsReady indicates whether DPU service chains are ready
+	DPUOperationalCondDPUServiceChainsReady DPUOperationalConditionType = "DPUServiceChainsReady"
+)
+
 type DPUInfoConditionType string
 
 const (
@@ -267,8 +285,15 @@ type DPUStatus struct {
 	// +required
 	Phase DPUPhase `json:"phase"`
 
+	// Conditions represents the provisioning lifecycle conditions.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions"`
+
+	// OperationalConditions represents aggregated operational readiness conditions.
+	// These conditions reflect the runtime health and readiness of DPU services and node health,
+	// separate from the provisioning lifecycle represented by Conditions.
+	// +optional
+	OperationalConditions []metav1.Condition `json:"operationalConditions,omitempty"`
 
 	// BFBFile is the path to the BFB file
 	// +optional
@@ -398,6 +423,7 @@ type DPUInternalStatus struct {
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].status`
+// +kubebuilder:printcolumn:name="Operational",type="string",JSONPath=`.status.operationalConditions[?(@.type=='OperationalReady')].status`
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="phase of the dpu"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
