@@ -1163,6 +1163,9 @@ spec:
                       BFCFGTemplateConfigMap is the name of a configMap containing a template for the BF.cfg file used by the DPU controller.
                       By default the provisioning controller use a hardcoded BF.cfg e.g. https://github.com/NVIDIA/doca-platform/blob/release-v24.10/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template
                       Note: Replacing the bf.cfg is an advanced use case. The default bf.cfg is designed for most use cases.
+
+                      Deprecated: BFCFGTemplateConfigMap is deprecated and will be removed in a future release.
+                      Use enableDynamicBFCFGTemplates instead for custom bf.cfg templates.
                     type: string
                   bfbPVCName:
                     description: BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim
@@ -1241,6 +1244,12 @@ spec:
                       a DMS API must respond, 0 is unlimited
                     minimum: 1
                     type: integer
+                  enableDynamicBFCFGTemplates:
+                    description: |-
+                      EnableDynamicBFCFGTemplates enables runtime discovery of bf.cfg templates via ConfigMaps.
+                      When enabled, the provisioning controller discovers ConfigMaps by matching labels for BFB
+                      name/namespace and DPUCluster name/namespace. Mutually exclusive with bfCFGTemplateConfigMap.
+                    type: boolean
                   hostAgentDNSPolicy:
                     description: |-
                       HostAgentDNSPolicy sets the DNS policy for the hostagent pod.
@@ -1387,6 +1396,9 @@ spec:
                 - message: only either 'image' (deprecated) or 'controller.image'
                     can be set, but not both
                   rule: '!has(self.image) || !has(self.controller) || !has(self.controller.image)'
+                - message: bfCFGTemplateConfigMap and enableDynamicBFCFGTemplates
+                    are mutually exclusive
+                  rule: '!(has(self.bfCFGTemplateConfigMap) && self.enableDynamicBFCFGTemplates)'
               serviceSetController:
                 description: ServiceSetController is the configuration for the ServiceSetController
                 properties:

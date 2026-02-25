@@ -658,7 +658,7 @@ var _ = Describe("DPUFlavor", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(objFetched).To(Equal(obj1))
 
-			data1, err := bfcfg.Generate(obj1, DefaultDPUName, "", false, "", string(provisioningv1.InstallViaGNOI), 1500, 2)
+			data1, err := bfcfg.Generate(obj1, DefaultDPUName, "", false, bfcfg.DefaultBFCFGTemplateData, string(provisioningv1.InstallViaGNOI), 1500, 2)
 			Expect(err).To(Succeed())
 			Expect(data1).ShouldNot(BeNil())
 
@@ -676,8 +676,8 @@ metadata:
 			err = k8sClient.Create(ctx, obj2)
 			Expect(err).NotTo(HaveOccurred())
 
-			data2, err := bfcfg.Generate(obj2, DefaultDPUName, "", false, "", string(provisioningv1.InstallViaGNOI), 1500, 2)
-			Expect(err).To(Succeed())
+			data2, err := bfcfg.Generate(obj2, DefaultDPUName, "", false, bfcfg.DefaultBFCFGTemplateData, string(provisioningv1.InstallViaGNOI), 1500, 2)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(data2).ShouldNot(BeNil())
 
 			By("compare the obj-1 and obj-2")
@@ -750,7 +750,7 @@ spec:
 			err = k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
-			data, err := bfcfg.Generate(obj, DefaultDPUName, "", false, "", string(provisioningv1.InstallViaGNOI), 1500, 2)
+			data, err := bfcfg.Generate(obj, DefaultDPUName, "", false, bfcfg.DefaultBFCFGTemplateData, string(provisioningv1.InstallViaGNOI), 1500, 2)
 			Expect(err).To(Succeed())
 			Expect(data).ShouldNot(BeNil())
 		})
