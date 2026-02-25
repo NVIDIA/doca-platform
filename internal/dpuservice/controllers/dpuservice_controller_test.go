@@ -90,13 +90,6 @@ var _ = Describe("DPUService Controller", func() {
 			}
 			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(testConfig), testConfig)).To(Succeed())
 
-			dpfOperatorConfig := getMinimalDPFOperatorConfig()
-			Expect(
-				// this namespace can be created multiple times.
-				client.IgnoreAlreadyExists(
-					testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: dpfOperatorConfig.GetNamespace()}})),
-			).To(Succeed())
-
 			dpuServiceInterface = getMinimalDPUServiceInterface(testNS.Name)
 			Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, dpuServiceInterface))).To(Succeed())
 			cleanupObjs = append(cleanupObjs, dpuServiceInterface)
