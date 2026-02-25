@@ -130,6 +130,19 @@ const (
 	MaxNameLength = validation.DNS1123SubdomainMaxLength // 253
 	// HostPowerCycleRequireKey is the key for the host power cycle required annotation.
 	HostPowerCycleRequireKey = DPUProvisioningPrefix + "host-power-cycle-required"
+
+	// BFCFGTemplateLabel is the label that identifies a ConfigMap as a dynamic bf.cfg template.
+	// ConfigMaps with this label set to "true" are candidates for dynamic template resolution.
+	BFCFGTemplateLabel = DPUProvisioningPrefix + "bfcfg-template"
+
+	// BFCFGTemplateBFBNameAnnotation is the annotation on a bf.cfg template ConfigMap specifying the target BFB name.
+	BFCFGTemplateBFBNameAnnotation = DPUProvisioningPrefix + "bfcfg-template-bfb-name"
+	// BFCFGTemplateBFBNamespaceAnnotation is the annotation on a bf.cfg template ConfigMap specifying the target BFB namespace.
+	BFCFGTemplateBFBNamespaceAnnotation = DPUProvisioningPrefix + "bfcfg-template-bfb-namespace"
+	// BFCFGTemplateClusterNameAnnotation is the annotation on a bf.cfg template ConfigMap specifying the target DPUCluster name.
+	BFCFGTemplateClusterNameAnnotation = DPUProvisioningPrefix + "bfcfg-template-cluster-name"
+	// BFCFGTemplateClusterNamespaceAnnotation is the annotation on a bf.cfg template ConfigMap specifying the target DPUCluster namespace.
+	BFCFGTemplateClusterNamespaceAnnotation = DPUProvisioningPrefix + "bfcfg-template-cluster-namespace"
 )
 
 var (
