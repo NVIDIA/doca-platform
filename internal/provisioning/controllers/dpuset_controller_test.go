@@ -1172,6 +1172,17 @@ var _ = Describe("DPUSet", func() {
 			freshDPU.Status.ObservedGeneration = freshDPU.Generation
 			Expect(k8sClient.Status().Patch(ctx, freshDPU, statusPatch)).To(Succeed())
 
+			By("Waiting for cache to see updated DPU status before UpdateDPUSetStatus")
+			Eventually(func(g Gomega) {
+				dpuMap, err := reconciler.GetDPUsMap(ctx, dpuSet)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(dpuMap).To(HaveLen(1))
+				for _, d := range dpuMap {
+					g.Expect(d.Status.Phase).To(Equal(provisioningv1.DPUReady), "DPU phase should be Ready")
+					g.Expect(d.Status.ObservedGeneration).To(Equal(d.Generation), "DPU ObservedGeneration should match Generation")
+				}
+			}).WithTimeout(5 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
+
 			By("Calling updateDPUs again (should find no changes)")
 			dpuMap, err = reconciler.GetDPUsMap(ctx, dpuSet)
 			Expect(err).NotTo(HaveOccurred())
@@ -1250,15 +1261,26 @@ var _ = Describe("DPUSet", func() {
 			dpu.Status.ObservedGeneration = dpu.Generation
 			Expect(k8sClient.Status().Patch(ctx, dpu, statusPatch)).To(Succeed())
 
+			By("Waiting for cache to see updated DPU status before GetDPUsMap/UpdateDPUSetStatus")
+			reconciler := &dpusetcontroller.DPUSetReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			Eventually(func(g Gomega) {
+				dpuMap, err := reconciler.GetDPUsMap(ctx, dpuSet)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(dpuMap).To(HaveLen(1))
+				for _, d := range dpuMap {
+					g.Expect(d.Status.Phase).To(Equal(provisioningv1.DPUReady), "DPU phase should be Ready")
+					g.Expect(d.Status.ObservedGeneration).To(Equal(d.Generation), "DPU ObservedGeneration should match Generation")
+				}
+			}).WithTimeout(5 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
+
 			// Refresh to get the latest state
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: dpuName}, dpu)).To(Succeed())
 			initialGeneration := dpu.Generation
 
 			By("Getting dpuMap using the real getDPUsMap function")
-			reconciler := &dpusetcontroller.DPUSetReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
 			dpuMap, err := reconciler.GetDPUsMap(ctx, dpuSet)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(dpuMap).To(HaveLen(1), "DPU should be in the map")
