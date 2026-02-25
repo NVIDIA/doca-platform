@@ -34,6 +34,7 @@ import (
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -57,6 +58,7 @@ import (
 // +kubebuilder:rbac:groups=operator.dpu.nvidia.com,resources=dpfoperatorconfigs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuservices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus,verbs=get;list;watch
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodemaintenances,verbs=get;list;watch;update;patch
 
@@ -193,6 +195,7 @@ func (r *DPUReadyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 }
 
 type reconcileScope struct {
+	dpus           []provisioningv1.DPU
 	dpuNode        *provisioningv1.DPUNode
 	node           *corev1.Node // nil in zero-trust mode
 	dpuList        []provisioningv1.DPU
@@ -222,6 +225,7 @@ func (r *DPUReadyReconciler) newReconcileScope(ctx context.Context, dpuNode *pro
 	}
 
 	return &reconcileScope{
+		dpus:           dpuList,
 		dpuNode:        dpuNode,
 		node:           node,
 		dpuList:        dpuList,
@@ -241,6 +245,10 @@ func (r *DPUReadyReconciler) reconcile(ctx context.Context, dpuNode *provisionin
 
 	if err := r.reconcileDPUNodeMaintenance(ctx, scope); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile DPUNodeMaintenance: %w", err)
+	}
+
+	if err := r.reconcileDPUOperationalConditions(ctx, scope); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to reconcile DPU operational conditions: %w", err)
 	}
 
 	return ctrl.Result{}, nil
@@ -809,7 +817,46 @@ func (r *DPUReadyReconciler) WatchServiceChains(ctx context.Context, c client.Cl
 		Name:         "dpuready-servicechain-watcher",
 		Kind:         &dpuservicev1.ServiceChain{},
 		EventHandler: &serviceChainEventHandler{client: c, dpuNodeDefaultNamespace: dpfOperatorConfig.Namespace},
-		Watcher:      r.controller,
+		Predicates: []predicate.Predicate{
+			newServiceChainReadyPredicate(),
+		},
+		Watcher: r.controller,
+	}), nil
+}
+
+// WatchServiceInterfaces sets up watches for ServiceInterface objects in DPU clusters
+func (r *DPUReadyReconciler) WatchServiceInterfaces(ctx context.Context, c client.Client, cluster client.ObjectKey) (dpucluster.Watcher, error) {
+	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, r.Client)
+	if err != nil {
+		return nil, err
+	}
+	return dpucluster.NewWatcher(dpucluster.WatcherOptions{
+		Name:         "dpuready-serviceinterface-watcher",
+		Kind:         &dpuservicev1.ServiceInterface{},
+		EventHandler: &serviceInterfaceEventHandler{client: c, dpuNodeDefaultNamespace: dpfOperatorConfig.Namespace},
+		Predicates: []predicate.Predicate{
+			newServiceInterfaceReadyPredicate(),
+		},
+		Watcher: r.controller,
+	}), nil
+}
+
+// WatchNodes sets up watches for Node objects in DPU clusters to detect node condition changes
+// such as those reported by node-problem-detector
+func (r *DPUReadyReconciler) WatchNodes(ctx context.Context, c client.Client, cluster client.ObjectKey) (dpucluster.Watcher, error) {
+	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, r.Client)
+	if err != nil {
+		return nil, err
+	}
+	return dpucluster.NewWatcher(dpucluster.WatcherOptions{
+		Name:         "dpuready-node-watcher",
+		Kind:         &corev1.Node{},
+		EventHandler: &nodeInDPUClusterEventHandler{client: c, dpuNodeDefaultNamespace: dpfOperatorConfig.Namespace},
+		Predicates: []predicate.Predicate{
+			// Only trigger on node condition changes
+			newNodeConditionPredicate(),
+		},
+		Watcher: r.controller,
 	}), nil
 }
 
@@ -911,28 +958,24 @@ type podEventHandler struct {
 	dpuNodeDefaultNamespace string
 }
 
-func (p *podEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	if pod, ok := e.Object.(*corev1.Pod); ok {
+func (p *podEventHandler) handleEvent(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	if pod, ok := obj.(*corev1.Pod); ok {
 		enqueueDPUNodeFromNodeInDPUCluster(ctx, p.client, pod.Spec.NodeName, p.dpuNodeDefaultNamespace, q)
 	} else {
-		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a Pod but got a %T", e.Object), "Failed to convert object")
+		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a Pod but got a %T", obj), "Failed to convert object")
 	}
+}
+
+func (p *podEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	p.handleEvent(ctx, e.Object, q)
 }
 
 func (p *podEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	if pod, ok := e.ObjectNew.(*corev1.Pod); ok {
-		enqueueDPUNodeFromNodeInDPUCluster(ctx, p.client, pod.Spec.NodeName, p.dpuNodeDefaultNamespace, q)
-	} else {
-		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a Pod but got a %T", e.ObjectNew), "Failed to convert object")
-	}
+	p.handleEvent(ctx, e.ObjectNew, q)
 }
 
 func (p *podEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	if pod, ok := e.Object.(*corev1.Pod); ok {
-		enqueueDPUNodeFromNodeInDPUCluster(ctx, p.client, pod.Spec.NodeName, p.dpuNodeDefaultNamespace, q)
-	} else {
-		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a Pod but got a %T", e.Object), "Failed to convert object")
-	}
+	p.handleEvent(ctx, e.Object, q)
 }
 
 func (p *podEventHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
@@ -949,42 +992,175 @@ type serviceChainEventHandler struct {
 	dpuNodeDefaultNamespace string
 }
 
-func (s *serviceChainEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	if sc, ok := e.Object.(*dpuservicev1.ServiceChain); ok {
+func (s *serviceChainEventHandler) handleEvent(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	if sc, ok := obj.(*dpuservicev1.ServiceChain); ok {
 		if sc.Spec.Node != nil {
 			enqueueDPUNodeFromNodeInDPUCluster(ctx, s.client, *sc.Spec.Node, s.dpuNodeDefaultNamespace, q)
 		}
 	} else {
-		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a ServiceChain but got a %T", e.Object), "Failed to convert object")
+		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a ServiceChain but got a %T", obj), "Failed to convert object")
 	}
+}
+
+func (s *serviceChainEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	s.handleEvent(ctx, e.Object, q)
 }
 
 func (s *serviceChainEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	if sc, ok := e.ObjectNew.(*dpuservicev1.ServiceChain); ok {
-		if sc.Spec.Node != nil {
-			enqueueDPUNodeFromNodeInDPUCluster(ctx, s.client, *sc.Spec.Node, s.dpuNodeDefaultNamespace, q)
-		}
-	} else {
-		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a ServiceChain but got a %T", e.ObjectNew), "Failed to convert object")
-	}
+	s.handleEvent(ctx, e.ObjectNew, q)
 }
 
 func (s *serviceChainEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	if sc, ok := e.Object.(*dpuservicev1.ServiceChain); ok {
-		if sc.Spec.Node != nil {
-			enqueueDPUNodeFromNodeInDPUCluster(ctx, s.client, *sc.Spec.Node, s.dpuNodeDefaultNamespace, q)
-		}
-	} else {
-		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a ServiceChain but got a %T", e.Object), "Failed to convert object")
-	}
+	s.handleEvent(ctx, e.Object, q)
 }
 
 func (s *serviceChainEventHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	if sc, ok := e.Object.(*dpuservicev1.ServiceChain); ok {
-		if sc.Spec.Node != nil {
-			enqueueDPUNodeFromNodeInDPUCluster(ctx, s.client, *sc.Spec.Node, s.dpuNodeDefaultNamespace, q)
+	s.handleEvent(ctx, e.Object, q)
+}
+
+// serviceInterfaceEventHandler is a handler for ServiceInterface events
+type serviceInterfaceEventHandler struct {
+	client client.Client
+	// dpuNodeDefaultNamespace is the default namespace where to look for the DPUNode.
+	// Name and namespace labels are expected on dpucluster corev1.Node objects.
+	// It can happen that only the name label is present, in which case the default namespace is used.
+	dpuNodeDefaultNamespace string
+}
+
+func (s *serviceInterfaceEventHandler) handleEvent(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	if si, ok := obj.(*dpuservicev1.ServiceInterface); ok {
+		if si.Spec.Node != nil {
+			enqueueDPUNodeFromNodeInDPUCluster(ctx, s.client, *si.Spec.Node, s.dpuNodeDefaultNamespace, q)
 		}
 	} else {
-		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a ServiceChain but got a %T", e.Object), "Failed to convert object")
+		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a ServiceInterface but got a %T", obj), "Failed to convert object")
+	}
+}
+
+func (s *serviceInterfaceEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	s.handleEvent(ctx, e.Object, q)
+}
+
+func (s *serviceInterfaceEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	s.handleEvent(ctx, e.ObjectNew, q)
+}
+
+func (s *serviceInterfaceEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	s.handleEvent(ctx, e.Object, q)
+}
+
+func (s *serviceInterfaceEventHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	s.handleEvent(ctx, e.Object, q)
+}
+
+// nodeInDPUClusterEventHandler is a handler for Node events in DPU clusters
+type nodeInDPUClusterEventHandler struct {
+	client client.Client
+	// dpuNodeDefaultNamespace is the default namespace where to look for the DPUNode.
+	dpuNodeDefaultNamespace string
+}
+
+func (n *nodeInDPUClusterEventHandler) handleEvent(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	if node, ok := obj.(*corev1.Node); ok {
+		enqueueDPUNodeFromNodeInDPUCluster(ctx, n.client, node.Name, n.dpuNodeDefaultNamespace, q)
+	} else {
+		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a Node but got a %T", obj), "Failed to convert object")
+	}
+}
+
+func (n *nodeInDPUClusterEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	n.handleEvent(ctx, e.Object, q)
+}
+
+func (n *nodeInDPUClusterEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	n.handleEvent(ctx, e.ObjectNew, q)
+}
+
+func (n *nodeInDPUClusterEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	n.handleEvent(ctx, e.Object, q)
+}
+
+func (n *nodeInDPUClusterEventHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	n.handleEvent(ctx, e.Object, q)
+}
+
+// newNodeConditionPredicate creates a predicate that filters node events to only trigger on condition changes
+func newNodeConditionPredicate() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			// Accept create events for nodes that have conditions
+			node := e.Object.(*corev1.Node)
+			return len(node.Status.Conditions) > 0
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldNode := e.ObjectOld.(*corev1.Node)
+			newNode := e.ObjectNew.(*corev1.Node)
+
+			// Only trigger reconciliation if node conditions have changed
+			return !nodeConditionsEqual(oldNode.Status.Conditions, newNode.Status.Conditions)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			// Don't reconcile on node deletion
+			// TODO(tgiese): handle delete events.
+			return false
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			// we are not interested in generic events
+			return false
+		},
+	}
+}
+
+// newServiceChainReadyPredicate creates a predicate that filters ServiceChain events
+// to only trigger on Ready condition changes, avoiding reconciliation bursts on startup
+func newServiceChainReadyPredicate() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			// Skip create events to avoid reconciliation burst during initial cache sync
+			return false
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldSC := e.ObjectOld.(*dpuservicev1.ServiceChain)
+			newSC := e.ObjectNew.(*dpuservicev1.ServiceChain)
+
+			// Only trigger if Ready condition changed
+			oldReady := meta.IsStatusConditionTrue(oldSC.Status.Conditions, string(conditions.TypeReady))
+			newReady := meta.IsStatusConditionTrue(newSC.Status.Conditions, string(conditions.TypeReady))
+			return oldReady != newReady
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			// Reconcile on delete - a chain going away matters
+			return true
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			return false
+		},
+	}
+}
+
+// newServiceInterfaceReadyPredicate creates a predicate that filters ServiceInterface events
+// to only trigger on Ready condition changes, avoiding reconciliation bursts on startup
+func newServiceInterfaceReadyPredicate() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			// Skip create events to avoid reconciliation burst during initial cache sync
+			return false
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldSI := e.ObjectOld.(*dpuservicev1.ServiceInterface)
+			newSI := e.ObjectNew.(*dpuservicev1.ServiceInterface)
+
+			// Only trigger if Ready condition changed
+			oldReady := meta.IsStatusConditionTrue(oldSI.Status.Conditions, string(conditions.TypeReady))
+			newReady := meta.IsStatusConditionTrue(newSI.Status.Conditions, string(conditions.TypeReady))
+			return oldReady != newReady
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			// Reconcile on delete - an interface going away matters
+			return true
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			return false
+		},
 	}
 }
