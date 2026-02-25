@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -512,4 +513,76 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 			Expect(dpuDeviceMap).To(BeEmpty())
 		})
 	})
+})
+
+var _ = Describe("DPUSetReconciler needDisruptDPU", func() {
+	var reconciler *DPUSetReconciler
+
+	BeforeEach(func() {
+		reconciler = &DPUSetReconciler{}
+	})
+
+	type testCase struct {
+		dpuSetBFB      string
+		dpuSetFlavor   string
+		dpuSetSB       *bool
+		dpuBFB         string
+		dpuFlavor      string
+		dpuSB          *bool
+		expectedResult bool
+	}
+
+	DescribeTable("should detect immutable field changes that require DPU recreation",
+		func(tc testCase) {
+			dpuSet := provisioningv1.DPUSet{
+				Spec: provisioningv1.DPUSetSpec{
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							BFB:        provisioningv1.BFBReference{Name: tc.dpuSetBFB},
+							DPUFlavor:  tc.dpuSetFlavor,
+							SecureBoot: tc.dpuSetSB,
+						},
+					},
+				},
+			}
+			dpu := provisioningv1.DPU{
+				Spec: provisioningv1.DPUSpec{
+					BFB:        tc.dpuBFB,
+					DPUFlavor:  tc.dpuFlavor,
+					SecureBoot: tc.dpuSB,
+				},
+			}
+			Expect(reconciler.needDisruptDPU(dpuSet, dpu, nil)).To(Equal(tc.expectedResult))
+		},
+		Entry("no changes - all fields match", testCase{
+			dpuSetBFB: "bfb-v1", dpuSetFlavor: "flavor-a", dpuSetSB: ptr.To(true),
+			dpuBFB: "bfb-v1", dpuFlavor: "flavor-a", dpuSB: ptr.To(true),
+			expectedResult: false,
+		}),
+		Entry("no changes - SecureBoot nil on both sides", testCase{
+			dpuSetBFB: "bfb-v1", dpuSetFlavor: "flavor-a", dpuSetSB: nil,
+			dpuBFB: "bfb-v1", dpuFlavor: "flavor-a", dpuSB: nil,
+			expectedResult: false,
+		}),
+		Entry("BFB changed", testCase{
+			dpuSetBFB: "bfb-v2", dpuSetFlavor: "flavor-a", dpuSetSB: nil,
+			dpuBFB: "bfb-v1", dpuFlavor: "flavor-a", dpuSB: nil,
+			expectedResult: true,
+		}),
+		Entry("DPUFlavor changed", testCase{
+			dpuSetBFB: "bfb-v1", dpuSetFlavor: "flavor-b", dpuSetSB: nil,
+			dpuBFB: "bfb-v1", dpuFlavor: "flavor-a", dpuSB: nil,
+			expectedResult: true,
+		}),
+		Entry("SecureBoot changed from nil to non-nil", testCase{
+			dpuSetBFB: "bfb-v1", dpuSetFlavor: "flavor-a", dpuSetSB: ptr.To(true),
+			dpuBFB: "bfb-v1", dpuFlavor: "flavor-a", dpuSB: nil,
+			expectedResult: true,
+		}),
+		Entry("SecureBoot value changed", testCase{
+			dpuSetBFB: "bfb-v1", dpuSetFlavor: "flavor-a", dpuSetSB: ptr.To(false),
+			dpuBFB: "bfb-v1", dpuFlavor: "flavor-a", dpuSB: ptr.To(true),
+			expectedResult: true,
+		}),
+	)
 })

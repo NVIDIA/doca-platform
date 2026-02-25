@@ -73,6 +73,11 @@ func Initializing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 	state.DPUType = dpuDevice.Status.DPUType
 	state.DPUMode = dpuDevice.Status.DPUMode
 
+	// Sync SecureBoot status from DPUDevice
+	if dpuDevice.Status.SecureBoot != nil {
+		state.SecureBoot = dpuDevice.Status.SecureBoot
+	}
+
 	// Check if provisioning should be skipped
 	if dpuDevice.Labels == nil {
 		dpuDevice.Labels = make(map[string]string)

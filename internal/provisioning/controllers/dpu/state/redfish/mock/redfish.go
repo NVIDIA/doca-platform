@@ -43,6 +43,8 @@ type RedfishMockServer struct {
 	secureBootEnable      bool                     // Configured/desired Secure Boot state (for next boot)
 	secureBootCurrentBoot bool                     // Actual Secure Boot state of current boot session
 	secureBootError       bool                     // Simulate Secure Boot endpoint error for testing
+	systemError           bool                     // Simulate GetSystem endpoint error for testing
+	resetSystemError      bool                     // Simulate ResetSystem endpoint error for testing
 	oemLastState          string                   // Current ARM OS boot state: "OsIsRunning", "OsStarting", etc.
 	dpuVersion            DpuVersion               // Current DPU version
 	model                 string                   // DPU model string (optional override)
@@ -482,6 +484,16 @@ func (r *RedfishMockServer) SetSecureBootError(simulateError bool) {
 	r.secureBootError = simulateError
 }
 
+// SetSystemError enables or disables GetSystem endpoint error simulation for testing
+func (r *RedfishMockServer) SetSystemError(simulateError bool) {
+	r.systemError = simulateError
+}
+
+// SetResetSystemError enables or disables ResetSystem endpoint error simulation for testing
+func (r *RedfishMockServer) SetResetSystemError(simulateError bool) {
+	r.resetSystemError = simulateError
+}
+
 // SetOemLastState sets the ARM OS boot state for the mock server
 func (r *RedfishMockServer) SetOemLastState(state string) {
 	r.oemLastState = state
@@ -519,6 +531,14 @@ func (r *RedfishMockServer) GetCertificate() []byte {
 func (r *RedfishMockServer) handleGetSystem(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if r.systemError {
+		// Return valid JSON with non-200 status to test the status code check path
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "System endpoint unavailable"}) //nolint:errcheck
 		return
 	}
 
@@ -628,6 +648,11 @@ func (r *RedfishMockServer) handleSecureBoot(w http.ResponseWriter, req *http.Re
 func (r *RedfishMockServer) handleResetSystem(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if r.resetSystemError {
+		http.Error(w, "Reset system endpoint unavailable", http.StatusInternalServerError)
 		return
 	}
 

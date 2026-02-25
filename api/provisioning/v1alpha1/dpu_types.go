@@ -34,12 +34,15 @@ var DPUGroupVersionKind = GroupVersion.WithKind(DPUKind)
 // DPUPhase describes current state of DPU.
 // Only one of the following state may be specified.
 // Default is Initializing.
-// +kubebuilder:validation:Enum="Initializing";"Node Effect";"Pending";"Config FW Parameters";"Prepare BFB";"OS Installing";"DPU Cluster Config";"Host Network Configuration";"Ready";"Error";"Deleting";"Rebooting";"Initialize Interface";"Checking Host Reboot Required";"Node Effect Removal"
+// +kubebuilder:validation:Enum="Initializing";"Node Effect";"Pending";"Config FW Parameters";"Prepare BFB";"OS Installing";"DPU Cluster Config";"Host Network Configuration";"Ready";"Error";"Deleting";"Rebooting";"Perform ARM Force Restart";"Initialize Interface";"Checking Host Reboot Required";"Node Effect Removal"
 type DPUPhase string
 
 // These are the valid statuses of DPU.
 const (
 	DPUFinalizer = "provisioning.dpu.nvidia.com/dpu-protection"
+
+	// AnnotationArmRestartTracker stores ARM restart tracking state for Secure Boot configuration
+	AnnotationArmRestartTracker = "provisioning.dpu.nvidia.com/arm-restart-tracker"
 
 	// DPUInitializing is the first phase after the DPU is created.
 	DPUInitializing DPUPhase = "Initializing"
@@ -69,6 +72,8 @@ const (
 	DPUDeleting DPUPhase = "Deleting"
 	// DPURebooting means the host of DPU is rebooting.
 	DPURebooting DPUPhase = "Rebooting"
+	// DPUPerformArmForceRestart means ARM ForceRestart operations are in progress for Secure Boot configuration.
+	DPUPerformArmForceRestart DPUPhase = "Perform ARM Force Restart"
 	// DPUCheckingHostRebootNeed means the checking of whether the host required a reboot.
 	DPUCheckingHostRebootNeed DPUPhase = "Checking Host Reboot Required"
 )
@@ -96,6 +101,7 @@ const (
 	DPUCondDeleting               DPUConditionType = "Deleting"
 	DPUCondReady                  DPUConditionType = "Ready"
 	DPUCondError                  DPUConditionType = "Error"
+	DPUCondArmForceRestarted      DPUConditionType = "ArmForceRestarted"
 )
 
 type DPUInfoConditionType string
