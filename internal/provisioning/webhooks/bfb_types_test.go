@@ -286,6 +286,41 @@ var _ = Describe("BFB", func() {
 			Expect(err).To(HaveOccurred())
 		})
 
+		It("create with spec.versions having all four fields should succeed", func() {
+			obj := createObj("bfb-versions-all")
+			obj.Spec.URL = DefaultURL
+			obj.Spec.Versions = &provisioningv1.BFBVersions{
+				BSP:  "4.7.0",
+				DOCA: "2.7.0",
+				UEFI: "4.7.0-10",
+				ATF:  "4.7.0-10",
+			}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(k8sClient.Delete, ctx, obj)
+		})
+
+		It("create with spec.versions missing a field should fail", func() {
+			obj := createObj("bfb-versions-missing")
+			obj.Spec.URL = DefaultURL
+			obj.Spec.Versions = &provisioningv1.BFBVersions{
+				BSP:  "4.7.0",
+				DOCA: "2.7.0",
+				UEFI: "4.7.0-10",
+				// ATF intentionally omitted
+			}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("create without spec.versions should succeed", func() {
+			obj := createObj("bfb-no-versions")
+			obj.Spec.URL = DefaultURL
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(k8sClient.Delete, ctx, obj)
+		})
+
 		It("should allow deletion of BFB not referenced by any DPU or DPUSet", func() {
 			obj := createObj("bfb-unreferenced")
 			obj.Spec.URL = DefaultURL
