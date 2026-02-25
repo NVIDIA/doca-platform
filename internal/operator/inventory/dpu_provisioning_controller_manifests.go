@@ -220,6 +220,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setMaxUnavailableDPUNodes,
 			p.setOSInstallTimeout,
 			p.setNodeEffectRemovalTimeout,
+			p.setHostAgentDNSPolicy,
 			p.setResources,
 			p.setBFBRegistryAddress,
 			p.setReplicas,
@@ -588,6 +589,17 @@ func (p *provisioningControllerObjects) setNodeEffectRemovalTimeout(deploy *apps
 		return nil
 	}
 	return setFlags(c, fmt.Sprintf("--node-effect-removal-timeout=%s", vars.DPFProvisioningController.NodeEffectRemovalTimeout.Duration.String()))
+}
+
+func (p *provisioningControllerObjects) setHostAgentDNSPolicy(deploy *appsv1.Deployment, vars Variables) error {
+	if vars.DPFProvisioningController.HostAgentDNSPolicy == nil {
+		return nil
+	}
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+	}
+	return setFlags(c, fmt.Sprintf("--hostagent-dns-policy=%s", *vars.DPFProvisioningController.HostAgentDNSPolicy))
 }
 
 // IsReadyForUpgrade reports the readiness of the provisioning controller objects. It returns an error when the number of Replicas in

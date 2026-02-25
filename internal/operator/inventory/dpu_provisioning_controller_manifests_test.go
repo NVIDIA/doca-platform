@@ -172,6 +172,7 @@ func TestDPFProvisioningControllerObjects_Parse(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo
 func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 	g := NewWithT(t)
 	originalObjs, err := utils.BytesToUnstructured(provisioningControllerData)
@@ -474,6 +475,61 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		}
 	})
 
+	t.Run("test setting hostagent dns policy", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newDefaultVariables(defaults)
+		dnsPolicy := corev1.DNSDefault
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: "pvc",
+			HostAgentDNSPolicy:           &dnsPolicy,
+		}
+
+		objs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		g.Expect(err).NotTo(HaveOccurred())
+
+		for _, obj := range objs {
+			if obj.GetObjectKind().GroupVersionKind().Kind != string(DeploymentKind) {
+				continue
+			}
+
+			deployment := &appsv1.Deployment{}
+			uns, ok := obj.(*unstructured.Unstructured)
+			g.Expect(ok).To(BeTrue())
+			g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(uns.UnstructuredContent(), deployment)).To(Succeed())
+
+			container := getManagerContainer(deployment)
+			g.Expect(container).NotTo(BeNil())
+			g.Expect(container.Args).To(ContainElement("--hostagent-dns-policy=Default"))
+		}
+	})
+
+	t.Run("test hostagent dns policy not set when nil", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: "pvc",
+		}
+
+		objs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		g.Expect(err).NotTo(HaveOccurred())
+
+		for _, obj := range objs {
+			if obj.GetObjectKind().GroupVersionKind().Kind != string(DeploymentKind) {
+				continue
+			}
+
+			deployment := &appsv1.Deployment{}
+			uns, ok := obj.(*unstructured.Unstructured)
+			g.Expect(ok).To(BeTrue())
+			g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(uns.UnstructuredContent(), deployment)).To(Succeed())
+
+			container := getManagerContainer(deployment)
+			g.Expect(container).NotTo(BeNil())
+			for _, arg := range container.Args {
+				g.Expect(arg).NotTo(HavePrefix("--hostagent-dns-policy="))
+			}
+		}
+	})
 }
 
 func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testing.T) {

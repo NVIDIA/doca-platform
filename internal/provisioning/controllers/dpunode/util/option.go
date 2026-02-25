@@ -40,4 +40,6 @@ type HostAgentPodOptions struct {
 	MaxUnavailableDPUNodes int32
 	// BFBRegistryAddress is the address of the BFB registry.
 	BFBRegistryAddress string
+	// HostAgentDNSPolicy is the DNS policy for the hostagent pod.
+	HostAgentDNSPolicy corev1.DNSPolicy
 }
