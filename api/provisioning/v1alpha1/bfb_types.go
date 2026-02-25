@@ -77,6 +77,7 @@ var (
 )
 
 // BFBSpec defines the content of the BFB
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.versions) || has(self.versions)",message="versions cannot be removed once set"
 type BFBSpec struct {
 	// Specifies the file name where the BFB is downloaded on the volume.
 	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9\_\-\.]+\.bfb$`
@@ -89,6 +90,13 @@ type BFBSpec struct {
 	// +required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="Value is immutable"
 	URL string `json:"url"`
+
+	// Optionally specify BFB component versions. When set, these versions are
+	// used directly in status instead of being extracted from the BFB file.
+	// If set, all four fields (BSP, DOCA, UEFI, ATF) must be provided.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="self.bsp != '' && self.doca != '' && self.uefi != '' && self.atf != ''",message="all four version fields (bsp, doca, uefi, atf) must be provided when versions is set"
+	Versions *BFBVersions `json:"versions,omitempty"`
 }
 
 // BFBVersions represents the version information for BFB components.
