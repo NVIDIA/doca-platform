@@ -925,10 +925,11 @@ var _ = Describe("DPUSet", func() {
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 
-		It("DPUSet: should propagate DPUFlavor field to created DPUs", func() {
-			By("creating dpuset with custom dpuFlavor")
+		It("DPUSet: should propagate DPUFlavor and SecureBoot fields to created DPUs", func() {
+			By("creating dpuset with custom dpuFlavor and SecureBoot enabled")
 			obj := createDPUSet("obj-dpuset")
 			obj.Spec.DPUTemplate.Spec.DPUFlavor = "custom-flavor"
+			obj.Spec.DPUTemplate.Spec.SecureBoot = ptr.To(true)
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(func() {
 				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, obj))).To(Succeed())
@@ -936,13 +937,15 @@ var _ = Describe("DPUSet", func() {
 
 			dpuList := &provisioningv1.DPUList{}
 
-			By("checking DPU is created with correct DPUFlavor")
+			By("checking DPU is created with correct DPUFlavor and SecureBoot")
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name))).To(Succeed())
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
 				g.Expect(dpu.Spec.DPUFlavor).To(Equal("custom-flavor"))
+				g.Expect(dpu.Spec.SecureBoot).NotTo(BeNil())
+				g.Expect(*dpu.Spec.SecureBoot).To(BeTrue())
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 

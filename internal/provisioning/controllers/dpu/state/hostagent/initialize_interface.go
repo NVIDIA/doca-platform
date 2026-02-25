@@ -32,18 +32,29 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 		state.Phase = provisioningv1.DPUDeleting
 		return *state, nil
 	}
-	_, interfaceInitializedCondition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondInterfaceInitialized))
-	_, rebootCondition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondRebooted))
-	// checking the reboot condition is nil to make sure the controller get the latest DPU object(removing rebooting condition for NIC->DPU mode transition case)
-	// In any case, the DPU should not include rebooting conditions at this phase.
-	if interfaceInitializedCondition != nil && interfaceInitializedCondition.Status == metav1.ConditionTrue &&
-		rebootCondition == nil {
-		// If the DPU is in NicMode, we need to set it to DpuMode and reboot（make DPU mode to be active） before the DPU provisioning process.
-		if interfaceInitializedCondition.Message == string(provisioningv1.DPUCondMessageModeUpdate) {
-			state.Phase = provisioningv1.DPURebooting
-		} else {
-			state.Phase = provisioningv1.DPUConfigFWParameters
-		}
+	_, initCond := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondInterfaceInitialized))
+	_, rebootCond := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondRebooted))
+
+	if initCond == nil {
+		return *state, nil
 	}
+
+	if initCond.Status == metav1.ConditionFalse && initCond.Reason == "TrustedHostModeNotSupported" {
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+
+	if initCond.Status != metav1.ConditionTrue {
+		return *state, nil
+	}
+
+	// Interface initialized. Reboot condition must be absent here (fresh state after NIC->DPU transition).
+	// If host agent reported mode update, transition to Rebooting to activate DPU mode before continuing.
+	if rebootCond == nil && initCond.Message == string(provisioningv1.DPUCondMessageModeUpdate) {
+		state.Phase = provisioningv1.DPURebooting
+		return *state, nil
+	}
+
+	state.Phase = provisioningv1.DPUConfigFWParameters
 	return *state, nil
 }

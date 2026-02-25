@@ -441,6 +441,7 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 				},
 			},
 			DPUFlavor:    dpuSet.Spec.DPUTemplate.Spec.DPUFlavor,
+			SecureBoot:   dpuSet.Spec.DPUTemplate.Spec.SecureBoot,
 			SerialNumber: dpuDevice.Spec.SerialNumber,
 			PCIAddress:   dpuDevice.Status.PCIAddress,
 		},
@@ -555,7 +556,8 @@ func isUnavailable(dpu *provisioningv1.DPU) bool {
 func (r *DPUSetReconciler) needDisruptDPU(dpuSet provisioningv1.DPUSet, dpu provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster) bool {
 
 	if dpu.Spec.BFB != dpuSet.Spec.DPUTemplate.Spec.BFB.Name ||
-		dpu.Spec.DPUFlavor != dpuSet.Spec.DPUTemplate.Spec.DPUFlavor {
+		dpu.Spec.DPUFlavor != dpuSet.Spec.DPUTemplate.Spec.DPUFlavor ||
+		!reflect.DeepEqual(dpu.Spec.SecureBoot, dpuSet.Spec.DPUTemplate.Spec.SecureBoot) {
 		return true
 	}
 	if dpuSet.Spec.DPUTemplate.Spec.Cluster != nil && !matchDPUClusterSelector(dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector, dpu.Spec.Cluster, dpuClusters) {
