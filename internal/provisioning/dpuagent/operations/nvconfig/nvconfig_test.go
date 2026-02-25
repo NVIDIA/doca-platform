@@ -24,13 +24,11 @@ import (
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 
 	"github.com/Masterminds/semver/v3"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -75,68 +73,14 @@ var getUplinkNameForTest = func(pci string) (string, error) {
 }
 
 var _ = Describe("NVConfig Operation", func() {
-	var testNS *corev1.Namespace
-
-	var createDPU = func(name string, namespace string) *provisioningv1.DPU {
-		dpu := &provisioningv1.DPU{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: provisioningv1.DPUSpec{
-				DPUNodeName:   "test-dpu-node",
-				DPUDeviceName: "test-dpu-device",
-				BFB:           "bfb-test",
-				SerialNumber:  "test-dpu-serial-number",
-				DPUFlavor:     "test-dpu-flavor",
-			},
-		}
-		Expect(k8sClient.Create(ctx, dpu)).To(Succeed())
-		return dpu
-	}
-
 	BeforeEach(func() {
 		var err error
 		tempDir, err = os.MkdirTemp("", "nvconfig-test-*")
 		Expect(err).NotTo(HaveOccurred())
-
-		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "nvconfig-testns-"}}
-		Expect(k8sClient.Create(ctx, testNS)).To(Succeed())
 	})
 
 	AfterEach(func() {
 		_ = os.RemoveAll(tempDir)
-		_ = k8sClient.Delete(ctx, testNS)
-	})
-
-	Context("Get Latest DPU", func() {
-		It("should never be skipped", func() {
-			operation := &GetLatestDPU{}
-			Expect(operation.ShouldSkip(&operations.Context{})).To(BeFalse())
-		})
-
-		It("should assign the latestDPU gloval variable", func() {
-			dpu := createDPU("test-dpu", testNS.Name)
-			operation := &GetLatestDPU{}
-			operationCtx := operations.Context{
-				Options: opts.Options{
-					DPUNamespace: testNS.Name,
-					DPUName:      dpu.Name,
-				},
-				Client: &mockClient{
-					getObjectFunc: func(execCtx context.Context, namespace, name string, obj client.Object) error {
-						Expect(k8sClient.Get(execCtx, client.ObjectKey{Namespace: namespace, Name: name}, obj)).To(Succeed())
-						return nil
-					},
-				},
-			}
-			Expect(operation.Execute(ctx, &operationCtx)).To(Succeed())
-			Expect(operationCtx.LatestDPU).NotTo(BeNil())
-			Expect(operationCtx.LatestDPU.Name).To(Equal(dpu.Name))
-			Expect(operationCtx.LatestDPU.Namespace).To(Equal(dpu.Namespace))
-			Expect(operationCtx.LatestDPU.Spec).To(Equal(dpu.Spec))
-			Expect(operationCtx.LatestDPU.Status).To(Equal(dpu.Status))
-		})
 	})
 
 	Context("Set NVConfig", func() {
