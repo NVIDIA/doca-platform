@@ -143,6 +143,7 @@ type DPFProvisioningVariables struct {
 	Replicas                       *int32
 	OSInstallTimeout               *metav1.Duration
 	NodeEffectRemovalTimeout       *metav1.Duration
+	HostAgentDNSPolicy             *corev1.DNSPolicy
 }
 
 type SFCControllerVariables struct {
@@ -258,6 +259,7 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		Replicas:                     config.Spec.ProvisioningController.Replicas,
 		OSInstallTimeout:             config.Spec.ProvisioningController.OSInstallTimeout,
 		NodeEffectRemovalTimeout:     config.Spec.ProvisioningController.NodeEffectRemovalTimeout,
+		HostAgentDNSPolicy:           config.Spec.ProvisioningController.HostAgentDNSPolicy,
 	}
 	if config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime != nil {
 		variables.DPFProvisioningController.MultiDPUOperationsSyncWaitTime = config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime.Duration

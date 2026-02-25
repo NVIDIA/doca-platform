@@ -921,6 +921,7 @@ _Appears in:_
 | `maxUnavailableDPUNodes` _integer_ | MaxUnavailableDPUNodes is the maximum number of DPUNodes that are unavailable during the node effect period. | 50 | Minimum: 1 <br /> |
 | `osInstallTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.<br />If the installation exceeds this timeout, the DPU will transition to an error state. | 45m | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br /> |
 | `nodeEffectRemovalTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.<br />If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state. | 30m | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br /> |
+| `hostAgentDNSPolicy` _[DNSPolicy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#dnspolicy-v1-core)_ | HostAgentDNSPolicy sets the DNS policy for the hostagent pod.<br />Valid values are 'ClusterFirstWithHostNet', 'ClusterFirst', 'Default' or 'None'.<br />Defaults to 'ClusterFirstWithHostNet'. |  | Enum: [ClusterFirstWithHostNet ClusterFirst Default None] <br /> |
 
 
 #### ProvisioningInstallInterface

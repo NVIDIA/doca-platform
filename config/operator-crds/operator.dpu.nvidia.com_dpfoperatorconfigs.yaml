@@ -1239,6 +1239,17 @@ spec:
                       a DMS API must respond, 0 is unlimited
                     minimum: 1
                     type: integer
+                  hostAgentDNSPolicy:
+                    description: |-
+                      HostAgentDNSPolicy sets the DNS policy for the hostagent pod.
+                      Valid values are 'ClusterFirstWithHostNet', 'ClusterFirst', 'Default' or 'None'.
+                      Defaults to 'ClusterFirstWithHostNet'.
+                    enum:
+                    - ClusterFirstWithHostNet
+                    - ClusterFirst
+                    - Default
+                    - None
+                    type: string
                   image:
                     description: |-
                       Image overrides the container image used by the Provisioning controller.
