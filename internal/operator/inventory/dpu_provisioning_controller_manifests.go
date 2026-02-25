@@ -26,8 +26,8 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/utils"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/bfcfg"
 	"github.com/nvidia/doca-platform/internal/release"
+	"github.com/nvidia/doca-platform/pkg/bfcfg"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
