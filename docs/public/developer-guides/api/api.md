@@ -2099,6 +2099,8 @@ _Appears in:_
 | `rebootInProgress` _boolean_ | RebootInProgress indicates if the node is in the process of rebooting. |  |  |
 
 
+
+
 #### DPUPhase
 
 _Underlying type:_ _string_
@@ -2284,7 +2286,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Checking Host Reboot Required Node Effect Removal] <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represents the provisioning lifecycle conditions. |  |  |
+| `operationalConditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | OperationalConditions represents aggregated operational readiness conditions.<br />These conditions reflect the runtime health and readiness of DPU services and node health,<br />separate from the provisioning lifecycle represented by Conditions. |  |  |
 | `bfbFile` _string_ | BFBFile is the path to the BFB file |  |  |
 | `bfCFGFile` _string_ | BFCFGFile is the path to the bf.cfg |  |  |
 | `bfbVersion` _string_ | bfb version of this DPU |  |  |

@@ -121,5 +121,27 @@ func SetupCacheIndexers(ctx context.Context, cache cache.Cache) error {
 		return fmt.Errorf("failed to add spec.nodeName index for pods: %w", err)
 	}
 
+	// Set up index for ServiceChain by the Node name
+	if err := cache.IndexField(ctx, &dpuservicev1.ServiceChain{}, nodeNameField, func(obj client.Object) []string {
+		serviceChain := obj.(*dpuservicev1.ServiceChain)
+		if serviceChain.Spec.Node == nil {
+			return nil
+		}
+		return []string{*serviceChain.Spec.Node}
+	}); err != nil {
+		return fmt.Errorf("failed to add spec.node index for service chains: %w", err)
+	}
+
+	// Set up index for ServiceInterface by the Node name
+	if err := cache.IndexField(ctx, &dpuservicev1.ServiceInterface{}, nodeNameField, func(obj client.Object) []string {
+		serviceInterface := obj.(*dpuservicev1.ServiceInterface)
+		if serviceInterface.Spec.Node == nil {
+			return nil
+		}
+		return []string{*serviceInterface.Spec.Node}
+	}); err != nil {
+		return fmt.Errorf("failed to add spec.node index for service interfaces: %w", err)
+	}
+
 	return nil
 }
