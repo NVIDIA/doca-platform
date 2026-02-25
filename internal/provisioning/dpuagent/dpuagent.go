@@ -75,7 +75,6 @@ func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 		&dpumode.EnsureMode{},
 		&nvconfig.ConfigureNVConfig{},
 		&reboot.HandleReboot{},
-		&reboot.ShutDownArm{},
 		&grub.CheckKernelCmdLine{},
 		&sfconfig.CreateSF{},
 		&vfmac.SetVFMac{},
@@ -97,6 +96,7 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 	if d.retryInterval == 0 {
 		d.retryInterval = defaultRetryInterval
 	}
+	d.optCtx.UpdateStatusUntilSuccess = d.updateStatusUntilSuccess
 	d.optCtx.Status = provisioningv1.DPUInternalStatus{
 		Conditions: []metav1.Condition{},
 	}
@@ -119,7 +119,7 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 			}
 
 			if err != nil || op.ShouldUpdateStatusBeforeContinue(d.optCtx) {
-				d.updateStatusUntilSuccess(ctx)
+				d.updateStatusUntilSuccess(execCtx)
 			}
 			return err == nil, nil
 		})

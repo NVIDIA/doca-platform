@@ -39,9 +39,31 @@ type Operation interface {
 // It is passed to all operations and can be used to pass data between operations.
 // Since the Context is not thread-safe, do not access it from multiple goroutines.
 type Context struct {
-	Client    client.Client
+	// Options are the options for the DPU agent, loaded at startup (e.g. from command line).
+	Options opts.Options
+
+	// Client is the API client used to update DPU status and fetch objects (e.g. DPU resource).
+	// It may be a zero-trust client (direct to the API server) or a trusted-host client (via the host agent);
+	// the implementation is chosen at startup.
+	Client client.Client
+
+	// DPUFlavor is the desired configuration template for this DPU, loaded at startup (e.g. from --dpuflavor YAML).
+	// Operations use it to apply sysctl, config files, grub, OVS, SF counts, and other flavor-defined settings.
 	DPUFlavor provisioningv1.DPUFlavor
-	Options   opts.Options
+
+	// LatestDPU is the current DPU resource, typically populated by nvconfig.GetLatestDPU.
+	// Operations use it to read spec/status and to decide behavior.
 	LatestDPU *provisioningv1.DPU
-	Status    provisioningv1.DPUInternalStatus
+
+	// Status is the in-memory DPU internal status. Operations read and update it;
+	// the agent pushes it to the API via Client.UpdateStatus.
+	Status provisioningv1.DPUInternalStatus
+
+	// UpdateStatusUntilSuccess, when set, pushes Status to the API until success (e.g. agent's updateStatusUntilSuccess).
+	// Used by operations that must ensure status is persisted before continuing (e.g. before shutdown).
+	//
+	// It may be invoked twice for the same execution: once from inside Execute
+	// and once from Run() when ShouldUpdateStatusBeforeContinue is true. Calling it twice is safe: the same
+	// status is pushed again, so the result is idempotent; at most it causes one redundant API call.
+	UpdateStatusUntilSuccess func(context.Context)
 }
