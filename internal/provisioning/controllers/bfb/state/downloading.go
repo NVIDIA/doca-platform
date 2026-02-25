@@ -115,18 +115,22 @@ func (st *bfbDownloadingState) Handle(ctx context.Context, _ client.Client) erro
 		return nil
 	}
 	// There is no related downloading task and BFB file exists in cache.
-	// Get the BFB version.
-	versions, err := st.versionBFB(cutil.GenerateBFBFilePath(st.bfb.Status.FileName))
-	if err != nil {
-		st.bfb.Status.Phase = provisioningv1.BFBError
-		msg := fmt.Sprintf("Retrieving BFB version: (%s/%s) failed with error :%s", st.bfb.Namespace, st.bfb.Name, err.Error())
-		st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, msg)
-		// Use ReasonFailure for version parsing errors - user intervention required (invalid BFB file at URL)
-		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
-			conditions.ReasonFailure, conditions.ConditionMessage(err.Error()))
-		return err
+	// Use spec versions if provided, otherwise extract from the BFB file.
+	if st.bfb.Spec.Versions != nil {
+		st.bfb.Status.Versions = *st.bfb.Spec.Versions
+	} else {
+		versions, err := st.versionBFB(cutil.GenerateBFBFilePath(st.bfb.Status.FileName))
+		if err != nil {
+			st.bfb.Status.Phase = provisioningv1.BFBError
+			msg := fmt.Sprintf("Retrieving BFB version: (%s/%s) failed with error :%s", st.bfb.Namespace, st.bfb.Name, err.Error())
+			st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, msg)
+			// Use ReasonFailure for version parsing errors - user intervention required (invalid BFB file at URL)
+			conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
+				conditions.ReasonFailure, conditions.ConditionMessage(err.Error()))
+			return err
+		}
+		st.bfb.Status.Versions = *versions
 	}
-	st.bfb.Status.Versions = *versions
 
 	st.bfb.Status.Phase = provisioningv1.BFBReady
 	msg := fmt.Sprintf("Download BFB: (%s/%s) successful", st.bfb.Namespace, st.bfb.Name)
