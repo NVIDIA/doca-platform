@@ -1240,6 +1240,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `fileName` _string_ | Specifies the file name where the BFB is downloaded on the volume. |  | Pattern: `^[A-Za-z0-9\_\-\.]+\.bfb$` <br /> |
 | `url` _string_ | The url of the bfb image to download. |  | Pattern: `^(http\|https)://.+$` <br /> |
+| `versions` _[BFBVersions](#bfbversions)_ | Optionally specify BFB component versions. When set, these versions are<br />used directly in status instead of being extracted from the BFB file.<br />If set, all four fields (BSP, DOCA, UEFI, ATF) must be provided. |  |  |
 
 
 #### BFBStatus
@@ -1271,6 +1272,7 @@ BFBVersions represents the version information for BFB components.
 
 
 _Appears in:_
+- [BFBSpec](#bfbspec)
 - [BFBStatus](#bfbstatus)
 
 | Field | Description | Default | Validation |

@@ -63,9 +63,59 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
+              versions:
+                description: |-
+                  Optionally specify BFB component versions. When set, these versions are
+                  used directly in status instead of being extracted from the BFB file.
+                  If set, all four fields (BSP, DOCA, UEFI, ATF) must be provided.
+                properties:
+                  atf:
+                    description: |-
+                      ATF (Arm Trusted Firmware) version.
+                      Contains the version of ATF, which provides a secure runtime environment
+                    type: string
+                    x-kubernetes-validations:
+                    - message: ATF version is immutable
+                      rule: self == oldSelf
+                  bsp:
+                    description: |-
+                      BSP (Board Support Package) version.
+                      This field stores the version of the BSP, which provides essential
+                      support and drivers for the hardware platform.
+                    type: string
+                    x-kubernetes-validations:
+                    - message: BSP version is immutable
+                      rule: self == oldSelf
+                  doca:
+                    description: |-
+                      DOCA version
+                      Specifies the version of NVIDIA's Data Center-on-a-Chip Architecture (DOCA),
+                      a platform for developing applications on DPUs
+                    type: string
+                    x-kubernetes-validations:
+                    - message: DOCA version is immutable
+                      rule: self == oldSelf
+                  uefi:
+                    description: |-
+                      UEFI (Unified Extensible Firmware Interface) version.
+                      Indicates the UEFI firmware version, which is responsible for booting
+                      the operating system and initializing hardware components
+                    type: string
+                    x-kubernetes-validations:
+                    - message: UEFI version is immutable
+                      rule: self == oldSelf
+                type: object
+                x-kubernetes-validations:
+                - message: all four version fields (bsp, doca, uefi, atf) must be
+                    provided when versions is set
+                  rule: self.bsp != '' && self.doca != '' && self.uefi != '' && self.atf
+                    != ''
             required:
             - url
             type: object
+            x-kubernetes-validations:
+            - message: versions cannot be removed once set
+              rule: '!has(oldSelf.versions) || has(self.versions)'
           status:
             default:
               phase: Initializing
