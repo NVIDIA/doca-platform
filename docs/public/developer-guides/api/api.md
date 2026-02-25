@@ -2107,7 +2107,7 @@ Only one of the following state may be specified.
 Default is Initializing.
 
 _Validation:_
-- Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Initialize Interface Checking Host Reboot Required Node Effect Removal]
+- Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Checking Host Reboot Required Node Effect Removal]
 
 _Appears in:_
 - [DPUSetStatus](#dpusetstatus)
@@ -2129,6 +2129,7 @@ _Appears in:_
 | `Error` | DPUError means error occurred.<br /> |
 | `Deleting` | DPUDeleting means the DPU CR will be deleted, controller will do some cleanup works.<br /> |
 | `Rebooting` | DPURebooting means the host of DPU is rebooting.<br /> |
+| `Perform ARM Force Restart` | DPUPerformArmForceRestart means ARM ForceRestart operations are in progress for Secure Boot configuration.<br /> |
 | `Checking Host Reboot Required` | DPUCheckingHostRebootNeed means the checking of whether the host required a reboot.<br /> |
 
 
@@ -2281,7 +2282,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Initialize Interface Checking Host Reboot Required Node Effect Removal] <br /> |
+| `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Checking Host Reboot Required Node Effect Removal] <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  |  |
 | `bfbFile` _string_ | BFBFile is the path to the BFB file |  |  |
 | `bfCFGFile` _string_ | BFCFGFile is the path to the bf.cfg |  |  |

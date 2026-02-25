@@ -31,6 +31,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+const (
+	// secureBootRequiredRestarts is the number of ARM restarts required for
+	// Secure Boot configuration to take effect. Per BlueField BMC documentation,
+	// the first restart applies the BIOS setting and the second validates it.
+	secureBootRequiredRestarts = 2
+)
+
 func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	state := dpu.Status.DeepCopy()
 	log := log.FromContext(ctx)
@@ -86,6 +93,15 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 		state.DPUMode = provisioningv1.DpuMode
 	}
 
+	// Configure Secure Boot if requested, may trigger phase transition
+	done, err := reconcileSecureBoot(ctx, dpu, device, state, tlsClient)
+	if err != nil {
+		return *state, err
+	}
+	if done {
+		return *state, nil
+	}
+
 	// In NIC mode, DPU type was unknown, now it's in DPU mode - updating to the value from the Redfish
 	if dpu.Status.DPUType == provisioningv1.DPUTypeUnknown {
 		_, chassisInfo, err := tlsClient.GetChassis()
@@ -129,6 +145,146 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 		cutil.SetDPUCondition(state, cond)
 		return *state, err
 	}
+}
+
+// reconcileSecureBoot handles Secure Boot configuration during InitializeInterface.
+// Returns (true, nil) when a phase transition was set and the caller should return early.
+// Returns (false, nil) when no action was needed and the caller should continue.
+// Returns (false, err) on retryable errors.
+func reconcileSecureBoot(ctx context.Context, dpu *provisioningv1.DPU, device *provisioningv1.DPUDevice, state *provisioningv1.DPUStatus, tlsClient *rfclient.Client) (bool, error) {
+	tracker, err := dutil.LoadArmRestartTracker(dpu)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to load ArmRestartTracker")
+		return false, err
+	}
+
+	if tracker != nil {
+		if tracker.AllRestartsDone() {
+			return verifySecureBootAfterRestarts(ctx, dpu, state, tlsClient, tracker)
+		}
+		// Tracker present: verify after restarts or re-assert phase. Re-assert recovers when
+		// fluxcd patcher wrote metadata (tracker) but status (phase) patch failed (e.g. 409).
+		state.Phase = provisioningv1.DPUPerformArmForceRestart
+		return true, nil
+	}
+
+	// No spec - skip Secure Boot and continue to capacity check
+	if dpu.Spec.SecureBoot == nil {
+		return false, nil
+	}
+
+	// Initial detection: check if configuration is needed
+	return detectAndStageSecureBoot(ctx, dpu, device, state, tlsClient)
+}
+
+// verifySecureBootAfterRestarts verifies that the BMC applied the Secure Boot configuration
+// after all ARM restarts completed. Clears the tracker and updates DPU status.
+// Returns (true, nil) on terminal error (DPUError), (false, nil) on success,
+// or (false, err) on retryable BMC failure.
+func verifySecureBootAfterRestarts(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, tlsClient *rfclient.Client, tracker *dutil.ArmRestartTracker) (bool, error) {
+	log := log.FromContext(ctx)
+
+	// Spec.SecureBoot removed mid-flow: clean up orphaned tracker and continue.
+	if dpu.Spec.SecureBoot == nil {
+		dutil.ClearArmRestartTracker(dpu)
+		return false, nil
+	}
+
+	_, sbInfo, err := tlsClient.GetSecureBoot()
+	if err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(
+			string(provisioningv1.DPUCondInterfaceInitialized),
+			err, "FailedToGetSecureBootStatus", err.Error()))
+		return false, err // Retryable - BMC may be temporarily unreachable
+	}
+
+	// BMC call succeeded - safe to clear the tracker now
+	dutil.ClearArmRestartTracker(dpu)
+
+	desiredEnabled := *dpu.Spec.SecureBoot
+	actualEnabled := sbInfo != nil && sbInfo.IsCurrentlyActive()
+
+	if desiredEnabled != actualEnabled {
+		err := fmt.Errorf("secure Boot verification failed after %d restarts: desired=%v, actual=%v",
+			tracker.MaxAttempts, desiredEnabled, actualEnabled)
+		log.Error(err, "Secure Boot configuration was not applied by BMC",
+			"dpu", dpu.Name, "desired", desiredEnabled, "actual", actualEnabled)
+		cutil.SetDPUCondition(state, cutil.NewCondition(
+			string(provisioningv1.DPUCondInterfaceInitialized),
+			err, "SecureBootConfigurationFailed", err.Error()))
+		state.Phase = provisioningv1.DPUError
+		return true, nil // Terminal error
+	}
+
+	state.SecureBoot = &provisioningv1.SecureBootStatus{Enabled: &actualEnabled}
+	log.Info("Secure Boot verification passed after ARM restarts",
+		"dpu", dpu.Name, "enabled", actualEnabled)
+	return false, nil
+}
+
+// detectAndStageSecureBoot checks whether the current hardware Secure Boot state matches
+// the desired spec. If a mismatch is found, stages the configuration via BMC and creates
+// a tracker to initiate ARM restarts.
+// Returns (true, nil) on phase transition, (false, nil) when already in desired state,
+// or (false, err) on retryable failure.
+func detectAndStageSecureBoot(ctx context.Context, dpu *provisioningv1.DPU, device *provisioningv1.DPUDevice, state *provisioningv1.DPUStatus, tlsClient *rfclient.Client) (bool, error) {
+	log := log.FromContext(ctx)
+
+	secureBootStatus := device.Status.SecureBoot
+	if secureBootStatus == nil || secureBootStatus.Enabled == nil {
+		err := fmt.Errorf("DPUDevice.Status.SecureBoot not yet detected")
+		cutil.SetDPUCondition(state, cutil.NewCondition(
+			string(provisioningv1.DPUCondInterfaceInitialized),
+			err, "SecureBootStatusNotDetected",
+			"Waiting for initial hardware discovery"))
+		return false, err // Retryable - requeue until hardware discovery populates status
+	}
+
+	desiredEnabled := *dpu.Spec.SecureBoot
+	currentEnabled := *secureBootStatus.Enabled
+
+	// Already in desired state - sync status and continue
+	if desiredEnabled == currentEnabled {
+		state.SecureBoot = &provisioningv1.SecureBootStatus{Enabled: &currentEnabled}
+		return false, nil
+	}
+
+	// Configuration mismatch - stage change via BMC Redfish
+	log.Info("Secure Boot configuration mismatch, staging change",
+		"dpu", dpu.Name, "desired", desiredEnabled, "current", currentEnabled)
+
+	var err error
+	if desiredEnabled {
+		_, err = tlsClient.EnableSecureBoot()
+	} else {
+		_, err = tlsClient.DisableSecureBoot()
+	}
+	if err != nil {
+		err = fmt.Errorf("failed to stage Secure Boot: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(
+			string(provisioningv1.DPUCondInterfaceInitialized),
+			err, "FailedToStageSecureBoot", err.Error()))
+		return false, err // Retryable - BMC may be temporarily unreachable
+	}
+
+	// Create tracker for restart phase.
+	// Per BlueField BMC documentation, the first restart applies the setting
+	// and the second restart validates it.
+	newTracker := &dutil.ArmRestartTracker{
+		InitialGeneration: dpu.Generation,
+		MaxAttempts:       secureBootRequiredRestarts,
+	}
+	if err := dutil.SaveArmRestartTracker(dpu, newTracker); err != nil {
+		log.Error(err, "Failed to save ArmRestartTracker")
+		return false, err
+	}
+
+	state.Phase = provisioningv1.DPUPerformArmForceRestart
+	cutil.SetDPUCondition(state, cutil.NewCondition(
+		string(provisioningv1.DPUCondInterfaceInitialized),
+		nil, "SecureBootConfigurationStaged",
+		fmt.Sprintf("Secure Boot staged (current=%v, desired=%v), ARM restarts required", currentEnabled, desiredEnabled)))
+	return true, nil // Phase transition - caller should return
 }
 
 func checkDPUDeviceReady(dpuDevice *provisioningv1.DPUDevice) error {

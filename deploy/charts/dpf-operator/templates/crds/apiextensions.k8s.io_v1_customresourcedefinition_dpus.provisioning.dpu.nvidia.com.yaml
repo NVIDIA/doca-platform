@@ -525,6 +525,7 @@ spec:
                 - Error
                 - Deleting
                 - Rebooting
+                - Perform ARM Force Restart
                 - Initialize Interface
                 - Checking Host Reboot Required
                 - Node Effect Removal
