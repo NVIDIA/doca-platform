@@ -112,6 +112,7 @@ type cliFlags struct {
 	maxUnavailableDPUNodes         int32
 	osInstallTimeout               time.Duration
 	nodeEffectRemovalTimeout       time.Duration
+	hostAgentDNSPolicy             string
 }
 
 func parseFlags() *cliFlags {
@@ -145,6 +146,7 @@ func parseFlags() *cliFlags {
 	fs.Int32Var(&flags.maxUnavailableDPUNodes, "max-unavailable-dpu-nodes", 50, "The maximum number of DPUNodes that are unavailable during the node effect period")
 	fs.DurationVar(&flags.osInstallTimeout, "os-install-timeout", 45*time.Minute, "Maximum time allowed for OS installation in zero-trust mode")
 	fs.DurationVar(&flags.nodeEffectRemovalTimeout, "node-effect-removal-timeout", 30*time.Minute, "Maximum time allowed for the Node Effect Removal phase before transitioning to error")
+	fs.StringVar(&flags.hostAgentDNSPolicy, "hostagent-dns-policy", string(corev1.DNSClusterFirstWithHostNet), "DNS policy for the hostagent pod")
 
 	logsv1.AddFlags(logOptions, fs)
 
@@ -308,6 +310,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferen
 		DMSPodTimeout:         flags.dmsPodTimeout,
 		DMSPodEnvs:            flags.dmsPodEnvs,
 		BFBRegistryAddress:    flags.bfbRegistry,
+		HostAgentDNSPolicy:    corev1.DNSPolicy(flags.hostAgentDNSPolicy),
 	}
 	setupLog.Info("DPUNode", "options", dmsPodOptions)
 

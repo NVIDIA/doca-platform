@@ -93,7 +93,7 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 		Spec: corev1.PodSpec{
 			ServiceAccountName: DMSServiceAccountName,
 			HostNetwork:        true,
-			DNSPolicy:          corev1.DNSClusterFirstWithHostNet,
+			DNSPolicy:          hostAgentDNSPolicy(option),
 			PriorityClassName:  SystemNodeCriticalPriorityClass,
 			Containers: []corev1.Container{
 				{
@@ -302,6 +302,13 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 	}
 	logger.V(3).Info(fmt.Sprintf("%s DMS pod created", dmsPodName))
 	return nil
+}
+
+func hostAgentDNSPolicy(option dnutil.HostAgentPodOptions) corev1.DNSPolicy {
+	if option.HostAgentDNSPolicy != "" {
+		return option.HostAgentDNSPolicy
+	}
+	return corev1.DNSClusterFirstWithHostNet
 }
 
 func ExecuteDMSDebugCmd(ctx context.Context, conn *grpc.ClientConn, command string) (string, error) {

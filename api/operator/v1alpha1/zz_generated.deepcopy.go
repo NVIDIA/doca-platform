@@ -21,6 +21,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
@@ -996,6 +997,11 @@ func (in *ProvisioningControllerConfiguration) DeepCopyInto(out *ProvisioningCon
 	if in.NodeEffectRemovalTimeout != nil {
 		in, out := &in.NodeEffectRemovalTimeout, &out.NodeEffectRemovalTimeout
 		*out = new(v1.Duration)
+		**out = **in
+	}
+	if in.HostAgentDNSPolicy != nil {
+		in, out := &in.HostAgentDNSPolicy, &out.HostAgentDNSPolicy
+		*out = new(corev1.DNSPolicy)
 		**out = **in
 	}
 }
