@@ -122,6 +122,12 @@ var _ = BeforeSuite(func() {
 			}})
 	Expect(err).ToNot(HaveOccurred())
 
+	// Create DPUReadyReconciler first so we can register its watchers
+	dpuReadyReconciler := &DPUReadyReconciler{
+		Client: testManager.GetClient(),
+		Scheme: testManager.GetScheme(),
+	}
+
 	remoteCache, err := dpucluster.SetupRemoteCacheWithManager(ctx, testManager,
 		dpucluster.OptionHostClient{Client: testManager.GetClient()},
 		dpucluster.OptionScheme{Scheme: testManager.GetScheme()},
@@ -129,6 +135,14 @@ var _ = BeforeSuite(func() {
 		dpucluster.OptionGetIndexerCallbacks{
 			GetIndexerCallbacks: []dpucluster.GetIndexerCallback{
 				SetupCacheIndexers,
+			},
+		},
+		dpucluster.OptionGetWatcherCallbacks{
+			GetWatcherCallbacks: []dpucluster.GetWatcherCallback{
+				dpuReadyReconciler.WatchServicePods,
+				dpuReadyReconciler.WatchServiceChains,
+				dpuReadyReconciler.WatchServiceInterfaces,
+				dpuReadyReconciler.WatchNodes,
 			},
 		},
 		dpucluster.OptionDisableFor{DisableFor: []client.Object{
@@ -160,11 +174,9 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(testManager)
 	Expect(err).ToNot(HaveOccurred())
 
-	err = (&DPUReadyReconciler{
-		Client:      testManager.GetClient(),
-		Scheme:      testManager.GetScheme(),
-		RemoteCache: remoteCache,
-	}).SetupWithManager(testManager)
+	// Set RemoteCache and setup DPUReadyReconciler
+	dpuReadyReconciler.RemoteCache = remoteCache
+	err = dpuReadyReconciler.SetupWithManager(testManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	chartHelper = utils.NewFakeChartHelper()

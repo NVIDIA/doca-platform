@@ -1517,6 +1517,13 @@ func (in *DPUStatus) DeepCopyInto(out *DPUStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.OperationalConditions != nil {
+		in, out := &in.OperationalConditions, &out.OperationalConditions
+		*out = make([]v1.Condition, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
 	if in.DPFVersion != nil {
 		in, out := &in.DPFVersion, &out.DPFVersion
 		*out = new(string)

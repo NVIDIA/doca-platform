@@ -242,6 +242,8 @@ func main() {
 			GetWatcherCallbacks: []dpucluster.GetWatcherCallback{
 				dpuReadyReconciler.WatchServicePods,
 				dpuReadyReconciler.WatchServiceChains,
+				dpuReadyReconciler.WatchServiceInterfaces,
+				dpuReadyReconciler.WatchNodes,
 				dpuServiceReconciler.WatchNodes,
 			},
 		},
