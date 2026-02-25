@@ -363,7 +363,15 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 		dpuNodeObj       *provisioningv1.DPUNode
 	)
 
+	defaultPauseDPUServiceReconciler := pauseDPUServiceReconciler.Load()
 	BeforeEach(func() {
+		By("Pausing other controllers that are not relevant for these tests")
+		DeferCleanup(func() {
+			pauseDPUServiceReconciler.Store(defaultPauseDPUServiceReconciler)
+		})
+		// These are modified to speed up the testing suite and also simplify the deletion logic
+		pauseDPUServiceReconciler.Store(true)
+
 		By("Creating the namespaces for the test")
 		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "dpuready-"}}
 		Expect(testClient.Create(ctx, testNS)).To(Succeed())
@@ -387,8 +395,8 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(testClient.Create(ctx, kamajiSecret)).To(Succeed())
 		Expect(testClient.Create(ctx, &dpuCluster)).To(Succeed())
-		DeferCleanup(testutils.CleanupWithFinalizerRemovalAndWait, ctx, testClient, kamajiSecret)
-		DeferCleanup(testutils.CleanupWithFinalizerRemovalAndWait, ctx, testClient, &dpuCluster)
+		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, kamajiSecret)
+		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, &dpuCluster)
 
 		By("Marking the DPUCluster as ready")
 		patcher := patch.NewSerialPatcher(&dpuCluster, testClient)
@@ -416,7 +424,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 			},
 		}
 		Expect(testClient.Create(ctx, dpu)).To(Succeed())
-		DeferCleanup(testutils.CleanupWithFinalizerRemovalAndWait, ctx, testClient, dpu)
+		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpu)
 
 		By("Setting DPU to Ready phase")
 		patcher = patch.NewSerialPatcher(dpu, testClient)
@@ -434,7 +442,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 			},
 		}
 		Expect(testClient.Create(ctx, managementNode)).To(Succeed())
-		DeferCleanup(testutils.CleanupWithFinalizerRemovalAndWait, ctx, testClient, managementNode)
+		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, managementNode)
 
 		By("Creating a DPUNode")
 		dpuNodeObj = &provisioningv1.DPUNode{
@@ -444,7 +452,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 			},
 		}
 		Expect(testClient.Create(ctx, dpuNodeObj)).To(Succeed())
-		DeferCleanup(testutils.CleanupWithFinalizerRemovalAndWait, ctx, testClient, dpuNodeObj)
+		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuNodeObj)
 
 		By("Setting DPUNode KubeNodeRef")
 		patcher = patch.NewSerialPatcher(dpuNodeObj, testClient)
@@ -495,7 +503,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 			},
 		}
 		Expect(testClient.Create(ctx, criticalService)).To(Succeed())
-		DeferCleanup(testutils.CleanupWithFinalizerRemovalAndWait, ctx, testClient, criticalService)
+		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, criticalService)
 
 		nonCriticalService := &dpuservicev1.DPUService{
 			ObjectMeta: metav1.ObjectMeta{
@@ -514,7 +522,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 			},
 		}
 		Expect(testClient.Create(ctx, nonCriticalService)).To(Succeed())
-		DeferCleanup(testutils.CleanupWithFinalizerRemovalAndWait, ctx, testClient, nonCriticalService)
+		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, nonCriticalService)
 	})
 
 	Context("Node Health Condition", func() {
@@ -648,7 +656,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 				InterfaceName: "eth0",
 			}
 			Expect(testClient.Create(ctx, dpuServiceInterface)).To(Succeed())
-			DeferCleanup(testutils.CleanupWithFinalizerRemovalAndWait, ctx, testClient, dpuServiceInterface)
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceInterface)
 
 			By("Creating a ServiceInterface in DPU cluster")
 			serviceInterface := &dpuservicev1.ServiceInterface{
@@ -711,7 +719,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 				}},
 			}}
 			Expect(testClient.Create(ctx, dpuServiceChain)).To(Succeed())
-			DeferCleanup(testutils.CleanupWithFinalizerRemovalAndWait, ctx, testClient, dpuServiceChain)
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceChain)
 
 			By("Creating a ready ServiceChain in DPU cluster")
 			serviceChain := &dpuservicev1.ServiceChain{
