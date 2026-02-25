@@ -38,7 +38,7 @@ import (
 )
 
 const (
-	// The maximum size of the bf.cfg file is expanded to 128k since DOCA 2.8
+	// MaxBFSize is the maximum size of the bf.cfg file is expanded to 128k since DOCA 2.8
 	MaxBFSize     = 1024 * 128
 	MaxTrustedSfs = 10
 )
@@ -127,7 +127,11 @@ func GenerateBFConfig(ctx context.Context, c client.Client, bfCFGTemplateFile st
 	if buf == nil {
 		return nil, fmt.Errorf("failed bf.cfg creation due to buffer issue")
 	}
-	if len(buf) > MaxBFSize {
+
+	// If the size check should not be skipped validate the bf.cfg is under MaxBFSize.
+	// TODO: Remove this once the underlying check in the BFB install scripts is removed.
+	// ref: https://github.com/Mellanox/bfb-build/blob/a6b6fcc115b0c7a525ba5516292f5ded7c187a16/common/install.env/common#L947
+	if _, ok := flavor.Annotations[cutil.SkipBFCFGSizeCheck]; !ok && len(buf) > MaxBFSize {
 		return nil, fmt.Errorf("bf.cfg for %s size (%d) exceeds the maximum limit (%d)", dpu.Name, len(buf), MaxBFSize)
 	}
 	logger.V(3).Info(fmt.Sprintf("bf.cfg for %s has len: %d data: %s", dpu.Name, len(buf), string(buf)))
