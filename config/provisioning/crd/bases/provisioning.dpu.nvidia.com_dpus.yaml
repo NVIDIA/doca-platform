@@ -435,6 +435,11 @@ spec:
                     description: InitialBootID is the boot ID of the DPU OS during
                       the first boot
                     type: string
+                  lastStartupTime:
+                    description: LastStartupTime is the time when the DPU was last
+                      started
+                    format: date-time
+                    type: string
                   rebootMethod:
                     description: |-
                       RebootMethod is the type of reset/reboot set by the DPU agent

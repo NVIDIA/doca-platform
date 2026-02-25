@@ -306,6 +306,9 @@ func (s *InstallationService) UpdateStatus(req *restful.Request, resp *restful.R
 			Conditions: []metav1.Condition{},
 		}
 	}
+	if request.DPUInfo.LastStartupTime != nil {
+		dpu.Status.DPUInternalStatus.LastStartupTime = request.DPUInfo.LastStartupTime
+	}
 	if request.DPUInfo.HostRebootRequired != nil {
 		dpu.Status.DPUInternalStatus.HostRebootRequired = request.DPUInfo.HostRebootRequired
 	}

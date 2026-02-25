@@ -1916,6 +1916,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `lastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastStartupTime is the time when the DPU was last started |  |  |
 | `hostRebootRequired` _boolean_ | HostRebootRequired indicates whether the host requires a reboot after the DPU is installed |  |  |
 | `initialBootID` _string_ | InitialBootID is the boot ID of the DPU OS during the first boot |  |  |
 | `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the type of reset/reboot set by the DPU agent<br />See enum values in RebootMethodType.<br />No default is set intentionally: nil means "check not run or not applicable"<br />(e.g. legacy flow, or agent has not run the check yet);<br />a non-nil value means the check ran and this is the result. |  | Enum: [NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset] <br /> |

@@ -98,10 +98,12 @@ var _ = Describe("InstallationService", func() {
 		It("should update status", func() {
 			dpu := createDPU("test-dpu", testNS.Name)
 
+			lastStartupTime := metav1.NewTime(time.Now().Truncate(time.Second))
 			request := types.UpdateStatusRequest{
 				DPUName:      dpu.Name,
 				DPUNamespace: dpu.Namespace,
 				DPUInfo: provisioningv1.DPUInternalStatus{
+					LastStartupTime:    &lastStartupTime,
 					HostRebootRequired: ptr.To(true),
 					InitialBootID:      ptr.To("test-initial-boot-id"),
 					Conditions: []metav1.Condition{
@@ -126,6 +128,8 @@ var _ = Describe("InstallationService", func() {
 			Expect(updatedDPU.Status.Phase).To(Equal(dpu.Status.Phase))
 			Expect(updatedDPU.Status.Conditions).To(ContainElement(dpu.Status.Conditions[0]))
 			Expect(updatedDPU.Status.DPUInternalStatus).NotTo(BeNil())
+			Expect(updatedDPU.Status.DPUInternalStatus.LastStartupTime).NotTo(BeNil())
+			Expect(updatedDPU.Status.DPUInternalStatus.LastStartupTime.Equal(&lastStartupTime)).To(BeTrue())
 			Expect(updatedDPU.Status.DPUInternalStatus.HostRebootRequired).NotTo(BeNil())
 			Expect(*updatedDPU.Status.DPUInternalStatus.HostRebootRequired).To(Equal(*request.DPUInfo.HostRebootRequired))
 			Expect(updatedDPU.Status.DPUInternalStatus.InitialBootID).NotTo(BeNil())
@@ -139,10 +143,11 @@ var _ = Describe("InstallationService", func() {
 			Expect(updatedDPU.Status.DPUInternalStatus.Conditions[0].LastTransitionTime).NotTo(BeNil())
 		})
 
-		It("non-specific fields should not be updated", func() {
+		It("non-specified fields should not be updated", func() {
 			dpu := createDPU("test-dpu", testNS.Name)
 			latestDPU := &provisioningv1.DPU{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, latestDPU)).To(Succeed())
+			lastStartupTime := metav1.NewTime(time.Now().Truncate(time.Second))
 			hostRebootRequired := true
 			cond1 := metav1.Condition{
 				Type:               "Cond1",
@@ -159,6 +164,7 @@ var _ = Describe("InstallationService", func() {
 				LastTransitionTime: metav1.NewTime(time.Now().Truncate(time.Second)),
 			}
 			latestDPU.Status.DPUInternalStatus = &provisioningv1.DPUInternalStatus{
+				LastStartupTime:    &lastStartupTime,
 				HostRebootRequired: ptr.To(hostRebootRequired),
 				InitialBootID:      ptr.To("test-initial-boot-id"),
 				Conditions: []metav1.Condition{
@@ -192,6 +198,10 @@ var _ = Describe("InstallationService", func() {
 
 			updatedDPU := &provisioningv1.DPU{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, updatedDPU)).To(Succeed())
+			By("lastStartupTime should not be updated")
+			Expect(updatedDPU.Status.DPUInternalStatus.LastStartupTime).NotTo(BeNil())
+			Expect(updatedDPU.Status.DPUInternalStatus.LastStartupTime.Equal(&lastStartupTime)).To(BeTrue())
+
 			By("hostRebootRequired should not be updated")
 			Expect(updatedDPU.Status.DPUInternalStatus.HostRebootRequired).NotTo(BeNil())
 			Expect(*updatedDPU.Status.DPUInternalStatus.HostRebootRequired).To(Equal(hostRebootRequired))
