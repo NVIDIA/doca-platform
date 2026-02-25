@@ -17,6 +17,7 @@ limitations under the License.
 package bfcfg
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,10 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
 )
 
@@ -198,21 +203,23 @@ var (
 			It("test with default bf.cfg", func() {
 				for _, instIface := range installInterfaces {
 					flavor := &provisioningv1.DPUFlavor{}
-					_, err := Generate(flavor, "name", "kubeadm join", false, "", instIface, 1500, 2)
+					_, err := Generate(flavor, "name", "kubeadm join", false, DefaultBFCFGTemplateData, instIface, 1500, 2)
 					Expect(err).NotTo(HaveOccurred())
 				}
 			})
-			It("error if custom bf.cfg does not exist", func() {
+			It("error if custom bf.cfg template is invalid", func() {
 				for _, instIface := range installInterfaces {
 					flavor := &provisioningv1.DPUFlavor{}
-					_, err := Generate(flavor, "name", "kubeadm join", false, "/files/does-not-exist", instIface, 1500, 2)
+					_, err := Generate(flavor, "name", "kubeadm join", false, []byte("{{.Invalid"), instIface, 1500, 2)
 					Expect(err).To(HaveOccurred())
 				}
 			})
 			It("generate with correctly formatted template", func() {
 				for _, instIface := range installInterfaces {
 					flavor := &provisioningv1.DPUFlavor{}
-					got, err := Generate(flavor, "name", "kubeadm join", false, filepath.Join(dir, fileName), instIface, 1500, 2)
+					templateData, err := os.ReadFile(filepath.Join(dir, fileName))
+					Expect(err).NotTo(HaveOccurred())
+					got, err := Generate(flavor, "name", "kubeadm join", false, templateData, instIface, 1500, 2)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(got).To(Equal([]byte("kubeadm join")))
 				}
@@ -251,7 +258,7 @@ var (
 			It("create trusted_sfs in bf.cfg", func() {
 				flavor.Annotations = make(map[string]string)
 				flavor.Annotations[cutil.TrustedSFCount] = "10"
-				got, err := Generate(flavor, "name", "kubeadm join", false, "", string(provisioningv1.InstallViaRedFish), 1500, 2)
+				got, err := Generate(flavor, "name", "kubeadm join", false, DefaultBFCFGTemplateData, string(provisioningv1.InstallViaRedFish), 1500, 2)
 				Expect(err).NotTo(HaveOccurred())
 				parsed := &CloudConfig{}
 				Expect(yaml.Unmarshal(extractYAML(got), parsed)).To(Succeed())
@@ -259,7 +266,7 @@ var (
 			})
 
 			It("install via RedFish", func() {
-				got, err := Generate(flavor, "name", "kubeadm join", false, "", string(provisioningv1.InstallViaRedFish), 1500, 2)
+				got, err := Generate(flavor, "name", "kubeadm join", false, DefaultBFCFGTemplateData, string(provisioningv1.InstallViaRedFish), 1500, 2)
 				Expect(err).NotTo(HaveOccurred())
 				parsed := &CloudConfig{}
 				Expect(yaml.Unmarshal(extractYAML(got), parsed)).To(Succeed())
@@ -268,7 +275,7 @@ var (
 				Expect(searchFileContent(parsed, "/etc/netplan/99-dpf-comm-ch.yaml", "")).NotTo(BeTrue())
 			})
 			It("install via gNOI", func() {
-				got, err := Generate(flavor, "name", "kubeadm join", false, "", string(provisioningv1.InstallViaGNOI), 1500, 2)
+				got, err := Generate(flavor, "name", "kubeadm join", false, DefaultBFCFGTemplateData, string(provisioningv1.InstallViaGNOI), 1500, 2)
 				Expect(err).NotTo(HaveOccurred())
 				parsed := &CloudConfig{}
 				Expect(yaml.Unmarshal(extractYAML(got), parsed)).To(Succeed())
@@ -277,13 +284,13 @@ var (
 				Expect(searchFileContent(parsed, "/etc/netplan/99-dpf-comm-ch.yaml", "")).To(BeTrue())
 			})
 			It("install via redfish", func() {
-				got, err := Generate(flavor, "name", "kubeadm join", false, "", string(provisioningv1.InstallViaRedFish), 1500, 2)
+				got, err := Generate(flavor, "name", "kubeadm join", false, DefaultBFCFGTemplateData, string(provisioningv1.InstallViaRedFish), 1500, 2)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(string(got)).Should(ContainSubstring("pre_bmc_components_update"))
 			})
 
 			It("should generate bf.cfg with kubelet security parameters in systemd service", func() {
-				got, err := Generate(flavor, "test-dpu", "kubeadm join", false, "", string(provisioningv1.InstallViaGNOI), 1500, 2)
+				got, err := Generate(flavor, "test-dpu", "kubeadm join", false, DefaultBFCFGTemplateData, string(provisioningv1.InstallViaGNOI), 1500, 2)
 				Expect(err).NotTo(HaveOccurred())
 
 				yamlData := extractYAML(got)
@@ -327,7 +334,7 @@ var (
 					},
 				}
 
-				got, err := Generate(flavor, "test-dpu", "kubeadm join", false, "", string(provisioningv1.InstallViaGNOI), 1500, 2)
+				got, err := Generate(flavor, "test-dpu", "kubeadm join", false, DefaultBFCFGTemplateData, string(provisioningv1.InstallViaGNOI), 1500, 2)
 				Expect(err).NotTo(HaveOccurred())
 
 				output := string(got)
@@ -349,7 +356,7 @@ var (
 						},
 					}
 
-					got, err := Generate(flavor, "test-dpu", "kubeadm join", false, "", string(provisioningv1.InstallViaGNOI), 1500, 2)
+					got, err := Generate(flavor, "test-dpu", "kubeadm join", false, DefaultBFCFGTemplateData, string(provisioningv1.InstallViaGNOI), 1500, 2)
 					Expect(err).NotTo(HaveOccurred())
 
 					output := string(got)
@@ -363,3 +370,136 @@ var (
 		})
 	})
 )
+
+var _ = Describe("getTemplateDataFromConfigMap", func() {
+	var (
+		ctx              context.Context
+		scheme           *runtime.Scheme
+		namespace        string
+		bfbName          string
+		bfbNamespace     string
+		clusterName      string
+		clusterNamespace string
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		scheme = runtime.NewScheme()
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		namespace = "dpf-system"
+		bfbName = "my-bfb"
+		bfbNamespace = "dpf-provisioning"
+		clusterName = "my-cluster"
+		clusterNamespace = "dpf-provisioning"
+	})
+
+	makeConfigMap := func(name string, templateData string) *corev1.ConfigMap {
+		return &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+				Labels: map[string]string{
+					cutil.BFCFGTemplateLabel: "true",
+				},
+				Annotations: map[string]string{
+					cutil.BFCFGTemplateBFBNameAnnotation:          bfbName,
+					cutil.BFCFGTemplateBFBNamespaceAnnotation:     bfbNamespace,
+					cutil.BFCFGTemplateClusterNameAnnotation:      clusterName,
+					cutil.BFCFGTemplateClusterNamespaceAnnotation: clusterNamespace,
+				},
+			},
+			Data: map[string]string{
+				ConfigMapDataKey: templateData,
+			},
+		}
+	}
+
+	It("should return nil when no matching ConfigMaps exist", func() {
+		c := fake.NewClientBuilder().WithScheme(scheme).Build()
+		_, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace)
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("should return template data when exactly one matching ConfigMap exists", func() {
+		cm := makeConfigMap("bfcfg-template-1", "hostname={{.DPUHostName}}")
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
+
+		data, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).NotTo(BeNil())
+		Expect(string(data)).To(Equal("hostname={{.DPUHostName}}"))
+	})
+
+	It("should return an error when multiple matching ConfigMaps exist", func() {
+		cm1 := makeConfigMap("bfcfg-template-1", "template1")
+		cm2 := makeConfigMap("bfcfg-template-2", "template2")
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm1, cm2).Build()
+
+		data, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("found 2 bf.cfg template ConfigMaps"))
+		Expect(data).To(BeNil())
+	})
+
+	It("should return an error when the ConfigMap is missing the template data key", func() {
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "bfcfg-template-no-key",
+				Namespace: namespace,
+				Labels: map[string]string{
+					cutil.BFCFGTemplateLabel: "true",
+				},
+				Annotations: map[string]string{
+					cutil.BFCFGTemplateBFBNameAnnotation:          bfbName,
+					cutil.BFCFGTemplateBFBNamespaceAnnotation:     bfbNamespace,
+					cutil.BFCFGTemplateClusterNameAnnotation:      clusterName,
+					cutil.BFCFGTemplateClusterNamespaceAnnotation: clusterNamespace,
+				},
+			},
+			Data: map[string]string{
+				"wrong-key": "some data",
+			},
+		}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
+
+		data, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("missing required key"))
+		Expect(err.Error()).To(ContainSubstring(ConfigMapDataKey))
+		Expect(data).To(BeNil())
+	})
+
+	It("should not match ConfigMaps with different annotations", func() {
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "bfcfg-template-different",
+				Namespace: namespace,
+				Labels: map[string]string{
+					cutil.BFCFGTemplateLabel: "true",
+				},
+				Annotations: map[string]string{
+					cutil.BFCFGTemplateBFBNameAnnotation:          "different-bfb",
+					cutil.BFCFGTemplateBFBNamespaceAnnotation:     bfbNamespace,
+					cutil.BFCFGTemplateClusterNameAnnotation:      clusterName,
+					cutil.BFCFGTemplateClusterNamespaceAnnotation: clusterNamespace,
+				},
+			},
+			Data: map[string]string{
+				ConfigMapDataKey: "template",
+			},
+		}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
+
+		_, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace)
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("should not match ConfigMaps in a different namespace", func() {
+		cm := makeConfigMap("bfcfg-template-wrong-ns", "template")
+		cm.Namespace = "other-namespace"
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
+
+		_, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace)
+		Expect(err).To(HaveOccurred())
+	})
+})

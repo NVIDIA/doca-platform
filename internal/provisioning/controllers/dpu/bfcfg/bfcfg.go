@@ -29,10 +29,16 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
 	"github.com/Masterminds/sprig/v3"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -45,21 +51,40 @@ const (
 
 var (
 	//go:embed bf.cfg.template
-	defaultBFCFGTemplateData string
+	DefaultBFCFGTemplateData []byte
 	// ConfigMapDataKey is the key in the configmap where the bfb.cfg.template is stored if overwritten.
 	ConfigMapDataKey = "BF_CFG_TEMPLATE"
-	defaultTemplate  = template.Must(template.New("").Funcs(sprig.FuncMap()).Parse(defaultBFCFGTemplateData))
 )
 
-func getTemplate(bfbCFGFilePath string) (*template.Template, error) {
-	if bfbCFGFilePath == "" {
-		return defaultTemplate, nil
+// getTemplateData returns the bf.cfg template content based on the DPFOperatorConfig settings.
+// If spec.provisioningController.bfCFGTemplateConfigMap is set it will try to mount a configMap as a volume in the provisioning controller. This behavior is deprecated.
+// If spec.provisioningController.enableDynamicBFCFGTemplates is set it will retrieve a configMap with a custom template.
+// By default it will return the default template data which is embedded in the controller.
+func getTemplateData(ctx context.Context, controllerCtx *util.ControllerContext, dpfOperatorConfig *operatorv1.DPFOperatorConfig, dpu *provisioningv1.DPU) ([]byte, error) {
+	provisioningConfig := dpfOperatorConfig.Spec.ProvisioningController
+
+	// This behavior is deprecated and will be removed in a future release.
+	//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
+	if provisioningConfig != nil && provisioningConfig.BFCFGTemplateConfigMap != nil {
+		data, err := os.ReadFile(controllerCtx.Options.BFCFGTemplateFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading bf.cfg template file %v: %w", provisioningConfig.BFCFGTemplateConfigMap, err)
+		}
+		return data, nil
 	}
-	data, err := os.ReadFile(bfbCFGFilePath)
-	if err != nil {
-		return nil, err
+
+	if provisioningConfig != nil && provisioningConfig.EnableDynamicBFCFGTemplates {
+		data, err := getTemplateDataFromConfigMap(ctx, controllerCtx.Client, dpfOperatorConfig.Namespace,
+			dpu.Spec.BFB, dpu.Namespace,
+			dpu.Spec.Cluster.Name, dpu.Spec.Cluster.Namespace)
+		if err != nil {
+			return nil, fmt.Errorf("resolving dynamic bf.cfg template: %w", err)
+		}
+		return data, nil
 	}
-	return template.New("").Funcs(sprig.FuncMap()).Parse(string(data))
+
+	// Use the embedded config by default.
+	return DefaultBFCFGTemplateData, nil
 }
 
 type BFCFGData struct {
@@ -98,7 +123,7 @@ type BFCFGWriteFile struct {
 	Permissions string
 }
 
-func GenerateBFConfig(ctx context.Context, c client.Client, bfCFGTemplateFile string, dpu *provisioningv1.DPU, dpuNode *provisioningv1.DPUNode, dpuDevice *provisioningv1.DPUDevice, flavor *provisioningv1.DPUFlavor, joinCommand, installInterface string) ([]byte, error) {
+func GenerateBFConfig(ctx context.Context, controllerContext *util.ControllerContext, dpu *provisioningv1.DPU, dpuNode *provisioningv1.DPUNode, dpuDevice *provisioningv1.DPUDevice, flavor *provisioningv1.DPUFlavor, joinCommand, installInterface string) ([]byte, error) {
 	logger := log.FromContext(ctx)
 	additionalReboot, err := shouldTriggerAdditionalReboot(ctx, dpuNode, dpu)
 	if err != nil {
@@ -106,7 +131,7 @@ func GenerateBFConfig(ctx context.Context, c client.Client, bfCFGTemplateFile st
 	}
 
 	dpfOperatorConfigList := operatorv1.DPFOperatorConfigList{}
-	if err := c.List(ctx, &dpfOperatorConfigList, &client.ListOptions{}); err != nil {
+	if err := controllerContext.List(ctx, &dpfOperatorConfigList, &client.ListOptions{}); err != nil {
 		return nil, fmt.Errorf("list DPFOperatorConfigs: %w", err)
 	}
 	if len(dpfOperatorConfigList.Items) == 0 || len(dpfOperatorConfigList.Items) > 1 {
@@ -119,8 +144,15 @@ func GenerateBFConfig(ctx context.Context, c client.Client, bfCFGTemplateFile st
 		return nil, fmt.Errorf("numberOfPFs is not set")
 	}
 
-	controlPlaneMTU := *dpfOperatorConfigList.Items[0].Spec.Networking.ControlPlaneMTU
-	buf, err := Generate(flavor, cutil.GenerateNodeName(dpu), joinCommand, additionalReboot, bfCFGTemplateFile, installInterface, controlPlaneMTU, *dpuDevice.Spec.NumberOfPFs)
+	dpfOperatorConfig := dpfOperatorConfigList.Items[0]
+	controlPlaneMTU := *dpfOperatorConfig.Spec.Networking.ControlPlaneMTU
+
+	templateData, err := getTemplateData(ctx, controllerContext, &dpfOperatorConfig, dpu)
+	if err != nil {
+		return nil, err
+	}
+
+	buf, err := Generate(flavor, cutil.GenerateNodeName(dpu), joinCommand, additionalReboot, templateData, installInterface, controlPlaneMTU, *dpuDevice.Spec.NumberOfPFs)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +190,9 @@ func shouldTriggerAdditionalReboot(ctx context.Context, dpuNode *provisioningv1.
 	return false, nil
 }
 
-func Generate(flavor *provisioningv1.DPUFlavor, dpuName, joinCmd string, additionalReboot bool, bfbCFGFilepath string, installInterface string, controlPlaneMTU int, numberOfPFs int) ([]byte, error) {
+// Generate creates a bf.cfg file from the given parameters and template data.
+// If templateData is nil or empty, the embedded default template is used.
+func Generate(flavor *provisioningv1.DPUFlavor, dpuName, joinCmd string, additionalReboot bool, templateData []byte, installInterface string, controlPlaneMTU int, numberOfPFs int) ([]byte, error) {
 	config := &BFCFGData{
 		KubeadmJoinCMD:   joinCmd,
 		DPUHostName:      dpuName,
@@ -214,13 +248,16 @@ func Generate(flavor *provisioningv1.DPUFlavor, dpuName, joinCmd string, additio
 		config.PFs = append(config.PFs, fmt.Sprintf("pf%dhpf", i))
 	}
 
-	bfbCFGTemplate, err := getTemplate(bfbCFGFilepath)
+	bfbCFGTemplate, err := template.New("").Funcs(sprig.FuncMap()).Parse(string(templateData))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing bf.cfg template: %w", err)
 	}
 	buf := bytes.NewBuffer(nil)
 	if err := bfbCFGTemplate.Execute(buf, config); err != nil {
 		return nil, fmt.Errorf("execute bfbCFGTemplate failed, err: %v", err)
+	}
+	if buf.Bytes() == nil {
+		return nil, fmt.Errorf("bfbCFGTemplate execution failed, err %v", fmt.Errorf("template data byte buffer was nil"))
 	}
 	return buf.Bytes(), nil
 }
@@ -277,4 +314,61 @@ func getTrustedSFFromFlavor(flavor *provisioningv1.DPUFlavor) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// getTemplateDataFromConfigMap discovers a bf.cfg template ConfigMap by listing ConfigMaps
+// with the well-known label and filtering by annotation values for the given BFB and DPUCluster.
+// It returns an error if there is not exactly one matching ConfigMap for the given parameters.
+func getTemplateDataFromConfigMap(ctx context.Context, c client.Client, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace string) ([]byte, error) {
+	selector := labels.SelectorFromSet(labels.Set{
+		cutil.BFCFGTemplateLabel: "true",
+	})
+
+	// Use PartialObjectMetadataList to fetch only metadata (efficient label-based discovery).
+	metadataList := &metav1.PartialObjectMetadataList{}
+	metadataList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "",
+		Version: "v1",
+		Kind:    "ConfigMapList",
+	})
+	if err := c.List(ctx, metadataList, &client.ListOptions{
+		Namespace:     namespace,
+		LabelSelector: selector,
+	}); err != nil {
+		return nil, fmt.Errorf("listing bf.cfg template ConfigMaps: %w", err)
+	}
+
+	// Filter by annotations.
+	// Annotations are used here because label values are limited to 64 characters. BFB and DPUCluster names could exceed this limit.
+	var matches []metav1.PartialObjectMetadata
+	for i := range metadataList.Items {
+		item := &metadataList.Items[i]
+		annotations := item.GetAnnotations()
+		if annotations[cutil.BFCFGTemplateBFBNameAnnotation] == bfbName &&
+			annotations[cutil.BFCFGTemplateBFBNamespaceAnnotation] == bfbNamespace &&
+			annotations[cutil.BFCFGTemplateClusterNameAnnotation] == clusterName &&
+			annotations[cutil.BFCFGTemplateClusterNamespaceAnnotation] == clusterNamespace {
+			matches = append(matches, *item)
+		}
+	}
+
+	if len(matches) != 1 {
+		return nil, fmt.Errorf("found %d bf.cfg template ConfigMaps matching BFB %s/%s and DPUCluster %s/%s; exactly one is required",
+			len(matches), bfbNamespace, bfbName, clusterNamespace, clusterName)
+	}
+	// Fetch the full ConfigMap to get the data.
+	cm := &corev1.ConfigMap{}
+	if err := c.Get(ctx, types.NamespacedName{
+		Namespace: namespace,
+		Name:      matches[0].Name,
+	}, cm); err != nil {
+		return nil, fmt.Errorf("getting bf.cfg template ConfigMap %q: %w", matches[0].Name, err)
+	}
+
+	templateData, ok := cm.Data[ConfigMapDataKey]
+	if !ok {
+		return nil, fmt.Errorf("bf.cfg template ConfigMap %q is missing required key %q", cm.Name, ConfigMapDataKey)
+	}
+
+	return []byte(templateData), nil
 }
