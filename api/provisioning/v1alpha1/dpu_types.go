@@ -363,6 +363,10 @@ const (
 )
 
 type DPUInternalStatus struct {
+	// LastStartupTime is the time when the DPU was last started
+	// +optional
+	LastStartupTime *metav1.Time `json:"lastStartupTime,omitempty"`
+
 	// HostRebootRequired indicates whether the host requires a reboot after the DPU is installed
 	// +optional
 	HostRebootRequired *bool `json:"hostRebootRequired,omitempty"`

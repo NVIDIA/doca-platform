@@ -65,6 +65,9 @@ func (c *ZerotrustClient) UpdateStatus(ctx context.Context, dpuInfo provisioning
 			Conditions: []metav1.Condition{},
 		}
 	}
+	if dpuInfo.LastStartupTime != nil {
+		latestDPU.Status.DPUInternalStatus.LastStartupTime = dpuInfo.LastStartupTime
+	}
 	if dpuInfo.HostRebootRequired != nil {
 		latestDPU.Status.DPUInternalStatus.HostRebootRequired = dpuInfo.HostRebootRequired
 	}

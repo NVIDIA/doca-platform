@@ -80,7 +80,9 @@ var _ = Describe("ZerotrustClient", func() {
 	Context("update status", func() {
 		It("should be able to update status", func() {
 			agentClient := NewZerotrustClient(kubeconfigPath, dpu.Name, dpu.Namespace)
+			lastStartupTime := metav1.NewTime(time.Now().Truncate(time.Second))
 			dpuInfo := provisioningv1.DPUInternalStatus{
+				LastStartupTime:    &lastStartupTime,
 				HostRebootRequired: ptr.To(true),
 				InitialBootID:      ptr.To("test-initial-boot-id"),
 				Conditions: []metav1.Condition{
@@ -97,6 +99,8 @@ var _ = Describe("ZerotrustClient", func() {
 			latestDPU := &provisioningv1.DPU{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, latestDPU)).To(Succeed())
 			Expect(latestDPU.Status.DPUInternalStatus).NotTo(BeNil())
+			Expect(latestDPU.Status.DPUInternalStatus.LastStartupTime).NotTo(BeNil())
+			Expect(latestDPU.Status.DPUInternalStatus.LastStartupTime.Equal(&lastStartupTime)).To(BeTrue())
 			Expect(latestDPU.Status.DPUInternalStatus.HostRebootRequired).NotTo(BeNil())
 			Expect(*latestDPU.Status.DPUInternalStatus.HostRebootRequired).To(BeTrue())
 			Expect(latestDPU.Status.DPUInternalStatus.InitialBootID).NotTo(BeNil())
@@ -125,7 +129,7 @@ var _ = Describe("ZerotrustClient", func() {
 			Expect(latestDPU.Status.DPUInternalStatus.Conditions[0].LastTransitionTime.After(originalLastTransitionTime.Time)).To(BeTrue())
 		})
 
-		It("non-specific fields should not be updated", func() {
+		It("non-specified fields should not be updated", func() {
 			agentClient := NewZerotrustClient(kubeconfigPath, dpu.Name, dpu.Namespace)
 			latestDPU := &provisioningv1.DPU{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, latestDPU)).To(Succeed())
@@ -145,7 +149,9 @@ var _ = Describe("ZerotrustClient", func() {
 				Message:            "TestMessage",
 				LastTransitionTime: metav1.NewTime(time.Now().Truncate(time.Second)),
 			}
+			lastStartupTime := metav1.NewTime(time.Now().Truncate(time.Second))
 			latestDPU.Status.DPUInternalStatus = &provisioningv1.DPUInternalStatus{
+				LastStartupTime:    &lastStartupTime,
 				HostRebootRequired: ptr.To(hostRebootRequired),
 				InitialBootID:      ptr.To(initialBootID),
 				Conditions: []metav1.Condition{
@@ -171,6 +177,10 @@ var _ = Describe("ZerotrustClient", func() {
 
 			updatedDPU := &provisioningv1.DPU{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, updatedDPU)).To(Succeed())
+			By("lastStartupTime should not be updated")
+			Expect(updatedDPU.Status.DPUInternalStatus.LastStartupTime).NotTo(BeNil())
+			Expect(updatedDPU.Status.DPUInternalStatus.LastStartupTime.Equal(&lastStartupTime)).To(BeTrue())
+
 			By("hostRebootRequired should not be updated")
 			Expect(updatedDPU.Status.DPUInternalStatus.HostRebootRequired).NotTo(BeNil())
 			Expect(*updatedDPU.Status.DPUInternalStatus.HostRebootRequired).To(Equal(hostRebootRequired))
