@@ -30,6 +30,7 @@ type DefaultOverridesConfiguration struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
+// +kubebuilder:validation:XValidation:rule="!(has(self.bfCFGTemplateConfigMap) && self.enableDynamicBFCFGTemplates)",message="bfCFGTemplateConfigMap and enableDynamicBFCFGTemplates are mutually exclusive"
 
 type ProvisioningControllerConfiguration struct {
 	BaseComponentConfig `json:",inline"`
@@ -57,8 +58,17 @@ type ProvisioningControllerConfiguration struct {
 	// BFCFGTemplateConfigMap is the name of a configMap containing a template for the BF.cfg file used by the DPU controller.
 	// By default the provisioning controller use a hardcoded BF.cfg e.g. https://github.com/NVIDIA/doca-platform/blob/release-v24.10/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template
 	// Note: Replacing the bf.cfg is an advanced use case. The default bf.cfg is designed for most use cases.
+	//
+	// Deprecated: BFCFGTemplateConfigMap is deprecated and will be removed in a future release.
+	// Use enableDynamicBFCFGTemplates instead for custom bf.cfg templates.
 	// +optional
 	BFCFGTemplateConfigMap *string `json:"bfCFGTemplateConfigMap,omitempty"`
+
+	// EnableDynamicBFCFGTemplates enables runtime discovery of bf.cfg templates via ConfigMaps.
+	// When enabled, the provisioning controller discovers ConfigMaps by matching labels for BFB
+	// name/namespace and DPUCluster name/namespace. Mutually exclusive with bfCFGTemplateConfigMap.
+	// +optional
+	EnableDynamicBFCFGTemplates bool `json:"enableDynamicBFCFGTemplates,omitempty"`
 
 	// BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim used by dpf-provisioning-controller
 	// +kubebuilder:validation:MinLength=1
