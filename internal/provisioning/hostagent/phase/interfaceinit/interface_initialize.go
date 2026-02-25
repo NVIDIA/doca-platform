@@ -38,20 +38,24 @@ const (
 
 type Handler struct {
 	client.Client
-	GetDevice func(string) (hostutil.Device, bool)
+	GetDevice  func(string) (hostutil.Device, bool)
+	QueryRshim func(pciAddress string) (*hostutil.RshimInfo, error)
+	GetDPUMode func(ctx context.Context, pciAddress string) (provisioningv1.DpuModeType, error)
 }
 
 func NewHandler(client client.Client, getDevice func(string) (hostutil.Device, bool)) *Handler {
 	return &Handler{
-		Client:    client,
-		GetDevice: getDevice,
+		Client:     client,
+		GetDevice:  getDevice,
+		QueryRshim: hostutil.QueryRshimByPCI,
+		GetDPUMode: hostutil.GetDPUMode,
 	}
 }
 
 func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisioningv1.DPUStatus, ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	pciAddressForQueryMode := filepath.Base(hostutil.NewPCIHelper(*dpu.Spec.PCIAddress).PF(0).Path())
-	mode, err := hostutil.GetDPUMode(ctx, pciAddressForQueryMode)
+	mode, err := h.GetDPUMode(ctx, pciAddressForQueryMode)
 	if err != nil {
 		hostutil.NewCondition(condition).Failure(err, "FailedToGetDPUMode").Set(&dpu.Status.Conditions)
 		return dpu.Status, ctrl.Result{}, err
@@ -68,6 +72,17 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 		logger.Info(fmt.Sprintf("DPU %s is in NicMode. Set DPU mode to DpuMode, requires host power cycle", dpu.Name))
 		hostutil.NewCondition(condition).Success(string(provisioningv1.DPUCondMessageModeUpdate)).Set(&dpu.Status.Conditions)
 		return dpu.Status, ctrl.Result{}, nil
+	}
+
+	// Validate Secure Boot state if requested (Trusted Host cannot configure, only validate).
+	if dpu.Spec.SecureBoot != nil {
+		mismatch, err := h.validateSecureBoot(ctx, dpu)
+		if err != nil {
+			return dpu.Status, ctrl.Result{}, err
+		}
+		if mismatch {
+			return dpu.Status, ctrl.Result{}, nil
+		}
 	}
 
 	capacityResult, err := h.canSatisfy(ctx, dpu)
@@ -88,6 +103,49 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 		hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
 	}
 	return dpu.Status, ctrl.Result{}, nil
+}
+
+// validateSecureBoot validates that the DPU's current Secure Boot state matches the desired spec.
+// Trusted Host mode cannot configure Secure Boot - only validate.
+// On mismatch, sets the TrustedHostModeNotSupported condition
+// Returns (true, nil) on mismatch, (false, nil) on match, or (false, err) on retryable failure.
+func (h *Handler) validateSecureBoot(ctx context.Context, dpu *provisioningv1.DPU) (bool, error) {
+	logger := log.FromContext(ctx)
+
+	dev, ok := h.GetDevice(dpu.Spec.SerialNumber)
+	if !ok {
+		err := fmt.Errorf("device not found for serial number %s", dpu.Spec.SerialNumber)
+		hostutil.NewCondition(condition).Failure(err, "DeviceNotFound").Set(&dpu.Status.Conditions)
+		return false, err
+	}
+
+	rshimInfo, err := h.QueryRshim(dev.Address)
+	if err != nil {
+		hostutil.NewCondition(condition).Failure(err, "FailedToQueryRshim").Set(&dpu.Status.Conditions)
+		return false, err
+	}
+
+	if rshimInfo.SecureBootEnabled == nil {
+		err := fmt.Errorf("secure boot status not available from rshim for PCI %s", dev.Address)
+		hostutil.NewCondition(condition).Failure(err, "SecureBootStatusNotDetected").Set(&dpu.Status.Conditions)
+		return false, err
+	}
+
+	desiredEnabled := *dpu.Spec.SecureBoot
+	currentEnabled := *rshimInfo.SecureBootEnabled
+
+	if desiredEnabled != currentEnabled {
+		err := fmt.Errorf("secure boot configuration mismatch (desired=%v, current=%v): "+
+			"configuration is not supported in Trusted Host mode, "+
+			"please configure Secure Boot manually via DPU's UEFI menu or use Zero Trust mode", desiredEnabled, currentEnabled)
+		logger.Error(err, "Secure Boot configuration not supported in Trusted Host mode",
+			"dpu", dpu.Name, "desired", desiredEnabled, "current", currentEnabled)
+		hostutil.NewCondition(condition).Failure(err, "TrustedHostModeNotSupported").Set(&dpu.Status.Conditions)
+		return true, nil // Mismatch
+	}
+
+	dpu.Status.SecureBoot = &provisioningv1.SecureBootStatus{Enabled: &currentEnabled}
+	return false, nil
 }
 
 func (h *Handler) canSatisfy(ctx context.Context, dpu *provisioningv1.DPU) (dutil.CapacityResult, error) {

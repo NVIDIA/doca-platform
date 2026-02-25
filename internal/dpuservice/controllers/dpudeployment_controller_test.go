@@ -1583,6 +1583,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should create the correct DPUSets", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				dpuDeployment.Spec.DPUs.SecureBoot = ptr.To(true)
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
@@ -1617,6 +1618,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
 						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuService.Name),
 					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.SecureBoot = ptr.To(true)
 				}
 
 				By("checking that correct DPUSets are created")

@@ -110,30 +110,8 @@ type TaskProgress struct {
 type SecureBootState string
 
 const (
-	SecureBootStateEnabled  SecureBootState = "Enabled"
-	SecureBootStateDisabled SecureBootState = "Disabled"
-)
-
-// SecureBootModeType represents UEFI Secure Boot operating modes.
-// Defined by DMTF Redfish Data Model Specification (DSP0268).
-type SecureBootModeType string
-
-const (
-	// SecureBootModeSetup indicates Setup Mode - no Platform Key enrolled.
-	// Keys can be enrolled without signature verification.
-	SecureBootModeSetup SecureBootModeType = "SetupMode"
-
-	// SecureBootModeUser indicates User Mode - Platform Key enrolled.
-	// Normal secure boot operation with signature verification.
-	SecureBootModeUser SecureBootModeType = "UserMode"
-
-	// SecureBootModeAudit indicates Audit Mode - verification logged but not enforced.
-	// Boot is allowed even if signature verification fails.
-	SecureBootModeAudit SecureBootModeType = "AuditMode"
-
-	// SecureBootModeDeployed indicates Deployed Mode - most restrictive.
-	// Additional policy restrictions prevent unauthorized config changes.
-	SecureBootModeDeployed SecureBootModeType = "DeployedMode"
+	// SecureBootStateEnabled indicates Secure Boot was active on the current boot.
+	SecureBootStateEnabled SecureBootState = "Enabled"
 )
 
 // SecureBootInfo represents the Redfish SecureBoot resource.
@@ -147,30 +125,11 @@ type SecureBootInfo struct {
 	// SecureBootEnable controls whether Secure Boot will be active on next boot.
 	// This is the persistent firmware setting that can be configured.
 	SecureBootEnable bool `json:"SecureBootEnable"`
-
-	// SecureBootMode indicates the current UEFI Secure Boot operating mode.
-	// This is read-only and determined by platform security state.
-	SecureBootMode SecureBootModeType `json:"SecureBootMode"`
 }
 
 // IsCurrentlyActive returns true if Secure Boot is active on the current boot.
 func (s *SecureBootInfo) IsCurrentlyActive() bool {
 	return s.SecureBootCurrentBoot == SecureBootStateEnabled
-}
-
-// IsPersistentlyEnabled returns true if Secure Boot is configured to be enabled.
-func (s *SecureBootInfo) IsPersistentlyEnabled() bool {
-	return s.SecureBootEnable
-}
-
-// RequiresReboot returns true if the persistent setting differs from current state.
-func (s *SecureBootInfo) RequiresReboot() bool {
-	return s.IsCurrentlyActive() != s.IsPersistentlyEnabled()
-}
-
-// IsInSetupMode returns true if the DPU is in Setup Mode (no Platform Key enrolled).
-func (s *SecureBootInfo) IsInSetupMode() bool {
-	return s.SecureBootMode == SecureBootModeSetup
 }
 
 // ResetRequest for DPU ARM restart operations
