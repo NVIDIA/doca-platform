@@ -107,8 +107,63 @@ var _ = Describe("Phase Initializing", func() {
 						HaveField("Reason", provisioningv1.DPUCondInitialized.String()),
 					),
 				))
+				// DPUDevice has no SecureBoot status, so DPU should not have it either
+				Expect(status.SecureBoot).To(BeNil())
 			}
 			runForEachInterface(run)
+		})
+
+		It("should sync SecureBoot status from DPUDevice to DPU", func() {
+			By("prepare DPUDevice CR with SecureBoot status")
+			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+			createObject(dpuDevice)
+
+			patchDevice := client.MergeFrom(dpuDevice.DeepCopy())
+			dpuDevice.Status.SecureBoot = &provisioningv1.SecureBootStatus{Enabled: ptr.To(true)}
+			Expect(k8sClient.Status().Patch(ctx, dpuDevice, patchDevice)).To(Succeed())
+
+			By("prepare DPUNode CR")
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Finalizers = []string{provisioningv1.DPUNodeFinalizer}
+			dpuNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = strTrue
+			dpuNode.Spec.DPUs = []provisioningv1.DPURef{{Name: dpuDevice.Name}}
+			createObject(dpuNode)
+			patchNode := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status = provisioningv1.DPUNodeStatus{
+				DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaHostAgent)),
+				Conditions: []metav1.Condition{{
+					Type:               string(provisioningv1.DPUNodeConditionBridgeConfigured),
+					Status:             metav1.ConditionTrue,
+					Reason:             "BridgeConfigured",
+					Message:            "Bridge configured",
+					LastTransitionTime: metav1.Now(),
+				}},
+			}
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patchNode)).To(Succeed())
+
+			By("prepare DPUCluster CR")
+			dpuCluster := dpuClusterObj(defaultDPUClusterName, "static")
+			createObject(dpuCluster)
+
+			By("prepare DPU CR")
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.PCIAddress = ptr.To("0000-00-00")
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.Cluster.Namespace = dpuCluster.Namespace
+			dpu.Spec.Cluster.Name = dpuCluster.Name
+			dpu.Status.Phase = provisioningv1.DPUInitializing
+
+			status, err := state.Initializing(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaHostAgent),
+					},
+				})
+			Expect(err).To(Succeed())
+			Expect(status.SecureBoot).NotTo(BeNil())
+			Expect(*status.SecureBoot.Enabled).To(BeTrue())
 		})
 	})
 

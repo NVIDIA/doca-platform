@@ -119,6 +119,7 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 		handlers[provisioningv1.DPUInitializeInterface] = redfish.InitializeInterface
 		handlers[provisioningv1.DPUConfigFWParameters] = redfish.ConfigFWParameters
 		handlers[provisioningv1.DPUOSInstalling] = redfish.Installing
+		handlers[provisioningv1.DPUPerformArmForceRestart] = redfish.PerformArmForceRestart
 	case string(provisioningv1.InstallViaMock):
 		handlers[provisioningv1.DPUInitializeInterface] = mock.InitializeInterface
 		handlers[provisioningv1.DPUConfigFWParameters] = mock.ConfigFWParameters
