@@ -71,7 +71,7 @@ ARG PACKAGES="dpkg-dev=1.22.6ubuntu6.5 \
 libusb-1.0-0=2:1.0.27-1 \
 ipmitool=1.8.19-7ubuntu0.24.04.3 \
 rshim \
-curl=8.5.0-2ubuntu10.6 \
+curl \
 screen \
 pv=1.8.5-2build1 \
 bridge-utils=1.7.1-1ubuntu2 \
