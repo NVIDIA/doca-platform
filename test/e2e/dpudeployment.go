@@ -160,8 +160,8 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 	// therefore we modify the application to have correct configuration so that the deletion goes faster
 	// https://github.com/argoproj/argo-cd/blob/e6e92552167ad10ce7ca45c02f5534af6741e710/pkg/apis/application/v1alpha1/types.go#L1473-L1480
 	By("HACK: Modify the bad application to ensure that it can be deleted faster")
+	gotDPUServiceList := &dpuservicev1.DPUServiceList{}
 	Eventually(func(g Gomega) {
-		gotDPUServiceList := &dpuservicev1.DPUServiceList{}
 		g.Expect(input.client.List(ctx,
 			gotDPUServiceList,
 			client.InNamespace(dpuDeployment.GetNamespace()),
@@ -178,7 +178,9 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 			g.Expect(conditionReady.Status).To(Equal(metav1.ConditionFalse))
 			g.Expect(conditionReady.Reason).To(BeEquivalentTo(conditions.ReasonAwaitingDeletion))
 		}
+	}).WithTimeout(30 * time.Second).Should(Succeed())
 
+	Eventually(func(g Gomega) {
 		gotApplicationList := &argov1.ApplicationList{}
 		g.Expect(input.client.List(ctx, gotApplicationList, client.InNamespace(dpuDeployment.GetNamespace()))).To(Succeed())
 		dpuServiceNameToApplication := getDPUServiceNameToApplication(gotDPUServiceList.Items, gotApplicationList.Items)
@@ -213,18 +215,24 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 						},
 					},
 				}
-				// Set maximum backoff duration to 1s for the existing operation to ensure it is not waiting for a long backoff duration.
-				// Set limit to 0 to ensure that operation is retried.
-				// But only do so if there actually is an on-going operation.
+				// Only patch status if there is an actual ongoing change.
+				// Note: status is not a subresource.
 				if application.Status.OperationState != nil {
+					// Set valid helm values
+					if application.Status.OperationState.SyncResult != nil && application.Status.OperationState.SyncResult.Source.Helm != nil {
+						application.Status.OperationState.SyncResult.Source.Helm.ValuesObject = &machineryruntime.RawExtension{Raw: []byte(`{}`)}
+					}
 					if application.Status.OperationState.Operation.Retry.Backoff == nil {
 						application.Status.OperationState.Operation.Retry.Backoff = &argov1.Backoff{}
 					}
+					// Set maximum backoff duration to 1s for the existing operation to ensure it is not waiting for a long backoff duration.
 					application.Status.OperationState.Operation.Retry.Backoff.MaxDuration = "1s"
+					// Set limit to 0 to ensure that operation is retried.
 					application.Status.OperationState.Operation.Retry.Limit = 0
 				}
 
-				g.Expect(input.client.Patch(ctx, &application, client.MergeFrom(origApp))).To(Succeed())
+				// Use optimistic locking to ensure that we patch the latest version of the application to not forget a operation which was just triggered.
+				g.Expect(input.client.Patch(ctx, &application, client.MergeFromWithOptions(origApp, client.MergeFromWithOptimisticLock{}))).To(Succeed())
 				// Delete the application to ensure that we haven't recreated the application in the meantime with the
 				// patch above
 				g.Expect(input.client.Delete(ctx, &application)).To(Succeed())
