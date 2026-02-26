@@ -29,5 +29,8 @@ dependencies:
 - name: node-problem-detector
   repository: file://charts/node-problem-detector
   version: 0.1.0
-digest: sha256:c8327d638a695b8209e959f64cba3940f0ffdd476ffceab81fbe845ba72e735d
-generated: "2026-02-04T12:35:43.375952+01:00"
+- name: opentelemetry-collector
+  repository: file://charts/opentelemetry-collector
+  version: 0.1.0
+digest: sha256:adabe6af415b63687521efaa6f5fef5742b91704bd48dd3367d7dd2bbd703917
+generated: "2026-02-25T18:25:34.490873+01:00"

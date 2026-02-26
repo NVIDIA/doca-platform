@@ -70,6 +70,7 @@ type SystemComponents struct {
 	NodeSRIOVDevicePluginController Component
 	KubeStateMetrics                Component
 	NodeProblemDetector             Component
+	OpenTelemetryCollector          Component
 }
 
 // Embed manifests for Kubernetes objects created by the controller.
@@ -124,6 +125,9 @@ var (
 
 	//go:embed manifests/node-problem-detector.yaml
 	nodeProblemDetectorData []byte
+
+	//go:embed manifests/opentelemetry-collector.yaml
+	openTelemetryCollectorData []byte
 )
 
 // New returns a new SystemComponents inventory with data preloaded but parsing not completed.
@@ -174,6 +178,10 @@ func New() *SystemComponents {
 			name: operatorv1.NodeProblemDetectorName,
 			data: nodeProblemDetectorData,
 		},
+		OpenTelemetryCollector: &fromDPUService{
+			name: operatorv1.OpenTelemetryCollectorName,
+			data: openTelemetryCollectorData,
+		},
 	}
 }
 
@@ -190,6 +198,7 @@ func (s *SystemComponents) SystemDPUServices() []Component {
 		s.CNIInstaller,
 		s.KubeStateMetrics,
 		s.NodeProblemDetector,
+		s.OpenTelemetryCollector,
 	}
 }
 
@@ -212,6 +221,7 @@ func (s *SystemComponents) AllComponents() []Component {
 		s.NodeSRIOVDevicePluginController,
 		s.KubeStateMetrics,
 		s.NodeProblemDetector,
+		s.OpenTelemetryCollector,
 	}
 }
 

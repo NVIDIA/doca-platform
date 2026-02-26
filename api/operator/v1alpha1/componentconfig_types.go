@@ -978,3 +978,41 @@ func (c *NodeProblemDetectorConfiguration) GetResources() map[ContainerName]*cor
 		NodeProblemDetectorContainer: c.Daemon.GetResource(),
 	}
 }
+
+type OpenTelemetryCollectorConfiguration struct {
+	BaseComponentConfig `json:",inline"`
+	HelmComponentConfig `json:",inline"`
+
+	// Daemon contains the configuration for the opentelemetry-collector component.
+	// It contains the image for opentelemetry-collector and its resource requirements.
+	// +optional
+	Daemon *DefaultOverridesConfiguration `json:"daemon,omitempty"`
+
+	// Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends logs and metrics.
+	// This could be the management cluster's opentelemetry-collector endpoint.
+	// If not specified, logs will not be forwarded from DPU clusters.
+	// +optional
+	Endpoint *string `json:"endpoint,omitempty"`
+}
+
+func (c *OpenTelemetryCollectorConfiguration) Name() string {
+	return OpenTelemetryCollectorName.String()
+}
+
+// GetImages returns a map of container names to their images
+func (c *OpenTelemetryCollectorConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.Daemon != nil {
+		images[OpenTelemetryCollectorContainer] = c.Daemon.GetImage()
+	}
+	return images
+}
+
+func (c *OpenTelemetryCollectorConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.Daemon == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		OpenTelemetryCollectorContainer: c.Daemon.GetResource(),
+	}
+}

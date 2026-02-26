@@ -1,6 +1,10 @@
 repositories:
   - name: prometheus-community
     url: https://prometheus-community.github.io/helm-charts
+  - name: open-telemetry
+    url: https://open-telemetry.github.io/opentelemetry-helm-charts
+  - name: grafana
+    url: https://grafana.github.io/helm-charts
 
 helmDefaults:
   atomic: true
@@ -9,6 +13,16 @@ helmDefaults:
   timeout: 600
 
 releases:
+  - name: kube-prometheus-stack
+    namespace: dpf-operator-system
+    createNamespace: true
+    chart: prometheus-community/kube-prometheus-stack
+    version: 80.4.1
+    labels:
+      app: kube-prometheus-stack
+    values:
+      - values/kube-prometheus-stack.yaml
+
   - name: kube-state-metrics
     namespace: dpf-operator-system
     createNamespace: true
@@ -21,12 +35,26 @@ releases:
     needs:
       - dpf-operator-system/kube-prometheus-stack
 
-  - name: kube-prometheus-stack
+  - name: loki
     namespace: dpf-operator-system
     createNamespace: true
-    chart: prometheus-community/kube-prometheus-stack
-    version: 80.4.1
+    chart: grafana/loki
+    version: 6.53.0
     labels:
-      app: kube-prometheus-stack
+      app: loki
     values:
-      - values/kube-prometheus-stack.yaml
+      - values/loki.yaml
+    needs:
+      - dpf-operator-system/kube-prometheus-stack
+
+  - name: opentelemetry-collector
+    namespace: dpf-operator-system
+    createNamespace: true
+    chart: open-telemetry/opentelemetry-collector
+    version: 0.146.0
+    labels:
+      app: opentelemetry-collector
+    values:
+      - values/opentelemetry-collector.yaml
+    needs:
+      - dpf-operator-system/kube-prometheus-stack

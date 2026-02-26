@@ -290,7 +290,7 @@ spec:
 			for _, obj := range got {
 				if unstructuredObj, ok := obj.(*unstructured.Unstructured); ok {
 					t.Logf("Processing unstructured object: %s", unstructuredObj.GetKind())
-					if unstructuredObj.GetKind() == "DPUService" {
+					if unstructuredObj.GetKind() == DPUServiceKind.String() {
 						gotDPUService = &dpuservicev1.DPUService{}
 						err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), gotDPUService)
 						g.Expect(err).ToNot(HaveOccurred())

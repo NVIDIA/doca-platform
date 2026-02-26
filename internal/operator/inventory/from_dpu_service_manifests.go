@@ -49,16 +49,17 @@ type fromDPUService struct {
 
 // dpuNetworkingSubCharts are the DPUServices that use the dpu-networking helm chart by default.
 var dpuNetworkingSubCharts = map[operatorv1.ComponentName]bool{
-	operatorv1.FlannelName:              true,
-	operatorv1.ServiceSetControllerName: true,
-	operatorv1.MultusName:               true,
-	operatorv1.SRIOVDevicePluginName:    true,
-	operatorv1.OVSCNIName:               true,
-	operatorv1.NVIPAMName:               true,
-	operatorv1.SFCControllerName:        true,
-	operatorv1.CNIInstallerName:         true,
-	operatorv1.KubeStateMetricsName:     true,
-	operatorv1.NodeProblemDetectorName:  true,
+	operatorv1.FlannelName:                true,
+	operatorv1.ServiceSetControllerName:   true,
+	operatorv1.MultusName:                 true,
+	operatorv1.SRIOVDevicePluginName:      true,
+	operatorv1.OVSCNIName:                 true,
+	operatorv1.NVIPAMName:                 true,
+	operatorv1.SFCControllerName:          true,
+	operatorv1.CNIInstallerName:           true,
+	operatorv1.KubeStateMetricsName:       true,
+	operatorv1.NodeProblemDetectorName:    true,
+	operatorv1.OpenTelemetryCollectorName: true,
 }
 
 func (f *fromDPUService) Name() operatorv1.ComponentName {
@@ -233,6 +234,8 @@ func additionalValuesForComponent(name operatorv1.ComponentName, vars Variables)
 		return flannelEdits(vars)
 	case operatorv1.CNIInstallerName:
 		return cniInstallerEdits(vars)
+	case operatorv1.OpenTelemetryCollectorName:
+		return openTelemetryCollectorEdits(vars)
 	// Other DPUServices do not need additional values.
 	default:
 		return nil, nil
@@ -272,6 +275,18 @@ func nvipamEdits(vars Variables) ([]StructuredEdit, error) {
 		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.NVIPAMName.String(), cniBinDirPathKey),
 		dpuServiceAddValueEdit(vars.DPUCNIConfPath, operatorv1.NVIPAMName.String(), cniConfDirPathKey),
 	}, nil
+}
+
+func openTelemetryCollectorEdits(vars Variables) ([]StructuredEdit, error) {
+	edits := []StructuredEdit{}
+
+	// Set the management endpoint if provided
+	if vars.OpenTelemetryCollector.ManagementEndpoint != nil {
+		edits = append(edits, dpuServiceAddValueEdit(*vars.OpenTelemetryCollector.ManagementEndpoint,
+			operatorv1.OpenTelemetryCollectorName.String(), "managementEndpoint"))
+	}
+
+	return edits, nil
 }
 
 func multusEdits(vars Variables) ([]StructuredEdit, error) {
