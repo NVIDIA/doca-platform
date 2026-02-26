@@ -216,11 +216,11 @@ func getNetworkctlInfo(interfaceName string) (*networkctlInfo, error) {
 	return info, nil
 }
 
-// isDHCPConfigured checks if DHCP is configured for the interface.
+// IsDHCPConfigured checks if DHCP is configured for the interface.
 // It uses a two-tier approach:
 // 1. First checks runtime state via networkctl (if DHCP obtained an address, it's definitely configured)
 // 2. If no address found, checks the configuration file (DHCP may be configured but no address yet)
-func isDHCPConfigured(interfaceName string) (bool, error) {
+func IsDHCPConfigured(interfaceName string) (bool, error) {
 	// Call networkctl once to get both DHCP status and network file path
 	info, err := getNetworkctlInfo(interfaceName)
 	if err != nil {
@@ -303,37 +303,9 @@ func parseDHCPFromNetworkdConfig(networkFilePath string) (bool, error) {
 	return false, nil // DHCP setting not found
 }
 
-// ConfigureNetplan configures the PF network interfaces and bridge MTU using netplan
-func ConfigureNetplan(pciAddress string, portConfigs []PortConfig, controlPlaneMTU int) error {
-	// Fail fast if bridge doesn't exist - prevents partial configuration
-	if _, err := netlink.LinkByName(BridgeName); err != nil {
-		return fmt.Errorf("bridge %s not found - cannot configure network: %w", BridgeName, err)
-	}
-
-	// Configure PF network interfaces and check if changes are needed
-	pfNeedsApply, err := configurePFs(pciAddress, portConfigs)
-	if err != nil {
-		return fmt.Errorf("failed to configure PF interfaces: %w", err)
-	}
-
-	// Configure bridge MTU using netplan and check if changes are needed
-	bridgeNeedsApply, err := configureBridgeMTU(controlPlaneMTU)
-	if err != nil {
-		return fmt.Errorf("failed to configure bridge MTU: %w", err)
-	}
-
-	// Apply netplan configuration if either PF or bridge changes are needed
-	if pfNeedsApply || bridgeNeedsApply {
-		if err = applyNetplan(); err != nil {
-			return fmt.Errorf("failed to apply netplan configuration: %w", err)
-		}
-	}
-	return nil
-}
-
-// configurePFs configures the PF network interfaces using netplan
-// Returns (needsApply, error) where needsApply indicates if changes are needed
-func configurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
+// ConfigurePFs configures the PF network interfaces using netplan.
+// Returns (needsApply, error) where needsApply indicates if changes are needed.
+func ConfigurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
 	pciHelper := NewPCIHelper(pciAddress)
 	needApply := false
 	config := netplan.Config{
@@ -343,47 +315,16 @@ func configurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
 	}
 
 	ethernets := make(map[string]netplan.Ethernet)
-	// Configure each port based on the provided configurations
 	for _, portConfig := range portConfigs {
-		// Skip if no configuration needed
-		if portConfig.MTU == nil && portConfig.DHCP == nil {
+		ifName, ethernet, changed, err := buildPFEthernetConfig(pciHelper, portConfig)
+		if err != nil {
+			return false, err
+		}
+		if ifName == "" {
 			continue
 		}
-
-		pf := pciHelper.PF(int(portConfig.PortNumber))
-		interfaceName, err := pf.InterfaceName()
-		if err != nil {
-			return false, fmt.Errorf("failed to get PF%d interface name: %w", portConfig.PortNumber, err)
-		}
-
-		ethernet := netplan.Ethernet{}
-		// Check MTU and only configure if different from current state
-		if portConfig.MTU != nil {
-			ethernet.MTU = portConfig.MTU
-			ethernet.DHCP4Overrides = &netplan.DHCP4Overrides{UseMTU: ptr.To(false)}
-			currentMTU, err := GetCurrentMTU(interfaceName)
-			if err != nil {
-				return false, fmt.Errorf("failed to get current MTU for %s: %w", interfaceName, err)
-			}
-			if currentMTU != int(*portConfig.MTU) {
-				klog.Infof("%s MTU mismatch (current=%d, desired=%d)", interfaceName, currentMTU, *portConfig.MTU)
-				needApply = true
-			}
-		}
-
-		// Check DHCP and only configure if different from current state
-		if portConfig.DHCP != nil {
-			ethernet.DHCP4 = portConfig.DHCP
-			currentDHCP, err := isDHCPConfigured(interfaceName)
-			if err != nil {
-				return false, fmt.Errorf("failed to determine DHCP configuration for %s: %w", interfaceName, err)
-			}
-			if currentDHCP != *portConfig.DHCP {
-				klog.Infof("%s DHCP mismatch (current=%v, desired=%v)", interfaceName, currentDHCP, *portConfig.DHCP)
-				needApply = true
-			}
-		}
-		ethernets[interfaceName] = ethernet
+		ethernets[ifName] = ethernet
+		needApply = needApply || changed
 	}
 
 	if len(ethernets) > 0 {
@@ -400,6 +341,50 @@ func configurePFs(pciAddress string, portConfigs []PortConfig) (bool, error) {
 	}
 
 	return needApply, nil
+}
+
+// buildPFEthernetConfig builds the netplan Ethernet config for a single port.
+// Returns ("", ...) when the port has no MTU or DHCP configuration.
+func buildPFEthernetConfig(pciHelper *PCIHelper, portConfig PortConfig) (string, netplan.Ethernet, bool, error) {
+	if portConfig.MTU == nil && portConfig.DHCP == nil {
+		return "", netplan.Ethernet{}, false, nil
+	}
+
+	pf := pciHelper.PF(int(portConfig.PortNumber))
+	interfaceName, err := pf.InterfaceName()
+	if err != nil {
+		return "", netplan.Ethernet{}, false, fmt.Errorf("failed to get PF%d interface name: %w", portConfig.PortNumber, err)
+	}
+
+	ethernet := netplan.Ethernet{}
+	changed := false
+
+	if portConfig.MTU != nil {
+		ethernet.MTU = portConfig.MTU
+		ethernet.DHCP4Overrides = &netplan.DHCP4Overrides{UseMTU: ptr.To(false)}
+		currentMTU, err := GetCurrentMTU(interfaceName)
+		if err != nil {
+			return "", netplan.Ethernet{}, false, fmt.Errorf("failed to get current MTU for %s: %w", interfaceName, err)
+		}
+		if currentMTU != int(*portConfig.MTU) {
+			klog.Infof("%s MTU mismatch (current=%d, desired=%d)", interfaceName, currentMTU, *portConfig.MTU)
+			changed = true
+		}
+	}
+
+	if portConfig.DHCP != nil {
+		ethernet.DHCP4 = portConfig.DHCP
+		currentDHCP, err := IsDHCPConfigured(interfaceName)
+		if err != nil {
+			return "", netplan.Ethernet{}, false, fmt.Errorf("failed to determine DHCP configuration for %s: %w", interfaceName, err)
+		}
+		if currentDHCP != *portConfig.DHCP {
+			klog.Infof("%s DHCP mismatch (current=%v, desired=%v)", interfaceName, currentDHCP, *portConfig.DHCP)
+			changed = true
+		}
+	}
+
+	return interfaceName, ethernet, changed, nil
 }
 
 // writeNetplanFile writes the netplan configuration to a file
@@ -424,20 +409,14 @@ func writeNetplanFile(filePath string, config *netplan.Config) error {
 	return nil
 }
 
-// applyNetplan applies the netplan configuration
-func applyNetplan() error {
+// ApplyNetplan applies the netplan configuration.
+func ApplyNetplan() error {
 	klog.Infof("Executing 'netplan apply'")
 	cmd := exec.Command("netplan", "apply")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("netplan apply failed: %w, output: %s", err, string(output))
 	}
 	return nil
-}
-
-// HasNetplan checks if netplan is available on the system
-func HasNetplan() bool {
-	_, err := exec.LookPath("netplan")
-	return err == nil
 }
 
 // checkIfBridgeMTUChangeNeeded determines if the bridge and its member interfaces need MTU changes
@@ -477,9 +456,9 @@ func checkIfBridgeMTUChangeNeeded(controlPlaneMTU int) (bool, error) {
 	return false, nil
 }
 
-// configureBridgeMTU configures the bridge and its member interfaces MTU using netplan
-// Returns (needsApply, error) where needsApply indicates if changes are needed
-func configureBridgeMTU(controlPlaneMTU int) (bool, error) {
+// ConfigureBridgeMTU configures the bridge and its member interfaces MTU using netplan.
+// Returns (needsApply, error) where needsApply indicates if changes are needed.
+func ConfigureBridgeMTU(controlPlaneMTU int) (bool, error) {
 	// Check if changes are needed first
 	needsApply, err := checkIfBridgeMTUChangeNeeded(controlPlaneMTU)
 	if err != nil {
@@ -517,20 +496,4 @@ func writeBridgeMTUConfig(controlPlaneMTU int) error {
 	}
 
 	return writeNetplanFile(BridgeMTUNetplanFile, &config)
-}
-
-// EnsureSystemdNetworkdActive validates that systemd-networkd is currently active and available
-// Returns nil if systemd-networkd is active, error otherwise
-func EnsureSystemdNetworkdActive() error {
-	cmd := exec.Command("systemctl", "is-active", "systemd-networkd")
-	output, err := cmd.Output()
-	if err == nil && strings.TrimSpace(string(output)) == "active" {
-		return nil
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to check systemd-networkd status: %w", err)
-	}
-
-	return fmt.Errorf("systemd-networkd is not active (status: %s)", strings.TrimSpace(string(output)))
 }
