@@ -57,7 +57,7 @@ type Context struct {
 
 	// Status is the in-memory DPU internal status. Operations read and update it;
 	// the agent pushes it to the API via Client.UpdateStatus.
-	Status provisioningv1.DPUInternalStatus
+	Status provisioningv1.AgentStatus
 
 	// UpdateStatusUntilSuccess, when set, pushes Status to the API until success (e.g. agent's updateStatusUntilSuccess).
 	// Used by operations that must ensure status is persisted before continuing (e.g. before shutdown).

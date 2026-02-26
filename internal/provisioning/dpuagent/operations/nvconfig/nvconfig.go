@@ -62,10 +62,10 @@ func (n *ConfigureNVConfig) ShouldSkip(ctx *operations.Context) bool {
 		klog.Error("Latest DPU not retrieved, will return error during execution. (this should never happen)")
 		return false
 	}
-	if ctx.LatestDPU.Status.DPUInternalStatus == nil {
+	if ctx.LatestDPU.Status.AgentStatus == nil {
 		return false
 	}
-	cond := meta.FindStatusCondition(ctx.LatestDPU.Status.DPUInternalStatus.Conditions, CondNVConfigApplied)
+	cond := meta.FindStatusCondition(ctx.LatestDPU.Status.AgentStatus.Conditions, CondNVConfigApplied)
 	if cond != nil && cond.Status == metav1.ConditionTrue {
 		klog.Infof("NVConfig already configured, skip")
 		return true
