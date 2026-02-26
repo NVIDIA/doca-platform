@@ -33,19 +33,20 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
 	// DPFProvisioningControllerName is the helm value for the Provisioning Controllers component name.
-	DPFProvisioningControllerName  = "dpf-provisioning-controller-manager"
-	bfbVolumeName                  = "bfb-volume"
-	webhookServiceName             = "dpf-provisioning-webhook-service"
-	customBFConfigFileName         = "bf.cfg.template"
-	customBFConfigVolumeName       = "bf-cfg-template"
-	errManagerContainerNotFoundFmt = "container %q not found in Provisioning Controller deployment"
+	DPFProvisioningControllerName        = "dpf-provisioning-controller-manager"
+	bfbVolumeName                        = "bfb-volume"
+	bfbHostPathPath                      = "/var/lib/nvidia/dpf/bfb"
+	prepareLocalStorageInitContainerName = "prepare-local-storage"
+	webhookServiceName                   = "dpf-provisioning-webhook-service"
+	customBFConfigFileName               = "bf.cfg.template"
+	customBFConfigVolumeName             = "bf-cfg-template"
+	errManagerContainerNotFoundFmt       = "container %q not found in Provisioning Controller deployment"
 )
 
 var _ Component = &provisioningControllerObjects{}
@@ -105,6 +106,13 @@ func (p *provisioningControllerObjects) Parse() (err error) {
 		p.bfbRegistryServiceName = obj.GetName()
 	}
 
+	if p.bfbRegistryServiceName == "" {
+		p.bfbRegistryServiceName = "bfb-registry"
+	}
+	if p.bfbRegistryServicePort == 0 {
+		p.bfbRegistryServicePort = 8082
+	}
+
 	deploymentFound := false
 	for _, obj := range objs {
 		switch ObjectKind(obj.GetKind()) {
@@ -140,9 +148,7 @@ func (p *provisioningControllerObjects) GenerateManifests(vars Variables, option
 		option.Apply(opts)
 	}
 	// check vars
-	if strings.TrimSpace(vars.DPFProvisioningController.BFBPersistentVolumeClaimName) == "" {
-		return nil, fmt.Errorf("DPFProvisioningController empty BFBPersistentVolumeClaimName")
-	}
+	// BFBPersistentVolumeClaimName is now optional - if not provided, will use hostPath
 	if t := vars.DPFProvisioningController.DMSTimeout; t != nil && *t < 0 {
 		return nil, fmt.Errorf("DPFProvisioningController invalid DMSTimeout, must be greater than or equal to 0")
 	}
@@ -207,6 +213,8 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 
 		mods := []func(*appsv1.Deployment, Variables) error{
 			p.setBFBPersistentVolumeClaim,
+			p.setNodeNameAndIPEnv,
+			p.setBFBRegistryImageEnv,
 			p.setImagePullSecrets,
 			p.setComponentLabel,
 			p.setDefaultImageNames,
@@ -234,60 +242,12 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 	}
 }
 
-// editRegistryObjs sets the BFB Registry for the provisioning controller.
 func (p *provisioningControllerObjects) editRegistryObjs(vars Variables, labelsToAdd map[string]string) ([]*unstructured.Unstructured, error) {
-	var port int
-	if vars.DPFProvisioningController.Registry != nil {
-		if vars.DPFProvisioningController.Registry.Port != nil {
-			port = *vars.DPFProvisioningController.Registry.Port
-		}
-	} else {
-		if vars.DPFProvisioningController.InstallInterface != nil &&
-			vars.DPFProvisioningController.InstallInterface.InstallViaRedfish != nil &&
-			vars.DPFProvisioningController.InstallInterface.InstallViaRedfish.BFBRegistry != nil { //nolint:staticcheck
-			cfg := vars.DPFProvisioningController.InstallInterface.InstallViaRedfish.BFBRegistry //nolint:staticcheck
-			if cfg.Port != nil {
-				port = *cfg.Port
-			}
-		}
-	}
 	objs := make([]*unstructured.Unstructured, 0, len(p.bfbRegistryObjects))
 	for i := range p.bfbRegistryObjects {
 		objs = append(objs, p.bfbRegistryObjects[i].DeepCopy())
 	}
-	image, ok := vars.Images[operatorv1.BFBRegistryName.String()]
-	if !ok {
-		return nil, fmt.Errorf("image for %q not found in variables", operatorv1.BFBRegistryName)
-	}
-	edit := NewEdits().AddForAll(NamespaceEdit(vars.Namespace), LabelsEdit(labelsToAdd)).
-		AddForKindS(DaemonSetKind, ImageForDaemonSetContainerEdit("nginx", image)).
-		AddForKindS(DaemonSetKind, ImagePullSecretsEditForDaemonSetEdit(vars.ImagePullSecrets...)).
-		AddForKindS(DaemonSetKind, NodeAffinityEdit(&controlPlaneNodeAffinity)).
-		AddForKindS(DaemonSetKind, TolerationsEdit(controlPlaneTolerations))
-	if port != 0 {
-		env := []corev1.EnvVar{
-			{
-				Name:  "NGINX_PORT",
-				Value: fmt.Sprintf("%d", port),
-			},
-		}
-		edit.AddForKindS(DaemonSetKind, EnvForDaemonSetContainerEdit("nginx", env))
-		edit.AddForKindS(ServiceKind, func(obj client.Object) error {
-			service, ok := obj.(*corev1.Service)
-			if !ok {
-				return fmt.Errorf("unexpected object %s. expected Service", obj.GetObjectKind().GroupVersionKind())
-			}
-			if len(service.Spec.Ports) == 0 {
-				return fmt.Errorf("service %s has no ports", service.GetName())
-			}
-			service.Spec.Ports[0].Port = int32(port)
-			service.Spec.Ports[0].TargetPort = intstr.IntOrString{
-				IntVal: int32(port),
-			}
-			p.bfbRegistryServicePort = port
-			return nil
-		})
-	}
+	edit := NewEdits().AddForAll(NamespaceEdit(vars.Namespace), LabelsEdit(labelsToAdd))
 	if err := edit.Apply(objs); err != nil {
 		return nil, err
 	}
@@ -386,8 +346,7 @@ func (p *provisioningControllerObjects) validateDeployment(obj *unstructured.Uns
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), deploy); err != nil {
 		return fmt.Errorf("error while parsing Deployment for Provisioning Controller: %w", err)
 	}
-
-	vol := p.getVolume(deploy, "bfb-volume")
+	vol := p.getVolume(deploy, bfbVolumeName)
 	if vol == nil {
 		return fmt.Errorf("invalid Provisioning Controller deployment, no bfb volume found")
 	}
@@ -400,7 +359,7 @@ func (p *provisioningControllerObjects) validateDeployment(obj *unstructured.Uns
 
 func (p *provisioningControllerObjects) getVolume(deploy *appsv1.Deployment, volName string) *corev1.Volume {
 	for i, vol := range deploy.Spec.Template.Spec.Volumes {
-		if vol.Name == volName && vol.PersistentVolumeClaim != nil {
+		if vol.Name == volName {
 			return &deploy.Spec.Template.Spec.Volumes[i]
 		}
 	}
@@ -412,12 +371,114 @@ func (p *provisioningControllerObjects) setBFBPersistentVolumeClaim(deploy *apps
 	if vol == nil {
 		return fmt.Errorf("error while generating Deployment for Provisioning Controller: no bfb volume found")
 	}
-	vol.PersistentVolumeClaim.ClaimName = vars.DPFProvisioningController.BFBPersistentVolumeClaimName
+
 	c := getManagerContainer(deploy)
 	if c == nil {
 		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
-	return setFlags(c, fmt.Sprintf("--bfb-pvc=%s", vol.PersistentVolumeClaim.ClaimName))
+
+	// If PVC name is provided, use the persistent volume.
+	if vars.DPFProvisioningController.BFBPersistentVolumeClaimName != nil &&
+		*vars.DPFProvisioningController.BFBPersistentVolumeClaimName != "" {
+		vol.VolumeSource = corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: *vars.DPFProvisioningController.BFBPersistentVolumeClaimName,
+			},
+		}
+		vol.HostPath = nil
+		// Ensure no init container while using persistent volume.
+		deploy.Spec.Template.Spec.InitContainers = filterOutInitContainer(deploy.Spec.Template.Spec.InitContainers, prepareLocalStorageInitContainerName)
+		return setFlags(c, fmt.Sprintf("--bfb-pvc=%s", *vars.DPFProvisioningController.BFBPersistentVolumeClaimName))
+	}
+	// Use hostPath and add init-container to prepare the directory.
+	hostPathType := corev1.HostPathDirectoryOrCreate
+	vol.VolumeSource = corev1.VolumeSource{
+		HostPath: &corev1.HostPathVolumeSource{
+			Path: bfbHostPathPath,
+			Type: &hostPathType,
+		},
+	}
+	vol.PersistentVolumeClaim = nil
+	addBFBHostPathInitContainer(deploy)
+	return setFlags(c, "--bfb-pvc=")
+}
+
+func addBFBHostPathInitContainer(deploy *appsv1.Deployment) {
+	for i := range deploy.Spec.Template.Spec.InitContainers {
+		if deploy.Spec.Template.Spec.InitContainers[i].Name == prepareLocalStorageInitContainerName {
+			return // already present
+		}
+	}
+	initContainer := corev1.Container{
+		Name:    prepareLocalStorageInitContainerName,
+		Image:   "busybox:1.36",
+		Command: []string{"sh", "-c", "mkdir -p /bfb && chown -R 65532:65532 /bfb"},
+		SecurityContext: &corev1.SecurityContext{
+			RunAsUser: ptr.To(int64(0)),
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: bfbVolumeName, MountPath: "/bfb"},
+		},
+	}
+	deploy.Spec.Template.Spec.InitContainers = append(deploy.Spec.Template.Spec.InitContainers, initContainer)
+}
+
+func filterOutInitContainer(containers []corev1.Container, name string) []corev1.Container {
+	out := make([]corev1.Container, 0, len(containers))
+	for _, c := range containers {
+		if c.Name != name {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (p *provisioningControllerObjects) setNodeNameAndIPEnv(deploy *appsv1.Deployment, _ Variables) error {
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+	}
+	envVars := []corev1.EnvVar{
+		{
+			Name: "NODE_NAME",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
+			},
+		},
+		{
+			Name: "NODE_IP",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.hostIP"},
+			},
+		},
+		{
+			Name: "POD_NAME",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"},
+			},
+		},
+		{
+			Name: "POD_NAMESPACE",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
+			},
+		},
+	}
+	c.Env = append(c.Env, envVars...)
+	return nil
+}
+
+func (p *provisioningControllerObjects) setBFBRegistryImageEnv(deploy *appsv1.Deployment, vars Variables) error {
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
+	}
+	image, ok := vars.Images[operatorv1.BFBRegistryName.String()]
+	if !ok {
+		return nil
+	}
+	c.Env = append(c.Env, corev1.EnvVar{Name: "BFB_REGISTRY_IMAGE", Value: image})
+	return nil
 }
 
 func (p *provisioningControllerObjects) setKubernetesAPIServerEnvVars(deploy *appsv1.Deployment, vars Variables) error {
@@ -499,11 +560,12 @@ func (p *provisioningControllerObjects) setBFBRegistryAddress(deploy *appsv1.Dep
 	}
 	if vars.DPFProvisioningController.Registry != nil && vars.DPFProvisioningController.Registry.Address != nil {
 		return setFlags(c, fmt.Sprintf("--bfb-registry=%s", *vars.DPFProvisioningController.Registry.Address))
-	} else if vars.DPFProvisioningController.InstallInterface != nil &&
+	}
+	if vars.DPFProvisioningController.InstallInterface != nil &&
 		vars.DPFProvisioningController.InstallInterface.InstallViaRedfish != nil {
 		return setFlags(c, fmt.Sprintf("--bfb-registry=%s", vars.DPFProvisioningController.InstallInterface.InstallViaRedfish.BFBRegistryAddress)) //nolint:staticcheck
 	}
-	return setFlags(c, fmt.Sprintf("--bfb-registry=%s:%d", p.bfbRegistryServiceName, p.bfbRegistryServicePort))
+	return setFlags(c, "--bfb-registry=")
 }
 
 func (p *provisioningControllerObjects) setDMSTimeout(deploy *appsv1.Deployment, vars Variables) error {

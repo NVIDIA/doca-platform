@@ -126,7 +126,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 			// This secret name is wrong - this prevents ImagePullSecretsReconciled from becoming true.
 			ImagePullSecrets: []string{"wrong-secret-name"},
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-				BFBPersistentVolumeClaimName: "{\"school\":\"EFG\", \"standard\": \"2\", \"name\": \"abc\", \"city\": \"miami\"}'",
+				BFBPersistentVolumeClaimName: ptr.To("{\"school\":\"EFG\", \"standard\": \"2\", \"name\": \"abc\", \"city\": \"miami\"}'"),
 			},
 		},
 	}
@@ -229,7 +229,7 @@ func TestDPFOperatorConfigReconciler_Validation(t *testing.T) {
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-				BFBPersistentVolumeClaimName: "foo",
+				BFBPersistentVolumeClaimName: ptr.To("foo"),
 			},
 		},
 	}
@@ -280,7 +280,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 								Image: ptr.To("example.com/dpu-provisioning-controller:v1.0.0"),
 							},
 						},
-						BFBPersistentVolumeClaimName: "name",
+						BFBPersistentVolumeClaimName: ptr.To("name"),
 						MaxDPUParallelInstallations:  ptr.To(int32(10)),
 					},
 					Flannel: &operatorv1.FlannelConfiguration{
@@ -301,7 +301,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-						BFBPersistentVolumeClaimName: "name",
+						BFBPersistentVolumeClaimName: ptr.To("name"),
 						MaxDPUParallelInstallations:  ptr.To(int32(0)),
 					},
 				},
@@ -317,7 +317,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-						BFBPersistentVolumeClaimName: "name",
+						BFBPersistentVolumeClaimName: ptr.To("name"),
 					},
 				},
 			},
@@ -338,7 +338,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 								Image: ptr.To("example.com/dpu-provisioning-controller:v1.0.0"),
 							},
 						},
-						BFBPersistentVolumeClaimName: "name",
+						BFBPersistentVolumeClaimName: ptr.To("name"),
 					},
 					Flannel: &operatorv1.FlannelConfiguration{
 						HelmComponentConfig: operatorv1.HelmComponentConfig{
@@ -364,7 +364,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 								Image: ptr.To("--"),
 							},
 						},
-						BFBPersistentVolumeClaimName: "name",
+						BFBPersistentVolumeClaimName: ptr.To("name"),
 					},
 				},
 			},
@@ -385,7 +385,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 								Image: ptr.To("example.com/dpu-provisioning-controller:v1.0.0"),
 							},
 						},
-						BFBPersistentVolumeClaimName: "name",
+						BFBPersistentVolumeClaimName: ptr.To("name"),
 					},
 					Flannel: &operatorv1.FlannelConfiguration{
 						HelmComponentConfig: operatorv1.HelmComponentConfig{
@@ -444,7 +444,7 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 				Paused: ptr.To(true),
 			},
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-				BFBPersistentVolumeClaimName: "foo-pvc",
+				BFBPersistentVolumeClaimName: ptr.To("foo-pvc"),
 			},
 		},
 	}
@@ -534,7 +534,7 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 
 			// For objects which are deployed as raw manifests set the image field in configuration.
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-				BFBPersistentVolumeClaimName: "foo-pvc",
+				BFBPersistentVolumeClaimName: ptr.To("foo-pvc"),
 				Controller: &operatorv1.DefaultOverridesConfiguration{
 					ImageComponentConfig: operatorv1.ImageComponentConfig{
 						Image: ptr.To(fmt.Sprintf(imageTemplate, operatorv1.ProvisioningControllerName)),
@@ -747,7 +747,7 @@ func TestDPFOperatorConfigReconciler_ReconcileWithTwoDPUClusters(t *testing.T) {
 		Spec: operatorv1.DPFOperatorConfigSpec{
 			ImagePullSecrets: initialImagePullSecrets,
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-				BFBPersistentVolumeClaimName: "foo-pvc",
+				BFBPersistentVolumeClaimName: ptr.To("foo-pvc"),
 			},
 		},
 	}
@@ -897,7 +897,7 @@ func TestDPFOperatorConfigValidation(t *testing.T) {
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-						BFBPersistentVolumeClaimName: "something",
+						BFBPersistentVolumeClaimName: ptr.To("something"),
 					},
 					Flannel: &operatorv1.FlannelConfiguration{
 						Images: &operatorv1.FlannelImages{
@@ -918,7 +918,7 @@ func TestDPFOperatorConfigValidation(t *testing.T) {
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-						BFBPersistentVolumeClaimName: "something",
+						BFBPersistentVolumeClaimName: ptr.To("something"),
 					},
 					Flannel: &operatorv1.FlannelConfiguration{
 						Images: &operatorv1.FlannelImages{
@@ -1090,7 +1090,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-					BFBPersistentVolumeClaimName: "test-pvc",
+					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 				},
 			},
 			Status: operatorv1.DPFOperatorConfigStatus{
@@ -1112,7 +1112,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-					BFBPersistentVolumeClaimName: "test-pvc",
+					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 				},
 			},
 			Status: operatorv1.DPFOperatorConfigStatus{
@@ -1135,7 +1135,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-					BFBPersistentVolumeClaimName: "test-pvc",
+					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 				},
 			},
 			Status: operatorv1.DPFOperatorConfigStatus{
@@ -1159,7 +1159,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-					BFBPersistentVolumeClaimName: "test-pvc",
+					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 				},
 			},
 			Status: operatorv1.DPFOperatorConfigStatus{
@@ -1183,7 +1183,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-					BFBPersistentVolumeClaimName: "test-pvc",
+					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 				},
 			},
 			Status: operatorv1.DPFOperatorConfigStatus{
@@ -1282,7 +1282,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-					BFBPersistentVolumeClaimName: "test-pvc",
+					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 					BaseComponentConfig: operatorv1.BaseComponentConfig{
 						Disable: ptr.To(true), // Disable the controller to avoid complexity
 					},

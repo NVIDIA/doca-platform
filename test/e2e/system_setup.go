@@ -321,7 +321,9 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		By("No PVC provided for the provisioning controller, skipping PVC creation")
 	} else {
 		pvc := input.ProvisioningControllerPVC.DeepCopy()
-		pvc.SetName(input.operatorConfig.Spec.ProvisioningController.BFBPersistentVolumeClaimName)
+		if n := input.operatorConfig.Spec.ProvisioningController.BFBPersistentVolumeClaimName; n != nil {
+			pvc.SetName(*n)
+		}
 		pvc.SetNamespace(input.systemNamespace)
 		pvc.SetLabels(CleanupScope.Suite)
 		Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, pvc))).NotTo(HaveOccurred())

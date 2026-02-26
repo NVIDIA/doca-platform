@@ -49,6 +49,10 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 	logger := log.FromContext(ctx)
 	dmsPodName := cutil.GenerateHostAgentPodName(node)
 
+	if option.BFBRegistryAddress == "" {
+		return fmt.Errorf("BFBRegistryAddress is required")
+	}
+
 	rebootParams := ""
 	if node.Labels != nil {
 		if v, ok := node.Labels[cutil.DPUNodeRebootMethodLabel]; ok {

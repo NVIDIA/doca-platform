@@ -240,6 +240,7 @@ var _ = BeforeSuite(func() {
 		Client: k8sManager.GetClient(),
 		Options: dnutil.HostAgentPodOptions{
 			HostAgentImageWithTag: "example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0",
+			BFBRegistryAddress:    "bfb-registry:8082",
 		},
 	}
 	err = nodeReconciler.SetupWithManager(k8sManager)

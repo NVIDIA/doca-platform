@@ -103,6 +103,7 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 	state := dpu.Status.DeepCopy()
 
 	if dpu.Status.RedfishTaskID == nil {
+		logger.Info("submit BFB install task", "will use bfbRegistry", ctrlCtx.Options.BFBRegistry, "bfbFile", dpu.Status.BFBFile, "bfcfgFile", dpu.Status.BFCFGFile)
 		resp, taskInfo, err := client.InstallBFB(concatBFBAndBFCFGPath(ctrlCtx.Options.BFBRegistry, dpu.Status.BFBFile, dpu.Status.BFCFGFile))
 		if err != nil {
 			err = fmt.Errorf("failed to install BFB: %w", err)

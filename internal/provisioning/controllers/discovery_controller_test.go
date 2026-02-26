@@ -81,7 +81,7 @@ var _ = Describe("Redfish Mock Server Tests", func() {
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-					BFBPersistentVolumeClaimName: "bfb-pvc",
+					BFBPersistentVolumeClaimName: ptr.To("bfb-pvc"),
 					InstallInterface: &operatorv1.ProvisioningInstallInterface{
 						InstallViaRedfish: &operatorv1.InstallViaRedfish{
 							BFBRegistryAddress: "http://localhost:8080",

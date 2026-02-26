@@ -332,8 +332,12 @@ func checkCapacity(ctx context.Context, dpu *provisioningv1.DPU, device *provisi
 
 	// check capacity by part number
 	resp, pn, err := tlsClient.GetChassis()
-	if err != nil || resp.StatusCode() != http.StatusOK {
-		err = fmt.Errorf("failed to get part number, status code: %s, err: %v", resp.Status(), err)
+	if err != nil || resp == nil || resp.StatusCode() != http.StatusOK {
+		var status string
+		if resp != nil {
+			status = resp.Status()
+		}
+		err = fmt.Errorf("failed to get part number, status code: %s, err: %v", status, err)
 		return dutil.CapacityUnknown, err
 	}
 	if result := check(pn.PartNumber, dutil.LookUpPartNumber); result != dutil.CapacityUnknown {
