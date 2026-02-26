@@ -35,6 +35,7 @@ func TestOVSUtils(t *testing.T) {
 	RunSpecs(t, "OVSUtils Suite")
 }
 
+//nolint:goconst,dupl
 var _ = Describe("OVSUtils", func() {
 	var (
 		mockCtrl *gomock.Controller
@@ -407,6 +408,27 @@ var _ = Describe("OVSUtils", func() {
 				Return(expectedErr)
 
 			Expect(mockAPI.SetPortExternalIDs(ctx, "test-port", externalIDs)).To(MatchError(expectedErr))
+		})
+	})
+
+	Describe("SetBridgeExternalIDs", func() {
+		It("should succeed when setting external IDs", func() {
+			externalIDs := map[string]string{"key": "value"}
+			mockAPI.EXPECT().
+				SetBridgeExternalIDs(ctx, "br-test", externalIDs).
+				Return(nil)
+
+			Expect(mockAPI.SetBridgeExternalIDs(ctx, "br-test", externalIDs)).To(Succeed())
+		})
+
+		It("should fail when bridge not found", func() {
+			externalIDs := map[string]string{"key": "value"}
+			expectedErr := errors.New("failed to get bridge br-test: not found")
+			mockAPI.EXPECT().
+				SetBridgeExternalIDs(ctx, "br-test", externalIDs).
+				Return(expectedErr)
+
+			Expect(mockAPI.SetBridgeExternalIDs(ctx, "br-test", externalIDs)).To(MatchError(expectedErr))
 		})
 	})
 
@@ -948,6 +970,377 @@ var _ = Describe("OVSUtils", func() {
 				Entry("when multiple interfaces match", 2, true, "found multiple interfaces"),
 				Entry("when single interface matches", 1, false, ""),
 			)
+		})
+
+		Describe("SetIfaceExternalIDs", func() {
+			var mockConditionalAPI *MockConditionalAPI
+
+			BeforeEach(func() {
+				mockConditionalAPI = NewMockConditionalAPI(mockCtrl)
+			})
+
+			It("should be no-op when requested external IDs is empty", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(nil)
+				err := client.SetIfaceExternalIDs(ctx, "test-iface", map[string]string{})
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should be no-op when interface external IDs already match requested", func() {
+				externalIDs := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						iface := model.(*ovsmodel.Interface)
+						iface.Name = "test-iface"
+						iface.ExternalIDs = map[string]string{"key": "value"}
+						return nil
+					})
+
+				err := client.SetIfaceExternalIDs(ctx, "test-iface", externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should return error when interface not found", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+
+				err := client.SetIfaceExternalIDs(ctx, "test-iface", map[string]string{"key": "value"})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to get interface"))
+			})
+
+			It("should update when interface external IDs differ from requested", func() {
+				externalIDs := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						iface := model.(*ovsmodel.Interface)
+						iface.Name = "test-iface"
+						iface.ExternalIDs = map[string]string{"key": "old"}
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				err := client.SetIfaceExternalIDs(ctx, "test-iface", externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should update when interface has no external IDs (externalIDsToDelete empty)", func() {
+				externalIDs := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						iface := model.(*ovsmodel.Interface)
+						iface.Name = "test-iface"
+						iface.ExternalIDs = nil
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				err := client.SetIfaceExternalIDs(ctx, "test-iface", externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+		Describe("SetPortExternalIDs", func() {
+			var mockConditionalAPI *MockConditionalAPI
+
+			BeforeEach(func() {
+				mockConditionalAPI = NewMockConditionalAPI(mockCtrl)
+			})
+
+			It("should be no-op when requested external IDs is empty", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(nil)
+				err := client.SetPortExternalIDs(ctx, "test-port", map[string]string{})
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should be no-op when port external IDs already match requested", func() {
+				externalIDs := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						port := model.(*ovsmodel.Port)
+						port.Name = "test-port"
+						port.ExternalIDs = map[string]string{"key": "value"}
+						return nil
+					})
+
+				err := client.SetPortExternalIDs(ctx, "test-port", externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should return error when port not found", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+
+				err := client.SetPortExternalIDs(ctx, "test-port", map[string]string{"key": "value"})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to get port"))
+			})
+
+			It("should update when port external IDs differ from requested", func() {
+				externalIDs := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						port := model.(*ovsmodel.Port)
+						port.Name = "test-port"
+						port.ExternalIDs = map[string]string{"key": "old"}
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				err := client.SetPortExternalIDs(ctx, "test-port", externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should update when port has no external IDs (externalIDsToDelete empty)", func() {
+				externalIDs := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						port := model.(*ovsmodel.Port)
+						port.Name = "test-port"
+						port.ExternalIDs = nil
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				err := client.SetPortExternalIDs(ctx, "test-port", externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+		Describe("SetBridgeExternalIDs", func() {
+			var mockConditionalAPI *MockConditionalAPI
+
+			BeforeEach(func() {
+				mockConditionalAPI = NewMockConditionalAPI(mockCtrl)
+			})
+
+			It("should be no-op when requested external IDs is empty", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(nil)
+				err := client.SetBridgeExternalIDs(ctx, "br-test", map[string]string{})
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should be no-op when bridge external IDs already match requested", func() {
+				externalIDs := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						bridge := model.(*ovsmodel.Bridge)
+						bridge.Name = "br-test"
+						bridge.ExternalIDs = map[string]string{"key": "value"}
+						return nil
+					})
+
+				err := client.SetBridgeExternalIDs(ctx, "br-test", externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should return error when bridge not found", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+
+				err := client.SetBridgeExternalIDs(ctx, "br-test", map[string]string{"key": "value"})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to get bridge"))
+			})
+
+			It("should update when bridge external IDs differ from requested", func() {
+				externalIDs := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						bridge := model.(*ovsmodel.Bridge)
+						bridge.Name = "br-test"
+						bridge.ExternalIDs = map[string]string{"key": "old"}
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				err := client.SetBridgeExternalIDs(ctx, "br-test", externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should update when bridge has no external IDs (externalIDsToDelete empty)", func() {
+				externalIDs := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						bridge := model.(*ovsmodel.Bridge)
+						bridge.Name = "br-test"
+						bridge.ExternalIDs = nil
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				err := client.SetBridgeExternalIDs(ctx, "br-test", externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+		Describe("SetOpenVSwitchExternalIDs", func() {
+			var mockConditionalAPI *MockConditionalAPI
+
+			BeforeEach(func() {
+				mockConditionalAPI = NewMockConditionalAPI(mockCtrl)
+			})
+
+			It("should be no-op when requested external IDs is empty", func() {
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]*ovsmodel.OpenvSwitch)
+						*ptr = []*ovsmodel.OpenvSwitch{{UUID: "test-uuid"}}
+						return nil
+					})
+
+				err := client.SetOpenVSwitchExternalIDs(ctx, map[string]string{})
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should be no-op when Open_vSwitch external IDs already match requested", func() {
+				externalIDs := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]*ovsmodel.OpenvSwitch)
+						*ptr = []*ovsmodel.OpenvSwitch{{
+							UUID:        "test-uuid",
+							ExternalIDs: map[string]string{"key": "value"},
+						}}
+						return nil
+					})
+
+				err := client.SetOpenVSwitchExternalIDs(ctx, externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should return error when GetOpenVSwitch fails", func() {
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]*ovsmodel.OpenvSwitch)
+						*ptr = []*ovsmodel.OpenvSwitch{}
+						return nil
+					})
+
+				err := client.SetOpenVSwitchExternalIDs(ctx, map[string]string{"key": "value"})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to get Open_vSwitch row"))
+			})
+
+			It("should update when Open_vSwitch external IDs differ from requested", func() {
+				externalIDs := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]*ovsmodel.OpenvSwitch)
+						*ptr = []*ovsmodel.OpenvSwitch{{
+							UUID:        "test-uuid",
+							ExternalIDs: map[string]string{"key": "old"},
+						}}
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				err := client.SetOpenVSwitchExternalIDs(ctx, externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should update when Open_vSwitch has no external IDs (externalIDsToDelete empty)", func() {
+				externalIDs := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]*ovsmodel.OpenvSwitch)
+						*ptr = []*ovsmodel.OpenvSwitch{{
+							UUID:        "test-uuid",
+							ExternalIDs: nil,
+						}}
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				err := client.SetOpenVSwitchExternalIDs(ctx, externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+			})
 		})
 
 		Describe("DeleteBridge", func() {

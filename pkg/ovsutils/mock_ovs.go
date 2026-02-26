@@ -409,6 +409,20 @@ func (mr *MockAPIMockRecorder) Schema() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Schema", reflect.TypeOf((*MockAPI)(nil).Schema))
 }
 
+// SetBridgeExternalIDs mocks base method.
+func (m *MockAPI) SetBridgeExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetBridgeExternalIDs", ctx, name, externalIDs)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetBridgeExternalIDs indicates an expected call of SetBridgeExternalIDs.
+func (mr *MockAPIMockRecorder) SetBridgeExternalIDs(ctx, name, externalIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetBridgeExternalIDs", reflect.TypeOf((*MockAPI)(nil).SetBridgeExternalIDs), ctx, name, externalIDs)
+}
+
 // SetIfaceExternalIDs mocks base method.
 func (m *MockAPI) SetIfaceExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error {
 	m.ctrl.T.Helper()
