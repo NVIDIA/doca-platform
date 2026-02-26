@@ -18,7 +18,6 @@ package util
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -276,20 +275,6 @@ DHCP = yes
 		})
 	})
 
-	Context("HasNetplan", Label("HasNetplan"), func() {
-		It("should return boolean based on netplan availability", func() {
-			// Just verify it returns without error
-			result := HasNetplan()
-			// Check if netplan is actually available to validate result
-			_, err := exec.LookPath("netplan")
-			if err != nil {
-				Expect(result).To(BeFalse())
-			} else {
-				Expect(result).To(BeTrue())
-			}
-		})
-	})
-
 	Context("generateNetplanFilePath", Label("generateNetplanFilePath"), func() {
 		It("should return error when serial number cannot be read", func() {
 			pciHelper := NewPCIHelper("9999:99:99.0") // Non-existent device
@@ -324,18 +309,4 @@ DHCP = yes
 		})
 	})
 
-	Context("EnsureSystemdNetworkdActive", Label("EnsureSystemdNetworkdActive"), func() {
-		It("should check systemd-networkd status without error", func() {
-			// This test just verifies the function runs - result depends on system state
-			err := EnsureSystemdNetworkdActive()
-			// We can't assert on success/failure as it depends on the system
-			// Just ensure it doesn't panic and returns a reasonable error if inactive
-			if err != nil {
-				Expect(err.Error()).To(Or(
-					ContainSubstring("systemd-networkd is not active"),
-					ContainSubstring("failed to check systemd-networkd status"),
-				))
-			}
-		})
-	})
 })

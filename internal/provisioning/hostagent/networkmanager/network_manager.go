@@ -32,6 +32,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/util/netconfig"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -41,7 +42,6 @@ import (
 )
 
 const (
-	BridgeName          = "br-dpu"
 	NumofVFDefaultValue = 16
 	condition           = string(provisioningv1.DPUCondHostNetworkReady)
 )
@@ -63,8 +63,8 @@ type NetworkManager struct {
 	devicesBySN map[string]hostutil.Device
 	// reqs is a map of DPU CR UID to its network request
 	reqs map[string]NetworkRequest
-	// hasNetplan indicates if netplan is available on the system
-	hasNetplan bool
+	// netBackend is the network configuration backend (NetworkManager or systemd-networkd)
+	netBackend netconfig.Backend
 }
 
 type networkOperation struct {
@@ -84,13 +84,12 @@ func (nm *NetworkManager) Start() error {
 	nm.Lock()
 	defer nm.Unlock()
 
-	// Detect and cache netplan availability
-	nm.hasNetplan = hostutil.HasNetplan()
-
-	// Validate that systemd-networkd is available and active
-	if err := hostutil.EnsureSystemdNetworkdActive(); err != nil {
-		return fmt.Errorf("failed to ensure systemd-networkd is active: %w", err)
+	backend, err := netconfig.DetectBackend()
+	if err != nil {
+		return fmt.Errorf("failed to detect network configuration backend: %w", err)
 	}
+	nm.netBackend = backend
+	klog.Infof("Using network configuration backend: %s", backend.Name())
 
 	devices, err := hostutil.DiscoverDPUs(hostutil.SysFSRoot)
 	if err != nil {
@@ -218,21 +217,13 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 				if err := writeNetworkRequestFile(&nr); err != nil {
 					return fmt.Errorf("failed to update vf name in network request file: %w", err)
 				}
-				return hostutil.AddVFToBridge(nr.VFName, BridgeName)
+				return hostutil.AddVFToBridge(nr.VFName, hostutil.BridgeName)
 			},
 		},
 		{
-			name: "ConfigureNetplan",
+			name: "ConfigureNetwork",
 			f: func(nr NetworkRequest) error {
-				// Only configure netplan if it's available on the system
-				if !nm.hasNetplan {
-					klog.Info("Skipping netplan configuration - netplan not available on this system")
-					return nil
-				}
-				if err := hostutil.ConfigureNetplan(nr.PCIAddress, nr.PortConfigs, nr.ControlPlaneMTU); err != nil {
-					return err
-				}
-				return nil
+				return netconfig.ConfigureNetwork(nm.netBackend, nr.PCIAddress, nr.PortConfigs, nr.ControlPlaneMTU)
 			},
 		},
 	}
