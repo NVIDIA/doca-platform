@@ -1186,22 +1186,22 @@ var _ = Describe("DPUSet", func() {
 				}
 			}).WithTimeout(5 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
 
-			By("Calling updateDPUs again (should find no changes)")
-			dpuMap, err = reconciler.GetDPUsMap(ctx, dpuSet)
-			Expect(err).NotTo(HaveOccurred())
-			dpusUpdated, err = reconciler.UpdateDPUs(ctx, dpuSet, dpuMap)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(dpusUpdated).To(BeFalse(), "No DPU updates should be needed now")
-
-			By("Calling updateDPUSetStatus with dpusUpdated=false")
-			err = reconciler.UpdateDPUSetStatus(ctx, dpuSet, dpusUpdated)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Verifying DPUSet is now ready")
-			readyCondition = meta.FindStatusCondition(dpuSet.Status.Conditions, "Ready")
-			Expect(readyCondition).NotTo(BeNil())
-			Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue),
-				"DPUSet should be ready now that DPU has reconciled the changes and is ready")
+			By("Calling updateDPUs again and UpdateDPUSetStatus until DPUSet becomes ready")
+			// Retry in Eventually: cache may briefly show a stale DPU (e.g. Generation changed by another
+			// controller) so GetDPUsMap inside UpdateDPUSetStatus can see ObservedGeneration != Generation.
+			Eventually(func(g Gomega) {
+				dpuMap, err := reconciler.GetDPUsMap(ctx, dpuSet)
+				g.Expect(err).NotTo(HaveOccurred())
+				dpusUpdated, err := reconciler.UpdateDPUs(ctx, dpuSet, dpuMap)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(dpusUpdated).To(BeFalse(), "No DPU updates should be needed now")
+				err = reconciler.UpdateDPUSetStatus(ctx, dpuSet, dpusUpdated)
+				g.Expect(err).NotTo(HaveOccurred())
+				readyCondition := meta.FindStatusCondition(dpuSet.Status.Conditions, "Ready")
+				g.Expect(readyCondition).NotTo(BeNil())
+				g.Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue),
+					"DPUSet should be ready now that DPU has reconciled the changes and is ready")
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
 		})
 
 		It("should NOT update dpuMap when no changes are needed", func() {
