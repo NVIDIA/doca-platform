@@ -45,6 +45,7 @@ type API interface {
 	SetOpenVSwitchExternalIDs(ctx context.Context, externalIDs map[string]string) error
 	GetOpenVSwitchExternalIDs(ctx context.Context) (map[string]string, error)
 	AddBridge(ctx context.Context, bridgeConfig BridgeConfig) error
+	SetBridgeExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error
 	GetIfaceWithName(ctx context.Context, name string) (*ovsmodel.Interface, error)
 	DeleteBridge(ctx context.Context, name string) error
 }
@@ -239,9 +240,11 @@ func (c *Client) DelPort(ctx context.Context, bridgeName, portName string) error
 	return nil
 }
 
-func (c *Client) mutate(ctx context.Context, obj model.Model, mutation model.Mutation) error {
-	ifaceMutations := []model.Mutation{mutation}
-	operations, err := c.Where(obj).Mutate(obj, ifaceMutations...)
+func (c *Client) mutate(ctx context.Context, obj model.Model, mutations ...model.Mutation) error {
+	if len(mutations) == 0 {
+		return nil
+	}
+	operations, err := c.Where(obj).Mutate(obj, mutations...)
 	if err != nil {
 		return fmt.Errorf("failed to mutate: %v", err)
 	}
@@ -258,44 +261,14 @@ func (c *Client) mutate(ctx context.Context, obj model.Model, mutation model.Mut
 	return nil
 }
 
-// SetIfaceExternalIDs sets the external IDs for an interface
-// if the external ID already exists, it will be updated with the new value
-// if the external ID does not exist, it will be added
+// SetIfaceExternalIDs sets the external IDs for an interface.
+// It is a no-op if externalIDs is empty or if the interface already has the requested keys with the same values.
 func (c *Client) SetIfaceExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error {
-	iface := &ovsmodel.Interface{
-		Name: name,
+	iface := &ovsmodel.Interface{Name: name}
+	if err := c.Get(ctx, iface); err != nil {
+		return fmt.Errorf("failed to get interface %s: %w", name, err)
 	}
-
-	err := c.Get(ctx, iface)
-	if err != nil {
-		return fmt.Errorf("failed to get interface %s: %v", name, err)
-	}
-
-	// Get previous external IDs
-	deleteExternalIDs := map[string]string{}
-	for key := range externalIDs {
-		if prevExternalIDVal, ok := iface.ExternalIDs[key]; ok {
-			if prevExternalIDVal != externalIDs[key] {
-				// external ID has changed, delete the previous one
-				deleteExternalIDs[key] = prevExternalIDVal
-			}
-		}
-	}
-	// Delete previous external IDs
-	if err := c.mutate(ctx, iface, model.Mutation{
-		Field:   &iface.ExternalIDs,
-		Mutator: ovsdb.MutateOperationDelete,
-		Value:   deleteExternalIDs,
-	}); err != nil {
-		return fmt.Errorf("failed to delete previous external IDs: %v", err)
-	}
-
-	// Create mutation with existing UUID as condition
-	return c.mutate(ctx, iface, model.Mutation{
-		Field:   &iface.ExternalIDs,
-		Mutator: ovsdb.MutateOperationInsert,
-		Value:   externalIDs,
-	})
+	return c.applyExternalIDs(ctx, iface, &iface.ExternalIDs, externalIDs)
 }
 
 func (c *Client) GetIfaceWithExternalIDs(ctx context.Context, externalIDs map[string]string) (*ovsmodel.Interface, error) {
@@ -339,16 +312,69 @@ func (c *Client) SetIfaceOptions(ctx context.Context, name string, options map[s
 	})
 }
 
-func (c *Client) SetPortExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error {
-	port := &ovsmodel.Port{
-		Name: name,
+// applyExternalIDs updates the ExternalIDs field on an already-fetched model.
+// It is a no-op if desiredExternalIDs is empty or if externalIDsField already matches desiredExternalIDs.
+// Only keys that need a change are updated: existing keys with the same value are left alone; we delete then insert only for keys that are new or have a different value.
+func (c *Client) applyExternalIDs(ctx context.Context, m model.Model, externalIDsField *map[string]string, desiredExternalIDs map[string]string) error {
+	if len(desiredExternalIDs) == 0 {
+		return nil
 	}
 
-	return c.mutate(ctx, port, model.Mutation{
-		Field:   &port.ExternalIDs,
-		Mutator: ovsdb.MutateOperationInsert,
-		Value:   externalIDs,
-	})
+	externalIDsToDelete := map[string]string{}
+	externalIDsToInsert := map[string]string{}
+	for k, desiredVal := range desiredExternalIDs {
+		currentVal, exists := (*externalIDsField)[k]
+		if exists && currentVal == desiredVal {
+			continue
+		}
+		externalIDsToInsert[k] = desiredVal
+		if exists {
+			externalIDsToDelete[k] = currentVal
+		}
+	}
+
+	// OVSDB map mutate requires delete-then-insert for keys we're changing. Both in one transaction.
+	var mutations []model.Mutation
+	if len(externalIDsToDelete) > 0 {
+		mutations = append(mutations, model.Mutation{
+			Field:   externalIDsField,
+			Mutator: ovsdb.MutateOperationDelete,
+			Value:   externalIDsToDelete,
+		})
+	}
+	if len(externalIDsToInsert) > 0 {
+		mutations = append(mutations, model.Mutation{
+			Field:   externalIDsField,
+			Mutator: ovsdb.MutateOperationInsert,
+			Value:   externalIDsToInsert,
+		})
+	}
+	if len(mutations) > 0 {
+		if err := c.mutate(ctx, m, mutations...); err != nil {
+			return fmt.Errorf("failed to update external IDs: %v", err)
+		}
+	}
+	return nil
+}
+
+// SetPortExternalIDs sets the external IDs for a port.
+// It is a no-op if externalIDs is empty or if the port already has the requested keys with the same values.
+func (c *Client) SetPortExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error {
+	port := &ovsmodel.Port{Name: name}
+	if err := c.Get(ctx, port); err != nil {
+		return fmt.Errorf("failed to get port %s: %w", name, err)
+	}
+	return c.applyExternalIDs(ctx, port, &port.ExternalIDs, externalIDs)
+}
+
+// SetBridgeExternalIDs sets the external IDs for a bridge.
+// It is a no-op if externalIDs is empty or if the bridge already has the requested keys with the same values.
+func (c *Client) SetBridgeExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error {
+	bridge := &ovsmodel.Bridge{Name: name}
+	if err := c.Get(ctx, bridge); err != nil {
+		return fmt.Errorf("failed to get bridge %s: %w", name, err)
+	}
+	return c.applyExternalIDs(ctx, bridge, &bridge.ExternalIDs, externalIDs)
 }
 
 func (c *Client) IsIfaceInBr(ctx context.Context, bridgeName, portName string) (bool, error) {
@@ -400,30 +426,7 @@ func (c *Client) SetOpenVSwitchExternalIDs(ctx context.Context, externalIDs map[
 	if err != nil {
 		return fmt.Errorf("failed to get Open_vSwitch row: %v", err)
 	}
-	//Get previous external IDs
-	deleteExternalIDs := map[string]string{}
-	for key := range externalIDs {
-		if prevExternalIDVal, ok := ovsRow.ExternalIDs[key]; ok {
-			if prevExternalIDVal != externalIDs[key] {
-				// external ID has changed, delete the previous one
-				deleteExternalIDs[key] = prevExternalIDVal
-			}
-		}
-	}
-	// Delete previous external IDs
-	if err := c.mutate(ctx, ovsRow, model.Mutation{
-		Field:   &ovsRow.ExternalIDs,
-		Mutator: ovsdb.MutateOperationDelete,
-		Value:   deleteExternalIDs,
-	}); err != nil {
-		return fmt.Errorf("failed to delete previous external IDs: %v", err)
-	}
-	// Create mutation with existing UUID as condition
-	return c.mutate(ctx, ovsRow, model.Mutation{
-		Field:   &ovsRow.ExternalIDs,
-		Mutator: ovsdb.MutateOperationInsert,
-		Value:   externalIDs,
-	})
+	return c.applyExternalIDs(ctx, ovsRow, &ovsRow.ExternalIDs, externalIDs)
 }
 
 func (c *Client) GetOpenVSwitchExternalIDs(ctx context.Context) (map[string]string, error) {
