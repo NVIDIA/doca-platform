@@ -27,6 +27,7 @@ import (
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -74,10 +75,10 @@ func PerformArmForceRestart(ctx context.Context, dpu *provisioningv1.DPU, ctrlCt
 		return *state, err
 	}
 
-	// Set initial condition to mark the start of the restart flow for observability.
+	// Set initial condition (in progress; Status False until step is done).
 	_, cond := cutil.GetDPUCondition(state, provisioningv1.DPUCondArmForceRestarted.String())
 	if cond == nil {
-		setArmCondition(state, fmt.Errorf("in progress"), "InProgress",
+		setArmCondition(state, "InProgress",
 			fmt.Sprintf("ARM restart flow started (0/%d)", tracker.MaxAttempts))
 	}
 
@@ -91,13 +92,13 @@ func PerformArmForceRestart(ctx context.Context, dpu *provisioningv1.DPU, ctrlCt
 	resp, sysInfo, err := client.GetSystem()
 	if err != nil {
 		log.Error(err, "Failed to get system info from BMC")
-		setArmCondition(state, err, "FailedToGetSystemState", err.Error())
+		setArmCondition(state, "FailedToGetSystemState", err.Error())
 		return *state, err // Retryable
 	}
 	if sysInfo == nil || resp.StatusCode() != http.StatusOK {
 		err = fmt.Errorf("unexpected response from BMC: status=%d", resp.StatusCode())
 		log.Error(err, "Failed to get system boot state")
-		setArmCondition(state, err, "FailedToGetSystemState", err.Error())
+		setArmCondition(state, "FailedToGetSystemState", err.Error())
 		return *state, err // Retryable
 	}
 	osRunning := sysInfo.BootProgress.OemLastState == bootProgressOsRunning
@@ -134,7 +135,7 @@ func validateTracker(dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus) (
 		dutil.ClearArmRestartTracker(dpu)
 		state.Phase = provisioningv1.DPUError
 		err := fmt.Errorf("exceeded maximum safety limit of %d restart attempts", MaxSafetyLimit)
-		setArmCondition(state, err, "MaxSafetyLimitExceeded", err.Error())
+		setArmCondition(state, "MaxSafetyLimitExceeded", err.Error())
 		return nil, nil // Terminal error - don't retry
 	}
 
@@ -145,13 +146,13 @@ func validateTracker(dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus) (
 func createRedfishClientForDPU(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, state *provisioningv1.DPUStatus) (*rc.Client, error) {
 	dpuDevice := &provisioningv1.DPUDevice{}
 	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
-		setArmCondition(state, err, "FailedToGetDPUDevice", err.Error())
+		setArmCondition(state, "FailedToGetDPUDevice", err.Error())
 		return nil, err // Retryable
 	}
 
 	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
-		setArmCondition(state, err, "FailedToCreateRedfishClient", err.Error())
+		setArmCondition(state, "FailedToCreateRedfishClient", err.Error())
 		return nil, err // Retryable
 	}
 
@@ -192,11 +193,11 @@ func handleWaitingForBoot(dpu *provisioningv1.DPU, state *provisioningv1.DPUStat
 		dutil.ClearArmRestartTracker(dpu)
 		state.Phase = provisioningv1.DPUError
 		err := fmt.Errorf("OS boot timeout after %s", OSRunningTimeout)
-		setArmCondition(state, err, "OSBootTimeout", err.Error())
+		setArmCondition(state, "OSBootTimeout", err.Error())
 		return *state, nil // Terminal error - don't retry
 	}
 
-	setArmCondition(state, nil, "WaitingForBoot", "Waiting for ARM OS to reach running state")
+	setArmCondition(state, "WaitingForBoot", "Waiting for ARM OS to reach running state")
 	return *state, nil // Requeue via default reconcile interval
 }
 
@@ -212,7 +213,7 @@ func triggerArmRestart(ctx context.Context, dpu *provisioningv1.DPU, state *prov
 	// ForceRestartDPUArm returns error for both connection failures and non-200/204 responses
 	if _, err := client.ForceRestartDPUArm(); err != nil {
 		log.Error(err, "Failed to trigger ARM ForceRestart")
-		setArmCondition(state, err, "FailedToRebootDPUArm", err.Error())
+		setArmCondition(state, "FailedToRebootDPUArm", err.Error())
 		return *state, err // Retryable
 	}
 
@@ -222,14 +223,18 @@ func triggerArmRestart(ctx context.Context, dpu *provisioningv1.DPU, state *prov
 		return *state, err // Retryable
 	}
 
-	setArmCondition(state, nil, "RestartTriggered",
+	setArmCondition(state, "RestartTriggered",
 		fmt.Sprintf("ARM restart %d/%d triggered", tracker.Attempt, tracker.MaxAttempts))
 	return *state, nil
 }
 
-// setArmCondition is a helper to set the ArmForceRestarted condition on state.
-func setArmCondition(state *provisioningv1.DPUStatus, err error, reason, message string) {
-	cutil.SetDPUCondition(state, cutil.NewCondition(
-		provisioningv1.DPUCondArmForceRestarted.String(),
-		err, reason, message))
+// setArmCondition sets ArmForceRestarted to False with reason and message.
+// Use for in-progress sub-states and errors; True is set only when the step is done (phase transition).
+func setArmCondition(state *provisioningv1.DPUStatus, reason, message string) {
+	cutil.SetDPUCondition(state, &metav1.Condition{
+		Type:    provisioningv1.DPUCondArmForceRestarted.String(),
+		Status:  metav1.ConditionFalse,
+		Reason:  reason,
+		Message: message,
+	})
 }
