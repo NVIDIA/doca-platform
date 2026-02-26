@@ -95,6 +95,13 @@ spec:
         secret:
           secretName: ${kubeconfig_secret}
       restartPolicy: Always
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Exists
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
 EOF
 	done <<< "$dpuclusters"
 
