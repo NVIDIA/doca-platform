@@ -176,6 +176,7 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(status.Phase).To(Equal(provisioningv1.DPUError))
 		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
 		Expect(cond).NotTo(BeNil())
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse), "error case must set condition False")
 		Expect(cond.Reason).To(Equal("MaxSafetyLimitExceeded"))
 	})
 
@@ -213,9 +214,11 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(loaded.Attempt).To(Equal(1))
 
 		// Verify condition is set (initial InProgress is overwritten by RestartTriggered
-		// in the same reconcile since the first restart succeeds immediately)
+		// in the same reconcile since the first restart succeeds immediately). Status
+		// must be False until the step is done (common pattern with other phases).
 		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
 		Expect(cond).NotTo(BeNil())
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse), "in-progress must set condition False")
 		Expect(cond.Reason).To(Equal("RestartTriggered"))
 	})
 
@@ -235,6 +238,7 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(status.Phase).To(Equal(provisioningv1.DPUPerformArmForceRestart))
 		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
 		Expect(cond).NotTo(BeNil())
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse), "in-progress must set condition False")
 		Expect(cond.Reason).To(Equal("WaitingForBoot"))
 	})
 
@@ -254,6 +258,7 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(status.Phase).To(Equal(provisioningv1.DPUError))
 		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
 		Expect(cond).NotTo(BeNil())
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse), "error case must set condition False")
 		Expect(cond.Reason).To(Equal("OSBootTimeout"))
 	})
 
@@ -271,6 +276,11 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(err).NotTo(HaveOccurred())
 		// Phase stays the same — no restart triggered, waiting for interval
 		Expect(status.Phase).To(Equal(provisioningv1.DPUPerformArmForceRestart))
+		// Initial condition set to InProgress (Status False)
+		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
+		Expect(cond).NotTo(BeNil())
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse), "in-progress must set condition False")
+		Expect(cond.Reason).To(Equal("InProgress"))
 		// Attempt should NOT have incremented
 		loaded, loadErr := dutil.LoadArmRestartTracker(dpu)
 		Expect(loadErr).NotTo(HaveOccurred())
@@ -292,6 +302,7 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(status.Phase).To(Equal(provisioningv1.DPUPerformArmForceRestart))
 		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
 		Expect(cond).NotTo(BeNil())
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse), "error case must set condition False")
 		Expect(cond.Reason).To(Equal("FailedToGetSystemState"))
 	})
 
@@ -311,6 +322,7 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(status.Phase).To(Equal(provisioningv1.DPUPerformArmForceRestart))
 		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
 		Expect(cond).NotTo(BeNil())
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse), "error case must set condition False")
 		Expect(cond.Reason).To(Equal("FailedToRebootDPUArm"))
 		// Attempt should NOT have incremented
 		loaded, loadErr := dutil.LoadArmRestartTracker(dpu)
@@ -333,7 +345,7 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface))
 		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
 		Expect(cond).NotTo(BeNil())
-		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		Expect(cond.Status).To(Equal(metav1.ConditionTrue), "condition True only when step is done")
 		// Tracker should NOT be cleared (Init needs it for validation path)
 		loaded, _ := dutil.LoadArmRestartTracker(dpu)
 		Expect(loaded).NotTo(BeNil())
