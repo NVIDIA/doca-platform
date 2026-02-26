@@ -41,6 +41,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -70,33 +71,30 @@ func CleanupAndWait(ctx context.Context, c client.Client, objs ...client.Object)
 	return cleanupAndWait(ctx, c, false, objs...)
 }
 
-// CleanupWithLabelAndWait creates a list ob objects with certain labels and deletes them. After deletion, it waits to be removed.
+// CleanupWithLabelAndWait collects all resources matching the label selector and delegates to CleanupAndWait for parallel deletion
 func CleanupWithLabelAndWait(ctx context.Context, c client.Client, labelSelector labels.Selector, resources ...client.ObjectList) error {
 	var deleteObjs []client.Object
 
 	logger := log.FromContext(ctx)
 
+	// Collect all matching objects across the provided resource types
 	for _, list := range resources {
-		if err := c.List(context.Background(), list, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		if err := c.List(ctx, list, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 			if meta.IsNoMatchError(err) {
-				// resource not registered in API server, skip
 				logger.Info("Resource not registered in API server, skipping", "resource", list.GetObjectKind().GroupVersionKind().String())
 				continue
 			}
 			return err
 		}
 
-		items, err := meta.ExtractList(list)
-		if err != nil {
+		// Extract and convert runtime.Object to client.Object for CleanupAndWait
+		if err := meta.EachListItem(list,
+			func(item runtime.Object) error {
+				deleteObjs = append(deleteObjs, item.(client.Object))
+				return nil
+			},
+		); err != nil {
 			return err
-		}
-
-		for _, item := range items {
-			obj, ok := item.(client.Object)
-			if !ok {
-				return err
-			}
-			deleteObjs = append(deleteObjs, obj)
 		}
 	}
 
@@ -120,10 +118,14 @@ func CreateResourceIfNotExist(ctx context.Context, c client.Client, obj client.O
 }
 
 // cleanupAndWait is a helper function to delete and wait for resources to be deleted.
+// It fires all delete requests first, then waits for all resources to be gone.
+// This allows finalizers to resolve naturally regardless of deletion order.
 func cleanupAndWait(ctx context.Context, c client.Client, removeFinalizers bool, objs ...client.Object) error {
 	logger := log.FromContext(ctx)
-	// Ensure each object is deleted by checking that each object returns an IsNotFound error in the api server.
-	errs := []error{}
+
+	// Step 1: Fire all delete requests without waiting. This ensures all resources are marked for
+	// deletion before we start polling, so finalizers that depend on other resources being deleted
+	// can resolve naturally in the background.
 	for _, o := range objs {
 		logger.Info("Deleting resource", "kind", o.GetObjectKind().GroupVersionKind().String(), "namespace", o.GetNamespace(), "name", o.GetName())
 		if err := c.Delete(ctx, o); err != nil && !apierrors.IsNotFound(err) {
@@ -137,6 +139,13 @@ func cleanupAndWait(ctx context.Context, c client.Client, removeFinalizers bool,
 				return err
 			}
 		}
+	}
+
+	// Step 2: Poll until all resources are gone. By this point every resource has a deletionTimestamp,
+	// so finalizer controllers can reconcile them in any order.
+	errs := []error{}
+	for _, o := range objs {
+		logger.Info("Waiting for resource to be deleted", "kind", o.GetObjectKind().GroupVersionKind().String(), "namespace", o.GetNamespace(), "name", o.GetName())
 		key := client.ObjectKeyFromObject(o)
 		err := wait.ExponentialBackoff(
 			wait.Backoff{
