@@ -131,7 +131,7 @@ type Variables struct {
 }
 
 type DPFProvisioningVariables struct {
-	BFBPersistentVolumeClaimName   string
+	BFBPersistentVolumeClaimName   *string
 	DMSTimeout                     *int
 	BFCFGTemplateConfig            *string
 	CustomCASecretName             *string

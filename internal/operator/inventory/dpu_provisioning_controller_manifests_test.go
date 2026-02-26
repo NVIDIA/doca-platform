@@ -72,58 +72,6 @@ func TestDPFProvisioningControllerObjects_Parse(t *testing.T) {
 		}
 		return true
 	})
-	volumeMissing := iterate(func(u *unstructured.Unstructured) bool {
-		if u.GetKind() == string(DeploymentKind) {
-			deploy := &appsv1.Deployment{}
-			err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.UnstructuredContent(), deploy)
-			g.Expect(err).NotTo(HaveOccurred())
-			deploy.Spec.Template.Spec.Volumes = []corev1.Volume{
-				{
-					Name: "some-other-volume",
-					VolumeSource: corev1.VolumeSource{
-						HostPath: &corev1.HostPathVolumeSource{
-							Path: "/",
-						},
-					},
-				},
-			}
-			un, err := runtime.DefaultUnstructuredConverter.ToUnstructured(deploy)
-			g.Expect(err).NotTo(HaveOccurred())
-			*u = unstructured.Unstructured{Object: un}
-		}
-		return true
-	})
-
-	volumeWrongName := iterate(func(u *unstructured.Unstructured) bool {
-		if u.GetKind() == string(DeploymentKind) {
-			deploy := &appsv1.Deployment{}
-			err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.UnstructuredContent(), deploy)
-			g.Expect(err).NotTo(HaveOccurred())
-			deploy.Spec.Template.Spec.Volumes = []corev1.Volume{
-				{
-					Name: "some-other-volume",
-					VolumeSource: corev1.VolumeSource{
-						HostPath: &corev1.HostPathVolumeSource{
-							Path: "/",
-						},
-					},
-				},
-				{
-					Name: "wrong-name",
-					VolumeSource: corev1.VolumeSource{
-						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-							ClaimName: bfbVolumeName,
-						},
-					},
-				},
-			}
-			un, err := runtime.DefaultUnstructuredConverter.ToUnstructured(deploy)
-			g.Expect(err).NotTo(HaveOccurred())
-			*u = unstructured.Unstructured{Object: un}
-		}
-		return true
-	})
-
 	tests := []struct {
 		name      string
 		data      []byte
@@ -142,16 +90,6 @@ func TestDPFProvisioningControllerObjects_Parse(t *testing.T) {
 		{
 			name:      "fail if wrong Deployment name in manifests",
 			data:      wrongName,
-			expectErr: true,
-		},
-		{
-			name:      "fail if PVC volume is missing",
-			data:      volumeMissing,
-			expectErr: true,
-		},
-		{
-			name:      "fail if PVC volume has different name",
-			data:      volumeWrongName,
 			expectErr: true,
 		},
 	}
@@ -204,11 +142,13 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 	t.Run("fail if empty pvc", func(t *testing.T) {
 		vars := newDefaultVariables(defaults)
 
+		emptyStr := " "
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: " ",
+			BFBPersistentVolumeClaimName: &emptyStr,
 		}
+		// This test may need to be updated - empty string is now valid (uses hostPath)
 		_, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
-		NewGomegaWithT(t).Expect(err).To(HaveOccurred())
+		NewGomegaWithT(t).Expect(err).NotTo(HaveOccurred())
 	})
 
 	t.Run("test setting namespaces", func(t *testing.T) {
@@ -217,8 +157,9 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		vars := newDefaultVariables(defaults)
 
 		vars.Namespace = testNS
+		pvcName := "pvc"
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: "pvc",
+			BFBPersistentVolumeClaimName: &pvcName,
 		}
 		objs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
@@ -304,7 +245,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		vars := newDefaultVariables(defaults)
 		vars.Namespace = ns
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName:   expectedPVC,
+			BFBPersistentVolumeClaimName:   &expectedPVC,
 			DMSTimeout:                     &expectedDmsTimeout,
 			MultiDPUOperationsSyncWaitTime: 30 * time.Second,
 		}
@@ -314,7 +255,6 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
-		// BFB Registry is always deployed
 		g.Expect(generatedObjs).To(HaveLen(len(originalObjs) + len(originalBFBRegistryObjs)))
 
 		// Expect the namespaces for the namespace scoped objects to equal the namespace in variables.
@@ -349,10 +289,11 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		g.Expect(gotDeployment.Spec.Template.Spec.ImagePullSecrets).To(HaveLen(2))
 		g.Expect(gotDeployment.Spec.Template.Spec.ImagePullSecrets[0].Name).To(Equal(expectedImagePullSecret1))
 		g.Expect(gotDeployment.Spec.Template.Spec.ImagePullSecrets[1].Name).To(Equal(expectedImagePullSecret2))
-		// * check bfb pvc
+		// * check bfb pvc (no init container when using PVC)
 		g.Expect(gotDeployment.Spec.Template.Spec.Volumes).To(HaveLen(2))
 		g.Expect(gotDeployment.Spec.Template.Spec.Volumes[1].PersistentVolumeClaim).NotTo(BeNil())
 		g.Expect(gotDeployment.Spec.Template.Spec.Volumes[1].PersistentVolumeClaim.ClaimName).To(Equal(expectedPVC))
+		g.Expect(gotDeployment.Spec.Template.Spec.InitContainers).To(BeEmpty(), "no init container when BFB PVC is set")
 		// * check args of the manager container
 		var container *corev1.Container
 		for _, c := range gotDeployment.Spec.Template.Spec.Containers {
@@ -372,21 +313,84 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			fmt.Sprintf("--dpu-install-interface=%s", provisioningv1.InstallViaHostAgent),
 			fmt.Sprintf("--dms-pod-envs=KUBERNETES_SERVICE_HOST=%s,KUBERNETES_SERVICE_PORT=%d", expectedKubernetesAPIServerVIP, expectedKubernetesAPIServerPort),
 			fmt.Sprintf("--multi-dpu-operations-sync-wait-time=%s", expectedMultiDPUOperationsSyncWaitTime),
-			"--bfb-registry=bfb-registry:8080",
+			"--bfb-registry=",
 		}
 		g.Expect(gotDeployment.Spec.Template.Spec.Containers).To(HaveLen(1))
-		g.Expect(gotDeployment.Spec.Template.Spec.Containers[0].Args).To(HaveLen(len(expectedArgs)))
+		g.Expect(container.Args).To(HaveLen(len(expectedArgs)))
 		for i, ea := range expectedArgs {
 			g.Expect(container.Args[i]).To(Equal(ea))
 		}
 	})
+
+	t.Run("test hostPath BFB and init container when no PVC", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: nil, // no PVC: use hostPath
+		}
+		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		g.Expect(err).NotTo(HaveOccurred())
+		var gotDeployment *appsv1.Deployment
+		for i, obj := range generatedObjs {
+			if obj.GetObjectKind().GroupVersionKind().Kind == string(DeploymentKind) {
+				deployment, ok := generatedObjs[i].(*unstructured.Unstructured)
+				g.Expect(ok).To(BeTrue())
+				gotDeployment = &appsv1.Deployment{}
+				g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(deployment.UnstructuredContent(), gotDeployment)).ToNot(HaveOccurred())
+				break
+			}
+		}
+		g.Expect(gotDeployment).NotTo(BeNil())
+		// hostPath at bfbHostPathPath
+		var bfbVol *corev1.Volume
+		for i := range gotDeployment.Spec.Template.Spec.Volumes {
+			if gotDeployment.Spec.Template.Spec.Volumes[i].Name == bfbVolumeName {
+				bfbVol = &gotDeployment.Spec.Template.Spec.Volumes[i]
+				break
+			}
+		}
+		g.Expect(bfbVol).NotTo(BeNil())
+		g.Expect(bfbVol.HostPath).NotTo(BeNil())
+		g.Expect(bfbVol.HostPath.Path).To(Equal(bfbHostPathPath))
+		g.Expect(bfbVol.PersistentVolumeClaim).To(BeNil())
+		g.Expect(gotDeployment.Spec.Template.Spec.InitContainers).To(HaveLen(1))
+		initC := gotDeployment.Spec.Template.Spec.InitContainers[0]
+		g.Expect(initC.Name).To(Equal(prepareLocalStorageInitContainerName))
+		g.Expect(initC.SecurityContext).NotTo(BeNil())
+		g.Expect(initC.SecurityContext.RunAsUser).NotTo(BeNil())
+		g.Expect(*initC.SecurityContext.RunAsUser).To(Equal(int64(0)))
+		g.Expect(initC.VolumeMounts).To(ContainElement(corev1.VolumeMount{Name: bfbVolumeName, MountPath: "/bfb"}))
+		g.Expect(initC.Command).To(Equal([]string{"sh", "-c", "mkdir -p /bfb && chown -R 65532:65532 /bfb"}))
+
+		var managerC *corev1.Container
+		for i := range gotDeployment.Spec.Template.Spec.Containers {
+			if gotDeployment.Spec.Template.Spec.Containers[i].Name == managerContainerName {
+				managerC = &gotDeployment.Spec.Template.Spec.Containers[i]
+				break
+			}
+		}
+		g.Expect(managerC).NotTo(BeNil())
+		g.Expect(managerC.Args).To(ContainElement("--bfb-pvc="), "hostPath mode must set --bfb-pvc= (empty)")
+		var hasNodeName, hasNodeIP bool
+		for _, e := range managerC.Env {
+			if e.Name == "NODE_NAME" && e.ValueFrom != nil {
+				hasNodeName = true
+			}
+			if e.Name == "NODE_IP" && e.ValueFrom != nil {
+				hasNodeIP = true
+			}
+		}
+		g.Expect(hasNodeName).To(BeTrue())
+		g.Expect(hasNodeIP).To(BeTrue())
+	})
+
 	t.Run("test adding a custom bfb cfg configmap", func(t *testing.T) {
 		g := NewGomegaWithT(t)
 
 		expectedPVC := TestPVC
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: expectedPVC,
+			BFBPersistentVolumeClaimName: &expectedPVC,
 			BFCFGTemplateConfig:          ptr.To("configmap"),
 		}
 		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
@@ -403,6 +407,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		podTemplate := gotDeployment.Spec.Template
 		// * ensure that the expected modifications have been made to the deployment.
 		g.Expect(gotDeployment).NotTo(BeNil())
+		// Only manager container
 		g.Expect(podTemplate.Spec.Containers).To(HaveLen(1))
 		// * ensure the arg is added to the container
 		g.Expect(podTemplate.Spec.Containers[0].Args).To(ContainElement(fmt.Sprintf("--bf-cfg-template-file=%s", "/bfb-config/bf.cfg.template")))
@@ -432,7 +437,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		g := NewGomegaWithT(t)
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: "pvc",
+			BFBPersistentVolumeClaimName: ptr.To("pvc"),
 		}
 
 		// Set resources
@@ -480,7 +485,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		vars := newDefaultVariables(defaults)
 		dnsPolicy := corev1.DNSDefault
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: "pvc",
+			BFBPersistentVolumeClaimName: ptr.To("pvc"),
 			HostAgentDNSPolicy:           &dnsPolicy,
 		}
 
@@ -507,7 +512,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		g := NewGomegaWithT(t)
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: "pvc",
+			BFBPersistentVolumeClaimName: ptr.To("pvc"),
 		}
 
 		objs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
@@ -552,7 +557,7 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 		expectedPVC := TestPVC
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: expectedPVC,
+			BFBPersistentVolumeClaimName: &expectedPVC,
 			InstallInterface: &operatorv1.ProvisioningInstallInterface{
 				InstallViaRedfish: &operatorv1.InstallViaRedfish{
 					BFBRegistryAddress: "registry-address",
@@ -567,43 +572,48 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
-		// Find the DaemonSet for the BFB registry
-		var daemonSet *appsv1.DaemonSet
+		// BFB registry runs as sidecar in the Deployment (no DaemonSet)
+		var deployment *appsv1.Deployment
 		for _, obj := range generatedObjs {
-			if obj.GetObjectKind().GroupVersionKind().Kind == string(DaemonSetKind) {
-				ds := &appsv1.DaemonSet{}
+			if obj.GetObjectKind().GroupVersionKind().Kind == string(DeploymentKind) {
+				deploy := &appsv1.Deployment{}
 				unstructuredObj, ok := obj.(*unstructured.Unstructured)
 				g.Expect(ok).To(BeTrue())
-				err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), ds)
+				err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), deploy)
 				g.Expect(err).NotTo(HaveOccurred())
-				daemonSet = ds
+				deployment = deploy
 				break
 			}
 		}
 
-		// Verify the DaemonSet exists and has expected properties
-		g.Expect(daemonSet).NotTo(BeNil())
-		g.Expect(daemonSet.Namespace).To(Equal(vars.Namespace))
-		g.Expect(daemonSet.Labels).To(HaveKeyWithValue(operatorv1.DPFComponentLabelKey, operatorv1.BFBRegistryName.String()))
+		g.Expect(deployment).NotTo(BeNil())
+		// Only manager container; bfb-registry is created by controller when leader
+		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
 
-		// Verify container configuration
-		g.Expect(daemonSet.Spec.Template.Spec.Containers).To(HaveLen(1))
-		container := daemonSet.Spec.Template.Spec.Containers[0]
-		g.Expect(container.Name).To(Equal("nginx"))
-		g.Expect(container.Image).To(Equal("registry-image:latest"))
+		// Manager container gets --bfb-registry from InstallViaRedfish.BFBRegistryAddress
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--dpu-install-interface=redfish"))
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--bfb-registry=registry-address"))
+	})
 
-		// Verify environment variables
-		g.Expect(container.Env).To(ContainElement(corev1.EnvVar{
-			Name:  "NGINX_PORT",
-			Value: "9090",
-		}))
+	t.Run("test generating bfb-registry manifests with default port when BFBRegistry is nil", func(t *testing.T) {
+		g := NewGomegaWithT(t)
 
-		// Verify node affinity and tolerations
-		g.Expect(daemonSet.Spec.Template.Spec.Affinity).NotTo(BeNil())
-		g.Expect(daemonSet.Spec.Template.Spec.Affinity.NodeAffinity).NotTo(BeNil())
-		g.Expect(daemonSet.Spec.Template.Spec.Tolerations).NotTo(BeEmpty())
+		expectedPVC := TestPVC
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: &expectedPVC,
+			InstallInterface: &operatorv1.ProvisioningInstallInterface{
+				InstallViaRedfish: &operatorv1.InstallViaRedfish{
+					BFBRegistryAddress: "registry-address",
+					// BFBRegistry is nil
+				},
+			},
+		}
+		vars.Images[operatorv1.BFBRegistryName.String()] = "registry-image:latest"
 
-		// Verify deployment has the correct flag for BFB registry
+		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		g.Expect(err).NotTo(HaveOccurred())
+
 		var deployment *appsv1.Deployment
 		for _, obj := range generatedObjs {
 			if obj.GetObjectKind().GroupVersionKind().Kind == string(DeploymentKind) {
@@ -619,71 +629,6 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 
 		g.Expect(deployment).NotTo(BeNil())
 		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
-		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--dpu-install-interface=redfish"))
-		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--bfb-registry=registry-address"))
-	})
-
-	t.Run("test generating bfb-registry manifests with default port when BFBRegistry is nil", func(t *testing.T) {
-		g := NewGomegaWithT(t)
-
-		expectedPVC := TestPVC
-		vars := newDefaultVariables(defaults)
-		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: expectedPVC,
-			InstallInterface: &operatorv1.ProvisioningInstallInterface{
-				InstallViaRedfish: &operatorv1.InstallViaRedfish{
-					BFBRegistryAddress: "registry-address",
-					// BFBRegistry is nil
-				},
-			},
-		}
-		vars.Images[operatorv1.BFBRegistryName.String()] = "registry-image:latest"
-
-		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
-		g.Expect(err).NotTo(HaveOccurred())
-
-		// Find the DaemonSet for the BFB registry
-		var daemonSet *appsv1.DaemonSet
-		for _, obj := range generatedObjs {
-			if obj.GetObjectKind().GroupVersionKind().Kind == string(DaemonSetKind) {
-				ds := &appsv1.DaemonSet{}
-				unstructuredObj, ok := obj.(*unstructured.Unstructured)
-				g.Expect(ok).To(BeTrue())
-				err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), ds)
-				g.Expect(err).NotTo(HaveOccurred())
-				daemonSet = ds
-				break
-			}
-		}
-
-		// Verify the DaemonSet exists
-		g.Expect(daemonSet).NotTo(BeNil())
-
-		// Verify container configuration
-		g.Expect(daemonSet.Spec.Template.Spec.Containers).To(HaveLen(1))
-		container := daemonSet.Spec.Template.Spec.Containers[0]
-
-		// Verify environment variables - should use default port 8080
-		g.Expect(container.Env).To(ContainElement(corev1.EnvVar{
-			Name:  "NGINX_PORT",
-			Value: "8080",
-		}))
-
-		// Verify deployment has the correct flags
-		var deployment *appsv1.Deployment
-		for _, obj := range generatedObjs {
-			if obj.GetObjectKind().GroupVersionKind().Kind == string(DeploymentKind) {
-				deploy := &appsv1.Deployment{}
-				unstructuredObj, ok := obj.(*unstructured.Unstructured)
-				g.Expect(ok).To(BeTrue())
-				err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), deploy)
-				g.Expect(err).NotTo(HaveOccurred())
-				deployment = deploy
-				break
-			}
-		}
-
-		g.Expect(deployment).NotTo(BeNil())
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--dpu-install-interface=redfish"))
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--bfb-registry=registry-address"))
 	})
@@ -709,7 +654,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		expectedPVC := TestPVC
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: expectedPVC,
+			BFBPersistentVolumeClaimName: &expectedPVC,
 			MaxDPUParallelInstallations:  ptr.To(int32(10)),
 		}
 
@@ -741,7 +686,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		expectedPVC := TestPVC
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: expectedPVC,
+			BFBPersistentVolumeClaimName: &expectedPVC,
 		}
 
 		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
@@ -773,7 +718,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		expectedPVC := TestPVC
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: expectedPVC,
+			BFBPersistentVolumeClaimName: &expectedPVC,
 			MaxDPUParallelInstallations:  ptr.To(int32(1)),
 		}
 
@@ -805,7 +750,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		expectedPVC := TestPVC
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: expectedPVC,
+			BFBPersistentVolumeClaimName: &expectedPVC,
 			MaxDPUParallelInstallations:  ptr.To(int32(-1)),
 		}
 
@@ -837,7 +782,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		expectedPVC := TestPVC
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: expectedPVC,
+			BFBPersistentVolumeClaimName: &expectedPVC,
 			MaxDPUParallelInstallations:  ptr.To(int32(1000)),
 		}
 

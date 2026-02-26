@@ -63,13 +63,13 @@ func NewDPUInProvisioningMap(max int32) *DPUInProvisioningMap {
 	}
 }
 
-// Initialize counts current DPUs in provisioning state
-func (c *DPUInProvisioningMap) Initialize(ctx context.Context, client client.Client) error {
+// Initialize counts current DPUs in provisioning state. reader can be mgr.GetAPIReader() to avoid waiting for cache sync.
+func (c *DPUInProvisioningMap) Initialize(ctx context.Context, reader client.Reader) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	dpuList := &provisioningv1.DPUList{}
-	if err := client.List(ctx, dpuList); err != nil {
+	if err := reader.List(ctx, dpuList); err != nil {
 		return fmt.Errorf("failed to list DPUs: %w", err)
 	}
 

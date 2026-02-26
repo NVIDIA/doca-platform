@@ -1166,9 +1166,9 @@ spec:
                       Use enableDynamicBFCFGTemplates instead for custom bf.cfg templates.
                     type: string
                   bfbPVCName:
-                    description: BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim
-                      used by dpf-provisioning-controller
-                    minLength: 1
+                    description: |-
+                      BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim used by dpf-provisioning-controller
+                      If not provided, the controller will use local host storage (hostPath)
                     type: string
                   controller:
                     description: |-
@@ -1387,8 +1387,6 @@ spec:
                     maximum: 3
                     minimum: 1
                     type: integer
-                required:
-                - bfbPVCName
                 type: object
                 x-kubernetes-validations:
                 - message: only either 'image' (deprecated) or 'controller.image'

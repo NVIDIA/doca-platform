@@ -579,7 +579,7 @@ var _ = Describe("Kamaji Handler - Defaults and Secrets", func() {
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-						BFBPersistentVolumeClaimName: "pvc",
+						BFBPersistentVolumeClaimName: ptr.To("pvc"),
 					},
 				},
 			}
