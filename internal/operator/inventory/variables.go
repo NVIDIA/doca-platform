@@ -54,6 +54,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.CNIInstallerName:           false,
 			operatorv1.KubeStateMetricsName:       false,
 			operatorv1.NodeProblemDetectorName:    false,
+			operatorv1.OpenTelemetryCollectorName: true, // Disabled by default, requires endpoint configuration
 
 			// Static cluster manager is disabled by default.
 			operatorv1.StaticClusterManagerName: true,
@@ -76,16 +77,17 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.BFBRegistryName.String(): defaults.BFBRegistryImage,
 		},
 		HelmCharts: map[operatorv1.ComponentName]string{
-			operatorv1.FlannelName:              defaults.DPUNetworkingHelmChart,
-			operatorv1.MultusName:               defaults.DPUNetworkingHelmChart,
-			operatorv1.SRIOVDevicePluginName:    defaults.DPUNetworkingHelmChart,
-			operatorv1.NVIPAMName:               defaults.DPUNetworkingHelmChart,
-			operatorv1.OVSCNIName:               defaults.DPUNetworkingHelmChart,
-			operatorv1.SFCControllerName:        defaults.DPUNetworkingHelmChart,
-			operatorv1.ServiceSetControllerName: defaults.DPUNetworkingHelmChart,
-			operatorv1.CNIInstallerName:         defaults.DPUNetworkingHelmChart,
-			operatorv1.KubeStateMetricsName:     defaults.DPUNetworkingHelmChart,
-			operatorv1.NodeProblemDetectorName:  defaults.DPUNetworkingHelmChart,
+			operatorv1.FlannelName:                defaults.DPUNetworkingHelmChart,
+			operatorv1.MultusName:                 defaults.DPUNetworkingHelmChart,
+			operatorv1.SRIOVDevicePluginName:      defaults.DPUNetworkingHelmChart,
+			operatorv1.NVIPAMName:                 defaults.DPUNetworkingHelmChart,
+			operatorv1.OVSCNIName:                 defaults.DPUNetworkingHelmChart,
+			operatorv1.SFCControllerName:          defaults.DPUNetworkingHelmChart,
+			operatorv1.ServiceSetControllerName:   defaults.DPUNetworkingHelmChart,
+			operatorv1.CNIInstallerName:           defaults.DPUNetworkingHelmChart,
+			operatorv1.KubeStateMetricsName:       defaults.DPUNetworkingHelmChart,
+			operatorv1.NodeProblemDetectorName:    defaults.DPUNetworkingHelmChart,
+			operatorv1.OpenTelemetryCollectorName: defaults.DPUNetworkingHelmChart,
 		},
 		SFCController: SFCControllerVariables{
 			SecureFlowDeletionTimeout: 0 * time.Second,
@@ -119,6 +121,7 @@ type Variables struct {
 	DPFProvisioningController        DPFProvisioningVariables
 	SFCController                    SFCControllerVariables
 	NodeSRIOVDevicePluginController  NodeSRIOVDevicePluginControllerVariables
+	OpenTelemetryCollector           OpenTelemetryCollectorVariables
 	Networking                       Networking
 	DisableSystemComponents          map[operatorv1.ComponentName]bool
 	ImagePullSecrets                 []string
@@ -163,6 +166,10 @@ type NodeSRIOVDevicePluginControllerVariables struct {
 	DevicePluginInitImage string
 	// DefaultResourcePrefix is the default resource prefix for device plugin resources.
 	DefaultResourcePrefix string
+}
+
+type OpenTelemetryCollectorVariables struct {
+	ManagementEndpoint *string
 }
 
 func VariablesFromDPFOperatorConfig(defaults *release.Defaults, config *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config) Variables {
@@ -366,12 +373,14 @@ func setMonitoringConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 	if !config.MonitoringEnabled() {
 		variables.DisableSystemComponents[operatorv1.NodeProblemDetectorName] = true
 		variables.DisableSystemComponents[operatorv1.KubeStateMetricsName] = true
+		variables.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] = true
 		return variables
 	}
 
 	// Enable monitoring components by default when monitoring is enabled
 	variables.DisableSystemComponents[operatorv1.NodeProblemDetectorName] = false
 	variables.DisableSystemComponents[operatorv1.KubeStateMetricsName] = false
+	// OpenTelemetry Collector remains disabled by default (requires endpoint configuration)
 
 	// No component-specific configuration provided, use defaults
 	if config.Spec.Monitoring == nil {
@@ -386,6 +395,19 @@ func setMonitoringConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 	// Apply node-problem-detector specific configuration
 	if npdConfig := config.Spec.Monitoring.NodeProblemDetector; npdConfig != nil && npdConfig.Disabled() {
 		variables.DisableSystemComponents[operatorv1.NodeProblemDetectorName] = true
+	}
+
+	// Apply opentelemetry-collector specific configuration
+	// OpenTelemetry Collector is disabled by default and requires explicit configuration
+	if otelConfig := config.Spec.Monitoring.OpenTelemetryCollector; otelConfig != nil {
+		if otelConfig.Disabled() {
+			variables.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] = true
+		} else if otelConfig.Endpoint != nil {
+			// Only enable if endpoint is explicitly provided
+			variables.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] = false
+			variables.OpenTelemetryCollector.ManagementEndpoint = otelConfig.Endpoint
+		}
+		// If enabled but no endpoint provided, it remains disabled
 	}
 
 	return variables

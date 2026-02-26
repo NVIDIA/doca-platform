@@ -188,7 +188,7 @@ func init() {
 }
 
 const (
-	// DPUClusterLabelKey is the key of the label linking objects to a specific DPU Cluster. The value should be the
+	// DPUClusterNameLabelKey is the key of the label linking objects to a specific DPU Cluster. The value should be the
 	// namespace of the DPUCluster.
 	DPUClusterNameLabelKey = "dpu.nvidia.com/cluster"
 	// DPUClusterNamespaceLabelKey is the key of the label linking objects to a specific DPU Cluster. The value should
