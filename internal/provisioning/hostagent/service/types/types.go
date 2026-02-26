@@ -25,3 +25,8 @@ type UpdateStatusRequest struct {
 	DPUNamespace string                     `json:"dpuNamespace"`
 	AgentStatus  provisioningv1.AgentStatus `json:"agentStatus"`
 }
+
+type ConfigureHostVFsRequest struct {
+	DPUName      string `json:"dpuName"`
+	DPUNamespace string `json:"dpuNamespace"`
+}
