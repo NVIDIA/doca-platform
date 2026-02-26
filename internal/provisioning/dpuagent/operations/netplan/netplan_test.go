@@ -196,7 +196,7 @@ func (c *mockClient) HealthCheck() error {
 	return nil
 }
 
-func (c *mockClient) UpdateStatus(ctx context.Context, status provisioningv1.DPUInternalStatus) error {
+func (c *mockClient) UpdateStatus(ctx context.Context, status provisioningv1.AgentStatus) error {
 	if c.shouldFail {
 		return fmt.Errorf("failed to update status")
 	}

@@ -347,9 +347,9 @@ type DPUStatus struct {
 	// +optional
 	DPUType DPUType `json:"dpuType,omitempty"`
 
-	// DPUInternalStatus contains the information reported from inside the DPU
+	// AgentStatus contains the information reported from inside the DPU
 	// +optional
-	DPUInternalStatus *DPUInternalStatus `json:"dpuInternalStatus,omitempty"`
+	AgentStatus *AgentStatus `json:"agentStatus,omitempty"`
 
 	// The mode of the DPU
 	// +kubebuilder:validation:Enum=dpu;nic
@@ -393,7 +393,7 @@ const (
 	RebootMethodFirmwareReset RebootMethodType = "FirmwareReset"
 )
 
-type DPUInternalStatus struct {
+type AgentStatus struct {
 	// LastStartupTime is the time when the DPU was last started
 	// +optional
 	LastStartupTime *metav1.Time `json:"lastStartupTime,omitempty"`

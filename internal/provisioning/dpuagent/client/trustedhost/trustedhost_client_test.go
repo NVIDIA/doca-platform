@@ -192,7 +192,7 @@ var _ = Describe("TrustedhostClient", func() {
 			})
 			client := NewTrustedhostClient(dpu.Name, dpu.Namespace)
 			client.hostAgentEndpoint = serverEndpoint
-			dpuInfo := provisioningv1.DPUInternalStatus{
+			agentStatus := provisioningv1.AgentStatus{
 				HostRebootRequired: ptr.To(true),
 				Conditions: []metav1.Condition{
 					{
@@ -203,9 +203,9 @@ var _ = Describe("TrustedhostClient", func() {
 					},
 				},
 			}
-			err := client.UpdateStatus(ctx, dpuInfo)
+			err := client.UpdateStatus(ctx, agentStatus)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(equality.Semantic.DeepEqual(receivedRequest.DPUInfo, dpuInfo)).To(BeTrue())
+			Expect(equality.Semantic.DeepEqual(receivedRequest.AgentStatus, agentStatus)).To(BeTrue())
 		})
 
 		It("update status should fail", func() {
@@ -218,7 +218,7 @@ var _ = Describe("TrustedhostClient", func() {
 			})
 			client := NewTrustedhostClient(dpu.Name, dpu.Namespace)
 			client.hostAgentEndpoint = serverEndpoint
-			err := client.UpdateStatus(ctx, provisioningv1.DPUInternalStatus{
+			err := client.UpdateStatus(ctx, provisioningv1.AgentStatus{
 				HostRebootRequired: ptr.To(true),
 				Conditions: []metav1.Condition{
 					{

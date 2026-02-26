@@ -64,7 +64,7 @@ var _ = Describe("Reboot", func() {
 
 			dpu := &provisioningv1.DPU{
 				Status: provisioningv1.DPUStatus{
-					DPUInternalStatus: &provisioningv1.DPUInternalStatus{
+					AgentStatus: &provisioningv1.AgentStatus{
 						InitialBootID: ptr.To(aDifferentBootID),
 					},
 				},
@@ -107,7 +107,7 @@ var _ = Describe("Reboot", func() {
 			optCtxBooted := &operations.Context{
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
-						DPUInternalStatus: &provisioningv1.DPUInternalStatus{
+						AgentStatus: &provisioningv1.AgentStatus{
 							InitialBootID: ptr.To(differentBootID),
 						},
 					},
@@ -131,7 +131,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
-						DPUInternalStatus: &provisioningv1.DPUInternalStatus{
+						AgentStatus: &provisioningv1.AgentStatus{
 							InitialBootID: ptr.To(storedBootIDDifferent),
 						},
 					},

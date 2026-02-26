@@ -108,7 +108,7 @@ var _ = Describe("NVConfig Operation", func() {
 			}
 			operationCtx := &operations.Context{
 				DPUFlavor: provisioningv1.DPUFlavor{Spec: provisioningv1.DPUFlavorSpec{NVConfig: []provisioningv1.NVConfig{}}},
-				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{DPUInternalStatus: &provisioningv1.DPUInternalStatus{Conditions: []metav1.Condition{}}}},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
 			}
 			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
 			Expect(recorded).To(ConsistOf(
@@ -138,7 +138,7 @@ var _ = Describe("NVConfig Operation", func() {
 						},
 					},
 				},
-				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{DPUInternalStatus: &provisioningv1.DPUInternalStatus{Conditions: []metav1.Condition{}}}},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
 			}
 			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
 			Expect(recorded).To(ConsistOf(
@@ -161,7 +161,7 @@ var _ = Describe("NVConfig Operation", func() {
 			}
 			operationCtx := &operations.Context{
 				DPUFlavor: provisioningv1.DPUFlavor{Spec: provisioningv1.DPUFlavorSpec{NVConfig: []provisioningv1.NVConfig{}}},
-				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{DPUInternalStatus: &provisioningv1.DPUInternalStatus{Conditions: []metav1.Condition{}}}},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
 			}
 			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
 			Expect(recorded).To(ConsistOf(
@@ -191,7 +191,7 @@ var _ = Describe("NVConfig Operation", func() {
 						},
 					},
 				},
-				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{DPUInternalStatus: &provisioningv1.DPUInternalStatus{Conditions: []metav1.Condition{}}}},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
 			}
 			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
 			Expect(recorded).To(ConsistOf(
@@ -224,7 +224,7 @@ var _ = Describe("NVConfig Operation", func() {
 			}
 			operationCtx.LatestDPU = &provisioningv1.DPU{
 				Status: provisioningv1.DPUStatus{
-					DPUInternalStatus: &provisioningv1.DPUInternalStatus{
+					AgentStatus: &provisioningv1.AgentStatus{
 						Conditions: []metav1.Condition{
 							{
 								Type:   CondNVConfigApplied,
@@ -284,7 +284,7 @@ var _ = Describe("NVConfig Operation", func() {
 			operationCtx := &operations.Context{
 				DPUFlavor: dpuFlavor,
 				Client: &mockClient{
-					updateStatusFunc: func(execCtx context.Context, status provisioningv1.DPUInternalStatus) error {
+					updateStatusFunc: func(execCtx context.Context, status provisioningv1.AgentStatus) error {
 						return nil
 					},
 					healthCheckFunc: func() error {
@@ -294,7 +294,7 @@ var _ = Describe("NVConfig Operation", func() {
 			}
 			operationCtx.LatestDPU = &provisioningv1.DPU{
 				Status: provisioningv1.DPUStatus{
-					DPUInternalStatus: &provisioningv1.DPUInternalStatus{
+					AgentStatus: &provisioningv1.AgentStatus{
 						Conditions: []metav1.Condition{
 							{
 								Type:   CondNVConfigApplied,
@@ -357,7 +357,7 @@ var _ = Describe("NVConfig Operation", func() {
 			operationCtx := &operations.Context{
 				DPUFlavor: dpuFlavor,
 				Client: &mockClient{
-					updateStatusFunc: func(execCtx context.Context, status provisioningv1.DPUInternalStatus) error {
+					updateStatusFunc: func(execCtx context.Context, status provisioningv1.AgentStatus) error {
 						return nil
 					},
 					healthCheckFunc: func() error {
@@ -367,7 +367,7 @@ var _ = Describe("NVConfig Operation", func() {
 			}
 			operationCtx.LatestDPU = &provisioningv1.DPU{
 				Status: provisioningv1.DPUStatus{
-					DPUInternalStatus: &provisioningv1.DPUInternalStatus{
+					AgentStatus: &provisioningv1.AgentStatus{
 						Conditions: []metav1.Condition{
 							{
 								Type:   CondNVConfigApplied,
@@ -517,7 +517,7 @@ var _ = Describe("NVConfig Operation", func() {
 
 type mockClient struct {
 	getObjectFunc    func(execCtx context.Context, namespace, name string, obj client.Object) error
-	updateStatusFunc func(execCtx context.Context, status provisioningv1.DPUInternalStatus) error
+	updateStatusFunc func(execCtx context.Context, status provisioningv1.AgentStatus) error
 	healthCheckFunc  func() error
 }
 
@@ -525,7 +525,7 @@ func (m *mockClient) GetObject(execCtx context.Context, namespace, name string, 
 	return m.getObjectFunc(execCtx, namespace, name, obj)
 }
 
-func (m *mockClient) UpdateStatus(execCtx context.Context, status provisioningv1.DPUInternalStatus) error {
+func (m *mockClient) UpdateStatus(execCtx context.Context, status provisioningv1.AgentStatus) error {
 	return m.updateStatusFunc(execCtx, status)
 }
 

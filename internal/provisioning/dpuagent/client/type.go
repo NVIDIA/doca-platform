@@ -26,6 +26,6 @@ import (
 
 type Client interface {
 	HealthCheck() error
-	UpdateStatus(context.Context, provisioningv1.DPUInternalStatus) error
+	UpdateStatus(context.Context, provisioningv1.AgentStatus) error
 	GetObject(ctx context.Context, namespace string, name string, obj client.Object) error
 }
