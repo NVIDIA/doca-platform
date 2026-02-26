@@ -239,8 +239,9 @@ func TestManifests_Parse_Generate_All(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			vars := newDefaultVariables(defaults)
+			pvcName := bfbVolumeName
 			vars.DPFProvisioningController = DPFProvisioningVariables{
-				BFBPersistentVolumeClaimName: bfbVolumeName,
+				BFBPersistentVolumeClaimName: &pvcName,
 			}
 
 			err := tt.inventory.ParseAll()
@@ -290,8 +291,9 @@ func TestManifests_generateAllManifests(t *testing.T) {
 	i := New()
 	g.Expect(i.ParseAll()).NotTo(HaveOccurred())
 	vars := newDefaultVariables(defaults)
+	pvcName := bfbVolumeName
 	vars.DPFProvisioningController = DPFProvisioningVariables{
-		BFBPersistentVolumeClaimName: bfbVolumeName,
+		BFBPersistentVolumeClaimName: &pvcName,
 	}
 	tests := []struct {
 		name               string

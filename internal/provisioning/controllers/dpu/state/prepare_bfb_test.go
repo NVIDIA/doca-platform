@@ -72,7 +72,7 @@ var _ = Describe("DPU: PrepareBFB", func() {
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-					BFBPersistentVolumeClaimName: "bfb-pvc",
+					BFBPersistentVolumeClaimName: ptr.To("bfb-pvc"),
 				},
 			},
 		}

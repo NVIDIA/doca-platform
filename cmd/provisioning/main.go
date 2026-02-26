@@ -20,12 +20,15 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/bfbregistry"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/bfb"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/bluefieldsoftware"
@@ -72,6 +75,9 @@ var (
 	fs         = pflag.CommandLine
 )
 
+// defaultBFBRegistryAddress is the in-cluster service address when --bfb-registry is not set.
+const defaultBFBRegistryAddress = "bfb-registry:8082"
+
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
@@ -83,9 +89,10 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
-// Add RBAC for the metrics endpoint.
+// Add RBAC for the metrics endpoint and for BFBRegistry services.
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
+// +kubebuilder:rbac:groups="",resources=services,verbs=create;delete;deletecollection;get;list;patch;update;watch
 
 type cliFlags struct {
 	metricsAddr                    string
@@ -231,7 +238,28 @@ func createManager(flags *cliFlags) (ctrl.Manager, *rest.Config) {
 	return mgr, clientConfig
 }
 
+// resolveBFBRegistry resolves the BFB registry address based on the installation interface and the environment variables.
+func resolveBFBRegistry(flags *cliFlags) {
+	if flags.bfbRegistry == "" {
+		if flags.dpuInstallInterface == string(provisioningv1.InstallViaRedFish) {
+			nodeIP := os.Getenv("NODE_IP")
+			nodePort := strconv.Itoa(int(bfbregistry.NodePort))
+			if nodeIP == "" || nodePort == "" {
+				setupLog.Info("NODE_IP or NODE_PORT is empty, can not build the bfb-registry address")
+				os.Exit(1)
+			}
+			flags.bfbRegistry = "http://" + net.JoinHostPort(nodeIP, nodePort)
+		} else {
+			flags.bfbRegistry = defaultBFBRegistryAddress
+		}
+		setupLog.Info("bfb-registry is empty, set bfb-registry address for downloading BFB files", "bfbRegistry", flags.bfbRegistry)
+	}
+}
+
 func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferences []corev1.LocalObjectReference) *dutil.DPUInProvisioningMap {
+	resolveBFBRegistry(flags)
+	setupLog.Info("bfb-registry address", "bfbRegistry", flags.bfbRegistry)
+
 	alloc := allocator.NewAllocator(mgr.GetClient())
 	dpuOptions := dutil.DPUOptions{
 		ImagePullSecrets:            imagePullSecretsReferences,
@@ -303,6 +331,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferen
 		os.Exit(1)
 	}
 
+	// Step 8: pass bfb-registry-address to DMS options (already defaulted above when empty).
 	dmsPodOptions := dnutil.HostAgentPodOptions{
 		HostAgentImageWithTag: flags.dmsImage,
 		ImagePullSecrets:      imagePullSecretsReferences,
@@ -452,7 +481,14 @@ func main() {
 	setupHealthChecks(mgr, ctx)
 	setupInitRunnable(mgr, dpuMap)
 
-	// Start the manager
+	if err := mgr.Add(&bfbregistry.BFBRegistryRunnable{
+		Client: mgr.GetClient(),
+		BFBPVC: flags.bfbPVC,
+	}); err != nil {
+		setupLog.Error(err, "unable to register bfb-registry runnable")
+		os.Exit(1)
+	}
+
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")

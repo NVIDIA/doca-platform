@@ -71,8 +71,9 @@ type ProvisioningControllerConfiguration struct {
 	EnableDynamicBFCFGTemplates bool `json:"enableDynamicBFCFGTemplates,omitempty"`
 
 	// BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim used by dpf-provisioning-controller
-	// +kubebuilder:validation:MinLength=1
-	BFBPersistentVolumeClaimName string `json:"bfbPVCName"`
+	// If not provided, the controller will use local host storage (hostPath)
+	// +optional
+	BFBPersistentVolumeClaimName *string `json:"bfbPVCName,omitempty"`
 
 	// DMSTimeout is the max time in seconds within which a DMS API must respond, 0 is unlimited
 	// +kubebuilder:validation:Minimum=1
