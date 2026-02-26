@@ -54,31 +54,31 @@ func (c *ZerotrustClient) HealthCheck() error {
 	return err
 }
 
-func (c *ZerotrustClient) UpdateStatus(ctx context.Context, dpuInfo provisioningv1.DPUInternalStatus) error {
+func (c *ZerotrustClient) UpdateStatus(ctx context.Context, agentStatus provisioningv1.AgentStatus) error {
 	latestDPU := &provisioningv1.DPU{}
 	if err := c.dpfClient.Get(ctx, client.ObjectKey{Namespace: c.dpuNamespace, Name: c.dpuName}, latestDPU); err != nil {
 		return err
 	}
 	patch := client.MergeFrom(latestDPU.DeepCopy())
-	if latestDPU.Status.DPUInternalStatus == nil {
-		latestDPU.Status.DPUInternalStatus = &provisioningv1.DPUInternalStatus{
+	if latestDPU.Status.AgentStatus == nil {
+		latestDPU.Status.AgentStatus = &provisioningv1.AgentStatus{
 			Conditions: []metav1.Condition{},
 		}
 	}
-	if dpuInfo.LastStartupTime != nil {
-		latestDPU.Status.DPUInternalStatus.LastStartupTime = dpuInfo.LastStartupTime
+	if agentStatus.LastStartupTime != nil {
+		latestDPU.Status.AgentStatus.LastStartupTime = agentStatus.LastStartupTime
 	}
-	if dpuInfo.HostRebootRequired != nil {
-		latestDPU.Status.DPUInternalStatus.HostRebootRequired = dpuInfo.HostRebootRequired
+	if agentStatus.HostRebootRequired != nil {
+		latestDPU.Status.AgentStatus.HostRebootRequired = agentStatus.HostRebootRequired
 	}
-	if dpuInfo.InitialBootID != nil {
-		latestDPU.Status.DPUInternalStatus.InitialBootID = dpuInfo.InitialBootID
+	if agentStatus.InitialBootID != nil {
+		latestDPU.Status.AgentStatus.InitialBootID = agentStatus.InitialBootID
 	}
-	if dpuInfo.RebootMethod != nil {
-		latestDPU.Status.DPUInternalStatus.RebootMethod = dpuInfo.RebootMethod
+	if agentStatus.RebootMethod != nil {
+		latestDPU.Status.AgentStatus.RebootMethod = agentStatus.RebootMethod
 	}
-	for _, condition := range dpuInfo.Conditions {
-		meta.SetStatusCondition(&latestDPU.Status.DPUInternalStatus.Conditions, condition)
+	for _, condition := range agentStatus.Conditions {
+		meta.SetStatusCondition(&latestDPU.Status.AgentStatus.Conditions, condition)
 	}
 	return c.dpfClient.Status().Patch(ctx, latestDPU, patch)
 }

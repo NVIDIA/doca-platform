@@ -183,11 +183,11 @@ func (h *HandleReboot) getRebootMethod(optCtx *operations.Context) (*provisionin
 	// means reboot was done physically (stored ID is old boot, current is new).
 	// If the logic still returns non-NoAction, we must not trigger again — error instead.
 	if *reboot != provisioningv1.RebootMethodNoAction && optCtx.LatestDPU != nil &&
-		optCtx.LatestDPU.Status.DPUInternalStatus != nil &&
-		optCtx.LatestDPU.Status.DPUInternalStatus.InitialBootID != nil &&
-		*optCtx.LatestDPU.Status.DPUInternalStatus.InitialBootID != currentRebootID {
+		optCtx.LatestDPU.Status.AgentStatus != nil &&
+		optCtx.LatestDPU.Status.AgentStatus.InitialBootID != nil &&
+		*optCtx.LatestDPU.Status.AgentStatus.InitialBootID != currentRebootID {
 		return nil, fmt.Errorf("reboot already done (InitialBootID %s != current boot ID %s) but logic returned %s; refusing to avoid double reboot",
-			*optCtx.LatestDPU.Status.DPUInternalStatus.InitialBootID, currentRebootID, *reboot)
+			*optCtx.LatestDPU.Status.AgentStatus.InitialBootID, currentRebootID, *reboot)
 	}
 	return reboot, nil
 }
@@ -203,7 +203,7 @@ func getCurrentRebootID() (string, error) {
 func hasBeenBooted(dpu *provisioningv1.DPU, currentRebootID string) bool {
 	// Hardcode SystemLevelReset for now
 	// Represent the legacy flow based on the initial boot ID.
-	return dpu.Status.DPUInternalStatus != nil &&
-		dpu.Status.DPUInternalStatus.InitialBootID != nil &&
-		*dpu.Status.DPUInternalStatus.InitialBootID != currentRebootID
+	return dpu.Status.AgentStatus != nil &&
+		dpu.Status.AgentStatus.InitialBootID != nil &&
+		*dpu.Status.AgentStatus.InitialBootID != currentRebootID
 }

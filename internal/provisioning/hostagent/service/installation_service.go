@@ -301,25 +301,25 @@ func (s *InstallationService) UpdateStatus(req *restful.Request, resp *restful.R
 	}
 
 	patch := client.MergeFrom(dpu.DeepCopy())
-	if dpu.Status.DPUInternalStatus == nil {
-		dpu.Status.DPUInternalStatus = &provisioningv1.DPUInternalStatus{
+	if dpu.Status.AgentStatus == nil {
+		dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
 			Conditions: []metav1.Condition{},
 		}
 	}
-	if request.DPUInfo.LastStartupTime != nil {
-		dpu.Status.DPUInternalStatus.LastStartupTime = request.DPUInfo.LastStartupTime
+	if request.AgentStatus.LastStartupTime != nil {
+		dpu.Status.AgentStatus.LastStartupTime = request.AgentStatus.LastStartupTime
 	}
-	if request.DPUInfo.HostRebootRequired != nil {
-		dpu.Status.DPUInternalStatus.HostRebootRequired = request.DPUInfo.HostRebootRequired
+	if request.AgentStatus.HostRebootRequired != nil {
+		dpu.Status.AgentStatus.HostRebootRequired = request.AgentStatus.HostRebootRequired
 	}
-	if request.DPUInfo.InitialBootID != nil {
-		dpu.Status.DPUInternalStatus.InitialBootID = request.DPUInfo.InitialBootID
+	if request.AgentStatus.InitialBootID != nil {
+		dpu.Status.AgentStatus.InitialBootID = request.AgentStatus.InitialBootID
 	}
-	if request.DPUInfo.RebootMethod != nil {
-		dpu.Status.DPUInternalStatus.RebootMethod = request.DPUInfo.RebootMethod
+	if request.AgentStatus.RebootMethod != nil {
+		dpu.Status.AgentStatus.RebootMethod = request.AgentStatus.RebootMethod
 	}
-	for _, condition := range request.DPUInfo.Conditions {
-		meta.SetStatusCondition(&dpu.Status.DPUInternalStatus.Conditions, condition)
+	for _, condition := range request.AgentStatus.Conditions {
+		meta.SetStatusCondition(&dpu.Status.AgentStatus.Conditions, condition)
 	}
 
 	if err := s.Status().Patch(req.Request.Context(), dpu, patch); err != nil {

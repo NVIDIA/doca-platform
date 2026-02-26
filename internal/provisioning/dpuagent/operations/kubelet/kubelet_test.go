@@ -36,7 +36,7 @@ import (
 
 type mockClient struct {
 	getObjectFunc    func(ctx context.Context, namespace, name string, obj client.Object) error
-	updateStatusFunc func(ctx context.Context, status provisioningv1.DPUInternalStatus) error
+	updateStatusFunc func(ctx context.Context, status provisioningv1.AgentStatus) error
 	healthCheckFunc  func() error
 }
 
@@ -47,7 +47,7 @@ func (m *mockClient) GetObject(ctx context.Context, namespace, name string, obj 
 	return nil
 }
 
-func (m *mockClient) UpdateStatus(ctx context.Context, status provisioningv1.DPUInternalStatus) error {
+func (m *mockClient) UpdateStatus(ctx context.Context, status provisioningv1.AgentStatus) error {
 	if m.updateStatusFunc != nil {
 		return m.updateStatusFunc(ctx, status)
 	}
@@ -135,7 +135,7 @@ var _ = Describe("Kubelet", func() {
 			err := operation.Execute(ctx, &operations.Context{
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
-						DPUInternalStatus: &provisioningv1.DPUInternalStatus{
+						AgentStatus: &provisioningv1.AgentStatus{
 							Conditions: []metav1.Condition{
 								{
 									Type:   conditionType,

@@ -79,7 +79,7 @@ func (c *TrustedhostClient) HealthCheck() error {
 	return httputil.CheckHTTPResponse(resp)
 }
 
-func (c *TrustedhostClient) UpdateStatus(ctx context.Context, dpuInfo provisioningv1.DPUInternalStatus) error {
+func (c *TrustedhostClient) UpdateStatus(ctx context.Context, agentStatus provisioningv1.AgentStatus) error {
 	if c.hostAgentEndpoint == "" {
 		c.hostAgentEndpoint = defaultHostAgentEndpoint
 	}
@@ -87,7 +87,7 @@ func (c *TrustedhostClient) UpdateStatus(ctx context.Context, dpuInfo provisioni
 	request := types.UpdateStatusRequest{
 		DPUName:      c.dpuName,
 		DPUNamespace: c.dpuNamespace,
-		DPUInfo:      dpuInfo,
+		AgentStatus:  agentStatus,
 	}
 	requestBody, err := json.Marshal(request)
 	if err != nil {
