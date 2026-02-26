@@ -895,7 +895,7 @@ func defaultDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec: operatorv1.DPFOperatorConfigSpec{
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-				BFBPersistentVolumeClaimName: "oof",
+				BFBPersistentVolumeClaimName: ptr.To("oof"),
 			},
 		},
 	}

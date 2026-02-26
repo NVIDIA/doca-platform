@@ -390,7 +390,7 @@ func getMinimalDPFOperatorConfig(namespace string) *operatorv1.DPFOperatorConfig
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-				BFBPersistentVolumeClaimName: "test-bfb-pvc",
+				BFBPersistentVolumeClaimName: ptr.To("test-bfb-pvc"),
 			},
 		},
 	}

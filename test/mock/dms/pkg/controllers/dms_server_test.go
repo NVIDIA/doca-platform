@@ -98,7 +98,7 @@ func TestDMSServerReconciler(t *testing.T) {
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-				BFBPersistentVolumeClaimName: "name",
+				BFBPersistentVolumeClaimName: ptr.To("name"),
 				InstallInterface: &operatorv1.ProvisioningInstallInterface{
 					InstallViaGNOI: &operatorv1.InstallViaGNOI{},
 				},
