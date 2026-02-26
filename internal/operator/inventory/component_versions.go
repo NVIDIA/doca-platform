@@ -28,8 +28,9 @@ import (
 // Components not listed here are assumed to have existed since the minimum supported upgrade version
 // and will always be checked during upgrade validation.
 var componentIntroducedVersions = map[operatorv1.ComponentName]string{
-	operatorv1.KubeStateMetricsName:    "v26.4.0",
-	operatorv1.NodeProblemDetectorName: "v26.4.0",
+	operatorv1.KubeStateMetricsName:       "v26.4.0",
+	operatorv1.NodeProblemDetectorName:    "v26.4.0",
+	operatorv1.OpenTelemetryCollectorName: "v26.4.0",
 }
 
 // ShouldSkipUpgradeCheck determines if a component's upgrade readiness check should be skipped

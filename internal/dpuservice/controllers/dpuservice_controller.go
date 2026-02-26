@@ -894,7 +894,7 @@ func (r *DPUServiceReconciler) reconcileStandardApplications(ctx context.Context
 func (r *DPUServiceReconciler) ensureApplication(ctx context.Context, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, clusterName, dpfOperatorConfigNamespace, serviceID string) error {
 	log := ctrllog.FromContext(ctx)
 	project := getProjectName(dpuService)
-	values, err := argoCDValuesFromDPUService(serviceDaemonSet, dpuService, serviceID)
+	values, err := argoCDValuesFromDPUService(serviceDaemonSet, dpuService, clusterName, serviceID)
 	if err != nil {
 		return err
 	}
@@ -1605,15 +1605,20 @@ func getProjectName(dpuService *dpuservicev1.DPUService) string {
 	return dpuAppProjectName
 }
 
-func argoCDValuesFromDPUService(serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpuService *dpuservicev1.DPUService, serviceID string) (*runtime.RawExtension, error) {
+func argoCDValuesFromDPUService(serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpuService *dpuservicev1.DPUService, clusterName, serviceID string) (*runtime.RawExtension, error) {
 	if serviceDaemonSet == nil {
 		serviceDaemonSet = &dpuservicev1.ServiceDaemonSetValues{}
 	}
 	if serviceDaemonSet.Labels == nil {
 		serviceDaemonSet.Labels = map[string]string{}
 	}
-
 	serviceDaemonSet.Labels[dpuservicev1.DPFServiceIDLabelKey] = serviceID
+
+	if serviceDaemonSet.Annotations == nil {
+		serviceDaemonSet.Annotations = map[string]string{}
+	}
+	serviceDaemonSet.Annotations[provisioningv1.DPUClusterNameLabelKey] = clusterName
+	serviceDaemonSet.Annotations[provisioningv1.DPUClusterNamespaceLabelKey] = dpuService.GetNamespace()
 
 	// Marshal the ServiceDaemonSet and other values to map[string]interface to combine them.
 	var otherValues, serviceDaemonSetValues map[string]interface{}
@@ -1635,6 +1640,16 @@ func argoCDValuesFromDPUService(serviceDaemonSet *dpuservicev1.ServiceDaemonSetV
 
 	serviceDaemonSetValuesWithKey := map[string]interface{}{
 		"serviceDaemonSet": serviceDaemonSetValues,
+	}
+
+	// The serviceDaemonSets must be exposed at the global level for system components.
+	// Since these components are implemented as Helm subcharts, they can only access
+	// values within their own scope or under .Values.global. Parent chart values
+	// are not directly accessible.
+	if _, exists := dpuService.GetLabels()[operatorv1.DPFComponentLabelKey]; exists {
+		serviceDaemonSetValuesWithKey["global"] = map[string]interface{}{
+			"serviceDaemonSet": serviceDaemonSetValues,
+		}
 	}
 
 	// Combine values

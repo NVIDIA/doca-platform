@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "opentelemetry-collector.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "opentelemetry-collector.labels" . | nindent 4 }}
+  annotations:
+    {{- include "opentelemetry-collector.annotations" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "opentelemetry-collector.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "opentelemetry-collector.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Restart pods on config changes
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- include "opentelemetry-collector.annotations" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "opentelemetry-collector.serviceAccountName" . }}
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      containers:
+      - name: opentelemetry-collector
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        env:
+        - name: CLUSTER_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.annotations['dpu.nvidia.com/cluster']
+        - name: CLUSTER_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.annotations['dpu.nvidia.com/cluster-namespace']
+        securityContext:
+          privileged: true
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        command:
+        - /otelcol-contrib
+        args:
+        - --config=/conf/otel-collector-config.yaml
+        ports:
+        - name: otlp-grpc
+          containerPort: 4317
+          protocol: TCP
+        - name: otlp-http
+          containerPort: 4318
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 13133
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 13133
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        {{- with .Values.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: config
+          mountPath: /conf
+          readOnly: true
+        - name: varlog
+          mountPath: /var/log
+          readOnly: true
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "opentelemetry-collector.fullname" . }}-config
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
+      - name: tmp
+        emptyDir: {}
