@@ -189,7 +189,7 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{
-						updateStatusFunc: func(ctx context.Context, status provisioningv1.DPUInternalStatus) error {
+						updateStatusFunc: func(ctx context.Context, status provisioningv1.AgentStatus) error {
 							statusUpdateCount++
 							return nil
 						},
@@ -282,12 +282,12 @@ func (m *mockOperation) Execute(execCtx context.Context, optCtx *operations.Cont
 
 // mockClient is a mock implementation of client.Client for testing
 type mockClient struct {
-	updateStatusFunc func(ctx context.Context, status provisioningv1.DPUInternalStatus) error
+	updateStatusFunc func(ctx context.Context, status provisioningv1.AgentStatus) error
 	getObjectFunc    func(ctx context.Context, namespace, name string, obj client.Object) error
 	healthCheckFunc  func() error
 }
 
-func (m *mockClient) UpdateStatus(ctx context.Context, status provisioningv1.DPUInternalStatus) error {
+func (m *mockClient) UpdateStatus(ctx context.Context, status provisioningv1.AgentStatus) error {
 	if m.updateStatusFunc != nil {
 		return m.updateStatusFunc(ctx, status)
 	}

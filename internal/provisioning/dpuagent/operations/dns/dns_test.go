@@ -73,7 +73,7 @@ var _ = Describe("DNS", func() {
 			})).To(BeFalse())
 		})
 
-		It("should not skip if DPUInternalStatus is nil", func() {
+		It("should not skip if AgentStatus is nil", func() {
 			operation := &ConfigureDNS{}
 			Expect(operation.ShouldSkip(&operations.Context{
 				Options: opts.Options{
@@ -91,7 +91,7 @@ var _ = Describe("DNS", func() {
 				},
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
-						DPUInternalStatus: &provisioningv1.DPUInternalStatus{
+						AgentStatus: &provisioningv1.AgentStatus{
 							Conditions: []metav1.Condition{
 								{
 									Type:   CondDNSConfigured,
@@ -112,7 +112,7 @@ var _ = Describe("DNS", func() {
 				},
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
-						DPUInternalStatus: &provisioningv1.DPUInternalStatus{
+						AgentStatus: &provisioningv1.AgentStatus{
 							Conditions: []metav1.Condition{
 								{
 									Type:   CondDNSConfigured,
@@ -133,7 +133,7 @@ var _ = Describe("DNS", func() {
 				},
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
-						DPUInternalStatus: &provisioningv1.DPUInternalStatus{
+						AgentStatus: &provisioningv1.AgentStatus{
 							Conditions: []metav1.Condition{},
 						},
 					},

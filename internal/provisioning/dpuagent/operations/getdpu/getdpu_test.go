@@ -97,7 +97,7 @@ var _ = Describe("GetLatestDPU Operation", func() {
 
 type mockClient struct {
 	getObjectFunc    func(execCtx context.Context, namespace, name string, obj client.Object) error
-	updateStatusFunc func(execCtx context.Context, status provisioningv1.DPUInternalStatus) error
+	updateStatusFunc func(execCtx context.Context, status provisioningv1.AgentStatus) error
 	healthCheckFunc  func() error
 }
 
@@ -105,7 +105,7 @@ func (m *mockClient) GetObject(execCtx context.Context, namespace, name string, 
 	return m.getObjectFunc(execCtx, namespace, name, obj)
 }
 
-func (m *mockClient) UpdateStatus(execCtx context.Context, status provisioningv1.DPUInternalStatus) error {
+func (m *mockClient) UpdateStatus(execCtx context.Context, status provisioningv1.AgentStatus) error {
 	return m.updateStatusFunc(execCtx, status)
 }
 

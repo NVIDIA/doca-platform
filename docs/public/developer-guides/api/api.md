@@ -1149,6 +1149,26 @@ _Appears in:_
 | `force` _boolean_ | Force is the flag to indicate if the node effect should be applied immediately.<br />If true, dpfOperatorConfig.multiDPUOperationsSyncWaitTime and dpfOperatorConfig.maxUnavailableDPUNodes will be ignored when applying node effect for DPUNodeMaintenance CR | false |  |
 
 
+#### AgentStatus
+
+
+
+
+
+
+
+_Appears in:_
+- [DPUStatus](#dpustatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `lastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastStartupTime is the time when the DPU was last started |  |  |
+| `hostRebootRequired` _boolean_ | HostRebootRequired indicates whether the host requires a reboot after the DPU is installed |  |  |
+| `initialBootID` _string_ | InitialBootID is the boot ID of the DPU OS during the first boot |  |  |
+| `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the type of reset/reboot set by the DPU agent<br />See enum values in RebootMethodType.<br />No default is set intentionally: nil means "check not run or not applicable"<br />(e.g. legacy flow, or agent has not run the check yet);<br />a non-nil value means the check ran and this is the result. |  | Enum: [NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset] <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  |  |
+
+
 #### BFB
 
 
@@ -1907,26 +1927,6 @@ _Appears in:_
 
 
 
-#### DPUInternalStatus
-
-
-
-
-
-
-
-_Appears in:_
-- [DPUStatus](#dpustatus)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `lastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastStartupTime is the time when the DPU was last started |  |  |
-| `hostRebootRequired` _boolean_ | HostRebootRequired indicates whether the host requires a reboot after the DPU is installed |  |  |
-| `initialBootID` _string_ | InitialBootID is the boot ID of the DPU OS during the first boot |  |  |
-| `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the type of reset/reboot set by the DPU agent<br />See enum values in RebootMethodType.<br />No default is set intentionally: nil means "check not run or not applicable"<br />(e.g. legacy flow, or agent has not run the check yet);<br />a non-nil value means the check ran and this is the result. |  | Enum: [NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset] <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  |  |
-
-
 #### DPUList
 
 
@@ -2300,7 +2300,7 @@ _Appears in:_
 | `postProvisioningNodeEffect` _boolean_ | Indicates that node effect was triggered by post-provisioning label changes |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 | `dpuType` _[DPUType](#dputype)_ | The type of the DPU | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br /> |
-| `dpuInternalStatus` _[DPUInternalStatus](#dpuinternalstatus)_ | DPUInternalStatus contains the information reported from inside the DPU |  |  |
+| `agentStatus` _[AgentStatus](#agentstatus)_ | AgentStatus contains the information reported from inside the DPU |  |  |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | The mode of the DPU | dpu | Enum: [dpu nic] <br /> |
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  |  |
 | `redfishTaskId` _string_ | The task ID of the last task performed on the DPU BMC |  |  |
@@ -2632,7 +2632,7 @@ _Validation:_
 - Enum: [NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset]
 
 _Appears in:_
-- [DPUInternalStatus](#dpuinternalstatus)
+- [AgentStatus](#agentstatus)
 
 | Field | Description |
 | --- | --- |

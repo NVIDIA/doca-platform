@@ -143,8 +143,8 @@ func (c *ConfigureKubelet) Execute(execCtx context.Context, optCtx *operations.C
 	if optCtx.LatestDPU == nil {
 		return fmt.Errorf("latest DPU not retrieved (this should never happen)")
 	}
-	if optCtx.LatestDPU.Status.DPUInternalStatus != nil {
-		cond := meta.FindStatusCondition(optCtx.LatestDPU.Status.DPUInternalStatus.Conditions, conditionType)
+	if optCtx.LatestDPU.Status.AgentStatus != nil {
+		cond := meta.FindStatusCondition(optCtx.LatestDPU.Status.AgentStatus.Conditions, conditionType)
 		if cond != nil && cond.Status == metav1.ConditionTrue {
 			klog.Infof("Kubelet already configured, skip")
 			return nil
