@@ -200,6 +200,7 @@ type MonitoringConfiguration struct {
 	// - Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.
 	// - Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.
 	// - Deploys node-problem-detector as a DaemonSet on DPU nodes to detect and report node-level problems.
+	// - Deploys opentelemetry-collector as a DaemonSet on DPU nodes to collect and forward logs.
 	// +optional
 	Disabled *bool `json:"disabled,omitempty"`
 
@@ -210,6 +211,10 @@ type MonitoringConfiguration struct {
 	// NodeProblemDetector is the configuration for node-problem-detector
 	// +optional
 	NodeProblemDetector *NodeProblemDetectorConfiguration `json:"nodeProblemDetector,omitempty"`
+
+	// OpenTelemetryCollector is the configuration for opentelemetry-collector
+	// +optional
+	OpenTelemetryCollector *OpenTelemetryCollectorConfiguration `json:"openTelemetryCollector,omitempty"`
 }
 
 // DPFOperatorConfigStatus defines the observed state of DPFOperatorConfig
