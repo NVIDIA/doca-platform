@@ -211,6 +211,24 @@ grafana:
   # kube-prometheus-stack automatically creates a Prometheus datasource with uid: prometheus
   # which matches what the dpf-operator dashboards expect
 
+  # Additional datasources
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://loki.dpf-operator-system.svc.cluster.local:3100
+      isDefault: false
+      editable: true
+      jsonData:
+        maxLines: 1000
+        derivedFields:
+          # Automatically extract trace IDs from logs (if present)
+          - datasourceName: Tempo
+            matcherRegex: "traceID=(\\w+)"
+            name: TraceID
+            url: "$${__value.raw}"
+
   # Sidecar configuration
   sidecar:
     # Datasources sidecar - provisions datasources from ConfigMaps/Secrets

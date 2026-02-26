@@ -22,3 +22,5 @@ kube-state-metrics:
     enabled: false
 node-problem-detector:
     enabled: false
+opentelemetry-collector:
+    enabled: false

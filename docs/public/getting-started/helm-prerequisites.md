@@ -19,16 +19,18 @@ must be installed manually** before installing the DPF chart itself.
 
 The following table lists all required and optional Helm chart dependencies with their specific versions and purposes:
 
-| Helm Chart               | Version | Description                                                                                    | Required | Post/Pre-installation |
-|--------------------------|---------|------------------------------------------------------------------------------------------------|----------|-----------------------|
-| [cert-manager]           | v1.19.3 | Certificate management for Kubernetes, provides automatic TLS certificate issuance and renewal | ✅        | Pre-installation      |
-| [argo-cd]                | 9.4.1   | GitOps continuous delivery tool for Kubernetes, necessary for DPUService integration           | ✅        | Pre-installation      |
-| [node-feature-discovery] | 0.18.3  | Discovers and advertises hardware features and capabilities of DPUs in the cluster             | ✅        | Pre-installation      |
-| [maintenance-operator]   | 0.2.3   | Manages node maintenance operations and ensures graceful handling of node updates              | ✅        | Pre-installation      |
-| [kamaji]                 | 1.2.0   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | ❌        | Pre-installation      |
-| [local-path-provisioner] | 0.0.34  | Provides a local storage provisioner for Kubernetes, used for Kamaji etcd storage              | ❌        | Pre-installation      |
-| [kube-state-metrics]     | 5.25.1  | Exposes DPF Operator related objects as metrics                                                | ❌        | Post-installation     |
-| [kube-prometheus-stack]  | 80.4.1  | Complete monitoring stack with Prometheus and Grafana for collecting and visualizing metrics   | ❌        | Post-installation     |
+| Helm Chart                | Version | Description                                                                                    | Required | Post/Pre-installation |
+|---------------------------|---------|------------------------------------------------------------------------------------------------|----------|-----------------------|
+| [cert-manager]            | v1.19.3 | Certificate management for Kubernetes, provides automatic TLS certificate issuance and renewal | ✅        | Pre-installation      |
+| [argo-cd]                 | 9.4.1   | GitOps continuous delivery tool for Kubernetes, necessary for DPUService integration           | ✅        | Pre-installation      |
+| [node-feature-discovery]  | 0.18.3  | Discovers and advertises hardware features and capabilities of DPUs in the cluster             | ✅        | Pre-installation      |
+| [maintenance-operator]    | 0.2.3   | Manages node maintenance operations and ensures graceful handling of node updates              | ✅        | Pre-installation      |
+| [kamaji]                  | 1.2.0   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | ❌        | Pre-installation      |
+| [local-path-provisioner]  | 0.0.34  | Provides a local storage provisioner for Kubernetes, used for Kamaji etcd storage              | ❌        | Pre-installation      |
+| [kube-state-metrics]      | 5.25.1  | Exposes DPF Operator related objects as metrics                                                | ❌        | Post-installation     |
+| [kube-prometheus-stack]   | 80.4.1  | Complete monitoring stack with Prometheus and Grafana for collecting and visualizing metrics   | ❌        | Post-installation     |
+| [loki]                    | 6.53.0  | Kubernetes log aggregation and storage, integrates with Grafana                                | ❌        | Post-installation     |
+| [opentelemetry-collector] | 0.145.0 | Collects and exports metrics, logs, and traces to observability backends                       | ❌        | Post-installation     |
 
 Some of the components requires the DPF Operator to be installed before they can be installed.  
 This is necessary for `kube-state-metrics` and `kube-prometheus-stack` (Grafana dashboards), because we rely on ConfigMaps created by the DPF Operator to
@@ -42,6 +44,8 @@ provide the necessary configuration for these components.
 [local-path-provisioner]: https://github.com/rancher/local-path-provisioner/
 [kube-state-metrics]: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-state-metrics
 [kube-prometheus-stack]: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
+[loki]: https://github.com/grafana/loki/
+[opentelemetry-collector]: https://github.com/open-telemetry/opentelemetry-collector-contrib/
 [helmfile]: https://helmfile.readthedocs.io/
 [DPF repository]: https://github.com/nvidia/doca-platform/
 
@@ -634,6 +638,24 @@ grafana:
   # kube-prometheus-stack automatically creates a Prometheus datasource with uid: prometheus
   # which matches what the dpf-operator dashboards expect
 
+  # Additional datasources
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://loki.dpf-operator-system.svc.cluster.local:3100
+      isDefault: false
+      editable: true
+      jsonData:
+        maxLines: 1000
+        derivedFields:
+          # Automatically extract trace IDs from logs (if present)
+          - datasourceName: Tempo
+            matcherRegex: "traceID=(\\w+)"
+            name: TraceID
+            url: "$${__value.raw}"
+
   # Sidecar configuration
   sidecar:
     # Datasources sidecar - provisions datasources from ConfigMaps/Secrets
@@ -719,6 +741,320 @@ prometheusOperator:
     requests:
       cpu: 100m
       memory: 100Mi
+```
+
+</details>
+
+<details markdown="1"><summary>loki</summary>
+
+[embedmd]:#(../../../deploy/helmfiles/values/loki.yaml)
+```yaml
+# Loki configuration for management cluster
+# This deployment receives logs from OpenTelemetry Collectors running on both
+# the management cluster and DPU clusters
+
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+
+  commonConfig:
+    replication_factor: 1
+
+  # Enable OTLP ingestion
+  server:
+    http_listen_port: 3100
+    grpc_listen_port: 9095
+    log_level: info
+
+  storage:
+    type: 'filesystem'
+
+  schemaConfig:
+    configs:
+      - from: "2024-01-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+
+  # Limits configuration (includes OTLP config)
+  limits_config:
+    retention_period: 168h  # 7 days
+    max_query_series: 10000
+    max_query_lookback: 720h  # 30 days
+    ingestion_rate_mb: 50
+    ingestion_burst_size_mb: 100
+    per_stream_rate_limit: 10MB
+    per_stream_rate_limit_burst: 20MB
+    allow_structured_metadata: true
+    otlp_config:
+      resource_attributes:
+        attributes_config:
+          - action: index_label
+            attributes:
+              - k8s.namespace.name
+              - k8s.pod.name
+              - k8s.container.name
+              - cluster
+
+# Single binary mode configuration
+singleBinary:
+  replicas: 1
+
+  # Schedule on control-plane nodes
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/master"
+                operator: Exists
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/control-plane"
+                operator: Exists
+
+  tolerations:
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+
+  # Resources
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+  # Persistence
+  persistence:
+    enabled: true
+    storageClass: local-path
+    size: 10Gi
+
+# Gateway disabled - not needed in SingleBinary mode
+# All access goes directly to the Loki service on port 3100
+gateway:
+  enabled: false
+
+# Read/Write components (disabled in single binary mode)
+read:
+  replicas: 0
+
+write:
+  replicas: 0
+
+backend:
+  replicas: 0
+
+# Disable components not needed in single binary mode
+chunksCache:
+  enabled: false
+
+resultsCache:
+  enabled: false
+
+# Monitoring configuration
+monitoring:
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: kube-prometheus-stack
+
+  selfMonitoring:
+    enabled: false
+    grafanaAgent:
+      installOperator: false
+
+# Test configuration
+test:
+  enabled: false
+
+# Loki canary (synthetic log generator for testing)
+lokiCanary:
+  enabled: false
+```
+
+</details>
+
+
+<details markdown="1"><summary>opentelemetry-collector</summary>
+
+[embedmd]:#(../../../deploy/helmfiles/values/opentelemetry-collector.yaml)
+```yaml
+# OpenTelemetry Collector configuration for management cluster
+# This collector receives logs and metrics from:
+# 1. Local management cluster pods (via filelog receiver)
+# 2. OpenTelemetry Collectors running on DPU clusters (via OTLP receiver)
+
+mode: daemonset
+
+# Image configuration (required as of chart version 0.145.0)
+# Use contrib distribution for Loki exporter support
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: ""  # defaults to chart appVersion
+
+# Run on all management cluster nodes to collect logs
+# Tolerations allow running on control-plane nodes
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+
+# Presets for Kubernetes integration
+presets:
+  logsCollection:
+    enabled: true
+    includeCollectorLogs: true
+  kubernetesAttributes:
+    enabled: true
+    extractAllPodLabels: true
+    extractAllPodAnnotations: false
+
+# OpenTelemetry Collector configuration
+config:
+  receivers:
+    # OTLP receiver for logs and metrics from DPU clusters
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+  processors:
+    batch:
+      timeout: 10s
+      send_batch_size: 1024
+
+    memory_limiter:
+      check_interval: 5s
+      limit_mib: 1024
+      spike_limit_mib: 256
+
+    k8sattributes:
+      auth_type: "serviceAccount"
+      passthrough: false
+      extract:
+        metadata:
+          - k8s.namespace.name
+          - k8s.deployment.name
+          - k8s.statefulset.name
+          - k8s.daemonset.name
+          - k8s.cronjob.name
+          - k8s.job.name
+          - k8s.node.name
+          - k8s.pod.name
+          - k8s.pod.uid
+          - k8s.pod.start_time
+
+    # Add management cluster label (only if not already set by DPU cluster)
+    resource:
+      attributes:
+        - key: cluster
+          value: "management"
+          action: insert
+
+  exporters:
+    # Export logs to Loki via OTLP (directly to Loki, bypassing gateway)
+    otlphttp/loki:
+      endpoint: http://loki:3100/otlp
+      tls:
+        insecure: true
+
+    # Export metrics to Prometheus (via remote write)
+    prometheusremotewrite:
+      endpoint: http://kube-prometheus-stack-prometheus.dpf-operator-system.svc.cluster.local:9090/api/v1/write
+      resource_to_telemetry_conversion:
+        enabled: true
+
+    # Debug exporter for troubleshooting
+    debug:
+      verbosity: basic
+      sampling_initial: 5
+      sampling_thereafter: 200
+
+  service:
+    pipelines:
+      logs:
+        receivers: [otlp, filelog]
+        processors: [memory_limiter, k8sattributes, resource, batch]
+        exporters: [otlphttp/loki, debug]
+
+      metrics:
+        receivers: [otlp]
+        processors: [memory_limiter, k8sattributes, resource, batch]
+        exporters: [prometheusremotewrite, debug]
+
+# Resources for the collector deployment
+resources:
+  limits:
+    cpu: 500m
+    memory: 1Gi
+  requests:
+    cpu: 200m
+    memory: 512Mi
+
+# Service configuration
+# Use NodePort to allow DPU clusters to reach this collector
+service:
+  enabled: true
+  type: NodePort
+
+# Ports configuration
+ports:
+  otlp:
+    enabled: true
+    containerPort: 4317
+    servicePort: 4317
+    protocol: TCP
+  otlp-http:
+    enabled: true
+    containerPort: 4318
+    servicePort: 4318
+    nodePort: 30318  # Fixed NodePort for DPU clusters to use
+    protocol: TCP
+  metrics:
+    enabled: true
+    containerPort: 8888
+    servicePort: 8888
+    protocol: TCP
+
+# ServiceAccount configuration
+serviceAccount:
+  create: true
+  name: opentelemetry-collector
+
+# ClusterRole permissions
+clusterRole:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: ["pods", "namespaces", "nodes"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["apps"]
+      resources: ["replicasets", "deployments", "daemonsets", "statefulsets"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["batch"]
+      resources: ["jobs", "cronjobs"]
+      verbs: ["get", "list", "watch"]
+
+# ServiceMonitor for Prometheus monitoring
+serviceMonitor:
+  enabled: true
+  metricsEndpoints:
+    - port: metrics
 ```
 
 </details>

@@ -137,6 +137,13 @@ func helmPaths() helmPathsProvider {
 					Resources:  []string{"resources"},
 				},
 			},
+			operatorv1.OpenTelemetryCollectorName: {
+				operatorv1.OpenTelemetryCollectorContainer: {
+					Repository: []string{"image", "repository"},
+					Tag:        []string{"image", "tag"},
+					Resources:  []string{"resources"},
+				},
+			},
 		},
 	}
 }

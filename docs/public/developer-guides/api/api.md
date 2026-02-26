@@ -214,6 +214,7 @@ _Appears in:_
 - [NodeProblemDetectorConfiguration](#nodeproblemdetectorconfiguration)
 - [NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)
 - [OVSCNIConfiguration](#ovscniconfiguration)
+- [OpenTelemetryCollectorConfiguration](#opentelemetrycollectorconfiguration)
 - [ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)
 - [SFCControllerConfiguration](#sfccontrollerconfiguration)
 - [SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)
@@ -414,6 +415,7 @@ _Appears in:_
 - [NodeProblemDetectorConfiguration](#nodeproblemdetectorconfiguration)
 - [NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)
 - [OVSCNIConfiguration](#ovscniconfiguration)
+- [OpenTelemetryCollectorConfiguration](#opentelemetrycollectorconfiguration)
 - [ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)
 - [SFCControllerConfiguration](#sfccontrollerconfiguration)
 - [SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)
@@ -517,6 +519,7 @@ _Appears in:_
 - [NVIPAMConfiguration](#nvipamconfiguration)
 - [NodeProblemDetectorConfiguration](#nodeproblemdetectorconfiguration)
 - [OVSCNIConfiguration](#ovscniconfiguration)
+- [OpenTelemetryCollectorConfiguration](#opentelemetrycollectorconfiguration)
 - [SFCControllerConfiguration](#sfccontrollerconfiguration)
 - [SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)
 - [ServiceSetControllerConfiguration](#servicesetcontrollerconfiguration)
@@ -539,6 +542,7 @@ _Appears in:_
 - [NVIPAMConfiguration](#nvipamconfiguration)
 - [NodeProblemDetectorConfiguration](#nodeproblemdetectorconfiguration)
 - [OVSCNIConfiguration](#ovscniconfiguration)
+- [OpenTelemetryCollectorConfiguration](#opentelemetrycollectorconfiguration)
 - [SFCControllerConfiguration](#sfccontrollerconfiguration)
 - [SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)
 - [ServiceSetControllerConfiguration](#servicesetcontrollerconfiguration)
@@ -696,9 +700,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disabled` _boolean_ | Disabled controls whether monitoring resources are installed.<br />When enabled (default), the controller:<br />- Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.<br />- Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.<br />- Deploys node-problem-detector as a DaemonSet on DPU nodes to detect and report node-level problems. |  |  |
+| `disabled` _boolean_ | Disabled controls whether monitoring resources are installed.<br />When enabled (default), the controller:<br />- Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.<br />- Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.<br />- Deploys node-problem-detector as a DaemonSet on DPU nodes to detect and report node-level problems.<br />- Deploys opentelemetry-collector as a DaemonSet on DPU nodes to collect and forward logs. |  |  |
 | `kubeStateMetrics` _[KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)_ | KubeStateMetrics is the configuration for kube-state-metrics |  |  |
 | `nodeProblemDetector` _[NodeProblemDetectorConfiguration](#nodeproblemdetectorconfiguration)_ | NodeProblemDetector is the configuration for node-problem-detector |  |  |
+| `openTelemetryCollector` _[OpenTelemetryCollectorConfiguration](#opentelemetrycollectorconfiguration)_ | OpenTelemetryCollector is the configuration for opentelemetry-collector |  |  |
 
 
 #### MultusConfiguration
@@ -865,6 +870,25 @@ _Appears in:_
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
 | `image` _[Image](#image)_ | Image overrides the container image used by the OVS CNI.<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `cni` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
 | `cni` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | CNI contains the configuration for the OVS CNI component.<br />It contains the image for the controller and its resource requirements. |  |  |
+
+
+#### OpenTelemetryCollectorConfiguration
+
+
+
+
+
+
+
+_Appears in:_
+- [MonitoringConfiguration](#monitoringconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
+| `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the opentelemetry-collector component.<br />It contains the image for opentelemetry-collector and its resource requirements. |  |  |
+| `endpoint` _string_ | Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends logs and metrics.<br />This could be the management cluster's opentelemetry-collector endpoint.<br />If not specified, logs will not be forwarded from DPU clusters. |  |  |
 
 
 #### Overrides

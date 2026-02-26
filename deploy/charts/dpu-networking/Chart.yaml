@@ -45,6 +45,10 @@ dependencies:
     version: "0.1.0"
     repository: file://charts/node-problem-detector
     condition: node-problem-detector.enabled
+  - name: opentelemetry-collector
+    version: "0.1.0"
+    repository: file://charts/opentelemetry-collector
+    condition: opentelemetry-collector.enabled
 annotations:
   dpfVersion: ""
   created: ""

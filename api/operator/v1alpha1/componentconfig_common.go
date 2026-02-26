@@ -43,6 +43,7 @@ var (
 	KubeStateMetricsName                ComponentName = "kube-state-metrics"
 	KubeStateMetricsRBACName            ComponentName = "kube-state-metrics-rbac"
 	NodeProblemDetectorName             ComponentName = "node-problem-detector"
+	OpenTelemetryCollectorName          ComponentName = "opentelemetry-collector"
 )
 
 type ComponentName string
@@ -81,6 +82,8 @@ var (
 	KubeStateMetricsContainer ContainerName = "kube-state-metrics"
 	// NodeProblemDetectorContainer is the default name of the node-problem-detector container.
 	NodeProblemDetectorContainer ContainerName = "node-problem-detector"
+	// OpenTelemetryCollectorContainer is the default name of the opentelemetry-collector container.
+	OpenTelemetryCollectorContainer ContainerName = "opentelemetry-collector"
 )
 
 type ContainerName string
@@ -139,6 +142,9 @@ func (c *DPFOperatorConfig) ComponentConfigs() []ComponentConfigurable {
 	}
 	if c.Spec.Monitoring != nil && c.Spec.Monitoring.NodeProblemDetector != nil {
 		out = append(out, c.Spec.Monitoring.NodeProblemDetector)
+	}
+	if c.Spec.Monitoring != nil && c.Spec.Monitoring.OpenTelemetryCollector != nil {
+		out = append(out, c.Spec.Monitoring.OpenTelemetryCollector)
 	}
 	return out
 }
