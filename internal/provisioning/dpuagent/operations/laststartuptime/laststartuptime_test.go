@@ -38,7 +38,7 @@ var _ = Describe("ReportLastStartupTime Operation", func() {
 	It("should set LastStartupTime in status", func() {
 		operation := &ReportLastStartupTime{}
 		optCtx := &operations.Context{
-			Status: provisioningv1.DPUInternalStatus{},
+			Status: provisioningv1.AgentStatus{},
 		}
 		err := operation.Execute(ctx, optCtx)
 		Expect(err).NotTo(HaveOccurred())

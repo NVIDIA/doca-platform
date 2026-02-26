@@ -21,7 +21,7 @@ import (
 )
 
 type UpdateStatusRequest struct {
-	DPUName      string                           `json:"dpuName"`
-	DPUNamespace string                           `json:"dpuNamespace"`
-	DPUInfo      provisioningv1.DPUInternalStatus `json:"dpuInfo"`
+	DPUName      string                     `json:"dpuName"`
+	DPUNamespace string                     `json:"dpuNamespace"`
+	AgentStatus  provisioningv1.AgentStatus `json:"agentStatus"`
 }

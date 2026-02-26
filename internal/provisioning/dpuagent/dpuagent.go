@@ -97,7 +97,7 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 		d.retryInterval = defaultRetryInterval
 	}
 	d.optCtx.UpdateStatusUntilSuccess = d.updateStatusUntilSuccess
-	d.optCtx.Status = provisioningv1.DPUInternalStatus{
+	d.optCtx.Status = provisioningv1.AgentStatus{
 		Conditions: []metav1.Condition{},
 	}
 	var err error

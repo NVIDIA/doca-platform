@@ -81,7 +81,7 @@ var _ = Describe("ZerotrustClient", func() {
 		It("should be able to update status", func() {
 			agentClient := NewZerotrustClient(kubeconfigPath, dpu.Name, dpu.Namespace)
 			lastStartupTime := metav1.NewTime(time.Now().Truncate(time.Second))
-			dpuInfo := provisioningv1.DPUInternalStatus{
+			agentStatus := provisioningv1.AgentStatus{
 				LastStartupTime:    &lastStartupTime,
 				HostRebootRequired: ptr.To(true),
 				InitialBootID:      ptr.To("test-initial-boot-id"),
@@ -94,39 +94,39 @@ var _ = Describe("ZerotrustClient", func() {
 					},
 				},
 			}
-			Expect(agentClient.UpdateStatus(ctx, dpuInfo)).To(Succeed())
+			Expect(agentClient.UpdateStatus(ctx, agentStatus)).To(Succeed())
 
 			latestDPU := &provisioningv1.DPU{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, latestDPU)).To(Succeed())
-			Expect(latestDPU.Status.DPUInternalStatus).NotTo(BeNil())
-			Expect(latestDPU.Status.DPUInternalStatus.LastStartupTime).NotTo(BeNil())
-			Expect(latestDPU.Status.DPUInternalStatus.LastStartupTime.Equal(&lastStartupTime)).To(BeTrue())
-			Expect(latestDPU.Status.DPUInternalStatus.HostRebootRequired).NotTo(BeNil())
-			Expect(*latestDPU.Status.DPUInternalStatus.HostRebootRequired).To(BeTrue())
-			Expect(latestDPU.Status.DPUInternalStatus.InitialBootID).NotTo(BeNil())
-			Expect(*latestDPU.Status.DPUInternalStatus.InitialBootID).To(Equal("test-initial-boot-id"))
-			Expect(latestDPU.Status.DPUInternalStatus.Conditions).To(HaveLen(1))
-			Expect(latestDPU.Status.DPUInternalStatus.Conditions[0].Type).To(Equal("Ready"))
-			Expect(latestDPU.Status.DPUInternalStatus.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
-			Expect(latestDPU.Status.DPUInternalStatus.Conditions[0].Reason).To(Equal("TestReason"))
-			Expect(latestDPU.Status.DPUInternalStatus.Conditions[0].Message).To(Equal("TestMessage"))
+			Expect(latestDPU.Status.AgentStatus).NotTo(BeNil())
+			Expect(latestDPU.Status.AgentStatus.LastStartupTime).NotTo(BeNil())
+			Expect(latestDPU.Status.AgentStatus.LastStartupTime.Equal(&lastStartupTime)).To(BeTrue())
+			Expect(latestDPU.Status.AgentStatus.HostRebootRequired).NotTo(BeNil())
+			Expect(*latestDPU.Status.AgentStatus.HostRebootRequired).To(BeTrue())
+			Expect(latestDPU.Status.AgentStatus.InitialBootID).NotTo(BeNil())
+			Expect(*latestDPU.Status.AgentStatus.InitialBootID).To(Equal("test-initial-boot-id"))
+			Expect(latestDPU.Status.AgentStatus.Conditions).To(HaveLen(1))
+			Expect(latestDPU.Status.AgentStatus.Conditions[0].Type).To(Equal("Ready"))
+			Expect(latestDPU.Status.AgentStatus.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
+			Expect(latestDPU.Status.AgentStatus.Conditions[0].Reason).To(Equal("TestReason"))
+			Expect(latestDPU.Status.AgentStatus.Conditions[0].Message).To(Equal("TestMessage"))
 
 			By("last transition time should be set automatically")
-			Expect(latestDPU.Status.DPUInternalStatus.Conditions[0].LastTransitionTime).NotTo(BeNil())
+			Expect(latestDPU.Status.AgentStatus.Conditions[0].LastTransitionTime).NotTo(BeNil())
 
 			By("last transition time should not be updated if condition is not changed")
-			originalLastTransitionTime := latestDPU.Status.DPUInternalStatus.Conditions[0].LastTransitionTime
-			Expect(agentClient.UpdateStatus(ctx, dpuInfo)).To(Succeed())
+			originalLastTransitionTime := latestDPU.Status.AgentStatus.Conditions[0].LastTransitionTime
+			Expect(agentClient.UpdateStatus(ctx, agentStatus)).To(Succeed())
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, latestDPU)).To(Succeed())
-			Expect(latestDPU.Status.DPUInternalStatus.Conditions[0].LastTransitionTime).To(Equal(originalLastTransitionTime))
+			Expect(latestDPU.Status.AgentStatus.Conditions[0].LastTransitionTime).To(Equal(originalLastTransitionTime))
 
 			By("last transition time should be updated if condition is changed")
 			time.Sleep(2 * time.Second)
-			dpuInfo.Conditions[0].Status = metav1.ConditionFalse
-			Expect(agentClient.UpdateStatus(ctx, dpuInfo)).To(Succeed())
+			agentStatus.Conditions[0].Status = metav1.ConditionFalse
+			Expect(agentClient.UpdateStatus(ctx, agentStatus)).To(Succeed())
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, latestDPU)).To(Succeed())
-			Expect(latestDPU.Status.DPUInternalStatus.Conditions[0].LastTransitionTime).NotTo(Equal(originalLastTransitionTime))
-			Expect(latestDPU.Status.DPUInternalStatus.Conditions[0].LastTransitionTime.After(originalLastTransitionTime.Time)).To(BeTrue())
+			Expect(latestDPU.Status.AgentStatus.Conditions[0].LastTransitionTime).NotTo(Equal(originalLastTransitionTime))
+			Expect(latestDPU.Status.AgentStatus.Conditions[0].LastTransitionTime.After(originalLastTransitionTime.Time)).To(BeTrue())
 		})
 
 		It("non-specified fields should not be updated", func() {
@@ -150,7 +150,7 @@ var _ = Describe("ZerotrustClient", func() {
 				LastTransitionTime: metav1.NewTime(time.Now().Truncate(time.Second)),
 			}
 			lastStartupTime := metav1.NewTime(time.Now().Truncate(time.Second))
-			latestDPU.Status.DPUInternalStatus = &provisioningv1.DPUInternalStatus{
+			latestDPU.Status.AgentStatus = &provisioningv1.AgentStatus{
 				LastStartupTime:    &lastStartupTime,
 				HostRebootRequired: ptr.To(hostRebootRequired),
 				InitialBootID:      ptr.To(initialBootID),
@@ -168,7 +168,7 @@ var _ = Describe("ZerotrustClient", func() {
 				Message:            "TestMessage",
 				LastTransitionTime: metav1.NewTime(time.Now().Truncate(time.Second)),
 			}
-			internalStatus := provisioningv1.DPUInternalStatus{
+			internalStatus := provisioningv1.AgentStatus{
 				Conditions: []metav1.Condition{
 					newCond,
 				},
@@ -178,24 +178,24 @@ var _ = Describe("ZerotrustClient", func() {
 			updatedDPU := &provisioningv1.DPU{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, updatedDPU)).To(Succeed())
 			By("lastStartupTime should not be updated")
-			Expect(updatedDPU.Status.DPUInternalStatus.LastStartupTime).NotTo(BeNil())
-			Expect(updatedDPU.Status.DPUInternalStatus.LastStartupTime.Equal(&lastStartupTime)).To(BeTrue())
+			Expect(updatedDPU.Status.AgentStatus.LastStartupTime).NotTo(BeNil())
+			Expect(updatedDPU.Status.AgentStatus.LastStartupTime.Equal(&lastStartupTime)).To(BeTrue())
 
 			By("hostRebootRequired should not be updated")
-			Expect(updatedDPU.Status.DPUInternalStatus.HostRebootRequired).NotTo(BeNil())
-			Expect(*updatedDPU.Status.DPUInternalStatus.HostRebootRequired).To(Equal(hostRebootRequired))
+			Expect(updatedDPU.Status.AgentStatus.HostRebootRequired).NotTo(BeNil())
+			Expect(*updatedDPU.Status.AgentStatus.HostRebootRequired).To(Equal(hostRebootRequired))
 
 			By("initialBootID should not be updated")
-			Expect(updatedDPU.Status.DPUInternalStatus.InitialBootID).NotTo(BeNil())
-			Expect(*updatedDPU.Status.DPUInternalStatus.InitialBootID).To(Equal(initialBootID))
+			Expect(updatedDPU.Status.AgentStatus.InitialBootID).NotTo(BeNil())
+			Expect(*updatedDPU.Status.AgentStatus.InitialBootID).To(Equal(initialBootID))
 
 			By("existing conditions should not be removed")
-			Expect(updatedDPU.Status.DPUInternalStatus.Conditions).To(HaveLen(3))
-			Expect(updatedDPU.Status.DPUInternalStatus.Conditions).To(ContainElement(cond1))
-			Expect(updatedDPU.Status.DPUInternalStatus.Conditions).To(ContainElement(cond2))
+			Expect(updatedDPU.Status.AgentStatus.Conditions).To(HaveLen(3))
+			Expect(updatedDPU.Status.AgentStatus.Conditions).To(ContainElement(cond1))
+			Expect(updatedDPU.Status.AgentStatus.Conditions).To(ContainElement(cond2))
 
 			By("new condition should be added")
-			Expect(updatedDPU.Status.DPUInternalStatus.Conditions).To(ContainElement(newCond))
+			Expect(updatedDPU.Status.AgentStatus.Conditions).To(ContainElement(newCond))
 		})
 	})
 
