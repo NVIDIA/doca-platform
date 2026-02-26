@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -120,7 +121,7 @@ func TestDPFOperatorConfigReconciler_reconcileDelete(t *testing.T) {
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-						BFBPersistentVolumeClaimName: "oof",
+						BFBPersistentVolumeClaimName: ptr.To("oof"),
 					},
 				},
 			}

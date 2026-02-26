@@ -64,7 +64,7 @@ var _ = Describe("DPUSet", func() {
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-					BFBPersistentVolumeClaimName: "foo-pvc",
+					BFBPersistentVolumeClaimName: ptr.To("foo-pvc"),
 				},
 			},
 		}

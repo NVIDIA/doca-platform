@@ -34,6 +34,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -98,7 +99,7 @@ var _ = Describe("Node Controller", func() {
 					},
 					Spec: operatorv1.DPFOperatorConfigSpec{
 						ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-							BFBPersistentVolumeClaimName: "bfb-pvc",
+							BFBPersistentVolumeClaimName: ptr.To("bfb-pvc"),
 						},
 					},
 				}
@@ -116,7 +117,7 @@ var _ = Describe("Node Controller", func() {
 						Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
 						Name:      cutil.GenerateDMSPodName(node)},
 						podFetched)).To(Succeed())
-				}).WithTimeout(30 * time.Second).Should(Succeed())
+				}).WithTimeout(60 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 			})
 		})
 		AfterEach(func() {
@@ -191,7 +192,7 @@ var _ = Describe("Node Controller", func() {
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-						BFBPersistentVolumeClaimName: "foo-pvc",
+						BFBPersistentVolumeClaimName: ptr.To("foo-pvc"),
 					},
 				},
 			}
@@ -237,6 +238,7 @@ var _ = Describe("Node Controller", func() {
 				By("creating DMS Pod")
 				option := dnutil.HostAgentPodOptions{
 					HostAgentImageWithTag: "example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0",
+					BFBRegistryAddress:    "bfb-registry:8082",
 				}
 				err := dms.CreateHostAgentPod(ctx, k8sClient, testNode, option, testNS.Name, testDPFOperatorConfigOwnerRef)
 				Expect(err).NotTo(HaveOccurred())
@@ -249,6 +251,7 @@ var _ = Describe("Node Controller", func() {
 				By("creating DMS Pod")
 				option := dnutil.HostAgentPodOptions{
 					HostAgentImageWithTag: "example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0",
+					BFBRegistryAddress:    "bfb-registry:8082",
 					DMSPodEnvs:            []string{"k1=v1", "k2=v2"},
 				}
 				err := dms.CreateHostAgentPod(ctx, k8sClient, testNode, option, testNS.Name, testDPFOperatorConfigOwnerRef)

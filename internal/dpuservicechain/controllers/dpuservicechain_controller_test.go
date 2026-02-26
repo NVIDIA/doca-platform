@@ -764,7 +764,7 @@ func getMinimalDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-				BFBPersistentVolumeClaimName: "name",
+				BFBPersistentVolumeClaimName: ptr.To("name"),
 			},
 		},
 	}

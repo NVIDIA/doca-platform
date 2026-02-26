@@ -50,7 +50,7 @@ func SetInput() {
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-				BFBPersistentVolumeClaimName: "bfb-pvc",
+				BFBPersistentVolumeClaimName: ptr.To("bfb-pvc"),
 			},
 			StaticClusterManager: &operatorv1.StaticClusterManagerConfiguration{
 				BaseComponentConfig: operatorv1.BaseComponentConfig{
