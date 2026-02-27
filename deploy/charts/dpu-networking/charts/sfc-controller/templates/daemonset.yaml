@@ -21,6 +21,7 @@ spec:
         app: sfc-controller-node
         name: sfc-controller-node
     spec:
+      automountServiceAccountToken: false
       tolerations:
         - key: node-role.kubernetes.io/master
           operator: Exists
@@ -50,6 +51,9 @@ spec:
         - name: SYSTEMCTL_FORCE_BUS
           value: "1"
         volumeMounts:
+        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          name: kube-api-access
+          readOnly: true
         - name: ovs
           mountPath: /var/run/openvswitch/
         - name: ovs-systemd-config
@@ -99,6 +103,23 @@ spec:
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
       terminationGracePeriodSeconds: 10
       volumes:
+      - name: kube-api-access
+        projected:
+          defaultMode: 420
+          sources:
+          - serviceAccountToken:
+              path: token
+          - configMap:
+              items:
+              - key: ca.crt
+                path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace
       ## TODO: Revisit if ovs-systemd-config is needed.
       - name: ovs-systemd-config
         hostPath:

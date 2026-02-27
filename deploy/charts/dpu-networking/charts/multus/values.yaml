@@ -3,7 +3,7 @@ mtu: 1500
 kubeMultusDs:
   image:
     repository: ghcr.io/k8snetworkplumbingwg/multus-cni
-    tag: v3.9.3
+    tag: v3.9.3@sha256:c173235642a10055db53bc43898fc1058cc6b97178fc3472ce4dafdd6d940d0b
   installMultusBinary:
     containerSecurityContext:
       privileged: true

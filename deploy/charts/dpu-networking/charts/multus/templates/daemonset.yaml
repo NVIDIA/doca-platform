@@ -70,6 +70,8 @@ spec:
         - mountPath: /host/opt/cni/bin
           mountPropagation: Bidirectional
           name: cnibin
+      securityContext:
+        runAsNonRoot: false
       serviceAccountName: multus
       terminationGracePeriodSeconds: 10
       volumes:

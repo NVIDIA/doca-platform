@@ -26,6 +26,8 @@ A Helm chart for Kubernetes
 |-----|------|---------|-------------|
 | cni-installer.enabled | bool | `false` |  |
 | flannel.enabled | bool | `false` |  |
+| flannel.flannel.image.tag | string | `"v0.27.2@sha256:782c111d55e850e8038cdaf35454987e6c170ae9b54d5b12895b02d45c908caf"` |  |
+| flannel.flannel.image_cni.tag | string | `"v1.7.1-flannel1@sha256:cb3176a2c9eae5fa0acd7f45397e706eacb4577dac33cad89f93b775ff5611df"` |  |
 | flannel.podCidr | string | `"10.244.0.0/14"` |  |
 | kube-state-metrics.enabled | bool | `false` |  |
 | multus.enabled | bool | `false` |  |

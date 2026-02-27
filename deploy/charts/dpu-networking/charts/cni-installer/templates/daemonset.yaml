@@ -16,6 +16,7 @@ spec:
       labels:
         name: cni-installer
     spec:
+      automountServiceAccountToken: false
       tolerations:
         - key: node-role.kubernetes.io/master
           operator: Exists
@@ -39,6 +40,8 @@ spec:
         - name: cnibin
           mountPath: /opt/cni/bin
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      securityContext:
+        runAsNonRoot: false
       volumes:
       - name: cnibin
         hostPath:
