@@ -18,6 +18,7 @@ spec:
       labels:
         name: controller
     spec:
+      automountServiceAccountToken: false
       priorityClassName: system-cluster-critical
       serviceAccountName: {{ include "nvidia-k8s-ipam.fullname" . }}-controller
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
@@ -75,6 +76,7 @@ spec:
                   fieldPath: metadata.namespace
           securityContext:
             allowPrivilegeEscalation: false
+            runAsUser: 1000
             capabilities:
               drop:
                 - "ALL"
@@ -95,3 +97,27 @@ spec:
             - containerPort: 9443
               name: webhook-server
               protocol: TCP
+          volumeMounts:
+            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              name: kube-api-access
+              readOnly: true
+      securityContext:
+        runAsNonRoot: true
+      volumes:
+        - name: kube-api-access
+          projected:
+            defaultMode: 420
+            sources:
+            - serviceAccountToken:
+                path: token
+            - configMap:
+                items:
+                - key: ca.crt
+                  path: ca.crt
+                name: kube-root-ca.crt
+            - downwardAPI:
+                items:
+                - fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.namespace
+                  path: namespace

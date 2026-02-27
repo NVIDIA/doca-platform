@@ -20,6 +20,7 @@ spec:
         app: nv-ipam-node
         name: nv-ipam-node
     spec:
+      automountServiceAccountToken: false
       tolerations:
         - key: node-role.kubernetes.io/master
           operator: Exists
@@ -65,14 +66,36 @@ spec:
             - --ippools-namespace=$(POD_NAMESPACE)
           resources: {{ toYaml .Values.nvIpam.node.resources | nindent 12 }}
           volumeMounts:
+            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              name: kube-api-access
+              readOnly: true
             - name: cnibin
               mountPath: /opt/cni/bin
             - name: cniconf
               mountPath: /etc/cni/net.d/nv-ipam.d
             - name: daemonstate
               mountPath: /var/lib/cni/nv-ipam/
+      securityContext:
+        runAsNonRoot: false
       terminationGracePeriodSeconds: 10
       volumes:
+        - name: kube-api-access
+          projected:
+            defaultMode: 420
+            sources:
+            - serviceAccountToken:
+                path: token
+            - configMap:
+                items:
+                - key: ca.crt
+                  path: ca.crt
+                name: kube-root-ca.crt
+            - downwardAPI:
+                items:
+                - fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.namespace
+                  path: namespace
         - name: cnibin
           hostPath:
             path: {{ .Values.cniBinDir }}

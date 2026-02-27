@@ -8,7 +8,7 @@ kubeSriovDevicePlugin:
       privileged: true
     image:
       repository: ghcr.io/k8snetworkplumbingwg/sriov-network-device-plugin
-      tag: v3.11.0
+      tag: v3.11.0@sha256:7c5901727d4500f103f038c178b41dc6450afa6f324306c1973495c9a7c4f5a5
     imagePullPolicy: IfNotPresent
     resources:
       limits:
