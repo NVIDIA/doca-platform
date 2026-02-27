@@ -62,9 +62,9 @@ make checkov-run CHECKOV_DATA_DIR="${VOLUME_MOUNT_DIRECTORY}" \
 	CHECKOV_OUTPUT_FILE="${CHECKOV_REPORT_FILE}"
 
 # Run dpfdev checkov to analyze the checkov report and filter out excluded findings
-dpfdev checkov --chart-name "${MANIFEST_NAME}" --config "${CHECKOV_CONFIG}" --report "${CHECKOV_REPORT_FILE}"
+dpfdev checkov --chart-name "${MANIFEST_NAME}" --config "${CHECKOV_CONFIG}" --report "${CHECKOV_REPORT_FILE}" && R=0 || R=$?
 
-if [ $? -ne 0 ]; then
+if [ $R -ne 0 ]; then
 	echo "❌ checkov manifest validation failed for ${MANIFEST_NAME}"
 	exit 1
 fi

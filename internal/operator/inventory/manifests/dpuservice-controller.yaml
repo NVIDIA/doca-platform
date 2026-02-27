@@ -392,6 +392,7 @@ spec:
         app.kubernetes.io/part-of: dpuservice-controller-manager
         dpu.nvidia.com/component: dpuservice-controller-manager
     spec:
+      automountServiceAccountToken: false
       containers:
       - command:
         - /dpuservice
@@ -422,12 +423,19 @@ spec:
           capabilities:
             drop:
             - ALL
+          privileged: false
         volumeMounts:
         - mountPath: /.cache/helm
           name: helm-cache
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: cert
           readOnly: true
+        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          name: kube-api-access
+          readOnly: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
       serviceAccountName: dpuservice-controller-manager
       terminationGracePeriodSeconds: 10
       volumes:
@@ -437,6 +445,23 @@ spec:
         secret:
           defaultMode: 420
           secretName: dpuservice-webhook-server-cert
+      - name: kube-api-access
+        projected:
+          defaultMode: 420
+          sources:
+          - serviceAccountToken:
+              path: token
+          - configMap:
+              items:
+              - key: ca.crt
+                path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
