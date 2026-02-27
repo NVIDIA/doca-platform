@@ -238,6 +238,7 @@ gc:
 ```yaml
 # Maintenance Operator Chart configuration
 operatorConfig:
+  deploy: true
   maxParallelOperations: 60%
 operator:
   affinity:
