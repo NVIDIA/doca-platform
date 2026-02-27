@@ -35,14 +35,17 @@ spec:
                 - --cluster
                 - --defrag-rule
                 - {{ .Values.kamajiEtcdDefrag.defragRule | quote }}
+              resources:
+                {{- toYaml .Values.kamajiEtcdDefrag.resources | nindent 16 }}
               volumeMounts:
                 - mountPath: /opt/certs/root-client-certs
                   name: root-client-certs
                 - mountPath: /opt/certs/ca
                   name: certs
+          automountServiceAccountToken: false
           restartPolicy: OnFailure
           securityContext:
-            runAsUser: 0
+            runAsUser: 10000
           volumes:
             - name: root-client-certs
               secret:

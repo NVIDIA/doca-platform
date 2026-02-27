@@ -26,6 +26,7 @@ spec:
       annotations:
         kubectl.kubernetes.io/default-container: manager
     spec:
+      automountServiceAccountToken: false
       affinity:
         {{- toYaml .Values.affinity | nindent 8 }}
       tolerations:
@@ -51,13 +52,39 @@ spec:
             port: 8081
           initialDelaySeconds: 5
           periodSeconds: 10
-        resources: {}
+        resources:
+          {{- toYaml .Values.controllerManager.resources | nindent 10 }}
         securityContext: {{- toYaml .Values.controllerManager.containerSecurityContext
           | nindent 10 }}
         ports:
         - containerPort: 8080
           name: metrics
           protocol: TCP
+        volumeMounts:
+        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          name: kube-api-access
+          readOnly: true
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      securityContext: {{- toYaml .Values.controllerManager.podSecurityContext
+        | nindent 8 }}
       serviceAccountName: dpf-operator-controller-manager
       terminationGracePeriodSeconds: 10
+      volumes:
+      - name: kube-api-access
+        projected:
+          defaultMode: 420
+          sources:
+          - serviceAccountToken:
+              path: token
+          - configMap:
+              items:
+              - key: ca.crt
+                path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace
+

@@ -290,7 +290,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		g.Expect(gotDeployment.Spec.Template.Spec.ImagePullSecrets[0].Name).To(Equal(expectedImagePullSecret1))
 		g.Expect(gotDeployment.Spec.Template.Spec.ImagePullSecrets[1].Name).To(Equal(expectedImagePullSecret2))
 		// * check bfb pvc (no init container when using PVC)
-		g.Expect(gotDeployment.Spec.Template.Spec.Volumes).To(HaveLen(2))
+		g.Expect(gotDeployment.Spec.Template.Spec.Volumes).To(HaveLen(3))
 		g.Expect(gotDeployment.Spec.Template.Spec.Volumes[1].PersistentVolumeClaim).NotTo(BeNil())
 		g.Expect(gotDeployment.Spec.Template.Spec.Volumes[1].PersistentVolumeClaim.ClaimName).To(Equal(expectedPVC))
 		g.Expect(gotDeployment.Spec.Template.Spec.InitContainers).To(BeEmpty(), "no init container when BFB PVC is set")

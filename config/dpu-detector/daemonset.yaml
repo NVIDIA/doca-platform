@@ -21,6 +21,7 @@ spec:
                 operator: DoesNotExist
               - key: node-role.kubernetes.io/master
                 operator: DoesNotExist
+      automountServiceAccountToken: false
       securityContext:
         ## Note: This is required as the NFD features file is in /etc/kubernetes
         ## TODO: This should be changed to a normal user-writable directory
