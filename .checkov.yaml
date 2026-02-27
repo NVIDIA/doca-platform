@@ -13,44 +13,7 @@ checks: # Will get used as comma separated list for the --check flag of checkov
 
 exclusions: # Is used to define exclusions on a per-chart basis when analyzing a report via `dpfdev checkov`.
 
-  dpf-operator:
-  # DPF-Operator requires automounting the service account token to be able to talk to the API server.
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: Deployment.dpf-operator.dpf-operator-controller-manager
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: CronJob.dpf-operator.dpf-operator-kamaji-etcd-defrag-job
-    evaluated_keys:
-      - spec/jobTemplate/spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: CronJob.dpf-operator.dpf-operator-kamaji-etcd-defrag-job
-    evaluated_keys:
-      - spec/jobTemplate/spec/template/spec/containers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: CronJob.dpf-operator.dpf-operator-kamaji-etcd-defrag-job
-    evaluated_keys:
-      - spec/jobTemplate/spec/template/spec/containers/[0]/image
-      - spec/jobTemplate/spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: CronJob.dpf-operator.dpf-operator-kamaji-etcd-defrag-job
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: CronJob.dpf-operator.dpf-operator-kamaji-etcd-defrag-job
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: CronJob.dpf-operator.dpf-operator-kamaji-etcd-defrag-job
-    evaluated_keys:
-      - spec/jobTemplate/spec/template/spec/containers/[0]/image
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: Deployment.dpf-operator.dpf-operator-controller-manager
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: Deployment.dpf-operator.dpf-operator-controller-manager
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: Deployment.dpf-operator.dpf-operator-controller-manager
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: Deployment.dpf-operator.dpf-operator-controller-manager
+  dpf-operator: []
 
   dpu-networking-flannel:
   # The upstream chart does not allow to set resource limits for init containers.
@@ -193,30 +156,7 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
     resource: DaemonSet.default.release-name-node-problem-detector
   
   kamaji-keepalived:
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: DaemonSet.default.placeholder
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: DaemonSet.default.placeholder
-    evaluated_keys:
-      - spec/template/spec/initContainers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: DaemonSet.default.placeholder
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: DaemonSet.default.placeholder
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.placeholder
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: DaemonSet.default.placeholder
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: DaemonSet.default.placeholder
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
+  # Keepalived does not provide liveness or readiness probes.
   - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
     resource: DaemonSet.default.placeholder
     evaluated_keys:
@@ -225,46 +165,42 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
     resource: DaemonSet.default.placeholder
     evaluated_keys:
       - spec/template/spec/containers/[0]/readinessProbe
+  # Keepalived does not need much CPU resources, but setting a limit requires proper data.
+  - check_id: CKV_K8S_11 # CPU limits should be set
+    resource: DaemonSet.default.placeholder
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/cpu
+  # Keepalived does need to run as root for low-level networking operations
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.placeholder
+  # TODO: Research if a image with digest can be configured.
+  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
+    resource: DaemonSet.default.placeholder
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+      - spec/template/spec/containers/[0]/imagePullPolicy
+  - check_id: CKV_K8S_43 # Image should use digest
+    resource: DaemonSet.default.placeholder
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
 
   # Exclusions for manifests embedded in the dpf-operator binary.
   ## Note: checkov is not aware of our CRDs like DPUService, ... so these need to be scanned separately.
 
-  bfb-registry:
-  # Should be set to image with digest via DPFOperatorConfig.
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: DaemonSet.default.bfb-registry
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: DaemonSet.default.bfb-registry
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
-    resource: DaemonSet.default.bfb-registry
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/livenessProbe
-  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
-    resource: DaemonSet.default.bfb-registry
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/readinessProbe
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: DaemonSet.default.bfb-registry
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: DaemonSet.default.bfb-registry
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: DaemonSet.default.bfb-registry
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.bfb-registry
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: DaemonSet.default.bfb-registry
-
   dpu-detector:
+  # The process does not provide a liveness or readiness probe.
+  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
+    resource: DaemonSet.default.dpf-dpu-detector
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/livenessProbe
+  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
+    resource: DaemonSet.default.dpf-dpu-detector
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/readinessProbe
+  # Note: This is required as the NFD features file is in /etc/kubernetes
+  # TODO: This should be changed to a normal user-writable directory
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.dpf-dpu-detector
   # Should be set to image with digest via DPFOperatorConfig.
   - check_id: CKV_K8S_15 # Image Pull Policy should be Always
     resource: DaemonSet.default.dpf-dpu-detector
@@ -275,19 +211,6 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
     resource: DaemonSet.default.dpf-dpu-detector
     evaluated_keys:
       - spec/template/spec/containers/[0]/image
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
-    resource: DaemonSet.default.dpf-dpu-detector
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/livenessProbe
-  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
-    resource: DaemonSet.default.dpf-dpu-detector
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/readinessProbe
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.dpf-dpu-detector
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: DaemonSet.default.dpf-dpu-detector
 
   dpuservice-controller:
   # Should be set to image with digest via DPFOperatorConfig.
@@ -309,12 +232,6 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
     resource: Deployment.dpuservice-controller-system.dpuservice-controller-manager
     evaluated_keys:
       - spec/template/spec/containers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: Deployment.dpuservice-controller-system.dpuservice-controller-manager
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: Deployment.dpuservice-controller-system.dpuservice-controller-manager
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: Deployment.dpuservice-controller-system.dpuservice-controller-manager
 
   kamaji-cluster-manager:
   # Should be set to image with digest via DPFOperatorConfig.
@@ -327,11 +244,6 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
     resource: Deployment.dpf-operator-system.kamaji-cm-controller-manager
     evaluated_keys:
       - spec/template/spec/containers/[0]/image
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: Deployment.dpf-operator-system.kamaji-cm-controller-manager
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: Deployment.dpf-operator-system.kamaji-cm-controller-manager
 
   provisioning-controller:
   # Should be set to image with digest via DPFOperatorConfig.
@@ -344,13 +256,6 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
     resource: Deployment.dpf-provisioning.dpf-provisioning-controller-manager
     evaluated_keys:
       - spec/template/spec/containers/[0]/image
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: Deployment.dpf-provisioning.dpf-provisioning-controller-manager
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: Deployment.dpf-provisioning.dpf-provisioning-controller-manager
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: Deployment.dpf-provisioning.dpf-provisioning-controller-manager
 
   static-cluster-manager:
   # Should be set to image with digest via DPFOperatorConfig.
@@ -363,11 +268,6 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
     resource: Deployment.dpf-operator-system.static-cm-controller-manager
     evaluated_keys:
       - spec/template/spec/containers/[0]/image
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: Deployment.dpf-operator-system.static-cm-controller-manager
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: Deployment.dpf-operator-system.static-cm-controller-manager
 
   ## VPC chart components
 

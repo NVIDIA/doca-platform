@@ -56,7 +56,7 @@ spec:
       hostNetwork: true
       initContainers:
       - name: create-conf
-        image: alpine:3.20.3
+        image: alpine:3.20.3@sha256:1e42bbe2508154c9126d48c2b8a75420c3544343bf86fd041fb7527e017a4b4a
         imagePullPolicy: IfNotPresent
         command:
         - /bin/sh
@@ -78,6 +78,12 @@ spec:
           value: "{{.NodePort}}"
         - name: VIRTUAL_IP
           value: "{{.VirtualIP}}"
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 5m
+            memory: 64Mi
         volumeMounts:
         - mountPath: /conf-template
           name: conf-template
@@ -96,11 +102,20 @@ spec:
             memory: 64Mi
         securityContext:
           privileged: true
+          capabilities:
+            drop: ["ALL"]
+            add:
+              - NET_ADMIN
+              - NET_RAW
+              - NET_BROADCAST
         volumeMounts:
         - mountPath: /usr/local/etc/keepalived
           name: conf
       dnsPolicy: ClusterFirstWithHostNet
       restartPolicy: Always
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 0
       volumes:
       - name: conf
         emptyDir:
