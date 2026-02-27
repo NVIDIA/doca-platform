@@ -20,6 +20,7 @@ releases:
     version: 80.4.1
     labels:
       app: kube-prometheus-stack
+      type: monitoring
     values:
       - values/kube-prometheus-stack.yaml
 
@@ -30,6 +31,7 @@ releases:
     version: 5.25.1
     labels:
       app: kube-state-metrics
+      type: monitoring
     values:
       - values/kube-state-metrics.yaml
     needs:
@@ -42,6 +44,7 @@ releases:
     version: 6.53.0
     labels:
       app: loki
+      type: logging
     values:
       - values/loki.yaml
     needs:
@@ -54,6 +57,7 @@ releases:
     version: 0.146.0
     labels:
       app: opentelemetry-collector
+      type: logging
     values:
       - values/opentelemetry-collector.yaml
     needs:
