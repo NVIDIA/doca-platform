@@ -16,6 +16,8 @@ DPF Operator manages the lifecycle of a DOCA Platform Framework system.
 | controllerManager.containerSecurityContext.capabilities.drop[0] | string | `"ALL"` |  |
 | controllerManager.image.repository | string | `""` |  |
 | controllerManager.image.tag | string | `""` |  |
+| controllerManager.podSecurityContext.runAsNonRoot | bool | `true` |  |
+| controllerManager.podSecurityContext.runAsUser | int | `65532` |  |
 | controllerManager.pullPolicy | string | `"IfNotPresent"` |  |
 | controllerManager.replicas | int | `1` |  |
 | controllerManager.serviceAccount.annotations | object | `{}` |  |
@@ -27,7 +29,7 @@ DPF Operator manages the lifecycle of a DOCA Platform Framework system.
 | kamajiEtcdDefrag.clientPort | int | `2379` |  |
 | kamajiEtcdDefrag.defragRule | string | `"dbQuotaUsage > 0.8 || dbSize - dbSizeInUse > 200*1024*1024"` |  |
 | kamajiEtcdDefrag.enabled | bool | `true` |  |
-| kamajiEtcdDefrag.image | string | `"ghcr.io/ahrtr/etcd-defrag:v0.22.0"` |  |
+| kamajiEtcdDefrag.image | string | `"ghcr.io/ahrtr/etcd-defrag:v0.22.0@sha256:a7424de0a437f54d7565e96f8a50913e0ace05398bb5c10a77d5af5fc9bf9301"` |  |
 | kamajiEtcdDefrag.namespaceOverride | string | `""` |  |
 | kamajiEtcdDefrag.pullPolicy | string | `"IfNotPresent"` |  |
 | kamajiEtcdDefrag.releaseName | string | `"kamaji-etcd"` |  |

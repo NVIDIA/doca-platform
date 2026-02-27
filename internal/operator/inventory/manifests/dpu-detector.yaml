@@ -34,6 +34,7 @@ spec:
                 operator: DoesNotExist
               - key: node-role.kubernetes.io/master
                 operator: DoesNotExist
+      automountServiceAccountToken: false
       containers:
       - command:
         - /dpu-detector

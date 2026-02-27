@@ -211,6 +211,7 @@ spec:
         app.kubernetes.io/part-of: kamaji-cluster-manager
         dpu.nvidia.com/component: kamaji-cluster-manager
     spec:
+      automountServiceAccountToken: false
       containers:
       - args:
         - --leader-elect
@@ -242,7 +243,30 @@ spec:
           capabilities:
             drop:
             - ALL
+        volumeMounts:
+        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          name: kube-api-access
+          readOnly: true
       securityContext:
         runAsNonRoot: true
+        runAsUser: 65532
       serviceAccountName: kamaji-cm-controller-manager
       terminationGracePeriodSeconds: 10
+      volumes:
+      - name: kube-api-access
+        projected:
+          defaultMode: 420
+          sources:
+          - serviceAccountToken:
+              path: token
+          - configMap:
+              items:
+              - key: ca.crt
+                path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace
