@@ -8,9 +8,15 @@ rules:
 - apiGroups:
   - k8s.cni.cncf.io
   resources:
-  - '*'
+  - network-attachment-definitions
   verbs:
-  - '*'
+  - get
+  - list
+  - watch
+  - create
+  - patch
+  - update
+  - delete
 - apiGroups:
   - ""
   resources:

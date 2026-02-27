@@ -13,7 +13,7 @@ A Helm chart for Kubernetes
 | kubeSriovDevicePlugin.kubeSriovdp.args[1] | string | `"--log-level=10"` |  |
 | kubeSriovDevicePlugin.kubeSriovdp.containerSecurityContext.privileged | bool | `true` |  |
 | kubeSriovDevicePlugin.kubeSriovdp.image.repository | string | `"ghcr.io/k8snetworkplumbingwg/sriov-network-device-plugin"` |  |
-| kubeSriovDevicePlugin.kubeSriovdp.image.tag | string | `"v3.11.0"` |  |
+| kubeSriovDevicePlugin.kubeSriovdp.image.tag | string | `"v3.11.0@sha256:7c5901727d4500f103f038c178b41dc6450afa6f324306c1973495c9a7c4f5a5"` |  |
 | kubeSriovDevicePlugin.kubeSriovdp.imagePullPolicy | string | `"IfNotPresent"` |  |
 | kubeSriovDevicePlugin.kubeSriovdp.resources.limits.cpu | string | `"1"` |  |
 | kubeSriovDevicePlugin.kubeSriovdp.resources.limits.memory | string | `"200Mi"` |  |

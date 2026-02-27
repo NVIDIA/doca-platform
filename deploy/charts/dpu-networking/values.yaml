@@ -4,6 +4,11 @@
 flannel:
     enabled: false
     podCidr: 10.244.0.0/14
+    flannel:
+      image:
+        tag: v0.27.2@sha256:782c111d55e850e8038cdaf35454987e6c170ae9b54d5b12895b02d45c908caf
+      image_cni:
+        tag: v1.7.1-flannel1@sha256:cb3176a2c9eae5fa0acd7f45397e706eacb4577dac33cad89f93b775ff5611df
 multus:
     enabled: false
 sriov-device-plugin:

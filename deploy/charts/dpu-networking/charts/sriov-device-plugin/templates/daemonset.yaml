@@ -20,6 +20,7 @@ spec:
         tier: node
       {{- include "sriov-device-plugin.selectorLabels" . | nindent 8 }}
     spec:
+      automountServiceAccountToken: false
       containers:
       - args: {{- toYaml .Values.kubeSriovDevicePlugin.kubeSriovdp.args | nindent 8 }}
         env:
@@ -34,6 +35,9 @@ spec:
         securityContext: {{- toYaml .Values.kubeSriovDevicePlugin.kubeSriovdp.containerSecurityContext
           | nindent 10 }}
         volumeMounts:
+        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          name: kube-api-access
+          readOnly: true
         - mountPath: /var/lib/kubelet/device-plugins
           name: devicesock
         - mountPath: /var/lib/kubelet/plugins_registry
@@ -50,8 +54,27 @@ spec:
             protocol: TCP
       hostNetwork: true
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      securityContext:
+        runAsNonRoot: false
       serviceAccountName: sriov-device-plugin
       volumes:
+      - name: kube-api-access
+        projected:
+          defaultMode: 420
+          sources:
+          - serviceAccountToken:
+              path: token
+          - configMap:
+              items:
+              - key: ca.crt
+                path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace
       - hostPath:
           path: /var/lib/kubelet/device-plugins
         name: devicesock

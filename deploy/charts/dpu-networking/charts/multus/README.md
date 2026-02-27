@@ -12,7 +12,7 @@ A Helm chart for Kubernetes
 | cniConfDir | string | `"/etc/cni/net.d"` |  |
 | imagePullSecrets | list | `[]` |  |
 | kubeMultusDs.image.repository | string | `"ghcr.io/k8snetworkplumbingwg/multus-cni"` |  |
-| kubeMultusDs.image.tag | string | `"v3.9.3"` |  |
+| kubeMultusDs.image.tag | string | `"v3.9.3@sha256:c173235642a10055db53bc43898fc1058cc6b97178fc3472ce4dafdd6d940d0b"` |  |
 | kubeMultusDs.installMultusBinary.containerSecurityContext.privileged | bool | `true` |  |
 | kubeMultusDs.installMultusBinary.resources.requests.cpu | string | `"10m"` |  |
 | kubeMultusDs.installMultusBinary.resources.requests.memory | string | `"15Mi"` |  |

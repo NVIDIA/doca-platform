@@ -36,6 +36,14 @@ spec:
         image: {{ .Values.arm64.image.repository }}:{{ .Values.arm64.image.tag
           | default .Chart.AppVersion }}
         imagePullPolicy: {{ .Values.arm64.ovsCniMarker.imagePullPolicy }}
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - find /tmp/healthy -mmin -2 | grep -q /tmp/healthy
+          initialDelaySeconds: 10
+          periodSeconds: 60
         livenessProbe:
           exec:
             command:
@@ -73,6 +81,8 @@ spec:
           name: cnibin
       nodeSelector: {{- toYaml .Values.arm64.nodeSelector | nindent 8 }}
       priorityClassName: system-node-critical
+      securityContext:
+        runAsNonRoot: false
       serviceAccountName: {{ include "ovs-cni.fullname" . }}-marker
       tolerations:
       - effect: NoSchedule
