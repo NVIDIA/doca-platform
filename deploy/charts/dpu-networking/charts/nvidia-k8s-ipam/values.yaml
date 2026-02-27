@@ -5,7 +5,7 @@ imagePullSecrets: []
 nvIpam:
   image:
     repository: ghcr.io/mellanox/nvidia-k8s-ipam
-    tag: v0.4.0
+    tag: v0.4.0@sha256:4b984dd345754e28ff964a209d76bff71ed31bb392b25aa5ddccf3925ac4e2ce
   controller:
     resources:
       requests:

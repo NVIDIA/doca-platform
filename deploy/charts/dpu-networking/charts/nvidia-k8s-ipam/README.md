@@ -16,7 +16,7 @@ A Helm chart for Kubernetes
 | nvIpam.controller.resources.requests.memory | string | `"300Mi"` |  |
 | nvIpam.fullnameOverride | string | `""` |  |
 | nvIpam.image.repository | string | `"ghcr.io/mellanox/nvidia-k8s-ipam"` |  |
-| nvIpam.image.tag | string | `"v0.4.0"` |  |
+| nvIpam.image.tag | string | `"v0.4.0@sha256:4b984dd345754e28ff964a209d76bff71ed31bb392b25aa5ddccf3925ac4e2ce"` |  |
 | nvIpam.nameOverride | string | `""` |  |
 | nvIpam.node.resources.limits.cpu | string | `"300m"` |  |
 | nvIpam.node.resources.limits.memory | string | `"400Mi"` |  |
