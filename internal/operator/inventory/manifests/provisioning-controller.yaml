@@ -472,6 +472,7 @@ spec:
         app.kubernetes.io/part-of: dpf-provisioning-controller-manager
         dpu.nvidia.com/component: dpf-provisioning-controller-manager
     spec:
+      automountServiceAccountToken: false
       containers:
       - args:
         - --leader-elect
@@ -522,8 +523,14 @@ spec:
           readOnly: true
         - mountPath: /bfb
           name: bfb-volume
+        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          name: kube-api-access
+          readOnly: true
       imagePullSecrets:
       - name: dpf-provisioning-regcred
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
       serviceAccountName: dpf-provisioning-controller-manager
       terminationGracePeriodSeconds: 10
       volumes:
@@ -534,6 +541,23 @@ spec:
       - name: bfb-volume
         persistentVolumeClaim:
           claimName: bfb-pvc
+      - name: kube-api-access
+        projected:
+          defaultMode: 420
+          sources:
+          - serviceAccountToken:
+              path: token
+          - configMap:
+              items:
+              - key: ca.crt
+                path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate

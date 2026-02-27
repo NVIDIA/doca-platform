@@ -16,6 +16,7 @@ spec:
         kubectl.kubernetes.io/default-container: manager
       labels:
     spec:
+      automountServiceAccountToken: false
       imagePullSecrets:
       - name: dpf-provisioning-regcred
       containers:
@@ -55,5 +56,30 @@ spec:
           - containerPort: 8080
             name: metrics
             protocol: TCP
+        volumeMounts:
+        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          name: kube-api-access
+          readOnly: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
+      volumes:
+      - name: kube-api-access
+        projected:
+          defaultMode: 420
+          sources:
+          - serviceAccountToken:
+              path: token
+          - configMap:
+              items:
+              - key: ca.crt
+                path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace

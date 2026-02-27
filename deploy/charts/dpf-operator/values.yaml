@@ -5,11 +5,22 @@ controllerManager:
     capabilities:
       drop:
         - ALL
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
   image:
     repository: ""
     tag: ""
   pullPolicy: IfNotPresent
   replicas: 1
+  ## Set kubernetes resource requests and limits for the controller.
+  # resources:
+  #   limits:
+  #     cpu:
+  #     memory:
+  #   requests:
+  #     cpu:
+  #     memory:
   serviceAccount:
     annotations: {}
 imagePullSecrets: []
@@ -62,7 +73,7 @@ kamajiEtcdDefrag:
   clientPort: 2379
   ## The schedule for the etcd-defrag job.
   schedule: 0 0 * * *
-  image: ghcr.io/ahrtr/etcd-defrag:v0.22.0
+  image: ghcr.io/ahrtr/etcd-defrag:v0.22.0@sha256:a7424de0a437f54d7565e96f8a50913e0ace05398bb5c10a77d5af5fc9bf9301
   ## The image pull policy for the etcd-defrag job.
   pullPolicy: IfNotPresent
   ## The defrag rule for the etcd-defrag job.
@@ -72,3 +83,11 @@ kamajiEtcdDefrag:
   successfulJobsHistoryLimit: 3
   ## Limit the number of retries on failure
   backoffLimit: 6
+  ## Set kubernetes resource requests and limits for the etcd-defrag job.
+  # resources:
+  #   limits:
+  #     cpu: 100m
+  #     memory: 64Mi
+  #   requests:
+  #     cpu: 200m
+  #     memory: 256Mi
