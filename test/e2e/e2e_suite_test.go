@@ -342,15 +342,6 @@ var _ = ReportAfterEach(func(spec SpecReport) {
 })
 
 var _ = AfterSuite(func() {
-	// Cleanup DPF operator config before resource collection
-	if !cleanupFlags.SkipSuiteCleanupAfter {
-		DeleteDPFOperatorConfig(ctx, testClient)
-	} else {
-		By("Skipping AfterSuite cleanup (DPF operator config)")
-	}
-
-	// Collect resources after DPF cleanup to capture what remains
-	By("Collecting resources and logs for the clusters after suite")
 	collectInput := collectResourcesInput{
 		collectResources: collectResources,
 		testClient:       testClient,
@@ -358,10 +349,21 @@ var _ = AfterSuite(func() {
 		restConfig:       restConfig,
 		artifactsDir:     artifactsDir,
 	}
-	err := collectKubernetesResources(ctx, collectInput, "final")
-	if err != nil {
-		// Don't fail the test if resource collection fails - just print the errors
-		GinkgoLogr.Error(err, "failed to collect resources and logs for the clusters")
+
+	By("Collecting resources for the clusters after suite (pre-DPF operator config cleanup)")
+	if err := collectKubernetesResources(ctx, collectInput, "pre-dpf-operator-config-cleanup"); err != nil {
+		GinkgoLogr.Error(err, "failed to collect resources for the clusters (pre-DPF operator config cleanup)")
+	}
+
+	if !cleanupFlags.SkipSuiteCleanupAfter {
+		DeleteDPFOperatorConfig(ctx, testClient)
+
+		By("Collecting resources for the clusters after suite (post-DPF operator config cleanup)")
+		if err := collectKubernetesResources(ctx, collectInput, "post-dpf-operator-config-cleanup"); err != nil {
+			GinkgoLogr.Error(err, "failed to collect resources for the clusters (post-DPF operator config cleanup)")
+		}
+	} else {
+		By("Skipping AfterSuite cleanup (DPF operator config)")
 	}
 
 	By("Performing final suite cleanup")
