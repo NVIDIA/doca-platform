@@ -52,201 +52,146 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
     resource: Deployment.dpf-operator.dpf-operator-controller-manager
 
-  dpu-networking:
+  dpu-networking-flannel:
+  # The upstream chart does not allow to set resource limits for init containers.
+  - check_id: CKV_K8S_11 # CPU limits should be set
+    resource: DaemonSet.default.kube-flannel-ds
+    evaluated_keys:
+      - spec/template/spec/initContainers/[0]/resources/limits/cpu
+  - check_id: CKV_K8S_13 # Memory limits should be set
+    resource: DaemonSet.default.kube-flannel-ds
+    evaluated_keys:
+      - spec/template/spec/initContainers/[0]/resources/limits/memory
+  # Flannel requires the API and the upstream chart does not allow to modify this.
+  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
+    resource: DaemonSet.default.kube-flannel-ds
+  # Flannel requires to run with high privileges
+  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
+    resource: DaemonSet.default.kube-flannel-ds
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.kube-flannel-ds
+  # Flannel does not provide a liveness or readiness probe.
+  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
+    resource: DaemonSet.default.kube-flannel-ds
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/livenessProbe
+  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
+    resource: DaemonSet.default.kube-flannel-ds
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/readinessProbe
+
+  dpu-networking-multus:
+  # multus does not provide a liveness or readiness probe.
+  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
+    resource: DaemonSet.default.kube-multus-ds
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/livenessProbe
+  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
+    resource: DaemonSet.default.kube-multus-ds
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/readinessProbe
+  # multus requires the API.
+  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
+    resource: DaemonSet.default.kube-multus-ds
+  # multus is required to run as root.
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.kube-multus-ds
+
+  dpu-networking-sriov-device-plugin:
+  # sriov-device-plugin is required to run as root.
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.kube-sriov-device-plugin
+  # sriov-device-plugin does not provide a liveness or readiness probe.
+  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
+    resource: DaemonSet.default.kube-sriov-device-plugin
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/livenessProbe
+  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
+    resource: DaemonSet.default.kube-sriov-device-plugin
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/readinessProbe
+
+  dpu-networking-nvidia-k8s-ipam:
+  # Daemonset has to run as root.
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.release-name-node-ds
+  # Deployment has to run as user 1000.
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: Deployment.default.release-name-controller
+  # Daemonset does not provide a liveness or readiness probe.
+  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
+    resource: DaemonSet.default.release-name-node-ds
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/livenessProbe
+  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
+    resource: DaemonSet.default.release-name-node-ds
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/readinessProbe
+
+  dpu-networking-ovs-cni:
+  # Digest can be set via values.
+  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
+    resource: DaemonSet.default.release-name-ovs-cni-arm64
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+      - spec/template/spec/containers/[0]/imagePullPolicy
+  - check_id: CKV_K8S_43 # Image should use digest
+    resource: DaemonSet.default.release-name-ovs-cni-arm64
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+  # ovs-cni requires the API.
+  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
+    resource: DaemonSet.default.release-name-ovs-cni-arm64
+  # ovs-cni needs to run as root.
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.release-name-ovs-cni-arm64
+
+  dpu-networking-sfc-controller:
+  # Digest can be set via values.
+  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
+    resource: DaemonSet.default.release-name-node-ds
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+      - spec/template/spec/containers/[0]/imagePullPolicy
+  - check_id: CKV_K8S_43 # Image should use digest
+    resource: DaemonSet.default.release-name-node-ds
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+  #  sfc-controller daemonset needs to run as root.
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.release-name-node-ds
+
+  dpu-networking-cni-installer:
+  # Digest can be set via values.
+  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
+    resource: DaemonSet.default.release-name
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+      - spec/template/spec/containers/[0]/imagePullPolicy
+  - check_id: CKV_K8S_43 # Image should use digest
+    resource: DaemonSet.default.release-name
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+  # cni-installer needs to run as root.
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.release-name
+  # Daemonset does not provide a liveness or readiness probe.
+  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
+    resource: DaemonSet.default.release-name
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/livenessProbe
+  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
+    resource: DaemonSet.default.release-name
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/readinessProbe
+
+  dpu-networking-node-problem-detector:
   # Node Problem Detector requires root access to read kernel logs and system state
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
     resource: DaemonSet.default.release-name-node-problem-detector
   - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
     resource: DaemonSet.default.release-name-node-problem-detector
-  # TODO: Fix these findings or document the exclusion properly.
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: DaemonSet.default.kube-flannel-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: DaemonSet.default.kube-multus-ds
-    evaluated_keys:
-      - spec/template/spec/initContainers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: DaemonSet.default.kube-sriov-device-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: DaemonSet.default.kube-sriov-device-plugin
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.kube-sriov-device-plugin
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: DaemonSet.default.kube-sriov-device-plugin
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: DaemonSet.default.kube-sriov-device-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
-    resource: DaemonSet.default.kube-sriov-device-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/livenessProbe
-  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
-    resource: DaemonSet.default.kube-sriov-device-plugin
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/readinessProbe
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: DaemonSet.default.release-name-node-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: DaemonSet.default.release-name-ovs-cni-arm64
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: Deployment.default.release-name-controller
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: DaemonSet.default.kube-flannel-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: DaemonSet.default.kube-multus-ds
-    evaluated_keys:
-      - spec/template/spec/initContainers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: DaemonSet.default.release-name-node-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_13 # Memory limits should be set
-    resource: DaemonSet.default.release-name-ovs-cni-arm64
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/memory
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: DaemonSet.default.kube-flannel-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: DaemonSet.default.kube-multus-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: DaemonSet.default.release-name-ovs-cni-arm64
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: Deployment.default.release-name-controller
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: DaemonSet.default.kube-flannel-ds
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: DaemonSet.default.kube-multus-ds
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: DaemonSet.default.release-name-node-ds
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.kube-flannel-ds
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.kube-multus-ds
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: DaemonSet.default.kube-flannel-ds
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: DaemonSet.default.kube-flannel-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-  - check_id: CKV_K8S_11 # CPU limits should be set
-    resource: DaemonSet.default.release-name
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/resources/limits/cpu
-  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
-    resource: DaemonSet.default.release-name
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-      - spec/template/spec/containers/[0]/imagePullPolicy
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: DaemonSet.default.release-name
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: Deployment.default.release-name-controller
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.release-name-node-ds
-  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
-    resource: DaemonSet.default.release-name-ovs-cni-arm64
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.release-name
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.release-name-ovs-cni-arm64
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: Deployment.default.release-name-controller
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: DaemonSet.default.kube-multus-ds
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: DaemonSet.default.release-name-node-ds
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: DaemonSet.default.kube-multus-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: DaemonSet.default.release-name
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: DaemonSet.default.release-name-node-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: DaemonSet.default.release-name-ovs-cni-arm64
-  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: Deployment.default.release-name-controller
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: DaemonSet.default.release-name-ovs-cni-arm64
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
-    resource: DaemonSet.default.kube-multus-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/livenessProbe
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: DaemonSet.default.release-name
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-  - check_id: CKV_K8S_43 # Image should use digest
-    resource: Deployment.default.release-name-controller
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/image
-  - check_id: CKV_K8S_49 # Minimize wildcard use in Roles and ClusterRoles
-    resource: ClusterRole.default.multus
-  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
-    resource: DaemonSet.default.kube-flannel-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/livenessProbe
-  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
-    resource: DaemonSet.default.kube-flannel-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/readinessProbe
-  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
-    resource: DaemonSet.default.release-name
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/livenessProbe
-  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
-    resource: DaemonSet.default.release-name-node-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/livenessProbe
-  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
-    resource: DaemonSet.default.kube-multus-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/readinessProbe
-  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
-    resource: DaemonSet.default.release-name
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/readinessProbe
-  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
-    resource: DaemonSet.default.release-name-node-ds
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/readinessProbe
-  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
-    resource: DaemonSet.default.release-name-ovs-cni-arm64
-    evaluated_keys:
-      - spec/template/spec/containers/[0]/readinessProbe
-
+  
   kamaji-keepalived:
   # TODO: Fix these findings or document the exclusion properly.
   - check_id: CKV_K8S_11 # CPU limits should be set

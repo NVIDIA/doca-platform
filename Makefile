@@ -666,9 +666,9 @@ $(ARTIFACTS_RENDERED_MANIFESTS_DIR): $(ARTIFACTS_DIR)
 	@mkdir -p $(ARTIFACTS_RENDERED_MANIFESTS_DIR)
 
 # Not yet enabled charts: dpu-networking ovn-kubernetes ovn-kubernetes-resource-injector
-VERIFY_MANIFEST_TARGETS ?= operator dpu-networking kamaji-keepalived vpc-ovn-host vpc-ovn-dpu vpc-ovs-flow-controllers vpc-ovs-dhcp-agent storage-host-snap-csi-plugin storage-host-snap-host-controller storage-dpu-snap-node-driver storage-dpu-block-storage-vendor-dpu-plugin storage-dpu-fs-storage-vendor-dpu-plugin storage-dpu-nfs-storage-vendor-dpu-plugin storage-dpu-doca-snap
+VERIFY_MANIFEST_TARGETS ?= operator kamaji-keepalived vpc-ovn-host vpc-ovn-dpu vpc-ovs-flow-controllers vpc-ovs-dhcp-agent storage-host-snap-csi-plugin storage-host-snap-host-controller storage-dpu-snap-node-driver storage-dpu-block-storage-vendor-dpu-plugin storage-dpu-fs-storage-vendor-dpu-plugin storage-dpu-nfs-storage-vendor-dpu-plugin storage-dpu-doca-snap
 
-verify-manifests-all: $(addprefix verify-manifest-,$(VERIFY_MANIFEST_TARGETS)) verify-manifests-operator-embedded-all ## Run all verify-manifest-* targets
+verify-manifests-all: $(addprefix verify-manifest-,$(VERIFY_MANIFEST_TARGETS)) verify-manifests-dpu-networking-all verify-manifests-operator-embedded-all ## Run all verify-manifest-* targets
 
 # Note: This simulates setting the correct digest for the image by using the @sha256:X syntax which is requirement to comply with CKV_K8S_15 and CKV_K8S_43.
 .PHONY: verify-manifest-operator
@@ -684,21 +684,100 @@ verify-manifest-operator: helm-package-operator helm $(ARTIFACTS_RENDERED_MANIFE
 	  MANIFEST_NAME="dpf-operator" \
 	  hack/scripts/validate-manifest-checkov.sh
 
-.PHONY: verify-manifest-dpu-networking
-verify-manifest-dpu-networking: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking chart
+VERIFY_DPU_NETWORKING_MANIFESTS ?= flannel multus sriov-device-plugin nvidia-k8s-ipam ovs-cni servicechainset-controller sfc-controller cni-installer node-problem-detector
+
+verify-manifests-dpu-networking-all: $(addprefix verify-manifest-dpu-networking-,$(VERIFY_DPU_NETWORKING_MANIFESTS)) ## Run manifest verification for manifests embedded into dpf-operator
+
+.PHONY: verify-manifest-dpu-networking-flannel
+verify-manifest-dpu-networking-flannel: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking flannel subchart
 	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
 	  --set flannel.enabled=true \
+	  --set flannel.flannel.resources.limits.cpu=1m \
+	  --set flannel.flannel.resources.limits.memory=1Mi \
+	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-flannel-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-flannel-$(TAG).yaml" \
+	  MANIFEST_NAME="dpu-networking-flannel" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-dpu-networking-multus
+verify-manifest-dpu-networking-multus: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking multus subchart
+	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
 	  --set multus.enabled=true \
+	  --set multus.kubeMultusDs.installMultusBinary.resources.limits.cpu=10m \
+	  --set multus.kubeMultusDs.installMultusBinary.resources.limits.memory=15Mi \
+	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-multus-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-multus-$(TAG).yaml" \
+	  MANIFEST_NAME="dpu-networking-multus" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-dpu-networking-sriov-device-plugin
+verify-manifest-dpu-networking-sriov-device-plugin: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking sriov-device-plugin subchart
+	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
 	  --set sriov-device-plugin.enabled=true \
+	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-sriov-device-plugin-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-sriov-device-plugin-$(TAG).yaml" \
+	  MANIFEST_NAME="dpu-networking-sriov-device-plugin" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-dpu-networking-nvidia-k8s-ipam
+verify-manifest-dpu-networking-nvidia-k8s-ipam: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking nvidia-k8s-ipam subchart
+	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
 	  --set nvidia-k8s-ipam.enabled=true \
+	  --set nvidia-k8s-ipam.nvIpam.controller.resources.limits.cpu=1m \
+	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-nvidia-k8s-ipam-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-nvidia-k8s-ipam-$(TAG).yaml" \
+	  MANIFEST_NAME="dpu-networking-nvidia-k8s-ipam" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-dpu-networking-ovs-cni
+verify-manifest-dpu-networking-ovs-cni: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking ovs-cni subchart
+	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
 	  --set ovs-cni.enabled=true \
+	  --set ovs-cni.arm64.ovsCniMarker.resources.limits.cpu=1m \
+	  --set ovs-cni.arm64.ovsCniMarker.resources.limits.memory=1Mi \
+	  --set ovs-cni.arm64.ovsCniPlugin.resources.limits.cpu=1m \
+	  --set ovs-cni.arm64.ovsCniPlugin.resources.limits.memory=1Mi \
+	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-ovs-cni-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-ovs-cni-$(TAG).yaml" \
+	  MANIFEST_NAME="dpu-networking-ovs-cni" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-dpu-networking-servicechainset-controller
+verify-manifest-dpu-networking-servicechainset-controller: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking servicechainset-controller subchart
+	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
 	  --set servicechainset-controller.enabled=true \
+	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-servicechainset-controller-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-servicechainset-controller-$(TAG).yaml" \
+	  MANIFEST_NAME="dpu-networking-servicechainset-controller" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-dpu-networking-sfc-controller
+verify-manifest-dpu-networking-sfc-controller: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking sfc-controller subchart
+	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
 	  --set sfc-controller.enabled=true \
+	  --set sfc-controller.controllerManager.manager.resources.limits.cpu=1m \
+	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-sfc-controller-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-sfc-controller-$(TAG).yaml" \
+	  MANIFEST_NAME="dpu-networking-sfc-controller" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-dpu-networking-cni-installer
+verify-manifest-dpu-networking-cni-installer: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking cni-installer subchart
+	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
 	  --set cni-installer.enabled=true \
+	  --set cni-installer.cniInstaller.resources.limits.cpu=1m \
+	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-cni-installer-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-cni-installer-$(TAG).yaml" \
+	  MANIFEST_NAME="dpu-networking-cni-installer" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-dpu-networking-node-problem-detector
+verify-manifest-dpu-networking-node-problem-detector: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking node-problem-detector subchart
+	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
 	  --set node-problem-detector.enabled=true \
-	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-$(TAG).yaml
-	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-$(TAG).yaml" \
-	  MANIFEST_NAME="dpu-networking" \
+	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-node-problem-detector-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-node-problem-detector-$(TAG).yaml" \
+	  MANIFEST_NAME="dpu-networking-node-problem-detector" \
 	  hack/scripts/validate-manifest-checkov.sh
 
 .PHONY: verify-manifest-vpc-ovn-host
