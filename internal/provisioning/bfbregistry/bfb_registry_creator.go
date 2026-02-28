@@ -32,19 +32,21 @@ import (
 )
 
 const (
-	PodName       = "bfb-registry"
-	ConfigMapName = "bfb-registry-config"
-	PodLabelKey   = "app"
-	PodLabelValue = "bfb-registry"
-	ContainerPort = 8082
-	BFBHostPath   = "/var/lib/nvidia/dpf/bfb"
-	NodePort      = 30082
+	PodName           = "bfb-registry"
+	ConfigMapName     = "bfb-registry-config"
+	LabelPartOf       = "app.kubernetes.io/part-of"
+	LabelDPUComponent = "dpu.nvidia.com/component"
+	LabelValue        = "bfb-registry"
+	ContainerPort     = 8082
+	BFBHostPath       = "/var/lib/nvidia/dpf/bfb"
+	NodePort          = 30082
 )
 
 // BFBRegistryRunnable creates the bfb-registry Pod and Service when the provisioning controller becomes leader.
 type BFBRegistryRunnable struct {
-	Client client.Client
-	BFBPVC string
+	Client           client.Client
+	BFBPVC           string
+	ImagePullSecrets []corev1.LocalObjectReference
 }
 
 func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
@@ -119,6 +121,7 @@ func (r *BFBRegistryRunnable) desiredPod(namespace, nodeName, image string, owne
 		},
 		Spec: corev1.PodSpec{
 			NodeName:                      nodeName,
+			ImagePullSecrets:              r.ImagePullSecrets,
 			TerminationGracePeriodSeconds: ptr.To(int64(0)),
 			SecurityContext: &corev1.PodSecurityContext{
 				FSGroup: ptr.To(int64(65532)),
@@ -158,7 +161,10 @@ func (r *BFBRegistryRunnable) desiredPod(namespace, nodeName, image string, owne
 }
 
 func bfbRegistryPodLabels() map[string]string {
-	return map[string]string{PodLabelKey: PodLabelValue}
+	return map[string]string{
+		LabelPartOf:       LabelValue,
+		LabelDPUComponent: LabelValue,
+	}
 }
 
 func ownerRefEqual(a, b []metav1.OwnerReference) bool {
