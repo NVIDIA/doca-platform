@@ -84,8 +84,8 @@ func SetInput() {
 		By(fmt.Sprintf("Zero trust mode is applied to operatorConfig with trusted host IP %s", trustedHostIP))
 		dpfOperatorConfig.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
 			InstallViaRedfish: &operatorv1.InstallViaRedfish{
-				// Use NodePort service port 30080
-				BFBRegistryAddress:   fmt.Sprintf("%s:30080", trustedHostIP),
+				// Use NodePort service port 30082
+				BFBRegistryAddress:   fmt.Sprintf("%s:30082", trustedHostIP),
 				SkipDPUNodeDiscovery: ptr.To(false),
 			},
 		}
