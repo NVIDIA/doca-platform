@@ -482,8 +482,9 @@ func main() {
 	setupInitRunnable(mgr, dpuMap)
 
 	if err := mgr.Add(&bfbregistry.BFBRegistryRunnable{
-		Client: mgr.GetClient(),
-		BFBPVC: flags.bfbPVC,
+		Client:           mgr.GetClient(),
+		BFBPVC:           flags.bfbPVC,
+		ImagePullSecrets: imagePullSecretsReferences,
 	}); err != nil {
 		setupLog.Error(err, "unable to register bfb-registry runnable")
 		os.Exit(1)
