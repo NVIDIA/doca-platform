@@ -31,7 +31,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -42,6 +41,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 
 	"github.com/BurntSushi/toml"
+	"github.com/go-logr/logr"
 )
 
 const (
@@ -90,10 +90,11 @@ type VFMAC struct {
 	configFile string
 	uplinks    []string
 	maxVFs     int
+	log        logr.Logger
 }
 
 // NewVFMAC creates a new VFMAC instance with the given configuration.
-func NewVFMAC(fs FileSystem, networkhelper networkhelper.NetworkHelper, configDir, configFile string) (*VFMAC, error) {
+func NewVFMAC(fs FileSystem, networkhelper networkhelper.NetworkHelper, log logr.Logger, configDir, configFile string) (*VFMAC, error) {
 	if fs == nil {
 		fs = OSFileSystem{}
 	}
@@ -123,17 +124,18 @@ func NewVFMAC(fs FileSystem, networkhelper networkhelper.NetworkHelper, configDi
 		configDir:  configDir,
 		configFile: configFile,
 		uplinks:    uplinks,
+		log:        log,
 	}, nil
 }
 
 // getMaxVFs queries the maximum number of VFs from /sys/class/net/<uplink>/smart_nic.
 func (v *VFMAC) getMaxVFs(pf string) (int, error) {
-	log.Printf("[INFO] Getting max number of VFs from path %s/%s/smart_nic", sysfsNetPath, pf)
+	v.log.Info("Getting max number of VFs from", "path", fmt.Sprintf("%s/%s/smart_nic", sysfsNetPath, pf))
 	count, err := v.countVFFolders(pf)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count VF folders: %w", err)
 	}
-	log.Printf("[INFO] Max number of VFs: %d", count)
+	v.log.Info("Max number of VFs", "count", count)
 	return count, nil
 }
 
@@ -154,7 +156,7 @@ func (v *VFMAC) getVFConfig(pf, vf string) (VFConfig, error) {
 	if err != nil {
 		return VFConfig{}, fmt.Errorf("failed to get MAC address for %s/%s: %w", pf, vf, err)
 	}
-	log.Printf("[INFO] MAC address for %s/%s: %s", pf, vf, macAddr)
+	v.log.Info("MAC address for", "pf", pf, "vf", vf, "mac", macAddr)
 	return VFConfig{MAC: macAddr}, nil
 }
 
@@ -166,7 +168,7 @@ func isValidMAC(mac string) bool {
 
 // setVFMAC sets the MAC address for a VF in sysfs.
 func (v *VFMAC) setVFMAC(pf, vf, mac string) error {
-	log.Printf("[INFO] Setting MAC for %s/%s to %s", pf, vf, mac)
+	v.log.Info("Setting MAC for", "pf", pf, "vf", vf, "mac", mac)
 
 	// Validate VF name format
 	if !strings.HasPrefix(vf, "vf") {
@@ -199,11 +201,11 @@ func (v *VFMAC) setVFMAC(pf, vf, mac string) error {
 
 // loadConfig loads the VF MAC mapping from the config file.
 func (v *VFMAC) loadConfig() (*VFMapping, error) {
-	log.Printf("[INFO] Loading config from %s", filepath.Join(v.configDir, v.configFile))
+	v.log.Info("Loading config from", "path", filepath.Join(v.configDir, v.configFile))
 	data, err := v.fs.ReadFile(filepath.Join(v.configDir, v.configFile))
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("[INFO] Config file does not exist, creating new mapping")
+			v.log.Info("Config file does not exist, creating new mapping")
 			mapping := &VFMapping{
 				P0: make(map[string]VFConfig),
 				P1: make(map[string]VFConfig),
@@ -239,7 +241,7 @@ func (v *VFMAC) loadConfig() (*VFMapping, error) {
 		}
 	}
 
-	log.Printf("[INFO] Loaded config: P0 has %d VFs, P1 has %d VFs", len(mapping.P0), len(mapping.P1))
+	v.log.Info("Loaded config VF count", "p0", len(mapping.P0), "p1", len(mapping.P1))
 	return &mapping, nil
 }
 
@@ -275,7 +277,7 @@ func (v *VFMAC) getIfaceMACConfig(pf, iface string) (string, error) {
 				return "", fmt.Errorf("invalid MAC format for %s/%s: %s", pf, iface, value)
 			}
 			macAddr = value
-			log.Printf("[INFO] Found MAC for %s/%s: %s", pf, iface, value)
+			v.log.Info("Found MAC for", "pf", pf, "iface", iface, "mac", value)
 			break // We only need the MAC address
 		}
 	}
@@ -289,7 +291,7 @@ func (v *VFMAC) getIfaceMACConfig(pf, iface string) (string, error) {
 
 // LoadIfaceMACAddressMapping walks sysfs to build a PF/VF → MAC mapping.
 func (v *VFMAC) LoadIfaceMACAddressMapping() (*VFMapping, error) {
-	log.Printf("[INFO] Loading mac address mapping from %s", filepath.Join(sysfsNetPath))
+	v.log.Info("Loading mac address mapping from", "path", filepath.Join(sysfsNetPath))
 
 	mapping := VFMapping{
 		P0: make(map[string]VFConfig),
@@ -318,7 +320,7 @@ func (v *VFMAC) LoadIfaceMACAddressMapping() (*VFMapping, error) {
 		}
 	}
 
-	log.Printf("[INFO] Loaded mac address mapping: P0 has %d Entries, P1 has %d Entries", len(mapping.P0), len(mapping.P1))
+	v.log.Info("Loaded mac address mapping VF count", "p0", len(mapping.P0), "p1", len(mapping.P1))
 	return &mapping, nil
 }
 
@@ -329,7 +331,7 @@ func (v *VFMAC) processMACAddress(mapping *VFMapping, pf, iface string) error {
 		return fmt.Errorf("failed to get MAC address for %s/%s: %w", pf, iface, err)
 	}
 
-	log.Printf("[INFO] MAC address for %s/%s: %s", pf, iface, macAddr)
+	v.log.Info("MAC address for", "pf", pf, "iface", iface, "mac", macAddr)
 	if err := v.assignMACToMapping(mapping, pf, iface, macAddr); err != nil {
 		return fmt.Errorf("failed to assign MAC address to mapping: %w", err)
 	}
@@ -353,7 +355,7 @@ func (v *VFMAC) assignMACToMapping(mapping *VFMapping, pf, iface, macAddr string
 
 // saveConfig saves the VF MAC mapping to the config file.
 func (v *VFMAC) saveConfig(mapping *VFMapping) error {
-	log.Printf("[INFO] Saving config to %s/%s", v.configDir, v.configFile)
+	v.log.Info("Saving config to", "path", filepath.Join(v.configDir, v.configFile))
 	// Ensure directory exists
 	if err := v.fs.MkdirAll(v.configDir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
@@ -366,7 +368,7 @@ func (v *VFMAC) saveConfig(mapping *VFMapping) error {
 		return fmt.Errorf("failed to encode TOML: %w", err)
 	}
 
-	log.Printf("[INFO] Config saved successfully")
+	v.log.Info("Config saved successfully")
 	return v.fs.WriteFile(configPath, []byte(buf.String()), 0644)
 }
 
@@ -379,7 +381,7 @@ func (v *VFMAC) ProcessVFs() error {
 	}
 	v.maxVFs = vfs
 
-	log.Printf("[INFO] Starting VF processing")
+	v.log.Info("Starting VF processing")
 
 	mapping, err := v.loadConfig()
 	if err != nil {
@@ -387,7 +389,7 @@ func (v *VFMAC) ProcessVFs() error {
 	}
 
 	for idx, pf := range v.uplinks {
-		log.Printf("[INFO] Processing physical interface: %s", pf)
+		v.log.Info("Processing physical interface", "pf", pf)
 		var vfMap map[string]VFConfig
 		switch idx {
 		case 0:
@@ -405,17 +407,17 @@ func (v *VFMAC) ProcessVFs() error {
 			// Check if VF exists
 			if _, err := v.fs.Stat(vfPath); err != nil {
 				if os.IsNotExist(err) {
-					log.Printf("[INFO] VF %s/%s does not exist, skipping", pf, vf)
+					v.log.Info("VF does not exist, skipping", "pf", pf, "vf", vf)
 					continue
 				}
 				return fmt.Errorf("failed to stat %s: %w", vfPath, err)
 			}
 
-			log.Printf("[INFO] Processing VF: %s/%s", pf, vf)
+			v.log.Info("Processing VF", "pf", pf, "vf", vf)
 			vfConfig, exists := vfMap[vf]
 
 			if !exists {
-				log.Printf("[INFO] No existing MAC found for %s/%s, generating random MAC", pf, vf)
+				v.log.Info("No existing MAC found, generating random MAC", "pf", pf, "vf", vf)
 				// Generate random MAC
 				if err := v.setVFMAC(pf, vf, "Random"); err != nil {
 					return fmt.Errorf("failed to set random MAC for %s/%s: %w", pf, vf, err)
@@ -429,9 +431,9 @@ func (v *VFMAC) ProcessVFs() error {
 				}
 
 				vfMap[vf] = vfConfig
-				log.Printf("[INFO] Stored new MAC %s for %s/%s", vfConfig.MAC, pf, vf)
+				v.log.Info("Stored new MAC", "pf", pf, "vf", vf, "mac", vfConfig.MAC)
 			} else {
-				log.Printf("[INFO] Setting existing MAC %s for %s/%s", vfConfig.MAC, pf, vf)
+				v.log.Info("Setting existing MAC", "pf", pf, "vf", vf, "mac", vfConfig.MAC)
 				// Set the stored MAC
 				if err := v.setVFMAC(pf, vf, vfConfig.MAC); err != nil {
 					return fmt.Errorf("failed to set MAC for %s/%s: %w", pf, vf, err)
@@ -444,7 +446,7 @@ func (v *VFMAC) ProcessVFs() error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	log.Printf("[INFO] VF mac processing completed successfully")
+	v.log.Info("VF mac processing completed successfully")
 	return nil
 }
 
