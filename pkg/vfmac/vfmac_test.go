@@ -28,6 +28,7 @@ import (
 	networkhelper_mock "github.com/nvidia/doca-platform/pkg/utils/networkhelper/mock"
 
 	"github.com/BurntSushi/toml"
+	"github.com/go-logr/logr"
 	"go.uber.org/mock/gomock"
 )
 
@@ -213,7 +214,7 @@ func TestNewVFMAC(t *testing.T) {
 
 	for _, tcase := range tests {
 		t.Run(tcase.name, func(t *testing.T) {
-			_, err := NewVFMAC(tcase.mockFS, tcase.mockNetworkHelper, "", "")
+			_, err := NewVFMAC(tcase.mockFS, tcase.mockNetworkHelper, logr.Discard(), "", "")
 			if (err != nil) != tcase.wantErr {
 				t.Errorf("NewVFMAC() error = %v, wantErr %v", err, tcase.wantErr)
 			}
@@ -340,7 +341,7 @@ func TestLoadAndSaveConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
 			if err != nil {
 				t.Fatalf("NewVFMAC() error = %v", err)
 			}
@@ -444,7 +445,7 @@ func TestLoadIfaceMACAddressMapping(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
 			if err != nil {
 				t.Fatalf("NewVFMAC() error = %v", err)
 			}
@@ -477,7 +478,7 @@ func TestLoadIfaceMACAddressMapping(t *testing.T) {
 
 func TestSetVFMAC_InvalidMAC(t *testing.T) {
 	mockNetworkHelper := setupMockNetworkHelper(t)
-	vfmac, err := NewVFMAC(&mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)}, mockNetworkHelper, "", "")
+	vfmac, err := NewVFMAC(&mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)}, mockNetworkHelper, logr.Discard(), "", "")
 	if err != nil {
 		t.Fatalf("NewVFMAC() error = %v", err)
 	}
@@ -633,7 +634,7 @@ func TestGetEnv(t *testing.T) {
 func TestLoadConfig_FileNotFound(t *testing.T) {
 	mockNetworkHelper := setupMockNetworkHelper(t)
 	mfs := &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)}
-	vfmac, err := NewVFMAC(mfs, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+	vfmac, err := NewVFMAC(mfs, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
 	if err != nil {
 		t.Fatalf("NewVFMAC() error = %v", err)
 	}
@@ -653,7 +654,7 @@ func TestLoadConfig_InvalidTOML(t *testing.T) {
 		files: map[string][]byte{"/test/config/dir/test-config.toml": []byte("not toml")},
 		dirs:  make(map[string]bool),
 	}
-	vfmac, err := NewVFMAC(mfs, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+	vfmac, err := NewVFMAC(mfs, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
 	if err != nil {
 		t.Fatalf("NewVFMAC() error = %v", err)
 	}
@@ -670,7 +671,7 @@ func (f *failFS) MkdirAll(path string, perm os.FileMode) error { return errors.N
 func TestSaveConfig_MkdirFail(t *testing.T) {
 	mockNetworkHelper := setupMockNetworkHelper(t)
 	mfs := &failFS{mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)}}
-	vfmac, err := NewVFMAC(mfs, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+	vfmac, err := NewVFMAC(mfs, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
 	if err != nil {
 		t.Fatalf("NewVFMAC() error = %v", err)
 	}
@@ -709,7 +710,7 @@ func TestGetMaxVFs(t *testing.T) {
 			}
 
 			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(mockedFs, mockNetworkHelper, "", "")
+			vfmac, err := NewVFMAC(mockedFs, mockNetworkHelper, logr.Discard(), "", "")
 			if err != nil {
 				t.Fatalf("NewVFMAC() error = %v", err)
 			}
@@ -794,7 +795,7 @@ func TestGetVFConfig(t *testing.T) {
 				dirs: make(map[string]bool),
 			}
 			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(mfs, mockNetworkHelper, "", "")
+			vfmac, err := NewVFMAC(mfs, mockNetworkHelper, logr.Discard(), "", "")
 			if err != nil {
 				t.Fatalf("NewVFMAC() error = %v", err)
 			}
@@ -909,7 +910,7 @@ func TestSetVFMAC(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, "", "")
+			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, logr.Discard(), "", "")
 			if err != nil {
 				t.Fatalf("NewVFMAC() error = %v", err)
 			}
@@ -979,7 +980,7 @@ func TestLoadConfig_FileErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
 			if err != nil {
 				t.Fatalf("NewVFMAC() error = %v", err)
 			}
@@ -1030,7 +1031,7 @@ func TestSaveConfig_FileErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
 			if err != nil {
 				t.Fatalf("NewVFMAC() error = %v", err)
 			}
@@ -1132,7 +1133,7 @@ func TestProcessVFs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, "/test/config/dir", "test-config.toml")
+			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
 			if err != nil {
 				t.Fatalf("NewVFMAC() error = %v", err)
 			}
