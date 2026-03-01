@@ -35,6 +35,8 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/filesystem"
 	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 	"github.com/nvidia/doca-platform/pkg/vfmac"
+
+	"github.com/go-logr/logr"
 )
 
 type SetVFMac struct {
@@ -61,7 +63,7 @@ func (v *SetVFMac) Execute(execCtx context.Context, optCtx *operations.Context) 
 	if v.vfmacInstance == nil {
 		var err error
 		// Create a new VFMAC instance with default configuration
-		v.vfmacInstance, err = vfmac.NewVFMAC(filesystem.DefaultFileSystem, networkhelper.New(), "", "")
+		v.vfmacInstance, err = vfmac.NewVFMAC(filesystem.DefaultFileSystem, networkhelper.New(), logr.FromContextOrDiscard(execCtx), "", "")
 		if err != nil {
 			return fmt.Errorf("error creating VFMAC instance: %v", err)
 		}
