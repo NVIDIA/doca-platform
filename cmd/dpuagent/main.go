@@ -77,7 +77,9 @@ func main() {
 		DPUFlavor: *dpuFlavor,
 		Options:   options,
 	}
-	if err := dpuagent.NewDPUAgent(optCtx).Run(ctrl.SetupSignalHandler()); err != nil {
+
+	execCtx := klog.NewContext(ctrl.SetupSignalHandler(), klog.Background())
+	if err := dpuagent.NewDPUAgent(optCtx).Run(execCtx); err != nil {
 		klog.Fatalf("failed to run DPU agent: %v", err)
 	}
 	klog.Info("Successfully ran DPU agent")
