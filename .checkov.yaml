@@ -246,6 +246,9 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
       - spec/template/spec/containers/[0]/image
 
   provisioning-controller:
+  # No pod-level securityContext so the init container can run as root to create the hostPath directory.
+  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
+    resource: Deployment.dpf-provisioning.dpf-provisioning-controller-manager
   # Should be set to image with digest via DPFOperatorConfig.
   - check_id: CKV_K8S_15 # Image Pull Policy should be Always
     resource: Deployment.dpf-provisioning.dpf-provisioning-controller-manager

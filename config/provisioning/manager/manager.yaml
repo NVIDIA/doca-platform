@@ -27,6 +27,8 @@ spec:
         image: controller
         name: manager
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
           privileged: true
           capabilities:
             drop:
@@ -60,9 +62,6 @@ spec:
         - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
           name: kube-api-access
           readOnly: true
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
       volumes:
