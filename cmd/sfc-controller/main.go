@@ -181,11 +181,14 @@ func main() {
 		_ = ofb.Disconnect()
 	}()
 
-	// used to build the flows, it's not creating the bridge in ovs
-	oftable := openflow.NewOFTable(0, sfccontroller.SFCBridge, 0, 0, openflow.TableMissActionNormal)
+	// TableMissActionNone: the miss action parameter is not consumed by sfc-controller;
+	// it is only used by Antrea's own agent pipeline initialization (pkg/agent/openflow/pipeline.go).
+	learningTable := openflow.NewOFTable(sfccontroller.LearningTable, sfccontroller.SFCBridge, 0, 0, openflow.TableMissActionNone)
+	switchingTable := openflow.NewOFTable(sfccontroller.SwitchingTable, sfccontroller.SFCBridge, 0, 0, openflow.TableMissActionNone)
 
-	ofb.NewTable(oftable, 0, openflow.TableMissActionNormal)
-	// it's a must other wise getting a panic when building flows
+	ofb.NewTable(learningTable, sfccontroller.LearningTable, openflow.TableMissActionNone)
+	ofb.NewTable(switchingTable, sfccontroller.SwitchingTable, openflow.TableMissActionNone)
+	// registration of the tables is no op but it is required by the library.
 	ofb.Initialize()
 
 	clientDBModel, err := model.NewClientDBModel("Open_vSwitch",
@@ -258,7 +261,6 @@ func main() {
 		Scheme:     mgr.GetScheme(),
 		NodeName:   nodeName,
 		BridgeName: sfccontroller.BridgeSFC,
-		OFTable:    oftable,
 		OFBridge:   ofb,
 		OVS:        ovsClient,
 		Exec:       kexec.New(),

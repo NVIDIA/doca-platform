@@ -18,6 +18,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	oflow "github.com/nvidia/doca-platform/pkg/openflow"
 
@@ -40,30 +41,31 @@ type ServiceChain struct {
 // GenerateAndApplyOpenFlows generates and applies OpenFlow rules to the service chain.
 // This loop processes each switch in the service chain.
 // For each switch (represented by an array of ports), (chain is an array of switches),
-// builds OpenFlow rules that enable communication between all ports in the switch
-// The flows implement a simple L2 learning switch behavior where:
-//   - Unknown destination traffic is flooded to all other ports
-//   - Known destination traffic is forwarded only to the learned port
+// builds OpenFlow rules that enable communication between all ports in the switch.
 //
-// For each port in a switch, create
-//   - Learn actions for mac learning that dynamically create flows based on observed traffic
-//   - Output actions to forward traffic to all other ports in the same switch
+// The pipeline uses two tables:
+//   - Table 0 (LearningTable): MAC learning via learn() actions, then resubmit to switching table
+//   - Table 1 (SwitchingTable): Forwarding decisions (multicast flood, learnt unicast, default unicast flood)
 //
-// Sample of generated learning flows inside an array
-// ovs-ofctl add-flow br-sfc "in_port=$a,actions=learn(idle_timeout=10,priority=1,in_port=$b,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),learn(idle_timeout=10,priority=1,
+// For each port in a switch, three flow types are generated:
 //
-//	in_port=$c,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:$b,output:$c"
+// 1. Learning flow (table 0, priority UnicastPriority):
 //
-// ovs-ofctl add-flow br-sfc "in_port=$b,actions=learn(idle_timeout=10,priority=1,in_port=$a,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),learn(idle_timeout=10,priority=1,
+//	match in_port → learn() for each peer port (creates unicast entries in table 1), then resubmit to table 1
 //
-//	in_port=$c,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:$a,output:$c"
+// 2. Multicast/broadcast flow (table 1, priority MulticastPriority):
 //
-// ovs-ofctl add-flow br-sfc "in_port=$c,actions=learn(idle_timeout=10,priority=1,in_port=$a,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),learn(idle_timeout=10,priority=1,
+//	match in_port + dl_dst multicast bit → output to all peer ports
 //
-//	in_port=$b,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:$a,output:$b"
+// 3. Default unicast flood flow (table 1, priority UnicastPriority):
 //
-// don't fail immediately, operate on best effort basis to enable partial chains
-// to enable some of the traffic to pass
+//	match in_port → output to all peer ports (catch-all for unknown unicast)
+//
+// The learn() actions dynamically create unicast entries in the switching table (priority UnicastLearntPriority)
+// that forward known destination MACs directly to the learned port.
+//
+// Don't fail immediately, operate on best effort basis to enable partial chains
+// to enable some of the traffic to pass.
 func (s *ServiceChain) GenerateAndApplyOpenFlows(ctx context.Context, ports [][]string, hashedName uint64) error {
 	log := ctrllog.FromContext(ctx)
 	var errs []error
@@ -72,54 +74,44 @@ func (s *ServiceChain) GenerateAndApplyOpenFlows(ctx context.Context, ports [][]
 			// We need at least two elements to construct flows
 			continue
 		}
-		// Reset flows string
-		flowsPerArray := ""
+
+		var flowLines []string
 		for i, arrayPort := range ports[arrayPos] {
-			if flowsPerArray != "" {
-				// Add new line for each position
-				flowsPerArray += "\n"
-			}
-
-			// Add unique cookie based on hashing the namespace name together with the table, priority constants and input port
-			// this will result in the following string:
-			//  cookie=0x24592fc503504d3, table=0, priority=20, in_port=97 actions=
-			flowsPerArray += fmt.Sprintf("cookie=%d, table=0, priority=%d, in_port=%s actions=", hashedName, PriorityDynamicLearnFlows, arrayPort)
-
-			// Reset output string
-			outputFlowPart := ""
-			// Reset learn string
-			learnAction := ""
+			var learnActions []string
+			var outputParts []string
 
 			for j, iter := range ports[arrayPos] {
 				if i == j {
-					// Skip self
+					// skip self
 					continue
 				}
-
-				if learnAction != "" {
-					// If it's not the first learn action add comma
-					learnAction += ","
-				}
-
-				// Add learn action
-				learnAction += fmt.Sprintf(
-					"learn(cookie=%d,idle_timeout=10,table=0,priority=%d,in_port=%s,dl_dst=dl_src,output:NXM_OF_IN_PORT[])",
-					hashedName, PriorityLearntFlows, iter)
-
-				if outputFlowPart != "" {
-					// If it's not the first output action add comma
-					outputFlowPart += ","
-				}
-				// Add output action
-				outputFlowPart += fmt.Sprintf("output:%s", iter)
+				learnActions = append(learnActions, fmt.Sprintf(
+					"learn(cookie=%d,idle_timeout=10,table=%d,priority=%d,in_port=%s,dl_dst=dl_src,output:NXM_OF_IN_PORT[])",
+					hashedName, SwitchingTable, UnicastLearntPriority, iter))
+				outputParts = append(outputParts, fmt.Sprintf("output:%s", iter))
 			}
-			if learnAction != "" && outputFlowPart != "" {
-				flowsPerArray += learnAction + "," + outputFlowPart
-			}
+
+			outputActions := strings.Join(outputParts, ",")
+
+			// Table 0: learning flow — learn MACs then resubmit to switching table
+			flowLines = append(flowLines, fmt.Sprintf(
+				"cookie=%d, table=%d, priority=%d, in_port=%s actions=%s,resubmit(,%d)",
+				hashedName, LearningTable, UnicastPriority, arrayPort,
+				strings.Join(learnActions, ","), SwitchingTable))
+
+			// Table 1: multicast/broadcast flow — flood
+			flowLines = append(flowLines, fmt.Sprintf(
+				"cookie=%d, table=%d, priority=%d, in_port=%s, dl_dst=%s actions=%s",
+				hashedName, SwitchingTable, MulticastPriority, arrayPort,
+				BroadcastMulticastMask, outputActions))
+
+			// Table 1: default unicast flood — catch-all for unknown destinations
+			flowLines = append(flowLines, fmt.Sprintf(
+				"cookie=%d, table=%d, priority=%d, in_port=%s actions=%s",
+				hashedName, SwitchingTable, UnicastPriority, arrayPort, outputActions))
 		}
 
-		// Try adding flows to vswitchd
-		err := s.OPFlow.AddFlows(ctx, flowsPerArray, BridgeSFC)
+		err := s.OPFlow.AddFlows(ctx, strings.Join(flowLines, "\n"), BridgeSFC)
 		if err != nil {
 			log.Error(err, "failed to add flows")
 			errs = append(errs, err)
