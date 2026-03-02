@@ -60,28 +60,46 @@ var _ = Describe("servicechain GenerateAndApplyOpenFlows", func() {
 
 	It("should succeed when ports has two ports", func() {
 		ports = [][]string{{"1", "2"}}
-		expectedFlows := `cookie=0, table=0, priority=20, in_port=1 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:2
-cookie=0, table=0, priority=20, in_port=2 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:1`
+		expectedFlows := `cookie=0, table=0, priority=0, in_port=1 actions=learn(cookie=0,idle_timeout=10,table=1,priority=1,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),resubmit(,1)
+cookie=0, table=1, priority=2, in_port=1, dl_dst=01:00:00:00:00:00/01:00:00:00:00:00 actions=output:2
+cookie=0, table=1, priority=0, in_port=1 actions=output:2
+cookie=0, table=0, priority=0, in_port=2 actions=learn(cookie=0,idle_timeout=10,table=1,priority=1,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),resubmit(,1)
+cookie=0, table=1, priority=2, in_port=2, dl_dst=01:00:00:00:00:00/01:00:00:00:00:00 actions=output:1
+cookie=0, table=1, priority=0, in_port=2 actions=output:1`
 		openflowMock.EXPECT().AddFlows(gomock.Any(), expectedFlows, BridgeSFC).Return(nil)
 		Expect(sc.GenerateAndApplyOpenFlows(ctx, ports, 0)).To(Succeed())
 	})
 
 	It("should succeed when ports has 3 ports", func() {
 		ports = [][]string{{"1", "2", "3"}}
-		expectedFlows := `cookie=0, table=0, priority=20, in_port=1 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=3,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:2,output:3
-cookie=0, table=0, priority=20, in_port=2 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=3,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:1,output:3
-cookie=0, table=0, priority=20, in_port=3 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:1,output:2`
+		expectedFlows := `cookie=0, table=0, priority=0, in_port=1 actions=learn(cookie=0,idle_timeout=10,table=1,priority=1,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),learn(cookie=0,idle_timeout=10,table=1,priority=1,in_port=3,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),resubmit(,1)
+cookie=0, table=1, priority=2, in_port=1, dl_dst=01:00:00:00:00:00/01:00:00:00:00:00 actions=output:2,output:3
+cookie=0, table=1, priority=0, in_port=1 actions=output:2,output:3
+cookie=0, table=0, priority=0, in_port=2 actions=learn(cookie=0,idle_timeout=10,table=1,priority=1,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),learn(cookie=0,idle_timeout=10,table=1,priority=1,in_port=3,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),resubmit(,1)
+cookie=0, table=1, priority=2, in_port=2, dl_dst=01:00:00:00:00:00/01:00:00:00:00:00 actions=output:1,output:3
+cookie=0, table=1, priority=0, in_port=2 actions=output:1,output:3
+cookie=0, table=0, priority=0, in_port=3 actions=learn(cookie=0,idle_timeout=10,table=1,priority=1,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),learn(cookie=0,idle_timeout=10,table=1,priority=1,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),resubmit(,1)
+cookie=0, table=1, priority=2, in_port=3, dl_dst=01:00:00:00:00:00/01:00:00:00:00:00 actions=output:1,output:2
+cookie=0, table=1, priority=0, in_port=3 actions=output:1,output:2`
 		openflowMock.EXPECT().AddFlows(gomock.Any(), expectedFlows, BridgeSFC).Return(nil)
 		Expect(sc.GenerateAndApplyOpenFlows(ctx, ports, 0)).To(Succeed())
 	})
 
 	It("should succeed when ports has 2 groups ports", func() {
 		ports = [][]string{{"1", "2"}, {"3", "4"}}
-		expectedFlows := `cookie=0, table=0, priority=20, in_port=1 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:2
-cookie=0, table=0, priority=20, in_port=2 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:1`
+		expectedFlows := `cookie=0, table=0, priority=0, in_port=1 actions=learn(cookie=0,idle_timeout=10,table=1,priority=1,in_port=2,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),resubmit(,1)
+cookie=0, table=1, priority=2, in_port=1, dl_dst=01:00:00:00:00:00/01:00:00:00:00:00 actions=output:2
+cookie=0, table=1, priority=0, in_port=1 actions=output:2
+cookie=0, table=0, priority=0, in_port=2 actions=learn(cookie=0,idle_timeout=10,table=1,priority=1,in_port=1,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),resubmit(,1)
+cookie=0, table=1, priority=2, in_port=2, dl_dst=01:00:00:00:00:00/01:00:00:00:00:00 actions=output:1
+cookie=0, table=1, priority=0, in_port=2 actions=output:1`
 		openflowMock.EXPECT().AddFlows(gomock.Any(), expectedFlows, BridgeSFC).Return(nil)
-		expectedFlows = `cookie=0, table=0, priority=20, in_port=3 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=4,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:4
-cookie=0, table=0, priority=20, in_port=4 actions=learn(cookie=0,idle_timeout=10,table=0,priority=30,in_port=3,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),output:3`
+		expectedFlows = `cookie=0, table=0, priority=0, in_port=3 actions=learn(cookie=0,idle_timeout=10,table=1,priority=1,in_port=4,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),resubmit(,1)
+cookie=0, table=1, priority=2, in_port=3, dl_dst=01:00:00:00:00:00/01:00:00:00:00:00 actions=output:4
+cookie=0, table=1, priority=0, in_port=3 actions=output:4
+cookie=0, table=0, priority=0, in_port=4 actions=learn(cookie=0,idle_timeout=10,table=1,priority=1,in_port=3,dl_dst=dl_src,output:NXM_OF_IN_PORT[]),resubmit(,1)
+cookie=0, table=1, priority=2, in_port=4, dl_dst=01:00:00:00:00:00/01:00:00:00:00:00 actions=output:3
+cookie=0, table=1, priority=0, in_port=4 actions=output:3`
 		openflowMock.EXPECT().AddFlows(gomock.Any(), expectedFlows, BridgeSFC).Return(nil)
 		Expect(sc.GenerateAndApplyOpenFlows(ctx, ports, 0)).To(Succeed())
 	})
