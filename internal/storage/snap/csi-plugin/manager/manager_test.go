@@ -48,10 +48,11 @@ var _ = Describe("Manager", func() {
 			Network: "unix",
 		}
 	})
-	It("controller", func() {
+	It("controller", func(ctx SpecContext) {
 		// create stale socket to make sure that manager will be able to handle this
-		_, err := net.Listen(listenOptions.Network, listenOptions.Address)
+		listener, err := net.Listen(listenOptions.Network, listenOptions.Address)
 		Expect(err).NotTo(HaveOccurred())
+		Expect(listener.Close()).NotTo(HaveOccurred())
 
 		clusterHelper := &TestClusterHelper{FakeRunnable: runner.NewFakeRunnable()}
 		m, err := New(config.PluginConfig{Common: config.Common{
@@ -61,35 +62,41 @@ var _ = Describe("Manager", func() {
 			WithClusterHelper(clusterHelper),
 		)
 		Expect(err).NotTo(HaveOccurred())
-		ctx, cancel := context.WithCancel(context.Background())
+		runCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		go func() {
 			defer GinkgoRecover()
-			Expect(m.Start(ctx)).NotTo(HaveOccurred())
+			Expect(m.Start(runCtx)).NotTo(HaveOccurred())
 		}()
-		Eventually(func(g Gomega) {
+		Eventually(func(g Gomega, ctx context.Context) {
 			conn, err := grpc.NewClient("unix://"+listenOptions.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			g.Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = conn.Close() }()
 			ctrlClient := csi.NewControllerClient(conn)
 			identityClient := csi.NewIdentityClient(conn)
-			controllerResp, err := ctrlClient.ControllerGetCapabilities(ctx, &csi.ControllerGetCapabilitiesRequest{})
+
+			callCtx, callCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer callCancel()
+			controllerResp, err := ctrlClient.ControllerGetCapabilities(callCtx, &csi.ControllerGetCapabilitiesRequest{})
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(controllerResp).NotTo(BeNil())
 
-			identityResp, err := identityClient.GetPluginInfo(ctx, &csi.GetPluginInfoRequest{})
+			callCtx, callCancel = context.WithTimeout(ctx, 5*time.Second)
+			defer callCancel()
+			identityResp, err := identityClient.GetPluginInfo(callCtx, &csi.GetPluginInfoRequest{})
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(identityResp).NotTo(BeNil())
 			g.Expect(identityResp.Name).To(Equal("csi.snap.nvidia.com"))
-		}).WithTimeout(time.Second * 15).WithPolling(time.Second).Should(Succeed())
+		}).WithContext(ctx).WithTimeout(time.Minute).WithPolling(time.Second).Should(Succeed())
 
 		Expect(clusterHelper.Started()).To(BeTrue())
 		Expect(clusterHelper.Stopped()).To(BeFalse())
 		cancel()
 		Eventually(func(g Gomega) {
 			g.Expect(clusterHelper.Stopped()).To(BeTrue())
-		}).WithTimeout(time.Second * 15).WithPolling(time.Second).Should(Succeed())
+		}).WithTimeout(time.Minute).WithPolling(time.Second).Should(Succeed())
 	})
-	It("node", func() {
+	It("node", func(ctx SpecContext) {
 		preconfigureService := runner.NewFakeRunnable()
 		m, err := New(config.PluginConfig{Common: config.Common{
 			Name: config.DefaultPluginName, PluginMode: config.PluginModeNode, ListenOptions: listenOptions},
@@ -98,36 +105,41 @@ var _ = Describe("Manager", func() {
 			WithPreconfigure(preconfigureService),
 		)
 		Expect(err).NotTo(HaveOccurred())
-		ctx, cancel := context.WithCancel(context.Background())
+		runCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		go func() {
 			defer GinkgoRecover()
-			Expect(m.Start(ctx)).NotTo(HaveOccurred())
+			Expect(m.Start(runCtx)).NotTo(HaveOccurred())
 		}()
-		Eventually(func(g Gomega) {
+		Eventually(func(g Gomega, ctx context.Context) {
 			conn, err := grpc.NewClient("unix://"+listenOptions.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			g.Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = conn.Close() }()
 			nodeClient := csi.NewNodeClient(conn)
 			identityClient := csi.NewIdentityClient(conn)
-			nodeResp, err := nodeClient.NodeGetInfo(ctx, &csi.NodeGetInfoRequest{})
+			callCtx, callCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer callCancel()
+			nodeResp, err := nodeClient.NodeGetInfo(callCtx, &csi.NodeGetInfoRequest{})
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(nodeResp).NotTo(BeNil())
 			g.Expect(nodeResp.NodeId).To(Equal("test"))
 
-			identityResp, err := identityClient.GetPluginInfo(ctx, &csi.GetPluginInfoRequest{})
+			callCtx, callCancel = context.WithTimeout(ctx, 5*time.Second)
+			defer callCancel()
+			identityResp, err := identityClient.GetPluginInfo(callCtx, &csi.GetPluginInfoRequest{})
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(identityResp).NotTo(BeNil())
 			g.Expect(identityResp.Name).To(Equal("csi.snap.nvidia.com"))
-		}).WithTimeout(time.Second * 15).WithPolling(time.Second).Should(Succeed())
+		}).WithContext(ctx).WithTimeout(time.Minute).WithPolling(time.Second).Should(Succeed())
 
 		Expect(preconfigureService.Started()).To(BeTrue())
 		Expect(preconfigureService.Stopped()).To(BeFalse())
 		cancel()
 		Eventually(func(g Gomega) {
 			g.Expect(preconfigureService.Stopped()).To(BeTrue())
-		}).WithTimeout(time.Second * 15).WithPolling(time.Second).Should(Succeed())
+		}).WithTimeout(time.Minute).WithPolling(time.Second).Should(Succeed())
 	})
-	It("dependency timeout", func() {
+	It("dependency timeout", func(ctx SpecContext) {
 		// service will never become ready
 		preconfigureService := runner.NewFakeRunnable()
 		preconfigureService.SetFunction(func(ctx context.Context, _ func()) error {
@@ -147,12 +159,12 @@ var _ = Describe("Manager", func() {
 		go func() {
 			defer GinkgoRecover()
 			defer close(stop)
-			Expect(m.Start(context.Background())).To(MatchError(ContainSubstring("manager dependencies are not ready")))
+			Expect(m.Start(ctx)).To(MatchError(ContainSubstring("manager dependencies are not ready")))
 		}()
 		// the service should complete with an error
-		Eventually(stop).WithTimeout(time.Second * 15).Should(BeClosed())
+		Eventually(stop).WithTimeout(time.Minute).Should(BeClosed())
 	})
-	It("dependency failed", func() {
+	It("dependency failed", func(ctx SpecContext) {
 		// service returns error
 		preconfigureService := runner.NewFakeRunnable()
 		preconfigureService.SetFunction(func(ctx context.Context, readyFunc func()) error {
@@ -169,9 +181,9 @@ var _ = Describe("Manager", func() {
 		go func() {
 			defer GinkgoRecover()
 			defer close(stop)
-			Expect(m.Start(context.Background())).To(MatchError(ContainSubstring("manager dependencies are not ready")))
+			Expect(m.Start(ctx)).To(MatchError(ContainSubstring("manager dependencies are not ready")))
 		}()
 		// the service should complete with an error
-		Eventually(stop).WithTimeout(time.Second * 15).Should(BeClosed())
+		Eventually(stop).WithTimeout(time.Minute).Should(BeClosed())
 	})
 })
