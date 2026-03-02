@@ -71,11 +71,16 @@ const (
 	ServiceChainLabel          = dpuservicev1.SvcDpuGroupName + "/service-chain"
 	serviceChainControllerName = "servicechaincontroller"
 
-	PriorityDropFlows         = 100
-	PriorityCustomFlows       = 50
-	PriorityLearntFlows       = 30
-	PriorityDynamicLearnFlows = 20
-	PriorityDefaultFlows      = 10
+	LearningTable  = 0
+	SwitchingTable = 1
+
+	MulticastPriority     = 2
+	UnicastLearntPriority = 1
+	UnicastPriority       = 0
+
+	PriorityCustomFlows = 50
+
+	BroadcastMulticastMask = "01:00:00:00:00:00/01:00:00:00:00:00"
 
 	ForwardablePTPMulticastMac    = "01:1b:19:00:00:00" // forwardable PTP multicast MAC address
 	NonForwardablePTPMulticastMac = "01:80:c2:00:00:0e" // unforwardable PTP multicast MAC address
