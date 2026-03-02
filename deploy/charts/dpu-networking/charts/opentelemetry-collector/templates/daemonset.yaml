@@ -20,6 +20,7 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         {{- include "opentelemetry-collector.annotations" . | nindent 8 }}
     spec:
+      automountServiceAccountToken: false
       serviceAccountName: {{ include "opentelemetry-collector.serviceAccountName" . }}
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
       securityContext:
@@ -84,6 +85,9 @@ spec:
           {{- toYaml . | nindent 10 }}
         {{- end }}
         volumeMounts:
+        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          name: kube-api-access
+          readOnly: true
         - name: config
           mountPath: /conf
           readOnly: true
@@ -96,6 +100,23 @@ spec:
         - name: tmp
           mountPath: /tmp
       volumes:
+      - name: kube-api-access
+        projected:
+          defaultMode: 420
+          sources:
+          - serviceAccountToken:
+              path: token
+          - configMap:
+              items:
+              - key: ca.crt
+                path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace
       - name: config
         configMap:
           name: {{ include "opentelemetry-collector.fullname" . }}-config
