@@ -366,8 +366,10 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 			dpfProvisioningDeployment)).To(Succeed())
 		g.Expect(dpfProvisioningDeployment.Status.ReadyReplicas).To(Equal(*dpfProvisioningDeployment.Spec.Replicas))
 
-		if !isGinkgoLabelApplied(Domain.ZeroTrust) {
-			// Check the NodeSRIOV Device Plugin controller deployment is up and ready.
+		// Check the NodeSRIOV Device Plugin controller deployment only when it is explicitly enabled.
+		if input.operatorConfig.Spec.NodeSRIOVDevicePluginController != nil &&
+			input.operatorConfig.Spec.NodeSRIOVDevicePluginController.Disable != nil &&
+			!*input.operatorConfig.Spec.NodeSRIOVDevicePluginController.Disable {
 			nodesriovDevicePluginDeployment := &appsv1.Deployment{}
 			g.Expect(testClient.Get(ctx, client.ObjectKey{
 				Namespace: input.systemNamespace,
