@@ -152,9 +152,12 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
   # Node Problem Detector requires root access to read kernel logs and system state
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
     resource: DaemonSet.default.release-name-node-problem-detector
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.release-name-node-problem-detector
   
+  dpu-networking-opentelemetry-collector:
+  # Container needs to run as root to read logs from hostPath.
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.release-name-opentelemetry-collector
+
   kamaji-keepalived:
   # Keepalived does not provide liveness or readiness probes.
   - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
