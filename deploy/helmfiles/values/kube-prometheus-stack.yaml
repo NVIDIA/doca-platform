@@ -152,6 +152,12 @@ prometheus:
           - source_labels: [__meta_kubernetes_pod_container_port_name]
             action: keep
             regex: metrics
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod
         # Add cluster label to ALL scraped metrics for Grafana multicluster support
         # This makes the cluster label visible in local queries (unlike externalLabels)
         # Note: The control plane components (kube-apiserver, kube-controller-manager, kube-scheduler)
