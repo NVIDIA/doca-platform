@@ -17,6 +17,8 @@ limitations under the License.
 package redfish
 
 import (
+	"time"
+
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	redfishmock "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
@@ -641,6 +643,59 @@ var _ = Describe("InitializeInterface", func() {
 
 			_, err := InitializeInterface(ctx, dpu, ctrlCtx)
 			Expect(err).To(HaveOccurred())
+		})
+
+		It("should wait for cooldown before verifying Secure Boot after restarts", func() {
+			dpu.Spec.SecureBoot = ptr.To(true)
+			mockServer.SetSecureBootCurrentBoot(false) // mismatch - but should not be queried yet
+			tracker := &dutil.ArmRestartTracker{
+				MaxAttempts:       2,
+				Attempt:           2,
+				LastRestartTime:   time.Now(), // just restarted - cooldown not elapsed
+				InitialGeneration: dpu.Generation,
+			}
+			Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
+
+			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface),
+				"should stay in InitializeInterface while waiting for cooldown")
+
+			By("Verify tracker is preserved for next reconcile")
+			loaded, loadErr := dutil.LoadArmRestartTracker(dpu)
+			Expect(loadErr).NotTo(HaveOccurred())
+			Expect(loaded).NotTo(BeNil(), "tracker must be preserved during cooldown")
+			Expect(loaded.Attempt).To(Equal(2))
+
+			By("Verify condition indicates waiting with Status=False")
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondInterfaceInitialized.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal("WaitingForVerificationCooldown"))
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		})
+
+		It("should verify Secure Boot after cooldown has elapsed", func() {
+			dpu.Spec.SecureBoot = ptr.To(true)
+			mockServer.SetSecureBootCurrentBoot(false) // mismatch after cooldown -> should go to Error
+			tracker := &dutil.ArmRestartTracker{
+				MaxAttempts:       2,
+				Attempt:           2,
+				LastRestartTime:   time.Now().Add(-secureBootVerificationCooldown - time.Second),
+				InitialGeneration: dpu.Generation,
+			}
+			Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
+
+			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUError),
+				"should go to Error when BMC still reports mismatch after cooldown")
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondInterfaceInitialized.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal("SecureBootConfigurationFailed"))
+
+			By("Verify tracker is cleared")
+			loaded, _ := dutil.LoadArmRestartTracker(dpu)
+			Expect(loaded).To(BeNil())
 		})
 	})
 
