@@ -222,6 +222,62 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(cond.Reason).To(Equal("RestartTriggered"))
 	})
 
+	It("should trigger first restart even when OS is not running (unsigned BFB + Secure Boot)", func() {
+		mockServer.SetOemLastState("OsStarting") // OS not running
+		tracker := &dutil.ArmRestartTracker{
+			MaxAttempts:       2,
+			Attempt:           0,
+			InitialGeneration: dpu.Generation,
+		}
+		Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
+
+		status, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUPerformArmForceRestart))
+
+		loaded, loadErr := dutil.LoadArmRestartTracker(dpu)
+		Expect(loadErr).NotTo(HaveOccurred())
+		Expect(loaded.Attempt).To(Equal(1), "restart should be triggered even when OS is down")
+
+		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
+		Expect(cond).NotTo(BeNil())
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		Expect(cond.Reason).To(Equal("RestartTriggered"))
+	})
+
+	It("should trigger next restart when OS is running and more restarts needed", func() {
+		mockServer.SetOemLastState("OsIsRunning")
+		tracker := &dutil.ArmRestartTracker{
+			MaxAttempts:       2,
+			Attempt:           1,
+			InitialGeneration: dpu.Generation,
+		}
+		Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
+
+		status, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUPerformArmForceRestart))
+		loaded, _ := dutil.LoadArmRestartTracker(dpu)
+		Expect(loaded.Attempt).To(Equal(2))
+	})
+
+	It("should wait for boot when all restarts done but OS not yet running", func() {
+		mockServer.SetOemLastState("OsStarting")
+		tracker := &dutil.ArmRestartTracker{
+			MaxAttempts:       2,
+			Attempt:           2,
+			InitialGeneration: dpu.Generation,
+			LastRestartTime:   time.Now(),
+		}
+		Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
+
+		status, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUPerformArmForceRestart))
+		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
+		Expect(cond.Reason).To(Equal("WaitingForBoot"))
+	})
+
 	It("should wait for OS to boot when not running after restart", func() {
 		mockServer.SetOemLastState("OsStarting") // OS not running yet
 		tracker := &dutil.ArmRestartTracker{

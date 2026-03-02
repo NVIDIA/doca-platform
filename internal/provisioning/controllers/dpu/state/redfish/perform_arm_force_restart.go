@@ -163,28 +163,23 @@ func createRedfishClientForDPU(ctx context.Context, dpu *provisioningv1.DPU, ctr
 func executeRestartStateMachine(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, tracker *dutil.ArmRestartTracker, client *rc.Client, osRunning bool) (provisioningv1.DPUStatus, error) {
 	log := log.FromContext(ctx)
 
-	// All restarts done AND OS running -> return to Init for validation
-	if tracker.AllRestartsDone() && osRunning {
-		log.Info("All ARM restarts complete, returning to InitializeInterface",
-			"attempts", tracker.Attempt, "maxAttempts", tracker.MaxAttempts)
-		// Keep tracker - Init needs it to determine the post-restart validation path
-		cutil.SetDPUCondition(state, cutil.DPUCondition(
-			provisioningv1.DPUCondArmForceRestarted, "", ""))
-		state.Phase = provisioningv1.DPUInitializeInterface
-		return *state, nil // Phase transition
-	}
-
-	// Boot in progress - wait or timeout
-	if !osRunning {
+	// OS is rebooting after a triggered restart - wait or timeout.
+	if !osRunning && tracker.Attempt > 0 {
 		return handleWaitingForBoot(dpu, state, tracker)
 	}
 
-	// OS running, more restarts needed - trigger next one
-	if tracker.Attempt < tracker.MaxAttempts {
-		return triggerArmRestart(ctx, dpu, state, tracker, client)
+	// All restarts done.
+	if tracker.AllRestartsDone() {
+		log.Info("All ARM restarts complete, returning to InitializeInterface",
+			"attempts", tracker.Attempt, "maxAttempts", tracker.MaxAttempts)
+		cutil.SetDPUCondition(state, cutil.DPUCondition(
+			provisioningv1.DPUCondArmForceRestarted, "", ""))
+		state.Phase = provisioningv1.DPUInitializeInterface
+		return *state, nil
 	}
 
-	return *state, nil
+	// More restarts needed - trigger next one
+	return triggerArmRestart(ctx, dpu, state, tracker, client)
 }
 
 // handleWaitingForBoot handles the case when OS is not yet running after a restart.
