@@ -179,6 +179,21 @@ var _ = Describe("Operator API Validation", func() {
 			)
 		})
 
+		Context("validate bfCFGTemplateConfigMap and  mutual exclusivity", func() {
+			DescribeTable("ProvisioningControllerConfiguration bfcfg template validation",
+				func(bfCFGTemplateConfigMap *string, enableDynamic bool, expectError bool, errorMessage string) {
+					config := getMinimalDPFOperatorConfig(testNs.Name)
+					config.Spec.ProvisioningController.BFCFGTemplateConfigMap = bfCFGTemplateConfigMap
+					config.Spec.ProvisioningController.EnableDynamicBFCFGTemplates = enableDynamic
+					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
+				},
+				Entry("valid - only bfCFGTemplateConfigMap set", ptr.To("custom-bfb-cfg"), false, false, ""),
+				Entry("valid - only enableDynamicBFCFGTemplates set", nil, true, false, ""),
+				Entry("valid - neither set", nil, false, false, ""),
+				Entry("invalid - both set", ptr.To("custom-bfb-cfg"), true, true, "bfCFGTemplateConfigMap and enableDynamicBFCFGTemplates are mutually exclusive"),
+			)
+		})
+
 		Context("validate replicas configuration", func() {
 			DescribeTable("ProvisioningControllerConfiguration replicas validation",
 				func(replicas *int32, expectError bool, errorMessage string) {
