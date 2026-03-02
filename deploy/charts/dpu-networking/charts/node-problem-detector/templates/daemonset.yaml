@@ -14,6 +14,7 @@ spec:
       labels:
         {{- include "node-problem-detector.selectorLabels" . | nindent 8 }}
     spec:
+      automountServiceAccountToken: false
       serviceAccountName: {{ include "node-problem-detector.serviceAccountName" . }}
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
       hostNetwork: true
@@ -71,6 +72,9 @@ spec:
           {{- toYaml . | nindent 10 }}
         {{- end }}
         volumeMounts:
+        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          name: kube-api-access
+          readOnly: true
         - name: config
           mountPath: /config
           readOnly: true
@@ -84,6 +88,23 @@ spec:
           mountPath: /sys
           readOnly: true
       volumes:
+      - name: kube-api-access
+        projected:
+          defaultMode: 420
+          sources:
+          - serviceAccountToken:
+              path: token
+          - configMap:
+              items:
+              - key: ca.crt
+                path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace
       - name: config
         configMap:
           name: {{ include "node-problem-detector.fullname" . }}-config
