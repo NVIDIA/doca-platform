@@ -1476,7 +1476,8 @@ spec:
                   rule: '!has(self.image) || !has(self.controller) || !has(self.controller.image)'
                 - message: bfCFGTemplateConfigMap and enableDynamicBFCFGTemplates
                     are mutually exclusive
-                  rule: '!(has(self.bfCFGTemplateConfigMap) && self.enableDynamicBFCFGTemplates)'
+                  rule: '!(has(self.bfCFGTemplateConfigMap) && has(self.enableDynamicBFCFGTemplates)
+                    && self.enableDynamicBFCFGTemplates)'
               serviceSetController:
                 description: ServiceSetController is the configuration for the ServiceSetController
                 properties:

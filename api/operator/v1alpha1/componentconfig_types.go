@@ -30,7 +30,7 @@ type DefaultOverridesConfiguration struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
-// +kubebuilder:validation:XValidation:rule="!(has(self.bfCFGTemplateConfigMap) && self.enableDynamicBFCFGTemplates)",message="bfCFGTemplateConfigMap and enableDynamicBFCFGTemplates are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!(has(self.bfCFGTemplateConfigMap) && has(self.enableDynamicBFCFGTemplates) && self.enableDynamicBFCFGTemplates)",message="bfCFGTemplateConfigMap and enableDynamicBFCFGTemplates are mutually exclusive"
 
 type ProvisioningControllerConfiguration struct {
 	BaseComponentConfig `json:",inline"`
