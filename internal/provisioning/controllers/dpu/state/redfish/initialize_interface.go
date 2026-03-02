@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
@@ -36,6 +37,12 @@ const (
 	// Secure Boot configuration to take effect. Per BlueField BMC documentation,
 	// the first restart applies the BIOS setting and the second validates it.
 	secureBootRequiredRestarts = 2
+
+	// secureBootVerificationCooldown is the minimum time after the last ARM
+	// restart before querying the BMC for Secure Boot state. The BMC Redfish
+	// endpoint may not reflect new BIOS settings immediately after the ARM
+	// boots; querying too early can cause a false mismatch and a terminal error.
+	secureBootVerificationCooldown = 60 * time.Second
 )
 
 func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
@@ -188,6 +195,15 @@ func verifySecureBootAfterRestarts(ctx context.Context, dpu *provisioningv1.DPU,
 	if dpu.Spec.SecureBoot == nil {
 		dutil.ClearArmRestartTracker(dpu)
 		return false, nil
+	}
+
+	// Wait for cooldown after last restart before verifying.
+	if !tracker.LastRestartTime.IsZero() && time.Since(tracker.LastRestartTime) < secureBootVerificationCooldown {
+		cutil.SetDPUCondition(state, cutil.NewCondition(
+			string(provisioningv1.DPUCondInterfaceInitialized),
+			fmt.Errorf("waiting for BMC to reflect Secure Boot state after ARM restarts"),
+			"WaitingForVerificationCooldown", ""))
+		return true, nil
 	}
 
 	_, sbInfo, err := tlsClient.GetSecureBoot()
