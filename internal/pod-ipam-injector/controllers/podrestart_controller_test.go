@@ -689,6 +689,42 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 			serviceChain := createServiceChainWithServiceInterface(ctx, "sc-multi-pod", nil, "firewall", "sfceth1", ptr.To(1500))
 			cleanupObjects = append(cleanupObjects, serviceChain)
 
+			// Wait for resources to be available in cache (also lets the initial
+			// ServiceChain reconciliation complete before any pods exist).
+			var correctDigest string
+			Eventually(func(g Gomega) {
+				retrievedSC := &dpuservicev1.ServiceChain{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: "sc-multi-pod"}, retrievedSC)).To(Succeed())
+				retrievedSI := &dpuservicev1.ServiceInterface{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: "firewall-sfceth1-multi-pod"}, retrievedSI)).To(Succeed())
+
+				// Calculate the correct digest for the current ServiceChain config
+				testPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod-for-multi-digest",
+						Namespace: "default",
+						Annotations: map[string]string{
+							NetworkAttachmentAnnot: `[{"name":"mybrsfc","interface":"sfceth1"}]`,
+						},
+						Labels: map[string]string{
+							dpuservicev1.DPFServiceIDLabelKey: "firewall",
+						},
+					},
+					Spec: corev1.PodSpec{
+						NodeName: "worker-1",
+						Containers: []corev1.Container{
+							{Name: "ctr1", Image: "image"},
+						},
+					},
+				}
+				networks, err := GetPodNetworks(testPod)
+				g.Expect(err).NotTo(HaveOccurred())
+				digest, err := CalculatePodNetworkDigest(ctx, testClient, testPod, networks)
+				g.Expect(err).ToNot(HaveOccurred())
+				correctDigest = digest
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+			// pod1 has a wrong digest → should be deleted on reconciliation
 			pod1 := createTestPodWithName(
 				"test-pod-multi-handle-1",
 				map[string]string{
@@ -699,33 +735,28 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
-			// Don't add pod1 to cleanupObjects - controller will handle deletion
 
-			// Get fresh copy before updating status to avoid conflicts
 			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod1), pod1)).To(Succeed())
-
-			// Set pod1 to Running state
+			patch1 := client.MergeFrom(pod1.DeepCopy())
 			pod1.Status.Phase = corev1.PodRunning
-			Expect(testClient.Status().Patch(ctx, pod1, client.Merge)).To(Succeed())
+			Expect(testClient.Status().Patch(ctx, pod1, patch1)).To(Succeed())
 
+			// pod2 has the correct digest → should survive reconciliation
 			pod2 := createTestPodWithName(
 				"test-pod-multi-handle-2",
 				map[string]string{
 					NetworkAttachmentAnnot:  `[{"name":"mybrsfc","interface":"sfceth1"}]`,
-					NetworkDigestAnnotation: "matching-digest",
+					NetworkDigestAnnotation: correctDigest,
 				},
 				map[string]string{
 					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
-			// Don't add pod2 to cleanupObjects - controller will handle deletion
 
-			// Get fresh copy before updating status to avoid conflicts
 			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod2), pod2)).To(Succeed())
-
-			// Set pod2 to Running state
+			patch2 := client.MergeFrom(pod2.DeepCopy())
 			pod2.Status.Phase = corev1.PodRunning
-			Expect(testClient.Status().Patch(ctx, pod2, client.Merge)).To(Succeed())
+			Expect(testClient.Status().Patch(ctx, pod2, patch2)).To(Succeed())
 
 			// Verify both pods are in Running state before reconciliation
 			Eventually(func(g Gomega) {
@@ -738,15 +769,19 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				g.Expect(currentPod2.Status.Phase).To(Equal(corev1.PodRunning))
 			}).WithTimeout(5 * time.Second).Should(Succeed())
 
-			// Trigger reconciliation by updating the ServiceChain
-			serviceChain.Spec.Switches[0].ServiceMTU = ptr.To(1600)
-			Expect(testClient.Patch(ctx, serviceChain, client.Merge)).To(Succeed())
+			// Trigger reconciliation by updating a non-digest-affecting field.
+			// Any ServiceChain update where both old and new have a Node fires the predicate.
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(serviceChain), serviceChain)).To(Succeed())
+			if serviceChain.Labels == nil {
+				serviceChain.Labels = map[string]string{}
+			}
+			serviceChain.Labels["trigger"] = "reconcile"
+			Expect(testClient.Update(ctx, serviceChain)).To(Succeed())
 
-			// Wait for the reconciliation to complete - check for pod1 being marked for deletion
+			// pod1 should be deleted (digest mismatch)
 			Eventually(func(g Gomega) {
 				currentPod := &corev1.Pod{}
 				err := testClient.Get(ctx, client.ObjectKeyFromObject(pod1), currentPod)
-				// Pod should either be deleted (not found) or marked for deletion
 				if err != nil {
 					g.Expect(err.Error()).To(ContainSubstring("not found"))
 				} else {
@@ -754,11 +789,12 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				}
 			}).WithTimeout(15 * time.Second).Should(Succeed())
 
-			// Pod2 should still exist (no restart needed)
-			Eventually(func(g Gomega) {
-				err := testClient.Get(ctx, client.ObjectKeyFromObject(pod2), &corev1.Pod{})
-				g.Expect(err).ToNot(HaveOccurred())
-			}).WithTimeout(10 * time.Second).Should(Succeed())
+			// pod2 should still exist (its digest matches the current config)
+			Consistently(func(g Gomega) {
+				currentPod := &corev1.Pod{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod2), currentPod)).To(Succeed())
+				g.Expect(currentPod.DeletionTimestamp).To(BeNil())
+			}).WithTimeout(3 * time.Second).Should(Succeed())
 		})
 
 	})
