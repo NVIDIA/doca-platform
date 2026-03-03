@@ -126,6 +126,7 @@ func (r *BFBRegistryRunnable) desiredPod(namespace, nodeName, image string, owne
 			SecurityContext: &corev1.PodSecurityContext{
 				FSGroup: ptr.To(int64(65532)),
 			},
+			HostNetwork: true,
 			Containers: []corev1.Container{
 				{
 					Name:    "bfb-registry",
