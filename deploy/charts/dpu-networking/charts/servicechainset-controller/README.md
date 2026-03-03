@@ -12,6 +12,8 @@ A Helm chart for Kubernetes
 | controllerManager.manager.args[1] | string | `"--leader-election-namespace=$(POD_NAMESPACE)"` |  |
 | controllerManager.manager.containerSecurityContext.allowPrivilegeEscalation | bool | `false` |  |
 | controllerManager.manager.containerSecurityContext.capabilities.drop[0] | string | `"ALL"` |  |
+| controllerManager.manager.containerSecurityContext.privileged | bool | `false` |  |
+| controllerManager.manager.containerSecurityContext.runAsUser | int | `65532` |  |
 | controllerManager.manager.image.repository | string | `"example.com/dpf-system"` |  |
 | controllerManager.manager.image.tag | string | `"v0.1.0"` |  |
 | controllerManager.manager.resources.limits.cpu | string | `"500m"` |  |

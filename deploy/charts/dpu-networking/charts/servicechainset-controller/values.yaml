@@ -9,6 +9,8 @@ controllerManager:
     - --leader-elect
     - --leader-election-namespace=$(POD_NAMESPACE)
     containerSecurityContext:
+      runAsUser: 65532
+      privileged: false
       allowPrivilegeEscalation: false
       capabilities:
         drop:
