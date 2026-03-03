@@ -38,7 +38,7 @@ import (
 )
 
 const (
-	APIChangePasswd              = "redfish/v1/AccountService/Accounts/root"
+	APIChangePasswd              = "redfish/v1/AccountService/Accounts/{USER}"
 	APICheckBMCFW                = "redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware"
 	APICheckDPUBSP               = "redfish/v1/UpdateService/FirmwareInventory/DPU_BSP"
 	APICheckDPUNIC               = "redfish/v1/UpdateService/FirmwareInventory/DPU_NIC"
@@ -205,14 +205,14 @@ type Client struct {
 
 // ChangeBMCPassword changes BMC password. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/connecting+to+bmc+interfaces#src-704886267_ConnectingtoBMCInterfaces-ChangingDefaultPassword
-func (c *Client) ChangeBMCPassword(newPassword string) (*resty.Response, *ExtendedInfo, error) {
+func (c *Client) ChangeBMCPassword(newPassword string, user string) (*resty.Response, *ExtendedInfo, error) {
 	return do[ExtendedInfo](func() (*resty.Response, error) {
 		return c.Client.R().
 			SetHeader("Content-Type", "application/json").
 			SetBody(map[string]string{
 				"Password": newPassword,
 			}).
-			Patch(APIChangePasswd)
+			Patch(strings.Replace(APIChangePasswd, "{USER}", user, 1))
 	})
 }
 
@@ -621,7 +621,7 @@ func InitPassword(ctx context.Context, bmcAddress string, namespace string, k8sC
 		if err != nil {
 			return nil, err
 		}
-		resp, _, err = defaultClient.ChangeBMCPassword(passwd)
+		resp, _, err = defaultClient.ChangeBMCPassword(passwd, BF3BMCUser)
 		if err != nil {
 			return nil, err
 		} else if resp.StatusCode() == http.StatusUnauthorized {
@@ -629,12 +629,16 @@ func InitPassword(ctx context.Context, bmcAddress string, namespace string, k8sC
 			if err != nil {
 				return nil, err
 			}
-			resp, _, err = defaultClient.ChangeBMCPassword(passwd)
+			resp, _, err = defaultClient.ChangeBMCPassword(passwd, BF4BMCUser)
 			if err != nil {
 				return nil, err
 			}
 			if resp.StatusCode() == http.StatusOK {
-				return defaultClient, nil
+				client, err = NewBasicAuthClient(bmcAddress, BF4BMCUser, passwd)
+				if err != nil {
+					return nil, err
+				}
+				return client, nil
 			}
 			return nil, fmt.Errorf("the default BMC password has been changed and the given password is wrong")
 		} else if resp.StatusCode() != http.StatusOK {
