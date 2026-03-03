@@ -6,7 +6,7 @@ deployHostManifests: false
 image:
   repository: registry.k8s.io/kube-state-metrics/kube-state-metrics
   pullPolicy: IfNotPresent
-  tag: "v2.18.0"
+  tag: v2.18.0@sha256:1545919b72e3ae035454fc054131e8d0f14b42ef6fc5b2ad5c751cafa6b2130e
 
 serviceAccount:
   name: null
