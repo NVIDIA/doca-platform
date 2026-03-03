@@ -75,7 +75,7 @@
             - status
         type: StateSet
     - name: status_condition_last_transition_time
-      help: The condition last transition time of a DPUService.
+      help: The condition last transition time of a DPU.
       each:
         gauge:
           nilIsZero: true
@@ -87,6 +87,40 @@
           path:
             - status
             - conditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge
+    - name: operational_conditions
+      help: The operational condition of a DPU.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - operationalConditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: operational_condition_last_transition_time
+      help: The operational condition last transition time of a DPU.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - operationalConditions
           valueFrom:
             - lastTransitionTime
         type: Gauge
