@@ -26,7 +26,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/networkmanager"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/nodemanager"
-	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/phase/checkreboot"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/phase/configfw"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/phase/install"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/phase/interfaceinit"
@@ -71,7 +70,6 @@ func NewHostAgentReconciler(client client.Client,
 		provisioningv1.DPUInitializeInterface:      interfaceinit.NewHandler(client, r.NetworkManager.GetDevice),
 		provisioningv1.DPUConfigFWParameters:       configfw.NewHandler(client, r.NetworkManager.GetDevice),
 		provisioningv1.DPUOSInstalling:             install.NewHandler(client, bfbRegistry, r.NetworkManager.GetDevice),
-		provisioningv1.DPUCheckingHostRebootNeed:   checkreboot.NewHandler(client, r.NetworkManager.GetDevice),
 		provisioningv1.DPURebooting:                reboot.NewHandler(client, r.NodeManager.GetNodeName, r.NetworkManager.GetDevice),
 		provisioningv1.DPUHostNetworkConfiguration: network.NewHandler(r.NetworkManager.AddNetworkRequest),
 	}

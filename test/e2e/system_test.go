@@ -22,6 +22,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/url"
+	"strconv"
 	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -93,6 +95,19 @@ func SetInput() {
 			BaseComponentConfig: operatorv1.BaseComponentConfig{
 				Disable: ptr.To(true),
 			},
+		}
+		apiServerPort := 443
+		if u, err := url.Parse(restConfig.Host); err == nil {
+			if p := u.Port(); p != "" {
+				if parsed, err := strconv.Atoi(p); err == nil {
+					apiServerPort = parsed
+				}
+			}
+		}
+		By(fmt.Sprintf("Using API server VIP %s:%d for zero-trust kubeconfig", trustedHostIP, apiServerPort))
+		dpfOperatorConfig.Spec.Overrides = &operatorv1.Overrides{
+			KubernetesAPIServerVIP:  ptr.To(trustedHostIP),
+			KubernetesAPIServerPort: ptr.To(apiServerPort),
 		}
 	}
 

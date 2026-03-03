@@ -74,27 +74,36 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 
 	pfTotalSF := getPFTotalSFFromFlavor(&optCtx.DPUFlavor)
 	trustedSF := getTrustedSFFromFlavor(&optCtx.DPUFlavor)
+	createErrBySF := map[int]error{}
+	expectedSFNums := make([]int, 0, pfTotalSF)
 
 	// Create SFs on P0 for SFC
 	// System SF(index 0) has been removed, so DPF will create SF from index 0
 	for i := 0; i < pfTotalSF-trustedSF; i++ {
+		expectedSFNums = append(expectedSFNums, i)
 		// Create SFs with random mac, kernel will allocate random MAC for SF netdev
 		cmd := fmt.Sprintf("/sbin/mlnx-sf --action create --device %s --sfnum %d", defaultDevice, i)
 		stdout, stderr, err := s.runBash(cmd)
 		if err != nil {
 			// Continue on error (like "|| true" in bash)
 			klog.Warningf("Failed to create SF %d: stdout=%s, stderr=%s, err=%v", i, stdout.String(), stderr.String(), err)
+			createErrBySF[i] = fmt.Errorf("failed to create SF %d: stdout=%s, stderr=%s, err=%w", i, stdout.String(), stderr.String(), err)
 		}
 	}
 
 	// Create trusted SFs starting from index 101
 	for i := 101; i <= 100+trustedSF; i++ {
+		expectedSFNums = append(expectedSFNums, i)
 		cmd := fmt.Sprintf("/sbin/mlnx-sf --action create --device %s --sfnum %d -t", defaultDevice, i)
 		stdout, stderr, err := s.runBash(cmd)
 		if err != nil {
 			// Continue on error (like "|| true" in bash)
 			klog.Warningf("Failed to create trusted SF %d: stdout=%s, stderr=%s, err=%v", i, stdout.String(), stderr.String(), err)
+			createErrBySF[i] = fmt.Errorf("failed to create trusted SF %d: stdout=%s, stderr=%s, err=%w", i, stdout.String(), stderr.String(), err)
 		}
+	}
+	if err := s.verifyExpectedSFs(expectedSFNums, createErrBySF); err != nil {
+		return err
 	}
 
 	// Set GUID for SF
@@ -104,10 +113,83 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 	return nil
 }
 
-// SFInfo represents the JSON structure returned by mlnx-sf -a show -j
+// SFInfo represents fields parsed from mlnx-sf -a show -j.
+// Example output:
+//
+//	{
+//	    "pci/0000:03:00.0/229376": {
+//	        "type": "eth",
+//	        "netdev": "en3f0pf0sf0",
+//	        "flavour": "pcisf",
+//	        "controller": 0,
+//	        "pfnum": 0,
+//	        "sfnum": 0,
+//	        "splittable": false,
+//	        "function": {
+//	            "hw_addr": "42:f9:a8:cf:b6:1e",
+//	            "state": "active",
+//	            "opstate": "attached",
+//	            "roce": "enable",
+//	            "trust": "off",
+//	            "max_uc_macs": 128,
+//	            "max_io_eqs": 8,
+//	            "eswitch": "NA"
+//	        },
+//	        "device": "0000:03:00.0",
+//	        "sfindex": "pci/0000:03:00.0/229376",
+//	        "aux_dev": "mlx5_core.sf.2",
+//	        "sf_netdev": "enp3s0f0s0",
+//	        "rdma_dev": "mlx5_0"
+//	    }
+//	}
+//
+//nolint:misspell // Keep original field names from mlnx-sf output example.
 type SFInfo struct {
 	SFNetdev string `json:"sf_netdev"`
 	AuxDev   string `json:"aux_dev"`
+	Device   string `json:"device"`
+	SFNum    int    `json:"sfnum"`
+}
+
+func (s *CreateSF) verifyExpectedSFs(expectedSFNums []int, createErrBySF map[int]error) error {
+	stdout, stderr, err := s.runBash("mlnx-sf -a show -j")
+	if err != nil {
+		return fmt.Errorf("failed to run mlnx-sf for SF verification: stdout=%s, stderr=%s, err=%w", stdout.String(), stderr.String(), err)
+	}
+
+	var sfMap map[string]SFInfo
+	if err := json.Unmarshal(stdout.Bytes(), &sfMap); err != nil {
+		return fmt.Errorf("failed to parse mlnx-sf output during SF verification: %w", err)
+	}
+
+	existingSF := map[int]struct{}{}
+	for _, info := range sfMap {
+		if normalizePCIDevice(info.Device) == normalizePCIDevice(defaultDevice) {
+			existingSF[info.SFNum] = struct{}{}
+		}
+	}
+
+	for _, sfnum := range expectedSFNums {
+		if _, found := existingSF[sfnum]; found {
+			continue
+		}
+		if createErr, hasCreateErr := createErrBySF[sfnum]; hasCreateErr {
+			return createErr
+		}
+		return fmt.Errorf("sf %d was not found on device %s after creation", sfnum, defaultDevice)
+	}
+
+	return nil
+}
+
+func normalizePCIDevice(device string) string {
+	device = strings.ToLower(strings.TrimSpace(device))
+	parts := strings.Split(device, ":")
+	// Normalize domain-qualified BDF (0000:03:00.0) to short form (03:00.0).
+	if len(parts) == 3 {
+		return strings.Join(parts[1:], ":")
+	}
+	return device
 }
 
 func (s *CreateSF) setGUIDForSF() error {

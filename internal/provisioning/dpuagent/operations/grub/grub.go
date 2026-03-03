@@ -99,6 +99,11 @@ func (g *ConfigureKernelCmdLine) Execute(execCtx context.Context, optCtx *operat
 	if stdout, stderr, err := g.runBash("update-grub"); err != nil {
 		return fmt.Errorf("failed to update grub: %w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
 	}
+	// Flush filesystem buffers to ensure grub config is persisted to disk before reboot.
+	// Without this, kernel parameters may not take effect after reset (observed in e2e tests).
+	if stdout, stderr, err := g.runBash("sync"); err != nil {
+		return fmt.Errorf("failed to sync filesystem after grub update: %w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
+	}
 	return nil
 }
 
@@ -134,7 +139,8 @@ func (c *CheckKernelCmdLine) Execute(execCtx context.Context, optCtx *operations
 		klog.Infof("All desired kernel parameters are active in %s", c.procCmdlinePath)
 		return nil
 	}
-	return fmt.Errorf("not all desired kernel parameters are active in %s, desired: %v", c.procCmdlinePath, desiredParams)
+	actual, _ := os.ReadFile(c.procCmdlinePath)
+	return fmt.Errorf("not all desired kernel parameters are active in %s, desired: %v, actual: %q", c.procCmdlinePath, desiredParams, strings.TrimSpace(string(actual)))
 }
 
 // fileExists checks if a file exists at the given path.

@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
@@ -33,14 +34,16 @@ import (
 )
 
 const (
-	shutdownDelayInSeconds = 5
-	bootIDFile             = "/proc/sys/kernel/random/boot_id"
-	defaultMstDevicesPath  = "/dev/mst"
+	shutdownDelayInSeconds        = 5
+	bootIDFile                    = "/proc/sys/kernel/random/boot_id"
+	defaultMstDevicesPath         = "/dev/mst"
+	defaultPostResetBlockDuration = 10 * time.Minute
 )
 
 type HandleReboot struct {
 	runBash        func(string) (bytes.Buffer, bytes.Buffer, error)
 	mstDevicesPath string
+	skipBlock      bool
 }
 
 func (h *HandleReboot) Name() string {
@@ -66,16 +69,7 @@ func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Conte
 		return err
 	}
 
-	optCtx.Status.HostRebootRequired = nil
 	optCtx.Status.RebootMethod = nil
-
-	// Keep track of the current boot ID on Client side.
-	currentRebootID, err := getCurrentRebootID()
-	if err != nil {
-		return fmt.Errorf("failed to read boot ID file: %w", err)
-	}
-	optCtx.Status.InitialBootID = ptr.To(currentRebootID)
-
 	switch *m {
 	case provisioningv1.RebootMethodPowerCycle:
 		return h.execPowerCycle(optCtx)
@@ -86,7 +80,6 @@ func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Conte
 	case provisioningv1.RebootMethodFirmwareReset:
 		return h.execFirmwareReset(execCtx, optCtx)
 	case provisioningv1.RebootMethodNoAction:
-		optCtx.Status.HostRebootRequired = ptr.To(false)
 		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
 		return nil
 	}
@@ -94,22 +87,21 @@ func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Conte
 }
 
 func (h *HandleReboot) execPowerCycle(optCtx *operations.Context) error {
-	// Set attributes to indicate reboot method.
-	optCtx.Status.HostRebootRequired = ptr.To(true)
 	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodPowerCycle)
 	return nil
 }
 
 func (h *HandleReboot) execSystemReboot(optCtx *operations.Context) error {
-	// Set attributes to indicate reboot method.
-	optCtx.Status.HostRebootRequired = ptr.To(true)
 	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodSystemReboot)
 	return nil
 }
 
 func (h *HandleReboot) execSystemLevelReset(execCtx context.Context, optCtx *operations.Context) error {
-	// Set attributes to indicate reboot method.
-	optCtx.Status.HostRebootRequired = ptr.To(true)
+	currentRebootID, err := getCurrentRebootID()
+	if err != nil {
+		return fmt.Errorf("failed to read boot ID file: %w", err)
+	}
+	optCtx.Status.InitialBootID = ptr.To(currentRebootID)
 	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodSystemLevelReset)
 
 	// Update status until success.
@@ -125,10 +117,16 @@ func (h *HandleReboot) execSystemLevelReset(execCtx context.Context, optCtx *ope
 	if err != nil {
 		return fmt.Errorf("failed to shut down host: %w, stderr: %s", err, stderr.String())
 	}
-	return nil
+	return h.blockUntilReset()
 }
 
 func (h *HandleReboot) execFirmwareReset(execCtx context.Context, optCtx *operations.Context) error {
+	currentRebootID, err := getCurrentRebootID()
+	if err != nil {
+		return fmt.Errorf("failed to read boot ID file: %w", err)
+	}
+	optCtx.Status.InitialBootID = ptr.To(currentRebootID)
+
 	// Find the first MST device.
 	mstPath := h.mstDevicesPath
 	if mstPath == "" {
@@ -143,8 +141,6 @@ func (h *HandleReboot) execFirmwareReset(execCtx context.Context, optCtx *operat
 	}
 	device := devices[0]
 
-	// Set attributes to indicate reboot method.
-	optCtx.Status.HostRebootRequired = ptr.To(false)
 	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodFirmwareReset)
 
 	// Update status until success.
@@ -159,7 +155,19 @@ func (h *HandleReboot) execFirmwareReset(execCtx context.Context, optCtx *operat
 	if err != nil {
 		return fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
 	}
-	return nil
+	return h.blockUntilReset()
+}
+
+// blockUntilReset blocks until the system resets or the timeout expires.
+// The reset/shutdown command returns immediately; without this block the
+// agent would continue to the next operation before the machine goes down.
+func (h *HandleReboot) blockUntilReset() error {
+	if h.skipBlock {
+		return nil
+	}
+	klog.Infof("Reset initiated, waiting up to %v for system to go down...", defaultPostResetBlockDuration)
+	time.Sleep(defaultPostResetBlockDuration)
+	return fmt.Errorf("system did not reset within %v", defaultPostResetBlockDuration)
 }
 
 // getRebootMethod returns the reboot method for this run.

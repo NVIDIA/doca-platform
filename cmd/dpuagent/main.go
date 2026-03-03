@@ -45,6 +45,7 @@ func main() {
 	pflag.StringVar(&options.Kubeconfig, "kubeconfig", "", "Path to the kubeconfig file")
 	pflag.StringVar(&options.DPUName, "dpu-name", "", "Name of the DPU")
 	pflag.StringVar(&options.DPUNamespace, "dpu-namespace", "", "Namespace of the DPU")
+	pflag.StringVar(&options.DPUUID, "dpu-uid", "", "UID of the DPU object, used to reject stale agent status updates")
 	pflag.StringVar(&options.DPUFlavor, "dpuflavor", "", "Path to the DPU flavor YAML file")
 	pflag.StringVar(&options.KubeadmSecretName, "kubeadm-secret-name", "", "Name of the Secret containing the Kubeadm join command")
 	pflag.StringVar(&options.KubeadmSecretNamespace, "kubeadm-secret-namespace", "", "Namespace of the Secret containing the Kubeadm join command")
@@ -68,9 +69,9 @@ func main() {
 
 	var client client.Client
 	if options.ZeroTrustMode {
-		client = zerotrust.NewZerotrustClient(options.Kubeconfig, options.DPUName, options.DPUNamespace)
+		client = zerotrust.NewZerotrustClient(options.Kubeconfig, options.DPUName, options.DPUNamespace, options.DPUUID)
 	} else {
-		client = trustedhost.NewTrustedhostClient(options.DPUName, options.DPUNamespace)
+		client = trustedhost.NewTrustedhostClient(options.DPUName, options.DPUNamespace, options.DPUUID)
 	}
 	optCtx := &operations.Context{
 		Client:    client,

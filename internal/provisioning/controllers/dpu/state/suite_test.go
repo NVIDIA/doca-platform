@@ -33,6 +33,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -165,6 +166,7 @@ func dpuObj(name string) *provisioningv1.DPU {
 			Name:      name,
 			Namespace: testNS.Name,
 			Labels:    make(map[string]string),
+			UID:       types.UID(utilrand.String(12)),
 		},
 		Spec: provisioningv1.DPUSpec{
 			SerialNumber: "MT25066004C" + utilrand.String(5),

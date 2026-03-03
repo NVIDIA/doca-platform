@@ -55,11 +55,18 @@ func (r *HostAgentServerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		newCond = string(provisioningv1.DPUCondFWConfigured)
 	case provisioningv1.DPUOSInstalling:
 		newCond = string(provisioningv1.DPUCondOSInstalled)
-	case provisioningv1.DPUCheckingHostRebootNeed:
-		newCond = string(provisioningv1.DPUCondCheckedHostRebootNeed)
-		dpu.Status.RequiredReset = ptr.To(true)
 	case provisioningv1.DPURebooting:
 		newCond = string(provisioningv1.DPUCondRebooted)
+	case provisioningv1.DPUConfig:
+		// In production this is reported by the DPU agent after it boots.
+		if dpu.Status.AgentStatus == nil {
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{}
+		}
+		dpu.Status.AgentStatus.RebootMethod = ptr.To(provisioningv1.RebootMethodSystemLevelReset)
+		if err := r.Client.Status().Update(ctx, dpu); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	case provisioningv1.DPUHostNetworkConfiguration:
 		newCond = string(provisioningv1.DPUCondHostNetworkReady)
 	}

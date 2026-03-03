@@ -62,28 +62,6 @@ type DPUReconciler struct {
 	DPUInProvisioningMap *util.DPUInProvisioningMap
 }
 
-type DPUPhaseCategory int
-
-const (
-	PhaseBeforeProvisioning DPUPhaseCategory = iota
-	PhaseInProvisioning
-	PhaseAfterProvisioning
-	PhaseUnknown
-)
-
-func GetDPUPhaseCategory(phase provisioningv1.DPUPhase) DPUPhaseCategory {
-	switch {
-	case cutil.IsDPUBeforeProvisioningPhase(phase):
-		return PhaseBeforeProvisioning
-	case cutil.IsDPUInProvisioningPhase(phase):
-		return PhaseInProvisioning
-	case cutil.IsDPUAfterProvisioningPhase(phase):
-		return PhaseAfterProvisioning
-	default:
-		return PhaseUnknown
-	}
-}
-
 func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinCommandGenerator util.NodeJoinCommandGenerator, hostUptimeChecker reboot.HostUptimeChecker, options util.DPUOptions, dpuMap *util.DPUInProvisioningMap) *DPUReconciler {
 	ctrlCtx := &util.ControllerContext{
 		Client:               mgr.GetClient(),
@@ -101,6 +79,7 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 		provisioningv1.DPUPending:           state.Pending,
 		provisioningv1.DPUNodeEffect:        state.NodeEffect,
 		provisioningv1.DPUPrepareBFB:        state.PrepareBFB,
+		provisioningv1.DPUConfig:            state.DPUConfig,
 		provisioningv1.DPURebooting:         state.Rebooting,
 		provisioningv1.DPUClusterConfig:     state.ClusterConfig,
 		provisioningv1.DPUNodeEffectRemoval: state.NodeEffectRemoval,
@@ -114,7 +93,6 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 		handlers[provisioningv1.DPUConfigFWParameters] = hostagent.ConfigFWParameters
 		handlers[provisioningv1.DPUHostNetworkConfiguration] = hostagent.SetupNetwork
 		handlers[provisioningv1.DPUOSInstalling] = hostagent.Installing
-		handlers[provisioningv1.DPUCheckingHostRebootNeed] = hostagent.RebootRequiredCheck
 	case string(provisioningv1.InstallViaRedFish):
 		handlers[provisioningv1.DPUInitializeInterface] = redfish.InitializeInterface
 		handlers[provisioningv1.DPUConfigFWParameters] = redfish.ConfigFWParameters
@@ -126,7 +104,6 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 		handlers[provisioningv1.DPUHostNetworkConfiguration] = mock.HostNetworkConfiguration
 		handlers[provisioningv1.DPUPrepareBFB] = mock.PrepareBFB
 		handlers[provisioningv1.DPUOSInstalling] = mock.Installing
-		handlers[provisioningv1.DPUCheckingHostRebootNeed] = mock.RebootRequiredCheck
 		handlers[provisioningv1.DPUClusterConfig] = mock.ClusterConfig
 		handlers[provisioningv1.DPUNodeEffectRemoval] = mock.NodeEffectRemoval
 		handlers[provisioningv1.DPUDeleting] = mock.Deleting

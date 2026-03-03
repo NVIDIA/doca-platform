@@ -73,18 +73,26 @@ var _ = Describe("SFConfig", func() {
 			mlnxsfOutput := `
 {
     "pci/0000:03:00.0/229376": {
+        "device": "0000:03:00.0",
+        "sfnum": 0,
         "aux_dev": "mlx5_core.sf.2",
         "sf_netdev": "enp3s0f0s0"
     },
     "pci/0000:03:00.1/294912": {
+        "device": "0000:03:00.0",
+        "sfnum": 1,
         "aux_dev": "mlx5_core.sf.3",
         "sf_netdev": "enp3s0f1s0"
     },
     "pci/0000:03:00.100/294913": {
+        "device": "0000:03:00.0",
+        "sfnum": 101,
         "aux_dev": "mlx5_core.sf.4",
         "sf_netdev": "enp3s0f100s0"
     },
     "pci/0000:03:00.101/294914": {
+        "device": "0000:03:00.0",
+        "sfnum": 102,
         "aux_dev": "mlx5_core.sf.5",
         "sf_netdev": "enp3s0f101s0"
     }
@@ -127,6 +135,7 @@ var _ = Describe("SFConfig", func() {
 				{cmd: "/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 1", stdout: ""},
 				{cmd: "/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 101 -t", stdout: ""},
 				{cmd: "/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 102 -t", stdout: ""},
+				{cmd: "mlnx-sf -a show -j", stdout: mlnxsfOutput},
 				{cmd: "mlnx-sf -a show -j", stdout: mlnxsfOutput},
 			}
 			unorderedCommands := []expectedCommand{
@@ -173,6 +182,147 @@ var _ = Describe("SFConfig", func() {
 			bindContent, err := os.ReadFile(filepath.Join(tempDir, "sys/bus/auxiliary/drivers/mlx5_core.sf/bind"))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(bindContent)).To(BeElementOf("mlx5_core.sf.2", "mlx5_core.sf.3", "mlx5_core.sf.4", "mlx5_core.sf.5"))
+		})
+
+		It("should return create error when expected SF is missing after creation", func() {
+			By("mock the DPUFlavor")
+			dpuFlavor := provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					NVConfig: []provisioningv1.NVConfig{
+						{
+							Parameters: []string{"PF_TOTAL_SF=2"},
+						},
+					},
+				},
+			}
+
+			By("mock mlnx-sf output missing sfnum 1")
+			mlnxsfOutput := `
+{
+    "pci/0000:03:00.0/229376": {
+        "device": "0000:03:00.0",
+        "sfnum": 0,
+        "aux_dev": "mlx5_core.sf.2",
+        "sf_netdev": "enp3s0f0s0"
+    }
+}
+`
+
+			type expectedCommand struct {
+				cmd    string
+				stdout string
+				err    error
+			}
+
+			orderedCommands := []expectedCommand{
+				{cmd: "/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 0", stdout: ""},
+				{cmd: "/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 1", stdout: "partial", err: fmt.Errorf("create failed")},
+				{cmd: "mlnx-sf -a show -j", stdout: mlnxsfOutput},
+			}
+
+			cmdIdx := 0
+			operation := &CreateSF{
+				rootFS: tempDir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					By(fmt.Sprintf("expecting command: %s, received: %s", orderedCommands[cmdIdx].cmd, cmd))
+					Expect(cmd).To(Equal(orderedCommands[cmdIdx].cmd))
+					expected := orderedCommands[cmdIdx]
+					cmdIdx++
+
+					var stdout, stderr bytes.Buffer
+					stdout.WriteString(expected.stdout)
+					return stdout, stderr, expected.err
+				},
+			}
+
+			err := operation.Execute(ctx, &operations.Context{DPUFlavor: dpuFlavor})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to create SF 1"))
+			Expect(err.Error()).To(ContainSubstring("create failed"))
+		})
+
+		It("should return trusted SF create error when trusted SF is missing after creation", func() {
+			By("mock the DPUFlavor with one trusted SF")
+			dpuFlavor := provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						cutil.TrustedSFCount: "1",
+					},
+				},
+				Spec: provisioningv1.DPUFlavorSpec{
+					NVConfig: []provisioningv1.NVConfig{
+						{
+							Parameters: []string{"PF_TOTAL_SF=2"},
+						},
+					},
+				},
+			}
+
+			By("mock mlnx-sf output missing trusted sfnum 101")
+			mlnxsfOutput := `
+{
+    "pci/0000:03:00.0/229376": {
+        "device": "0000:03:00.0",
+        "sfnum": 0,
+        "aux_dev": "mlx5_core.sf.2",
+        "sf_netdev": "enp3s0f0s0"
+    }
+}
+`
+
+			type expectedCommand struct {
+				cmd    string
+				stdout string
+				err    error
+			}
+
+			orderedCommands := []expectedCommand{
+				{cmd: "/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 0", stdout: ""},
+				{cmd: "/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 101 -t", stdout: "partial", err: fmt.Errorf("trusted create failed")},
+				{cmd: "mlnx-sf -a show -j", stdout: mlnxsfOutput},
+			}
+
+			cmdIdx := 0
+			operation := &CreateSF{
+				rootFS: tempDir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					By(fmt.Sprintf("expecting command: %s, received: %s", orderedCommands[cmdIdx].cmd, cmd))
+					Expect(cmd).To(Equal(orderedCommands[cmdIdx].cmd))
+					expected := orderedCommands[cmdIdx]
+					cmdIdx++
+
+					var stdout, stderr bytes.Buffer
+					stdout.WriteString(expected.stdout)
+					return stdout, stderr, expected.err
+				},
+			}
+
+			err := operation.Execute(ctx, &operations.Context{DPUFlavor: dpuFlavor})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to create trusted SF 101"))
+			Expect(err.Error()).To(ContainSubstring("trusted create failed"))
+		})
+
+		It("should treat device with omitted PCI domain as the same device", func() {
+			mlnxsfOutput := `
+{
+    "pci/0000:03:00.0/229376": {
+        "device": "03:00.0",
+        "sfnum": 0
+    }
+}
+`
+			operation := &CreateSF{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					Expect(cmd).To(Equal("mlnx-sf -a show -j"))
+					var stdout, stderr bytes.Buffer
+					stdout.WriteString(mlnxsfOutput)
+					return stdout, stderr, nil
+				},
+			}
+
+			err := operation.verifyExpectedSFs([]int{0}, map[int]error{})
+			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 })

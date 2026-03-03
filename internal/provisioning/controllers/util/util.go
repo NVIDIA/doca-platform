@@ -196,6 +196,10 @@ func GenerateNodeName(dpu *provisioningv1.DPU) string {
 	return dpu.Name
 }
 
+func KubeadmJoinSecretName(dpuName string) string {
+	return fmt.Sprintf("%s-kubeadm-join", dpuName)
+}
+
 func IsNodeReady(node *corev1.Node) bool {
 	for _, condition := range node.Status.Conditions {
 		if condition.Type == corev1.NodeReady {
@@ -554,8 +558,8 @@ func IsDPUBeforeProvisioningPhase(phase provisioningv1.DPUPhase) bool {
 
 func IsDPUAfterProvisioningPhase(phase provisioningv1.DPUPhase) bool {
 	switch phase {
-	case provisioningv1.DPURebooting,
-		provisioningv1.DPUCheckingHostRebootNeed,
+	case provisioningv1.DPUConfig,
+		provisioningv1.DPURebooting,
 		provisioningv1.DPUReady,
 		provisioningv1.DPUError,
 		provisioningv1.DPUClusterConfig,

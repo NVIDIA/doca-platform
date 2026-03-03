@@ -1465,6 +1465,8 @@ docker-build-hostdriver-for-%: docker-buildx-setup $(ARTIFACTS_DIR) packages-dpu
 		--build-arg gcflags="$(GO_GCFLAGS)" \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
+		--build-arg DPUAGENT_DEB=$(notdir $(DPUAGENT_DEB)) \
+		--build-arg DPUAGENT_RPM=$(notdir $(DPUAGENT_RPM)) \
 		--build-context packages=$(LOCALBIN) \
 		-t $(HOSTDRIVER_IMAGE):$(TAG)-$* \
 		-f Dockerfile.hostdriver \
@@ -1659,6 +1661,8 @@ docker-build-bfb-registry-for-%: docker-buildx-setup $(ARTIFACTS_DIR) packages-d
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
+		--build-arg DPUAGENT_DEB=$(notdir $(DPUAGENT_DEB)) \
+		--build-arg DPUAGENT_RPM=$(notdir $(DPUAGENT_RPM)) \
 		--build-context packages=$(LOCALBIN) \
 		--provenance=false \
 		--platform=linux/$* \
