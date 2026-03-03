@@ -13,7 +13,7 @@ Kube-state-metrics for DPU custom resources
 | env | list | `[]` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
 | image.repository | string | `"registry.k8s.io/kube-state-metrics/kube-state-metrics"` |  |
-| image.tag | string | `"v2.18.0"` |  |
+| image.tag | string | `"v2.18.0@sha256:1545919b72e3ae035454fc054131e8d0f14b42ef6fc5b2ad5c751cafa6b2130e"` |  |
 | imagePullSecrets | list | `[]` |  |
 | rbac.serviceAccounts | list | `[]` |  |
 | resources.limits.cpu | string | `"200m"` |  |

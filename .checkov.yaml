@@ -152,7 +152,7 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
   # Node Problem Detector requires root access to read kernel logs and system state
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
     resource: DaemonSet.default.release-name-node-problem-detector
-  
+
   dpu-networking-opentelemetry-collector:
   # Container needs to run as root to read logs from hostPath.
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
