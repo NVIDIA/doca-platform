@@ -18,6 +18,7 @@ package zerotrust
 
 import (
 	"context"
+	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
@@ -37,15 +38,17 @@ type ZerotrustClient struct {
 	k8sClient    kubernetes.Interface
 	dpuName      string
 	dpuNamespace string
+	dpuUID       string
 }
 
-func NewZerotrustClient(kubeconfig string, dpuName string, dpuNamespace string) *ZerotrustClient {
+func NewZerotrustClient(kubeconfig string, dpuName string, dpuNamespace string, dpuUID string) *ZerotrustClient {
 	dpfClient, k8sClient := buildClientOrDie(kubeconfig)
 	return &ZerotrustClient{
 		dpfClient:    dpfClient,
 		k8sClient:    k8sClient,
 		dpuName:      dpuName,
 		dpuNamespace: dpuNamespace,
+		dpuUID:       dpuUID,
 	}
 }
 
@@ -59,6 +62,9 @@ func (c *ZerotrustClient) UpdateStatus(ctx context.Context, agentStatus provisio
 	if err := c.dpfClient.Get(ctx, client.ObjectKey{Namespace: c.dpuNamespace, Name: c.dpuName}, latestDPU); err != nil {
 		return err
 	}
+	if string(latestDPU.UID) != c.dpuUID {
+		return fmt.Errorf("stale DPU object: expected UID %s but got %s", c.dpuUID, latestDPU.UID)
+	}
 	patch := client.MergeFrom(latestDPU.DeepCopy())
 	if latestDPU.Status.AgentStatus == nil {
 		latestDPU.Status.AgentStatus = &provisioningv1.AgentStatus{
@@ -67,9 +73,6 @@ func (c *ZerotrustClient) UpdateStatus(ctx context.Context, agentStatus provisio
 	}
 	if agentStatus.LastStartupTime != nil {
 		latestDPU.Status.AgentStatus.LastStartupTime = agentStatus.LastStartupTime
-	}
-	if agentStatus.HostRebootRequired != nil {
-		latestDPU.Status.AgentStatus.HostRebootRequired = agentStatus.HostRebootRequired
 	}
 	if agentStatus.InitialBootID != nil {
 		latestDPU.Status.AgentStatus.InitialBootID = agentStatus.InitialBootID

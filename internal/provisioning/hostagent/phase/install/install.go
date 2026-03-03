@@ -22,7 +22,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -32,6 +31,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -106,7 +106,7 @@ func (h *Handler) handle(ctx context.Context, dev hostutil.Device, dpu *provisio
 	if err := h.download(ctx, dpu.Status.BFBFile, bfbFile); err != nil {
 		return err
 	}
-	return h.installBFB(ctx, dev.Address, bfbFile, bfcfgFile)
+	return h.installBFB(ctx, dpu, dev.Address, bfbFile, bfcfgFile)
 }
 
 func (h *Handler) download(ctx context.Context, filename string, dst string) error {
@@ -137,7 +137,7 @@ func (h *Handler) download(ctx context.Context, filename string, dst string) err
 	return origErr
 }
 
-func (h *Handler) installBFB(ctx context.Context, pciAddress, bfbFile, bfcfgFile string) error {
+func (h *Handler) installBFB(ctx context.Context, dpu *provisioningv1.DPU, pciAddress, bfbFile, bfcfgFile string) error {
 	logger := log.FromContext(ctx)
 	cmd := fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure os install --address 127.0.0.1:9339 --target %s --pkg %s --version %s", pciAddress, bfbFile, filepath.Base(bfbFile))
 	if _, stderr, err := hostutil.RunBash(cmd); err != nil {
@@ -154,37 +154,23 @@ func (h *Handler) installBFB(ctx context.Context, pciAddress, bfbFile, bfcfgFile
 		return fmt.Errorf("failed to run cmd: %s, err: %w, stderr: %s", cmd, err, stderr.String())
 	}
 
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("context done")
-		case <-ticker.C:
-			cmd = fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure system reboot-status --address 127.0.0.1:9339 --target %s --subcomponent \"CPU\"", pciAddress)
-			_, stderr, err := hostutil.RunBash(cmd)
-			if err != nil {
-				return fmt.Errorf("failed to run cmd: %s, err: %w, stderr: %s", cmd, err, stderr.String())
-			}
-			// dmsc outputs the reboot status in a pretty weird format:
-			// INFO[0001] "127.0.0.1:9339" rebootStatus active=false, timeTillReboot=0s, rebootTime=1970-01-01 00:00:00 +0000 UTC, rebootCount=0
-			// +----------------+--------+-----------------------+-------------+--------+-------+
-			// |  Target Name   | Active | Duration Until Reboot | Reboot Time | Reason | Count |
-			// +----------------+--------+-----------------------+-------------+--------+-------+
-			// | 127.0.0.1:9339 | false  | 0s                    |             |        | 0     |
-			// +----------------+--------+-----------------------+-------------+--------+-------+
-			// The text in the first line is outputted to stderr, while the form is outputted to stdout.
-			// And, the exit code is 0
-			if !strings.Contains(stderr.String(), "active=false") {
-				logger.Info("reboot status still active, waiting", "DMS reboot status", stderr.String())
-				continue
-			}
-			logger.Info("reboot inactive, sleep 90 seconds and continue", "DMS reboot status", stderr.String())
-			time.Sleep(90 * time.Second)
-			return nil
+	// wait until the DPU agent is started
+	timeoutCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
+	defer cancel()
+	return wait.PollUntilContextCancel(timeoutCtx, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+		latestDPU := &provisioningv1.DPU{}
+		if err := h.Client.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Name}, latestDPU); err != nil {
+			logger.Error(err, "failed to get latest DPU, retry until timeout")
+			return false, nil
 		}
-	}
+		agentStarted := latestDPU.Status.AgentStatus != nil && latestDPU.Status.AgentStatus.LastStartupTime != nil
+		if !agentStarted {
+			logger.Info("Waiting for DPU agent to start", "agentStatus", latestDPU.Status.AgentStatus)
+		} else {
+			logger.Info("DPU agent started", "lastStartupTime", latestDPU.Status.AgentStatus.LastStartupTime)
+		}
+		return agentStarted, nil
+	})
 }
 
 // downloadWithViaEnv is a helper function to download a file from a URL using the environment variables BFB_REGISTRY_SERVICE_HOST and BFB_REGISTRY_SERVICE_PORT

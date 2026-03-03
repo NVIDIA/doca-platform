@@ -299,6 +299,11 @@ spec:
                   - type
                   type: object
                 type: array
+              agentLastStartupTime:
+                description: AgentLastStartupTime is the time when the DPU agent was
+                  last started. This is copied from agentStatus.lastStartupTime.
+                format: date-time
+                type: string
               agentStatus:
                 description: AgentStatus contains the information reported from inside
                   the DPU
@@ -362,10 +367,6 @@ spec:
                       - type
                       type: object
                     type: array
-                  hostRebootRequired:
-                    description: HostRebootRequired indicates whether the host requires
-                      a reboot after the DPU is installed
-                    type: boolean
                   initialBootID:
                     description: InitialBootID is the boot ID of the DPU OS during
                       the first boot
@@ -583,6 +584,7 @@ spec:
                 - Config FW Parameters
                 - Prepare BFB
                 - OS Installing
+                - DPU Config
                 - DPU Cluster Config
                 - Host Network Configuration
                 - Ready
@@ -591,8 +593,8 @@ spec:
                 - Rebooting
                 - Perform ARM Force Restart
                 - Initialize Interface
-                - Checking Host Reboot Required
                 - Node Effect Removal
+                - Checking Host Reboot Required
                 type: string
               postProvisioningNodeEffect:
                 description: Indicates that node effect was triggered by post-provisioning

@@ -40,6 +40,7 @@ const (
 type ConfigureContainerd struct {
 	rootFS               string
 	getContainerdVersion func() (string, error)
+	runBash              func(cmd string) (bytes.Buffer, bytes.Buffer, error)
 }
 
 func (c *ConfigureContainerd) Name() string {
@@ -63,24 +64,37 @@ func (c *ConfigureContainerd) Execute(execCtx context.Context, optCtx *operation
 		c.rootFS = defaultRootFS
 	}
 
+	if c.runBash == nil {
+		c.runBash = bash.Run
+	}
+
 	endpoint := optCtx.DPUFlavor.Spec.ContainerdConfig.RegistryEndpoint
 	if endpoint == "" {
 		klog.Info("No registry endpoint configured, skipping containerd configuration")
-		return nil
+	} else {
+		if err := c.configureRegistryMirror(endpoint); err != nil {
+			return err
+		}
 	}
 
+	if _, stderr, err := c.runBash("systemctl enable --now containerd"); err != nil {
+		return fmt.Errorf("failed to enable and start containerd: %w, stderr: %s", err, stderr.String())
+	}
+	klog.Info("containerd enabled and started")
+	return nil
+}
+
+func (c *ConfigureContainerd) configureRegistryMirror(endpoint string) error {
 	configPath := filepath.Join(c.rootFS, containerdConfig)
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return fmt.Errorf("containerd config file %s does not exist, skipping configuration", configPath)
 	}
 
-	// Read existing config
 	var config map[string]interface{}
 	if _, err := toml.DecodeFile(configPath, &config); err != nil {
 		return fmt.Errorf("failed to parse containerd config: %w", err)
 	}
 
-	// Determine plugin path based on containerd version
 	pluginPath := "io.containerd.grpc.v1.cri"
 	version, err := c.containerdVersion()
 	if err != nil {
@@ -90,7 +104,6 @@ func (c *ConfigureContainerd) Execute(execCtx context.Context, optCtx *operation
 		pluginPath = "io.containerd.cri.v1.images"
 	}
 
-	// Navigate and modify structure
 	plugins, ok := config["plugins"].(map[string]interface{})
 	if !ok {
 		plugins = make(map[string]interface{})
@@ -109,7 +122,6 @@ func (c *ConfigureContainerd) Execute(execCtx context.Context, optCtx *operation
 		criPlugin["registry"] = registry
 	}
 
-	// Configure configs (TLS)
 	configs, ok := registry["configs"].(map[string]interface{})
 	if !ok {
 		configs = make(map[string]interface{})
@@ -129,7 +141,6 @@ func (c *ConfigureContainerd) Execute(execCtx context.Context, optCtx *operation
 	}
 	tls["insecure_skip_verify"] = true
 
-	// Configure mirrors
 	mirrors, ok := registry["mirrors"].(map[string]interface{})
 	if !ok {
 		mirrors = make(map[string]interface{})
@@ -143,7 +154,6 @@ func (c *ConfigureContainerd) Execute(execCtx context.Context, optCtx *operation
 	}
 	nvcrMirror["endpoint"] = []string{endpoint}
 
-	// Write back
 	buf := new(bytes.Buffer)
 	if err := toml.NewEncoder(buf).Encode(config); err != nil {
 		return fmt.Errorf("failed to encode containerd config: %w", err)
