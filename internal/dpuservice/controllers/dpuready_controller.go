@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
-	"strings"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -632,17 +631,6 @@ func (r *DPUReadyReconciler) getServicesStatusPerDPU(ctx context.Context, dpu *p
 				servicePod = &pod
 				break
 			}
-			/*
-				serviceID is optional. If it does not exist, match with podname substring
-				// example
-				// dpuservice: sriov-device-plugin
-				// pod:kube-sriov-device-plugin-dr8lf
-			*/
-			if strings.Contains(pod.Name, service.Name) {
-				servicePod = &pod
-				break
-			}
-
 		}
 		if servicePod == nil {
 			log.V(1).Info("service pod not found",
