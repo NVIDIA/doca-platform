@@ -627,7 +627,7 @@ func (r *DPUReadyReconciler) getServicesStatusPerDPU(ctx context.Context, dpu *p
 		for _, pod := range podList.Items {
 			// Match pods using the DPFServiceIDLabelKey label which is set by the service daemonset
 			if serviceID, exists := pod.Labels[dpuservicev1.DPFServiceIDLabelKey]; exists &&
-				service.Spec.ServiceID != nil && serviceID == *service.Spec.ServiceID {
+				service.Status.ServiceID == serviceID {
 				servicePod = &pod
 				break
 			}
