@@ -12,3 +12,7 @@ resources:
 - hostagent_role_binding.yaml
 - hostagent_role.yaml
 - hostagent_service_account.yaml
+- dpuagent_service_account.yaml
+- dpuagent_role.yaml
+- dpuagent_role_binding.yaml
+- dpuagent_token_secret.yaml

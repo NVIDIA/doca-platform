@@ -187,9 +187,9 @@ func (c *ConfigureKubelet) Execute(execCtx context.Context, optCtx *operations.C
 	if c.runBash == nil {
 		c.runBash = bash.Run
 	}
-	_, _, err := c.runBash(string(joinCmd))
+	stdout, stderr, err := c.runBash(string(joinCmd))
 	if err != nil {
-		return fmt.Errorf("failed to run join command: %w", err)
+		return fmt.Errorf("failed to run join command: %w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
 	}
 	return nil
 }

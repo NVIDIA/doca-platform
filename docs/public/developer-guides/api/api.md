@@ -1187,7 +1187,6 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `lastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastStartupTime is the time when the DPU was last started |  |  |
-| `hostRebootRequired` _boolean_ | HostRebootRequired indicates whether the host requires a reboot after the DPU is installed |  |  |
 | `initialBootID` _string_ | InitialBootID is the boot ID of the DPU OS during the first boot |  |  |
 | `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the type of reset/reboot set by the DPU agent<br />See enum values in RebootMethodType.<br />No default is set intentionally: nil means "check not run or not applicable"<br />(e.g. legacy flow, or agent has not run the check yet);<br />a non-nil value means the check ran and this is the result. |  | Enum: [NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset] <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  |  |
@@ -2134,7 +2133,7 @@ Only one of the following state may be specified.
 Default is Initializing.
 
 _Validation:_
-- Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Checking Host Reboot Required Node Effect Removal]
+- Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required]
 
 _Appears in:_
 - [DPUSetStatus](#dpusetstatus)
@@ -2146,6 +2145,7 @@ _Appears in:_
 | `Node Effect` | DPUNodeEffect means the controller will handle the node effect provided by the user.<br /> |
 | `Pending` | DPUPending means the controller is waiting for the BFB to be ready.<br /> |
 | `Prepare BFB` | DPUPrepareBFB means the controller is preparing the BFB and bf.cfg to be installed to DPU<br /> |
+| `DPU Config` | DPUConfig means the DPU agent will configure the DPU<br /> |
 | `Config FW Parameters` | DPUConfigFWParameters means the controller will manipulate DPU firmware, e.g., set DPU mode, check firmware version<br /> |
 | `Initialize Interface` | DPUInitializeInterface means the controller will intitialize the interface used to provision the DPUs, e.g., create the DMS pod, set up RedFish account.<br /> |
 | `OS Installing` | DPUOSInstalling means the controller will provision the DPU through the DMS gNOI interface.<br /> |
@@ -2157,7 +2157,6 @@ _Appears in:_
 | `Deleting` | DPUDeleting means the DPU CR will be deleted, controller will do some cleanup works.<br /> |
 | `Rebooting` | DPURebooting means the host of DPU is rebooting.<br /> |
 | `Perform ARM Force Restart` | DPUPerformArmForceRestart means ARM ForceRestart operations are in progress for Secure Boot configuration.<br /> |
-| `Checking Host Reboot Required` | DPUCheckingHostRebootNeed means the checking of whether the host required a reboot.<br /> |
 
 
 #### DPURef
@@ -2309,7 +2308,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Checking Host Reboot Required Node Effect Removal] <br /> |
+| `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represents the provisioning lifecycle conditions. |  |  |
 | `operationalConditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | OperationalConditions represents aggregated operational readiness conditions.<br />These conditions reflect the runtime health and readiness of DPU services and node health,<br />separate from the provisioning lifecycle represented by Conditions. |  |  |
 | `bfbFile` _string_ | BFBFile is the path to the BFB file |  |  |
@@ -2324,6 +2323,7 @@ _Appears in:_
 | `postProvisioningNodeEffect` _boolean_ | Indicates that node effect was triggered by post-provisioning label changes |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 | `dpuType` _[DPUType](#dputype)_ | The type of the DPU | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br /> |
+| `agentLastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | AgentLastStartupTime is the time when the DPU agent was last started. This is copied from agentStatus.lastStartupTime. |  |  |
 | `agentStatus` _[AgentStatus](#agentstatus)_ | AgentStatus contains the information reported from inside the DPU |  |  |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | The mode of the DPU | dpu | Enum: [dpu nic] <br /> |
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  |  |

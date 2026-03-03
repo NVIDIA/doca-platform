@@ -334,11 +334,12 @@ var _ = Describe("NVConfig Operation", func() {
 				},
 			}
 
-			// MFT < minMftVersion: reset then set (no --with_default). p0 uses PARAM5/PARAM6, p1 uses PARAM7/PARAM8.
+			// MFT < minMftVersion: reset all PCIs first, then set per PCI (no --with_default).
+			// p0 uses PARAM5/PARAM6, p1 uses PARAM7/PARAM8.
 			expectedCommands := []string{
 				fmt.Sprintf("mlxconfig -d %s -y reset", pci0),
-				fmt.Sprintf("mlxconfig -d %s -y set PARAM5=VALUE5 PARAM6=VALUE6", pci0),
 				fmt.Sprintf("mlxconfig -d %s -y reset", pci1),
+				fmt.Sprintf("mlxconfig -d %s -y set PARAM5=VALUE5 PARAM6=VALUE6", pci0),
 				fmt.Sprintf("mlxconfig -d %s -y set PARAM7=VALUE7 PARAM8=VALUE8", pci1),
 			}
 			var recorded []string
@@ -379,7 +380,7 @@ var _ = Describe("NVConfig Operation", func() {
 			}
 
 			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
-			Expect(recorded).To(ConsistOf(expectedCommands))
+			Expect(recorded).To(Equal(expectedCommands))
 		})
 	})
 

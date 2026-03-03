@@ -17,6 +17,7 @@ limitations under the License.
 package checkbridge
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net"
@@ -104,9 +105,16 @@ var _ = Describe("CheckBridgeIP", func() {
 			checkBridge.addrList = func(link netlink.Link, family int) ([]netlink.Addr, error) {
 				return []netlink.Addr{}, nil
 			}
+			netplanApplied := false
+			checkBridge.runBash = func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+				Expect(cmd).To(Equal("netplan apply"))
+				netplanApplied = true
+				return bytes.Buffer{}, bytes.Buffer{}, nil
+			}
 
 			err := checkBridge.Execute(context.Background(), optCtx)
 			Expect(err).To(HaveOccurred())
+			Expect(netplanApplied).To(BeTrue())
 		})
 
 		It("should succeed when bridge has an IP address", func() {

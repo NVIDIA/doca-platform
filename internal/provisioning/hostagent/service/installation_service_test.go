@@ -102,10 +102,10 @@ var _ = Describe("InstallationService", func() {
 			request := types.UpdateStatusRequest{
 				DPUName:      dpu.Name,
 				DPUNamespace: dpu.Namespace,
+				DPUUID:       string(dpu.UID),
 				AgentStatus: provisioningv1.AgentStatus{
-					LastStartupTime:    &lastStartupTime,
-					HostRebootRequired: ptr.To(true),
-					InitialBootID:      ptr.To("test-initial-boot-id"),
+					LastStartupTime: &lastStartupTime,
+					InitialBootID:   ptr.To("test-initial-boot-id"),
 					Conditions: []metav1.Condition{
 						{
 							Type:    string(provisioningv1.ReadyForReboot),
@@ -130,8 +130,6 @@ var _ = Describe("InstallationService", func() {
 			Expect(updatedDPU.Status.AgentStatus).NotTo(BeNil())
 			Expect(updatedDPU.Status.AgentStatus.LastStartupTime).NotTo(BeNil())
 			Expect(updatedDPU.Status.AgentStatus.LastStartupTime.Equal(&lastStartupTime)).To(BeTrue())
-			Expect(updatedDPU.Status.AgentStatus.HostRebootRequired).NotTo(BeNil())
-			Expect(*updatedDPU.Status.AgentStatus.HostRebootRequired).To(Equal(*request.AgentStatus.HostRebootRequired))
 			Expect(updatedDPU.Status.AgentStatus.InitialBootID).NotTo(BeNil())
 			Expect(*updatedDPU.Status.AgentStatus.InitialBootID).To(Equal(*request.AgentStatus.InitialBootID))
 			Expect(updatedDPU.Status.AgentStatus.Conditions[0].Type).To(Equal(request.AgentStatus.Conditions[0].Type))
@@ -148,7 +146,6 @@ var _ = Describe("InstallationService", func() {
 			latestDPU := &provisioningv1.DPU{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, latestDPU)).To(Succeed())
 			lastStartupTime := metav1.NewTime(time.Now().Truncate(time.Second))
-			hostRebootRequired := true
 			cond1 := metav1.Condition{
 				Type:               "Cond1",
 				Status:             metav1.ConditionTrue,
@@ -164,9 +161,8 @@ var _ = Describe("InstallationService", func() {
 				LastTransitionTime: metav1.NewTime(time.Now().Truncate(time.Second)),
 			}
 			latestDPU.Status.AgentStatus = &provisioningv1.AgentStatus{
-				LastStartupTime:    &lastStartupTime,
-				HostRebootRequired: ptr.To(hostRebootRequired),
-				InitialBootID:      ptr.To("test-initial-boot-id"),
+				LastStartupTime: &lastStartupTime,
+				InitialBootID:   ptr.To("test-initial-boot-id"),
 				Conditions: []metav1.Condition{
 					cond1,
 					cond2,
@@ -184,6 +180,7 @@ var _ = Describe("InstallationService", func() {
 			request := types.UpdateStatusRequest{
 				DPUName:      dpu.Name,
 				DPUNamespace: dpu.Namespace,
+				DPUUID:       string(dpu.UID),
 				AgentStatus: provisioningv1.AgentStatus{
 					Conditions: []metav1.Condition{
 						newCond,
@@ -202,10 +199,6 @@ var _ = Describe("InstallationService", func() {
 			Expect(updatedDPU.Status.AgentStatus.LastStartupTime).NotTo(BeNil())
 			Expect(updatedDPU.Status.AgentStatus.LastStartupTime.Equal(&lastStartupTime)).To(BeTrue())
 
-			By("hostRebootRequired should not be updated")
-			Expect(updatedDPU.Status.AgentStatus.HostRebootRequired).NotTo(BeNil())
-			Expect(*updatedDPU.Status.AgentStatus.HostRebootRequired).To(Equal(hostRebootRequired))
-
 			By("initialBootID should not be updated")
 			Expect(updatedDPU.Status.AgentStatus.InitialBootID).NotTo(BeNil())
 			Expect(*updatedDPU.Status.AgentStatus.InitialBootID).To(Equal("test-initial-boot-id"))
@@ -219,12 +212,41 @@ var _ = Describe("InstallationService", func() {
 			Expect(updatedDPU.Status.AgentStatus.Conditions).To(ContainElement(newCond))
 		})
 
+		It("should reject status update with mismatched DPU UID", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+
+			request := types.UpdateStatusRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+				DPUUID:       "stale-uid-from-old-agent",
+				AgentStatus: provisioningv1.AgentStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:    string(provisioningv1.ReadyForReboot),
+							Status:  metav1.ConditionTrue,
+							Reason:  string(provisioningv1.ReadyForReboot),
+							Message: string(provisioningv1.ReadyForReboot),
+						},
+					},
+				},
+			}
+			req, err := json.Marshal(request)
+			Expect(err).To(Succeed())
+			resp, err := http.Post(fmt.Sprintf("http://%s/update-status", address), "application/json", bytes.NewBuffer(req))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusConflict))
+
+			updatedDPU := &provisioningv1.DPU{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, updatedDPU)).To(Succeed())
+			Expect(updatedDPU.Status.AgentStatus).To(BeNil())
+		})
+
 		It("should fail if DPU not found", func() {
 			request := types.UpdateStatusRequest{
 				DPUName:      "test-dpu-not-found",
 				DPUNamespace: testNS.Name,
+				DPUUID:       "some-uid",
 				AgentStatus: provisioningv1.AgentStatus{
-					HostRebootRequired: ptr.To(true),
 					Conditions: []metav1.Condition{
 						{
 							Type:    string(provisioningv1.ReadyForReboot),

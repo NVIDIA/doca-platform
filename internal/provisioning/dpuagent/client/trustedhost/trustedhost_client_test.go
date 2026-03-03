@@ -32,7 +32,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -157,7 +156,7 @@ var _ = Describe("TrustedhostClient", func() {
 			}, func(req *restful.Request, resp *restful.Response) {
 				resp.WriteHeader(http.StatusInternalServerError)
 			})
-			client := NewTrustedhostClient(dpu.Name, dpu.Namespace)
+			client := NewTrustedhostClient(dpu.Name, dpu.Namespace, "")
 			client.hostAgentEndpoint = serverEndpoint
 			err := client.HealthCheck()
 			Expect(err).NotTo(HaveOccurred())
@@ -171,7 +170,7 @@ var _ = Describe("TrustedhostClient", func() {
 			}, func(req *restful.Request, resp *restful.Response) {
 				resp.WriteHeader(http.StatusInternalServerError)
 			})
-			client := NewTrustedhostClient(dpu.Name, dpu.Namespace)
+			client := NewTrustedhostClient(dpu.Name, dpu.Namespace, "")
 			client.hostAgentEndpoint = serverEndpoint
 			err := client.HealthCheck()
 			Expect(err).To(HaveOccurred())
@@ -184,16 +183,16 @@ var _ = Describe("TrustedhostClient", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(receivedRequest.DPUName).To(Equal(dpu.Name))
 				Expect(receivedRequest.DPUNamespace).To(Equal(dpu.Namespace))
+				Expect(receivedRequest.DPUUID).To(Equal("test-uid"))
 				resp.WriteHeader(http.StatusOK)
 			}, func(req *restful.Request, resp *restful.Response) {
 				resp.WriteHeader(http.StatusOK)
 			}, func(req *restful.Request, resp *restful.Response) {
 				resp.WriteHeader(http.StatusInternalServerError)
 			})
-			client := NewTrustedhostClient(dpu.Name, dpu.Namespace)
+			client := NewTrustedhostClient(dpu.Name, dpu.Namespace, "test-uid")
 			client.hostAgentEndpoint = serverEndpoint
 			agentStatus := provisioningv1.AgentStatus{
-				HostRebootRequired: ptr.To(true),
 				Conditions: []metav1.Condition{
 					{
 						Type:    "Ready",
@@ -216,10 +215,9 @@ var _ = Describe("TrustedhostClient", func() {
 			}, func(req *restful.Request, resp *restful.Response) {
 				resp.WriteHeader(http.StatusInternalServerError)
 			})
-			client := NewTrustedhostClient(dpu.Name, dpu.Namespace)
+			client := NewTrustedhostClient(dpu.Name, dpu.Namespace, "")
 			client.hostAgentEndpoint = serverEndpoint
 			err := client.UpdateStatus(ctx, provisioningv1.AgentStatus{
-				HostRebootRequired: ptr.To(true),
 				Conditions: []metav1.Condition{
 					{
 						Type:    "Ready",
@@ -240,7 +238,7 @@ var _ = Describe("TrustedhostClient", func() {
 			}, func(req *restful.Request, resp *restful.Response) {
 				resp.WriteHeader(http.StatusOK)
 			}, getObjectHandler(mockObjects))
-			client := NewTrustedhostClient(dpu.Name, dpu.Namespace)
+			client := NewTrustedhostClient(dpu.Name, dpu.Namespace, "")
 			client.hostAgentEndpoint = serverEndpoint
 			respObject := &corev1.Namespace{}
 			err := client.GetObject(ctx, "", "test", respObject)
@@ -256,7 +254,7 @@ var _ = Describe("TrustedhostClient", func() {
 			}, func(req *restful.Request, resp *restful.Response) {
 				resp.WriteHeader(http.StatusOK)
 			}, getObjectHandler(mockObjects))
-			client := NewTrustedhostClient(dpu.Name, dpu.Namespace)
+			client := NewTrustedhostClient(dpu.Name, dpu.Namespace, "")
 			client.hostAgentEndpoint = serverEndpoint
 			err := client.GetObject(ctx, dpu.Namespace, dpu.Name, dpu)
 			Expect(err).NotTo(HaveOccurred())

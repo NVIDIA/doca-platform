@@ -94,13 +94,20 @@ var _ = Describe("Grub Operation", func() {
 			writeFakeCmdline("BOOT_IMAGE=/boot/vmlinuz root=UUID=xxx ro quiet\n")
 			grubConfigDir := filepath.Join(tempDir, "grub.d")
 			updateGrubCalled := false
+			syncCalled := false
 
 			operation := &ConfigureKernelCmdLine{
 				grubConfigDir:   grubConfigDir,
 				procCmdlinePath: procCmdlinePath,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					Expect(cmd).To(Equal("update-grub"))
-					updateGrubCalled = true
+					switch cmd {
+					case "update-grub":
+						updateGrubCalled = true
+					case "sync":
+						syncCalled = true
+					default:
+						Fail("unexpected command: " + cmd)
+					}
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 			}
@@ -124,8 +131,9 @@ var _ = Describe("Grub Operation", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(content)).To(Equal("GRUB_CMDLINE_LINUX=\"iommu=pt intel_iommu=on\"\n"))
 
-			By("verify update-grub was called")
+			By("verify update-grub and sync were called")
 			Expect(updateGrubCalled).To(BeTrue())
+			Expect(syncCalled).To(BeTrue())
 		})
 
 		It("should skip if grub config exists and all parameters are already in cmdline", func() {

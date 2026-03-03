@@ -83,17 +83,27 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 
 	_, cond = cutil.GetDPUCondition(state, string(provisioningv1.DPUCondOSInstalled))
 	if cond == nil {
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "", ""))
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "BFBInstalled", "BFB installed, waiting for the DPU agent to start"))
 		_, cond = cutil.GetDPUCondition(state, string(provisioningv1.DPUCondOSInstalled))
 	}
 
-	// Wait 3 minutes to finish cloud-init
-	if time.Since(cond.LastTransitionTime.Time) < 3*time.Minute {
+	// wait until the DPU agent is started
+	if dpu.Status.AgentStatus == nil || dpu.Status.AgentStatus.LastStartupTime == nil {
+		if time.Since(cond.LastTransitionTime.Time) > 20*time.Minute {
+			err := fmt.Errorf("DPU agent not started after 20 minutes")
+			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "DPUAgentNotStarted", err.Error()))
+			// NOTE: This differs slightly from the HLD, which specifies retrying Installing after
+			// 20 minutes. Since the current Installing phase has no retry mechanism, we fall back
+			// to reporting an Error directly.
+			state.Phase = provisioningv1.DPUError
+			return *state, nil
+		}
+		logger.Info("DPU agent not started, waiting for it to start")
 		return *state, nil
 	}
 
 	ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
-	state.Phase = provisioningv1.DPURebooting
+	state.Phase = provisioningv1.DPUConfig
 	logger.Info("installation finished")
 	return *state, nil
 }

@@ -181,3 +181,15 @@ replacements:
           delimiter: '.'
           index: 1
           create: true
+  - source:
+      kind: ServiceAccount
+      version: v1
+      name: dpuagent-zerotrust
+      fieldPath: .metadata.name
+    targets:
+      - select:
+          kind: Secret
+          version: v1
+          name: dpuagent-zerotrust-token
+        fieldPaths:
+          - .metadata.annotations.[kubernetes.io/service-account.name]

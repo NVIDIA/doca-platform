@@ -86,11 +86,6 @@ func (in *AgentStatus) DeepCopyInto(out *AgentStatus) {
 		in, out := &in.LastStartupTime, &out.LastStartupTime
 		*out = (*in).DeepCopy()
 	}
-	if in.HostRebootRequired != nil {
-		in, out := &in.HostRebootRequired, &out.HostRebootRequired
-		*out = new(bool)
-		**out = **in
-	}
 	if in.InitialBootID != nil {
 		in, out := &in.InitialBootID, &out.InitialBootID
 		*out = new(string)
@@ -1549,6 +1544,10 @@ func (in *DPUStatus) DeepCopyInto(out *DPUStatus) {
 		in, out := &in.PostProvisioningNodeEffect, &out.PostProvisioningNodeEffect
 		*out = new(bool)
 		**out = **in
+	}
+	if in.AgentLastStartupTime != nil {
+		in, out := &in.AgentLastStartupTime, &out.AgentLastStartupTime
+		*out = (*in).DeepCopy()
 	}
 	if in.AgentStatus != nil {
 		in, out := &in.AgentStatus, &out.AgentStatus
