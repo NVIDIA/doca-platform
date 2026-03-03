@@ -34,7 +34,7 @@ var DPUGroupVersionKind = GroupVersion.WithKind(DPUKind)
 // DPUPhase describes current state of DPU.
 // Only one of the following state may be specified.
 // Default is Initializing.
-// +kubebuilder:validation:Enum="Initializing";"Node Effect";"Pending";"Config FW Parameters";"Prepare BFB";"OS Installing";"DPU Cluster Config";"Host Network Configuration";"Ready";"Error";"Deleting";"Rebooting";"Perform ARM Force Restart";"Initialize Interface";"Checking Host Reboot Required";"Node Effect Removal"
+// +kubebuilder:validation:Enum="Initializing";"Node Effect";"Pending";"Config FW Parameters";"Prepare BFB";"OS Installing";"DPU Config";"DPU Cluster Config";"Host Network Configuration";"Ready";"Error";"Deleting";"Rebooting";"Perform ARM Force Restart";"Initialize Interface";"Node Effect Removal";"Checking Host Reboot Required"
 type DPUPhase string
 
 // These are the valid statuses of DPU.
@@ -52,6 +52,8 @@ const (
 	DPUPending DPUPhase = "Pending"
 	// DPUPrepareBFB means the controller is preparing the BFB and bf.cfg to be installed to DPU
 	DPUPrepareBFB DPUPhase = "Prepare BFB"
+	// DPUConfig means the DPU agent will configure the DPU
+	DPUConfig DPUPhase = "DPU Config"
 	// DPUConfigFWParameters means the controller will manipulate DPU firmware, e.g., set DPU mode, check firmware version
 	DPUConfigFWParameters DPUPhase = "Config FW Parameters"
 	// DPUInitializeInterface means the controller will intitialize the interface used to provision the DPUs, e.g., create the DMS pod, set up RedFish account.
@@ -74,8 +76,6 @@ const (
 	DPURebooting DPUPhase = "Rebooting"
 	// DPUPerformArmForceRestart means ARM ForceRestart operations are in progress for Secure Boot configuration.
 	DPUPerformArmForceRestart DPUPhase = "Perform ARM Force Restart"
-	// DPUCheckingHostRebootNeed means the checking of whether the host required a reboot.
-	DPUCheckingHostRebootNeed DPUPhase = "Checking Host Reboot Required"
 )
 
 type DPUConditionType string
@@ -92,7 +92,6 @@ const (
 	DPUCondFWConfigured           DPUConditionType = "FWConfigured"
 	DPUCondBFBTransferred         DPUConditionType = "BFBTransferred"
 	DPUCondOSInstalled            DPUConditionType = "OSInstalled"
-	DPUCondCheckedHostRebootNeed  DPUConditionType = "CheckedHostRebootNeed"
 	DPUConditionHostPowerCycle    DPUConditionType = "HostPowerCycle"
 	DPUCondRebooted               DPUConditionType = "Rebooted"
 	DPUCondHostNetworkReady       DPUConditionType = "HostNetworkReady"
@@ -347,6 +346,10 @@ type DPUStatus struct {
 	// +optional
 	DPUType DPUType `json:"dpuType,omitempty"`
 
+	// AgentLastStartupTime is the time when the DPU agent was last started. This is copied from agentStatus.lastStartupTime.
+	// +optional
+	AgentLastStartupTime *metav1.Time `json:"agentLastStartupTime,omitempty"`
+
 	// AgentStatus contains the information reported from inside the DPU
 	// +optional
 	AgentStatus *AgentStatus `json:"agentStatus,omitempty"`
@@ -397,10 +400,6 @@ type AgentStatus struct {
 	// LastStartupTime is the time when the DPU was last started
 	// +optional
 	LastStartupTime *metav1.Time `json:"lastStartupTime,omitempty"`
-
-	// HostRebootRequired indicates whether the host requires a reboot after the DPU is installed
-	// +optional
-	HostRebootRequired *bool `json:"hostRebootRequired,omitempty"`
 
 	// InitialBootID is the boot ID of the DPU OS during the first boot
 	InitialBootID *string `json:"initialBootID,omitempty"`

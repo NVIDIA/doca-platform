@@ -27,8 +27,11 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/bfcfg"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -83,6 +86,27 @@ func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, err
 	}
 
+	kubeadmSecretName := cutil.KubeadmJoinSecretName(dpu.Name)
+	kubeadmSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      kubeadmSecretName,
+			Namespace: dpu.Namespace,
+		},
+		Data: map[string][]byte{
+			"join": []byte(joinCommand),
+		},
+	}
+	if err := controllerutil.SetOwnerReference(dpu, kubeadmSecret, ctrlCtx.Client.Scheme()); err != nil {
+		err = fmt.Errorf("failed to set owner reference on kubeadm join secret: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToCreateKubeadmSecret", err.Error()))
+		return *state, err
+	}
+	if err := ctrlCtx.Client.Create(ctx, kubeadmSecret); err != nil && !apierrors.IsAlreadyExists(err) {
+		err = fmt.Errorf("failed to create kubeadm join secret: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToCreateKubeadmSecret", err.Error()))
+		return *state, err
+	}
+
 	dpuDevice := &provisioningv1.DPUDevice{}
 	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -93,7 +117,7 @@ func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, err
 	}
 
-	cfg, err := bfcfg.GenerateBFConfig(ctx, ctrlCtx, dpu, dpuNode, dpuDevice, flavor, joinCommand, ctrlCtx.Options.DPUInstallInterface)
+	cfg, err := bfcfg.GenerateBFConfig(ctx, ctrlCtx, dpu, dpuNode, dpuDevice, flavor, kubeadmSecret)
 	if err != nil {
 		err = fmt.Errorf("failed to generate bf.cfg: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToGenerateBFConfig", err.Error()))

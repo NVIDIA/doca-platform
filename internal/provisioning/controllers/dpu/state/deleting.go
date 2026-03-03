@@ -91,6 +91,12 @@ func Deleting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contr
 				Namespace: dpu.Namespace,
 			},
 		},
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      cutil.KubeadmJoinSecretName(dpu.Name),
+				Namespace: dpu.Namespace,
+			},
+		},
 		certificateRequest,
 	}
 

@@ -17,11 +17,13 @@ limitations under the License.
 package checkbridge
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
 
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
 	"github.com/vishvananda/netlink"
 	"k8s.io/klog/v2"
@@ -40,6 +42,7 @@ type CheckBridgeIP struct {
 	// addrList is a configurable function for listing addresses on a link.
 	// Defaults to netlink.AddrList if nil.
 	addrList addrListFunc
+	runBash  func(cmd string) (bytes.Buffer, bytes.Buffer, error)
 }
 
 // getLinkByName returns the configured linkByName function or the default
@@ -91,6 +94,13 @@ func (c *CheckBridgeIP) Execute(execCtx context.Context, optCtx *operations.Cont
 		}
 		klog.Infof("br-comm-ch IP addresses: %s", strings.Join(ips, ", "))
 		return nil
+	}
+	klog.Info("br-comm-ch has no IP address, running netplan apply to reconfigure")
+	if c.runBash == nil {
+		c.runBash = bash.Run
+	}
+	if _, stderr, err := c.runBash("netplan apply"); err != nil {
+		klog.Warningf("netplan apply failed: %v, stderr: %s", err, stderr.String())
 	}
 	return fmt.Errorf("br-comm-ch does not have an IP address")
 }
