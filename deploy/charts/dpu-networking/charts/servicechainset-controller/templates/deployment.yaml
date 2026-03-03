@@ -25,6 +25,7 @@ spec:
       annotations:
         kubectl.kubernetes.io/default-container: manager
     spec:
+      automountServiceAccountToken: false
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
