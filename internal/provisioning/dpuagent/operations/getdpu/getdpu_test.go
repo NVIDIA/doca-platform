@@ -41,6 +41,7 @@ var _ = Describe("GetLatestDPU Operation", func() {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-dpu",
 				Namespace: "test-ns",
+				UID:       "test-uid-123",
 			},
 			Spec: provisioningv1.DPUSpec{
 				DPUNodeName:   "test-dpu-node",
@@ -56,6 +57,7 @@ var _ = Describe("GetLatestDPU Operation", func() {
 			Options: opts.Options{
 				DPUNamespace: "test-ns",
 				DPUName:      "test-dpu",
+				DPUUID:       "test-uid-123",
 			},
 			Client: &mockClient{
 				getObjectFunc: func(execCtx context.Context, namespace, name string, obj client.Object) error {
@@ -73,6 +75,31 @@ var _ = Describe("GetLatestDPU Operation", func() {
 		Expect(operationCtx.LatestDPU.Name).To(Equal("test-dpu"))
 		Expect(operationCtx.LatestDPU.Namespace).To(Equal("test-ns"))
 		Expect(operationCtx.LatestDPU.Spec).To(Equal(expectedDPU.Spec))
+	})
+
+	It("should return error when DPU UID does not match", func() {
+		operation := &GetLatestDPU{}
+		operationCtx := operations.Context{
+			Options: opts.Options{
+				DPUNamespace: "test-ns",
+				DPUName:      "test-dpu",
+				DPUUID:       "expected-uid",
+			},
+			Client: &mockClient{
+				getObjectFunc: func(execCtx context.Context, namespace, name string, obj client.Object) error {
+					dpu, ok := obj.(*provisioningv1.DPU)
+					Expect(ok).To(BeTrue())
+					dpu.Name = "test-dpu"
+					dpu.Namespace = "test-ns"
+					dpu.UID = "different-uid"
+					return nil
+				},
+			},
+		}
+		err := operation.Execute(ctx, &operationCtx)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("stale DPU object"))
+		Expect(operationCtx.LatestDPU).To(BeNil())
 	})
 
 	It("should return error when client fails", func() {

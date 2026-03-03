@@ -355,7 +355,7 @@ func shouldBlockRebooting(dpu provisioningv1.DPU) bool {
 		provisioningv1.DPUConfigFWParameters,
 		provisioningv1.DPUPrepareBFB,
 		provisioningv1.DPUOSInstalling,
-		provisioningv1.DPUCheckingHostRebootNeed:
+		provisioningv1.DPUConfig:
 		return true
 	default:
 		return false

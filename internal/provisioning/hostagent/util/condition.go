@@ -52,13 +52,19 @@ func (b *ConditionBuilder) Success(message string) *ConditionSetter {
 	}
 }
 
+const maxConditionMessageLength = 4096
+
 func (b *ConditionBuilder) Failure(err error, reason string) *ConditionSetter {
+	msg := err.Error()
+	if len(msg) > maxConditionMessageLength {
+		msg = "(truncated)..." + msg[len(msg)-maxConditionMessageLength:]
+	}
 	return &ConditionSetter{
 		condition: metav1.Condition{
 			Type:    b.condType,
 			Status:  metav1.ConditionFalse,
 			Reason:  reason,
-			Message: err.Error(),
+			Message: msg,
 		},
 	}
 }

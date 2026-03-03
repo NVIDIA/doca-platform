@@ -28,7 +28,6 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	"github.com/nvidia/doca-platform/internal/release"
-	"github.com/nvidia/doca-platform/pkg/bfcfg"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/informer"
 
@@ -39,7 +38,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -601,158 +599,6 @@ var _ = Describe("DPU", func() {
 				Expect(fetchedDPUNodeMaintenance.Spec.Requestor).To(HaveLen(2))
 				Expect(fetchedDPUNodeMaintenance.Spec.Requestor).To(ContainElements("service-2", "service-3"))
 			})
-		})
-	})
-})
-
-var _ = Describe("DPUFlavor", func() {
-
-	const (
-		DefaultNS      = "dpf-provisioning-test"
-		DefaultDPUName = "dpf-dpu"
-	)
-
-	var (
-		testNS *corev1.Namespace
-	)
-
-	var getObjKey = func(obj *provisioningv1.DPUFlavor) types.NamespacedName {
-		return types.NamespacedName{
-			Name:      obj.Name,
-			Namespace: obj.Namespace,
-		}
-	}
-
-	var createObj = func(name string) *provisioningv1.DPUFlavor {
-		return &provisioningv1.DPUFlavor{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: testNS.Name,
-			},
-			Spec: provisioningv1.DPUFlavorSpec{},
-		}
-	}
-
-	BeforeEach(func() {
-		By("creating the namespace")
-		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: DefaultNS}}
-		Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, testNS))).To(Succeed())
-	})
-
-	AfterEach(func() {
-		By("deleting the namespace")
-		Expect(k8sClient.Delete(ctx, testNS)).To(Succeed())
-	})
-
-	Context("obj test context", func() {
-		ctx := context.Background()
-
-		It("DPUFlavor: create and get object minimal", func() {
-			By("creating the obj-1")
-			obj1 := createObj("obj-dpuflavor-1")
-			err := k8sClient.Create(ctx, obj1)
-			Expect(err).NotTo(HaveOccurred())
-
-			objFetched := &provisioningv1.DPUFlavor{}
-			err = k8sClient.Get(ctx, getObjKey(obj1), objFetched)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(objFetched).To(Equal(obj1))
-
-			data1, err := bfcfg.Generate(obj1, DefaultDPUName, "", false, bfcfg.DefaultBFCFGTemplateData, string(provisioningv1.InstallViaGNOI), 1500, 2)
-			Expect(err).To(Succeed())
-			Expect(data1).ShouldNot(BeNil())
-
-			By("creating the obj-2")
-			yml := []byte(`
-apiVersion: provisioning.dpu.nvidia.com/v1alpha1
-kind: DPUFlavor
-metadata:
-  name: obj-dpuflavor-2
-  namespace: default
-`)
-			obj2 := &provisioningv1.DPUFlavor{}
-			err = yaml.UnmarshalStrict(yml, obj2)
-			Expect(err).To(Succeed())
-			err = k8sClient.Create(ctx, obj2)
-			Expect(err).NotTo(HaveOccurred())
-
-			data2, err := bfcfg.Generate(obj2, DefaultDPUName, "", false, bfcfg.DefaultBFCFGTemplateData, string(provisioningv1.InstallViaGNOI), 1500, 2)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(data2).ShouldNot(BeNil())
-
-			By("compare the obj-1 and obj-2")
-			Expect(data1).Should(Equal(data2))
-		})
-
-		It("DPUFlavor: create obj", func() {
-			yml := []byte(`
-apiVersion: provisioning.dpu.nvidia.com/v1alpha1
-kind: DPUFlavor
-metadata:
-  name: obj
-  namespace: default
-spec:
-  grub:
-    kernelParameters:
-      - console=hvc0
-      - console=ttyAMA0
-      - earlycon=pl011,0x13010000
-      - fixrttc
-      - net.ifnames=0
-      - biosdevname=0
-      - iommu.passthrough=1
-      - cgroup_no_v1=net_prio,net_cls
-      - hugepagesz=2048kB
-      - hugepages=3072
-  sysctl:
-    parameters:
-    - net.ipv4.ip_forward=1
-    - net.ipv4.ip_forward_update_priority=0
-  nvconfig:
-    - device: "*"
-      parameters:
-        - PF_BAR2_ENABLE=0
-        - PER_PF_NUM_SF=1
-        - PF_TOTAL_SF=40
-        - PF_SF_BAR_SIZE=10
-        - NUM_PF_MSIX_VALID=0
-        - PF_NUM_PF_MSIX_VALID=1
-        - PF_NUM_PF_MSIX=228
-        - INTERNAL_CPU_MODEL=1
-        - SRIOV_EN=1
-        - NUM_OF_VFS=30
-        - LAG_RESOURCE_ALLOCATION=1
-        - LINK_TYPE_P1=ETH
-        - LINK_TYPE_P2=ETH
-  ovs:
-    rawConfigScript: |
-      ovs-vsctl set Open_vSwitch . other_config:doca-init=true
-      ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones="50000"
-      ovs-vsctl set Open_vSwitch . other_config:hw-offload="true"
-      ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
-      ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
-      ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
-  bfcfgParameters:
-    - ubuntu_PASSWORD=$1$rvRv4qpw$mS6kYODr8oMxORt.TkiTB0
-    - WITH_NIC_FW_UPDATE=yes
-    - ENABLE_SFC_HBN=no
-  configFiles:
-  - path: /etc/bla/blabla.cfg
-    operation: append
-    raw: |
-        CREATE_OVS_BRIDGES="no"
-        CREATE_OVS_BRIDGES="no"
-    permissions: "0755"
-`)
-			obj := &provisioningv1.DPUFlavor{}
-			err := yaml.UnmarshalStrict(yml, obj)
-			Expect(err).To(Succeed())
-			err = k8sClient.Create(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
-
-			data, err := bfcfg.Generate(obj, DefaultDPUName, "", false, bfcfg.DefaultBFCFGTemplateData, string(provisioningv1.InstallViaGNOI), 1500, 2)
-			Expect(err).To(Succeed())
-			Expect(data).ShouldNot(BeNil())
 		})
 	})
 })

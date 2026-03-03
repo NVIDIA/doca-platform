@@ -51,16 +51,18 @@ type TrustedhostClient struct {
 	hostAgentEndpoint string
 	dpuName           string
 	dpuNamespace      string
+	dpuUID            string
 	scheme            *runtime.Scheme
 }
 
-func NewTrustedhostClient(dpuName string, dpuNamespace string) *TrustedhostClient {
+func NewTrustedhostClient(dpuName string, dpuNamespace string, dpuUID string) *TrustedhostClient {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(provisioningv1.AddToScheme(scheme))
 	return &TrustedhostClient{
 		dpuName:      dpuName,
 		dpuNamespace: dpuNamespace,
+		dpuUID:       dpuUID,
 		scheme:       scheme,
 	}
 }
@@ -87,6 +89,7 @@ func (c *TrustedhostClient) UpdateStatus(ctx context.Context, agentStatus provis
 	request := types.UpdateStatusRequest{
 		DPUName:      c.dpuName,
 		DPUNamespace: c.dpuNamespace,
+		DPUUID:       c.dpuUID,
 		AgentStatus:  agentStatus,
 	}
 	requestBody, err := json.Marshal(request)

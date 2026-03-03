@@ -300,6 +300,13 @@ func (s *InstallationService) UpdateStatus(req *restful.Request, resp *restful.R
 		return
 	}
 
+	if string(dpu.UID) != request.DPUUID {
+		klog.Warningf("Rejecting agent status update for DPU %s/%s: request UID %q does not match current DPU UID %q",
+			request.DPUNamespace, request.DPUName, request.DPUUID, dpu.UID)
+		_ = resp.WriteError(http.StatusConflict, fmt.Errorf("stale DPU object: expected UID %q but got %q", request.DPUUID, dpu.UID))
+		return
+	}
+
 	patch := client.MergeFrom(dpu.DeepCopy())
 	if dpu.Status.AgentStatus == nil {
 		dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
@@ -308,9 +315,6 @@ func (s *InstallationService) UpdateStatus(req *restful.Request, resp *restful.R
 	}
 	if request.AgentStatus.LastStartupTime != nil {
 		dpu.Status.AgentStatus.LastStartupTime = request.AgentStatus.LastStartupTime
-	}
-	if request.AgentStatus.HostRebootRequired != nil {
-		dpu.Status.AgentStatus.HostRebootRequired = request.AgentStatus.HostRebootRequired
 	}
 	if request.AgentStatus.InitialBootID != nil {
 		dpu.Status.AgentStatus.InitialBootID = request.AgentStatus.InitialBootID

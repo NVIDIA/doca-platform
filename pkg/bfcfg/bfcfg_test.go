@@ -1,5 +1,5 @@
 /*
-Copyright 2025 NVIDIA
+Copyright 2026 NVIDIA
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -33,6 +33,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
 )
+
+func skipFirstEmptyLine(s string) string {
+	return strings.TrimPrefix(s, "\n")
+}
 
 // CloudConfig represents the structure of the cloud-init configuration YAML.
 type CloudConfig struct {
@@ -72,112 +76,49 @@ type WriteFile struct {
 }
 
 const (
-	// DPUFlavorHBNOVN is copied from internal/operator/inventory/manifests/provisioning-controller.yaml
-	DPUFlavorHBNOVN = `
+	testDPUFlavorYAML = `
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  labels:
-    app.kubernetes.io/part-of: dpf-provisioning-controller-manager
-    dpu.nvidia.com/component: dpf-provisioning-controller-manager
-  name: dpf-provisioning-hbn-ovn
-  namespace: dpf-provisioning
+  name: test-flavor
+  namespace: test-ns
 spec:
   bfcfgParameters:
-  - UPDATE_ATF_UEFI=yes
   - UPDATE_DPU_OS=yes
-  - WITH_NIC_FW_UPDATE=yes
   configFiles:
   - operation: override
-    path: /etc/mellanox/mlnx-bf.conf
+    path: /etc/test.conf
     permissions: "0644"
     raw: |
-      ALLOW_SHARED_RQ="no"
-      IPSEC_FULL_OFFLOAD="no"
-      ENABLE_ESWITCH_MULTIPORT="yes"
-  - operation: override
-    path: /etc/mellanox/mlnx-ovs.conf
-    permissions: "0644"
-    raw: |
-      CREATE_OVS_BRIDGES="no"
-      OVS_DOCA="yes"
-  - operation: override
-    path: /etc/mellanox/mlnx-sf.conf
-    permissions: "0644"
-    raw: ""
+      key=value
   grub:
     kernelParameters:
-    - console=hvc0
     - console=ttyAMA0
-    - earlycon=pl011,0x13010000
-    - fixrttc
-    - net.ifnames=0
-    - biosdevname=0
-    - iommu.passthrough=1
-    - cgroup_no_v1=net_prio,net_cls
-    - hugepagesz=2048kB
-    - hugepages=3072
   nvconfig:
   - device: '*'
     parameters:
-    - PF_BAR2_ENABLE=0
-    - PER_PF_NUM_SF=1
     - PF_TOTAL_SF=20
-    - PF_SF_BAR_SIZE=10
-    - NUM_PF_MSIX_VALID=0
-    - PF_NUM_PF_MSIX_VALID=1
-    - PF_NUM_PF_MSIX=228
-    - INTERNAL_CPU_MODEL=1
-    - INTERNAL_CPU_OFFLOAD_ENGINE=0
-    - SRIOV_EN=1
-    - NUM_OF_VFS=46
-    - LAG_RESOURCE_ALLOCATION=1
-    - LINK_TYPE_P1=ETH
-    - LINK_TYPE_P2=ETH
   ovs:
     rawConfigScript: |
-      _ovs-vsctl() {
-        ovs-vsctl --no-wait --timeout 15 "$@"
-      }
+      ovs-vsctl add-br br-test
+`
 
-      _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
-      _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
-      _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
-      _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
-      _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
-      _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
-      _ovs-vsctl set Open_vSwitch . other_config:doca-congestion-threshold=60
-      _ovs-vsctl set Open_vSwitch . other_config:flow-limit=500000
-      _ovs-vsctl set Open_vSwitch . other_config:hw-offload-ct-unidir-udp-enabled=true
-      _ovs-vsctl --if-exists del-br ovsbr1
-      _ovs-vsctl --if-exists del-br ovsbr2
-      _ovs-vsctl --may-exist add-br br-sfc
-      _ovs-vsctl set bridge br-sfc datapath_type=netdev
-      _ovs-vsctl set bridge br-sfc fail_mode=secure
-      _ovs-vsctl --may-exist add-port br-sfc p0
-      _ovs-vsctl set Interface p0 type=dpdk
-      _ovs-vsctl set Port p0 external_ids:dpf-type=physical
-
-      # Activate DOCA for OVNK
-      _ovs-vsctl set Open_vSwitch . external-ids:ovn-bridge-datapath-type=netdev
-      # setup ovnkube managed bridge, br-dpu (this corresponds to br-ex on ovnk docs)
-      _ovs-vsctl --may-exist add-br br-dpu
-      _ovs-vsctl br-set-external-id br-dpu bridge-id br-dpu
-      _ovs-vsctl br-set-external-id br-dpu bridge-uplink pbrdputobrovn
-      _ovs-vsctl set bridge br-dpu datapath_type=netdev
-      _ovs-vsctl --may-exist add-port br-dpu pf0hpf
-      _ovs-vsctl set Interface pf0hpf mtu_request=9216
-      _ovs-vsctl set Interface pf0hpf type=dpdk
-
-      # Create OVS bridge (br-ovn) in between the SC managed bridge and OVNK
-      _ovs-vsctl --may-exist add-br br-ovn
-      _ovs-vsctl set bridge br-ovn datapath_type=netdev
-      _ovs-vsctl --may-exist add-port br-ovn pbrovntobrdpu
-      _ovs-vsctl --may-exist add-port br-dpu pbrdputobrovn
-
-      # Patch br-ovn and br-dpu together
-      _ovs-vsctl set Interface pbrovntobrdpu type=patch options:peer=pbrdputobrovn
-      _ovs-vsctl set Interface pbrdputobrovn type=patch options:peer=pbrovntobrdpu
+	sampleKubeconfig = `apiVersion: v1
+clusters:
+- cluster:
+    server: https://10.0.110.1:6443
+  name: default
+contexts:
+- context:
+    cluster: default
+    user: default
+  name: default
+current-context: default
+kind: Config
+users:
+- name: default
+  user:
+    token: test-token
 `
 )
 
@@ -186,11 +127,11 @@ var (
 		Describe("custome bf.cfg template", func() {
 			var dir string
 			var fileName = "custom-bfb.cfg.template"
-			var installInterfaces = []string{string(provisioningv1.InstallViaGNOI), string(provisioningv1.InstallViaRedFish)}
+			var redfishModes = []bool{false, true}
 
 			BeforeEach(func() {
 				var err error
-				validTemplate := []byte("{{.KubeadmJoinCMD}}")
+				validTemplate := []byte("{{.KubeadmSecretName}}")
 				dir, err = os.MkdirTemp("", "")
 				Expect(err).ToNot(HaveOccurred())
 				Expect(os.WriteFile(filepath.Join(dir, fileName), validTemplate, 0644)).To(Succeed())
@@ -200,173 +141,233 @@ var (
 				Expect(os.RemoveAll(dir)).To(Succeed())
 			})
 
-			It("test with default bf.cfg", func() {
-				for _, instIface := range installInterfaces {
-					flavor := &provisioningv1.DPUFlavor{}
-					_, err := Generate(flavor, "name", "kubeadm join", false, DefaultBFCFGTemplateData, instIface, 1500, 2)
-					Expect(err).NotTo(HaveOccurred())
-				}
-			})
 			It("error if custom bf.cfg template is invalid", func() {
-				for _, instIface := range installInterfaces {
+				for _, redfish := range redfishModes {
 					flavor := &provisioningv1.DPUFlavor{}
-					_, err := Generate(flavor, "name", "kubeadm join", false, []byte("{{.Invalid"), instIface, 1500, 2)
+					_, err := Generate(flavor, GenerateOptions{DPUHostName: "name", KubeadmSecretName: "test-secret", KubeadmSecretNamespace: "default", IsRedfish: redfish, ControlPlaneMTU: 1500}, []byte("{{.Invalid"))
 					Expect(err).To(HaveOccurred())
 				}
 			})
 			It("generate with correctly formatted template", func() {
-				for _, instIface := range installInterfaces {
+				for _, redfish := range redfishModes {
 					flavor := &provisioningv1.DPUFlavor{}
 					templateData, err := os.ReadFile(filepath.Join(dir, fileName))
 					Expect(err).NotTo(HaveOccurred())
-					got, err := Generate(flavor, "name", "kubeadm join", false, templateData, instIface, 1500, 2)
+					got, err := Generate(flavor, GenerateOptions{DPUHostName: "name", KubeadmSecretName: "test-secret", KubeadmSecretNamespace: "default", IsRedfish: redfish, ControlPlaneMTU: 1500}, templateData)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(got).To(Equal([]byte("kubeadm join")))
+					Expect(got).To(Equal([]byte("test-secret")))
 				}
 			})
 		})
 
-		Describe("cloud-init YAML", func() {
-			var flavor *provisioningv1.DPUFlavor
+		Describe("cloud-init YAML with default template", func() {
+			var (
+				flavor        *provisioningv1.DPUFlavor
+				flavorYAMLStr string
+			)
 
 			extractYAML := func(data []byte) []byte {
 				start := strings.Index(string(data), "#cloud-config")
 				Expect(start).NotTo(Equal(-1))
 				end := strings.LastIndex(string(data), "EOF")
 				Expect(end).To(BeNumerically(">", 1))
-				b := string(data)[start:end]
-				return []byte(b)
+				return []byte(string(data)[start:end])
 			}
 
-			searchFileContent := func(parsed *CloudConfig, filePath, content string) bool {
-				for _, file := range parsed.WriteFiles {
-					if file.Path != filePath {
-						continue
-					}
-					if i := strings.Index(file.Content, content); i != -1 {
-						return true
+			getWriteFile := func(parsed *CloudConfig, filePath string) *WriteFile {
+				for i := range parsed.WriteFiles {
+					if parsed.WriteFiles[i].Path == filePath {
+						return &parsed.WriteFiles[i]
 					}
 				}
-				return false
+				Fail("write_files entry not found: " + filePath)
+				return nil
+			}
+
+			generateAndParse := func(opts GenerateOptions) ([]byte, *CloudConfig) {
+				got, err := Generate(flavor, opts, DefaultBFCFGTemplateData)
+				Expect(err).NotTo(HaveOccurred())
+				parsed := &CloudConfig{}
+				Expect(yaml.Unmarshal(extractYAML(got), parsed)).To(Succeed())
+				return got, parsed
 			}
 
 			BeforeEach(func() {
 				flavor = &provisioningv1.DPUFlavor{}
-				Expect(yaml.Unmarshal([]byte(DPUFlavorHBNOVN), flavor)).To(Succeed())
-			})
-
-			It("create trusted_sfs in bf.cfg", func() {
-				flavor.Annotations = make(map[string]string)
-				flavor.Annotations[cutil.TrustedSFCount] = "10"
-				got, err := Generate(flavor, "name", "kubeadm join", false, DefaultBFCFGTemplateData, string(provisioningv1.InstallViaRedFish), 1500, 2)
+				Expect(yaml.Unmarshal([]byte(testDPUFlavorYAML), flavor)).To(Succeed())
+				flavorBytes, err := yaml.Marshal(flavor)
 				Expect(err).NotTo(HaveOccurred())
-				parsed := &CloudConfig{}
-				Expect(yaml.Unmarshal(extractYAML(got), parsed)).To(Succeed())
-				Expect(searchFileContent(parsed, "/opt/dpf/configure-sfs.sh", "PF_TRUSTED_SF=10")).To(BeTrue())
+				flavorYAMLStr = string(flavorBytes)
 			})
 
-			It("install via RedFish", func() {
-				got, err := Generate(flavor, "name", "kubeadm join", false, DefaultBFCFGTemplateData, string(provisioningv1.InstallViaRedFish), 1500, 2)
-				Expect(err).NotTo(HaveOccurred())
-				parsed := &CloudConfig{}
-				Expect(yaml.Unmarshal(extractYAML(got), parsed)).To(Succeed())
-				Expect(searchFileContent(parsed, "/etc/netplan/98-oob-tmfifo.yaml", "dhcp4: true")).To(BeTrue())
-				Expect(searchFileContent(parsed, "/opt/dpf/join_k8s_cluster.sh", "COMM_CH_BR_NAME=oob_net0")).To(BeTrue())
-				Expect(searchFileContent(parsed, "/etc/netplan/99-dpf-comm-ch.yaml", "")).NotTo(BeTrue())
+			It("should produce valid YAML with all branches enabled (indentation validation)", func() {
+				_, parsed := generateAndParse(GenerateOptions{
+					DPUHostName:            "test-dpu",
+					KubeadmSecretName:      "test-secret",
+					KubeadmSecretNamespace: "default",
+					Kubeconfig:             sampleKubeconfig,
+					IsRedfish:              true,
+					ControlPlaneMTU:        1500,
+					DPUName:                "dpu-1",
+					DPUNamespace:           "ns-1",
+					DPUAgentRepoURL:        "http://bfb-registry:8080/deb",
+				})
+
+				netplanFile := getWriteFile(parsed, "/etc/netplan/50-dpf-bootstrap.yaml")
+				Expect(netplanFile.Permissions).To(Equal("0600"))
+				expectedNetplan := skipFirstEmptyLine(`
+network:
+  renderer: networkd
+  version: 2
+  ethernets:
+    oob_net0:
+      dhcp4: true
+`)
+				Expect(netplanFile.Content).To(Equal(expectedNetplan))
+
+				configFile := getWriteFile(parsed, "/etc/test.conf")
+				Expect(configFile.Content).To(Equal("key=value\n"))
+
+				ovsFile := getWriteFile(parsed, "/opt/dpf/ovs.sh")
+				Expect(ovsFile.Permissions).To(Equal("0755"))
+				expectedOvs := skipFirstEmptyLine(`
+#! /bin/bash
+set -e
+ovs-vsctl add-br br-test
+`)
+				Expect(ovsFile.Content).To(Equal(expectedOvs))
+
+				flavorFile := getWriteFile(parsed, "/opt/dpf/dpuflavor.yaml")
+				Expect(flavorFile.Permissions).To(Equal("0400"))
+				Expect(flavorFile.Content).To(Equal(flavorYAMLStr))
+
+				agentConf := getWriteFile(parsed, "/opt/dpf/dpuagent.conf")
+				Expect(agentConf.Permissions).To(Equal("0600"))
+				expectedAgentConf := skipFirstEmptyLine(`
+--dpu-name=dpu-1
+--dpu-namespace=ns-1
+--dpu-uid=
+--dpuflavor=/opt/dpf/dpuflavor.yaml
+--control-plane-mtu=1500
+--zero-trust-mode=true
+--kubeadm-secret-name=test-secret
+--kubeadm-secret-namespace=default
+--kubeconfig=/opt/dpf/kubeconfig
+`)
+				Expect(agentConf.Content).To(Equal(expectedAgentConf))
+
+				kubeconfigFile := getWriteFile(parsed, "/opt/dpf/kubeconfig")
+				Expect(kubeconfigFile.Permissions).To(Equal("0600"))
+				Expect(kubeconfigFile.Content).To(Equal(sampleKubeconfig))
+
+				aptSource := getWriteFile(parsed, "/etc/apt/sources.list.d/dpf.list")
+				Expect(aptSource.Permissions).To(Equal("0644"))
+				Expect(aptSource.Content).To(Equal("deb [trusted=yes] http://bfb-registry:8080/deb ./\n"))
+
+				installFile := getWriteFile(parsed, "/opt/dpf/install-dpu-agent.sh")
+				Expect(installFile.Permissions).To(Equal("0755"))
+
+				Expect(parsed.RunCmd).To(Equal([][]string{
+					{"hostnamectl", "set-hostname", "test-dpu"},
+					{"/opt/dpf/install-dpu-agent.sh"},
+				}))
 			})
-			It("install via gNOI", func() {
-				got, err := Generate(flavor, "name", "kubeadm join", false, DefaultBFCFGTemplateData, string(provisioningv1.InstallViaGNOI), 1500, 2)
-				Expect(err).NotTo(HaveOccurred())
-				parsed := &CloudConfig{}
-				Expect(yaml.Unmarshal(extractYAML(got), parsed)).To(Succeed())
-				Expect(searchFileContent(parsed, "/etc/netplan/98-oob-tmfifo.yaml", "dhcp4: true")).NotTo(BeTrue())
-				Expect(searchFileContent(parsed, "/opt/dpf/join_k8s_cluster.sh", "COMM_CH_BR_NAME=br-comm-ch")).To(BeTrue())
-				Expect(searchFileContent(parsed, "/etc/netplan/99-dpf-comm-ch.yaml", "")).To(BeTrue())
+
+			It("redfish mode: BMC functions, OOB network, kubeconfig", func() {
+				raw, parsed := generateAndParse(GenerateOptions{
+					DPUHostName:            "test-dpu",
+					KubeadmSecretName:      "test-secret",
+					KubeadmSecretNamespace: "default",
+					Kubeconfig:             sampleKubeconfig,
+					IsRedfish:              true,
+					ControlPlaneMTU:        1500,
+					DPUName:                "dpu-1",
+					DPUNamespace:           "ns-1",
+					DPUAgentRepoURL:        "http://bfb-registry:8080/deb",
+				})
+
+				Expect(string(raw)).To(ContainSubstring("pre_bmc_components_update"))
+				Expect(string(raw)).To(ContainSubstring("post_bmc_components_update"))
+
+				netplanFile := getWriteFile(parsed, "/etc/netplan/50-dpf-bootstrap.yaml")
+				expectedNetplan := skipFirstEmptyLine(`
+network:
+  renderer: networkd
+  version: 2
+  ethernets:
+    oob_net0:
+      dhcp4: true
+`)
+				Expect(netplanFile.Content).To(Equal(expectedNetplan))
+
+				agentConf := getWriteFile(parsed, "/opt/dpf/dpuagent.conf")
+				expectedAgentConf := skipFirstEmptyLine(`
+--dpu-name=dpu-1
+--dpu-namespace=ns-1
+--dpu-uid=
+--dpuflavor=/opt/dpf/dpuflavor.yaml
+--control-plane-mtu=1500
+--zero-trust-mode=true
+--kubeadm-secret-name=test-secret
+--kubeadm-secret-namespace=default
+--kubeconfig=/opt/dpf/kubeconfig
+`)
+				Expect(agentConf.Content).To(Equal(expectedAgentConf))
+
+				kubeconfigFile := getWriteFile(parsed, "/opt/dpf/kubeconfig")
+				Expect(kubeconfigFile.Content).To(Equal(sampleKubeconfig))
 			})
-			It("install via redfish", func() {
-				got, err := Generate(flavor, "name", "kubeadm join", false, DefaultBFCFGTemplateData, string(provisioningv1.InstallViaRedFish), 1500, 2)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(string(got)).Should(ContainSubstring("pre_bmc_components_update"))
-			})
 
-			It("should generate bf.cfg with kubelet security parameters in systemd service", func() {
-				got, err := Generate(flavor, "test-dpu", "kubeadm join", false, DefaultBFCFGTemplateData, string(provisioningv1.InstallViaGNOI), 1500, 2)
-				Expect(err).NotTo(HaveOccurred())
+			It("gNOI mode: no BMC, tmfifo network, no kubeconfig", func() {
+				raw, parsed := generateAndParse(GenerateOptions{
+					DPUHostName:            "test-dpu",
+					KubeadmSecretName:      "test-secret",
+					KubeadmSecretNamespace: "default",
+					IsRedfish:              false,
+					ControlPlaneMTU:        1500,
+					DPUName:                "dpu-1",
+					DPUNamespace:           "ns-1",
+					DPUAgentRepoURL:        "http://[fe80::1%25tmfifo_net0]:11029/deb",
+				})
 
-				yamlData := extractYAML(got)
-				parsed := &CloudConfig{}
-				Expect(yaml.Unmarshal(yamlData, parsed)).To(Succeed())
+				Expect(string(raw)).NotTo(ContainSubstring("pre_bmc_components_update"))
 
-				By("Verifying kubelet service file contains KUBELET_EXTRA_ARGS")
-				found := searchFileContent(parsed, "/etc/systemd/system/kubelet.service.d/10-bf.conf", "KUBELET_EXTRA_ARGS")
-				Expect(found).To(BeTrue(), "Expected KUBELET_EXTRA_ARGS in kubelet service file")
+				netplanFile := getWriteFile(parsed, "/etc/netplan/50-dpf-bootstrap.yaml")
+				expectedNetplan := skipFirstEmptyLine(`
+network:
+  renderer: networkd
+  version: 2
+  ethernets:
+    oob_net0:
+      dhcp4: false
+      dhcp6: false
+      link-local: []
+      optional: true
+    tmfifo_net0:
+      addresses:
+      - fe80::2/64
+      dhcp4: false
+`)
+				Expect(netplanFile.Content).To(Equal(expectedNetplan))
 
-				By("Verifying all four kubelet security parameters are present")
-				found = searchFileContent(parsed, "/etc/systemd/system/kubelet.service.d/10-bf.conf", "--protect-kernel-defaults=true")
-				Expect(found).To(BeTrue(), "Expected --protect-kernel-defaults=true parameter")
+				agentConf := getWriteFile(parsed, "/opt/dpf/dpuagent.conf")
+				expectedAgentConf := skipFirstEmptyLine(`
+--dpu-name=dpu-1
+--dpu-namespace=ns-1
+--dpu-uid=
+--dpuflavor=/opt/dpf/dpuflavor.yaml
+--control-plane-mtu=1500
+--zero-trust-mode=false
+--kubeadm-secret-name=test-secret
+--kubeadm-secret-namespace=default
+`)
+				Expect(agentConf.Content).To(Equal(expectedAgentConf))
 
-				found = searchFileContent(parsed, "/etc/systemd/system/kubelet.service.d/10-bf.conf", "--seccomp-default=true")
-				Expect(found).To(BeTrue(), "Expected --seccomp-default=true parameter")
-
-				found = searchFileContent(parsed, "/etc/systemd/system/kubelet.service.d/10-bf.conf", "--streaming-connection-idle-timeout=5m0s")
-				Expect(found).To(BeTrue(), "Expected --streaming-connection-idle-timeout=5m0s parameter")
-
-				found = searchFileContent(parsed, "/etc/systemd/system/kubelet.service.d/10-bf.conf", "--event-qps=50")
-				Expect(found).To(BeTrue(), "Expected --event-qps=50 parameter")
-			})
-		})
-
-		Describe("multi-nvconfig support", func() {
-			It("should generate bf.cfg with multiple device-specific nvconfig entries", func() {
-				flavor := &provisioningv1.DPUFlavor{}
-				Expect(yaml.Unmarshal([]byte(DPUFlavorHBNOVN), flavor)).To(Succeed())
-
-				dev0 := "p0"
-				dev1 := "p1"
-				flavor.Spec.NVConfig = []provisioningv1.NVConfig{
-					{
-						Device:     &dev0,
-						Parameters: []string{"LINK_TYPE_P1=ETH", "NUM_OF_VFS=8"},
-					},
-					{
-						Device:     &dev1,
-						Parameters: []string{"LINK_TYPE_P1=IB", "NUM_OF_VFS=16"},
-					},
+				for _, f := range parsed.WriteFiles {
+					Expect(f.Path).NotTo(Equal("/opt/dpf/kubeconfig"))
 				}
-
-				got, err := Generate(flavor, "test-dpu", "kubeadm join", false, DefaultBFCFGTemplateData, string(provisioningv1.InstallViaGNOI), 1500, 2)
-				Expect(err).NotTo(HaveOccurred())
-
-				output := string(got)
-				Expect(output).To(ContainSubstring("reset NVConfig on dev ${dev} to defaults"))
-				// Device identifiers (p0, p1) will be translated by bf.cfg script logic
-				Expect(output).To(ContainSubstring("mlxconfig -d p0 -y set LINK_TYPE_P1=ETH NUM_OF_VFS=8"))
-				Expect(output).To(ContainSubstring("mlxconfig -d p1 -y set LINK_TYPE_P1=IB NUM_OF_VFS=16"))
 			})
 
-			DescribeTable("should generate bf.cfg applying to all devices (wildcard behavior)",
-				func(devicePtr *string) {
-					flavor := &provisioningv1.DPUFlavor{}
-					Expect(yaml.Unmarshal([]byte(DPUFlavorHBNOVN), flavor)).To(Succeed())
-
-					flavor.Spec.NVConfig = []provisioningv1.NVConfig{
-						{
-							Device:     devicePtr,
-							Parameters: []string{"SRIOV_EN=1", "NUM_OF_VFS=32"},
-						},
-					}
-
-					got, err := Generate(flavor, "test-dpu", "kubeadm join", false, DefaultBFCFGTemplateData, string(provisioningv1.InstallViaGNOI), 1500, 2)
-					Expect(err).NotTo(HaveOccurred())
-
-					output := string(got)
-					// Both explicit "*" and nil should produce loop over all devices
-					Expect(output).To(ContainSubstring("for dev in /dev/mst/*; do"))
-					Expect(output).To(ContainSubstring("mlxconfig -d ${dev} -y set SRIOV_EN=1 NUM_OF_VFS=32"))
-				},
-				Entry("explicit wildcard '*'", func() *string { s := "*"; return &s }()),
-				Entry("unspecified device (nil, normalized to '*')", (*string)(nil)),
-			)
 		})
 	})
 )

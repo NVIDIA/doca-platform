@@ -96,9 +96,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update && apt-get install -y -qq --no-install-recommends dpkg-dev createrepo-c
 
 # Copy pre-built dpu-agent packages (passed as build context "packages")
+ARG DPUAGENT_DEB
+ARG DPUAGENT_RPM
 RUN mkdir -p /deb /rpm
-COPY --from=packages dpu-agent_*_arm64.deb /deb/
-COPY --from=packages dpu-agent-*.aarch64.rpm /rpm/
+COPY --from=packages ${DPUAGENT_DEB} /deb/
+COPY --from=packages ${DPUAGENT_RPM} /rpm/
 
 # Generate APT repository metadata
 WORKDIR /deb

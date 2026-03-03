@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -101,16 +102,23 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 	nvconfigs := optCtx.DPUFlavor.Spec.NVConfig
 	pciToParams := pciToNVConfig(nvconfigs, pciToNetdev)
 
-	// 3. Order PCIs to move reset-only (empty params) on top of the list to run first
-	// because mlxconfig reset can impact previously set config.
+	// 3. Build a deterministic PCI order and group reset-only devices first.
+	// In legacy flow, we reset all devices first, then apply set per device.
 	type pciParams struct{ pci, params string }
 	ordered := make([]pciParams, 0, len(pciToParams))
-	for pci, params := range pciToParams {
+	pciKeys := make([]string, 0, len(pciToParams))
+	for pci := range pciToParams {
+		pciKeys = append(pciKeys, pci)
+	}
+	sort.Strings(pciKeys)
+	for _, pci := range pciKeys {
+		params := pciToParams[pci]
 		if params == "" {
 			ordered = append(ordered, pciParams{pci: pci, params: params})
 		}
 	}
-	for pci, params := range pciToParams {
+	for _, pci := range pciKeys {
+		params := pciToParams[pci]
 		if params != "" {
 			ordered = append(ordered, pciParams{pci: pci, params: params})
 		}
@@ -129,27 +137,35 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 		return fmt.Errorf("invalid min MFT version constant %q: %w", minMftVersion, err)
 	}
 	legacyFlow := version.LessThan(minVer)
-	for _, pair := range ordered {
-		pci, params := pair.pci, pair.params
-		klog.Infof("Setting NVConfig params on device %s: %s", pci, params)
-		if legacyFlow {
+	if legacyFlow {
+		// Legacy flow requirement: reset all target PCI devices first, then set per PCI.
+		for _, pair := range ordered {
+			pci := pair.pci
 			if err := n.runMlxconfig(pci, "reset", ""); err != nil {
 				return err
 			}
+		}
+		for _, pair := range ordered {
+			pci, params := pair.pci, pair.params
 			if params != "" {
+				klog.Infof("Setting NVConfig params on device %s: %s", pci, params)
 				if err := n.runMlxconfig(pci, "set", params); err != nil {
 					return err
 				}
 			}
+		}
+		return nil
+	}
+	for _, pair := range ordered {
+		pci, params := pair.pci, pair.params
+		klog.Infof("Setting NVConfig params on device %s: %s", pci, params)
+		if params == "" {
+			if err := n.runMlxconfig(pci, "reset", ""); err != nil {
+				return err
+			}
 		} else {
-			if params == "" {
-				if err := n.runMlxconfig(pci, "reset", ""); err != nil {
-					return err
-				}
-			} else {
-				if err := n.runMlxconfig(pci, "--with_default set", params); err != nil {
-					return err
-				}
+			if err := n.runMlxconfig(pci, "--with_default set", params); err != nil {
+				return err
 			}
 		}
 	}

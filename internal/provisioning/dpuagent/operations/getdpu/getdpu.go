@@ -18,6 +18,7 @@ package getdpu
 
 import (
 	"context"
+	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
@@ -46,6 +47,9 @@ func (g *GetLatestDPU) Execute(execCtx context.Context, optCtx *operations.Conte
 	dpu := &provisioningv1.DPU{}
 	if err := optCtx.Client.GetObject(execCtx, optCtx.Options.DPUNamespace, optCtx.Options.DPUName, dpu); err != nil {
 		return err
+	}
+	if string(dpu.UID) != optCtx.Options.DPUUID {
+		return fmt.Errorf("stale DPU object: expected UID %s but got %s", optCtx.Options.DPUUID, dpu.UID)
 	}
 	optCtx.LatestDPU = dpu
 	return nil

@@ -44,14 +44,13 @@ var _ = Describe("Reboot", func() {
 				UpdateStatusUntilSuccess: func(context.Context) {}, // no-op for unit test
 			}
 			reboot := &HandleReboot{
+				skipBlock: true,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					Expect(cmd).To(Equal(fmt.Sprintf("sleep %d && shutdown -h now", shutdownDelayInSeconds)))
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 			}
 			Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
-			Expect(optCtx.Status.HostRebootRequired).NotTo(BeNil())
-			Expect(*optCtx.Status.HostRebootRequired).To(BeTrue())
 			Expect(optCtx.Status.InitialBootID).NotTo(BeNil())
 			Expect(*optCtx.Status.InitialBootID).To(Equal(bootIDStr))
 		})
@@ -73,9 +72,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{LatestDPU: dpu}
 			reboot := &HandleReboot{}
 			Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
-			// InitialBootID is updated to client on every Execute(); we took NoAction so no reboot.
-			Expect(optCtx.Status.InitialBootID).NotTo(BeNil())
-			Expect(*optCtx.Status.InitialBootID).To(Equal(currentBootIDStr))
+			Expect(optCtx.Status.InitialBootID).To(BeNil())
 		})
 	})
 
@@ -146,24 +143,20 @@ var _ = Describe("Reboot", func() {
 	})
 
 	Context("execPowerCycle", func() {
-		It("sets HostRebootRequired and RebootMethod PowerCycle", func() {
+		It("sets RebootMethod PowerCycle", func() {
 			optCtx := &operations.Context{}
 			h := &HandleReboot{}
 			Expect(h.execPowerCycle(optCtx)).To(Succeed())
-			Expect(optCtx.Status.HostRebootRequired).NotTo(BeNil())
-			Expect(*optCtx.Status.HostRebootRequired).To(BeTrue())
 			Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
 			Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
 		})
 	})
 
 	Context("execSystemReboot", func() {
-		It("sets HostRebootRequired and RebootMethod SystemReboot", func() {
+		It("sets RebootMethod SystemReboot", func() {
 			optCtx := &operations.Context{}
 			h := &HandleReboot{}
 			Expect(h.execSystemReboot(optCtx)).To(Succeed())
-			Expect(optCtx.Status.HostRebootRequired).NotTo(BeNil())
-			Expect(*optCtx.Status.HostRebootRequired).To(BeTrue())
 			Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
 			Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodSystemReboot))
 		})
@@ -176,14 +169,13 @@ var _ = Describe("Reboot", func() {
 			}
 			var shutdownCmd string
 			h := &HandleReboot{
+				skipBlock: true,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					shutdownCmd = cmd
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 			}
 			Expect(h.execSystemLevelReset(context.Background(), optCtx)).To(Succeed())
-			Expect(optCtx.Status.HostRebootRequired).NotTo(BeNil())
-			Expect(*optCtx.Status.HostRebootRequired).To(BeTrue())
 			Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
 			Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 			// InitialBootID is set in Execute() for host-reboot methods, not in execSystemLevelReset.
@@ -203,6 +195,7 @@ var _ = Describe("Reboot", func() {
 			}
 			var fwResetCmd string
 			h := &HandleReboot{
+				skipBlock:      true,
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					fwResetCmd = cmd
@@ -210,8 +203,6 @@ var _ = Describe("Reboot", func() {
 				},
 			}
 			Expect(h.execFirmwareReset(context.Background(), optCtx)).To(Succeed())
-			Expect(optCtx.Status.HostRebootRequired).NotTo(BeNil())
-			Expect(*optCtx.Status.HostRebootRequired).To(BeFalse())
 			Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
 			Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodFirmwareReset))
 			Expect(fwResetCmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s -y reset", devicePath)))

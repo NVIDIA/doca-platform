@@ -203,6 +203,10 @@ var _ = Describe("Util", func() {
 			Expect(IsDPUAfterProvisioningPhase(provisioningv1.DPUDeleting)).To(BeTrue())
 		})
 
+		It("should return true for DPUConfig phase", func() {
+			Expect(IsDPUAfterProvisioningPhase(provisioningv1.DPUConfig)).To(BeTrue())
+		})
+
 		It("should return false for Initializing phase", func() {
 			Expect(IsDPUAfterProvisioningPhase(provisioningv1.DPUInitializing)).To(BeFalse())
 		})

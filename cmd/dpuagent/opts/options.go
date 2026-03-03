@@ -26,6 +26,7 @@ type Options struct {
 	Kubeconfig                 string
 	DPUName                    string
 	DPUNamespace               string
+	DPUUID                     string
 	DPUFlavor                  string
 	KubeadmSecretName          string
 	KubeadmSecretNamespace     string
@@ -50,6 +51,9 @@ func (o Options) Validate() error {
 	}
 	if o.DPUName == "" {
 		return fmt.Errorf("dpu name is required")
+	}
+	if o.DPUUID == "" {
+		return fmt.Errorf("dpu uid is required")
 	}
 	if o.DPUFlavor == "" {
 		return fmt.Errorf("dpu flavor is required")

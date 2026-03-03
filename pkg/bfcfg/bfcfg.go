@@ -1,5 +1,5 @@
 /*
-Copyright 2024 NVIDIA
+Copyright 2026 NVIDIA
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,8 +22,6 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
-	"regexp"
-	"strconv"
 	"strings"
 	"text/template"
 
@@ -31,7 +29,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
 	"github.com/Masterminds/sprig/v3"
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -88,32 +86,23 @@ func getTemplateData(ctx context.Context, controllerCtx *util.ControllerContext,
 }
 
 type BFCFGData struct {
-	KubeadmJoinCMD             string
-	DPUHostName                string
-	BFGCFGParams               []string
-	UbuntuPassword             string
-	NVConfigParams             []NVConfigEntry
-	Sysctl                     []string
-	ConfigFiles                []BFCFGWriteFile
-	OVSRawScript               string
-	KernelParameters           string
-	ContainerdRegistryEndpoint string
-	SFNum                      int
-	TrustedSFs                 int
-	// AdditionalReboot adds an extra reboot during the DPU provisioning. This is required in some environments.
-	AdditionalReboot bool
+	KubeadmSecretName      string
+	KubeadmSecretNamespace string
+	Kubeconfig             string
+	DPUFlavorYAML          string
+	DPUHostName            string
+	BFGCFGParams           []string
+	UbuntuPassword         string
+	ConfigFiles            []BFCFGWriteFile
+	OVSRawScript           string
 	// OOBNetwork is a flag to indicate if the DPU accesses DPU cluster via the OOB interface.
 	OOBNetwork       bool
 	RedfishInterface bool
 	ControlPlaneMTU  int
-	// The interface name for all the PFs.
-	PFs     []string
-	DpuMode string
-}
-
-type NVConfigEntry struct {
-	Device     string // Device identifier: "*" (wildcard for all), "p0"/"P0" (port 0), "p1"/"P1" (port 1)
-	Parameters string // Space-joined parameters
+	DPUName          string
+	DPUNamespace     string
+	DPUUID           string
+	DPUAgentRepoURL  string
 }
 
 type BFCFGWriteFile struct {
@@ -123,13 +112,8 @@ type BFCFGWriteFile struct {
 	Permissions string
 }
 
-func GenerateBFConfig(ctx context.Context, controllerContext *util.ControllerContext, dpu *provisioningv1.DPU, dpuNode *provisioningv1.DPUNode, dpuDevice *provisioningv1.DPUDevice, flavor *provisioningv1.DPUFlavor, joinCommand, installInterface string) ([]byte, error) {
+func GenerateBFConfig(ctx context.Context, controllerContext *util.ControllerContext, dpu *provisioningv1.DPU, dpuNode *provisioningv1.DPUNode, dpuDevice *provisioningv1.DPUDevice, flavor *provisioningv1.DPUFlavor, kubeadmSecret *corev1.Secret) ([]byte, error) {
 	logger := log.FromContext(ctx)
-	additionalReboot, err := shouldTriggerAdditionalReboot(ctx, dpuNode, dpu)
-	if err != nil {
-		return nil, err
-	}
-
 	dpfOperatorConfigList := operatorv1.DPFOperatorConfigList{}
 	if err := controllerContext.List(ctx, &dpfOperatorConfigList, &client.ListOptions{}); err != nil {
 		return nil, fmt.Errorf("list DPFOperatorConfigs: %w", err)
@@ -140,19 +124,48 @@ func GenerateBFConfig(ctx context.Context, controllerContext *util.ControllerCon
 	if dpfOperatorConfigList.Items[0].Spec.Networking == nil {
 		return nil, fmt.Errorf("DPFOperatorConfig networking section is missing")
 	}
-	if dpuDevice.Spec.NumberOfPFs == nil {
-		return nil, fmt.Errorf("numberOfPFs is not set")
-	}
-
 	dpfOperatorConfig := dpfOperatorConfigList.Items[0]
 	controlPlaneMTU := *dpfOperatorConfig.Spec.Networking.ControlPlaneMTU
+
+	isRedfish := controllerContext.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish)
+
+	var dpuAgentRepoURL string
+	var kubeconfig string
+	if isRedfish {
+		// TODO: update documentation to state that KubernetesAPIServerVIP and KubernetesAPIServerPort are required in zero-trust mode.
+		if dpfOperatorConfig.Spec.Overrides == nil || dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerVIP == nil || dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort == nil {
+			return nil, fmt.Errorf("KubernetesAPIServerVIP and KubernetesAPIServerPort must be set in DPFOperatorConfig for zero-trust mode")
+		}
+		apiServerAddress := fmt.Sprintf("https://%s:%d", *dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerVIP, *dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort)
+		// TODO: each DPU agent should use its own kubeconfig instead of sharing one.
+		kubeconfigData, err := cutil.GenerateKubeconfig(ctx, controllerContext.Client, apiServerAddress, dpu.Namespace)
+		if err != nil {
+			return nil, fmt.Errorf("generating dpu-agent kubeconfig: %w", err)
+		}
+		kubeconfig = string(kubeconfigData)
+		dpuAgentRepoURL = strings.TrimRight(controllerContext.Options.BFBRegistry, "/") + "/deb"
+	} else {
+		dpuAgentRepoURL = "http://[fe80::1%25tmfifo_net0]:11029/deb"
+	}
 
 	templateData, err := getTemplateData(ctx, controllerContext, &dpfOperatorConfig, dpu)
 	if err != nil {
 		return nil, err
 	}
 
-	buf, err := Generate(flavor, cutil.GenerateNodeName(dpu), joinCommand, additionalReboot, templateData, installInterface, controlPlaneMTU, *dpuDevice.Spec.NumberOfPFs)
+	opts := GenerateOptions{
+		DPUHostName:            cutil.GenerateNodeName(dpu),
+		KubeadmSecretName:      kubeadmSecret.Name,
+		KubeadmSecretNamespace: kubeadmSecret.Namespace,
+		Kubeconfig:             kubeconfig,
+		IsRedfish:              isRedfish,
+		ControlPlaneMTU:        controlPlaneMTU,
+		DPUName:                dpu.Name,
+		DPUNamespace:           dpu.Namespace,
+		DPUUID:                 string(dpu.UID),
+		DPUAgentRepoURL:        dpuAgentRepoURL,
+	}
+	buf, err := Generate(flavor, opts, templateData)
 	if err != nil {
 		return nil, err
 	}
@@ -171,56 +184,43 @@ func GenerateBFConfig(ctx context.Context, controllerContext *util.ControllerCon
 	return buf, nil
 }
 
-// shouldTriggerAdditionalReboot returns whether an additional reboot should be triggered after bfb-install
-func shouldTriggerAdditionalReboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpu *provisioningv1.DPU) (bool, error) {
-	logger := log.FromContext(ctx)
-
-	cmd, _, err := reboot.GenerateCmd(dpuNode.Annotations, dpu.Annotations)
-	if err != nil {
-		logger.Error(err, "failed to generate ipmitool command")
-		return false, err
-	}
-	dpuNodeLabels := dpuNode.GetLabels()
-	if _, ok := dpuNodeLabels[cutil.DPUNodeAdditionalDPURebootLabel]; ok {
-		return true, nil
-	}
-	if cmd == reboot.Skip {
-		return true, nil
-	}
-	return false, nil
+// GenerateOptions holds the deployment-specific parameters for Generate.
+type GenerateOptions struct {
+	DPUHostName            string
+	KubeadmSecretName      string
+	KubeadmSecretNamespace string
+	Kubeconfig             string
+	IsRedfish              bool
+	ControlPlaneMTU        int
+	DPUName                string
+	DPUNamespace           string
+	DPUUID                 string
+	DPUAgentRepoURL        string
 }
 
-// Generate creates a bf.cfg file from the given parameters and template data.
-// If templateData is nil or empty, the embedded default template is used.
-func Generate(flavor *provisioningv1.DPUFlavor, dpuName, joinCmd string, additionalReboot bool, templateData []byte, installInterface string, controlPlaneMTU int, numberOfPFs int) ([]byte, error) {
-	config := &BFCFGData{
-		KubeadmJoinCMD:   joinCmd,
-		DPUHostName:      dpuName,
-		AdditionalReboot: additionalReboot,
-		KernelParameters: strings.TrimSpace(strings.Join(flavor.Spec.Grub.KernelParameters, " ")),
-		ControlPlaneMTU:  controlPlaneMTU,
-		RedfishInterface: installInterface == string(provisioningv1.InstallViaRedFish),
-		DpuMode:          string(flavor.Spec.DpuMode),
+// Generate creates a bf.cfg file from a DPUFlavor, deployment options, and template data.
+func Generate(flavor *provisioningv1.DPUFlavor, opts GenerateOptions, templateData []byte) ([]byte, error) {
+	flavorBytes, err := yaml.Marshal(flavor)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling DPUFlavor: %w", err)
 	}
 
-	config.ContainerdRegistryEndpoint = flavor.Spec.ContainerdConfig.RegistryEndpoint
+	config := &BFCFGData{
+		KubeadmSecretName:      opts.KubeadmSecretName,
+		KubeadmSecretNamespace: opts.KubeadmSecretNamespace,
+		Kubeconfig:             opts.Kubeconfig,
+		DPUFlavorYAML:          string(flavorBytes),
+		DPUHostName:            opts.DPUHostName,
+		ControlPlaneMTU:        opts.ControlPlaneMTU,
+		RedfishInterface:       opts.IsRedfish,
+		OOBNetwork:             opts.IsRedfish,
+		DPUName:                opts.DPUName,
+		DPUNamespace:           opts.DPUNamespace,
+		DPUUID:                 opts.DPUUID,
+		DPUAgentRepoURL:        opts.DPUAgentRepoURL,
+	}
 
 	config.BFGCFGParams, config.UbuntuPassword = bfcfgParams(flavor)
-
-	// Process all nvconfig entries for device-specific configurations
-	config.NVConfigParams = make([]NVConfigEntry, 0, len(flavor.Spec.NVConfig))
-	for _, nvcfg := range flavor.Spec.NVConfig {
-		device := "*"
-		if nvcfg.Device != nil {
-			device = strings.TrimSpace(*nvcfg.Device)
-		}
-		config.NVConfigParams = append(config.NVConfigParams, NVConfigEntry{
-			Device:     device,
-			Parameters: strings.Join(nvcfg.Parameters, " "),
-		})
-	}
-
-	config.Sysctl = flavor.Spec.Sysctl.Parameters
 	for _, f := range flavor.Spec.ConfigFiles {
 		config.ConfigFiles = append(config.ConfigFiles, BFCFGWriteFile{
 			Path:        f.Path,
@@ -230,23 +230,6 @@ func Generate(flavor *provisioningv1.DPUFlavor, dpuName, joinCmd string, additio
 		})
 	}
 	config.OVSRawScript = flavor.Spec.OVS.RawConfigScript
-	if installInterface == string(provisioningv1.InstallViaRedFish) {
-		config.OOBNetwork = true
-	}
-
-	if num, ok := getPFTotalSFFromFlavor(flavor); ok {
-		config.SFNum = num
-	}
-
-	if num, ok := getTrustedSFFromFlavor(flavor); ok {
-		config.TrustedSFs = num
-	}
-
-	config.PFs = []string{}
-	for i := 0; i < numberOfPFs; i++ {
-		config.PFs = append(config.PFs, fmt.Sprintf("p%d", i))
-		config.PFs = append(config.PFs, fmt.Sprintf("pf%dhpf", i))
-	}
 
 	bfbCFGTemplate, err := template.New("").Funcs(sprig.FuncMap()).Parse(string(templateData))
 	if err != nil {
@@ -285,35 +268,6 @@ func bfcfgParams(flavor *provisioningv1.DPUFlavor) ([]string, string) {
 		passwd = fmt.Sprintf("'%s'", passwd)
 	}
 	return ret, passwd
-}
-
-func getPFTotalSFFromFlavor(flavor *provisioningv1.DPUFlavor) (int, bool) {
-	regex := regexp.MustCompile(`^PF_TOTAL_SF=([0-9]+)`)
-	for _, nvconfig := range flavor.Spec.NVConfig {
-		for _, parmeter := range nvconfig.Parameters {
-			matches := regex.FindStringSubmatch(parmeter)
-			if len(matches) == 2 {
-				if num, err := strconv.Atoi(matches[1]); err == nil {
-					return num, true
-				}
-			}
-		}
-	}
-	return 0, false
-}
-
-func getTrustedSFFromFlavor(flavor *provisioningv1.DPUFlavor) (int, bool) {
-	if flavor.Annotations != nil {
-		trustedSFCountFromAnnotation, found := flavor.Annotations[cutil.TrustedSFCount]
-		if found {
-			trustedSFCount, err := strconv.Atoi(trustedSFCountFromAnnotation)
-			if err == nil && trustedSFCount > 0 && trustedSFCount <= MaxTrustedSfs {
-				return trustedSFCount, true
-			}
-
-		}
-	}
-	return 0, false
 }
 
 // getTemplateDataFromConfigMap discovers a bf.cfg template ConfigMap by listing ConfigMaps

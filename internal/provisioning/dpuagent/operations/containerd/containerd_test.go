@@ -17,6 +17,7 @@ limitations under the License.
 package containerd
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,6 +58,28 @@ var _ = Describe("Containerd Configuration", func() {
 			})).To(BeTrue())
 		})
 
+		It("should start containerd even when RegistryEndpoint is empty", func() {
+			var executedCmd string
+			operation := &ConfigureContainerd{
+				rootFS: tempDir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					executedCmd = cmd
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			err := operation.Execute(ctx, &operations.Context{
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						ContainerdConfig: provisioningv1.ContainerdConfig{
+							RegistryEndpoint: "",
+						},
+					},
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(executedCmd).To(Equal("systemctl enable --now containerd"))
+		})
+
 		It("should add TLS and mirrors", func() {
 			originalContent := `
 version = 2
@@ -93,6 +116,9 @@ oom_score = 0
 				rootFS: tempDir,
 				getContainerdVersion: func() (string, error) {
 					return "containerd github.com/containerd/containerd v1.7.20 8fc6bcff51318944179630522a095cc9dbf9f353", nil
+				},
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 			}
 			err := operation.Execute(ctx, &operations.Context{

@@ -258,7 +258,7 @@ var _ = Describe("Reboot Sync", func() {
 		It("should block if any DPU is being provisioned (not reaching DPURebooting phase)", func() {
 			dpuNode := dpuNodeWithHostAgentRebootMethod()
 			rebootingDPU := rebootingDPU("rebooting-dpu")
-			nonRebootingDPU := nonRebootingDPU(provisioningv1.DPUCheckingHostRebootNeed)
+			nonRebootingDPU := nonRebootingDPU(provisioningv1.DPUOSInstalling)
 			dpus := []provisioningv1.DPU{
 				rebootingDPU,
 				nonRebootingDPU,

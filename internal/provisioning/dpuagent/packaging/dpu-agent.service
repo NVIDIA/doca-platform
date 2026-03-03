@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=oneshot
 ExecStart=/bin/bash -c '/opt/dpf/dpuagent $(cat /opt/dpf/dpuagent.conf)'
 RemainAfterExit=yes
-TimeoutStartSec=600
+TimeoutStartSec=infinity
 
 [Install]
 WantedBy=multi-user.target
