@@ -25,6 +25,7 @@ spec:
         runAsNonRoot: true
         runAsUser: 65534
         fsGroup: 65534
+      automountServiceAccountToken: false
       tolerations:
         - key: node-role.kubernetes.io/master
           operator: Exists
