@@ -49,6 +49,14 @@ func markServiceCritical(dpuService *dpuservicev1.DPUService) {
 	dpuService.Spec.Interfaces = nil
 }
 
+func setDPUServiceStatusWithServiceID(ctx context.Context, c client.Client, svc *dpuservicev1.DPUService, serviceID string) {
+	created := &dpuservicev1.DPUService{}
+	Expect(c.Get(ctx, client.ObjectKeyFromObject(svc), created)).To(Succeed())
+	original := created.DeepCopy()
+	created.Status.ServiceID = serviceID
+	Expect(c.Status().Patch(ctx, created, client.MergeFrom(original))).To(Succeed())
+}
+
 const (
 	nodeName      string = "dpuready-test-node"
 	dpuDeviceName string = nodeName + "0000-ca-00" //required field for DPU
@@ -340,9 +348,9 @@ var _ = Describe("DPUReadyReconciler", func() {
 			dpuServices[1].Labels = map[string]string{
 				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment1",
 			}
-			dpuServices[1].Spec.ServiceID = ptr.To("service-one-" + testNS.Name)
 			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
+			setDPUServiceStatusWithServiceID(ctx, testClient, dpuServices[1], "service-one-"+testNS.Name)
 
 			By("Creating a pod for the service to make it ready")
 			pod := &corev1.Pod{
@@ -350,7 +358,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					Name:      "test-pod-" + testNS.Name,
 					Namespace: testNS.Name,
 					Labels: map[string]string{
-						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
+						dpuservicev1.DPFServiceIDLabelKey: "service-one-" + testNS.Name,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -460,9 +468,9 @@ var _ = Describe("DPUReadyReconciler", func() {
 				criticalDPUServiceLabel:                   "",
 				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment1",
 			}
-			dpuServices[1].Spec.ServiceID = ptr.To("service-one-" + testNS.Name)
 			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
+			setDPUServiceStatusWithServiceID(ctx, testClient, dpuServices[1], "service-one-"+testNS.Name)
 
 			By("Triggering node reconcile")
 			Eventually(func(g Gomega) {
@@ -683,9 +691,9 @@ var _ = Describe("DPUReadyReconciler", func() {
 			dpuService.Labels = map[string]string{
 				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment1",
 			}
-			dpuService.Spec.ServiceID = ptr.To("service-one-" + testNS.Name)
 			Expect(testClient.Create(ctx, dpuService)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuService)
+			setDPUServiceStatusWithServiceID(ctx, testClient, dpuService, "service-one-"+testNS.Name)
 
 			// Create pod for the service to make it ready
 			pod := &corev1.Pod{
@@ -693,7 +701,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					Name:      "test-pod-service-" + testNS.Name,
 					Namespace: testNS.Name,
 					Labels: map[string]string{
-						dpuservicev1.DPFServiceIDLabelKey: *dpuService.Spec.ServiceID,
+						dpuservicev1.DPFServiceIDLabelKey: "service-one-" + testNS.Name,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -767,9 +775,9 @@ var _ = Describe("DPUReadyReconciler", func() {
 				criticalDPUServiceLabel:                   "",
 				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment3",
 			}
-			notReadyService.Spec.ServiceID = ptr.To("service-two-" + testNS.Name)
 			Expect(testClient.Create(ctx, notReadyService)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, notReadyService)
+			setDPUServiceStatusWithServiceID(ctx, testClient, notReadyService, "service-two-"+testNS.Name)
 
 			By("Creating a not-ready DPUServiceChain")
 			notReadyChain := createTestDPUServiceChain("chain2", testNS.Name, testNS.Name+"_dpudeployment4", nil)
@@ -849,9 +857,9 @@ var _ = Describe("DPUReadyReconciler", func() {
 			dpuServices[1].Labels = map[string]string{
 				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment1",
 			}
-			dpuServices[1].Spec.ServiceID = ptr.To("service-one" + testNS.Name)
 			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
+			setDPUServiceStatusWithServiceID(ctx, testClient, dpuServices[1], "service-one"+testNS.Name)
 
 			// Service 3
 			dpuService3 := dpuservicev1.DPUService{}
@@ -862,9 +870,9 @@ var _ = Describe("DPUReadyReconciler", func() {
 				criticalDPUServiceLabel:                   "",
 				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment3",
 			}
-			dpuService3.Spec.ServiceID = ptr.To("service-three" + testNS.Name)
 			Expect(testClient.Create(ctx, &dpuService3)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, &dpuService3)
+			setDPUServiceStatusWithServiceID(ctx, testClient, &dpuService3, "service-three"+testNS.Name)
 
 			By("Creating pods for the services to make them ready")
 			pod1 := &corev1.Pod{
@@ -872,7 +880,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					Name:      "test-pod-" + testNS.Name,
 					Namespace: testNS.Name,
 					Labels: map[string]string{
-						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
+						dpuservicev1.DPFServiceIDLabelKey: "service-one" + testNS.Name,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -890,7 +898,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					Name:      dpuService3.Name + "-pod-" + testNS.Name,
 					Namespace: testNS.Name,
 					Labels: map[string]string{
-						dpuservicev1.DPFServiceIDLabelKey: *dpuService3.Spec.ServiceID,
+						dpuservicev1.DPFServiceIDLabelKey: "service-three" + testNS.Name,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -1004,16 +1012,16 @@ var _ = Describe("DPUReadyReconciler", func() {
 			dpuServices[1].Labels = map[string]string{
 				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment1",
 			}
-			dpuServices[1].Spec.ServiceID = ptr.To("service-one" + testNS.Name)
 			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
+			setDPUServiceStatusWithServiceID(ctx, testClient, dpuServices[1], "service-one"+testNS.Name)
 
 			pod := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pod-" + testNS.Name,
 					Namespace: testNS.Name,
 					Labels: map[string]string{
-						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
+						dpuservicev1.DPFServiceIDLabelKey: "service-one" + testNS.Name,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -1205,9 +1213,9 @@ var _ = Describe("DPUReadyReconciler", func() {
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			// mark service as critical
 			markServiceCritical(dpuServices[1])
-			dpuServices[1].Spec.ServiceID = ptr.To("service-one" + testNS.Name)
 			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
+			setDPUServiceStatusWithServiceID(ctx, testClient, dpuServices[1], "service-one"+testNS.Name)
 
 			By("Triggering node reconcile")
 			Eventually(func(g Gomega) {
@@ -1233,7 +1241,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					Name:      "test-pod-" + testNS.Name,
 					Namespace: testNS.Name,
 					Labels: map[string]string{
-						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
+						dpuservicev1.DPFServiceIDLabelKey: "service-one" + testNS.Name,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -1337,9 +1345,9 @@ var _ = Describe("DPUReadyReconciler", func() {
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			// mark service as critical
 			markServiceCritical(dpuServices[1])
-			dpuServices[1].Spec.ServiceID = ptr.To("service-one" + testNS.Name)
 			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
+			setDPUServiceStatusWithServiceID(ctx, testClient, dpuServices[1], "service-one"+testNS.Name)
 
 			By("Triggering node reconcile")
 			Eventually(func(g Gomega) {
@@ -1365,7 +1373,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					Name:      "test-pod-" + testNS.Name,
 					Namespace: testNS.Name,
 					Labels: map[string]string{
-						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
+						dpuservicev1.DPFServiceIDLabelKey: "service-one" + testNS.Name,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -1646,9 +1654,9 @@ var _ = Describe("DPUReadyReconciler", func() {
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			// mark service as critical
 			markServiceCritical(dpuServices[1])
-			dpuServices[1].Spec.ServiceID = ptr.To("service-one" + testNS.Name)
 			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
+			setDPUServiceStatusWithServiceID(ctx, testClient, dpuServices[1], "service-one"+testNS.Name)
 
 			By("Triggering node reconcile")
 			Eventually(func(g Gomega) {
@@ -1673,7 +1681,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					Name:      "test-pod-" + testNS.Name,
 					Namespace: testNS.Name,
 					Labels: map[string]string{
-						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
+						dpuservicev1.DPFServiceIDLabelKey: "service-one" + testNS.Name,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -1817,9 +1825,9 @@ var _ = Describe("DPUReadyReconciler", func() {
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			// mark service as critical
 			markServiceCritical(dpuServices[1])
-			dpuServices[1].Spec.ServiceID = ptr.To("service-one" + testNS.Name)
 			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[1])
+			setDPUServiceStatusWithServiceID(ctx, testClient, dpuServices[1], "service-one"+testNS.Name)
 
 			By("Triggering node reconcile")
 			Eventually(func(g Gomega) {
@@ -1844,7 +1852,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					Name:      "test-pod-" + testNS.Name,
 					Namespace: testNS.Name,
 					Labels: map[string]string{
-						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
+						dpuservicev1.DPFServiceIDLabelKey: "service-one" + testNS.Name,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -1918,7 +1926,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 					Name:      "test-pod-2-" + testNS.Name,
 					Namespace: testNS.Name,
 					Labels: map[string]string{
-						dpuservicev1.DPFServiceIDLabelKey: *dpuServices[1].Spec.ServiceID,
+						dpuservicev1.DPFServiceIDLabelKey: "service-one" + testNS.Name,
 					},
 				},
 				Spec: corev1.PodSpec{
