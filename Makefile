@@ -746,6 +746,9 @@ verify-manifest-dpu-networking-ovs-cni: helm-package-dpu-networking helm $(ARTIF
 verify-manifest-dpu-networking-servicechainset-controller: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking servicechainset-controller subchart
 	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
 	  --set servicechainset-controller.enabled=true \
+	  --set servicechainset-controller.deployDPUManifests=true \
+	  --set servicechainset-controller.deployHostManifests=true \
+	  --set servicechainset-controller.controllerManager.manager.image.tag=$(TAG)@sha256:A \
 	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-servicechainset-controller-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-servicechainset-controller-$(TAG).yaml" \
 	  MANIFEST_NAME="dpu-networking-servicechainset-controller" \
