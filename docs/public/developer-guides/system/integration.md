@@ -62,7 +62,6 @@ Today the following are either mentioned in the installation guide or installed 
 * certificate management using `cert-manager`
 * storage provisioning using `NFS` and `local-path` provisioner
 * NVIDIA Network Operator
-* SR-IOV Network Operator
 * NVIDIA Node maintenance operator
 
 ## Host Networking Configuration

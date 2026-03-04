@@ -54,9 +54,6 @@ Commands in this guide are run in the same directory that contains this readme.
 ## Virtual IP used by the load balancer for the DPU Cluster. Must be a reserved IP from the management subnet and not allocated by DHCP.
 export DPUCLUSTER_VIP=
 
-## DPU_P0 is the name of the first port of the DPU. This name must be the same on all worker nodes.
-export DPU_P0=
-
 ## Interface on which the DPUCluster load balancer will listen. Should be the management interface of the control plane node.
 export DPUCLUSTER_INTERFACE=
 
@@ -206,6 +203,8 @@ spec:
     dmsTimeout: 900
   kamajiClusterManager:
     disable: false
+  nodeSRIOVDevicePluginController:
+    disable: false
 ```
 </details>
 
@@ -255,7 +254,7 @@ kubectl wait --for=condition=ready --namespace dpu-cplane-tenant1 dpucluster --a
 
 Traffic can be routed through HBN on the worker node by mounting the DPU physical interface into a pod.
 
-#### Install Multus and SRIOV Network Operator using NVIDIA Network Operator
+#### Install Multus using NVIDIA Network Operator
 
 ```shell
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia --force-update
@@ -269,25 +268,6 @@ helm upgrade --no-hooks --install --create-namespace --namespace nvidia-network-
 nfd:
   enabled: false
   deployNodeFeatureRules: false
-sriovNetworkOperator:
-  enabled: true
-sriov-network-operator:
-  operator:
-    affinity:
-      nodeAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          nodeSelectorTerms:
-            - matchExpressions:
-                - key: node-role.kubernetes.io/master
-                  operator: Exists
-            - matchExpressions:
-                - key: node-role.kubernetes.io/control-plane
-                  operator: Exists
-  crds:
-    enabled: true
-  sriovOperatorConfig:
-    deploy: true
-    configDaemonNodeSelector: null
 operator:
   affinity:
     nodeAffinity:
@@ -302,13 +282,13 @@ operator:
 ```
 </details>
 
-#### Apply the NICClusterConfiguration and SriovNetworkNodePolicy
+#### Apply the NICClusterPolicy
 
 ```shell
-cat manifests/03-enable-accelerated-interfaces/*.yaml | envsubst | kubectl apply -f -
+kubectl apply -f manifests/03-enable-accelerated-interfaces/nic_cluster_policy.yaml
 ```
 
-This will deploy the following objects:
+This will deploy the following object:
 
 <details markdown="1"><summary>NICClusterPolicy for the NVIDIA Network Operator</summary>
 
@@ -329,44 +309,49 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>SriovNetworkNodePolicy for the SR-IOV Network Operator</summary>
+#### Apply the NodeSRIOVDevicePluginConfig
 
-[embedmd]:#(manifests/03-enable-accelerated-interfaces/sriov_network_operator_policy.yaml)
+The NodeSRIOVDevicePluginConfig defines which VFs on the DPU physical functions are exposed as SR-IOV device plugin resources on the host node. The DPF Operator's NodeSRIOVDevicePluginController (enabled in the DPFOperatorConfig) manages the SR-IOV device plugin pods based on this configuration.
+
+```shell
+kubectl apply -f manifests/03-enable-accelerated-interfaces/nodesriovdevicepluginconfig.yaml
+```
+
+<details markdown="1"><summary>NodeSRIOVDevicePluginConfig for VFs on PF0</summary>
+
+[embedmd]:#(manifests/03-enable-accelerated-interfaces/nodesriovdevicepluginconfig.yaml)
 ```yaml
 ---
-apiVersion: sriovnetwork.openshift.io/v1
-kind: SriovNetworkNodePolicy
+apiVersion: noderesources.dpu.nvidia.com/v1alpha1
+kind: NodeSRIOVDevicePluginConfig
 metadata:
   name: bf3-p0-vfs
-  namespace: nvidia-network-operator
+  namespace: dpf-operator-system
 spec:
-  nicSelector:
-    deviceID: "a2dc"
-    vendor: "15b3"
-    pfNames:
-    - $DPU_P0#2-45
-  nodeSelector:
-    node-role.kubernetes.io/worker: ""
-  numVfs: 46
-  resourceName: bf3-p0-vfs
-  isRdma: true
-  externallyManaged: true
-  deviceType: netdevice
-  linkType: eth
-
+  devicePluginResources:
+    - name: bf3-p0-vfs
+      type: vf
+      options:
+        isRdma: true
+      ranges:
+        - pfIndex: 0
+          start: 2
+          end: 45
 ```
 </details>
+
+The `NodeSRIOVDevicePluginConfig` is linked to DPUs via the `noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig` annotation on the DPU object. This annotation is set in the DPUDeployment's `dpuAnnotations` field.
 
 #### Verification
 
 These verification commands may need to be run multiple times to ensure the condition is met.
 
-Verify the DPF System with:
+Verify the accelerated network prerequisites with:
 ```shell
-## Ensure the provisioning and DPUService controller manager deployments are available.
+## Ensure all pods in the nvidia-network-operator namespace are ready.
 kubectl wait --for=condition=Ready --namespace nvidia-network-operator pods --all
-## Expect the following Daemonsets to be successfully rolled out.
-kubectl rollout status daemonset --namespace nvidia-network-operator kube-multus-ds sriov-network-config-daemon sriov-device-plugin 
+## Expect the Multus Daemonset to be successfully rolled out.
+kubectl rollout status daemonset --namespace nvidia-network-operator kube-multus-ds
 ```
 
 ### 4. DPU Provisioning and Service Installation
@@ -514,9 +499,8 @@ spec:
       dpuNodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
-      dpuDeviceSelector:
-        matchLabels:
-          provisioning.dpu.nvidia.com/dpudevice-pf0-name: $DPU_P0
+      dpuAnnotations:
+        noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-p0-vfs
     dpuSetStrategy:
       type: RollingUpdate
   services:
