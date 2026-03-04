@@ -21,10 +21,24 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"time"
 
 	"k8s.io/klog/v2"
 )
+
+// schemeRegexp matches a URI scheme at the start of a string.
+// Based on RFC 3986 Section 3.1: scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
+// https://www.rfc-editor.org/rfc/rfc3986#section-3.1
+var schemeRegexp = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*://`)
+
+// EnsureHTTPScheme adds "http://" to the address if no scheme is present.
+func EnsureHTTPScheme(address string) string {
+	if schemeRegexp.MatchString(address) {
+		return address
+	}
+	return "http://" + address
+}
 
 // CloseBody fully reads and closes the response body to enable HTTP connection reuse.
 // For connections to be returned to the pool, the body must be fully read before closing.

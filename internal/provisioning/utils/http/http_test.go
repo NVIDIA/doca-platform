@@ -30,6 +30,32 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+var _ = Describe("EnsureHTTPScheme", func() {
+	It("should add http:// when no scheme is present", func() {
+		Expect(httputil.EnsureHTTPScheme("10.0.110.1:30082")).To(Equal("http://10.0.110.1:30082"))
+	})
+
+	It("should add http:// for hostname:port without scheme", func() {
+		Expect(httputil.EnsureHTTPScheme("bfb-registry:8082")).To(Equal("http://bfb-registry:8082"))
+	})
+
+	It("should not modify http:// URLs", func() {
+		Expect(httputil.EnsureHTTPScheme("http://10.0.110.1:30082")).To(Equal("http://10.0.110.1:30082"))
+	})
+
+	It("should not modify https:// URLs", func() {
+		Expect(httputil.EnsureHTTPScheme("https://10.0.110.1:30082")).To(Equal("https://10.0.110.1:30082"))
+	})
+
+	It("should not modify URLs with other schemes", func() {
+		Expect(httputil.EnsureHTTPScheme("ftp://files.example.com")).To(Equal("ftp://files.example.com"))
+	})
+
+	It("should handle address with path", func() {
+		Expect(httputil.EnsureHTTPScheme("10.0.110.1:30082/deb")).To(Equal("http://10.0.110.1:30082/deb"))
+	})
+})
+
 var _ = Describe("CloseBody", func() {
 	It("should handle nil response safely", func() {
 		// Should not panic when called with nil
