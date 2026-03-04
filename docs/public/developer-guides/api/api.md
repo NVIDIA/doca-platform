@@ -1266,7 +1266,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Specifies name of the bfb CR to use for this DPU |  |  |
+| `name` _string_ | Specifies name of the bfb CR to use for this DPU |  | MinLength: 1 <br /> |
 
 
 #### BFBSpec
