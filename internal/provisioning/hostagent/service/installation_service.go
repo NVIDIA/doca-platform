@@ -32,6 +32,7 @@ import (
 	restful "github.com/emicklei/go-restful/v3"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -63,19 +64,31 @@ const (
 	rpmRepoDir = "/rpm"
 )
 
+// NetworkConfigurator is an interface for triggering host network configuration.
+// It is satisfied by networkmanager.NetworkManager.
+type NetworkConfigurator interface {
+	AddNetworkRequest(dpu *provisioningv1.DPU) error
+}
+
 type InstallationService struct {
 	client.Client
 	handler http.Handler
 	// mu protects listeners
 	mu sync.Mutex
 	// listeners maps interface names to their listeners
-	listeners map[string]net.Listener
+	listeners      map[string]net.Listener
+	networkManager NetworkConfigurator
+	// stopCh is closed by Stop() to terminate background goroutines
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
-func NewInstallationService(client client.Client) *InstallationService {
+func NewInstallationService(client client.Client, nm NetworkConfigurator) *InstallationService {
 	s := &InstallationService{
-		Client:    client,
-		listeners: make(map[string]net.Listener),
+		Client:         client,
+		listeners:      make(map[string]net.Listener),
+		networkManager: nm,
+		stopCh:         make(chan struct{}),
 	}
 	ws := new(restful.WebService).Path("/")
 	ws.Route(
@@ -92,6 +105,11 @@ func NewInstallationService(client client.Client) *InstallationService {
 			Param(ws.QueryParameter("name", "the name of the object").Required(true)).
 			Produces(restful.MIME_JSON).
 			To(s.GetObject))
+	ws.Route(
+		ws.POST("/configure-host-vfs").
+			Consumes(restful.MIME_JSON).
+			Produces(restful.MIME_JSON).
+			To(s.ConfigureHostVFs))
 	ws.Route(ws.GET("/healthz").To(s.HealthCheck))
 	// Package repositories: serve .deb and .rpm packages for DPU provisioning.
 	ws.Route(ws.GET("/deb/{subpath:*}").To(serveRepoFile(debRepoDir)))
@@ -164,13 +182,13 @@ func (s *InstallationService) Start(setupInterfaces bool) error {
 	go wait.Until(
 		func() { s.scanAndCreateListeners(setupInterfaces) },
 		interfaceScanInterval,
-		wait.NeverStop,
+		s.stopCh,
 	)
 
 	if setupInterfaces {
 		// Subscribe to netlink events before starting the goroutine
 		updates := make(chan netlink.LinkUpdate)
-		if err := netlink.LinkSubscribe(updates, wait.NeverStop); err != nil {
+		if err := netlink.LinkSubscribe(updates, s.stopCh); err != nil {
 			return fmt.Errorf("failed to subscribe to netlink events: %w", err)
 		}
 		// Watch for interface deletions to close stale listeners
@@ -255,8 +273,9 @@ func (s *InstallationService) scanAndCreateListeners(setupInterfaces bool) {
 	}
 }
 
-// Stop closes all listeners.
+// Stop terminates background goroutines and closes all listeners.
 func (s *InstallationService) Stop() {
+	s.stopOnce.Do(func() { close(s.stopCh) })
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, listener := range s.listeners {
@@ -281,6 +300,42 @@ func (s *InstallationService) serveInterface(listener net.Listener, ifaceName st
 }
 
 func (s *InstallationService) HealthCheck(req *restful.Request, resp *restful.Response) {
+	resp.WriteHeader(http.StatusOK)
+}
+
+func (s *InstallationService) ConfigureHostVFs(req *restful.Request, resp *restful.Response) {
+	var request types.ConfigureHostVFsRequest
+	if err := req.ReadEntity(&request); err != nil {
+		klog.Errorf("failed to read configure host VF request: %v", err)
+		_ = resp.WriteError(http.StatusBadRequest, err)
+		return
+	}
+	klog.Infof("Received configure host VF request: %#v", request)
+
+	if s.networkManager == nil {
+		klog.Errorf("network manager is not configured")
+		_ = resp.WriteError(http.StatusServiceUnavailable, fmt.Errorf("network manager is not configured"))
+		return
+	}
+
+	dpu := &provisioningv1.DPU{}
+	if err := s.Get(req.Request.Context(), client.ObjectKey{Namespace: request.DPUNamespace, Name: request.DPUName}, dpu); err != nil {
+		klog.Errorf("failed to get DPU %s/%s: %v", request.DPUNamespace, request.DPUName, err)
+		if apierrors.IsNotFound(err) {
+			_ = resp.WriteError(http.StatusNotFound, err)
+		} else {
+			_ = resp.WriteError(http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	if err := s.networkManager.AddNetworkRequest(dpu); err != nil {
+		klog.Errorf("failed to add network request for DPU %s/%s: %v", request.DPUNamespace, request.DPUName, err)
+		_ = resp.WriteError(http.StatusInternalServerError, err)
+		return
+	}
+
+	klog.Infof("Successfully added network request for DPU %s/%s", request.DPUNamespace, request.DPUName)
 	resp.WriteHeader(http.StatusOK)
 }
 
