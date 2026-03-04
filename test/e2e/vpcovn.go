@@ -20,12 +20,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
+	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils/dpuservice"
 	"github.com/nvidia/doca-platform/test/utils/metrics"
 	vpcutils "github.com/nvidia/doca-platform/test/utils/vpc/ovn"
@@ -43,10 +43,14 @@ import (
 )
 
 var (
-	// vpcContextCleanupLabels is used to cleanup the objects between test Context execution (which represents different testcases)
-	vpcContextCleanupLabels = map[string]string{"vpc-ctx-cleanup": "true"}
-	// vpcAfterAllCleanupLabels is used to cleanup the pre-requisite services and objects
-	vpcAfterAllCleanupLabels = map[string]string{"vpc-after-all-cleanup": "true"}
+	// vpcPrerequisiteScope manages cleanup for shared VPC OVN prerequisites (DPU services, interfaces)
+	vpcPrerequisiteScope *cleanup.Scope
+	// vpcOvnContextScope manages cleanup for test-specific VPC OVN resources within each test Context
+	vpcOvnContextScope *cleanup.Scope
+
+	// Common interface label maps used across VPC OVN functions
+	physicalInterfaceLabels = map[string]string{vpcutils.InterfaceLabelKey: vpcutils.PhysicalInterface0}
+	brOVNExtLabels          = map[string]string{vpcutils.InterfaceLabelKey: vpcutils.OvnExtPatchName}
 )
 
 const (
@@ -121,7 +125,7 @@ func createVtepDPUServiceIPAM(ctx context.Context, input *systemTestInput) {
 	vpcVtepIPAMLabels := map[string]string{
 		vpcutils.PoolLabelKey: vpcutils.VtepIPPoolName,
 	}
-	vtepDpuServiceIPAM := generateVPCDPUObj(vpcutils.VtepIPPoolName, dpfOperatorSystemNamespace, input.dpuServiceIPAMTemplate.DeepCopy(), vpcVtepIPAMLabels)
+	vtepDpuServiceIPAM := generateVPCDPUObj(vpcutils.VtepIPPoolName, dpfOperatorSystemNamespace, input.dpuServiceIPAMTemplate.DeepCopy(), cleanup.MergeMaps(vpcPrerequisiteScope.CleanupLabels, vpcVtepIPAMLabels))
 	vpcutils.SetVPCDPUServiceIPAM(vtepDpuServiceIPAM, vpcutils.VtepIPPoolSubnet, vpcutils.VtepIPPoolGateway, vpcutils.IPPoolPerNodeCount)
 	By("creating vtep dpu service ipam")
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, vtepDpuServiceIPAM))).ToNot(HaveOccurred())
@@ -131,15 +135,15 @@ func createGatewayDPUServiceIPAM(ctx context.Context, input *systemTestInput) {
 	vpcGatewayIPAMLabels := map[string]string{
 		vpcutils.PoolLabelKey: vpcutils.GatewayIPPoolName,
 	}
-	gatewayDpuServiceIPAM := generateVPCDPUObj(vpcutils.GatewayIPPoolName, dpfOperatorSystemNamespace, input.dpuServiceIPAMTemplate.DeepCopy(), vpcGatewayIPAMLabels)
+	gatewayDpuServiceIPAM := generateVPCDPUObj(vpcutils.GatewayIPPoolName, dpfOperatorSystemNamespace, input.dpuServiceIPAMTemplate.DeepCopy(), cleanup.MergeMaps(vpcPrerequisiteScope.CleanupLabels, vpcGatewayIPAMLabels))
 	vpcutils.SetVPCDPUServiceIPAM(gatewayDpuServiceIPAM, vpcutils.GatewayIPPoolSubnet, vpcutils.GatewayIPPoolGateway, vpcutils.IPPoolPerNodeCount)
 	By("creating gateway dpu service ipam")
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, gatewayDpuServiceIPAM))).ToNot(HaveOccurred())
 }
 
 // createDPUService creates a generic DPU service with the given name
-func createDPUService(ctx context.Context, testClient client.Client, serviceName, namespace string, dpuService *dpuservicev1.DPUService) {
-	dpuService = generateVPCDPUObj(serviceName, namespace, dpuService, nil)
+func createDPUService(ctx context.Context, testClient client.Client, serviceName, namespace string, dpuService *dpuservicev1.DPUService, cleanupLabels map[string]string) {
+	dpuService = generateVPCDPUObj(serviceName, namespace, dpuService, cleanupLabels)
 	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, dpuService))).To(Succeed())
 }
 
@@ -152,7 +156,7 @@ func createOVNCentralDPUService(ctx context.Context, testClient client.Client, n
 		RepoURL: helmRegistry,
 	}
 	By("creating ovn central service")
-	createDPUService(ctx, testClient, vpcutils.OvnCentralService, namespace, dpuService)
+	createDPUService(ctx, testClient, vpcutils.OvnCentralService, namespace, dpuService, vpcPrerequisiteScope.CleanupLabels)
 }
 
 // createOVNControllerDPUService creates an OVN controller DPU service
@@ -164,7 +168,7 @@ func createOVNControllerDPUService(ctx context.Context, testClient client.Client
 		RepoURL: helmRegistry,
 	}
 	By("creating ovn controller service")
-	createDPUService(ctx, testClient, vpcutils.OvnControllerService, namespace, dpuService)
+	createDPUService(ctx, testClient, vpcutils.OvnControllerService, namespace, dpuService, vpcPrerequisiteScope.CleanupLabels)
 }
 
 // createVPCOVNControllerDPUService creates a VPC controller DPU service
@@ -176,7 +180,7 @@ func createVPCOVNControllerDPUService(ctx context.Context, testClient client.Cli
 		RepoURL: helmRegistry,
 	}
 	By("creating vpc ovn controller service")
-	createDPUService(ctx, testClient, vpcutils.VpcOVNControllerService, namespace, dpuService)
+	createDPUService(ctx, testClient, vpcutils.VpcOVNControllerService, namespace, dpuService, vpcPrerequisiteScope.CleanupLabels)
 }
 
 // createVPCOVNNodeDPUService creates a VPC OVN Node DPU service
@@ -187,7 +191,7 @@ func createVPCOVNNodeDPUService(ctx context.Context, testClient client.Client, n
 		Version: tag,
 		RepoURL: helmRegistry,
 	}
-	dpuService = generateVPCDPUObj(vpcutils.VpcOVNNodeService, namespace, dpuService, nil)
+	dpuService = generateVPCDPUObj(vpcutils.VpcOVNNodeService, namespace, dpuService, vpcPrerequisiteScope.CleanupLabels)
 
 	// configure OVN SB endpoint
 	existingData := make(map[string]any)
@@ -250,22 +254,13 @@ func createVPCDPUServiceInterface(ctx context.Context, input *systemTestInput, c
 }
 
 func createVPCPrerequisiteDPUServiceInterfaces(ctx context.Context, input *systemTestInput) {
-	physicalServiceInterfaceLabels := map[string]string{
-		vpcutils.InterfaceLabelKey: vpcutils.PhysicalInterface0,
-	}
-	maps.Copy(physicalServiceInterfaceLabels, vpcAfterAllCleanupLabels)
-	brOVNExtLabels := map[string]string{
-		vpcutils.InterfaceLabelKey: vpcutils.OvnExtPatchName,
-	}
-	maps.Copy(brOVNExtLabels, vpcAfterAllCleanupLabels)
-
 	By("creating physical service interface")
 	createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 		Name:          vpcutils.PhysicalInterface0,
 		InterfaceName: vpcutils.PhysicalInterface0,
 		Type:          dpuservicev1.InterfaceTypePhysical,
 		Namespace:     input.namespace,
-		Labels:        physicalServiceInterfaceLabels,
+		Labels:        cleanup.MergeMaps(vpcPrerequisiteScope.CleanupLabels, physicalInterfaceLabels),
 		Annotations: map[string]string{
 			"svc.dpu.nvidia.com/noop-physical-removal": "",
 		},
@@ -279,14 +274,14 @@ func createVPCPrerequisiteDPUServiceInterfaces(ctx context.Context, input *syste
 		InterfaceName: vpcutils.OvnExtPatchName,
 		Type:          dpuservicev1.InterfaceTypePatch,
 		Namespace:     input.namespace,
-		Labels:        brOVNExtLabels,
+		Labels:        cleanup.MergeMaps(vpcPrerequisiteScope.CleanupLabels, brOVNExtLabels),
 		PeerBridge:    vpcutils.BrOVNExt,
 	})
 }
 
 func createOrUpdateVPCDPUServiceChain(ctx context.Context, input *systemTestInput, nodeName *string) {
 	// Build desired object from template
-	desired := generateVPCDPUObj(vpcutils.VpcOVNServiceChain, input.namespace, input.dpuServiceChainTemplate.DeepCopy(), nil)
+	desired := generateVPCDPUObj(vpcutils.VpcOVNServiceChain, input.namespace, input.dpuServiceChainTemplate.DeepCopy(), vpcPrerequisiteScope.CleanupLabels)
 	if nodeName != nil {
 		desired.Spec.Template.Spec.NodeSelector = &metav1.LabelSelector{
 			MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -303,12 +298,12 @@ func createOrUpdateVPCDPUServiceChain(ctx context.Context, input *systemTestInpu
 			Ports: []dpuservicev1.Port{
 				{
 					ServiceInterface: dpuservicev1.ServiceIfc{
-						MatchLabels: map[string]string{vpcutils.InterfaceLabelKey: vpcutils.PhysicalInterface0},
+						MatchLabels: physicalInterfaceLabels,
 					},
 				},
 				{
 					ServiceInterface: dpuservicev1.ServiceIfc{
-						MatchLabels: map[string]string{vpcutils.InterfaceLabelKey: vpcutils.OvnExtPatchName},
+						MatchLabels: brOVNExtLabels,
 					},
 				},
 			},
@@ -347,7 +342,7 @@ func createDPUServiceChainP0ToInterfaceMatchingLabels(ctx context.Context, input
 			Ports: []dpuservicev1.Port{
 				{
 					ServiceInterface: dpuservicev1.ServiceIfc{
-						MatchLabels: map[string]string{vpcutils.InterfaceLabelKey: vpcutils.PhysicalInterface0},
+						MatchLabels: physicalInterfaceLabels,
 					},
 				},
 				{
@@ -374,15 +369,10 @@ func getDPUNodesInOrder(ctx context.Context, input *systemTestInput) (corev1.Nod
 	}
 }
 
-// generateVPCDPUObj generates a DPU object with the given name, namespace and labels, it will also add the vpcAfterAllCleanupLabels to the labels
-func generateVPCDPUObj[T client.Object](name, ns string, obj T, customLabels map[string]string) T {
+// generateVPCDPUObj generates a DPU object with the given name, namespace and labels
+func generateVPCDPUObj[T client.Object](name, ns string, obj T, labels map[string]string) T {
 	obj.SetName(name)
 	obj.SetNamespace(ns)
-	labels := make(map[string]string)
-	maps.Copy(labels, vpcAfterAllCleanupLabels)
-	if customLabels != nil {
-		maps.Copy(labels, customLabels)
-	}
 	obj.SetLabels(labels)
 	return obj
 }
