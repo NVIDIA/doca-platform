@@ -93,6 +93,18 @@ func (r *DPUSet) ValidateCreate(ctx context.Context, obj runtime.Object) (admiss
 
 	}
 
+	// Kubebuilder CRD validation (minLength=1) is not sufficient: when a client sends raw JSON
+	// with "bfb": {} or "dpuFlavor": "", the field may be omitted (e.g. Go omitempty) so the CRD
+	// never sees it, or empty string may slip through. The webhook enforces non-empty on the
+	// decoded object so both empty values and omitted-then-zero-valued fields are rejected.
+	dpuTemplatePath := newPath.Child("dpuTemplate", "spec")
+	if dpuSet.Spec.DPUTemplate.Spec.DPUFlavor == "" {
+		errs = append(errs, field.Required(dpuTemplatePath.Child("dpuFlavor"), "dpuFlavor must be non-empty"))
+	}
+	if dpuSet.Spec.DPUTemplate.Spec.BFB.Name == "" {
+		errs = append(errs, field.Required(dpuTemplatePath.Child("bfb", "name"), "bfb.name must be non-empty"))
+	}
+
 	if err := reboot.ValidateHostPowerCycleRequire(dpuSet.Spec.DPUTemplate.Annotations); err != nil {
 		errs = append(errs, field.Invalid(newPath.Child("dpu_template.annotations", reboot.HostPowerCycleRequireKey), dpuSet.Annotations[reboot.HostPowerCycleRequireKey], err.Error()))
 	}
@@ -118,6 +130,15 @@ func (r *DPUSet) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Obje
 	if err := validateStrategy(*dpuSet.Spec.Strategy); err != nil {
 		errs = append(errs, field.Invalid(newPath.Child("strategy"), dpuSet.Spec.Strategy, err.Error()))
 
+	}
+
+	// Same as ValidateCreate: CRD validation alone is not enough for raw JSON / omitempty cases.
+	dpuTemplatePath := newPath.Child("dpuTemplate", "spec")
+	if dpuSet.Spec.DPUTemplate.Spec.DPUFlavor == "" {
+		errs = append(errs, field.Required(dpuTemplatePath.Child("dpuFlavor"), "dpuFlavor must be non-empty"))
+	}
+	if dpuSet.Spec.DPUTemplate.Spec.BFB.Name == "" {
+		errs = append(errs, field.Required(dpuTemplatePath.Child("bfb", "name"), "bfb.name must be non-empty"))
 	}
 
 	if len(errs) != 0 {
