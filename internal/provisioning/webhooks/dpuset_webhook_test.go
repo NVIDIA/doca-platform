@@ -55,6 +55,7 @@ var _ = Describe("DPUSet", func() {
 			Spec: provisioningv1.DPUSetSpec{
 				DPUTemplate: provisioningv1.DPUTemplate{
 					Spec: provisioningv1.DPUTemplateSpec{
+						BFB:       provisioningv1.BFBReference{Name: "test-bfb"},
 						DPUFlavor: dpuFlavor,
 					},
 				},
@@ -362,6 +363,8 @@ metadata:
 spec:
   dpuTemplate:
     spec:
+      bfb:
+        name: "test-bfb"
       dpuFlavor: "test-flavor"
 `)
 			obj := &provisioningv1.DPUSet{}
@@ -376,6 +379,23 @@ spec:
 			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should reject DPUSet with empty spec.dpuTemplate.spec.bfb.name", func() {
+			obj := createObj("obj-empty-bfb-name")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			obj.Spec.DPUTemplate.Spec.BFB.Name = ""
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+		})
+
+		It("should reject DPUSet with empty spec.dpuTemplate.spec.dpuFlavor", func() {
+			obj := createObj("obj-empty-dpuflavor")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ""
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
 		})
 
 		It("should successfully update DPUSet with valid dpuFlavor", func() {
@@ -584,6 +604,92 @@ spec:
 			_, err := webhook.ValidateUpdate(ctx, &provisioningv1.DPUSet{}, &provisioningv1.DPU{}) // Wrong newObj type
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("invalid object type"))
+		})
+
+		It("ValidateCreate should reject empty spec.dpuTemplate.spec.bfb.name", func() {
+			webhook := &DPUSet{}
+			obj := &provisioningv1.DPUSet{
+				Spec: provisioningv1.DPUSetSpec{
+					Strategy: &provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							BFB:       provisioningv1.BFBReference{Name: ""},
+							DPUFlavor: "flavor",
+						},
+					},
+				},
+			}
+			_, err := webhook.ValidateCreate(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+		})
+
+		It("ValidateCreate should reject empty spec.dpuTemplate.spec.dpuFlavor", func() {
+			webhook := &DPUSet{}
+			obj := &provisioningv1.DPUSet{
+				Spec: provisioningv1.DPUSetSpec{
+					Strategy: &provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							BFB:       provisioningv1.BFBReference{Name: "bfb"},
+							DPUFlavor: "",
+						},
+					},
+				},
+			}
+			_, err := webhook.ValidateCreate(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+		})
+
+		// Object decoded from YAML/JSON with explicit empty bfb.name or dpuFlavor (e.g. kubectl apply
+		// or raw API payload). UnmarshalStrict ensures we match the same decoding path as other tests.
+		It("ValidateCreate should reject YAML with empty spec.dpuTemplate.spec.bfb.name", func() {
+			yml := []byte(`
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUSet
+metadata:
+  name: test
+  namespace: default
+spec:
+  strategy:
+    type: OnDelete
+  dpuTemplate:
+    spec:
+      bfb:
+        name: ""
+      dpuFlavor: "flavor"
+`)
+			obj := &provisioningv1.DPUSet{}
+			Expect(yaml.UnmarshalStrict(yml, obj)).To(Succeed())
+			webhook := &DPUSet{}
+			_, err := webhook.ValidateCreate(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+		})
+
+		It("ValidateCreate should reject YAML with empty spec.dpuTemplate.spec.dpuFlavor", func() {
+			yml := []byte(`
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUSet
+metadata:
+  name: test
+  namespace: default
+spec:
+  strategy:
+    type: OnDelete
+  dpuTemplate:
+    spec:
+      bfb:
+        name: "bfb"
+      dpuFlavor: ""
+`)
+			obj := &provisioningv1.DPUSet{}
+			Expect(yaml.UnmarshalStrict(yml, obj)).To(Succeed())
+			webhook := &DPUSet{}
+			_, err := webhook.ValidateCreate(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
 		})
 	})
 })

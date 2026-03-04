@@ -169,6 +169,7 @@ spec:
                           name:
                             description: Specifies name of the bfb CR to use for this
                               DPU
+                            minLength: 1
                             type: string
                         type: object
                       cluster:

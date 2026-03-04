@@ -105,6 +105,7 @@ type RollingUpdateDPU struct {
 // BFBReference is a reference to a specific BFB
 type BFBReference struct {
 	// Specifies name of the bfb CR to use for this DPU
+	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name,omitempty"`
 }
 
