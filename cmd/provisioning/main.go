@@ -43,6 +43,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunodemaintenance"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpuset"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
+	httputils "github.com/nvidia/doca-platform/internal/provisioning/utils/http"
 	provisioningwebhooks "github.com/nvidia/doca-platform/internal/provisioning/webhooks"
 	"github.com/nvidia/doca-platform/pkg/health"
 
@@ -254,6 +255,7 @@ func resolveBFBRegistry(flags *cliFlags) {
 		}
 		setupLog.Info("bfb-registry is empty, set bfb-registry address for downloading BFB files", "bfbRegistry", flags.bfbRegistry)
 	}
+	flags.bfbRegistry = httputils.EnsureHTTPScheme(flags.bfbRegistry)
 }
 
 func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferences []corev1.LocalObjectReference) *dutil.DPUInProvisioningMap {
