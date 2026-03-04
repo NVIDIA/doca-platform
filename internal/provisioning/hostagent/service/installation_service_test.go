@@ -34,6 +34,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+type mockNetworkConfigurator struct {
+	addNetworkRequestFunc func(dpu *provisioningv1.DPU) error
+}
+
+func (m *mockNetworkConfigurator) AddNetworkRequest(dpu *provisioningv1.DPU) error {
+	if m.addNetworkRequestFunc != nil {
+		return m.addNetworkRequestFunc(dpu)
+	}
+	return nil
+}
+
 var _ = Describe("InstallationService", func() {
 	var testNS *corev1.Namespace
 	var installationService *InstallationService
@@ -73,7 +84,7 @@ var _ = Describe("InstallationService", func() {
 		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "installation-service-testns-"}}
 		Expect(k8sClient.Create(ctx, testNS)).To(Succeed())
 
-		installationService = NewInstallationService(k8sClient)
+		installationService = NewInstallationService(k8sClient, nil)
 		Expect(installationService.Start(false)).To(Succeed())
 		// Start() runs the server in a goroutine; wait until it is listening to avoid connection refused.
 		Eventually(func() error {
@@ -310,6 +321,99 @@ var _ = Describe("InstallationService", func() {
 			resp, err := http.Get(fmt.Sprintf("http://%s/healthz", address))
 			Expect(err).To(Succeed())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		})
+	})
+
+	Context("configure host VF", func() {
+		It("should return 400 when request body is malformed", func() {
+			resp, err := http.Post(fmt.Sprintf("http://%s/configure-host-vfs", address), "application/json", bytes.NewBufferString("not-json"))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		})
+
+		It("should return 503 when network manager is not configured", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+
+			request := types.ConfigureHostVFsRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+			}
+			req, err := json.Marshal(request)
+			Expect(err).To(Succeed())
+
+			resp, err := http.Post(fmt.Sprintf("http://%s/configure-host-vfs", address), "application/json", bytes.NewBuffer(req))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusServiceUnavailable))
+		})
+
+		Context("when network manager is configured", func() {
+			var mockNM *mockNetworkConfigurator
+
+			BeforeEach(func() {
+				mockNM = &mockNetworkConfigurator{}
+				installationService.networkManager = mockNM
+			})
+
+			It("should successfully configure host VF", func() {
+				dpu := createDPU("test-dpu", testNS.Name)
+
+				var receivedDPU *provisioningv1.DPU
+				mockNM.addNetworkRequestFunc = func(dpu *provisioningv1.DPU) error {
+					receivedDPU = dpu
+					return nil
+				}
+
+				request := types.ConfigureHostVFsRequest{
+					DPUName:      dpu.Name,
+					DPUNamespace: dpu.Namespace,
+				}
+				req, err := json.Marshal(request)
+				Expect(err).To(Succeed())
+
+				resp, err := http.Post(fmt.Sprintf("http://%s/configure-host-vfs", address), "application/json", bytes.NewBuffer(req))
+				Expect(err).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				Expect(receivedDPU).NotTo(BeNil())
+				Expect(receivedDPU.Name).To(Equal(dpu.Name))
+				Expect(receivedDPU.Namespace).To(Equal(dpu.Namespace))
+
+				By("the full DPU spec should be passed to AddNetworkRequest")
+				Expect(receivedDPU.Spec.SerialNumber).To(Equal(dpu.Spec.SerialNumber))
+				Expect(receivedDPU.Spec.DPUFlavor).To(Equal(dpu.Spec.DPUFlavor))
+				Expect(receivedDPU.Spec.BFB).To(Equal(dpu.Spec.BFB))
+			})
+
+			It("should return 404 when DPU not found", func() {
+				request := types.ConfigureHostVFsRequest{
+					DPUName:      "non-existent-dpu",
+					DPUNamespace: testNS.Name,
+				}
+				req, err := json.Marshal(request)
+				Expect(err).To(Succeed())
+
+				resp, err := http.Post(fmt.Sprintf("http://%s/configure-host-vfs", address), "application/json", bytes.NewBuffer(req))
+				Expect(err).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+			})
+
+			It("should return 500 when AddNetworkRequest fails", func() {
+				dpu := createDPU("test-dpu", testNS.Name)
+
+				mockNM.addNetworkRequestFunc = func(dpu *provisioningv1.DPU) error {
+					return fmt.Errorf("network manager is not initialized")
+				}
+
+				request := types.ConfigureHostVFsRequest{
+					DPUName:      dpu.Name,
+					DPUNamespace: dpu.Namespace,
+				}
+				req, err := json.Marshal(request)
+				Expect(err).To(Succeed())
+
+				resp, err := http.Post(fmt.Sprintf("http://%s/configure-host-vfs", address), "application/json", bytes.NewBuffer(req))
+				Expect(err).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusInternalServerError))
+			})
 		})
 	})
 
