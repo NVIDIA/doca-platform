@@ -31,8 +31,9 @@ must run on the same single DPU.** OVN-Kubernetes manages a single OVS bridge pe
 would create conflicting bridge configurations. When deployed together in the HBN+OVNK use case, HBN must be colocated 
 with OVN-Kubernetes because they are integrated through service chains, which operate on a single DPU.
 
-To maintain hardware acceleration in multi-DPU environments, the `SRIOVNetworkNodePolicy` must be configured to target 
-only the Physical Function (PF) of the DPU where OVN-Kubernetes runs (via the `pfNames` field, e.g., `$DPU_P0#2-45`). 
+To maintain hardware acceleration in multi-DPU environments, the `NodeSRIOVDevicePluginConfig` must be linked
+only to the DPU where OVN-Kubernetes runs (via the `dpuAnnotations` field in the DPUDeployment). The config
+uses PF indices to specify VF ranges, so it is not affected by PF name or PCI address changes.
 This configuration ensures that:
 
 - The SR-IOV Device Plugin exposes VFs exclusively from the DPU running OVN-Kubernetes
@@ -49,7 +50,7 @@ The `dpuDeviceSelector` approach solves this problem by enabling precise DPU tar
 
 1. **Run OVN-Kubernetes and HBN together on a single DPU** (critical requirement - they are integrated through service chains)
 2. Deploy other services (e.g., DTS, Blueman) on different DPUs to distribute workload
-3. Target specific DPUs based on their device characteristics (e.g., PF names, PCI addresses)
+3. Target specific DPUs using custom labels or auto-generated device labels
 4. Achieve better resource isolation and performance optimization across multiple DPUs
 
 ## Prerequisites
@@ -61,22 +62,22 @@ DPUDeployment for multi-DPU support instead of using the original single-DPU app
 
 > [!IMPORTANT]
 > **SR-IOV Device Plugin and OVN-Kubernetes Configuration Requirements**:  
-> In multi-DPU setups, you must ensure that both the SR-IOV device plugin and OVN-Kubernetes are correctly configured to
-> use the appropriate DPU P0 interface.
->
-> * Set the `DPU_P0` environment variable to the name of the P0 interface on the DPU where OVN-Kubernetes will run.
-> * Set the `DPU_P0_VF1` environment variable to the name of the VF1 interface on the same DPU.
+> In multi-DPU setups, you must ensure that the `NodeSRIOVDevicePluginConfig` is linked only to the DPU
+> running OVN-Kubernetes via the `dpuAnnotations` field in the DPUDeployment. The OVN-Kubernetes Helm
+> chart uses `nodeMgmtPortDpResourceName` parameter to reference the management VF resource exposed by the device plugin,
+> so no manual interface name configuration is needed.
 
-1. **SR-IOV Device Plugin Configuration**: The `SriovNetworkNodePolicy` must be configured to target the correct p0 interface 
-of the DPU that will run OVN-Kubernetes. In the HBN-OVNK guide, this is configured via the `pfNames` field 
-(e.g., `$DPU_P0#2-45`) in the `SriovNetworkNodePolicy` resource.
+1. **SR-IOV Device Plugin Configuration**: The `NodeSRIOVDevicePluginConfig` defines which VFs are exposed as device
+plugin resources. It is linked to the correct DPU via the `noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig`
+annotation in the DPUDeployment's `dpuAnnotations`. Since the config uses PF indices (not PF names), it is not affected
+by interface name changes after provisioning.
 
-2. **OVN-Kubernetes Configuration**: The OVN-Kubernetes installation must be configured with the correct `gatewayOpts` 
-parameter pointing to the p0 interface of the DPU that will run OVN-Kubernetes (e.g., `--gateway-interface=$DPU_P0`), 
-and the `nodeMgmtPortNetdev` must be set to the correct VF1 interface (e.g., `$DPU_P0_VF1`).
+2. **OVN-Kubernetes Configuration**: The OVN-Kubernetes installation uses `nodeMgmtPortDpResourceName` to reference
+the management VF by its device plugin resource name (e.g., `nvidia.com/ovnk-mgmt-vf`), and
+`gatewayOpts: --gateway-interface=derive-from-mgmt-port` to automatically derive the gateway interface.
 
 For detailed configuration examples, refer to the [OVN Kubernetes with Host Based Networking](../user-guides/host-trusted/use-cases/hbn-ovnk/README.md)
-guide, specifically the [SR-IOV Network Operator Policy](../user-guides/host-trusted/use-cases/hbn-ovnk/README.md#apply-the-nicclusterconfiguration-and-sriovnetworknodepolicy) 
+guide, specifically the [NodeSRIOVDevicePluginConfig](../user-guides/host-trusted/use-cases/hbn-ovnk/README.md#apply-the-nodesriovdevicepluginconfig)
 and [OVN-Kubernetes Helm values](../user-guides/host-trusted/use-cases/hbn-ovnk/README.md#install-ovn-kubernetes-from-the-helm-chart) sections.
 
 ## Key Differences
@@ -86,7 +87,7 @@ and [OVN-Kubernetes Helm values](../user-guides/host-trusted/use-cases/hbn-ovnk/
 ```yaml
 dpuSets:
 - nameSuffix: "dpuset1"
-  nodeSelector:
+  dpuNodeSelector:
     matchLabels:
       feature.node.kubernetes.io/dpu-enabled: "true"
 ```
@@ -104,16 +105,47 @@ dpuSets:
       feature.node.kubernetes.io/dpu-enabled: "true"
   dpuDeviceSelector:
     matchLabels:
-      provisioning.dpu.nvidia.com/dpudevice-pf0-name: ens1f0np0
+      example.com/dpu-role: ovnk-hbn
 ```
 
-This targets specific DPUs based on their device characteristics, allowing for more precise service placement and
+This targets specific DPUs based on custom labels, allowing for precise service placement and
 multi-DPU distribution.
 
-## DPUDevice Labels
+## DPU Selection Labels
 
-DPUDevices are automatically labeled with device-specific information that can be used in `dpuDeviceSelector`. The available 
-labels include:
+### Custom Labels (Recommended)
+
+To ensure reliable and stable scheduling in complex multi-DPU environments, it is recommended to explicitly maintain
+custom labels on DPUDevices and use them in `dpuDeviceSelector`. For example:
+
+```bash
+kubectl label dpudevice <dpudevice-name> -n dpf-operator-system example.com/dpu-role=ovnk-hbn
+kubectl label dpudevice <dpudevice-name> -n dpf-operator-system example.com/dpu-role=other-services
+```
+
+> [!NOTE]
+> The `example.com/dpu-role` label is used here as an example. Replace `example.com` with your organization's
+> domain and adjust the label key and values to fit your environment.
+
+Then use these labels in `dpuDeviceSelector`:
+
+```yaml
+dpuDeviceSelector:
+  matchLabels:
+    example.com/dpu-role: ovnk-hbn
+```
+
+The examples in this guide use `example.com/dpu-role` labels to demonstrate multi-DPU deployment with two DPUs:
+
+- `example.com/dpu-role: ovnk-hbn` for the DPU running OVN-Kubernetes and HBN services
+- `example.com/dpu-role: other-services` for the DPU running Blueman and DTS services
+
+You can extend this pattern to support additional DPUs by creating more DPUDeployments with different
+`dpuDeviceSelector` values. Remember that OVN-Kubernetes should only run on one DPU per host.
+
+### Auto-generated DPUDevice Labels
+
+DPUDevices are also automatically labeled with device-specific information that can be used in `dpuDeviceSelector`:
 
 - `provisioning.dpu.nvidia.com/dpudevice-name`: The name of the DPUDevice
 - `provisioning.dpu.nvidia.com/dpudevice-num-of-pfs`: The number of PFs on the DPU device
@@ -121,16 +153,14 @@ labels include:
 - `provisioning.dpu.nvidia.com/dpudevice-pf0-name`: The name of PF0 on the DPU device
 - `provisioning.dpu.nvidia.com/dpunode-name`: The name of the DPUNode the DPU is part of
 
-## Example Interface Names for Multi-DPU Setup
+Be aware of the following limitations before relying on auto-generated labels:
 
-In the examples below, we use the following interface names to demonstrate multi-DPU deployment:
-
-- `ens1f0np0`: Example name for the first port of DPU 1 (for OVN/HBN services)
-- `ens2f0np0`: Example name for the first port of DPU 2 (for Blueman/DTS services)
-
-Replace these with the actual interface names from your DPU devices. You can extend this pattern to support additional
-DPUs by creating more DPUDeployments with different dpuDeviceSelector values. Remember that OVN-Kubernetes should only run on 
-one DPU per host.
+- **Label stability**: Labels like `dpudevice-pf0-name` and `dpudevice-pciAddress` reflect the device's current state.
+  Certain firmware settings (for example, `PCI_SWITCH_EMULATION_ENABLE`) can change PF interface names and PCI addresses
+  after DPU provisioning and host reboot. When this happens, the auto-generated labels may no longer match the values
+  used in `dpuDeviceSelector`.
+- **Heterogeneous clusters**: In clusters where nodes have different DPU configurations, auto-generated labels may
+  produce inconsistent or unexpected selector matches.
 
 ## Example: Multi-DPU Deployment with dpuDeviceSelector
 
@@ -165,7 +195,9 @@ spec:
             feature.node.kubernetes.io/dpu-enabled: "true"
         dpuDeviceSelector:
           matchLabels:
-            provisioning.dpu.nvidia.com/dpudevice-pf0-name: ens1f0np0
+            example.com/dpu-role: ovnk-hbn
+        dpuAnnotations:
+          noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-p0-vfs
   services:
     ovn:
       serviceTemplate: ovn
@@ -180,7 +212,7 @@ spec:
 ### Step 2: Create Additional DPUDeployment for Blueman and DTS Services
 
 Create a **new, additional** DPUDeployment for Blueman and DTS services that targets the second DPU. This new
-DPUDeployment must use a different `dpuDeviceSelector` to target the second DPU's PF0 interface.
+DPUDeployment must use a different `dpuDeviceSelector` to target the second DPU.
 
 #### Creating a Separate DPUFlavor
 
@@ -247,7 +279,7 @@ spec:
             feature.node.kubernetes.io/dpu-enabled: "true"
         dpuDeviceSelector:
           matchLabels:
-            provisioning.dpu.nvidia.com/dpudevice-pf0-name: ens2f0np0
+            example.com/dpu-role: other-services
   services:
     dts:
       serviceTemplate: dts
