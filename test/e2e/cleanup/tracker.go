@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"maps"
+	"regexp"
 	"strings"
 
 	"github.com/onsi/ginkgo/v2"
@@ -31,8 +32,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// scopeMode defines how a named scope is managed
+type scopeMode int
+
+const (
+	Manual scopeMode = iota // Explicit CleanupBefore()/CleanupAfter() calls required
+)
+
 // ginkgoHookID identifies which lifecycle hook is being processed
-// Includes both Ginkgo's built-in hooks
+// Includes both Ginkgo's built-in hooks and named scope lifecycle hooks
 //
 // Naming requirement: All hooks follow "before-*" or "after-*" pattern
 // This allows generic filtering (e.g., skip-cleanup-on-failure applies to all "after-*" hooks)
@@ -44,11 +52,16 @@ var GinkgoHook = struct {
 	AfterEach   ginkgoHookID
 	BeforeSuite ginkgoHookID
 	AfterSuite  ginkgoHookID
+	// Named scope lifecycle hooks
+	BeforeNamedScope ginkgoHookID
+	AfterNamedScope  ginkgoHookID
 }{
-	BeforeEach:  "before-each",
-	AfterEach:   "after-each",
-	BeforeSuite: "before-suite",
-	AfterSuite:  "after-suite",
+	BeforeEach:       "before-each",
+	AfterEach:        "after-each",
+	BeforeSuite:      "before-suite",
+	AfterSuite:       "after-suite",
+	BeforeNamedScope: "before-named-scope",
+	AfterNamedScope:  "after-named-scope",
 }
 
 // MergeMaps combines multiple label maps (later maps override earlier ones)
@@ -112,8 +125,20 @@ type CleanupFlags struct {
 	SkipItCleanupBefore bool
 	SkipItCleanupAfter  bool
 
+	// Named scope expressions (using Ginkgo label filter syntax)
+	SkipNamedScopes       string // Convenience flag: skip both before and after
+	SkipNamedScopesBefore string
+	SkipNamedScopesAfter  string
+
+	// Internal filters (built from flag strings)
+	shouldSkipNamedScopeBefore ginkgoTypes.LabelFilter
+	shouldSkipNamedScopeAfter  ginkgoTypes.LabelFilter
+
 	initialized bool
 }
+
+// skipNothingFilter is a sentinel label that will never match any real scope (skips nothing)
+const skipNothingFilter = "no_skip && !no_skip"
 
 // NewCleanupFlagsFromCLI registers cleanup CLI flags and returns a new CleanupFlags instance
 // Call in init() to register flags before Ginkgo parses them
@@ -135,6 +160,10 @@ func NewCleanupFlagsFromCLI() *CleanupFlags {
 	flag.BoolVar(&cf.SkipItCleanupBefore, "e2e.skip-cleanup.it-before", false, "Skip It-scoped cleanup before each It block")
 	flag.BoolVar(&cf.SkipItCleanupAfter, "e2e.skip-cleanup.it-after", false, "Skip It-scoped cleanup after each It block")
 
+	flag.StringVar(&cf.SkipNamedScopes, "e2e.skip-cleanup.named-scopes", "", "Skip named scopes matching expression (Ginkgo label filter syntax: 'vpc', 'vpc || storage', '(vpc || storage) && !critical')")
+	flag.StringVar(&cf.SkipNamedScopesBefore, "e2e.skip-cleanup.named-scopes-before", "", "Skip cleanup before entering named scopes matching expression")
+	flag.StringVar(&cf.SkipNamedScopesAfter, "e2e.skip-cleanup.named-scopes-after", "", "Skip cleanup after exiting named scopes matching expression")
+
 	return cf
 }
 
@@ -155,28 +184,131 @@ func (cf *CleanupFlags) Init() *CleanupFlags {
 		cf.SkipItCleanupAfter = true
 	}
 
+	if cf.SkipNamedScopes != "" {
+		cf.SkipNamedScopesBefore = cf.SkipNamedScopes
+		cf.SkipNamedScopesAfter = cf.SkipNamedScopes
+	}
+
 	// Apply master skip flag
 	if cf.SkipCleanup {
 		cf.SkipItCleanupBefore = true
 		cf.SkipItCleanupAfter = true
 		cf.SkipSuiteCleanupBefore = true
 		cf.SkipSuiteCleanupAfter = true
+		// Skip all named scopes via wildcard
+		cf.SkipNamedScopesBefore = "*"
+		cf.SkipNamedScopesAfter = "*"
 	}
+
+	cf.shouldSkipNamedScopeBefore = cf.parseScopeFilter(cf.SkipNamedScopesBefore)
+	cf.shouldSkipNamedScopeAfter = cf.parseScopeFilter(cf.SkipNamedScopesAfter)
 
 	cf.initialized = true
 	return cf
 }
 
+// parseScopeFilter creates a filter from a Ginkgo filter expression
+// Empty expression converts to skipNothingFilter (a sentinel label that never matches)
+// Panics if the expression is invalid
+func (cf *CleanupFlags) parseScopeFilter(filterExpr string) ginkgoTypes.LabelFilter {
+	if filterExpr == "" {
+		filterExpr = skipNothingFilter
+	}
+
+	labelFilter, err := ginkgoTypes.ParseLabelFilter(filterExpr)
+	if err != nil {
+		panic(fmt.Sprintf("invalid scope filter expression %q: %v", filterExpr, err))
+	}
+
+	return labelFilter
+}
+
+// namedScope defines a custom cleanup scope (internal representation)
+type namedScope struct {
+	name string
+	mode scopeMode
+}
+
+// NamedScopeManual creates a named scope with explicit cleanup control
+// Use CleanupBefore()/CleanupAfter() to trigger cleanup
+// Name must be max 40 chars and contain only: alphanumeric, '-', '_', '.'
+func NamedScopeManual(name string) namedScope {
+	return namedScope{name: name, mode: Manual}
+}
+
+// Scope provides control over a registered scope
+type Scope struct {
+	Name          string
+	nameAsSlice   []string // For filter matching (cached to avoid repeated allocations)
+	CleanupLabels map[string]string
+	mode          scopeMode
+	tracker       *Tracker
+}
+
+// CleanupBefore triggers explicit cleanup for this scope (respects skip flags)
+func (sh *Scope) CleanupBefore() {
+	if sh.tracker.shouldSkip(GinkgoHook.BeforeNamedScope, nil, sh) {
+		return
+	}
+	sh.tracker.executeCleanup(cleanupScopes.ScopeSelector(sh.Name))
+}
+
+// CleanupAfter triggers explicit cleanup for this scope (respects skip flags)
+func (sh *Scope) CleanupAfter() {
+	if sh.tracker.shouldSkip(GinkgoHook.AfterNamedScope, nil, sh) {
+		return
+	}
+	sh.tracker.executeCleanup(cleanupScopes.ScopeSelector(sh.Name))
+}
+
+// ResourcesExist checks if any resources with this scope's labels currently exist
+// Returns true if at least one resource is found, false otherwise
+func (sh *Scope) ResourcesExist() bool {
+	return sh.CountResources() > 0
+}
+
+// CountResources returns the total number of resources with this scope's labels
+// Iterates through all resource types configured in the tracker
+func (sh *Scope) CountResources() int {
+	selector := labels.SelectorFromSet(sh.CleanupLabels)
+	resourceCount := 0
+
+	for _, resourceListType := range sh.tracker.resourcesToDelete {
+		_ = sh.tracker.client.List(sh.tracker.ctx, resourceListType, &client.ListOptions{
+			LabelSelector: selector,
+		})
+		if resources, _ := meta.ExtractList(resourceListType); len(resources) > 0 {
+			resourceCount += len(resources)
+		}
+	}
+
+	return resourceCount
+}
+
+// HasAlternatives checks if any alternative scope has resources
+// Automatically excludes this scope from the check
+// Useful for mutually exclusive resources (A/B testing, environment variants, feature flags)
+func (sh *Scope) HasAlternatives(alternatives ...*Scope) bool {
+	for _, alternative := range alternatives {
+		isCurrentScope := alternative == sh
+		if !isCurrentScope && alternative != nil && alternative.ResourcesExist() {
+			return true
+		}
+	}
+	return false
+}
+
 // Tracker tracks test hierarchy and manages scope-based cleanup
-// Supports Suite-level and It-level auto-cleanup
-//
-// Thread-safety: Each Ginkgo parallel process has its own Tracker instance (no shared state)
+// Supports Suite + It and named scopes
 type Tracker struct {
 	cleanupFlags      *CleanupFlags
 	cleanupFunc       CleanupFunc
 	ctx               context.Context
 	client            client.Client
 	resourcesToDelete []client.ObjectList
+
+	// Named scopes tracking (written during setup, read-only during execution)
+	namedScopes map[string]*Scope // name -> scope
 
 	// Test failure tracking (for skip-cleanup-on-failure)
 	anyTestFailed bool
@@ -198,7 +330,49 @@ func NewTracker(cleanupFunc CleanupFunc, flags *CleanupFlags, ctx context.Contex
 		ctx:               ctx,
 		client:            testClient,
 		resourcesToDelete: resourcesToDelete,
+		namedScopes:       make(map[string]*Scope),
 	}
+}
+
+// validScopeNamePattern validates scope names: 1-40 chars, alphanumeric, `-`, `_`, or `.`
+var validScopeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,40}$`)
+
+// validateScopeName validates scope name and panics if invalid
+func validateScopeName(scopeName string) {
+	if !validScopeNamePattern.MatchString(scopeName) {
+		panic(fmt.Sprintf("scope name %q is invalid (must be 1-40 chars, alphanumeric, `-`, `_`, or `.`)", scopeName))
+	}
+}
+
+// RegisterScope registers a named scope and returns a handle
+// Use constructor functions to create scopes: NamedScopeManual
+// For Manual mode, cleanup is triggered explicitly via CleanupBefore/After
+// Labels are auto-generated from the scope name
+// Panics if scope name is invalid (length > 40 or contains invalid characters)
+//
+// Thread-safety: Should only be called during test setup (Context/Describe blocks),
+// which Ginkgo runs serially. Map writes are not concurrent.
+func (t *Tracker) RegisterScope(scope namedScope) *Scope {
+	validateScopeName(scope.name)
+
+	// Check if already registered
+	if sh, ok := t.namedScopes[scope.name]; ok {
+		return sh
+	}
+
+	// Auto-generate labels from scope name, merging with global e2e cleanup label
+	scopeLabels := MergeMaps(cleanupScopes.ScopeSelector(scope.name), globalE2ETestCleanupLabel)
+
+	sh := &Scope{
+		Name:          scope.name,
+		nameAsSlice:   []string{scope.name},
+		CleanupLabels: scopeLabels,
+		mode:          scope.mode,
+		tracker:       t,
+	}
+
+	t.namedScopes[scope.name] = sh
+	return sh
 }
 
 // HandleScopeLifecycle handles scope-based tracking and cleanup operations
@@ -211,7 +385,7 @@ func (t *Tracker) HandleScopeLifecycle(specReport *ginkgoTypes.SpecReport, hook 
 		t.executeCleanup(globalE2ETestCleanupLabel)
 	}
 
-	if t.shouldSkip(hook, specReport) {
+	if t.shouldSkip(hook, specReport, nil) {
 		return
 	}
 
@@ -267,8 +441,8 @@ func (t *Tracker) executeCleanup(scopeLabels map[string]string) {
 // 1. Master skip flag (-e2e.skip-cleanup)
 // 2. Test skipped/pending state (for BeforeEach/AfterEach)
 // 3. Test failure + skip-cleanup-on-failure flag (for after-* hooks)
-// 4. Hook-specific flags (e.g., -e2e.skip-cleanup.suite)
-func (t *Tracker) shouldSkip(hook ginkgoHookID, spec *ginkgoTypes.SpecReport) bool {
+// 4. Hook-specific flags (e.g., -e2e.skip-cleanup.suite, named scope filters)
+func (t *Tracker) shouldSkip(hook ginkgoHookID, spec *ginkgoTypes.SpecReport, sh *Scope) bool {
 	// 1. Master skip flag (highest priority)
 	if t.cleanupFlags.SkipCleanup {
 		return true
@@ -284,10 +458,10 @@ func (t *Tracker) shouldSkip(hook ginkgoHookID, spec *ginkgoTypes.SpecReport) bo
 	// 3. Check test failure (only for after-* hooks)
 	// When any test fails with -e2e.skip-cleanup.on-failure:
 	// - Automatically enabled FailFast stops subsequent tests from running
-	// - We skip all after-* cleanup (AfterEach, AfterSuite)
+	// - We skip all after-* cleanup (AfterEach, AfterSuite, named scopes)
 	// - This preserves all resources for debugging
 	if strings.HasPrefix(string(hook), "after-") && t.cleanupFlags.SkipCleanupOnFailure {
-		// spec is nil for AfterSuite; for AfterEach we check spec.Failed() and track it
+		// spec is nil for AfterSuite and named scopes; for AfterEach we check spec.Failed() and track it
 		if spec != nil && spec.Failed() {
 			t.anyTestFailed = true
 		}
@@ -306,6 +480,10 @@ func (t *Tracker) shouldSkip(hook ginkgoHookID, spec *ginkgoTypes.SpecReport) bo
 		return t.cleanupFlags.SkipItCleanupBefore
 	case GinkgoHook.AfterEach:
 		return t.cleanupFlags.SkipItCleanupAfter
+	case GinkgoHook.BeforeNamedScope:
+		return t.cleanupFlags.shouldSkipNamedScopeBefore(sh.nameAsSlice)
+	case GinkgoHook.AfterNamedScope:
+		return t.cleanupFlags.shouldSkipNamedScopeAfter(sh.nameAsSlice)
 	default:
 		panic(fmt.Sprintf("unhandled hook: %s", hook))
 	}

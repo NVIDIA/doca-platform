@@ -510,7 +510,7 @@ verify-shfmt: $(SHFMT) ## Check shell scripts are formatted
 
 ##@ Testing
 
-TESTPKGS ?= $$(go list ./... | grep -v /e2e | grep -v /third_party)
+TESTPKGS ?= $$(go list ./... | grep -v /e2e | grep -v /third_party) ./test/e2e/cleanup/...
 COVERPKGS ?= $$(go list ./... | grep -v /e2e | grep -v /third_party | tr '\n' ',')
 
 .PHONY: test
