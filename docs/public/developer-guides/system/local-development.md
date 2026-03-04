@@ -60,10 +60,13 @@ make test-e2e
 ```
 
 _Note:_
-If you want to keep the created resources (e.g., `DPFOperatorConfig`, `DPU` and such) you can use the `-e2e.skip-cleanup` flag:
+If you want to keep the created resources (e.g., `DPFOperatorConfig`, `DPU` and such) you can use the `-e2e.skip-cleanup*` flags:
 
 ```
 make test-e2e E2E_TEST_ARGS="-e2e.skip-cleanup"
+# or
+make test-e2e E2E_TEST_ARGS="-e2e.skip-cleanup.suite"
+# depending on your use-case
 ```
 
 **8.** Clean test env
