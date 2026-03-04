@@ -10,3 +10,5 @@ spec:
     dmsTimeout: 900
   kamajiClusterManager:
     disable: false
+  nodeSRIOVDevicePluginController:
+    disable: false

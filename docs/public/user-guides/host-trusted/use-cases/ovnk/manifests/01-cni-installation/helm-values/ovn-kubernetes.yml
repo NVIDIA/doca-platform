@@ -6,9 +6,9 @@ controlPlaneManifests:
   enabled: true
 nodeWithDPUManifests:
   enabled: true
-  nodeMgmtPortNetdev: $DPU_P0_VF1
+  nodeMgmtPortDpResourceName: nvidia.com/ovnk-mgmt-vf
   dpuServiceAccountNamespace: dpf-operator-system
-gatewayOpts: --gateway-interface=$DPU_P0
+gatewayOpts: --gateway-interface=derive-from-mgmt-port
 k8sAPIServer: https://$TARGETCLUSTER_API_SERVER_HOST:$TARGETCLUSTER_API_SERVER_PORT
 ## Note this CIDR is followed by a trailing /24 which informs OVN Kubernetes on how to split the CIDR per node.
 podNetwork: $POD_CIDR/24

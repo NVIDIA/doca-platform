@@ -242,6 +242,8 @@ spec:
     dmsTimeout: 900
   kamajiClusterManager:
     disable: false
+  nodeSRIOVDevicePluginController:
+    disable: false
 ```
 </details>
 
@@ -303,25 +305,6 @@ helm upgrade --no-hooks --install --create-namespace --namespace nvidia-network-
 nfd:
   enabled: false
   deployNodeFeatureRules: false
-sriovNetworkOperator:
-  enabled: true
-sriov-network-operator:
-  operator:
-    affinity:
-      nodeAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          nodeSelectorTerms:
-            - matchExpressions:
-                - key: node-role.kubernetes.io/master
-                  operator: Exists
-            - matchExpressions:
-                - key: node-role.kubernetes.io/control-plane
-                  operator: Exists
-  crds:
-    enabled: true
-  sriovOperatorConfig:
-    deploy: true
-    configDaemonNodeSelector: null
 operator:
   affinity:
     nodeAffinity:
@@ -339,10 +322,10 @@ operator:
 #### Apply the NicClusterPolicy
 
 ```shell
-cat manifests/03-enable-accelerated-interfaces/*.yaml | envsubst | kubectl apply -f -
+kubectl apply -f manifests/03-enable-accelerated-interfaces/nic_cluster_policy.yaml
 ```
 
-This will deploy the following objects:
+This will deploy the following object:
 
 <details markdown="1"><summary>NICClusterPolicy for the NVIDIA Network Operator</summary>
 
@@ -363,16 +346,56 @@ spec:
 ```
 </details>
 
+#### Apply the NodeSRIOVDevicePluginConfig
+
+The NodeSRIOVDevicePluginConfig defines which VFs on the DPU physical functions are exposed as SR-IOV device plugin resources on the host node. The DPF Operator's NodeSRIOVDevicePluginController (enabled in the DPFOperatorConfig) manages the SR-IOV device plugin pods based on this configuration.
+
+```shell
+kubectl apply -f manifests/03-enable-accelerated-interfaces/nodesriovdevicepluginconfig.yaml
+```
+
+<details markdown="1"><summary>NodeSRIOVDevicePluginConfig for VFs on PF0 and PF1</summary>
+
+[embedmd]:#(manifests/03-enable-accelerated-interfaces/nodesriovdevicepluginconfig.yaml)
+```yaml
+---
+apiVersion: noderesources.dpu.nvidia.com/v1alpha1
+kind: NodeSRIOVDevicePluginConfig
+metadata:
+  name: bf3-vfs
+  namespace: dpf-operator-system
+spec:
+  devicePluginResources:
+    - name: bf3-p0-vfs
+      type: vf
+      options:
+        isRdma: true
+      ranges:
+        - pfIndex: 0
+          start: 2
+          end: 45
+    - name: bf3-p1-vfs
+      type: vf
+      options:
+        isRdma: true
+      ranges:
+        - pfIndex: 1
+          start: 2
+          end: 45
+```
+</details>
+
+The `NodeSRIOVDevicePluginConfig` is linked to DPUs via the `noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig` annotation on the DPU object. This annotation is set in the DPUDeployment's `dpuAnnotations` field.
 
 #### Verification
 
 These verification commands may need to be run multiple times to ensure the condition is met.
 
-Verify the DPF System with:
+Verify the accelerated network prerequisites with:
 ```shell
-## Ensure the provisioning and DPUService controller manager deployments are available.
+## Ensure all pods in the nvidia-network-operator namespace are ready.
 kubectl wait --for=condition=Ready --namespace nvidia-network-operator pods --all
-## Expect the following Daemonsets to be successfully rolled out.
+## Expect the Multus Daemonset to be successfully rolled out.
 kubectl rollout status daemonset --namespace nvidia-network-operator kube-multus-ds
 ```
 
@@ -1279,6 +1302,7 @@ spec:
     - nameSuffix: "dpuset1"
       dpuAnnotations:
         storage.nvidia.com/preferred-dpu: "true"
+        noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-vfs
       dpuNodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
@@ -2229,6 +2253,7 @@ spec:
     - nameSuffix: "dpuset1"
       dpuAnnotations:
         storage.nvidia.com/preferred-dpu: "true"
+        noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-vfs
       dpuNodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
@@ -2341,76 +2366,23 @@ $ kubectl -n dpf-operator-system exec deploy/dpf-operator-controller-manager -- 
 
 #### Apply network configuration
 
-This document contains network configuration that uses the P0 and P1 network PFs and VF 10 from both PFs. These interfaces are referenced in `SriovNetworkNodePolicy` and `NetworkAttachmentDefinition` objects, which are created in the next step.
-The PCI addresses and names of the network PFs and VFs on the host side are likely to change after DPU provisioning, because the DPUFlavor includes the `PCI_SWITCH_EMULATION_ENABLE` firmware setting.
+This section creates `NetworkAttachmentDefinition` objects that reference VF 10 from both PFs by interface name.
+The PCI addresses and names of the network VFs on the host side are likely to change after DPU provisioning, because the DPUFlavor includes the `PCI_SWITCH_EMULATION_ENABLE` firmware setting.
 
-Before applying the network configuration, you need to identify the new names of the network PFs and VFs on the host side and set the following environment variables:
+Before applying the network configuration, you need to identify the new names of the network VFs on the host side and set the following environment variables:
 
 ```shell
-# contains the name of the network PF 0 on the host side, e.g. enp8s0f0np0
-export DPU_P0_PF_NAME=<REPLACE_WITH_INTERFACE_NAME>
-# contains the name of the network PF 1 on the host side, e.g. enp8s0f1np1
-export DPU_P1_PF_NAME=<REPLACE_WITH_INTERFACE_NAME>
 # contains the name of the network VF 10 on P0 on the host side, e.g. enp8s0f0v10
 export DPU_P0_VF10_NAME=<REPLACE_WITH_INTERFACE_NAME>
 # contains the name of the network VF 10 on P1 on the host side, e.g. enp8s0f1v10
 export DPU_P1_VF10_NAME=<REPLACE_WITH_INTERFACE_NAME>
 ```
 
-
 ```shell
 cat manifests/05-network-configuration/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will create the following objects:
-
-
-<details markdown="1"><summary>SriovNetworkNodePolicy to configure VFs on P0 and P1</summary>
-
-[embedmd]:#(manifests/05-network-configuration/sriov_network_operator_policy.yaml)
-```yaml
----
-apiVersion: sriovnetwork.openshift.io/v1
-kind: SriovNetworkNodePolicy
-metadata:
-  name: bf3-p0-vfs
-  namespace: nvidia-network-operator
-spec:
-  nicSelector:
-    deviceID: "a2dc"
-    vendor: "15b3"
-    pfNames:
-    - $DPU_P0_PF_NAME#2-45
-  nodeSelector:
-    node-role.kubernetes.io/worker: ""
-  numVfs: 46
-  resourceName: bf3-p0-vfs
-  isRdma: true
-  externallyManaged: true
-  deviceType: netdevice
-  linkType: eth
----
-apiVersion: sriovnetwork.openshift.io/v1
-kind: SriovNetworkNodePolicy
-metadata:
-  name: bf3-p1-vfs
-  namespace: nvidia-network-operator
-spec:
-  nicSelector:
-    deviceID: "a2dc"
-    vendor: "15b3"
-    pfNames:
-    - $DPU_P1_PF_NAME#2-45
-  nodeSelector:
-    node-role.kubernetes.io/worker: ""
-  numVfs: 46
-  resourceName: bf3-p1-vfs
-  isRdma: true
-  externallyManaged: true
-  deviceType: netdevice
-  linkType: eth
-```
-</details>
 
 <details markdown="1"><summary>NetworkAttachmentDefinition for host-device VFs</summary>
 

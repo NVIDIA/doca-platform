@@ -12,6 +12,7 @@ spec:
     - nameSuffix: "dpuset1"
       dpuAnnotations:
         storage.nvidia.com/preferred-dpu: "true"
+        noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-vfs
       dpuNodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
