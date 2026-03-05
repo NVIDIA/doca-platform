@@ -324,18 +324,23 @@ func createNetworkAttachmentDefinition(ctx context.Context, testClient client.Cl
 	return nadName
 }
 
+// IsPodRunningAndReady returns true if the pod is Running and has PodReady condition true.
+func IsPodRunningAndReady(pod *corev1.Pod) bool {
+	if pod == nil || pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	for _, c := range pod.Status.Conditions {
+		if c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
 func isPodRunning(ctx context.Context, g Gomega, testClient client.Client, namespace, podName string) bool {
 	pod := &corev1.Pod{}
 	g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: podName}, pod)).To(Succeed())
-	if pod.Status.Phase != corev1.PodRunning {
-		return false
-	}
-	for _, cs := range pod.Status.ContainerStatuses {
-		if !cs.Ready {
-			return false
-		}
-	}
-	return true
+	return IsPodRunningAndReady(pod)
 }
 
 func GetPodIP(ctx context.Context, testClient client.Client, namespace, podName string) string {
@@ -453,6 +458,11 @@ func execCommandFailConsistently(restClient *rest.RESTClient, config *rest.Confi
 		g.Expect(err).To(HaveOccurred(), "command %v should consistently fail", command)
 		g.Expect(errors.Is(err, expectFailure)).To(BeTrue(), "command %v should fail with %v, but failed with %v", command, expectFailure, err)
 	}, timeout, 5*time.Second).Should(Succeed())
+}
+
+// ExecInPodOnce runs a command in a pod once and returns stdout and any error. Uses DefaultErrorParser for error output.
+func ExecInPodOnce(restClient *rest.RESTClient, config *rest.Config, namespace, podName string, command []string) (string, error) {
+	return executeCommandOnce(restClient, config, namespace, podName, command, DefaultErrorParser)
 }
 
 // executeCommandOnce executes a command on a pod once and returns the output and error.

@@ -73,6 +73,7 @@ type TestDomain struct {
 	OVNKPrimary          string // Tests that need OVNK as primary CNI
 	OVNKHBN              string // Tests that need OVNK as primary CNI with HBN deployed alongside
 	DPFVPCOVN            string // VPC OVN test suite
+	OVSVPC               string // OVS VPC test suite
 	MultiDPUCluster      string // Multi DPUCluster setup tests
 	ZeroTrust            string // Zero Trust mode in DPFOperatorConfig on the BeforeSuite stage
 }
@@ -92,6 +93,7 @@ var Domain = TestDomain{
 	OVNKPrimary:          "OVNKPrimary",
 	OVNKHBN:              "OVNKHBN",
 	DPFVPCOVN:            "DPFVPCOVN",
+	OVSVPC:               "OVSVPC",
 	MultiDPUCluster:      "MultiDPUCluster",
 	ZeroTrust:            "ZeroTrust",
 }
@@ -116,6 +118,10 @@ var (
 	netutilsImage = ""
 	// ngcAPIKey can be used to create a secret to be able to pull images from NGC, this secret can be used by DPUservices and should not be used for core components.
 	ngcAPIKey = ""
+	// dpuClusterName optionally overrides the DPUCluster name (e.g. when created externally with a non-default name).
+	dpuClusterName = ""
+	// dpuClusterNamespace optionally overrides the DPUCluster namespace.
+	dpuClusterNamespace = ""
 	// Labels and resources targeted for cleanup before running our e2e tests.
 	// This cleanup is typically handled by cleanupObjs, but if an e2e test fails, the standard cleanup may not be executed.
 	// Note: order matters as some object deletion depends on controllers that may be deployed via dpuservices/dpudeployments
