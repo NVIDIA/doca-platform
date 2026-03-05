@@ -28,6 +28,13 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps/finalizers
+  - pods/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ""
+  resources:
   - endpoints
   - services
   verbs:
@@ -45,12 +52,6 @@ rules:
   - namespaces
   verbs:
   - create
-- apiGroups:
-  - ""
-  resources:
-  - pods/finalizers
-  verbs:
-  - update
 - apiGroups:
   - admissionregistration.k8s.io
   resources:
