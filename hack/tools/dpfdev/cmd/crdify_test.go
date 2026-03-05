@@ -45,7 +45,7 @@ func TestCrdifyValidation(t *testing.T) {
 		unexpectedErrorMessages []string
 	}{
 		{
-			name:             "Remove field without both flags --allow-removal-deprecations --enable-allow-list",
+			name:             "Remove field or struct without both flags --allow-removal-deprecations --enable-allow-list",
 			oldCrd:           "file://test/crdify_base.yaml",
 			newCrd:           "file://test/crdify_valid.yaml",
 			configFile:       "test/crdify_config.yaml",
@@ -55,16 +55,32 @@ func TestCrdifyValidation(t *testing.T) {
 				"removed field : v1.^.spec.size",
 				`type changed : "string" -> ""`,
 				"required fields: [color]",
+				"removed field : v1.^.spec.metadata",
+				"removed field : v1.^.spec.metadata.labels",
+				"removed field : v1.^.spec.metadata.labels[*]",
+				"removed field : v1.^.spec.metadata.annotations",
+				"removed field : v1.^.spec.metadata.annotations[*]",
+				"type changed : \"object\" -> \"\"",
 			},
 		},
 		{
-			name:                  "Remove field with deprecation is allowed",
+			name:                  "Remove field or struct with deprecation is allowed",
 			oldCrd:                "file://test/crdify_base.yaml",
 			newCrd:                "file://test/crdify_valid.yaml",
 			configFile:            "test/crdify_config.yaml",
 			allowDeprecation:      true,
 			enableAllowList:       true,
 			expectedErrorMessages: []string{},
+			unexpectedErrorMessages: []string{
+				"removed field : v1.^.spec.size",
+				`type changed : "string" -> ""`,
+				"removed field : v1.^.spec.metadata",
+				"removed field : v1.^.spec.metadata.labels",
+				"removed field : v1.^.spec.metadata.labels[*]",
+				"removed field : v1.^.spec.metadata.annotations",
+				"removed field : v1.^.spec.metadata.annotations[*]",
+				"type changed : \"object\" -> \"\"",
+			},
 		},
 		{
 			name:             "Remove non-deprecated field not allowed",

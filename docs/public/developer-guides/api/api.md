@@ -4433,7 +4433,6 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUClusterSelector determines in which clusters the DPUServiceNAD controller should apply the configuration. |  |  |
 | `resourceType` _string_ | ResourceType specifies the type of network resource to allocate for pods using this NAD.<br />- "vf": Virtual Function (SR-IOV VF) from the DPU's physical ports<br />- "sf": Scalable Function from the DPU (maps to nvidia.com/bf_sf or nvidia.com/bf_sf_trusted)<br />- "veth": Virtual Ethernet pair (no device plugin resource required)<br />The resource type determines which SR-IOV device plugin resource will be requested. |  | Enum: [vf sf veth] <br /> |
 | `bridge` _string_ | Bridge specifies the name of the OVS bridge to which the network interface will be connected.<br />This bridge name is used in the CNI configuration for the OVS plugin. |  |  |
@@ -4769,7 +4768,6 @@ ObjectMeta holds metadata like labels and annotations.
 _Appears in:_
 - [DPUServiceCredentialRequestSpec](#dpuservicecredentialrequestspec)
 - [DPUServiceIPAMSpec](#dpuserviceipamspec)
-- [DPUServiceNADSpec](#dpuservicenadspec)
 - [ServiceChainSetSpecTemplate](#servicechainsetspectemplate)
 - [ServiceChainSpecTemplate](#servicechainspectemplate)
 - [ServiceInterfaceSetSpecTemplate](#serviceinterfacesetspectemplate)
