@@ -791,21 +791,19 @@ func VerifyClusterPods(ctx context.Context, client client.Client, podSubstrToVer
 		pods := &corev1.PodList{}
 		g.Expect(client.List(ctx, pods)).To(Succeed())
 
-		// Create a map to track which pods from podsToVerify we've found
 		foundPods := make(map[string]bool)
 		for _, podSubstr := range podSubstrToVerify {
 			foundPods[podSubstr] = false
 		}
 
 		for _, pod := range pods.Items {
-			// Check if this pod matches any of the expected prefixes.
-			// If it does, we add it to the foundPods map.
 			var matchedSubstr string
 			for _, podSubstr := range podSubstrToVerify {
 				if !strings.Contains(pod.Name, podSubstr) {
 					continue
 				}
 				matchedSubstr = podSubstr
+				break
 			}
 			if matchedSubstr == "" {
 				continue
@@ -813,19 +811,17 @@ func VerifyClusterPods(ctx context.Context, client client.Client, podSubstrToVer
 
 			foundPods[matchedSubstr] = true
 			podKey := fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
-			tracker.By(podKey, "Verifying pod %s", podKey)
+			tracker.By(podKey, "Verifying pod %s (Phase: %s)", podKey, pod.Status.Phase)
+
 			g.Expect(pod.Status.ContainerStatuses).ToNot(BeEmpty())
 
 			for _, containerStatus := range pod.Status.ContainerStatuses {
 				containerKey := fmt.Sprintf("%s/%s", podKey, containerStatus.Name)
-				tracker.By(containerKey, "Verifying container %s with image %s", containerKey, containerStatus.Image)
+				tracker.By(containerKey, "Verifying container %s with image %s (Ready: %v)", containerKey, containerStatus.Image, containerStatus.Ready)
 				g.Expect(containerStatus.ImageID).ToNot(BeEmpty())
 			}
-			// ensure pod is not terminating
 			g.Expect(pod.DeletionTimestamp).To(BeNil())
-			// ensure pod is running
 			g.Expect(pod.Status.Phase).To(Equal(corev1.PodRunning))
-			// ensure pod is ready
 			g.Expect(pod.Status.Conditions).To(ContainElement(
 				And(
 					HaveField("Type", Equal(corev1.PodReady)),
@@ -834,7 +830,6 @@ func VerifyClusterPods(ctx context.Context, client client.Client, podSubstrToVer
 			))
 		}
 
-		// Verify all expected pods were found
 		for podSubstr, found := range foundPods {
 			tracker.By(podSubstr, "Verifying pod %s was scheduled", podSubstr)
 			g.Expect(found).To(BeTrue())
@@ -893,7 +888,6 @@ func verifyDPUServicesReady(ctx context.Context, input *systemTestInput, dpuServ
 	Eventually(func(g Gomega) {
 		for _, name := range dpuServiceName {
 			tracker.By(name, "verify DPUService %s is ready", name)
-			// Check the DPUService is ready.
 			dpuService := &dpuservicev1.DPUService{}
 			g.Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpuServiceNamespace, Name: name}, dpuService)).To(Succeed())
 			g.Expect(conditions.IsTrue(dpuService, conditions.TypeReady)).To(BeTrue())
@@ -908,8 +902,12 @@ func verifyDPUServicesReady(ctx context.Context, input *systemTestInput, dpuServ
 func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, clusterIndex int) {
 	var clientHealthCheck func() bool
 	var restConfigHealthCheck func() bool
+
 	Eventually(func(g Gomega) {
 		// Use the new tunnel helper to create a client and the restConfig for the Kamaji cluster
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(input.dpuClusters[clusterIndex]), input.dpuClusters[clusterIndex])).To(Succeed())
+		g.Expect(input.dpuClusters[clusterIndex].Spec.Kubeconfig).ToNot(BeEmpty(), "DPUCluster kubeconfig should be populated")
+
 		dpuClusterClient[clusterIndex], clientHealthCheck = tunnel.NewTunneledClient(ctx, input.client, input.restConfig, input.dpuClusters[clusterIndex])
 		dpuClusterRestConfig[clusterIndex], restConfigHealthCheck = tunnel.NewTunneledRestConfig(ctx, input.client, input.restConfig, input.dpuClusters[clusterIndex])
 		// Setup the dpuClusterRestClient
@@ -919,7 +917,7 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 		var err error
 		dpuClusterRestClient[clusterIndex], err = rest.RESTClientFor(dpuClusterRestConfig[clusterIndex])
 		g.Expect(err).ToNot(HaveOccurred())
-	}).WithTimeout(10 * time.Second).Should(Succeed())
+	}).WithTimeout(3 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 	// Start a go routine that monitors the health of the tunnel and recreates the client and rest config
 	// if the health check fails.
@@ -971,15 +969,7 @@ func getDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) 
 	dpuClusterRestConfig = make([]*rest.Config, numClusters)
 	dpuClusterRestClient = make([]*rest.RESTClient, numClusters)
 
-	// Set up client for each cluster
 	for i := range input.dpuClusters {
-		// Get DPUCluster before getting the client to ensure we have the latest state.
-		// This is useful in cases we use a DPUCluster in the templates that doesn't set the kubeconfig and we expect
-		// the relevant controller to set it. In particular, without this, if the DPUCluster is not created part of the
-		// e2e test suite, getting the client will fail, failing the suite.
-		Eventually(func(g Gomega) {
-			g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(input.dpuClusters[i]), input.dpuClusters[i])).To(Succeed())
-		}).WithTimeout(10 * time.Second).Should(Succeed())
 		getDPUClusterClient(ctx, input, i)
 	}
 }

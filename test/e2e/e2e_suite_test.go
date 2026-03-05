@@ -136,6 +136,12 @@ func getEnvVariables() {
 	} else {
 		panic("NETUTILS_IMAGE env variable must be set")
 	}
+	if name, found := os.LookupEnv("DPU_CLUSTER_NAME"); found {
+		dpuClusterName = name
+	}
+	if ns, found := os.LookupEnv("DPU_CLUSTER_NAMESPACE"); found {
+		dpuClusterNamespace = ns
+	}
 	if v, found := os.LookupEnv("ENABLE_SOS_REPORTS"); found {
 		var err error
 		enableSOSReports, err = strconv.ParseBool(v)
