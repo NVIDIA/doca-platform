@@ -114,6 +114,43 @@ func stopKubelet() error {
 	return nil
 }
 
+type StartKubelet struct {
+	runBash func(cmd string) (bytes.Buffer, bytes.Buffer, error)
+}
+
+func (s *StartKubelet) Name() string {
+	return "Start Kubelet"
+}
+
+func (s *StartKubelet) ConditionType() string {
+	return "KubeletStarted"
+}
+
+func (s *StartKubelet) ShouldSkip(ctx *operations.Context) bool {
+	return false
+}
+
+func (s *StartKubelet) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {
+	return false
+}
+
+func (s *StartKubelet) Execute(_ context.Context, _ *operations.Context) error {
+	if s.runBash == nil {
+		s.runBash = bash.Run
+	}
+	// Kubelet must not start before SFs are created. In fact, kubelet is not enabled after kubeadm join.
+	// We disable it explicitly to avoid it being enabled by users.
+	if _, stderr, err := s.runBash("systemctl disable kubelet"); err != nil {
+		return fmt.Errorf("failed to disable kubelet: %w, stderr: %s", err, stderr.String())
+	}
+	// Since kubelet is disabled, we must start it after every reboot.
+	if _, stderr, err := s.runBash("systemctl start kubelet"); err != nil {
+		return fmt.Errorf("failed to start kubelet: %w, stderr: %s", err, stderr.String())
+	}
+	klog.Infof("Started kubelet")
+	return nil
+}
+
 type ConfigureKubelet struct {
 	caPath           string
 	bootstrapPath    string

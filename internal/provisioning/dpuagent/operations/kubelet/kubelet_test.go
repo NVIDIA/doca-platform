@@ -114,6 +114,55 @@ var _ = Describe("Kubelet", func() {
 		})
 	})
 
+	Context("StartKubelet", func() {
+		It("should never be skipped", func() {
+			operation := &StartKubelet{}
+			Expect(operation.ShouldSkip(&operations.Context{})).To(BeFalse())
+		})
+
+		It("should disable and start kubelet", func() {
+			var executedCmds []string
+			operation := &StartKubelet{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					executedCmds = append(executedCmds, cmd)
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			err := operation.Execute(ctx, &operations.Context{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(executedCmds).To(Equal([]string{"systemctl disable kubelet", "systemctl start kubelet"}))
+		})
+
+		It("should return error if disable fails", func() {
+			operation := &StartKubelet{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var stderr bytes.Buffer
+					stderr.WriteString("Failed to disable kubelet.service")
+					return bytes.Buffer{}, stderr, fmt.Errorf("exit status 1")
+				},
+			}
+			err := operation.Execute(ctx, &operations.Context{})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to disable kubelet"))
+		})
+
+		It("should return error if start fails", func() {
+			operation := &StartKubelet{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					if cmd == "systemctl disable kubelet" {
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					}
+					var stderr bytes.Buffer
+					stderr.WriteString("Failed to start kubelet.service")
+					return bytes.Buffer{}, stderr, fmt.Errorf("exit status 5")
+				},
+			}
+			err := operation.Execute(ctx, &operations.Context{})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to start kubelet"))
+		})
+	})
+
 	Context("ConfigureKubelet", func() {
 		It("should return error if LatestDPU is nil", func() {
 			operation := &ConfigureKubelet{}
