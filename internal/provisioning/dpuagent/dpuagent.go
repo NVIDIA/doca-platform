@@ -81,6 +81,7 @@ func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 		&ovsscript.RunOVSScript{},
 		&checkbridge.CheckBridgeIP{},
 		&kubelet.ConfigureKubelet{},
+		&kubelet.StartKubelet{},
 	}
 	return &DPUAgent{
 		optCtx:     optCtx,
