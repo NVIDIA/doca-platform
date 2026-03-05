@@ -172,101 +172,6 @@ var _ = Describe("Conditions Aggregation", func() {
 		})
 	})
 
-	Describe("operationalConditionsEqual", func() {
-		Context("when conditions are identical", func() {
-			It("should return true", func() {
-				a := []metav1.Condition{
-					{Type: "Type1", Status: metav1.ConditionTrue, Reason: "Reason1", Message: "Message1"},
-					{Type: "Type2", Status: metav1.ConditionFalse, Reason: "Reason2", Message: "Message2"},
-				}
-				b := []metav1.Condition{
-					{Type: "Type1", Status: metav1.ConditionTrue, Reason: "Reason1", Message: "Message1"},
-					{Type: "Type2", Status: metav1.ConditionFalse, Reason: "Reason2", Message: "Message2"},
-				}
-
-				Expect(operationalConditionsEqual(a, b)).To(BeTrue())
-			})
-
-			It("should ignore LastTransitionTime differences", func() {
-				now := metav1.Now()
-				later := metav1.NewTime(now.Add(1))
-
-				a := []metav1.Condition{
-					{Type: "Type1", Status: metav1.ConditionTrue, Reason: "Reason1", Message: "Message1", LastTransitionTime: now},
-				}
-				b := []metav1.Condition{
-					{Type: "Type1", Status: metav1.ConditionTrue, Reason: "Reason1", Message: "Message1", LastTransitionTime: later},
-				}
-
-				Expect(operationalConditionsEqual(a, b)).To(BeTrue())
-			})
-		})
-
-		Context("when conditions differ", func() {
-			It("should return false for different Status", func() {
-				a := []metav1.Condition{
-					{Type: "Type1", Status: metav1.ConditionTrue, Reason: "Reason1", Message: "Message1"},
-				}
-				b := []metav1.Condition{
-					{Type: "Type1", Status: metav1.ConditionFalse, Reason: "Reason1", Message: "Message1"},
-				}
-
-				Expect(operationalConditionsEqual(a, b)).To(BeFalse())
-			})
-
-			It("should return false for different Reason", func() {
-				a := []metav1.Condition{
-					{Type: "Type1", Status: metav1.ConditionTrue, Reason: "Reason1", Message: "Message1"},
-				}
-				b := []metav1.Condition{
-					{Type: "Type1", Status: metav1.ConditionTrue, Reason: "Reason2", Message: "Message1"},
-				}
-
-				Expect(operationalConditionsEqual(a, b)).To(BeFalse())
-			})
-
-			It("should return false for different Message", func() {
-				a := []metav1.Condition{
-					{Type: "Type1", Status: metav1.ConditionTrue, Reason: "Reason1", Message: "Message1"},
-				}
-				b := []metav1.Condition{
-					{Type: "Type1", Status: metav1.ConditionTrue, Reason: "Reason1", Message: "Message2"},
-				}
-
-				Expect(operationalConditionsEqual(a, b)).To(BeFalse())
-			})
-
-			It("should return false for different lengths", func() {
-				a := []metav1.Condition{
-					{Type: "Type1", Status: metav1.ConditionTrue, Reason: "Reason1", Message: "Message1"},
-				}
-				b := []metav1.Condition{
-					{Type: "Type1", Status: metav1.ConditionTrue, Reason: "Reason1", Message: "Message1"},
-					{Type: "Type2", Status: metav1.ConditionTrue, Reason: "Reason2", Message: "Message2"},
-				}
-
-				Expect(operationalConditionsEqual(a, b)).To(BeFalse())
-			})
-
-			It("should return false for missing condition type", func() {
-				a := []metav1.Condition{
-					{Type: "Type1", Status: metav1.ConditionTrue, Reason: "Reason1", Message: "Message1"},
-				}
-				b := []metav1.Condition{
-					{Type: "Type2", Status: metav1.ConditionTrue, Reason: "Reason1", Message: "Message1"},
-				}
-
-				Expect(operationalConditionsEqual(a, b)).To(BeFalse())
-			})
-		})
-
-		Context("when both are empty", func() {
-			It("should return true", func() {
-				Expect(operationalConditionsEqual([]metav1.Condition{}, []metav1.Condition{})).To(BeTrue())
-			})
-		})
-	})
-
 	Describe("nodeConditionsEqual", func() {
 		Context("when node conditions are identical", func() {
 			It("should return true", func() {
@@ -776,9 +681,6 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 				operationalReadyCondition := meta.FindStatusCondition(dpu.Status.OperationalConditions,
 					string(provisioningv1.DPUOperationalCondReady))
 				g.Expect(operationalReadyCondition).NotTo(BeNil())
-
-				// Should be True or Unknown (depending on timing of other conditions)
-				g.Expect(operationalReadyCondition.Status).To(BeElementOf(metav1.ConditionTrue, metav1.ConditionUnknown, metav1.ConditionFalse))
 			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
 		})
 

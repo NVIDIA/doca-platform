@@ -291,6 +291,8 @@ type DPUStatus struct {
 	// OperationalConditions represents aggregated operational readiness conditions.
 	// These conditions reflect the runtime health and readiness of DPU services and node health,
 	// separate from the provisioning lifecycle represented by Conditions.
+	// +listType=map
+	// +listMapKey=type
 	// +optional
 	OperationalConditions []metav1.Condition `json:"operationalConditions,omitempty"`
 
