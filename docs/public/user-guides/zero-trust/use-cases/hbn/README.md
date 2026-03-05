@@ -56,6 +56,10 @@ Commands in this guide are run in the same directory that contains this readme.
 ## e.g. 10.10.10.10
 export TARGETCLUSTER_API_SERVER_HOST=
 
+## Port for the Kubernetes API server of the target cluster on which DPF is installed.
+## e.g. 6443
+export TARGETCLUSTER_API_SERVER_PORT=
+
 ## Virtual IP used by the load balancer for the DPU Cluster. Must be a reserved IP from the management subnet and not
 ## allocated by DHCP.
 export DPUCLUSTER_VIP=
@@ -242,6 +246,9 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
+  overrides:
+    kubernetesAPIServerVIP: $TARGETCLUSTER_API_SERVER_HOST
+    kubernetesAPIServerPort: $TARGETCLUSTER_API_SERVER_PORT
   dpuDetector:
     disable: true
   provisioningController:
