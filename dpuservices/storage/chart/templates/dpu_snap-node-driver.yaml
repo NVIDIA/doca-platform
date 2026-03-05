@@ -1,0 +1,188 @@
+{{ include "validate" . }}
+{{- if .Values.dpu.snapNodeDriver.enabled }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "snap-node-driver.fullname" . }}
+  labels:
+    {{- include "snap-node-driver.labels" . | nindent 4 }}
+    {{- with .Values.serviceDaemonSet.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.serviceDaemonSet.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "snap-node-driver.selectorLabels" . | nindent 6 }}
+  {{- with .Values.serviceDaemonSet.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "snap-node-driver.selectorLabels" . | nindent 8 }}
+        {{- with .Values.serviceDaemonSet.labels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.serviceDaemonSet.annotations }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.dpu.snapNodeDriver.imagePullSecrets | default .Values.imagePullSecrets | default list }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.dpu.snapNodeDriver.podSecurityContext | nindent 8 }}
+      {{- with toYaml .Values.serviceDaemonSet.nodeSelector }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+              {{- . | nindent 12 }}
+      {{- end }}
+      {{- with .Values.dpu.snapNodeDriver.tolerations | default list }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "snap-node-driver.serviceAccountName" . }}
+      containers:
+        - name: snap-node-driver
+          image: "{{ .Values.dpu.snapNodeDriver.image.repository }}:{{ .Values.dpu.snapNodeDriver.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.dpu.snapNodeDriver.imagePullPolicy }}
+          command:
+            - /snap-node-driver
+          env:
+            {{- range .Values.dpu.snapNodeDriver.env }}
+            - name: "{{ .name }}"
+              value: "{{ .value }}"
+            {{- end }}
+            - name: SNAP_NODE_DRIVER_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          {{- with toYaml .Values.serviceDaemonSet.resources }}
+          resources:
+            limits:
+              {{- . | nindent 14 }}
+            requests:
+              {{- . | nindent 14 }}
+          {{- end }}
+          volumeMounts:
+            - name: plugins
+              mountPath: /var/lib/nvidia/storage/snap/plugins
+              mountPropagation: "HostToContainer"
+            - name: providers
+              mountPath: /var/lib/nvidia/storage/snap/providers
+              mountPropagation: "HostToContainer"
+          securityContext:
+            {{- toYaml .Values.dpu.snapNodeDriver.securityContext | nindent 12 }}
+      volumes:
+        - name: plugins
+          hostPath:
+            path: /var/lib/nvidia/storage/snap/plugins
+            type: DirectoryOrCreate
+        - name: providers
+          hostPath:
+            path: /var/lib/nvidia/storage/snap/providers
+            type: DirectoryOrCreate
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "snap-node-driver.roleName" . }}
+  labels:
+    {{- include "snap-node-driver.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - "storage.dpu.nvidia.com"
+  resources:
+  - volumeattachments
+  - volumes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - "storage.dpu.nvidia.com"
+  resources:
+  - volumeattachments/finalizers
+  - volumes/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - "storage.dpu.nvidia.com"
+  resources:
+  - volumeattachments/status
+  - volumes/status
+  verbs:
+  - get
+  - patch
+  - update
+# Leader election permissions
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "snap-node-driver.roleBindingName" . }}
+  labels:
+    {{- include "snap-node-driver.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "snap-node-driver.roleName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "snap-node-driver.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "snap-node-driver.serviceAccountName" . }}
+  labels:
+    {{- include "snap-node-driver.labels" . | nindent 4 }}
+
+{{- end }}

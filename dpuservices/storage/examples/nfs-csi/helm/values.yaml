@@ -1,0 +1,171 @@
+#====================================================
+# Settings for the host cluster portion of the chart
+#====================================================
+
+host:
+  enabled: false
+  config:
+    # required, name of the secret that stores credentials and connection details for DPU cluster
+    dpuClusterSecret: ""
+  # imagePullSecrets to add to the Pod spec
+  imagePullSecrets: []
+  # count of replicas for pod
+  replicas: 1
+  # configuration for plugin container
+  plugin:
+    # image settings for plugin container
+    image:
+      repository: "registry.k8s.io/sig-storage/nfsplugin"
+      tag: "v4.11.0"
+    # pullPolicy for plugin image
+    pullPolicy: IfNotPresent
+    # securityContext for plugin container
+    securityContext:
+      privileged: true
+      capabilities:
+        add: ["SYS_ADMIN"]
+        drop: ["ALL"]
+      allowPrivilegeEscalation: true
+    # resources for plugin container
+    resources:
+      limits:
+        memory: 200Mi
+      requests:
+        cpu: 10m
+        memory: 20Mi
+
+  # configuration for external-provisioner container
+  externalProvisioner:
+    image:
+      # image settings for external-provisioner container
+      repository: "registry.k8s.io/sig-storage/csi-provisioner"
+      # tag for csi-provisioner image
+      tag: v5.2.0
+    # pullPolicy for external-provisioner image
+    pullPolicy: IfNotPresent
+    # securityContext for external-provisioner container
+    securityContext:
+      capabilities:
+        drop: ["ALL"]
+    # resources for external-provisioner container
+    resources:
+      limits:
+        memory: 400Mi
+      requests:
+        cpu: 10m
+        memory: 20Mi
+
+  # configuration for external-resizer container
+  externalResizer:
+    image:
+      # image settings for external-resizer container
+      repository: registry.k8s.io/sig-storage/csi-resizer
+      # tag for external-resizer image
+      tag: v1.13.1
+    # pullPolicy for external-resizer image
+    pullPolicy: IfNotPresent
+    # securityContext for external-resizer container
+    securityContext:
+      capabilities:
+        drop: ["ALL"]
+    # resources for external-resizer container
+    resources:
+      limits:
+        memory: 400Mi
+      requests:
+        cpu: 10m
+        memory: 20Mi
+
+  # configuration for external-snapshotter container
+  externalSnapshotter:
+    image:
+      # image settings for external-snapshotter container
+      repository: registry.k8s.io/sig-storage/csi-snapshotter
+      # tag for external-snapshotter image
+      tag: v8.2.0
+    # pullPolicy for external-snapshotter image
+    pullPolicy: IfNotPresent
+    # securityContext for external-snapshotter container
+    securityContext:
+      capabilities:
+        drop: ["ALL"]
+    # resources for external-snapshotter container
+    resources:
+      limits:
+        memory: 200Mi
+      requests:
+        cpu: 10m
+        memory: 20Mi
+
+  # configuration for liveness-probe container
+  livenessProbe:
+    image:
+      # image settings for liveness-probe container
+      repository: registry.k8s.io/sig-storage/livenessprobe
+      # tag for liveness-probe image
+      tag: v2.15.0
+    # pullPolicy for liveness-probe image
+    pullPolicy: IfNotPresent
+    # securityContext for liveness-probe container
+    securityContext:
+      capabilities:
+        drop: ["ALL"]
+    # resources for liveness-probe container
+    resources:
+      limits:
+        memory: 100Mi
+      requests:
+        cpu: 10m
+        memory: 20Mi
+
+  # podAnnotations to add to the Pod spec
+  podAnnotations: {}
+  # podLabels to add to the Pod spec
+  podLabels: {}
+  # podSecurityContext to add to the Pod spec
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  # nodeSelector to add to the Pod spec
+  nodeSelector: {}
+  # tolerations to add to the Pod spec
+  tolerations:
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/control-plane
+      operator: Exists
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/master
+      operator: Exists
+  # affinity to add to the Pod spec
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/master"
+                operator: Exists
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/control-plane"
+                operator: Exists
+  # hostNetwork setting for controller
+  hostNetwork: true
+  # dnsPolicy setting
+  dnsPolicy: ClusterFirstWithHostNet
+
+#====================================================
+# Settings for the DPU cluster portion of the chart
+#====================================================
+
+dpu:
+  enabled: false
+  storageClasses:
+    # - name: nfs-csi
+    #   parameters:
+    #     server: example.com
+    #     share: /
+    #   mountOptions:
+    #     - nfsvers=4.1
+  rbacRoles:
+    nfsCsiController:
+      create: true
+      serviceAccount: nfs-csi-controller-sa

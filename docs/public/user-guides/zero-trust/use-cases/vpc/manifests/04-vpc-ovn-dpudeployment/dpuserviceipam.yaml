@@ -1,0 +1,28 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceIPAM
+metadata:
+  name: vpc-ippool-vtep
+  namespace: dpf-operator-system
+spec:
+  metadata:
+    labels:
+      ovn.vpc.dpu.nvidia.com/pool: vpc-ippool-vtep
+  ipv4Subnet:
+    subnet: $VTEP_CIDR
+    gateway: $VTEP_GATEWAY
+    perNodeIPCount: 4
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceIPAM
+metadata:
+  name: vpc-ippool-gateway
+  namespace: dpf-operator-system
+spec:
+  metadata:
+    labels:
+      ovn.vpc.dpu.nvidia.com/pool: vpc-ippool-gateway
+  ipv4Subnet:
+    subnet: $EXTERNAL_CIDR
+    gateway: $EXTERNAL_GATEWAY
+    perNodeIPCount: 4

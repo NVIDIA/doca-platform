@@ -1,0 +1,132 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ip-allocator-sidecar
+  labels:
+    app: ip-allocator-sidecar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ip-allocator-sidecar
+  template:
+    metadata:
+      labels:
+        app: ip-allocator-sidecar
+      annotations:
+        # With this annotation we provide requests to the sidecar to fulfil.
+        dpu.nvidia.com/ip-requests: |-
+          [
+            {
+              "name": "req1",
+              "poolName": "pool1"
+            },
+            {
+              "name": "req2",
+              "poolName": "pool1",
+              "poolType": "ippool"
+            }
+          ]
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 2
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: ip-allocator-sidecar
+      # We expect to run the sidecar for components pods that run on host network. Otherwise, pods could use multus to
+      # get more than 1 IPs that they may need.
+      hostNetwork: true
+      containers:
+      # Simulates a real world application that requires an IP from the NVIPAM
+      - name: app
+        image: ubuntu:24.04
+        imagePullPolicy: IfNotPresent
+        command:
+        - bash
+        - -c
+        - |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          cat /tmp/ips/req1 && echo
+          cat /tmp/ips/req2 && echo
+          sleep infinity
+        volumeMounts:
+        - mountPath: /tmp/ips
+          name: ips
+          readOnly: true
+      initContainers:
+      - name: allocator
+        image: example.com/ip-allocator:v0.1.0
+        command:
+        - ./manager
+        - allocator
+        imagePullPolicy: IfNotPresent
+        # Needs to always run so that later it can receive a signal to do a CMD DEL
+        restartPolicy: Always
+        securityContext:
+          # Needs to run as root to ensure that it can access the NVIPAM socket
+          runAsUser: 0
+        # Readiness probe is not really nessecary but it helps ensure that the file is written before the real app container
+        # starts.
+        readinessProbe:
+          exec:
+            command:
+            - cat
+            - /var/run/readyz
+        # We use preStop to deallocate the IP when the pod is deleted. Quoting the official docs:
+        # PreStop is called immediately before a container is terminated due to an
+        # API request or management event such as liveness/startup probe failure,
+        # preemption, resource contention, etc. The handler is not called if the
+        # container crashes or exits.
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - ./manager
+              - deallocator
+        env:
+        - name: IP_ALLOCATOR_REQUESTS
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.annotations['dpu.nvidia.com/ip-requests']
+        - name: K8S_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: K8S_POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: K8S_POD_UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        volumeMounts:
+        - mountPath: /opt/cni/bin
+          name: cni-bin-dir
+          readOnly: true
+        - mountPath: /var/lib/cni/nv-ipam
+          name: nvipam-daemon-socket-dir
+          readOnly: true
+        - mountPath: /tmp/ips
+          name: ips
+        # Used for caching the result
+        - mountPath: /var/lib/cni
+          name: cache
+      volumes:
+      - name: ips
+        emptyDir: {}
+      - name: cni-bin-dir
+        hostPath:
+          path: /opt/cni/bin
+          type: Directory
+      - name: cache
+        emptyDir: {}
+      - name: nvipam-daemon-socket-dir
+        hostPath:
+          path: /var/lib/cni/nv-ipam
+          type: Directory

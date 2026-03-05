@@ -1,0 +1,9 @@
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: BFB
+metadata:
+  name: bf-bundle
+  namespace: dpf-operator-system
+spec:
+  # This is the same BFB that's used to test the BFB controller but hosted on a remote server.
+  # This allows for a quick download to speed up e2e tests.
+  url: "https://github.com/killianmuldoon/doca-platform/releases/download/v0.2.0/test-bfb.bfb"

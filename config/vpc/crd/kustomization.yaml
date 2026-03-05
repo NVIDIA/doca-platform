@@ -1,0 +1,4 @@
+resources:
+- bases/vpc.dpu.nvidia.com_dpuvirtualnetworks.yaml
+- bases/vpc.dpu.nvidia.com_dpuvpcs.yaml
+- bases/vpc.dpu.nvidia.com_isolationclasses.yaml

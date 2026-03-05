@@ -1,0 +1,38 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: ovn-central
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: ovn-central
+  upgradePolicy:
+    applyNodeEffect: false
+  serviceConfiguration:
+    deployInCluster: true
+    helmChart:
+      values:
+        exposedPorts:
+          ports:
+            ovnnb: true
+            ovnsb: true
+        management:
+          ovnCentral:
+            enabled: true
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: "node-role.kubernetes.io/master"
+                          operator: Exists
+                    - matchExpressions:
+                        - key: "node-role.kubernetes.io/control-plane"
+                          operator: Exists
+            tolerations:
+              - key: node-role.kubernetes.io/master
+                operator: Exists
+                effect: NoSchedule
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+                effect: NoSchedule

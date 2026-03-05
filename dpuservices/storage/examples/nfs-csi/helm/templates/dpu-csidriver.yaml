@@ -1,0 +1,13 @@
+{{- if .Values.dpu.enabled }}
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: nfs.csi.k8s.io
+  labels:
+    {{- include "nfs-csi-controller.labels" . | nindent 4 }}
+spec:
+  attachRequired: false
+  volumeLifecycleModes:
+  - Persistent
+  fsGroupPolicy: File
+{{- end }}

@@ -1,0 +1,26 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: argus
+  namespace: dpf-operator-system
+spec:
+  dpus:
+    bfb: bf-bundle
+    dpuSets:
+    - nameSuffix: dpuset-argus
+      nodeSelector:
+        matchLabels:
+          feature.node.kubernetes.io/dpu-enabled: "true"
+    flavor: dpf-provisioning-argus
+  serviceChains:
+    switches:
+    - ports:
+      - serviceInterface:
+          matchLabels:
+            uplink: p0
+    upgradePolicy:
+      applyNodeEffect: true
+  services:
+    argus:
+      serviceConfiguration: argus
+      serviceTemplate: argus
