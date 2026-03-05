@@ -29,6 +29,12 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ""
+  resources:
   - nodes
   verbs:
   - get
