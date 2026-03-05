@@ -28,6 +28,21 @@ spec:
                     
                     Deprecated: This field is deprecated and will be removed in future versions.
                   type: string
+                metadata:
+                  description: >
+                    Deprecated: This field is unused and will be removed in a future version
+                  properties:
+                    annotations:
+                      additionalProperties:
+                        type: string
+                      description: Annotations is a map of string keys and values.
+                      type: object
+                    labels:
+                      additionalProperties:
+                        type: string
+                      description: Labels is a map of string keys and values.
+                      type: object
+                  type: object
       selectableFields:
         - jsonPath: .spec.color
         - jsonPath: .spec.size
