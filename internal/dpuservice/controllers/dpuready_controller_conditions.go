@@ -490,18 +490,10 @@ func buildServiceChainsCondition(dpuServiceChains []dpuservicev1.DPUServiceChain
 }
 
 func (r *DPUReadyReconciler) updateDPUOperationalConditions(ctx context.Context, dpu provisioningv1.DPU, operationalConditions []metav1.Condition) error {
-	log := ctrllog.FromContext(ctx)
-
 	// Get the latest DPU object to avoid conflicts
 	latestDPU := &provisioningv1.DPU{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(&dpu), latestDPU); err != nil {
 		return fmt.Errorf("failed to get latest DPU: %w", err)
-	}
-
-	// Check if conditions have actually changed to avoid unnecessary updates
-	if operationalConditionsEqual(latestDPU.Status.OperationalConditions, operationalConditions) {
-		log.V(3).Info("Operational conditions unchanged, skipping update", "dpu", dpu.Name)
-		return nil
 	}
 
 	patcher := patch.NewSerialPatcher(latestDPU, r.Client)
@@ -509,37 +501,10 @@ func (r *DPUReadyReconciler) updateDPUOperationalConditions(ctx context.Context,
 		meta.SetStatusCondition(&latestDPU.Status.OperationalConditions, condition)
 	}
 
-	if err := patcher.Patch(ctx, latestDPU, patch.WithFieldOwner(dpureadyControllerName), patch.WithStatusObservedGeneration{}); err != nil {
-		return fmt.Errorf("failed to patch DPU status: %w", err)
-	}
-
-	log.Info("Updated operational conditions", "dpu", dpu.Name)
-	return nil
-}
-
-// operationalConditionsEqual compares two slices of conditions for equality
-func operationalConditionsEqual(a, b []metav1.Condition) bool {
-	if len(a) != len(b) {
-		return false
-	}
-
-	aMap := make(map[string]metav1.Condition)
-	for _, cond := range a {
-		aMap[cond.Type] = cond
-	}
-
-	for _, condB := range b {
-		condA, exists := aMap[condB.Type]
-		if !exists {
-			return false
-		}
-		// Compare key fields (ignore LastTransitionTime for comparison)
-		if condA.Status != condB.Status || condA.Reason != condB.Reason || condA.Message != condB.Message {
-			return false
-		}
-	}
-
-	return true
+	return patcher.Patch(ctx, latestDPU,
+		patch.WithFieldOwner(dpureadyControllerName),
+		patch.WithStatusObservedGeneration{},
+	)
 }
 
 // nodeConditionsEqual compares two slices of node conditions for equality
