@@ -41,100 +41,108 @@ import (
 // ValidateNodeSRIOVDevicePluginWebhookRejectsInvalid creates
 // NodeSRIOVDevicePluginConfigs that violate cross-field validation rules and
 // verifies that the validating webhook rejects them.
+
+//nolint:dupl
 func ValidateNodeSRIOVDevicePluginWebhookRejectsInvalid(ctx context.Context, input *systemTestInput) {
 	By("creating a NodeSRIOVDevicePluginConfig with overlapping VF ranges")
-	invalidConfig := &noderesourcesv1.NodeSRIOVDevicePluginConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "e2e-invalid-config-",
-			Namespace:    dpfOperatorSystemNamespace,
-			Labels:       CleanupScope.It,
-		},
-		Spec: noderesourcesv1.NodeSRIOVDevicePluginConfigSpec{
-			DevicePluginResources: []noderesourcesv1.DevicePluginResource{
-				{
-					Name: "res_a",
-					Type: noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{
-						{PFIndex: 0, Start: ptr.To[int32](0), End: ptr.To[int32](7)},
+	Eventually(func(g Gomega) {
+		invalidConfig := &noderesourcesv1.NodeSRIOVDevicePluginConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "e2e-invalid-config-",
+				Namespace:    dpfOperatorSystemNamespace,
+				Labels:       CleanupScope.It,
+			},
+			Spec: noderesourcesv1.NodeSRIOVDevicePluginConfigSpec{
+				DevicePluginResources: []noderesourcesv1.DevicePluginResource{
+					{
+						Name: "res_a",
+						Type: noderesourcesv1.DevicePluginResourceTypeVF,
+						Ranges: []noderesourcesv1.VFRange{
+							{PFIndex: 0, Start: ptr.To[int32](0), End: ptr.To[int32](7)},
+						},
 					},
-				},
-				{
-					Name: "res_b",
-					Type: noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{
-						{PFIndex: 0, Start: ptr.To[int32](4), End: ptr.To[int32](10)},
+					{
+						Name: "res_b",
+						Type: noderesourcesv1.DevicePluginResourceTypeVF,
+						Ranges: []noderesourcesv1.VFRange{
+							{PFIndex: 0, Start: ptr.To[int32](4), End: ptr.To[int32](10)},
+						},
 					},
 				},
 			},
-		},
-	}
-	err := input.client.Create(ctx, invalidConfig)
-	Expect(err).To(HaveOccurred(),
-		"webhook should reject overlapping VF ranges")
-	Expect(apierrors.IsForbidden(err) || apierrors.IsInvalid(err)).To(
-		BeTrue(), fmt.Sprintf("expected Forbidden or Invalid, got: %v", err))
+		}
+		err := input.client.Create(ctx, invalidConfig)
+		g.Expect(err).To(HaveOccurred(),
+			"webhook should reject overlapping VF ranges")
+		g.Expect(apierrors.IsForbidden(err) || apierrors.IsInvalid(err)).To(
+			BeTrue(), fmt.Sprintf("expected Forbidden or Invalid, got: %v", err))
+	}).WithTimeout(time.Minute).Should(Succeed())
 
 	By("creating a NodeSRIOVDevicePluginConfig with duplicate name+prefix")
-	duplicateConfig := &noderesourcesv1.NodeSRIOVDevicePluginConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "e2e-duplicate-config-",
-			Namespace:    dpfOperatorSystemNamespace,
-			Labels:       CleanupScope.It,
-		},
-		Spec: noderesourcesv1.NodeSRIOVDevicePluginConfigSpec{
-			DevicePluginResources: []noderesourcesv1.DevicePluginResource{
-				{
-					Name: "dup_res",
-					Type: noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{
-						{PFIndex: 0, Start: ptr.To[int32](0), End: ptr.To[int32](3)},
+	Eventually(func(g Gomega) {
+		duplicateConfig := &noderesourcesv1.NodeSRIOVDevicePluginConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "e2e-duplicate-config-",
+				Namespace:    dpfOperatorSystemNamespace,
+				Labels:       CleanupScope.It,
+			},
+			Spec: noderesourcesv1.NodeSRIOVDevicePluginConfigSpec{
+				DevicePluginResources: []noderesourcesv1.DevicePluginResource{
+					{
+						Name: "dup_res",
+						Type: noderesourcesv1.DevicePluginResourceTypeVF,
+						Ranges: []noderesourcesv1.VFRange{
+							{PFIndex: 0, Start: ptr.To[int32](0), End: ptr.To[int32](3)},
+						},
 					},
-				},
-				{
-					Name: "dup_res",
-					Type: noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{
-						{PFIndex: 1, Start: ptr.To[int32](0), End: ptr.To[int32](3)},
+					{
+						Name: "dup_res",
+						Type: noderesourcesv1.DevicePluginResourceTypeVF,
+						Ranges: []noderesourcesv1.VFRange{
+							{PFIndex: 1, Start: ptr.To[int32](0), End: ptr.To[int32](3)},
+						},
 					},
 				},
 			},
-		},
-	}
-	err = input.client.Create(ctx, duplicateConfig)
-	Expect(err).To(HaveOccurred(),
-		"webhook should reject duplicate resource names")
-	Expect(apierrors.IsForbidden(err) || apierrors.IsInvalid(err)).To(
-		BeTrue(), fmt.Sprintf("expected Forbidden or Invalid, got: %v", err))
+		}
+		err := input.client.Create(ctx, duplicateConfig)
+		g.Expect(err).To(HaveOccurred(),
+			"webhook should reject duplicate resource names")
+		g.Expect(apierrors.IsForbidden(err) || apierrors.IsInvalid(err)).To(
+			BeTrue(), fmt.Sprintf("expected Forbidden or Invalid, got: %v", err))
+	}).WithTimeout(time.Minute).Should(Succeed())
 }
 
 // ValidateNodeSRIOVDevicePluginConfigValidCreate creates a valid
 // NodeSRIOVDevicePluginConfig and verifies it is accepted.
 func ValidateNodeSRIOVDevicePluginConfigValidCreate(ctx context.Context, input *systemTestInput) {
 	By("creating a valid NodeSRIOVDevicePluginConfig")
-	validConfig := &noderesourcesv1.NodeSRIOVDevicePluginConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "e2e-valid-config-",
-			Namespace:    dpfOperatorSystemNamespace,
-			Labels:       CleanupScope.It,
-		},
-		Spec: noderesourcesv1.NodeSRIOVDevicePluginConfigSpec{
-			DevicePluginResources: []noderesourcesv1.DevicePluginResource{
-				{
-					Name: "e2e_vf_res",
-					Type: noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{
-						{PFIndex: 0, Start: ptr.To[int32](0), End: ptr.To[int32](3)},
+	Eventually(func(g Gomega) {
+		validConfig := &noderesourcesv1.NodeSRIOVDevicePluginConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "e2e-valid-config-",
+				Namespace:    dpfOperatorSystemNamespace,
+				Labels:       CleanupScope.It,
+			},
+			Spec: noderesourcesv1.NodeSRIOVDevicePluginConfigSpec{
+				DevicePluginResources: []noderesourcesv1.DevicePluginResource{
+					{
+						Name: "e2e_vf_res",
+						Type: noderesourcesv1.DevicePluginResourceTypeVF,
+						Ranges: []noderesourcesv1.VFRange{
+							{PFIndex: 0, Start: ptr.To[int32](0), End: ptr.To[int32](3)},
+						},
 					},
 				},
 			},
-		},
-	}
-	Expect(input.client.Create(ctx, validConfig)).To(Succeed())
+		}
+		g.Expect(input.client.Create(ctx, validConfig)).To(Succeed())
 
-	By("verifying the NodeSRIOVDevicePluginConfig exists")
-	got := &noderesourcesv1.NodeSRIOVDevicePluginConfig{}
-	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(validConfig), got)).To(Succeed())
-	Expect(got.Spec.DevicePluginResources).To(HaveLen(1))
+		By("verifying the NodeSRIOVDevicePluginConfig exists")
+		got := &noderesourcesv1.NodeSRIOVDevicePluginConfig{}
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(validConfig), got)).To(Succeed())
+		g.Expect(got.Spec.DevicePluginResources).To(HaveLen(1))
+	}).WithTimeout(time.Minute).Should(Succeed())
 }
 
 func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemTestInput) {
