@@ -132,21 +132,6 @@ spec:
                   DPUServiceChain documentation for more.
                   When set to false, the network interfaces attached to this network will not get an IP
                 type: boolean
-              metadata:
-                description: 'Deprecated: This field is unused and will be removed
-                  with v26.4.0.'
-                properties:
-                  annotations:
-                    additionalProperties:
-                      type: string
-                    description: Annotations is a map of string keys and values.
-                    type: object
-                  labels:
-                    additionalProperties:
-                      type: string
-                    description: Labels is a map of string keys and values.
-                    type: object
-                type: object
               resourceType:
                 description: |-
                   ResourceType specifies the type of network resource to allocate for pods using this NAD.

@@ -307,17 +307,43 @@ func removeDeprecations(r *runner.Results) *runner.Results {
 		potentialDeprecations[apiVersion] = append(potentialDeprecations[apiVersion], field)
 	}
 
-	// Process deprecation removal for each API version
+	// Process deprecation removal for each API version.
+	// First identify which fields are directly deprecated, then expand to include
+	// sub-fields of deprecated structs (removing a deprecated struct also removes its children).
 	for apiVersion, fields := range potentialDeprecations {
-		if results, exists := r.SameVersionValidation[apiVersion]; exists {
-			removeDeprecationFromResults(efrResult, apiVersion, results, fields)
+		results, exists := r.SameVersionValidation[apiVersion]
+		if !exists {
+			continue
 		}
+
+		// Find fields that are directly marked as deprecated.
+		var deprecatedFields []string
+		for _, field := range fields {
+			comparisonResults, fieldExists := results[field]
+			if !fieldExists {
+				continue
+			}
+			if deprecationFound(comparisonResults) {
+				deprecatedFields = append(deprecatedFields, field)
+			}
+		}
+
+		// Collect fields to remove: deprecated fields and their sub-fields.
+		var fieldsToRemove []string
+		for _, field := range fields {
+			if isDeprecatedOrSubField(field, deprecatedFields) {
+				fieldsToRemove = append(fieldsToRemove, field)
+			}
+		}
+
+		removeDeprecationFromResults(efrResult, apiVersion, results, fieldsToRemove)
 	}
 
 	return r
 }
 
 // removeDeprecationFromResults removes deprecation-related validation errors for specified fields.
+// All fields passed to this function are already confirmed as deprecated or sub-fields of deprecated structs.
 func removeDeprecationFromResults(
 	efrResult *validations.ComparisonResult,
 	apiVersion string,
@@ -325,24 +351,18 @@ func removeDeprecationFromResults(
 	fields []string,
 ) {
 	for _, field := range fields {
-		comparisonResults, exists := sameVersionResults[field]
-		if !exists {
-			continue
-		}
-
-		if !deprecationFound(comparisonResults) {
-			continue
-		}
-
-		// Process type errors if deprecation was found.
+		// Process type errors if present.
 		// This is necessary to remove the type changed from "type" to "" error as it has been removed.
-		for i, result := range comparisonResults {
-			if result.Name != validationType {
-				continue
+		if comparisonResults, exists := sameVersionResults[field]; exists {
+			for i, result := range comparisonResults {
+				if result.Name != validationType {
+					continue
+				}
+				comparisonResults[i].Errors = filterErrors(comparisonResults[i].Errors, func(err string) bool {
+					return !strings.Contains(err, typeChangedMarker) && !strings.Contains(err, emptyTypeMarker)
+				})
 			}
-			comparisonResults[i].Errors = filterErrors(comparisonResults[i].Errors, func(err string) bool {
-				return !strings.Contains(err, typeChangedMarker) && !strings.Contains(err, emptyTypeMarker)
-			})
+			deleteResultsWithoutErrors(sameVersionResults, comparisonResults, field)
 		}
 
 		// Remove the field removal error from EFR result
@@ -353,9 +373,17 @@ func removeDeprecationFromResults(
 				break
 			}
 		}
-
-		deleteResultsWithoutErrors(sameVersionResults, comparisonResults, field)
 	}
+}
+
+// isDeprecatedOrSubField checks if a field is itself deprecated or is a sub-field of a deprecated field.
+func isDeprecatedOrSubField(field string, deprecatedFields []string) bool {
+	for _, depField := range deprecatedFields {
+		if field == depField || strings.HasPrefix(field, depField+".") || strings.HasPrefix(field, depField+"[") {
+			return true
+		}
+	}
+	return false
 }
 
 func deprecationFound(comparisonResults []validations.ComparisonResult) bool {
