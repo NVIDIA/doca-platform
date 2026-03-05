@@ -291,8 +291,8 @@ spec:
 #### Override Options
 
 * `paused`: When set to true, pauses reconciliation of the DPFOperatorConfig resource.
-* `kubernetesAPIServerVIP`: Override the Kubernetes API server virtual IP address.
-* `kubernetesAPIServerPort`: Override the Kubernetes API server port (default: 6443).
+* `kubernetesAPIServerVIP`: The Kubernetes API server virtual IP address. **Required in Zero Trust mode** (when `installViaRedfish` is used).
+* `kubernetesAPIServerPort`: The Kubernetes API server port (default: 6443). **Required in Zero Trust mode** (when `installViaRedfish` is used).
 * `dpuCNIPath`: Path to CNI configuration directory on DPU nodes.
 * `dpuCNIBinPath`: Path to CNI binaries on DPU nodes.
 * `dpuOpenvSwitchBinPath`: Path to OpenvSwitch binaries on DPU nodes.
