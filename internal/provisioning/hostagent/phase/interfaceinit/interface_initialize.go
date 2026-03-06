@@ -131,9 +131,10 @@ func (h *Handler) validateSecureBoot(ctx context.Context, dpu *provisioningv1.DP
 		return false, err
 	}
 
-	desiredEnabled := *dpu.Spec.SecureBoot
 	currentEnabled := *rshimInfo.SecureBootEnabled
+	dpu.Status.SecureBoot = &provisioningv1.SecureBootStatus{Enabled: &currentEnabled}
 
+	desiredEnabled := *dpu.Spec.SecureBoot
 	if desiredEnabled != currentEnabled {
 		err := fmt.Errorf("secure boot configuration mismatch (desired=%v, current=%v): "+
 			"configuration is not supported in Trusted Host mode, "+
@@ -141,10 +142,9 @@ func (h *Handler) validateSecureBoot(ctx context.Context, dpu *provisioningv1.DP
 		logger.Error(err, "Secure Boot configuration not supported in Trusted Host mode",
 			"dpu", dpu.Name, "desired", desiredEnabled, "current", currentEnabled)
 		hostutil.NewCondition(condition).Failure(err, "TrustedHostModeNotSupported").Set(&dpu.Status.Conditions)
-		return true, nil // Mismatch
+		return true, nil
 	}
 
-	dpu.Status.SecureBoot = &provisioningv1.SecureBootStatus{Enabled: &currentEnabled}
 	return false, nil
 }
 
