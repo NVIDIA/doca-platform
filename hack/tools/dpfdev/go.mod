@@ -1,6 +1,6 @@
 module github.com/nvidia/doca-platform/hack/tools/dpfdev
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/onsi/gomega v1.36.1
