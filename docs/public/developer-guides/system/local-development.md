@@ -7,7 +7,7 @@ title: "Local Development"
 This guide helps the developer in setting and running a local env that can be used to deploy the various DPF components and run tests. The local env doesn't require a DPU. 
 
 ## Prerequisites
-1. [GO](https://go.dev/doc/install) >= 1.24
+1. [GO](https://go.dev/doc/install) >= 1.25
 2. [Docker Engine](https://docs.docker.com/engine/install/)
 3. [kubectl](https://www.liberiangeek.net/2024/04/install-kubectl-on-ubuntu-24-04/)
 
