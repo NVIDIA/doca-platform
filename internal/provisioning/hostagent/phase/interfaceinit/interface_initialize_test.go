@@ -90,6 +90,9 @@ var _ = Describe("Handle - Secure Boot Validation (Trusted Host mode)", func() {
 		Expect(cond).NotTo(BeNil())
 		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 		Expect(cond.Reason).To(Equal("TrustedHostModeNotSupported"))
+		// Status should always reflect actual hardware state, even on mismatch
+		Expect(status.SecureBoot).NotTo(BeNil())
+		Expect(*status.SecureBoot.Enabled).To(BeFalse())
 	})
 
 	It("should sync SecureBoot status when states match", func() {
