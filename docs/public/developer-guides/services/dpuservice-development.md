@@ -125,7 +125,7 @@ This results in the following `Dockerfile`.
 
 ```Dockerfile
 # Golang base image required to build the dummydpuservice.
-FROM docker.io/library/golang:1.24 AS builder
+FROM docker.io/library/golang:1.25 AS builder
 
 WORKDIR /workspace
 

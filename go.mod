@@ -1,6 +1,8 @@
 module github.com/nvidia/doca-platform
 
-go 1.24.0
+go 1.25.0
+
+toolchain go1.25.7
 
 require (
 	antrea.io/libOpenflow v0.14.0
