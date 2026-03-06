@@ -76,7 +76,7 @@ KUSTOMIZE_VERSION ?= v5.5.0
 CONTROLLER_TOOLS_VERSION ?= v0.19.0
 ENVTEST_VERSION ?= v0.0.0-20250604165838-d6126d850224
 GOLANGCI_LINT_VERSION ?= v2.7.2
-MOCKGEN_VERSION ?= v0.5.0
+MOCKGEN_VERSION ?= v0.6.0
 GOTESTSUM_VERSION ?= v1.12.3
 ENVSUBST_VERSION ?= v1.4.2
 KIND_VER ?= v0.30.0
@@ -451,7 +451,7 @@ define go-install-tool
 set -e; \
 package=$(2)@$(3) ;\
 echo "Downloading $${package}" ;\
-GOBIN=$(TOOLSDIR) go install $${package} ;\
+GOTOOLCHAIN=$(shell go version | awk '{print $$3}')+auto GOBIN=$(TOOLSDIR) go install $${package} ;\
 mv "$$(echo "$(1)" | sed "s/-$(3)$$//")" $(1) ;\
 }
 endef
