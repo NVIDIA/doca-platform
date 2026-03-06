@@ -45,6 +45,7 @@ import (
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete,namespace=system
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch,namespace=system
+// +kubebuilder:rbac:groups="",resources=configmaps/finalizers,verbs=update
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus;dpunodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=noderesources.dpu.nvidia.com,resources=nodesriovdevicepluginconfigs,verbs=get;list;watch
 
