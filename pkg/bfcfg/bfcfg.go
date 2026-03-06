@@ -132,7 +132,6 @@ func GenerateBFConfig(ctx context.Context, controllerContext *util.ControllerCon
 	var dpuAgentRepoURL string
 	var kubeconfig string
 	if isRedfish {
-		// TODO: update documentation to state that KubernetesAPIServerVIP and KubernetesAPIServerPort are required in zero-trust mode.
 		if dpfOperatorConfig.Spec.Overrides == nil || dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerVIP == nil || dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort == nil {
 			return nil, fmt.Errorf("KubernetesAPIServerVIP and KubernetesAPIServerPort must be set in DPFOperatorConfig for zero-trust mode")
 		}
