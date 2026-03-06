@@ -402,7 +402,7 @@ func (r *DPUReadyReconciler) getDPUNodeMaintenanceObjects(ctx context.Context, d
 	readyObjects := make([]*provisioningv1.DPUNodeMaintenance, 0, len(dpuNodeMaintenanceList.Items))
 	for i := range dpuNodeMaintenanceList.Items {
 		if conditions.IsTrue(&dpuNodeMaintenanceList.Items[i], provisioningv1.ConditionNodeEffectApplied) {
-			readyObjects = append(readyObjects, &dpuNodeMaintenanceList.Items[i])
+			readyObjects = append(readyObjects, dpuNodeMaintenanceList.Items[i].DeepCopy())
 		}
 	}
 	// Return early if there are no DPUNodeMaintenance objects for this DPUNode
