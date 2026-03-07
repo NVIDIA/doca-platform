@@ -29,6 +29,7 @@ import (
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	utils "github.com/nvidia/doca-platform/internal/utils"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -228,8 +229,38 @@ func (h *Handler) downloadWithKubernetesAPIServerVIP(ctx context.Context, filena
 	err = utils.DownloadFile(ctx, httpURL, dst, 0644)
 	if err != nil {
 		logger.Error(fmt.Errorf("workaround 2 failed to download file: %w", err), "url", httpURL, "dst", dst)
+		// get bfb-registry nodeport port and download with kubernetesAPIServerVIP:nodeport
+		port, err := h.getBFBRegistryNodeport(ctx)
+		if err != nil {
+			logger.Error(err, "failed to get bfb-registry nodeport")
+			return err
+		}
+		httpURL = fmt.Sprintf("http://%s:%s", kubernetesAPIServerVIP, port)
+		httpURL, err = url.JoinPath(httpURL, filename)
+		if err != nil {
+			logger.Error(err, "failed to join path with kubernetes API server VIP and nodeport", "httpURL", httpURL, "filename", filename)
+			return err
+		}
+		logger.Info("download with kubernetesAPIServerVIP:nodeport", "httpURL", httpURL, "filename", filename)
+		err = utils.DownloadFile(ctx, httpURL, dst, 0644)
+		if err != nil {
+			logger.Error(fmt.Errorf("workaround 3 failed to download file: %w", err), "url", httpURL, "dst", dst)
+			return err
+		}
 	}
 	return err
+}
+
+func (h *Handler) getBFBRegistryNodeport(ctx context.Context) (string, error) {
+	bfbRegistryService := &corev1.Service{}
+	err := h.Client.Get(ctx, types.NamespacedName{Namespace: os.Getenv("POD_NAMESPACE"), Name: "bfb-registry"}, bfbRegistryService)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", fmt.Errorf("bfb-registry service not found")
+		}
+		return "", err
+	}
+	return fmt.Sprintf("%d", bfbRegistryService.Spec.Ports[0].NodePort), nil
 }
 
 func (h *Handler) cleanupTask(dpu *provisioningv1.DPU) func() bool {
