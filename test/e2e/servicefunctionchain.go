@@ -258,9 +258,9 @@ func testPingBetweenPods(ctx context.Context, namespace string, mtu int, cfg *mt
 		g.Expect(pod2Node1).NotTo(BeNil(), "Should find service2 pod on the same node as pod1Node1")
 	}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
-	pod1Node1IP := getPodIPForInterface(*pod1Node1, cfg.ipInterface)
-	pod1Node2IP := getPodIPForInterface(*pod1Node2, cfg.ipInterface)
-	pod2Node1IP := getPodIPForInterface(*pod2Node1, cfg.ipInterface)
+	pod1Node1IP := getPodIPForInterface(Default, *pod1Node1, cfg.ipInterface)
+	pod1Node2IP := getPodIPForInterface(Default, *pod1Node2, cfg.ipInterface)
+	pod2Node1IP := getPodIPForInterface(Default, *pod2Node1, cfg.ipInterface)
 
 	By(fmt.Sprintf("Testing ping fails from %s (%s) to %s (%s) with MTU %d on the same node", pod1Node1.Name, pod1Node1IP, pod2Node1.Name, pod2Node1IP, mtu+1))
 	netshoot.AssertPingFailureWithMTU(&dpuClusterRestClient[0], &dpuClusterRestConfig[0], namespace, pod1Node1.Name, pod2Node1IP, mtu+1, mtu)
