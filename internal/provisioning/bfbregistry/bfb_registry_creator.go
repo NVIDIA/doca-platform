@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -42,7 +43,7 @@ const (
 	NodePort          = 30082
 )
 
-// BFBRegistryRunnable creates the bfb-registry Pod and Service when the provisioning controller becomes leader.
+// BFBRegistryRunnable creates the bfb-registry Pod and Service when the provisioning controller.
 type BFBRegistryRunnable struct {
 	Client           client.Client
 	BFBPVC           string
@@ -70,6 +71,9 @@ func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
 	podOwnerRef.Controller = ptr.To(true)
 	podOwnerRef.BlockOwnerDeletion = ptr.To(true)
 
+	if err := r.removeLegacyDaemonSet(ctx, namespace); err != nil {
+		return err
+	}
 	if err := r.ensurePod(ctx, namespace, nodeName, registryImage, podOwnerRef); err != nil {
 		return err
 	}
@@ -78,6 +82,22 @@ func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
 	}
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+// removeLegacyDaemonSet deletes the legacy bfb-registry DaemonSet if present
+func (r *BFBRegistryRunnable) removeLegacyDaemonSet(ctx context.Context, namespace string) error {
+	ds := &appsv1.DaemonSet{}
+	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, ds)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if err := r.Client.Delete(ctx, ds); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
 }
 
 func (r *BFBRegistryRunnable) ensurePod(ctx context.Context, namespace, nodeName, image string, ownerRef *metav1.OwnerReference) error {
