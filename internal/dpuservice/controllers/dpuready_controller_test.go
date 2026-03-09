@@ -784,13 +784,6 @@ var _ = Describe("DPUReadyReconciler", func() {
 			Expect(testClient.Create(ctx, notReadyChain)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, notReadyChain)
 
-			By("Triggering node reconcile")
-			Eventually(func(g Gomega) {
-				updatedNode := &corev1.Node{}
-				g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
-				g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
-			}).WithTimeout(5 * time.Second).Should(Succeed())
-
 			By("Verifying only ready DPUService and DPUServiceChain requestors were removed")
 			Eventually(func(g Gomega) {
 				// We must patch the status here because we have 2 requestors that will need to be removed from the spec
@@ -810,6 +803,13 @@ var _ = Describe("DPUReadyReconciler", func() {
 					},
 				}
 				g.Expect(testClient.Status().Patch(ctx, updatedMaintenance, client.MergeFrom(originalMaintenance))).To(Succeed())
+
+				By("Triggering node reconcile")
+				Eventually(func(g Gomega) {
+					updatedNode := &corev1.Node{}
+					g.Expect(testClient.Get(ctx, types.NamespacedName{Name: workerNode.Name}, updatedNode)).To(Succeed())
+					g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedNode)).To(Succeed())
+				}).WithTimeout(5 * time.Second).Should(Succeed())
 
 				// Ready ones should be removed
 				g.Expect(updatedMaintenance.Spec.Requestor).NotTo(ContainElement(testNS.Name + "_dpudeployment1_" + service1Name))
