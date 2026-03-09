@@ -157,6 +157,10 @@ func getEnvVariables() {
 		_, basePath, _, _ := runtime.Caller(0)
 		artifactsDir = filepath.Join(filepath.Dir(basePath), "../../artifacts")
 	}
+
+	if interfaceName, found := os.LookupEnv("DPUCLUSTER_INTERFACE"); found {
+		dpuClusterInterface = interfaceName
+	}
 }
 
 // Run e2e tests using the Ginkgo runner.
