@@ -194,6 +194,15 @@ rules:
   - update
   - watch
 - apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
   - authentication.k8s.io
   resources:
   - tokenreviews
