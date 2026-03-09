@@ -36,11 +36,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name is the endpoint resource name for the device plugin.<br />Should contain only alphanumeric characters, underscores and hyphens.<br />The full extended resource name will be constructed as resource-prefix/name.<br />Example: pods_vf, ovnk_mgmt_vf |  | MinLength: 1 <br />Pattern: `^[a-zA-Z0-9_-]+$` <br /> |
-| `resourcePrefix` _string_ | ResourcePrefix is the resource prefix used by the device plugin to prefix the resource name.<br />If not set, the default resource prefix will be used. |  | Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br /> |
-| `type` _[DevicePluginResourceType](#devicepluginresourcetype)_ | Type specifies the type of the device plugin resource. |  | Enum: [vf] <br /> |
-| `options` _[DevicePluginResourceOptions](#devicepluginresourceoptions)_ | Options contains additional options for the device plugin resource. |  |  |
-| `ranges` _[VFRange](#vfrange) array_ | Ranges specifies the VF ranges on PFs to be included in this resource. |  | MinItems: 1 <br /> |
+| `name` _string_ | Name is the endpoint resource name for the device plugin.<br />Should contain only alphanumeric characters, underscores and hyphens.<br />The full extended resource name will be constructed as resource-prefix/name.<br />Example: pods_vf, ovnk_mgmt_vf |  | MinLength: 1 <br />Pattern: `^[a-zA-Z0-9_-]+$` <br />Required: \{\} <br /> |
+| `resourcePrefix` _string_ | ResourcePrefix is the resource prefix used by the device plugin to prefix the resource name.<br />If not set, the default resource prefix will be used. |  | Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br />Optional: \{\} <br /> |
+| `type` _[DevicePluginResourceType](#devicepluginresourcetype)_ | Type specifies the type of the device plugin resource. |  | Enum: [vf] <br />Required: \{\} <br /> |
+| `options` _[DevicePluginResourceOptions](#devicepluginresourceoptions)_ | Options contains additional options for the device plugin resource. |  | Optional: \{\} <br /> |
+| `ranges` _[VFRange](#vfrange) array_ | Ranges specifies the VF ranges on PFs to be included in this resource. |  | MinItems: 1 <br />Required: \{\} <br /> |
 
 
 #### DevicePluginResourceOptions
@@ -56,7 +56,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `isRdma` _boolean_ | IsRdma indicates whether RDMA is enabled for this resource. |  |  |
+| `isRdma` _boolean_ | IsRdma indicates whether RDMA is enabled for this resource. |  | Optional: \{\} <br /> |
 
 
 #### DevicePluginResourceType
@@ -127,7 +127,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `devicePluginResources` _[DevicePluginResource](#devicepluginresource) array_ | DevicePluginResources is the list of device plugin resource configurations. |  | MinItems: 1 <br /> |
+| `devicePluginResources` _[DevicePluginResource](#devicepluginresource) array_ | DevicePluginResources is the list of device plugin resource configurations. |  | MinItems: 1 <br />Required: \{\} <br /> |
 
 
 #### NodeSRIOVDevicePluginConfigStatus
@@ -160,9 +160,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `pfIndex` _integer_ | PFIndex is the index of the Physical Function. |  | Minimum: 0 <br /> |
-| `start` _integer_ | Start is the starting VF index (inclusive).<br />If not set, the range starts from VF 0. |  | Minimum: 0 <br /> |
-| `end` _integer_ | End is the ending VF index (inclusive).<br />If not set, the range extends to the last VF on the PF. |  | Minimum: 0 <br /> |
+| `pfIndex` _integer_ | PFIndex is the index of the Physical Function. |  | Minimum: 0 <br />Required: \{\} <br /> |
+| `start` _integer_ | Start is the starting VF index (inclusive).<br />If not set, the range starts from VF 0. |  | Minimum: 0 <br />Optional: \{\} <br /> |
+| `end` _integer_ | End is the ending VF index (inclusive).<br />If not set, the range extends to the last VF on the PF. |  | Minimum: 0 <br />Optional: \{\} <br /> |
 
 
 
@@ -189,8 +189,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the BFB Registry is not deployed when set to true. |  |  |
-| `port` _integer_ | Port is the port on which the BFB Registry will listen |  |  |
+| `disable` _boolean_ | Disable ensures the BFB Registry is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `port` _integer_ | Port is the port on which the BFB Registry will listen |  | Optional: \{\} <br /> |
 
 
 #### BaseComponentConfig
@@ -223,7 +223,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
 
 
 #### BaseControllerConfig
@@ -243,7 +243,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 1 | Maximum: 3 <br />Minimum: 1 <br /> |
+| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 1 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 
 
 #### CNIInstallerConfiguration
@@ -259,9 +259,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `installer` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Installer contains the configuration for the CNI-Installer component.<br />It contains the image for the controller and its resource requirements. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
+| `installer` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Installer contains the configuration for the CNI-Installer component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 
 
 
@@ -321,24 +321,24 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `overrides` _[Overrides](#overrides)_ |  |  |  |
-| `networking` _[Networking](#networking)_ |  | \{ controlPlaneMTU:1500 \} |  |
-| `monitoring` _[MonitoringConfiguration](#monitoringconfiguration)_ | Monitoring is the configuration for monitoring resources. |  |  |
-| `imagePullSecrets` _string array_ | List of secret names which are used to pull images for DPF system components and DPUServices.<br />These secrets must be in the same namespace as the DPF Operator Config and should be created before the config is created.<br />System reconciliation will not proceed until these secrets are available. |  |  |
-| `dpuServiceController` _[DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)_ | DPUServiceController is the configuration for the DPUServiceController |  |  |
+| `overrides` _[Overrides](#overrides)_ |  |  | Optional: \{\} <br /> |
+| `networking` _[Networking](#networking)_ |  | \{ controlPlaneMTU:1500 \} | Optional: \{\} <br /> |
+| `monitoring` _[MonitoringConfiguration](#monitoringconfiguration)_ | Monitoring is the configuration for monitoring resources. |  | Optional: \{\} <br /> |
+| `imagePullSecrets` _string array_ | List of secret names which are used to pull images for DPF system components and DPUServices.<br />These secrets must be in the same namespace as the DPF Operator Config and should be created before the config is created.<br />System reconciliation will not proceed until these secrets are available. |  | Optional: \{\} <br /> |
+| `dpuServiceController` _[DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)_ | DPUServiceController is the configuration for the DPUServiceController |  | Optional: \{\} <br /> |
 | `provisioningController` _[ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)_ | ProvisioningController is the configuration for the ProvisioningController |  |  |
-| `serviceSetController` _[ServiceSetControllerConfiguration](#servicesetcontrollerconfiguration)_ | ServiceSetController is the configuration for the ServiceSetController |  |  |
-| `dpuDetector` _[DPUDetectorConfiguration](#dpudetectorconfiguration)_ | DPUDetector is the configuration for the DPUDetector. |  |  |
-| `multus` _[MultusConfiguration](#multusconfiguration)_ | Multus is the configuration for Multus |  |  |
-| `sriovDevicePlugin` _[SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)_ | SRIOVDevicePlugin is the configuration for the SRIOVDevicePlugin |  |  |
-| `flannel` _[FlannelConfiguration](#flannelconfiguration)_ | Flannel is the configuration for Flannel |  |  |
-| `ovsCNI` _[OVSCNIConfiguration](#ovscniconfiguration)_ | OVSCNI is the configuration for OVSCNI |  |  |
-| `nvipam` _[NVIPAMConfiguration](#nvipamconfiguration)_ | NVIPAM is the configuration for NVIPAM |  |  |
-| `cniInstaller` _[CNIInstallerConfiguration](#cniinstallerconfiguration)_ | CNIInstaller is the configuration for the cni-installer |  |  |
-| `sfcController` _[SFCControllerConfiguration](#sfccontrollerconfiguration)_ | SFCController is the configuration for the SFCController |  |  |
-| `kamajiClusterManager` _[KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)_ | KamajiClusterManager is the configuration for the kamaji-cluster-manager |  |  |
-| `staticClusterManager` _[StaticClusterManagerConfiguration](#staticclustermanagerconfiguration)_ | StaticClusterManager is the configuration for the static-cluster-manager |  |  |
-| `nodeSRIOVDevicePluginController` _[NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)_ | NodeSRIOVDevicePluginController is the configuration for the NodeSRIOVDevicePlugin controller.<br />This controller manages per-node SRIOV device plugin pods based on DPU configurations.<br />The controller is disabled by default. |  |  |
+| `serviceSetController` _[ServiceSetControllerConfiguration](#servicesetcontrollerconfiguration)_ | ServiceSetController is the configuration for the ServiceSetController |  | Optional: \{\} <br /> |
+| `dpuDetector` _[DPUDetectorConfiguration](#dpudetectorconfiguration)_ | DPUDetector is the configuration for the DPUDetector. |  | Optional: \{\} <br /> |
+| `multus` _[MultusConfiguration](#multusconfiguration)_ | Multus is the configuration for Multus |  | Optional: \{\} <br /> |
+| `sriovDevicePlugin` _[SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)_ | SRIOVDevicePlugin is the configuration for the SRIOVDevicePlugin |  | Optional: \{\} <br /> |
+| `flannel` _[FlannelConfiguration](#flannelconfiguration)_ | Flannel is the configuration for Flannel |  | Optional: \{\} <br /> |
+| `ovsCNI` _[OVSCNIConfiguration](#ovscniconfiguration)_ | OVSCNI is the configuration for OVSCNI |  | Optional: \{\} <br /> |
+| `nvipam` _[NVIPAMConfiguration](#nvipamconfiguration)_ | NVIPAM is the configuration for NVIPAM |  | Optional: \{\} <br /> |
+| `cniInstaller` _[CNIInstallerConfiguration](#cniinstallerconfiguration)_ | CNIInstaller is the configuration for the cni-installer |  | Optional: \{\} <br /> |
+| `sfcController` _[SFCControllerConfiguration](#sfccontrollerconfiguration)_ | SFCController is the configuration for the SFCController |  | Optional: \{\} <br /> |
+| `kamajiClusterManager` _[KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)_ | KamajiClusterManager is the configuration for the kamaji-cluster-manager |  | Optional: \{\} <br /> |
+| `staticClusterManager` _[StaticClusterManagerConfiguration](#staticclustermanagerconfiguration)_ | StaticClusterManager is the configuration for the static-cluster-manager |  | Optional: \{\} <br /> |
+| `nodeSRIOVDevicePluginController` _[NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)_ | NodeSRIOVDevicePluginController is the configuration for the NodeSRIOVDevicePlugin controller.<br />This controller manages per-node SRIOV device plugin pods based on DPU configurations.<br />The controller is disabled by default. |  | Optional: \{\} <br /> |
 
 
 #### DPFOperatorConfigStatus
@@ -372,9 +372,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `image` _[Image](#image)_ | Image overrides the container image used by the DPUDetector Container.<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `daemon` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the DPU Detector component.<br />It contains the image for the controller and its resource requirements. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `image` _[Image](#image)_ | Image overrides the container image used by the DPUDetector Container.<br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `daemon` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the DPU Detector component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceControllerConfiguration
@@ -390,11 +390,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 1 | Maximum: 3 <br />Minimum: 1 <br /> |
-| `image` _[Image](#image)_ | Image overrides the container image used by the DPUService controller.<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the DPU Service controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
-| `disableDPUReadyTaints` _boolean_ | DisableDPUReadyTaints disables the DPU ready taints feature in the DPU Service Controller.<br />This feature adds taints to the worker nodes when the DPU is not ready.<br />This is useful when the DPU is used for networking and the node should not be scheduled until the DPU is ready. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 1 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
+| `image` _[Image](#image)_ | Image overrides the container image used by the DPUService controller.<br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the DPU Service controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
+| `disableDPUReadyTaints` _boolean_ | DisableDPUReadyTaints disables the DPU ready taints feature in the DPU Service Controller.<br />This feature adds taints to the worker nodes when the DPU is not ready.<br />This is useful when the DPU is used for networking and the node should not be scheduled until the DPU is ready. |  | Optional: \{\} <br /> |
 
 
 #### DefaultOverridesConfiguration
@@ -424,8 +424,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  | Optional: \{\} <br /> |
 
 
 
@@ -443,7 +443,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 
 
 #### FlannelConfiguration
@@ -459,12 +459,12 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `cni` _[FlannelCNI](#flannelcni)_ | CNI is the configuration for the Flannel CNI component.<br />It contains the image for the CNI init container.<br />Note: The resources for the CNI container are not configurable. |  |  |
-| `daemon` _[FlannelDaemon](#flanneldaemon)_ | Daemon is the configuration for the Flannel Daemon component.<br />It contains the image for the Flannel Daemon container and its resource requirements. |  |  |
-| `image` _[FlannelImages](#flannelimages)_ | Images overrides the container images used by flannel<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new fields `cni` and `daemon` instead. |  |  |
-| `podCIDR` _string_ | PodCIDR is the pod cidr for flannel. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
+| `cni` _[FlannelCNI](#flannelcni)_ | CNI is the configuration for the Flannel CNI component.<br />It contains the image for the CNI init container.<br />Note: The resources for the CNI container are not configurable. |  | Optional: \{\} <br /> |
+| `daemon` _[FlannelDaemon](#flanneldaemon)_ | Daemon is the configuration for the Flannel Daemon component.<br />It contains the image for the Flannel Daemon container and its resource requirements. |  | Optional: \{\} <br /> |
+| `image` _[FlannelImages](#flannelimages)_ | Images overrides the container images used by flannel<br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new fields `cni` and `daemon` instead. |  | Optional: \{\} <br /> |
+| `podCIDR` _string_ | PodCIDR is the pod cidr for flannel. |  | Optional: \{\} <br /> |
 
 
 #### FlannelDaemon
@@ -480,8 +480,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  | Optional: \{\} <br /> |
 
 
 #### FlannelImages
@@ -497,8 +497,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `flannelCNI` _string_ | FlannelCNI must be set if FlannelImages is set. |  | MinLength: 1 <br /> |
-| `kubeFlannel` _string_ | KubeFlannel must be set if FlannelImages is set. |  | MinLength: 1 <br /> |
+| `flannelCNI` _string_ | FlannelCNI must be set if FlannelImages is set. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `kubeFlannel` _string_ | KubeFlannel must be set if FlannelImages is set. |  | MinLength: 1 <br />Required: \{\} <br /> |
 
 
 #### HelmChart
@@ -549,7 +549,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
 
 
 
@@ -601,7 +601,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
+| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 
 
 
@@ -645,9 +645,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `bfbRegistryAddress` _string_ | BFBRegistryAddress is the address of the BFB Registry<br /><br />Deprecated: Use RegistryConfiguration instead. |  | MinLength: 1 <br /> |
-| `bfbRegistry` _[BFBRegistryConfiguration](#bfbregistryconfiguration)_ | BFBRegistry is the configuration for the BFB Registry<br /><br />Deprecated: Use RegistryConfiguration instead. |  |  |
-| `skipDPUNodeDiscovery` _boolean_ | SkipDPUNodeDiscovery is a flag to skip the DPU node discovery. | true |  |
+| `bfbRegistryAddress` _string_ | BFBRegistryAddress is the address of the BFB Registry<br />Deprecated: Use RegistryConfiguration instead. |  | MinLength: 1 <br /> |
+| `bfbRegistry` _[BFBRegistryConfiguration](#bfbregistryconfiguration)_ | BFBRegistry is the configuration for the BFB Registry<br />Deprecated: Use RegistryConfiguration instead. |  | Optional: \{\} <br /> |
+| `skipDPUNodeDiscovery` _boolean_ | SkipDPUNodeDiscovery is a flag to skip the DPU node discovery. | true | Optional: \{\} <br /> |
 
 
 #### KamajiClusterManagerConfiguration
@@ -663,10 +663,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 2 | Maximum: 3 <br />Minimum: 1 <br /> |
-| `image` _[Image](#image)_ | Image overrides the container image used by the Kamaji Cluster Manager.<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Kamaji Cluster Manager component.<br />It contains the image for the controller and its resource requirements. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 2 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
+| `image` _[Image](#image)_ | Image overrides the container image used by the Kamaji Cluster Manager.<br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Kamaji Cluster Manager component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 
 
 #### KubeStateMetricsConfiguration
@@ -682,9 +682,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the kube-state-metrics component.<br />It contains the image for kube-state-metrics and its resource requirements. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
+| `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the kube-state-metrics component.<br />It contains the image for kube-state-metrics and its resource requirements. |  | Optional: \{\} <br /> |
 
 
 #### MonitoringConfiguration
@@ -700,10 +700,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disabled` _boolean_ | Disabled controls whether monitoring resources are installed.<br />When enabled (default), the controller:<br />- Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.<br />- Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.<br />- Deploys node-problem-detector as a DaemonSet on DPU nodes to detect and report node-level problems.<br />- Deploys opentelemetry-collector as a DaemonSet on DPU nodes to collect and forward logs. |  |  |
-| `kubeStateMetrics` _[KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)_ | KubeStateMetrics is the configuration for kube-state-metrics |  |  |
-| `nodeProblemDetector` _[NodeProblemDetectorConfiguration](#nodeproblemdetectorconfiguration)_ | NodeProblemDetector is the configuration for node-problem-detector |  |  |
-| `openTelemetryCollector` _[OpenTelemetryCollectorConfiguration](#opentelemetrycollectorconfiguration)_ | OpenTelemetryCollector is the configuration for opentelemetry-collector |  |  |
+| `disabled` _boolean_ | Disabled controls whether monitoring resources are installed.<br />When enabled (default), the controller:<br />- Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.<br />- Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.<br />- Deploys node-problem-detector as a DaemonSet on DPU nodes to detect and report node-level problems.<br />- Deploys opentelemetry-collector as a DaemonSet on DPU nodes to collect and forward logs. |  | Optional: \{\} <br /> |
+| `kubeStateMetrics` _[KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)_ | KubeStateMetrics is the configuration for kube-state-metrics |  | Optional: \{\} <br /> |
+| `nodeProblemDetector` _[NodeProblemDetectorConfiguration](#nodeproblemdetectorconfiguration)_ | NodeProblemDetector is the configuration for node-problem-detector |  | Optional: \{\} <br /> |
+| `openTelemetryCollector` _[OpenTelemetryCollectorConfiguration](#opentelemetrycollectorconfiguration)_ | OpenTelemetryCollector is the configuration for opentelemetry-collector |  | Optional: \{\} <br /> |
 
 
 #### MultusConfiguration
@@ -719,10 +719,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `image` _[Image](#image)_ | Image overrides the container image used by the Multus Container.<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `cni` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `cni` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | CNI contains the configuration for the Multus CNI component.<br />It contains the image for the controller and its resource requirements. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
+| `image` _[Image](#image)_ | Image overrides the container image used by the Multus Container.<br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `cni` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `cni` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | CNI contains the configuration for the Multus CNI component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 
 
 #### NVIPAMConfiguration
@@ -738,10 +738,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `image` _[Image](#image)_ | Image overrides the container image used by the NVIPAM controller.<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `controller` _[NVIPAMController](#nvipamcontroller)_ | Controller contains the configuration for the NVIPAM controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
+| `image` _[Image](#image)_ | Image overrides the container image used by the NVIPAM controller.<br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `controller` _[NVIPAMController](#nvipamcontroller)_ | Controller contains the configuration for the NVIPAM controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 | `node` _[NVIPAMNode](#nvipamnode)_ | Node contains the configuration for the NVIPAM node component.<br />It contains the image for the node and its resource requirements. |  |  |
 
 
@@ -758,8 +758,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  | Optional: \{\} <br /> |
 
 
 #### NVIPAMNode
@@ -775,7 +775,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  | Optional: \{\} <br /> |
 
 
 #### Networking
@@ -791,8 +791,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `controlPlaneMTU` _integer_ | ControlPlaneMTU is the MTU value to be set on the management network.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br /> |
-| `highSpeedMTU` _integer_ | HighSpeedMTU is the MTU value to be set on the high-speed interface.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br /> |
+| `controlPlaneMTU` _integer_ | ControlPlaneMTU is the MTU value to be set on the management network.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br />Optional: \{\} <br /> |
+| `highSpeedMTU` _integer_ | HighSpeedMTU is the MTU value to be set on the high-speed interface.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br />Optional: \{\} <br /> |
 
 
 #### NodeProblemDetectorConfiguration
@@ -808,9 +808,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the node-problem-detector component.<br />It contains the image for node-problem-detector and its resource requirements. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
+| `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the node-problem-detector component.<br />It contains the image for node-problem-detector and its resource requirements. |  | Optional: \{\} <br /> |
 
 
 #### NodeSRIOVDevicePluginControllerConfiguration
@@ -828,10 +828,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 1 | Maximum: 3 <br />Minimum: 1 <br /> |
-| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the NodeSRIOVDevicePlugin controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
-| `devicePlugin` _[NodeSRIOVDevicePluginSettings](#nodesriovdevicepluginsettings)_ | DevicePlugin contains the configuration for the SRIOV device plugin pods<br />managed by this controller. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 1 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
+| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the NodeSRIOVDevicePlugin controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
+| `devicePlugin` _[NodeSRIOVDevicePluginSettings](#nodesriovdevicepluginsettings)_ | DevicePlugin contains the configuration for the SRIOV device plugin pods<br />managed by this controller. |  | Optional: \{\} <br /> |
 
 
 #### NodeSRIOVDevicePluginSettings
@@ -848,9 +848,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `image` _[Image](#image)_ | Image overrides the container image for the SRIOV device plugin. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `initImage` _[Image](#image)_ | InitImage overrides the container image for the init container<br />that generates device plugin configuration. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `defaultResourcePrefix` _string_ | DefaultResourcePrefix is the default resource prefix for the SRIOV device plugin resources.<br />Defaults to "nvidia.com". |  | Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br /> |
+| `image` _[Image](#image)_ | Image overrides the container image for the SRIOV device plugin. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `initImage` _[Image](#image)_ | InitImage overrides the container image for the init container<br />that generates device plugin configuration. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `defaultResourcePrefix` _string_ | DefaultResourcePrefix is the default resource prefix for the SRIOV device plugin resources.<br />Defaults to "nvidia.com". |  | Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br />Optional: \{\} <br /> |
 
 
 #### OVSCNIConfiguration
@@ -866,10 +866,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `image` _[Image](#image)_ | Image overrides the container image used by the OVS CNI.<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `cni` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `cni` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | CNI contains the configuration for the OVS CNI component.<br />It contains the image for the controller and its resource requirements. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
+| `image` _[Image](#image)_ | Image overrides the container image used by the OVS CNI.<br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `cni` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `cni` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | CNI contains the configuration for the OVS CNI component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 
 
 #### OpenTelemetryCollectorConfiguration
@@ -885,10 +885,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the opentelemetry-collector component.<br />It contains the image for opentelemetry-collector and its resource requirements. |  |  |
-| `endpoint` _string_ | Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends logs and metrics.<br />This could be the management cluster's opentelemetry-collector endpoint.<br />If not specified, logs will not be forwarded from DPU clusters. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
+| `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the opentelemetry-collector component.<br />It contains the image for opentelemetry-collector and its resource requirements. |  | Optional: \{\} <br /> |
+| `endpoint` _string_ | Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends logs and metrics.<br />This could be the management cluster's opentelemetry-collector endpoint.<br />If not specified, logs will not be forwarded from DPU clusters. |  | Optional: \{\} <br /> |
 
 
 #### Overrides
@@ -905,16 +905,16 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `paused` _boolean_ | Paused disables all reconciliation of the DPFOperatorConfig when set to true. |  |  |
-| `dpuCNIBinPath` _string_ | DPUCNIBinPath is the path at which the CNI binaries will be installed to on the DPU.<br />This is /opt/cni/bin by default.<br />This setting does not change where kubelet is configured to use the CNI from. |  |  |
-| `dpuCNIPath` _string_ | DPUCNIConfigPath is the path to which the CNI config files will be installed on the DPU.<br />This is /etc/cni/net.d by default.<br />This setting does not change where kubelet is configured to read the CNI config from. |  |  |
-| `dpuOpenvSwitchRunPath` _string_ | DPUOpenvSwitchPath is the path at which the openvSwitch run directory can be found on the DPU.<br />This is /var/run/openvswitch by default.<br />This setting does not change where components are installed. Installation location fixed in the BFB. |  |  |
-| `dpuOpenvSwitchBinPath` _string_ | DPUOpenvSwitchBinPath is the path at which the openvSwitch bin directory can be found on the DPU node.<br />This is /usr/bin/ by default.<br />This setting does not change where components are installed. Installation location fixed in the BFB. |  |  |
-| `dpuOpenvSwitchSystemSharedPath` _string_ | DPUOpenvSwitchSystemSharedLibPath is the path at which the system lib used by OVS components can be found on the DPU.<br />This is /lib by default.<br />This setting does not change where components are installed. Installation location fixed in the BFB. |  |  |
-| `flannelSkipCNIConfigInstallation` _boolean_ | FlannelSkipCNIConfigInstallation controls whether Flannel should skip CNI config installation.<br />This is true by default, meaning Flannel does not manage its own CNI configuration.<br />Set to false if you want Flannel to install a CNI configuration. |  |  |
-| `dpuOpenvSwitchSystemSharedLib64Path` _string_ | DPUOpenvSwitchSystemSharedLib64Path is the path at which the system lib64 used by OVS components can be found on the DPU.<br />If this field is not set, no lib64 volume mount will be configured in the SFC Controller component.<br />This setting does not change where components are installed. Installation location fixed in the BFB. |  | MinLength: 1 <br /> |
-| `kubernetesAPIServerVIP` _string_ | KubernetesAPIServerVIP is the VIP the Kubernetes API server is accessible at.<br />This setting enables specific underlying components deployed directly or indirectly by the DPF Operator to reach<br />the Kubernetes API Server when the ClusterIP Kubernetes Service is not functional.<br />If set, it should be set to an IP to ensure that components work even if DNS is not available in the cluster. |  |  |
-| `kubernetesAPIServerPort` _integer_ | KubernetesAPIServerPort is the port the Kubernetes API server is accessible at.<br />This setting is usually used together with the kubernetesAPIServerVIP setting. It enables specific underlying<br />components deployed directly or indirectly by the DPF Operator to reach the Kubernetes API Server when the<br />ClusterIP Kubernetes Service is not functional. |  |  |
+| `paused` _boolean_ | Paused disables all reconciliation of the DPFOperatorConfig when set to true. |  | Optional: \{\} <br /> |
+| `dpuCNIBinPath` _string_ | DPUCNIBinPath is the path at which the CNI binaries will be installed to on the DPU.<br />This is /opt/cni/bin by default.<br />This setting does not change where kubelet is configured to use the CNI from. |  | Optional: \{\} <br /> |
+| `dpuCNIPath` _string_ | DPUCNIConfigPath is the path to which the CNI config files will be installed on the DPU.<br />This is /etc/cni/net.d by default.<br />This setting does not change where kubelet is configured to read the CNI config from. |  | Optional: \{\} <br /> |
+| `dpuOpenvSwitchRunPath` _string_ | DPUOpenvSwitchPath is the path at which the openvSwitch run directory can be found on the DPU.<br />This is /var/run/openvswitch by default.<br />This setting does not change where components are installed. Installation location fixed in the BFB. |  | Optional: \{\} <br /> |
+| `dpuOpenvSwitchBinPath` _string_ | DPUOpenvSwitchBinPath is the path at which the openvSwitch bin directory can be found on the DPU node.<br />This is /usr/bin/ by default.<br />This setting does not change where components are installed. Installation location fixed in the BFB. |  | Optional: \{\} <br /> |
+| `dpuOpenvSwitchSystemSharedPath` _string_ | DPUOpenvSwitchSystemSharedLibPath is the path at which the system lib used by OVS components can be found on the DPU.<br />This is /lib by default.<br />This setting does not change where components are installed. Installation location fixed in the BFB. |  | Optional: \{\} <br /> |
+| `flannelSkipCNIConfigInstallation` _boolean_ | FlannelSkipCNIConfigInstallation controls whether Flannel should skip CNI config installation.<br />This is true by default, meaning Flannel does not manage its own CNI configuration.<br />Set to false if you want Flannel to install a CNI configuration. |  | Optional: \{\} <br /> |
+| `dpuOpenvSwitchSystemSharedLib64Path` _string_ | DPUOpenvSwitchSystemSharedLib64Path is the path at which the system lib64 used by OVS components can be found on the DPU.<br />If this field is not set, no lib64 volume mount will be configured in the SFC Controller component.<br />This setting does not change where components are installed. Installation location fixed in the BFB. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `kubernetesAPIServerVIP` _string_ | KubernetesAPIServerVIP is the VIP the Kubernetes API server is accessible at.<br />This setting enables specific underlying components deployed directly or indirectly by the DPF Operator to reach<br />the Kubernetes API Server when the ClusterIP Kubernetes Service is not functional.<br />If set, it should be set to an IP to ensure that components work even if DNS is not available in the cluster. |  | Optional: \{\} <br /> |
+| `kubernetesAPIServerPort` _integer_ | KubernetesAPIServerPort is the port the Kubernetes API server is accessible at.<br />This setting is usually used together with the kubernetesAPIServerVIP setting. It enables specific underlying<br />components deployed directly or indirectly by the DPF Operator to reach the Kubernetes API Server when the<br />ClusterIP Kubernetes Service is not functional. |  | Optional: \{\} <br /> |
 
 
 #### ProvisioningControllerConfiguration
@@ -930,23 +930,23 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 2 | Maximum: 3 <br />Minimum: 1 <br /> |
-| `image` _[Image](#image)_ | Image overrides the container image used by the Provisioning controller.<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Provisioning controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
-| `bfCFGTemplateConfigMap` _string_ | BFCFGTemplateConfigMap is the name of a configMap containing a template for the BF.cfg file used by the DPU controller.<br />By default the provisioning controller use a hardcoded BF.cfg e.g. https://github.com/NVIDIA/doca-platform/blob/release-v24.10/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template<br />Note: Replacing the bf.cfg is an advanced use case. The default bf.cfg is designed for most use cases.<br /><br />Deprecated: BFCFGTemplateConfigMap is deprecated and will be removed in a future release.<br />Use enableDynamicBFCFGTemplates instead for custom bf.cfg templates. |  |  |
-| `enableDynamicBFCFGTemplates` _boolean_ | EnableDynamicBFCFGTemplates enables runtime discovery of bf.cfg templates via ConfigMaps.<br />When enabled, the provisioning controller discovers ConfigMaps by matching labels for BFB<br />name/namespace and DPUCluster name/namespace. Mutually exclusive with bfCFGTemplateConfigMap. |  |  |
-| `bfbPVCName` _string_ | BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim used by dpf-provisioning-controller<br />If not provided, the controller will use local host storage (hostPath) |  |  |
-| `dmsTimeout` _integer_ | DMSTimeout is the max time in seconds within which a DMS API must respond, 0 is unlimited |  | Minimum: 1 <br /> |
-| `customCASecretName` _string_ | CustomCASecretName indicates the name of the Kubernetes secret object<br />which containing the custom CA certificate |  |  |
-| `installInterface` _[ProvisioningInstallInterface](#provisioninginstallinterface)_ | InstallInterface is the interface through which the BFB is installed |  |  |
-| `registry` _[RegistryConfiguration](#registryconfiguration)_ | Registry is the configuration for the BFB Registry |  |  |
-| `maxDPUParallelInstallations` _integer_ | MaxDPUParallelInstallations specifies the maximum number of DPUs that can be provisioned concurrently.<br />A DPU is removed from the concurrent provisioning count as soon as it finishes the "OS Installing" phase and<br />enters the "Rebooting" phase of its provisioning lifecycle. | 50 | Minimum: 1 <br /> |
-| `multiDPUOperationsSyncWaitTime` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | MultiDPUOperationsSyncWaitTime is the wait time between DPUs sync operations on the same node.<br />It would take effect only on DPUNode objects which contain more than one DPU. | 30s | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br /> |
-| `maxUnavailableDPUNodes` _integer_ | MaxUnavailableDPUNodes is the maximum number of DPUNodes that are unavailable during the node effect period. | 50 | Minimum: 1 <br /> |
-| `osInstallTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.<br />If the installation exceeds this timeout, the DPU will transition to an error state. | 45m | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br /> |
-| `nodeEffectRemovalTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.<br />If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state. | 30m | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br /> |
-| `hostAgentDNSPolicy` _[DNSPolicy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#dnspolicy-v1-core)_ | HostAgentDNSPolicy sets the DNS policy for the hostagent pod.<br />Valid values are 'ClusterFirstWithHostNet', 'ClusterFirst', 'Default' or 'None'.<br />Defaults to 'ClusterFirstWithHostNet'. |  | Enum: [ClusterFirstWithHostNet ClusterFirst Default None] <br /> |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 2 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
+| `image` _[Image](#image)_ | Image overrides the container image used by the Provisioning controller.<br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Provisioning controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
+| `bfCFGTemplateConfigMap` _string_ | BFCFGTemplateConfigMap is the name of a configMap containing a template for the BF.cfg file used by the DPU controller.<br />By default the provisioning controller use a hardcoded BF.cfg e.g. https://github.com/NVIDIA/doca-platform/blob/release-v24.10/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template<br />Note: Replacing the bf.cfg is an advanced use case. The default bf.cfg is designed for most use cases.<br />Deprecated: BFCFGTemplateConfigMap is deprecated and will be removed in a future release.<br />Use enableDynamicBFCFGTemplates instead for custom bf.cfg templates. |  | Optional: \{\} <br /> |
+| `enableDynamicBFCFGTemplates` _boolean_ | EnableDynamicBFCFGTemplates enables runtime discovery of bf.cfg templates via ConfigMaps.<br />When enabled, the provisioning controller discovers ConfigMaps by matching labels for BFB<br />name/namespace and DPUCluster name/namespace. Mutually exclusive with bfCFGTemplateConfigMap. |  | Optional: \{\} <br /> |
+| `bfbPVCName` _string_ | BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim used by dpf-provisioning-controller<br />If not provided, the controller will use local host storage (hostPath) |  | Optional: \{\} <br /> |
+| `dmsTimeout` _integer_ | DMSTimeout is the max time in seconds within which a DMS API must respond, 0 is unlimited |  | Minimum: 1 <br />Optional: \{\} <br /> |
+| `customCASecretName` _string_ | CustomCASecretName indicates the name of the Kubernetes secret object<br />which containing the custom CA certificate |  | Optional: \{\} <br /> |
+| `installInterface` _[ProvisioningInstallInterface](#provisioninginstallinterface)_ | InstallInterface is the interface through which the BFB is installed |  | Optional: \{\} <br /> |
+| `registry` _[RegistryConfiguration](#registryconfiguration)_ | Registry is the configuration for the BFB Registry |  | Optional: \{\} <br /> |
+| `maxDPUParallelInstallations` _integer_ | MaxDPUParallelInstallations specifies the maximum number of DPUs that can be provisioned concurrently.<br />A DPU is removed from the concurrent provisioning count as soon as it finishes the "OS Installing" phase and<br />enters the "Rebooting" phase of its provisioning lifecycle. | 50 | Minimum: 1 <br />Optional: \{\} <br /> |
+| `multiDPUOperationsSyncWaitTime` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | MultiDPUOperationsSyncWaitTime is the wait time between DPUs sync operations on the same node.<br />It would take effect only on DPUNode objects which contain more than one DPU. | 30s | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br />Optional: \{\} <br /> |
+| `maxUnavailableDPUNodes` _integer_ | MaxUnavailableDPUNodes is the maximum number of DPUNodes that are unavailable during the node effect period. | 50 | Minimum: 1 <br />Optional: \{\} <br /> |
+| `osInstallTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.<br />If the installation exceeds this timeout, the DPU will transition to an error state. | 45m | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br />Optional: \{\} <br /> |
+| `nodeEffectRemovalTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.<br />If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state. | 30m | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br />Optional: \{\} <br /> |
+| `hostAgentDNSPolicy` _[DNSPolicy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#dnspolicy-v1-core)_ | HostAgentDNSPolicy sets the DNS policy for the hostagent pod.<br />Valid values are 'ClusterFirstWithHostNet', 'ClusterFirst', 'Default' or 'None'.<br />Defaults to 'ClusterFirstWithHostNet'. |  | Enum: [ClusterFirstWithHostNet ClusterFirst Default None] <br />Optional: \{\} <br /> |
 
 
 #### ProvisioningInstallInterface
@@ -962,9 +962,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `installViaGNOI` _[InstallViaGNOI](#installviagnoi)_ | InstallViaGNOI is the interface used to install the BFB via GNOI<br /><br />Deprecated: Use InstallViaHostAgent instead. |  |  |
-| `installViaHostAgent` _[InstallViaHostAgent](#installviahostagent)_ | InstallViaHostAgent is the interface used to install the BFB via HostAgent |  |  |
-| `installViaRedfish` _[InstallViaRedfish](#installviaredfish)_ | InstallViaRedfish is the interface used to install the BFB via Redfish |  |  |
+| `installViaGNOI` _[InstallViaGNOI](#installviagnoi)_ | InstallViaGNOI is the interface used to install the BFB via GNOI<br />Deprecated: Use InstallViaHostAgent instead. |  | Optional: \{\} <br /> |
+| `installViaHostAgent` _[InstallViaHostAgent](#installviahostagent)_ | InstallViaHostAgent is the interface used to install the BFB via HostAgent |  | Optional: \{\} <br /> |
+| `installViaRedfish` _[InstallViaRedfish](#installviaredfish)_ | InstallViaRedfish is the interface used to install the BFB via Redfish |  | Optional: \{\} <br /> |
 
 
 #### RegistryConfiguration
@@ -980,8 +980,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `address` _string_ | Address is the address used to access the BFB Registry. The address must start with "http://".<br />By default, the BFB Registry can be accessed via its Service.<br />For non-kubernetes environments, this must be set due to the lack of kubelet on worker nodes.<br />For zero-trust environments, this must be set so that the BFB Registry can be accessed from DPU BMC. |  | Pattern: `^http://` <br /> |
-| `port` _integer_ | Port is the port on which the registry instances will listen |  | Maximum: 65535 <br />Minimum: 1 <br /> |
+| `address` _string_ | Address is the address used to access the BFB Registry. The address must start with "http://".<br />By default, the BFB Registry can be accessed via its Service.<br />For non-kubernetes environments, this must be set due to the lack of kubelet on worker nodes.<br />For zero-trust environments, this must be set so that the BFB Registry can be accessed from DPU BMC. |  | Pattern: `^http://` <br />Optional: \{\} <br /> |
+| `port` _integer_ | Port is the port on which the registry instances will listen |  | Maximum: 65535 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 
 
 #### ResourceComponentConfig
@@ -1000,7 +1000,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  |  |
+| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  | Optional: \{\} <br /> |
 
 
 #### ResourceRequirements
@@ -1037,8 +1037,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `cpu` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#quantity-resource-api)_ | CPU is the amount of CPU requested by the component. |  |  |
-| `memory` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#quantity-resource-api)_ | Memory is the amount of Memory requested by the component. |  |  |
+| `cpu` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#quantity-resource-api)_ | CPU is the amount of CPU requested by the component. |  | Optional: \{\} <br /> |
+| `memory` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#quantity-resource-api)_ | Memory is the amount of Memory requested by the component. |  | Optional: \{\} <br /> |
 
 
 
@@ -1056,11 +1056,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `image` _[Image](#image)_ | Image overrides the container image used by the SFC controller.<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the SFC controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
-| `secureFlowDeletionTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | SecureFlowDeletionTimeout controls the timeout for which the API server is unreachable after which all the flows<br />are deleted to prevent unintended packet leaks. It has effect when is greater than zero.<br />Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
+| `image` _[Image](#image)_ | Image overrides the container image used by the SFC controller.<br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the SFC controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
+| `secureFlowDeletionTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | SecureFlowDeletionTimeout controls the timeout for which the API server is unreachable after which all the flows<br />are deleted to prevent unintended packet leaks. It has effect when is greater than zero.<br />Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration. |  | Optional: \{\} <br /> |
 
 
 #### SRIOVDevicePluginConfiguration
@@ -1076,10 +1076,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `image` _[Image](#image)_ | Image overrides the container image used by the SRIOV Device Plugin container.<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `deviceplugin` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `deviceplugin` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | DevicePlugin contains the configuration for the SRIOV Device Plugin component.<br />It contains the image for the controller and its resource requirements. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
+| `image` _[Image](#image)_ | Image overrides the container image used by the SRIOV Device Plugin container.<br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `deviceplugin` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `deviceplugin` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | DevicePlugin contains the configuration for the SRIOV Device Plugin component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 
 
 #### ServiceSetControllerConfiguration
@@ -1095,11 +1095,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 1 | Maximum: 3 <br />Minimum: 1 <br /> |
-| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `image` _[Image](#image)_ | Image overrides the container image used by the ServiceChainSet Controller.<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the ServiceChainSet controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 1 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
+| `image` _[Image](#image)_ | Image overrides the container image used by the ServiceChainSet Controller.<br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the ServiceChainSet controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 
 
 #### StaticClusterManagerConfiguration
@@ -1115,10 +1115,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  |  |
-| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 1 | Maximum: 3 <br />Minimum: 1 <br /> |
-| `image` _[Image](#image)_ | Image overrides the container image used by the Static Cluster Manager.<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br /> |
-| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Static Cluster Manager controller component.<br />It contains the image for the controller and its resource requirements. |  |  |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 1 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
+| `image` _[Image](#image)_ | Image overrides the container image used by the Static Cluster Manager.<br />Deprecated: This field is deprecated and will be removed with v26.4.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Static Cluster Manager controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 
 
 
@@ -1164,13 +1164,13 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `taint` _[Taint](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#taint-v1-core)_ | Add specify taint on the DPU node |  |  |
-| `noEffect` _boolean_ | Do not do any action on the DPU node |  |  |
-| `customLabel` _object (keys:string, values:string)_ | Add specify labels on the DPU node |  |  |
-| `drain` _boolean_ | Drain the K8s host node by NodeMaintenance operator |  |  |
-| `customAction` _string_ | Name of a config map which contains a pod yaml definition to run which will apply the nodeEffect.<br />The pod is expected to exit when node effect is done, if pod terminates with error then DPU would move to an error phase.<br />The DPUNode's name will be exported as an environment variable, named as DPUNODE_NAME, to each container and init container in the pod.<br />The labels and annotations of DPUNode will be exported in `/etc/dpu/dpf-pod-info/labels` and `/etc/dpu/dpf-pod-info/annotations` accordingly; the volume name `dpf-pod-info` is used to mount the labels and annotations.<br />If any name confliction for env or volume, the controller will not export the name or labels/annotations of DPUNode accordingly. |  |  |
-| `hold` _boolean_ | Places annotation `wait-for-external-nodeeffect` and waits for it to be removed<br />this is the default behavior in a non K8S environment |  |  |
-| `force` _boolean_ | Force is the flag to indicate if the node effect should be applied immediately.<br />If true, dpfOperatorConfig.multiDPUOperationsSyncWaitTime and dpfOperatorConfig.maxUnavailableDPUNodes will be ignored when applying node effect for DPUNodeMaintenance CR | false |  |
+| `taint` _[Taint](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#taint-v1-core)_ | Add specify taint on the DPU node |  | Optional: \{\} <br /> |
+| `noEffect` _boolean_ | Do not do any action on the DPU node |  | Optional: \{\} <br /> |
+| `customLabel` _object (keys:string, values:string)_ | Add specify labels on the DPU node |  | Optional: \{\} <br /> |
+| `drain` _boolean_ | Drain the K8s host node by NodeMaintenance operator |  | Optional: \{\} <br /> |
+| `customAction` _string_ | Name of a config map which contains a pod yaml definition to run which will apply the nodeEffect.<br />The pod is expected to exit when node effect is done, if pod terminates with error then DPU would move to an error phase.<br />The DPUNode's name will be exported as an environment variable, named as DPUNODE_NAME, to each container and init container in the pod.<br />The labels and annotations of DPUNode will be exported in `/etc/dpu/dpf-pod-info/labels` and `/etc/dpu/dpf-pod-info/annotations` accordingly; the volume name `dpf-pod-info` is used to mount the labels and annotations.<br />If any name confliction for env or volume, the controller will not export the name or labels/annotations of DPUNode accordingly. |  | Optional: \{\} <br /> |
+| `hold` _boolean_ | Places annotation `wait-for-external-nodeeffect` and waits for it to be removed<br />this is the default behavior in a non K8S environment |  | Optional: \{\} <br /> |
+| `force` _boolean_ | Force is the flag to indicate if the node effect should be applied immediately.<br />If true, dpfOperatorConfig.multiDPUOperationsSyncWaitTime and dpfOperatorConfig.maxUnavailableDPUNodes will be ignored when applying node effect for DPUNodeMaintenance CR | false | Optional: \{\} <br /> |
 
 
 #### AgentStatus
@@ -1186,10 +1186,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `lastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastStartupTime is the time when the DPU was last started |  |  |
+| `lastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastStartupTime is the time when the DPU was last started |  | Optional: \{\} <br /> |
 | `initialBootID` _string_ | InitialBootID is the boot ID of the DPU OS during the first boot |  |  |
-| `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the type of reset/reboot set by the DPU agent<br />See enum values in RebootMethodType.<br />No default is set intentionally: nil means "check not run or not applicable"<br />(e.g. legacy flow, or agent has not run the check yet);<br />a non-nil value means the check ran and this is the result. |  | Enum: [NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset] <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  |  |
+| `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the type of reset/reboot set by the DPU agent<br />See enum values in RebootMethodType.<br />No default is set intentionally: nil means "check not run or not applicable"<br />(e.g. legacy flow, or agent has not run the check yet);<br />a non-nil value means the check ran and this is the result. |  | Enum: [NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset] <br />Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  | Optional: \{\} <br /> |
 
 
 #### BFB
@@ -1209,7 +1209,7 @@ _Appears in:_
 | `kind` _string_ | `BFB` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[BFBSpec](#bfbspec)_ |  |  |  |
-| `status` _[BFBStatus](#bfbstatus)_ |  | \{ phase:Initializing \} |  |
+| `status` _[BFBStatus](#bfbstatus)_ |  | \{ phase:Initializing \} | Optional: \{\} <br /> |
 
 
 #### BFBList
@@ -1282,9 +1282,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `fileName` _string_ | Specifies the file name where the BFB is downloaded on the volume. |  | Pattern: `^[A-Za-z0-9\_\-\.]+\.bfb$` <br /> |
-| `url` _string_ | The url of the bfb image to download. |  | Pattern: `^(http\|https)://.+$` <br /> |
-| `versions` _[BFBVersions](#bfbversions)_ | Optionally specify BFB component versions. When set, these versions are<br />used directly in status instead of being extracted from the BFB file.<br />If set, all four fields (BSP, DOCA, UEFI, ATF) must be provided. |  |  |
+| `fileName` _string_ | Specifies the file name where the BFB is downloaded on the volume. |  | Pattern: `^[A-Za-z0-9\_\-\.]+\.bfb$` <br />Optional: \{\} <br /> |
+| `url` _string_ | The url of the bfb image to download. |  | Pattern: `^(http\|https)://.+$` <br />Required: \{\} <br /> |
+| `versions` _[BFBVersions](#bfbversions)_ | Optionally specify BFB component versions. When set, these versions are<br />used directly in status instead of being extracted from the BFB file.<br />If set, all four fields (BSP, DOCA, UEFI, ATF) must be provided. |  | Optional: \{\} <br /> |
 
 
 #### BFBStatus
@@ -1301,10 +1301,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `fileName` _string_ | Filename is the name of the file where the BFB can be accessed on its volume.<br />This is the same as `.spec.Filename` if set. |  |  |
-| `phase` _[BFBPhase](#bfbphase)_ | The current state of BFB. | Initializing | Enum: [Initializing Downloading Ready Deleting Error] <br /> |
-| `versions` _[BFBVersions](#bfbversions)_ | BFB versions - BSP, DOCA, UEFI and ATF<br />Holds detailed version information for each component within the BFB |  |  |
+| `phase` _[BFBPhase](#bfbphase)_ | The current state of BFB. | Initializing | Enum: [Initializing Downloading Ready Deleting Error] <br />Required: \{\} <br /> |
+| `versions` _[BFBVersions](#bfbversions)_ | BFB versions - BSP, DOCA, UEFI and ATF<br />Holds detailed version information for each component within the BFB |  | Optional: \{\} <br /> |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represent the latest available observations of BFB state |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represent the latest available observations of BFB state |  | Optional: \{\} <br /> |
 
 
 #### BFBVersions
@@ -1321,10 +1321,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `bsp` _string_ | BSP (Board Support Package) version.<br />This field stores the version of the BSP, which provides essential<br />support and drivers for the hardware platform. |  |  |
-| `doca` _string_ | DOCA version<br />Specifies the version of NVIDIA's Data Center-on-a-Chip Architecture (DOCA),<br />a platform for developing applications on DPUs |  |  |
-| `uefi` _string_ | UEFI (Unified Extensible Firmware Interface) version.<br />Indicates the UEFI firmware version, which is responsible for booting<br />the operating system and initializing hardware components |  |  |
-| `atf` _string_ | ATF (Arm Trusted Firmware) version.<br />Contains the version of ATF, which provides a secure runtime environment |  |  |
+| `bsp` _string_ | BSP (Board Support Package) version.<br />This field stores the version of the BSP, which provides essential<br />support and drivers for the hardware platform. |  | Optional: \{\} <br /> |
+| `doca` _string_ | DOCA version<br />Specifies the version of NVIDIA's Data Center-on-a-Chip Architecture (DOCA),<br />a platform for developing applications on DPUs |  | Optional: \{\} <br /> |
+| `uefi` _string_ | UEFI (Unified Extensible Firmware Interface) version.<br />Indicates the UEFI firmware version, which is responsible for booting<br />the operating system and initializing hardware components |  | Optional: \{\} <br /> |
+| `atf` _string_ | ATF (Arm Trusted Firmware) version.<br />Contains the version of ATF, which provides a secure runtime environment |  | Optional: \{\} <br /> |
 
 
 #### BlueFieldSoftware
@@ -1344,7 +1344,7 @@ _Appears in:_
 | `kind` _string_ | `BlueFieldSoftware` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[BlueFieldSpec](#bluefieldspec)_ |  |  |  |
-| `status` _[BlueFieldSoftwareStatus](#bluefieldsoftwarestatus)_ |  | \{ phase:Initializing \} |  |
+| `status` _[BlueFieldSoftwareStatus](#bluefieldsoftwarestatus)_ |  | \{ phase:Initializing \} | Optional: \{\} <br /> |
 
 
 #### BlueFieldSoftwareList
@@ -1401,11 +1401,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `phase` _[BlueFieldSoftwarePhase](#bluefieldsoftwarephase)_ | The current state of BlueFieldSoftware. | Initializing | Enum: [Initializing Downloading Ready Deleting Error] <br /> |
-| `versions` _[BluefieldSoftwareVersions](#bluefieldsoftwareversions)_ | Versions tracks the versions of the components |  |  |
-| `downloadedComponents` _[DownloadedComponents](#downloadedcomponents)_ | DownloadedComponents tracks which components have been successfully downloaded |  |  |
+| `phase` _[BlueFieldSoftwarePhase](#bluefieldsoftwarephase)_ | The current state of BlueFieldSoftware. | Initializing | Enum: [Initializing Downloading Ready Deleting Error] <br />Required: \{\} <br /> |
+| `versions` _[BluefieldSoftwareVersions](#bluefieldsoftwareversions)_ | Versions tracks the versions of the components |  | Optional: \{\} <br /> |
+| `downloadedComponents` _[DownloadedComponents](#downloadedcomponents)_ | DownloadedComponents tracks which components have been successfully downloaded |  | Optional: \{\} <br /> |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represent the latest available observations of BlueFieldSoftware state |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represent the latest available observations of BlueFieldSoftware state |  | Optional: \{\} <br /> |
 
 
 #### BlueFieldSpec
@@ -1421,9 +1421,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `pldmFwBundle` _string_ |  |  |  |
-| `osIso` _string_ |  |  |  |
-| `tmpFwComponents` _[TmpFwComponents](#tmpfwcomponents)_ |  |  |  |
+| `pldmFwBundle` _string_ |  |  | Optional: \{\} <br /> |
+| `osIso` _string_ |  |  | Optional: \{\} <br /> |
+| `tmpFwComponents` _[TmpFwComponents](#tmpfwcomponents)_ |  |  | Optional: \{\} <br /> |
 
 
 #### BluefieldSoftwareVersions
@@ -1457,7 +1457,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `keepalived` _[KeepalivedSpec](#keepalivedspec)_ | Keepalived configures the keepalived that will be deployed for the cluster control-plane |  |  |
+| `keepalived` _[KeepalivedSpec](#keepalivedspec)_ | Keepalived configures the keepalived that will be deployed for the cluster control-plane |  | Optional: \{\} <br /> |
 
 
 #### ClusterPhase
@@ -1497,8 +1497,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeLabels` _object (keys:string, values:string)_ | NodeLabels specifies the labels to be added to the node. |  |  |
-| `selector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Selector defines the selector of the DPUClusters the produced DPUs should join |  |  |
+| `nodeLabels` _object (keys:string, values:string)_ | NodeLabels specifies the labels to be added to the node. |  | Optional: \{\} <br /> |
+| `selector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Selector defines the selector of the DPUClusters the produced DPUs should join |  | Optional: \{\} <br /> |
 
 
 
@@ -1518,10 +1518,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `path` _string_ | Path is the path of the file to be written. |  |  |
-| `operation` _[DPUFlavorFileOp](#dpuflavorfileop)_ | Operation is the operation to be performed on the file. |  | Enum: [override append] <br /> |
-| `raw` _string_ | Raw is the raw content of the file. |  |  |
-| `permissions` _string_ | Permissions are the permissions to be set on the file. |  |  |
+| `path` _string_ | Path is the path of the file to be written. |  | Optional: \{\} <br /> |
+| `operation` _[DPUFlavorFileOp](#dpuflavorfileop)_ | Operation is the operation to be performed on the file. |  | Enum: [override append] <br />Optional: \{\} <br /> |
+| `raw` _string_ | Raw is the raw content of the file. |  | Optional: \{\} <br /> |
+| `permissions` _string_ | Permissions are the permissions to be set on the file. |  | Optional: \{\} <br /> |
 
 
 #### ContainerdConfig
@@ -1537,7 +1537,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `registryEndpoint` _string_ | RegistryEndpoint is the endpoint of the container registry. |  |  |
+| `registryEndpoint` _string_ | RegistryEndpoint is the endpoint of the container registry. |  | Optional: \{\} <br /> |
 
 
 #### DMSAddress
@@ -1574,7 +1574,7 @@ _Appears in:_
 | `kind` _string_ | `DPU` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[DPUSpec](#dpuspec)_ |  |  |  |
-| `status` _[DPUStatus](#dpustatus)_ |  | \{ phase:Initializing \} |  |
+| `status` _[DPUStatus](#dpustatus)_ |  | \{ phase:Initializing \} | Optional: \{\} <br /> |
 
 
 #### DPUCluster
@@ -1593,8 +1593,8 @@ _Appears in:_
 | `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `DPUCluster` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `spec` _[DPUClusterSpec](#dpuclusterspec)_ |  |  |  |
-| `status` _[DPUClusterStatus](#dpuclusterstatus)_ |  | \{ phase:Pending \} |  |
+| `spec` _[DPUClusterSpec](#dpuclusterspec)_ |  |  | Required: \{\} <br /> |
+| `status` _[DPUClusterStatus](#dpuclusterstatus)_ |  | \{ phase:Pending \} | Optional: \{\} <br /> |
 
 
 #### DPUClusterList
@@ -1628,10 +1628,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `type` _string_ | Type of the cluster with few supported values<br />static - existing cluster that is deployed by user. For DPUCluster of this type, the kubeconfig field must be set.<br />kamaji - DPF managed cluster. The kamaji-cluster-manager will create a DPU cluster on behalf of this CR.<br />$(others) - any string defined by ISVs, such type names must start with a prefix. |  | Pattern: `kamaji\|static\|[^/]+/.*` <br /> |
-| `maxNodes` _integer_ | MaxNodes is the max amount of node in the cluster | 1000 | Maximum: 1000 <br />Minimum: 1 <br /> |
-| `kubeconfig` _string_ | Kubeconfig is the secret that contains the admin kubeconfig |  |  |
-| `clusterEndpoint` _[ClusterEndpointSpec](#clusterendpointspec)_ | ClusterEndpoint contains configurations of the cluster entry point |  |  |
+| `type` _string_ | Type of the cluster with few supported values<br />static - existing cluster that is deployed by user. For DPUCluster of this type, the kubeconfig field must be set.<br />kamaji - DPF managed cluster. The kamaji-cluster-manager will create a DPU cluster on behalf of this CR.<br />$(others) - any string defined by ISVs, such type names must start with a prefix. |  | Pattern: `kamaji\|static\|[^/]+/.*` <br />Required: \{\} <br /> |
+| `maxNodes` _integer_ | MaxNodes is the max amount of node in the cluster | 1000 | Maximum: 1000 <br />Minimum: 1 <br />Optional: \{\} <br /> |
+| `kubeconfig` _string_ | Kubeconfig is the secret that contains the admin kubeconfig |  | Optional: \{\} <br /> |
+| `clusterEndpoint` _[ClusterEndpointSpec](#clusterendpointspec)_ | ClusterEndpoint contains configurations of the cluster entry point |  | Optional: \{\} <br /> |
 
 
 #### DPUClusterStatus
@@ -1648,9 +1648,9 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `phase` _[ClusterPhase](#clusterphase)_ |  | Pending | Enum: [Pending Creating Ready NotReady Failed] <br /> |
-| `version` _string_ | Version is the K8s control-plane version of the cluster |  |  |
-| `nodesCount` _integer_ | NodesCount is the number of DPUs assigned to the cluster |  | Minimum: 0 <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  |  |
+| `version` _string_ | Version is the K8s control-plane version of the cluster |  | Optional: \{\} <br /> |
+| `nodesCount` _integer_ | NodesCount is the number of DPUs assigned to the cluster |  | Minimum: 0 <br />Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  | Optional: \{\} <br /> |
 
 
 
@@ -1708,13 +1708,13 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `psid` _string_ | PSID is the Product Serial ID of the device.<br />It's used to track the device's lifecycle and for inventory management.<br />This value is immutable and should not be changed once set.<br />Example: "MT_0001234567", "MT25066004C7"<br /><br />Deprecated: This field is deprecated and will be removed in a future version. Use status.psid instead. |  | Pattern: `^MT_?[A-Z0-9]+$` <br /> |
-| `serialNumber` _string_ | SerialNumber is the serial number of the device.<br />It's used to track the device's lifecycle and for inventory management.<br />This value is immutable and should not be changed once set.<br />Example: "MT_0001234567", "MT25066004C7" |  | MinLength: 1 <br /> |
-| `opn` _string_ | OPN is the Ordering Part Number of the device.<br />It's used to track the device's compatibility with different software versions.<br />This value is immutable and should not be changed once set.<br />Example: "900-9D3B4-00SV-EA0"<br /><br />Deprecated: This field is deprecated and will be removed in a future version. Use status.opn instead. |  | Pattern: `^\d\{3\}-[A-Z0-9]\{5\}-[A-Z0-9]\{4\}-[A-Z0-9]\{3\}$` <br /> |
-| `bmcIp` _string_ | BMCIP is the IP address of the BMC (Base Management Controller) on the device.<br />This is used for remote management and monitoring of the device.<br />This value is immutable and should not be changed once set.<br />Example: "10.1.2.3" |  | Format: ipv4 <br /> |
-| `bmcPort` _integer_ | BMCPort is the port number of the BMC (Base Management Controller) on the device.<br />This is used for remote management and monitoring of the device.<br />This value is immutable and should not be changed once set.<br />Example: 443 | 443 | Minimum: 1 <br /> |
-| `numberOfPFs` _integer_ | NumberOfPFs is the number of PFs on the device.<br />This value is immutable and should not be changed once set.<br />Example: 1 | 1 | Minimum: 1 <br /> |
-| `pf0Name` _string_ | PF0Name is the name of the PF0 on the device.<br />This value is immutable and should not be changed once set.<br />Example: "eth0"<br /><br />Deprecated: This field is deprecated and will be removed in a future version. Use status.pf0Name instead. |  |  |
+| `psid` _string_ | PSID is the Product Serial ID of the device.<br />It's used to track the device's lifecycle and for inventory management.<br />This value is immutable and should not be changed once set.<br />Example: "MT_0001234567", "MT25066004C7"<br />Deprecated: This field is deprecated and will be removed in a future version. Use status.psid instead. |  | Pattern: `^MT_?[A-Z0-9]+$` <br />Optional: \{\} <br /> |
+| `serialNumber` _string_ | SerialNumber is the serial number of the device.<br />It's used to track the device's lifecycle and for inventory management.<br />This value is immutable and should not be changed once set.<br />Example: "MT_0001234567", "MT25066004C7" |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `opn` _string_ | OPN is the Ordering Part Number of the device.<br />It's used to track the device's compatibility with different software versions.<br />This value is immutable and should not be changed once set.<br />Example: "900-9D3B4-00SV-EA0"<br />Deprecated: This field is deprecated and will be removed in a future version. Use status.opn instead. |  | Pattern: `^\d\{3\}-[A-Z0-9]\{5\}-[A-Z0-9]\{4\}-[A-Z0-9]\{3\}$` <br />Optional: \{\} <br /> |
+| `bmcIp` _string_ | BMCIP is the IP address of the BMC (Base Management Controller) on the device.<br />This is used for remote management and monitoring of the device.<br />This value is immutable and should not be changed once set.<br />Example: "10.1.2.3" |  | Format: ipv4 <br />Optional: \{\} <br /> |
+| `bmcPort` _integer_ | BMCPort is the port number of the BMC (Base Management Controller) on the device.<br />This is used for remote management and monitoring of the device.<br />This value is immutable and should not be changed once set.<br />Example: 443 | 443 | Minimum: 1 <br />Optional: \{\} <br /> |
+| `numberOfPFs` _integer_ | NumberOfPFs is the number of PFs on the device.<br />This value is immutable and should not be changed once set.<br />Example: 1 | 1 | Minimum: 1 <br />Optional: \{\} <br /> |
+| `pf0Name` _string_ | PF0Name is the name of the PF0 on the device.<br />This value is immutable and should not be changed once set.<br />Example: "eth0"<br />Deprecated: This field is deprecated and will be removed in a future version. Use status.pf0Name instead. |  | Optional: \{\} <br /> |
 
 
 #### DPUDeviceStatus
@@ -1730,18 +1730,18 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `psid` _string_ | PSID is the Product Serial ID of the device.<br />It's used to track the device's lifecycle and for inventory management.<br />This value is discovered and should not be changed once set.<br />Example: "MT_0001234567", "MT25066004C7" |  | Pattern: `^MT_?[A-Z0-9]+$` <br /> |
-| `serialNumber` _string_ | SerialNumber is the serial number of the device.<br />It's used to track the device's lifecycle and for inventory management.<br />This value is discovered and should not be changed once set.<br />Example: "MT_0001234567", "MT25066004C7" |  |  |
-| `opn` _string_ | OPN is the Ordering Part Number of the device.<br />It's used to track the device's compatibility with different software versions.<br />This value is discovered and should not be changed once set.<br />Example: "900-9D3B4-00SV-EA0" |  |  |
-| `bmcIp` _string_ | BMCIP is the IP address of the BMC (Base Management Controller) on the device.<br />This is used for remote management and monitoring of the device.<br />This value is discovered and should not be changed once set.<br />Example: "10.1.2.3" |  | Format: ipv4 <br /> |
-| `bmcPort` _integer_ | BMCPort is the port number of the BMC (Base Management Controller) on the device.<br />This is used for remote management and monitoring of the device.<br />This value is immutable and should not be changed once set.<br />Example: 443 | 443 | Minimum: 1 <br /> |
-| `pciAddress` _string_ | PCIAddress is the PCI address of the device in the host system.<br />Example: "0000-03-00", "03-00" |  |  |
-| `pf0Name` _string_ | PF0Name is the name of the PF0 on the device.<br />Example: "eth0" |  |  |
-| `pf0Mac` _string_ | PF0MAC is the MAC address of the PF0 on the device.<br />Example: "00:00:00:00:00:00" |  | Pattern: `^([0-9A-Fa-f]\{2\}[:-])\{5\}([0-9A-Fa-f]\{2\})$` <br /> |
-| `dpuType` _[DPUType](#dputype)_ | DPUType is the type of the DPU. | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br /> |
-| `dpuMode` _[DpuModeType](#dpumodetype)_ | DPUMode is the mode of the DPU. | dpu | Enum: [dpu nic] <br /> |
-| `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  |  |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  |  |
+| `psid` _string_ | PSID is the Product Serial ID of the device.<br />It's used to track the device's lifecycle and for inventory management.<br />This value is discovered and should not be changed once set.<br />Example: "MT_0001234567", "MT25066004C7" |  | Pattern: `^MT_?[A-Z0-9]+$` <br />Optional: \{\} <br /> |
+| `serialNumber` _string_ | SerialNumber is the serial number of the device.<br />It's used to track the device's lifecycle and for inventory management.<br />This value is discovered and should not be changed once set.<br />Example: "MT_0001234567", "MT25066004C7" |  | Optional: \{\} <br /> |
+| `opn` _string_ | OPN is the Ordering Part Number of the device.<br />It's used to track the device's compatibility with different software versions.<br />This value is discovered and should not be changed once set.<br />Example: "900-9D3B4-00SV-EA0" |  | Optional: \{\} <br /> |
+| `bmcIp` _string_ | BMCIP is the IP address of the BMC (Base Management Controller) on the device.<br />This is used for remote management and monitoring of the device.<br />This value is discovered and should not be changed once set.<br />Example: "10.1.2.3" |  | Format: ipv4 <br />Optional: \{\} <br /> |
+| `bmcPort` _integer_ | BMCPort is the port number of the BMC (Base Management Controller) on the device.<br />This is used for remote management and monitoring of the device.<br />This value is immutable and should not be changed once set.<br />Example: 443 | 443 | Minimum: 1 <br />Optional: \{\} <br /> |
+| `pciAddress` _string_ | PCIAddress is the PCI address of the device in the host system.<br />Example: "0000-03-00", "03-00" |  | Optional: \{\} <br /> |
+| `pf0Name` _string_ | PF0Name is the name of the PF0 on the device.<br />Example: "eth0" |  | Optional: \{\} <br /> |
+| `pf0Mac` _string_ | PF0MAC is the MAC address of the PF0 on the device.<br />Example: "00:00:00:00:00:00" |  | Pattern: `^([0-9A-Fa-f]\{2\}[:-])\{5\}([0-9A-Fa-f]\{2\})$` <br />Optional: \{\} <br /> |
+| `dpuType` _[DPUType](#dputype)_ | DPUType is the type of the DPU. | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br />Optional: \{\} <br /> |
+| `dpuMode` _[DpuModeType](#dpumodetype)_ | DPUMode is the mode of the DPU. | dpu | Enum: [dpu nic] <br />Optional: \{\} <br /> |
+| `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  | Optional: \{\} <br /> |
 
 
 #### DPUDiscovery
@@ -1797,7 +1797,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `ipRangeSpec` _[IPRangeValidationSpec](#iprangevalidationspec)_ | IPRange defines the range of IP addresses to scan |  |  |
 | `scanInterval` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | ScanInterval defines how often to perform the scan | 1h |  |
-| `workers` _integer_ | Workers defines the number of workers to use for the scan (default 1 worker for each 255 IPs in the range) |  |  |
+| `workers` _integer_ | Workers defines the number of workers to use for the scan (default 1 worker for each 255 IPs in the range) |  | Optional: \{\} <br /> |
 
 
 #### DPUDiscoveryStatus
@@ -1830,7 +1830,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `parameters` _string array_ | Parameters are the sysctl parameters to be set. |  |  |
+| `parameters` _string array_ | Parameters are the sysctl parameters to be set. |  | Optional: \{\} <br /> |
 
 
 #### DPUFlavor
@@ -1883,7 +1883,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `kernelParameters` _string array_ | KernelParameters are the kernel parameters to be set in the grub configuration. |  |  |
+| `kernelParameters` _string array_ | KernelParameters are the kernel parameters to be set in the grub configuration. |  | Optional: \{\} <br /> |
 
 
 #### DPUFlavorList
@@ -1917,7 +1917,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `rawConfigScript` _string_ | RawConfigScript is the raw configuration script for OVS. |  |  |
+| `rawConfigScript` _string_ | RawConfigScript is the raw configuration script for OVS. |  | Optional: \{\} <br /> |
 
 
 #### DPUFlavorSpec
@@ -1933,17 +1933,17 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `grub` _[DPUFlavorGrub](#dpuflavorgrub)_ | Grub contains the grub configuration for the DPUFlavor. |  |  |
-| `sysctl` _[DPUFLavorSysctl](#dpuflavorsysctl)_ | Sysctl contains the sysctl configuration for the DPUFlavor. |  |  |
-| `nvconfig` _[NVConfig](#nvconfig) array_ | NVConfig contains the device-specific configuration (firmware settings, device parameters).<br />Each entry specifies a device (wildcard '*', or port identifiers 'p0'/'P0'/'p1'/'P1') and its parameters.<br />If device is '*' or unspecified (defaults to '*'), it applies to all devices and must be the only entry.<br />Each device (including unspecified as '*') must be unique across all nvconfig entries (case-insensitive).<br />Validation enforces: device enum values, parameter format (KEY=VALUE), case-insensitive uniqueness, and size limits. |  | MaxItems: 3 <br /> |
-| `ovs` _[DPUFlavorOVS](#dpuflavorovs)_ | OVS contains the OVS configuration for the DPUFlavor. |  |  |
-| `bfcfgParameters` _string array_ | BFCfgParameters are the parameters to be set in the bf.cfg file. |  |  |
-| `configFiles` _[ConfigFile](#configfile) array_ | ConfigFiles are the files to be written on the DPU. |  |  |
-| `containerdConfig` _[ContainerdConfig](#containerdconfig)_ | ContainerdConfig contains the configuration for containerd. |  |  |
-| `dpuResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | DPUResources indicates the minimum amount of resources needed for a BFB with that flavor to be installed on a<br />DPU. Using this field, the controller can understand if that flavor can be installed on a particular DPU. It<br />should be set to the total amount of resources the system needs + the resources that should be made available for<br />DPUServices to consume. |  |  |
-| `systemReservedResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are<br />not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and<br />SystemReservedResources. This field must not be specified if dpuResources are not specified. |  |  |
-| `dpuMode` _[DpuModeType](#dpumodetype)_ | Specifies the DPU Mode type: one of dpu,zero-trust.<br />When not specified, defaults to "zero-trust" if the DPF deployment uses Redfish install interface,<br />otherwise defaults to "dpu". |  | Enum: [dpu zero-trust nic] <br /> |
-| `hostNetworkInterfaceConfigs` _[NetworkInterfaceConfig](#networkinterfaceconfig) array_ | HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces. |  |  |
+| `grub` _[DPUFlavorGrub](#dpuflavorgrub)_ | Grub contains the grub configuration for the DPUFlavor. |  | Optional: \{\} <br /> |
+| `sysctl` _[DPUFLavorSysctl](#dpuflavorsysctl)_ | Sysctl contains the sysctl configuration for the DPUFlavor. |  | Optional: \{\} <br /> |
+| `nvconfig` _[NVConfig](#nvconfig) array_ | NVConfig contains the device-specific configuration (firmware settings, device parameters).<br />Each entry specifies a device (wildcard '*', or port identifiers 'p0'/'P0'/'p1'/'P1') and its parameters.<br />If device is '*' or unspecified (defaults to '*'), it applies to all devices and must be the only entry.<br />Each device (including unspecified as '*') must be unique across all nvconfig entries (case-insensitive).<br />Validation enforces: device enum values, parameter format (KEY=VALUE), case-insensitive uniqueness, and size limits. |  | MaxItems: 3 <br />Optional: \{\} <br /> |
+| `ovs` _[DPUFlavorOVS](#dpuflavorovs)_ | OVS contains the OVS configuration for the DPUFlavor. |  | Optional: \{\} <br /> |
+| `bfcfgParameters` _string array_ | BFCfgParameters are the parameters to be set in the bf.cfg file. |  | Optional: \{\} <br /> |
+| `configFiles` _[ConfigFile](#configfile) array_ | ConfigFiles are the files to be written on the DPU. |  | Optional: \{\} <br /> |
+| `containerdConfig` _[ContainerdConfig](#containerdconfig)_ | ContainerdConfig contains the configuration for containerd. |  | Optional: \{\} <br /> |
+| `dpuResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | DPUResources indicates the minimum amount of resources needed for a BFB with that flavor to be installed on a<br />DPU. Using this field, the controller can understand if that flavor can be installed on a particular DPU. It<br />should be set to the total amount of resources the system needs + the resources that should be made available for<br />DPUServices to consume. |  | Optional: \{\} <br /> |
+| `systemReservedResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are<br />not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and<br />SystemReservedResources. This field must not be specified if dpuResources are not specified. |  | Optional: \{\} <br /> |
+| `dpuMode` _[DpuModeType](#dpumodetype)_ | Specifies the DPU Mode type: one of dpu,zero-trust.<br />When not specified, defaults to "zero-trust" if the DPF deployment uses Redfish install interface,<br />otherwise defaults to "dpu". |  | Enum: [dpu zero-trust nic] <br />Optional: \{\} <br /> |
+| `hostNetworkInterfaceConfigs` _[NetworkInterfaceConfig](#networkinterfaceconfig) array_ | HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces. |  | Optional: \{\} <br /> |
 
 
 
@@ -2061,9 +2061,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `dpuNodeName` _string_ | DPUNodeName is the name of the DPUNode that is being maintained. |  |  |
-| `nodeEffect` _[NodeEffect](#nodeeffect)_ | NodeEffect is the effect to be applied to the node. |  |  |
-| `requestor` _string array_ | Requestor is the list of consumers for the maintenance. |  |  |
+| `dpuNodeName` _string_ | DPUNodeName is the name of the DPUNode that is being maintained. |  | Required: \{\} <br /> |
+| `nodeEffect` _[NodeEffect](#nodeeffect)_ | NodeEffect is the effect to be applied to the node. |  | Optional: \{\} <br /> |
+| `requestor` _string array_ | Requestor is the list of consumers for the maintenance. |  | Optional: \{\} <br /> |
 
 
 #### DPUNodeMaintenanceStatus
@@ -2079,10 +2079,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
-| `nodeEffectSyncStartTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | NodeEffectSyncStartTime is the time when the node effect sync started. |  |  |
-| `multiDPUOperationsSyncWaitTime` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | MultiDPUOperationsSyncWaitTime  is the wait time between DPUs on the same node. |  |  |
-| `maxUnavailableDPUNodes` _integer_ | MaxUnavailableDPUNodes is the maximum number of DPUNodes that are unavailable during the node effect period. |  | Minimum: 1 <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
+| `nodeEffectSyncStartTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | NodeEffectSyncStartTime is the time when the node effect sync started. |  | Optional: \{\} <br /> |
+| `multiDPUOperationsSyncWaitTime` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | MultiDPUOperationsSyncWaitTime  is the wait time between DPUs on the same node. |  | Optional: \{\} <br /> |
+| `maxUnavailableDPUNodes` _integer_ | MaxUnavailableDPUNodes is the maximum number of DPUNodes that are unavailable during the node effect period. |  | Minimum: 1 <br />Optional: \{\} <br /> |
 
 
 #### DPUNodeSpec
@@ -2098,9 +2098,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeRebootMethod` _[NodeRebootMethod](#noderebootmethod)_ | Defines the method for rebooting the host.<br />One of the following options can be chosen for this field:<br />   - "external": Reboot the host via an external means, not controlled by the<br />     DPU controller.<br />   - "script": Reboot the host by executing a custom script.<br />   - "hostAgent": Use the host agent to reboot the host.<br />"hostAgent" is the default value. | \{ hostAgent:map[] \} |  |
-| `nodeDMSAddress` _[DMSAddress](#dmsaddress)_ | The IP address and port where the DMS is exposed. Only applicable if dpuInstallInterface is set to gNOI.<br /><br />Deprecated: this field is no longer used. |  |  |
-| `dpus` _[DPURef](#dpuref) array_ | A map containing names of each DPUDevice attached to the node. |  |  |
+| `nodeRebootMethod` _[NodeRebootMethod](#noderebootmethod)_ | Defines the method for rebooting the host.<br />One of the following options can be chosen for this field:<br />   - "external": Reboot the host via an external means, not controlled by the<br />     DPU controller.<br />   - "script": Reboot the host by executing a custom script.<br />   - "hostAgent": Use the host agent to reboot the host.<br />"hostAgent" is the default value. | \{ hostAgent:map[] \} | Optional: \{\} <br /> |
+| `nodeDMSAddress` _[DMSAddress](#dmsaddress)_ | The IP address and port where the DMS is exposed. Only applicable if dpuInstallInterface is set to gNOI.<br />Deprecated: this field is no longer used. |  | Optional: \{\} <br /> |
+| `dpus` _[DPURef](#dpuref) array_ | A map containing names of each DPUDevice attached to the node. |  | Optional: \{\} <br /> |
 
 
 #### DPUNodeStatus
@@ -2116,10 +2116,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represent the latest available observations of an object's state. |  | Type: array <br /> |
-| `dpuInstallInterface` _string_ | The name of the interface which will be used to install the bfb image, can be one of hostAgent,redfish |  | Enum: [gNOI hostAgent redfish] <br /> |
-| `kubeNodeRef` _string_ | The name of the Kubernetes Node object that this DPUNode represents.<br />This field is optional and only relevant if the x86 host is part of the DPF Kubernetes cluster. |  |  |
-| `rebootInProgress` _boolean_ | RebootInProgress indicates if the node is in the process of rebooting. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represent the latest available observations of an object's state. |  | Type: array <br />Optional: \{\} <br /> |
+| `dpuInstallInterface` _string_ | The name of the interface which will be used to install the bfb image, can be one of hostAgent,redfish |  | Enum: [gNOI hostAgent redfish] <br />Optional: \{\} <br /> |
+| `kubeNodeRef` _string_ | The name of the Kubernetes Node object that this DPUNode represents.<br />This field is optional and only relevant if the x86 host is part of the DPF Kubernetes cluster. |  | Optional: \{\} <br /> |
+| `rebootInProgress` _boolean_ | RebootInProgress indicates if the node is in the process of rebooting. |  | Optional: \{\} <br /> |
 
 
 
@@ -2172,7 +2172,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name of the DPU device. |  | MinLength: 1 <br /> |
+| `name` _string_ | Name of the DPU device. |  | MinLength: 1 <br />Required: \{\} <br /> |
 
 
 #### DPUSet
@@ -2226,11 +2226,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `strategy` _[DPUSetStrategy](#dpusetstrategy)_ | The rolling update strategy to use to updating existing DPUs with new ones. |  |  |
-| `dpuNodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the DPUNodes with specific labels |  |  |
-| `dpuSelector` _object (keys:string, values:string)_ | Select the DPU with specific labels<br /><br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUDeviceSelector instead. |  |  |
-| `dpuDeviceSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUDeviceSelector defines the selector for DPUDevices that the DPUSet should target and should create a DPU for. |  |  |
-| `dpuTemplate` _[DPUTemplate](#dputemplate)_ | Object that describes the DPU that will be created if insufficient replicas are detected |  |  |
+| `strategy` _[DPUSetStrategy](#dpusetstrategy)_ | The rolling update strategy to use to updating existing DPUs with new ones. |  | Optional: \{\} <br /> |
+| `dpuNodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the DPUNodes with specific labels |  | Optional: \{\} <br /> |
+| `dpuSelector` _object (keys:string, values:string)_ | Select the DPU with specific labels<br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUDeviceSelector instead. |  | Optional: \{\} <br /> |
+| `dpuDeviceSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUDeviceSelector defines the selector for DPUDevices that the DPUSet should target and should create a DPU for. |  | Optional: \{\} <br /> |
+| `dpuTemplate` _[DPUTemplate](#dputemplate)_ | Object that describes the DPU that will be created if insufficient replicas are detected |  | Required: \{\} <br /> |
 
 
 #### DPUSetStatus
@@ -2246,7 +2246,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `dpuStatistics` _object (keys:[DPUPhase](#dpuphase), values:integer)_ | DPUStatistics is a map of DPUPhase to the number of DPUs in that phase. |  |  |
+| `dpuStatistics` _object (keys:[DPUPhase](#dpuphase), values:integer)_ | DPUStatistics is a map of DPUPhase to the number of DPUs in that phase. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
@@ -2265,8 +2265,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `type` _[StrategyType](#strategytype)_ | Can be "OnDelete" or "RollingUpdate". | OnDelete | Enum: [OnDelete RollingUpdate] <br /> |
-| `rollingUpdate` _[RollingUpdateDPU](#rollingupdatedpu)_ | Rolling update config params. Present only if StrategyType = RollingUpdate. |  |  |
+| `type` _[StrategyType](#strategytype)_ | Can be "OnDelete" or "RollingUpdate". | OnDelete | Enum: [OnDelete RollingUpdate] <br />Optional: \{\} <br /> |
+| `rollingUpdate` _[RollingUpdateDPU](#rollingupdatedpu)_ | Rolling update config params. Present only if StrategyType = RollingUpdate. |  | Optional: \{\} <br /> |
 
 
 #### DPUSpec
@@ -2282,17 +2282,17 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `dpuNodeName` _string_ | Specifies the DPUNode this DPU belongs to |  |  |
-| `dpuDeviceName` _string_ | Specifies the name of the DPUDevice this DPU is associated with |  | MinLength: 1 <br /> |
-| `bfb` _string_ | Specifies name of the bfb CR to use for this DPU |  |  |
-| `blueFieldSoftware` _string_ | Specifies the name of the BlueFieldSoftware CR to use for this DPU |  |  |
-| `serialNumber` _string_ | The serial number of the DPU |  | MinLength: 1 <br /> |
-| `pciAddress` _string_ | The PCI device related DPU<br />Example: "0000-03-00", "03-00" |  | Pattern: `^([0-9a-fA-F]\{4\}[-])?[0-9a-fA-F]\{2\}[-][0-9a-fA-F]\{2\}$` <br /> |
-| `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} |  |
-| `cluster` _[K8sCluster](#k8scluster)_ | Specifies details on the K8S cluster to join |  |  |
-| `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br /> |
-| `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  |  |
-| `bmcIP` _string_ | BMCIP is the ip address of the DPU BMC<br /><br />Deprecated: Use BMCIP from DPUDevice instead. |  |  |
+| `dpuNodeName` _string_ | Specifies the DPUNode this DPU belongs to |  | Required: \{\} <br /> |
+| `dpuDeviceName` _string_ | Specifies the name of the DPUDevice this DPU is associated with |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `bfb` _string_ | Specifies name of the bfb CR to use for this DPU |  | Required: \{\} <br /> |
+| `blueFieldSoftware` _string_ | Specifies the name of the BlueFieldSoftware CR to use for this DPU |  | Optional: \{\} <br /> |
+| `serialNumber` _string_ | The serial number of the DPU |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `pciAddress` _string_ | The PCI device related DPU<br />Example: "0000-03-00", "03-00" |  | Pattern: `^([0-9a-fA-F]\{4\}[-])?[0-9a-fA-F]\{2\}[-][0-9a-fA-F]\{2\}$` <br />Optional: \{\} <br /> |
+| `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} | Optional: \{\} <br /> |
+| `cluster` _[K8sCluster](#k8scluster)_ | Specifies details on the K8S cluster to join |  | Optional: \{\} <br /> |
+| `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  | Optional: \{\} <br /> |
+| `bmcIP` _string_ | BMCIP is the ip address of the DPU BMC<br />Deprecated: Use BMCIP from DPUDevice instead. |  | Optional: \{\} <br /> |
 
 
 #### DPUStatus
@@ -2308,26 +2308,26 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represents the provisioning lifecycle conditions. |  |  |
-| `operationalConditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | OperationalConditions represents aggregated operational readiness conditions.<br />These conditions reflect the runtime health and readiness of DPU services and node health,<br />separate from the provisioning lifecycle represented by Conditions. |  |  |
-| `bfbFile` _string_ | BFBFile is the path to the BFB file |  |  |
-| `bfCFGFile` _string_ | BFCFGFile is the path to the bf.cfg |  |  |
-| `bfbVersion` _string_ | bfb version of this DPU |  |  |
-| `dpfVersion` _string_ | DPF version used to install this DPU |  |  |
-| `pciDevice` _string_ | pci device information of this DPU |  |  |
-| `requiredReset` _boolean_ | whether require reset of DPU |  |  |
-| `firmware` _[Firmware](#firmware)_ | the firmware information of DPU |  |  |
-| `addresses` _[NodeAddress](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#nodeaddress-v1-core) array_ | The DPU node's IP addresses |  |  |
-| `dpuInstallInterface` _string_ | the name of the interface which will be used to install the bfb image,<br />and communicate with DPU, can be one of hostAgent,redfish |  | Enum: [gNOI hostAgent redfish] <br /> |
-| `postProvisioningNodeEffect` _boolean_ | Indicates that node effect was triggered by post-provisioning label changes |  |  |
+| `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Required: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represents the provisioning lifecycle conditions. |  | Optional: \{\} <br /> |
+| `operationalConditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | OperationalConditions represents aggregated operational readiness conditions.<br />These conditions reflect the runtime health and readiness of DPU services and node health,<br />separate from the provisioning lifecycle represented by Conditions. |  | Optional: \{\} <br /> |
+| `bfbFile` _string_ | BFBFile is the path to the BFB file |  | Optional: \{\} <br /> |
+| `bfCFGFile` _string_ | BFCFGFile is the path to the bf.cfg |  | Optional: \{\} <br /> |
+| `bfbVersion` _string_ | bfb version of this DPU |  | Optional: \{\} <br /> |
+| `dpfVersion` _string_ | DPF version used to install this DPU |  | Optional: \{\} <br /> |
+| `pciDevice` _string_ | pci device information of this DPU |  | Optional: \{\} <br /> |
+| `requiredReset` _boolean_ | whether require reset of DPU |  | Optional: \{\} <br /> |
+| `firmware` _[Firmware](#firmware)_ | the firmware information of DPU |  | Optional: \{\} <br /> |
+| `addresses` _[NodeAddress](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#nodeaddress-v1-core) array_ | The DPU node's IP addresses |  | Optional: \{\} <br /> |
+| `dpuInstallInterface` _string_ | the name of the interface which will be used to install the bfb image,<br />and communicate with DPU, can be one of hostAgent,redfish |  | Enum: [gNOI hostAgent redfish] <br />Optional: \{\} <br /> |
+| `postProvisioningNodeEffect` _boolean_ | Indicates that node effect was triggered by post-provisioning label changes |  | Optional: \{\} <br /> |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
-| `dpuType` _[DPUType](#dputype)_ | The type of the DPU | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br /> |
-| `agentLastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | AgentLastStartupTime is the time when the DPU agent was last started. This is copied from agentStatus.lastStartupTime. |  |  |
-| `agentStatus` _[AgentStatus](#agentstatus)_ | AgentStatus contains the information reported from inside the DPU |  |  |
-| `dpuMode` _[DpuModeType](#dpumodetype)_ | The mode of the DPU | dpu | Enum: [dpu nic] <br /> |
-| `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  |  |
-| `redfishTaskId` _string_ | The task ID of the last task performed on the DPU BMC |  |  |
+| `dpuType` _[DPUType](#dputype)_ | The type of the DPU | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br />Optional: \{\} <br /> |
+| `agentLastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | AgentLastStartupTime is the time when the DPU agent was last started. This is copied from agentStatus.lastStartupTime. |  | Optional: \{\} <br /> |
+| `agentStatus` _[AgentStatus](#agentstatus)_ | AgentStatus contains the information reported from inside the DPU |  | Optional: \{\} <br /> |
+| `dpuMode` _[DpuModeType](#dpumodetype)_ | The mode of the DPU | dpu | Enum: [dpu nic] <br />Optional: \{\} <br /> |
+| `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |
+| `redfishTaskId` _string_ | The task ID of the last task performed on the DPU BMC |  | Optional: \{\} <br /> |
 
 
 #### DPUTemplate
@@ -2361,10 +2361,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `bfb` _[BFBReference](#bfbreference)_ | Specifies a BFB CR |  |  |
-| `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} |  |
-| `cluster` _[ClusterSpec](#clusterspec)_ | Specifies details on the K8S cluster to join |  |  |
-| `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br /> |
-| `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  |  |
+| `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} | Optional: \{\} <br /> |
+| `cluster` _[ClusterSpec](#clusterspec)_ | Specifies details on the K8S cluster to join |  | Optional: \{\} <br /> |
+| `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  | Optional: \{\} <br /> |
 
 
 #### DPUType
@@ -2500,9 +2500,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `startIP` _string_ |  |  | Pattern: `^((25[0-5]\|2[0-4][0-9]\|[01]?[0-9][0-9]?)\.)\{3\}(25[0-5]\|2[0-4][0-9]\|[01]?[0-9][0-9]?)$` <br /> |
-| `endIP` _string_ |  |  | Pattern: `^((25[0-5]\|2[0-4][0-9]\|[01]?[0-9][0-9]?)\.)\{3\}(25[0-5]\|2[0-4][0-9]\|[01]?[0-9][0-9]?)$` <br /> |
-| `port` _integer_ | Port defines the port to on which BMC is listening | 443 | Maximum: 65535 <br />Minimum: 1 <br /> |
+| `startIP` _string_ |  |  | Pattern: `^((25[0-5]\|2[0-4][0-9]\|[01]?[0-9][0-9]?)\.)\{3\}(25[0-5]\|2[0-4][0-9]\|[01]?[0-9][0-9]?)$` <br />Required: \{\} <br /> |
+| `endIP` _string_ |  |  | Pattern: `^((25[0-5]\|2[0-4][0-9]\|[01]?[0-9][0-9]?)\.)\{3\}(25[0-5]\|2[0-4][0-9]\|[01]?[0-9][0-9]?)$` <br />Required: \{\} <br /> |
+| `port` _integer_ | Port defines the port to on which BMC is listening | 443 | Maximum: 65535 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 
 
 #### IPRangeValidationSpec
@@ -2535,10 +2535,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name is the name of the DPUs Kubernetes cluster |  |  |
-| `namespace` _string_ | Namespace is the tenants namespace name where the Kubernetes cluster will be deployed |  |  |
-| `nodeLabels` _object (keys:string, values:string)_ | NodeLabels specifies the labels to be added to the node. |  |  |
-| `selector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Selector defines the selector of the DPUClusters the produced DPUs should join |  |  |
+| `name` _string_ | Name is the name of the DPUs Kubernetes cluster |  | Optional: \{\} <br /> |
+| `namespace` _string_ | Namespace is the tenants namespace name where the Kubernetes cluster will be deployed |  | Optional: \{\} <br /> |
+| `nodeLabels` _object (keys:string, values:string)_ | NodeLabels specifies the labels to be added to the node. |  | Optional: \{\} <br /> |
+| `selector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Selector defines the selector of the DPUClusters the produced DPUs should join |  | Optional: \{\} <br /> |
 
 
 #### KeepalivedSpec
@@ -2557,7 +2557,7 @@ _Appears in:_
 | `vip` _string_ | VIP is the virtual IP owned by the keepalived instances |  |  |
 | `virtualRouterID` _integer_ | VirtualRouterID is the virtual_router_id in keepalived.conf |  | Maximum: 255 <br />Minimum: 1 <br /> |
 | `interface` _string_ | Interface specifies on which interface the VIP should be assigned |  | MinLength: 1 <br /> |
-| `nodeSelector` _object (keys:string, values:string)_ | NodeSelector is used to specify a subnet of control plane nodes to deploy keepalived instances.<br />Note: keepalived instances are always deployed on control plane nodes |  |  |
+| `nodeSelector` _object (keys:string, values:string)_ | NodeSelector is used to specify a subnet of control plane nodes to deploy keepalived instances.<br />Note: keepalived instances are always deployed on control plane nodes |  | Optional: \{\} <br /> |
 
 
 #### NVConfig
@@ -2574,8 +2574,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `device` _string_ | Device is the device to which the configuration applies. If not specified, the configuration applies to all.<br />Supported values: "*" (wildcard for all devices), "p0"/"P0" (port 0), "p1"/"P1" (port 1). Case-insensitive. |  | Enum: [* p0 p1 P0 P1] <br /> |
-| `parameters` _string array_ | Parameters are the parameters to be set for the device. |  | MaxItems: 32 <br />MinItems: 1 <br /> |
+| `device` _string_ | Device is the device to which the configuration applies. If not specified, the configuration applies to all.<br />Supported values: "*" (wildcard for all devices), "p0"/"P0" (port 0), "p1"/"P1" (port 1). Case-insensitive. |  | Enum: [* p0 p1 P0 P1] <br />Optional: \{\} <br /> |
+| `parameters` _string array_ | Parameters are the parameters to be set for the device. |  | MaxItems: 32 <br />MinItems: 1 <br />items:MaxLength: 200 <br />items:Pattern: `^[^=\s]+=[^\s]*$` <br />Optional: \{\} <br /> |
 
 
 #### NetworkInterfaceConfig
@@ -2591,10 +2591,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `mtu` _integer_ | MTU is the MTU value to be set on the network interface. |  | Maximum: 9216 <br />Minimum: 1280 <br /> |
-| `dhcp` _boolean_ | DHCP is the DHCP configuration for the network interface. |  |  |
-| `portNumber` _integer_ | PortNumber identifies which port this configuration applies to. |  | Maximum: 1 <br />Minimum: 0 <br /> |
-| `nvconfig` _[NVConfig](#nvconfig)_ | NVConfig contains port-specific configuration for this network interface.<br />This configuration is applied in addition to the global NVConfig settings in DPUFlavorSpec.<br />Both global and per-interface NVConfig settings can coexist without collision. |  |  |
+| `mtu` _integer_ | MTU is the MTU value to be set on the network interface. |  | Maximum: 9216 <br />Minimum: 1280 <br />Optional: \{\} <br /> |
+| `dhcp` _boolean_ | DHCP is the DHCP configuration for the network interface. |  | Optional: \{\} <br /> |
+| `portNumber` _integer_ | PortNumber identifies which port this configuration applies to. |  | Maximum: 1 <br />Minimum: 0 <br />Required: \{\} <br /> |
+| `nvconfig` _[NVConfig](#nvconfig)_ | NVConfig contains port-specific configuration for this network interface.<br />This configuration is applied in addition to the global NVConfig settings in DPUFlavorSpec.<br />Both global and per-interface NVConfig settings can coexist without collision. |  | Optional: \{\} <br /> |
 
 
 #### NodeEffect
@@ -2613,15 +2613,15 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `taint` _[Taint](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#taint-v1-core)_ | Add specify taint on the DPU node |  |  |
-| `noEffect` _boolean_ | Do not do any action on the DPU node |  |  |
-| `customLabel` _object (keys:string, values:string)_ | Add specify labels on the DPU node |  |  |
-| `drain` _boolean_ | Drain the K8s host node by NodeMaintenance operator |  |  |
-| `customAction` _string_ | Name of a config map which contains a pod yaml definition to run which will apply the nodeEffect.<br />The pod is expected to exit when node effect is done, if pod terminates with error then DPU would move to an error phase.<br />The DPUNode's name will be exported as an environment variable, named as DPUNODE_NAME, to each container and init container in the pod.<br />The labels and annotations of DPUNode will be exported in `/etc/dpu/dpf-pod-info/labels` and `/etc/dpu/dpf-pod-info/annotations` accordingly; the volume name `dpf-pod-info` is used to mount the labels and annotations.<br />If any name confliction for env or volume, the controller will not export the name or labels/annotations of DPUNode accordingly. |  |  |
-| `hold` _boolean_ | Places annotation `wait-for-external-nodeeffect` and waits for it to be removed<br />this is the default behavior in a non K8S environment |  |  |
-| `force` _boolean_ | Force is the flag to indicate if the node effect should be applied immediately.<br />If true, dpfOperatorConfig.multiDPUOperationsSyncWaitTime and dpfOperatorConfig.maxUnavailableDPUNodes will be ignored when applying node effect for DPUNodeMaintenance CR | false |  |
-| `applyOnLabelChange` _boolean_ | Apply node effect when labels change on the DPU object<br />When set to true, label changes in Ready state will trigger node effect logic | false |  |
-| `nodeMaintenanceAdditionalRequestors` _string array_ | Additional requestors to be added to the NvidiaNodeMaintenance CR when Drain is selected |  |  |
+| `taint` _[Taint](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#taint-v1-core)_ | Add specify taint on the DPU node |  | Optional: \{\} <br /> |
+| `noEffect` _boolean_ | Do not do any action on the DPU node |  | Optional: \{\} <br /> |
+| `customLabel` _object (keys:string, values:string)_ | Add specify labels on the DPU node |  | Optional: \{\} <br /> |
+| `drain` _boolean_ | Drain the K8s host node by NodeMaintenance operator |  | Optional: \{\} <br /> |
+| `customAction` _string_ | Name of a config map which contains a pod yaml definition to run which will apply the nodeEffect.<br />The pod is expected to exit when node effect is done, if pod terminates with error then DPU would move to an error phase.<br />The DPUNode's name will be exported as an environment variable, named as DPUNODE_NAME, to each container and init container in the pod.<br />The labels and annotations of DPUNode will be exported in `/etc/dpu/dpf-pod-info/labels` and `/etc/dpu/dpf-pod-info/annotations` accordingly; the volume name `dpf-pod-info` is used to mount the labels and annotations.<br />If any name confliction for env or volume, the controller will not export the name or labels/annotations of DPUNode accordingly. |  | Optional: \{\} <br /> |
+| `hold` _boolean_ | Places annotation `wait-for-external-nodeeffect` and waits for it to be removed<br />this is the default behavior in a non K8S environment |  | Optional: \{\} <br /> |
+| `force` _boolean_ | Force is the flag to indicate if the node effect should be applied immediately.<br />If true, dpfOperatorConfig.multiDPUOperationsSyncWaitTime and dpfOperatorConfig.maxUnavailableDPUNodes will be ignored when applying node effect for DPUNodeMaintenance CR | false | Optional: \{\} <br /> |
+| `applyOnLabelChange` _boolean_ | Apply node effect when labels change on the DPU object<br />When set to true, label changes in Ready state will trigger node effect logic | false | Optional: \{\} <br /> |
+| `nodeMaintenanceAdditionalRequestors` _string array_ | Additional requestors to be added to the NvidiaNodeMaintenance CR when Drain is selected |  | Optional: \{\} <br /> |
 
 
 
@@ -2639,10 +2639,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `gNOI` _[GNOI](#gnoi)_ | Use the DPU's DMS interface to reboot the host.<br /><br />Deprecated: Use HostAgent instead. |  |  |
-| `hostAgent` _[HostAgent](#hostagent)_ | Use the HostAgent to reboot the host. |  |  |
-| `external` _[External](#external)_ | Reboot the host via an external means, not controlled by the DPU controller. |  |  |
-| `script` _[Script](#script)_ | Reboot the host by executing a custom script. This field defined which ConfigMap store the custom script.<br />The ConfigMap should include a pod template of Job object under the `pod-template` key.<br />That pod template will be put in a Job object to be executed. |  |  |
+| `gNOI` _[GNOI](#gnoi)_ | Use the DPU's DMS interface to reboot the host.<br />Deprecated: Use HostAgent instead. |  | Optional: \{\} <br /> |
+| `hostAgent` _[HostAgent](#hostagent)_ | Use the HostAgent to reboot the host. |  | Optional: \{\} <br /> |
+| `external` _[External](#external)_ | Reboot the host via an external means, not controlled by the DPU controller. |  | Optional: \{\} <br /> |
+| `script` _[Script](#script)_ | Reboot the host by executing a custom script. This field defined which ConfigMap store the custom script.<br />The ConfigMap should include a pod template of Job object under the `pod-template` key.<br />That pod template will be put in a Job object to be executed. |  | Optional: \{\} <br /> |
 
 
 #### RebootMethodType
@@ -2680,7 +2680,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `maxUnavailable` _[IntOrString](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#intorstring-intstr-util)_ | MaxUnavailable is the maximum number of DPUs that can be unavailable during the update.<br /><br />Deprecated: This field is deprecated and will be removed with v26.4.0. |  |  |
+| `maxUnavailable` _[IntOrString](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#intorstring-intstr-util)_ | MaxUnavailable is the maximum number of DPUs that can be unavailable during the update.<br />Deprecated: This field is deprecated and will be removed with v26.4.0. |  | Optional: \{\} <br /> |
 
 
 #### Script
@@ -2696,7 +2696,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ |  |  | MinLength: 1 <br /> |
+| `name` _string_ |  |  | MinLength: 1 <br />Required: \{\} <br /> |
 
 
 #### SecureBootStatus
@@ -2713,7 +2713,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `enabled` _boolean_ | Enabled indicates whether UEFI Secure Boot is currently enabled on the DPU. |  |  |
+| `enabled` _boolean_ | Enabled indicates whether UEFI Secure Boot is currently enabled on the DPU. |  | Optional: \{\} <br /> |
 
 
 #### StrategyType
@@ -2788,8 +2788,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `applyOnLabelChange` _boolean_ | Apply node effect when labels change on the DPU object<br />When set to true, label changes in Ready state will trigger node effect logic | false |  |
-| `nodeMaintenanceAdditionalRequestors` _string array_ | Additional requestors to be added to the NvidiaNodeMaintenance CR when Drain is selected |  |  |
+| `applyOnLabelChange` _boolean_ | Apply node effect when labels change on the DPU object<br />When set to true, label changes in Ready state will trigger node effect logic | false | Optional: \{\} <br /> |
+| `nodeMaintenanceAdditionalRequestors` _string array_ | Additional requestors to be added to the NvidiaNodeMaintenance CR when Drain is selected |  | Optional: \{\} <br /> |
 
 
 
@@ -2828,10 +2828,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `pciAddress` _string_ | PCI device address in the following format: (bus:device.function) |  |  |
-| `deviceName` _string_ | The name of the device that was created by the storage vendor plugin |  |  |
-| `nvmeAttrs` _[NVMEAttrs](#nvmeattrs)_ | The attributes of the emulated NVME function |  |  |
-| `virtioFSAttrs` _[VirtioFSAttrs](#virtiofsattrs)_ | The attributes of the emulated VirtioFS function |  |  |
+| `pciAddress` _string_ | PCI device address in the following format: (bus:device.function) |  | Optional: \{\} <br /> |
+| `deviceName` _string_ | The name of the device that was created by the storage vendor plugin |  | Optional: \{\} <br /> |
+| `nvmeAttrs` _[NVMEAttrs](#nvmeattrs)_ | The attributes of the emulated NVME function |  | Optional: \{\} <br /> |
+| `virtioFSAttrs` _[VirtioFSAttrs](#virtiofsattrs)_ | The attributes of the emulated VirtioFS function |  | Optional: \{\} <br /> |
 
 
 #### BdevAttrs
@@ -2937,9 +2937,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `dpuStorageVendors` _string array_ | List of storage vendors |  | MinItems: 1 <br /> |
-| `parameters` _object (keys:string, values:string)_ | Parameters supported by the policy | \{  \} |  |
-| `selectionAlgorithm` _[SelectionAlgorithm](#selectionalgorithm)_ | Selection algorithm used to select DPUStorageVendor | NumberVolumes | Enum: [Random NumberVolumes] <br /> |
+| `dpuStorageVendors` _string array_ | List of storage vendors |  | MinItems: 1 <br />Required: \{\} <br /> |
+| `parameters` _object (keys:string, values:string)_ | Parameters supported by the policy | \{  \} | Optional: \{\} <br /> |
+| `selectionAlgorithm` _[SelectionAlgorithm](#selectionalgorithm)_ | Selection algorithm used to select DPUStorageVendor | NumberVolumes | Enum: [Random NumberVolumes] <br />Optional: \{\} <br /> |
 
 
 #### DPUStoragePolicyStatus
@@ -3010,8 +3010,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `storageClassName` _string_ | Storage vendor class name, deployed on the DPU K8S cluster. |  | MinLength: 1 <br /> |
-| `pluginName` _string_ | Storage vendor DPU plugin name |  | MinLength: 1 <br /> |
+| `storageClassName` _string_ | Storage vendor class name, deployed on the DPU K8S cluster. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `pluginName` _string_ | Storage vendor DPU plugin name |  | MinLength: 1 <br />Required: \{\} <br /> |
 
 
 #### DPUStorageVendorStatus
@@ -3103,10 +3103,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `dpuNodeName` _string_ | DPUNodeName is the name of DPUNode object that represents the node to which the volume should<br />be attached |  | MinLength: 1 <br /> |
-| `dpuVolumeName` _string_ | DPUVolumeName is the name of DPUVolume object that represents the volume to be attached |  | MinLength: 1 <br /> |
-| `functionType` _[FunctionType](#functiontype)_ | FunctionType is the type of the emulated function that should be used to attach the volume |  | Enum: [pf vf] <br /> |
-| `hotplugFunction` _boolean_ | HotplugFunction is a boolean flag that indicates if the emulated function should be hotplugged |  |  |
+| `dpuNodeName` _string_ | DPUNodeName is the name of DPUNode object that represents the node to which the volume should<br />be attached |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `dpuVolumeName` _string_ | DPUVolumeName is the name of DPUVolume object that represents the volume to be attached |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `functionType` _[FunctionType](#functiontype)_ | FunctionType is the type of the emulated function that should be used to attach the volume |  | Enum: [pf vf] <br />Required: \{\} <br /> |
+| `hotplugFunction` _boolean_ | HotplugFunction is a boolean flag that indicates if the emulated function should be hotplugged |  | Required: \{\} <br /> |
 
 
 #### DPUVolumeAttachmentStatus
@@ -3123,11 +3123,11 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `controllerAttached` _boolean_ | Indicates the volume is successfully attached to by the Vendor CSI driver |  |  |
-| `dpuAttached` _boolean_ | Indicates the volume is successfully attached to the node by DPU |  |  |
-| `attachmentMetadata` _object (keys:string, values:string)_ | AttachmentMetadata contains the metadata of the volume attachment returned by the Vendor CSI driver |  |  |
-| `dpu` _[AttachmentStatusDPU](#attachmentstatusdpu)_ | Details about the DPU attachment |  |  |
-| `message` _string_ | The last error encountered during the attach operation, if any |  |  |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
+| `dpuAttached` _boolean_ | Indicates the volume is successfully attached to the node by DPU |  | Optional: \{\} <br /> |
+| `attachmentMetadata` _object (keys:string, values:string)_ | AttachmentMetadata contains the metadata of the volume attachment returned by the Vendor CSI driver |  | Optional: \{\} <br /> |
+| `dpu` _[AttachmentStatusDPU](#attachmentstatusdpu)_ | Details about the DPU attachment |  | Optional: \{\} <br /> |
+| `message` _string_ | The last error encountered during the attach operation, if any |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  | Optional: \{\} <br /> |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
 
@@ -3179,11 +3179,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `dpuStoragePolicyName` _string_ | Name of the DPUStoragePolicyName object that will be used to create the volume. |  | MinLength: 1 <br /> |
-| `parameters` _object (keys:string, values:string)_ | Additional parameters for the volume, these parameters are merged with the values from the DPUStoragePolicy object. | \{  \} |  |
-| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumeaccessmode-v1-core) array_ | Access modes define how the volume can be mounted. These modes are directly passed to the<br />PersistentVolumeClaim created for the Vendor CSI Plugin selected by the DPUStoragePolicy. |  | MaxItems: 3 <br />MinItems: 1 <br /> |
-| `resources` _[VolumeResourceRequirements](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#volumeresourcerequirements-v1-core)_ | Resources represents the storage resources requested for the volume. These resource requirements<br />are directly passed to the PersistentVolumeClaim created for the Vendor CSI Plugin selected<br />by the DPUStoragePolicy. Since volume resizing is not supported, modifications to the resource request are prohibited. |  |  |
-| `volumeMode` _[PersistentVolumeMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumemode-v1-core)_ | Volume mode defines how the volume should be mounted and used. This value is directly passed to the<br />PersistentVolumeClaim created for the Vendor CSI Plugin selected by the DPUStoragePolicy. | Filesystem | Enum: [Filesystem Block] <br /> |
+| `dpuStoragePolicyName` _string_ | Name of the DPUStoragePolicyName object that will be used to create the volume. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `parameters` _object (keys:string, values:string)_ | Additional parameters for the volume, these parameters are merged with the values from the DPUStoragePolicy object. | \{  \} | Optional: \{\} <br /> |
+| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumeaccessmode-v1-core) array_ | Access modes define how the volume can be mounted. These modes are directly passed to the<br />PersistentVolumeClaim created for the Vendor CSI Plugin selected by the DPUStoragePolicy. |  | MaxItems: 3 <br />MinItems: 1 <br />Required: \{\} <br /> |
+| `resources` _[VolumeResourceRequirements](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#volumeresourcerequirements-v1-core)_ | Resources represents the storage resources requested for the volume. These resource requirements<br />are directly passed to the PersistentVolumeClaim created for the Vendor CSI Plugin selected<br />by the DPUStoragePolicy. Since volume resizing is not supported, modifications to the resource request are prohibited. |  | Required: \{\} <br /> |
+| `volumeMode` _[PersistentVolumeMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumemode-v1-core)_ | Volume mode defines how the volume should be mounted and used. This value is directly passed to the<br />PersistentVolumeClaim created for the Vendor CSI Plugin selected by the DPUStoragePolicy. | Filesystem | Enum: [Filesystem Block] <br />Optional: \{\} <br /> |
 
 
 #### DPUVolumeState
@@ -3199,14 +3199,14 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `dpuCluster` _[ObjectReference](#objectreference)_ | DPUCluster contains the reference to the DPUCluster object that was selected for volume creation. |  |  |
-| `parameters` _object (keys:string, values:string)_ | Parameters contains the final set of parameters for volume creation, computed by merging<br />the parameters from the DPUStoragePolicy object with user-provided parameters. |  |  |
-| `selectedDPUStorageVendorName` _string_ | SelectedDPUStorageVendorName contains the name of the DPUStorageVendor object that was selected for volume creation. |  |  |
-| `storageVendorPluginName` _string_ | StorageVendorPluginName contains the name of the storage vendor plugin deployed on the DPU cluster that was selected for volume creation. |  |  |
-| `storageClassName` _string_ | StorageClassName contains the name of the storage class in the DPU cluster that was selected for volume creation. |  |  |
-| `csiDriverName` _string_ | CSIDriverName contains the name of the CSI driver in the DPU cluster that was selected for volume creation. |  |  |
-| `persistentVolumeClaimRef` _[ObjectReference](#objectreference)_ | PersistentVolumeClaimRef contains the reference to the PersistentVolumeClaim object in the DPU cluster that was created for the volume. |  |  |
-| `volumeInfo` _[VolumeInfo](#volumeinfo)_ | VolumeInfo contains a subset of fields from the PersistentVolume object created in the DPU cluster |  |  |
+| `dpuCluster` _[ObjectReference](#objectreference)_ | DPUCluster contains the reference to the DPUCluster object that was selected for volume creation. |  | Optional: \{\} <br /> |
+| `parameters` _object (keys:string, values:string)_ | Parameters contains the final set of parameters for volume creation, computed by merging<br />the parameters from the DPUStoragePolicy object with user-provided parameters. |  | Optional: \{\} <br /> |
+| `selectedDPUStorageVendorName` _string_ | SelectedDPUStorageVendorName contains the name of the DPUStorageVendor object that was selected for volume creation. |  | Optional: \{\} <br /> |
+| `storageVendorPluginName` _string_ | StorageVendorPluginName contains the name of the storage vendor plugin deployed on the DPU cluster that was selected for volume creation. |  | Optional: \{\} <br /> |
+| `storageClassName` _string_ | StorageClassName contains the name of the storage class in the DPU cluster that was selected for volume creation. |  | Optional: \{\} <br /> |
+| `csiDriverName` _string_ | CSIDriverName contains the name of the CSI driver in the DPU cluster that was selected for volume creation. |  | Optional: \{\} <br /> |
+| `persistentVolumeClaimRef` _[ObjectReference](#objectreference)_ | PersistentVolumeClaimRef contains the reference to the PersistentVolumeClaim object in the DPU cluster that was created for the volume. |  | Optional: \{\} <br /> |
+| `volumeInfo` _[VolumeInfo](#volumeinfo)_ | VolumeInfo contains a subset of fields from the PersistentVolume object created in the DPU cluster |  | Optional: \{\} <br /> |
 
 
 #### DPUVolumeStatus
@@ -3222,8 +3222,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `phase` _[DPUVolumePhase](#dpuvolumephase)_ | Phase of the volume |  | Enum: [Pending Bound] <br /> |
-| `state` _[DPUVolumeState](#dpuvolumestate)_ | State of the volume. This field is managed by the controller. User usually do not need to set fields from this struct. |  |  |
+| `phase` _[DPUVolumePhase](#dpuvolumephase)_ | Phase of the volume |  | Enum: [Pending Bound] <br />Optional: \{\} <br /> |
+| `state` _[DPUVolumeState](#dpuvolumestate)_ | State of the volume. This field is managed by the controller. User usually do not need to set fields from this struct. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
 
@@ -3277,8 +3277,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `functionType` _[FunctionType](#functiontype)_ | FunctionType is the type of the emulated function that should be used to attach the volume |  | Enum: [pf vf] <br /> |
-| `hotplugFunction` _boolean_ | HotplugFunction is a boolean flag that indicates if the emulated function should be hotplugged |  |  |
+| `functionType` _[FunctionType](#functiontype)_ | FunctionType is the type of the emulated function that should be used to attach the volume |  | Enum: [pf vf] <br />Required: \{\} <br /> |
+| `hotplugFunction` _boolean_ | HotplugFunction is a boolean flag that indicates if the emulated function should be hotplugged |  | Required: \{\} <br /> |
 
 
 #### NVMEAttrs
@@ -3294,8 +3294,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `namespaceID` _integer_ | The namespace ID within the NVME controller |  |  |
-| `namespaceUUID` _string_ | The NVMe namespace UUID |  |  |
+| `namespaceID` _integer_ | The namespace ID within the NVME controller |  | Optional: \{\} <br /> |
+| `namespaceUUID` _string_ | The NVMe namespace UUID |  | Optional: \{\} <br /> |
 
 
 #### ObjectRef
@@ -3334,8 +3334,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name specifies the name of the referenced object |  | MinLength: 1 <br /> |
-| `namespace` _string_ | Namespace specifies the namespace where the referenced object exists |  | MinLength: 1 <br /> |
+| `name` _string_ | Name specifies the name of the referenced object |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `namespace` _string_ | Namespace specifies the namespace where the referenced object exists |  | MinLength: 1 <br />Required: \{\} <br /> |
 
 
 #### SVVolumeAttachment
@@ -3406,7 +3406,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `filesystemTag` _string_ | Filesystem tag identified by SNAP on the host (used for the mount). Relevant for volume of type filesystem |  |  |
+| `filesystemTag` _string_ | Filesystem tag identified by SNAP on the host (used for the mount). Relevant for volume of type filesystem |  | Optional: \{\} <br /> |
 
 
 #### Volume
@@ -3487,8 +3487,8 @@ _Appears in:_
 | `source` _[VolumeSource](#volumesource)_ | Reference to the NV-Volume object |  |  |
 | `volumeAttachmentRef` _[ObjectRef](#objectref)_ | Reference to the SV-VolumeAttachment object |  |  |
 | `parameters` _object (keys:string, values:string)_ | Opaque static publish properties of the volume returned by the plugin |  |  |
-| `functionType` _[FunctionType](#functiontype)_ | FunctionType is the type of the emulated function that should be used to attach the volume |  | Enum: [pf vf] <br /> |
-| `hotplugFunction` _boolean_ | HotplugFunction is a boolean flag that indicates if the emulated function should be hotplugged |  |  |
+| `functionType` _[FunctionType](#functiontype)_ | FunctionType is the type of the emulated function that should be used to attach the volume |  | Enum: [pf vf] <br />Required: \{\} <br /> |
+| `hotplugFunction` _boolean_ | HotplugFunction is a boolean flag that indicates if the emulated function should be hotplugged |  | Required: \{\} <br /> |
 
 
 #### VolumeAttachmentStatus
@@ -3525,8 +3525,8 @@ _Appears in:_
 | `attached` _boolean_ | Indicates the volume is successfully attached to the DPU node |  |  |
 | `pciDeviceAddress` _string_ | PCI device address in the following format: (bus:device.function) |  |  |
 | `deviceName` _string_ | The name of the device that was created by the storage vendor plugin |  |  |
-| `bdevAttrs` _[BdevAttrs](#bdevattrs)_ | The attributes of the underlying block device |  |  |
-| `fsdevAttrs` _[FSdevAttrs](#fsdevattrs)_ | The attributes of the underlying filesystem device |  |  |
+| `bdevAttrs` _[BdevAttrs](#bdevattrs)_ | The attributes of the underlying block device |  | Optional: \{\} <br /> |
+| `fsdevAttrs` _[FSdevAttrs](#fsdevattrs)_ | The attributes of the underlying filesystem device |  | Optional: \{\} <br /> |
 
 
 #### VolumeInfo
@@ -3543,11 +3543,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `volumeName` _string_ | VolumeName contains the name of the PersistentVolume object in the DPU cluster |  |  |
-| `capacity` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | Actual capacity of the volume in the DPU cluster |  |  |
-| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumeaccessmode-v1-core) array_ | Actual access modes of the volume in the DPU cluster |  |  |
-| `volumeMode` _[PersistentVolumeMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumemode-v1-core)_ | Actual volume mode of the volume in the DPU cluster |  |  |
-| `volumeAttributes` _object (keys:string, values:string)_ | VolumeAttributes from the PersistentVolume object in the DPU cluster<br />This field usually contains parameters returned by the Vendor CSI plugin on volume creation. |  |  |
+| `volumeName` _string_ | VolumeName contains the name of the PersistentVolume object in the DPU cluster |  | Optional: \{\} <br /> |
+| `capacity` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | Actual capacity of the volume in the DPU cluster |  | Optional: \{\} <br /> |
+| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumeaccessmode-v1-core) array_ | Actual access modes of the volume in the DPU cluster |  | Optional: \{\} <br /> |
+| `volumeMode` _[PersistentVolumeMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumemode-v1-core)_ | Actual volume mode of the volume in the DPU cluster |  | Optional: \{\} <br /> |
+| `volumeAttributes` _object (keys:string, values:string)_ | VolumeAttributes from the PersistentVolume object in the DPU cluster<br />This field usually contains parameters returned by the Vendor CSI plugin on volume creation. |  | Optional: \{\} <br /> |
 
 
 #### VolumeList
@@ -3581,9 +3581,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `capacityRange` _[CapacityRange](#capacityrange)_ | The capacity of the required storage space in bytes |  |  |
-| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumeaccessmode-v1-core) array_ | Contains the types of access modes required |  |  |
-| `volumeMode` _[PersistentVolumeMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumemode-v1-core)_ | volumeMode defines what type of volume is required by the claim.<br />Value of Filesystem is implied when not included in claim spec. |  |  |
+| `capacityRange` _[CapacityRange](#capacityrange)_ | The capacity of the required storage space in bytes |  | Optional: \{\} <br /> |
+| `accessModes` _[PersistentVolumeAccessMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumeaccessmode-v1-core) array_ | Contains the types of access modes required |  | Optional: \{\} <br /> |
+| `volumeMode` _[PersistentVolumeMode](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#persistentvolumemode-v1-core)_ | volumeMode defines what type of volume is required by the claim.<br />Value of Filesystem is implied when not included in claim spec. |  | Optional: \{\} <br /> |
 
 
 #### VolumeSource
@@ -3615,11 +3615,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `storageParameters` _object (keys:string, values:string)_ | List of storage parameters supported by the policy, values are string only |  |  |
-| `request` _[VolumeRequest](#volumerequest)_ | The capacity of the required storage space in bytes |  |  |
-| `storagePolicyRef` _[ObjectRef](#objectref)_ | Reference to the StoragePolicy object |  |  |
-| `storagePolicyParameters` _object (keys:string, values:string)_ | List of storage parameters supported by the policy, values are string only |  |  |
-| `volume` _[VolumeSpecDPU](#volumespecdpu)_ | Describe volume information in DPU cluster |  |  |
+| `storageParameters` _object (keys:string, values:string)_ | List of storage parameters supported by the policy, values are string only |  | Optional: \{\} <br /> |
+| `request` _[VolumeRequest](#volumerequest)_ | The capacity of the required storage space in bytes |  | Required: \{\} <br /> |
+| `storagePolicyRef` _[ObjectRef](#objectref)_ | Reference to the StoragePolicy object |  | Optional: \{\} <br /> |
+| `storagePolicyParameters` _object (keys:string, values:string)_ | List of storage parameters supported by the policy, values are string only |  | Optional: \{\} <br /> |
+| `volume` _[VolumeSpecDPU](#volumespecdpu)_ | Describe volume information in DPU cluster |  | Optional: \{\} <br /> |
 
 
 #### VolumeSpecDPU
@@ -3676,7 +3676,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `state` _[VolumeState](#volumestate)_ | The state of a Volume object |  | Enum: [InProgress Available] <br /> |
+| `state` _[VolumeState](#volumestate)_ | The state of a Volume object |  | Enum: [InProgress Available] <br />Optional: \{\} <br /> |
 
 
 
@@ -3733,11 +3733,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `repoURL` _string_ | RepoURL specifies the URL to the repository that contains the application Helm chart.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br /> |
-| `path` _string_ | Path is the location of the chart inside the repo. |  |  |
-| `version` _string_ | Version is a semver tag for the Chart's version. |  | MinLength: 1 <br /> |
-| `chart` _string_ | Chart is the name of the helm chart. |  |  |
-| `releaseName` _string_ | ReleaseName is the name to give to the release generate from the DPUService. |  |  |
+| `repoURL` _string_ | RepoURL specifies the URL to the repository that contains the application Helm chart.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Required: \{\} <br /> |
+| `path` _string_ | Path is the location of the chart inside the repo. |  | Optional: \{\} <br /> |
+| `version` _string_ | Version is a semver tag for the Chart's version. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `chart` _string_ | Chart is the name of the helm chart. |  | Optional: \{\} <br /> |
+| `releaseName` _string_ | ReleaseName is the name to give to the release generate from the DPUService. |  | Optional: \{\} <br /> |
 
 
 #### CNIPlugin
@@ -3755,8 +3755,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `type` _string_ | Type specifies the CNI plugin type to be used in the chain.<br />Currently only "rdma" is supported, which enables RDMA capabilities for the network interface. |  | Enum: [rdma] <br /> |
-| `config` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#rawextension-runtime-pkg)_ | Config contains optional plugin-specific configuration as raw JSON.<br />The configuration is merged into the CNI plugin configuration. |  |  |
+| `type` _string_ | Type specifies the CNI plugin type to be used in the chain.<br />Currently only "rdma" is supported, which enables RDMA capabilities for the network interface. |  | Enum: [rdma] <br />Required: \{\} <br /> |
+| `config` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#rawextension-runtime-pkg)_ | Config contains optional plugin-specific configuration as raw JSON.<br />The configuration is merged into the CNI plugin configuration. |  | Optional: \{\} <br /> |
 
 
 #### ConfigPort
@@ -3774,10 +3774,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name is a unique identifier for the port within the DPUService.<br />This name is used for reference inside the service. |  | MinLength: 1 <br />Pattern: `^[a-z0-9-]+$` <br /> |
-| `port` _integer_ | Port is the port number that will be exposed by the service.<br />Must be within the valid range of TCP/UDP ports (1-65535). |  |  |
-| `protocol` _[Protocol](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#protocol-v1-core)_ | Protocol specifies the transport protocol used by the port.<br />Supported values: TCP, UDP |  | Enum: [TCP UDP] <br /> |
-| `nodePort` _integer_ | NodePort is the external port assigned on each node in the cluster.<br />If not set, Kubernetes will automatically allocate a NodePort.<br /><br />Constraints:<br />- Can only be set when ServiceType is "NodePort".<br />- Must be within the clusters valid NodePort range (Kubernetes default is 30000-32767). |  |  |
+| `name` _string_ | Name is a unique identifier for the port within the DPUService.<br />This name is used for reference inside the service. |  | MinLength: 1 <br />Pattern: `^[a-z0-9-]+$` <br />Required: \{\} <br /> |
+| `port` _integer_ | Port is the port number that will be exposed by the service.<br />Must be within the valid range of TCP/UDP ports (1-65535). |  | Required: \{\} <br /> |
+| `protocol` _[Protocol](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#protocol-v1-core)_ | Protocol specifies the transport protocol used by the port.<br />Supported values: TCP, UDP |  | Enum: [TCP UDP] <br />Required: \{\} <br /> |
+| `nodePort` _integer_ | NodePort is the external port assigned on each node in the cluster.<br />If not set, Kubernetes will automatically allocate a NodePort.<br />Constraints:<br />- Can only be set when ServiceType is "NodePort".<br />- Must be within the clusters valid NodePort range (Kubernetes default is 30000-32767). |  | Optional: \{\} <br /> |
 
 
 #### ConfigPorts
@@ -3787,7 +3787,6 @@ _Appears in:_
 ConfigPorts defines the desired state of port configurations for a DPUService.
 This struct determines how ports are exposed from the DPU to the host cluster.
 A DPUService can only have a single ServiceType across all ports.
-
 
 Validation:
 - If any port has a NodePort assigned, ServiceType **must** be "NodePort".
@@ -3800,8 +3799,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `serviceType` _[ServiceType](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#servicetype-v1-core)_ | ServiceType specifies the type of Kubernetes Service to create.<br />All ports within this ConfigPorts will have the same ServiceType.<br />The value is immutable and cannot be changed after creation.<br />Supported values:<br />- "NodePort": Exposes ports externally on a node.<br />- "ClusterIP": Exposes ports internally within the cluster.<br />- "None": Internal-only service with no cluster IP.<br />Default: "NodePort" | NodePort | Enum: [NodePort ClusterIP None] <br /> |
-| `ports` _[ConfigPort](#configport) array_ | Ports defines the list of port configurations that will be exposed by the DPUService.<br />Each port must specify a name, port number, and protocol.<br /><br />Constraints:<br />- If ServiceType is "NodePort", ports may optionally specify a NodePort.<br />- If ServiceType is "None" or "ClusterIP", ports **cannot** specify a NodePort. |  |  |
+| `serviceType` _[ServiceType](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#servicetype-v1-core)_ | ServiceType specifies the type of Kubernetes Service to create.<br />All ports within this ConfigPorts will have the same ServiceType.<br />The value is immutable and cannot be changed after creation.<br />Supported values:<br />- "NodePort": Exposes ports externally on a node.<br />- "ClusterIP": Exposes ports internally within the cluster.<br />- "None": Internal-only service with no cluster IP.<br />Default: "NodePort" | NodePort | Enum: [NodePort ClusterIP None] <br />Required: \{\} <br /> |
+| `ports` _[ConfigPort](#configport) array_ | Ports defines the list of port configurations that will be exposed by the DPUService.<br />Each port must specify a name, port number, and protocol.<br />Constraints:<br />- If ServiceType is "NodePort", ports may optionally specify a NodePort.<br />- If ServiceType is "None" or "ClusterIP", ports **cannot** specify a NodePort. |  | Required: \{\} <br /> |
 
 
 #### DPUDeployment
@@ -3856,8 +3855,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `service` _[DPUDeploymentService](#dpudeploymentservice)_ | Service holds configuration that helps configure the Service Function Chain and identify a port associated with<br />a DPUService |  |  |
-| `serviceInterface` _[ServiceIfc](#serviceifc)_ | ServiceInterface holds configuration that helps configure the Service Function Chain and identify a user defined<br />port |  |  |
+| `service` _[DPUDeploymentService](#dpudeploymentservice)_ | Service holds configuration that helps configure the Service Function Chain and identify a port associated with<br />a DPUService |  | Optional: \{\} <br /> |
+| `serviceInterface` _[ServiceIfc](#serviceifc)_ | ServiceInterface holds configuration that helps configure the Service Function Chain and identify a user defined<br />port |  | Optional: \{\} <br /> |
 
 
 #### DPUDeploymentService
@@ -3873,9 +3872,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name is the name of the service as defined in the DPUDeployment Spec |  | MaxLength: 28 <br />MinLength: 1 <br /> |
-| `interface` _string_ | Interface name is the name of the interface as defined in the DPUServiceConfiguration |  | MaxLength: 15 <br />MinLength: 1 <br /> |
-| `ipam` _[IPAM](#ipam)_ | IPAM defines the IPAM configuration that is configured in the Service Function Chain |  |  |
+| `name` _string_ | Name is the name of the service as defined in the DPUDeployment Spec |  | MaxLength: 28 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `interface` _string_ | Interface name is the name of the interface as defined in the DPUServiceConfiguration |  | MaxLength: 15 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `ipam` _[IPAM](#ipam)_ | IPAM defines the IPAM configuration that is configured in the Service Function Chain |  | Optional: \{\} <br /> |
 
 
 #### DPUDeploymentServiceConfiguration
@@ -3893,7 +3892,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `serviceTemplate` _string_ | ServiceTemplate is the name of the DPUServiceTemplate object to be used for this Service. It must be in the same<br />namespace as the DPUDeployment. |  |  |
 | `serviceConfiguration` _string_ | ServiceConfiguration is the name of the DPUServiceConfiguration object to be used for this Service. It must be<br />in the same namespace as the DPUDeployment. |  |  |
-| `dependsOn` _[LocalObjectDependency](#localobjectdependency) array_ | DependsOn is a list of local object dependencies that are required for this Service. |  | MinItems: 1 <br /> |
+| `dependsOn` _[LocalObjectDependency](#localobjectdependency) array_ | DependsOn is a list of local object dependencies that are required for this Service. |  | MinItems: 1 <br />Optional: \{\} <br /> |
 
 
 #### DPUDeploymentSpec
@@ -3909,10 +3908,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `dpus` _[DPUs](#dpus)_ | DPUs contains the DPU related configuration |  |  |
-| `services` _object (keys:string, values:[DPUDeploymentServiceConfiguration](#dpudeploymentserviceconfiguration))_ | Services contains the DPUDeploymentService related configuration. The key is the deploymentServiceName and the value is its<br />configuration. All underlying objects must specify the same deploymentServiceName in order to be able to be consumed by the<br />DPUDeployment. |  | MaxProperties: 50 <br />MinProperties: 1 <br /> |
-| `serviceChains` _[ServiceChains](#servicechains)_ | ServiceChains contains the configuration related to the DPUServiceChains that the DPUDeployment creates. |  |  |
-| `revisionHistoryLimit` _integer_ | The maximum number of revisions that can be retained during upgrades.<br />Defaults to 10. | 10 |  |
+| `dpus` _[DPUs](#dpus)_ | DPUs contains the DPU related configuration |  | Required: \{\} <br /> |
+| `services` _object (keys:string, values:[DPUDeploymentServiceConfiguration](#dpudeploymentserviceconfiguration))_ | Services contains the DPUDeploymentService related configuration. The key is the deploymentServiceName and the value is its<br />configuration. All underlying objects must specify the same deploymentServiceName in order to be able to be consumed by the<br />DPUDeployment. |  | MaxProperties: 50 <br />MinProperties: 1 <br />Required: \{\} <br /> |
+| `serviceChains` _[ServiceChains](#servicechains)_ | ServiceChains contains the configuration related to the DPUServiceChains that the DPUDeployment creates. |  | Optional: \{\} <br /> |
+| `revisionHistoryLimit` _integer_ | The maximum number of revisions that can be retained during upgrades.<br />Defaults to 10. | 10 | Optional: \{\} <br /> |
 
 
 #### DPUDeploymentStatus
@@ -3945,8 +3944,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ports` _[DPUDeploymentPort](#dpudeploymentport) array_ | Ports contains the ports of the switch |  | MaxItems: 50 <br />MinItems: 1 <br /> |
-| `serviceMTU` _integer_ | ServiceMTU of the switch<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br /> |
+| `ports` _[DPUDeploymentPort](#dpudeploymentport) array_ | Ports contains the ports of the switch |  | MaxItems: 50 <br />MinItems: 1 <br />Required: \{\} <br /> |
+| `serviceMTU` _integer_ | ServiceMTU of the switch<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br />Optional: \{\} <br /> |
 
 
 #### DPUService
@@ -4020,8 +4019,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Clusters with specific labels, ServiceChainSet CRs will be created only for these Clusters<br /><br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead. |  |  |
-| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUClusterSelector determines in which clusters the DPUServiceChain controller should apply the configuration. |  |  |
+| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Clusters with specific labels, ServiceChainSet CRs will be created only for these Clusters<br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead. |  | Optional: \{\} <br /> |
+| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUClusterSelector determines in which clusters the DPUServiceChain controller should apply the configuration. |  | Optional: \{\} <br /> |
 | `template` _[ServiceChainSetSpecTemplate](#servicechainsetspectemplate)_ | Template describes the ServiceChainSet that will be created for each selected Cluster. |  |  |
 
 
@@ -4097,10 +4096,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `updateStrategy` _[DaemonSetUpdateStrategy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#daemonsetupdatestrategy-v1-apps)_ | UpdateStrategy specifies the DeaemonSet update strategy for the ServiceDaemonset. |  |  |
-| `labels` _object (keys:string, values:string)_ | Labels specifies labels which are added to the ServiceDaemonSet. |  | MaxProperties: 50 <br /> |
-| `annotations` _object (keys:string, values:string)_ | Annotations specifies annotations which are added to the ServiceDaemonSet. |  | MaxProperties: 50 <br /> |
-| `resources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | Resources specifies resources which are added to the ServiceDaemonSet. |  |  |
+| `updateStrategy` _[DaemonSetUpdateStrategy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#daemonsetupdatestrategy-v1-apps)_ | UpdateStrategy specifies the DeaemonSet update strategy for the ServiceDaemonset. |  | Optional: \{\} <br /> |
+| `labels` _object (keys:string, values:string)_ | Labels specifies labels which are added to the ServiceDaemonSet. |  | MaxProperties: 50 <br />Optional: \{\} <br /> |
+| `annotations` _object (keys:string, values:string)_ | Annotations specifies annotations which are added to the ServiceDaemonSet. |  | MaxProperties: 50 <br />Optional: \{\} <br /> |
+| `resources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | Resources specifies resources which are added to the ServiceDaemonSet. |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceConfigurationSpec
@@ -4116,10 +4115,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `deploymentServiceName` _string_ | DeploymentServiceName is the name of the DPU service this configuration refers to. It must match<br />.spec.deploymentServiceName of a DPUServiceTemplate object and one of the keys in .spec.services of a<br />DPUDeployment object. |  | MaxLength: 28 <br />MinLength: 1 <br /> |
-| `serviceConfiguration` _[ServiceConfiguration](#serviceconfiguration)_ | ServiceConfiguration contains fields that are configured on the generated DPUService. |  |  |
-| `interfaces` _[ServiceInterfaceTemplate](#serviceinterfacetemplate) array_ | Interfaces specifies the DPUServiceInterface to be generated for the generated DPUService. |  | MaxItems: 50 <br />MinItems: 1 <br /> |
-| `upgradePolicy` _[UpgradePolicy](#upgradepolicy)_ | UpgradePolicy contains the configuration for the upgrade process | \{  \} |  |
+| `deploymentServiceName` _string_ | DeploymentServiceName is the name of the DPU service this configuration refers to. It must match<br />.spec.deploymentServiceName of a DPUServiceTemplate object and one of the keys in .spec.services of a<br />DPUDeployment object. |  | MaxLength: 28 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `serviceConfiguration` _[ServiceConfiguration](#serviceconfiguration)_ | ServiceConfiguration contains fields that are configured on the generated DPUService. |  | Optional: \{\} <br /> |
+| `interfaces` _[ServiceInterfaceTemplate](#serviceinterfacetemplate) array_ | Interfaces specifies the DPUServiceInterface to be generated for the generated DPUService. |  | MaxItems: 50 <br />MinItems: 1 <br />Optional: \{\} <br /> |
+| `upgradePolicy` _[UpgradePolicy](#upgradepolicy)_ | UpgradePolicy contains the configuration for the upgrade process | \{  \} | Required: \{\} <br /> |
 
 
 #### DPUServiceConfigurationStatus
@@ -4186,12 +4185,12 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `serviceAccount` _[NamespacedName](#namespacedname)_ | ServiceAccount defines the needed information to create the service account. |  |  |
-| `duration` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | Duration is the duration for which the token will be valid.<br />Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration.<br />e.g. "1h", "1m", "1s", "1ms", "1.5h", "2h45m".<br />Value duration must not be less than 10 minutes.<br />**Note:** The maximum TTL for a token is 24 hours, after which the token<br />will be rotated. |  | Pattern: `^([0-9]+(\.[0-9]+)?(ms\|s\|m\|h))+$` <br />Type: string <br /> |
-| `targetCluster` _[NamespacedName](#namespacedname)_ | TargetCluster defines the target cluster where the service account will<br />be created, and where a token for that service account will be requested.<br />If not provided, the token will be requested for the same cluster where<br />the DPUServiceCredentialRequest object is created. |  |  |
-| `type` _string_ | Type is the type of the secret that will be created.<br />The supported types are `kubeconfig` and `tokenFile`.<br />If `kubeconfig` is selected, the secret will contain a kubeconfig file,<br />that can be used to access the cluster.<br />If `tokenFile` is selected, the secret will contain a token file and several<br />environment variables that can be used to access the cluster. It can be used<br />with https://github.com/kubernetes/client-go/blob/v11.0.0/rest/config.go#L52<br />to create a client that will handle file rotation. |  | Enum: [kubeconfig tokenFile] <br /> |
-| `secret` _[NamespacedName](#namespacedname)_ | Secret defines the needed information to create the secret.<br />The secret will be of the type specified in the `spec.type` field. |  |  |
-| `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `serviceAccount` _[NamespacedName](#namespacedname)_ | ServiceAccount defines the needed information to create the service account. |  | Required: \{\} <br /> |
+| `duration` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | Duration is the duration for which the token will be valid.<br />Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration.<br />e.g. "1h", "1m", "1s", "1ms", "1.5h", "2h45m".<br />Value duration must not be less than 10 minutes.<br />**Note:** The maximum TTL for a token is 24 hours, after which the token<br />will be rotated. |  | Pattern: `^([0-9]+(\.[0-9]+)?(ms\|s\|m\|h))+$` <br />Type: string <br />Optional: \{\} <br /> |
+| `targetCluster` _[NamespacedName](#namespacedname)_ | TargetCluster defines the target cluster where the service account will<br />be created, and where a token for that service account will be requested.<br />If not provided, the token will be requested for the same cluster where<br />the DPUServiceCredentialRequest object is created. |  | Optional: \{\} <br /> |
+| `type` _string_ | Type is the type of the secret that will be created.<br />The supported types are `kubeconfig` and `tokenFile`.<br />If `kubeconfig` is selected, the secret will contain a kubeconfig file,<br />that can be used to access the cluster.<br />If `tokenFile` is selected, the secret will contain a token file and several<br />environment variables that can be used to access the cluster. It can be used<br />with https://github.com/kubernetes/client-go/blob/v11.0.0/rest/config.go#L52<br />to create a client that will handle file rotation. |  | Enum: [kubeconfig tokenFile] <br />Required: \{\} <br /> |
+| `secret` _[NamespacedName](#namespacedname)_ | Secret defines the needed information to create the secret.<br />The secret will be of the type specified in the `spec.type` field. |  | Required: \{\} <br /> |
+| `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceCredentialRequestStatus
@@ -4207,11 +4206,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  | Optional: \{\} <br /> |
 | `serviceAccount` _string_ | ServiceAccount is the namespaced name of the ServiceAccount resource created by<br />the controller for the DPUServiceCredentialRequest. |  |  |
-| `targetCluster` _string_ | TargetCluster is the cluster where the service account was created.<br />It has to be persisted in the status to be able to delete the service account<br />when the DPUServiceCredentialRequest is updated. |  |  |
-| `expirationTimestamp` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | ExpirationTimestamp is the time when the token will expire. |  |  |
-| `issuedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | IssuedAt is the time when the token was issued. |  |  |
+| `targetCluster` _string_ | TargetCluster is the cluster where the service account was created.<br />It has to be persisted in the status to be able to delete the service account<br />when the DPUServiceCredentialRequest is updated. |  | Optional: \{\} <br /> |
+| `expirationTimestamp` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | ExpirationTimestamp is the time when the token will expire. |  | Optional: \{\} <br /> |
+| `issuedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | IssuedAt is the time when the token was issued. |  | Optional: \{\} <br /> |
 | `secret` _string_ | Sercet is the namespaced name of the Secret resource created by the controller for<br />the DPUServiceCredentialRequest. |  |  |
 
 
@@ -4269,8 +4268,8 @@ _Appears in:_
 | `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `ipv4Network` _[IPV4Network](#ipv4network)_ | IPV4Network is the configuration related to splitting a network into subnets per node, each with their own gateway. |  |  |
 | `ipv4Subnet` _[IPV4Subnet](#ipv4subnet)_ | IPV4Subnet is the configuration related to splitting a subnet into blocks per node. In this setup, there is a<br />single gateway. |  |  |
-| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | ClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.<br /><br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead. |  |  |
-| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration. |  |  |
+| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | ClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.<br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead. |  | Optional: \{\} <br /> |
+| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration. |  | Optional: \{\} <br /> |
 | `nodeSelector` _[NodeSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#nodeselector-v1-core)_ | NodeSelector determines in which DPU nodes the DPUServiceIPAM controller should apply the configuration. |  |  |
 
 
@@ -4342,8 +4341,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Clusters with specific labels, ServiceInterfaceSet CRs will be created only for these Clusters<br /><br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead. |  |  |
-| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUClusterSelector determines in which clusters the DPUServiceInterface controller should apply the configuration. |  |  |
+| `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Clusters with specific labels, ServiceInterfaceSet CRs will be created only for these Clusters<br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead. |  | Optional: \{\} <br /> |
+| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUClusterSelector determines in which clusters the DPUServiceInterface controller should apply the configuration. |  | Optional: \{\} <br /> |
 | `template` _[ServiceInterfaceSetSpecTemplate](#serviceinterfacesetspectemplate)_ | Template describes the ServiceInterfaceSet that will be created for each selected Cluster. |  |  |
 
 
@@ -4433,12 +4432,12 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUClusterSelector determines in which clusters the DPUServiceNAD controller should apply the configuration. |  |  |
-| `resourceType` _string_ | ResourceType specifies the type of network resource to allocate for pods using this NAD.<br />- "vf": Virtual Function (SR-IOV VF) from the DPU's physical ports<br />- "sf": Scalable Function from the DPU (maps to nvidia.com/bf_sf or nvidia.com/bf_sf_trusted)<br />- "veth": Virtual Ethernet pair (no device plugin resource required)<br />The resource type determines which SR-IOV device plugin resource will be requested. |  | Enum: [vf sf veth] <br /> |
-| `bridge` _string_ | Bridge specifies the name of the OVS bridge to which the network interface will be connected.<br />This bridge name is used in the CNI configuration for the OVS plugin. |  |  |
-| `serviceMTU` _integer_ | ServiceMTU specifies the MTU size in bytes for the network interface.<br />This value is passed to the OVS CNI plugin and determines the maximum packet size.<br />If there is a DPUServiceChain that references an interface that is part of this network,<br />then the MTU that is defined in the DPUServiceChain takes precedence.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br /> |
-| `ipam` _boolean_ | IPAM enables IP Address Management for the network interfaces attached to this network<br />When set to true, a DPUServiceChain that references the DPUServiceInterface that has<br />requested this network must be created and include the relevant IPAM information. See<br />DPUServiceChain documentation for more.<br />When set to false, the network interfaces attached to this network will not get an IP |  |  |
-| `chainedCNIs` _[CNIPlugin](#cniplugin) array_ | ChainedCNIs specifies additional CNI plugins to be chained after the base OVS plugin.<br />When specified, the NAD will use the CNI chaining format with the OVS plugin as the<br />first plugin, followed by the plugins defined in this list.<br />This allows adding capabilities like RDMA support on top of the base network interface.<br />If empty, the NAD uses a single OVS plugin configuration (backward compatible format). |  |  |
+| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUClusterSelector determines in which clusters the DPUServiceNAD controller should apply the configuration. |  | Optional: \{\} <br /> |
+| `resourceType` _string_ | ResourceType specifies the type of network resource to allocate for pods using this NAD.<br />- "vf": Virtual Function (SR-IOV VF) from the DPU's physical ports<br />- "sf": Scalable Function from the DPU (maps to nvidia.com/bf_sf or nvidia.com/bf_sf_trusted)<br />- "veth": Virtual Ethernet pair (no device plugin resource required)<br />The resource type determines which SR-IOV device plugin resource will be requested. |  | Enum: [vf sf veth] <br />Required: \{\} <br /> |
+| `bridge` _string_ | Bridge specifies the name of the OVS bridge to which the network interface will be connected.<br />This bridge name is used in the CNI configuration for the OVS plugin. |  | Optional: \{\} <br /> |
+| `serviceMTU` _integer_ | ServiceMTU specifies the MTU size in bytes for the network interface.<br />This value is passed to the OVS CNI plugin and determines the maximum packet size.<br />If there is a DPUServiceChain that references an interface that is part of this network,<br />then the MTU that is defined in the DPUServiceChain takes precedence.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br />Optional: \{\} <br /> |
+| `ipam` _boolean_ | IPAM enables IP Address Management for the network interfaces attached to this network<br />When set to true, a DPUServiceChain that references the DPUServiceInterface that has<br />requested this network must be created and include the relevant IPAM information. See<br />DPUServiceChain documentation for more.<br />When set to false, the network interfaces attached to this network will not get an IP |  | Optional: \{\} <br /> |
+| `chainedCNIs` _[CNIPlugin](#cniplugin) array_ | ChainedCNIs specifies additional CNI plugins to be chained after the base OVS plugin.<br />When specified, the NAD will use the CNI chaining format with the OVS plugin as the<br />first plugin, followed by the plugins defined in this list.<br />This allows adding capabilities like RDMA support on top of the base network interface.<br />If empty, the NAD uses a single OVS plugin configuration (backward compatible format). |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceNADStatus
@@ -4472,14 +4471,14 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Clusters with specific labels, Applications will be created only for these Clusters |  |  |
-| `helmChart` _[HelmChart](#helmchart)_ | HelmChart reflects the Helm related configuration |  |  |
-| `serviceID` _string_ | ServiceID is the ID of the service that the DPUService is associated with. |  |  |
-| `serviceDaemonSet` _[ServiceDaemonSetValues](#servicedaemonsetvalues)_ | ServiceDaemonSet specifies the configuration for the ServiceDaemonSet. |  |  |
-| `deployInCluster` _boolean_ | DeployInCluster indicates if the DPUService Helm Chart will be deployed on<br />the Host cluster. Default to false. |  |  |
-| `interfaces` _string array_ | Interfaces specifies the DPUServiceInterface names that the DPUService<br />uses in the same namespace. |  | MaxItems: 50 <br />MinItems: 1 <br /> |
-| `paused` _boolean_ | Paused indicates that the DPUService is paused.<br />Underlying resources are also paused when this is set to true.<br />No deletion of resources will occur when this is set to true. |  |  |
-| `configPorts` _[ConfigPorts](#configports)_ | ConfigPorts defines the desired state of port configurations for a DPUService.<br />This struct determines how ports are exposed from the DPU to the host cluster.<br />A DPUService can only have a single ServiceType across all ports. |  |  |
+| `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Clusters with specific labels, Applications will be created only for these Clusters |  | Optional: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart reflects the Helm related configuration |  | Required: \{\} <br /> |
+| `serviceID` _string_ | ServiceID is the ID of the service that the DPUService is associated with. |  | Optional: \{\} <br /> |
+| `serviceDaemonSet` _[ServiceDaemonSetValues](#servicedaemonsetvalues)_ | ServiceDaemonSet specifies the configuration for the ServiceDaemonSet. |  | Optional: \{\} <br /> |
+| `deployInCluster` _boolean_ | DeployInCluster indicates if the DPUService Helm Chart will be deployed on<br />the Host cluster. Default to false. |  | Optional: \{\} <br /> |
+| `interfaces` _string array_ | Interfaces specifies the DPUServiceInterface names that the DPUService<br />uses in the same namespace. |  | MaxItems: 50 <br />MinItems: 1 <br />Optional: \{\} <br /> |
+| `paused` _boolean_ | Paused indicates that the DPUService is paused.<br />Underlying resources are also paused when this is set to true.<br />No deletion of resources will occur when this is set to true. |  | Optional: \{\} <br /> |
+| `configPorts` _[ConfigPorts](#configports)_ | ConfigPorts defines the desired state of port configurations for a DPUService.<br />This struct determines how ports are exposed from the DPU to the host cluster.<br />A DPUService can only have a single ServiceType across all ports. |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceStatus
@@ -4495,10 +4494,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
-| `configPorts` _object (keys:string, values:[ConfigPort](#configport))_ | ConfigPorts defines the observed state of the config ports.<br />It contains the actual port numbers that are exposed on the DPUService per cluster. |  |  |
-| `serviceID` _string_ | ServiceID is the ID of the service that the DPUService is associated with.<br />This is set when the DPUService is created. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
+| `configPorts` _object (keys:string, values:[ConfigPort](#configport))_ | ConfigPorts defines the observed state of the config ports.<br />It contains the actual port numbers that are exposed on the DPUService per cluster. |  | Optional: \{\} <br /> |
+| `serviceID` _string_ | ServiceID is the ID of the service that the DPUService is associated with.<br />This is set when the DPUService is created. |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceTemplate
@@ -4555,9 +4554,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `deploymentServiceName` _string_ | DeploymentServiceName is the name of the DPU service this configuration refers to. It must match<br />.spec.deploymentServiceName of a DPUServiceConfiguration object and one of the keys in .spec.services of a<br />DPUDeployment object. |  | MaxLength: 28 <br />MinLength: 1 <br /> |
-| `helmChart` _[HelmChart](#helmchart)_ | HelmChart reflects the Helm related configuration. The user is supposed to configure the values that are static<br />across any DPUServiceConfiguration used with this DPUServiceTemplate in a DPUDeployment. These values act as a<br />baseline and are merged with values specified in the DPUServiceConfiguration. In case of conflict, the<br />DPUServiceConfiguration values take precedence. |  |  |
-| `resourceRequirements` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | ResourceRequirements contains the overall resources required by this particular service to run on a single node |  |  |
+| `deploymentServiceName` _string_ | DeploymentServiceName is the name of the DPU service this configuration refers to. It must match<br />.spec.deploymentServiceName of a DPUServiceConfiguration object and one of the keys in .spec.services of a<br />DPUDeployment object. |  | MaxLength: 28 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart reflects the Helm related configuration. The user is supposed to configure the values that are static<br />across any DPUServiceConfiguration used with this DPUServiceTemplate in a DPUDeployment. These values act as a<br />baseline and are merged with values specified in the DPUServiceConfiguration. In case of conflict, the<br />DPUServiceConfiguration values take precedence. |  | Required: \{\} <br /> |
+| `resourceRequirements` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | ResourceRequirements contains the overall resources required by this particular service to run on a single node |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceTemplateStatus
@@ -4573,9 +4572,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
-| `versions` _object (keys:string, values:string)_ | Versions reflects the required versions the generated DPUService needs in order to function correctly. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
+| `versions` _object (keys:string, values:string)_ | Versions reflects the required versions the generated DPUService needs in order to function correctly. |  | Optional: \{\} <br /> |
 
 
 #### DPUSet
@@ -4591,13 +4590,13 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nameSuffix` _string_ | NameSuffix is the suffix to be added to the name of the DPUSet object created by the DPUDeployment. |  | MaxLength: 24 <br />MinLength: 1 <br /> |
-| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | NodeSelector defines the nodes that the DPUSet should target<br /><br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUNodeSelector instead. |  |  |
-| `dpuSelector` _object (keys:string, values:string)_ | DPUSelector defines the DPUs that the DPUSet should target<br /><br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUDeviceSelector instead. |  |  |
-| `dpuNodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUNodeSelector defines the selector for DPUNodes that the DPUSet should target and should create a DPU for. |  |  |
-| `dpuDeviceSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUDeviceSelector defines the selector for DPUDevices that the DPUSet should target and should create a DPU for. |  |  |
-| `dpuClusterSelector` _object (keys:string, values:string)_ | DPUClusterSelector defines the selector for DPUClusters that the DPUs created by the DPUSets created by the<br />DPUDeployment should join<br />TODO(4797319): The current implementation has some flaws. Consider using a metav1.LabelSelector instead, this will<br />require multiple DPUServices, DPUServiceInterfaces, and DPUServiceChains to be created so that we can mathematically<br />cover the union of all the selectors across all the DPUSets. |  |  |
-| `dpuAnnotations` _object (keys:string, values:string)_ | DPUAnnotations is the annotations to be added to the DPU object created by the DPUSet. |  | MaxProperties: 50 <br /> |
+| `nameSuffix` _string_ | NameSuffix is the suffix to be added to the name of the DPUSet object created by the DPUDeployment. |  | MaxLength: 24 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | NodeSelector defines the nodes that the DPUSet should target<br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUNodeSelector instead. |  | Optional: \{\} <br /> |
+| `dpuSelector` _object (keys:string, values:string)_ | DPUSelector defines the DPUs that the DPUSet should target<br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUDeviceSelector instead. |  | Optional: \{\} <br /> |
+| `dpuNodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUNodeSelector defines the selector for DPUNodes that the DPUSet should target and should create a DPU for. |  | Optional: \{\} <br /> |
+| `dpuDeviceSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUDeviceSelector defines the selector for DPUDevices that the DPUSet should target and should create a DPU for. |  | Optional: \{\} <br /> |
+| `dpuClusterSelector` _object (keys:string, values:string)_ | DPUClusterSelector defines the selector for DPUClusters that the DPUs created by the DPUSets created by the<br />DPUDeployment should join<br />require multiple DPUServices, DPUServiceInterfaces, and DPUServiceChains to be created so that we can mathematically<br />cover the union of all the selectors across all the DPUSets. |  | Optional: \{\} <br /> |
+| `dpuAnnotations` _object (keys:string, values:string)_ | DPUAnnotations is the annotations to be added to the DPU object created by the DPUSet. |  | MaxProperties: 50 <br />Optional: \{\} <br /> |
 
 
 #### DPUs
@@ -4613,12 +4612,12 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `bfb` _string_ | BFB is the name of the BFB object to be used in this DPUDeployment. It must be in the same namespace as the<br />DPUDeployment. |  |  |
-| `flavor` _string_ | Flavor is the name of the DPUFlavor object to be used in this DPUDeployment. It must be in the same namespace as<br />the DPUDeployment. |  |  |
-| `dpuSets` _[DPUSet](#dpuset) array_ | DPUSets contains configuration for each DPUSet that is going to be created by the DPUDeployment |  | MaxItems: 50 <br />MinItems: 1 <br /> |
-| `nodeEffect` _[Action](#action)_ | NodeEffect is the effect the DPU has on Nodes during provisioning. |  |  |
-| `dpuSetStrategy` _[DPUSetStrategy](#dpusetstrategy)_ | DPUSetStrategy is the strategy to use for the DPUSets created by the DPUDeployment. |  |  |
-| `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  |  |
+| `bfb` _string_ | BFB is the name of the BFB object to be used in this DPUDeployment. It must be in the same namespace as the<br />DPUDeployment. |  | Required: \{\} <br /> |
+| `flavor` _string_ | Flavor is the name of the DPUFlavor object to be used in this DPUDeployment. It must be in the same namespace as<br />the DPUDeployment. |  | Required: \{\} <br /> |
+| `dpuSets` _[DPUSet](#dpuset) array_ | DPUSets contains configuration for each DPUSet that is going to be created by the DPUDeployment |  | MaxItems: 50 <br />MinItems: 1 <br />Optional: \{\} <br /> |
+| `nodeEffect` _[Action](#action)_ | NodeEffect is the effect the DPU has on Nodes during provisioning. |  | Optional: \{\} <br /> |
+| `dpuSetStrategy` _[DPUSetStrategy](#dpusetstrategy)_ | DPUSetStrategy is the strategy to use for the DPUSets created by the DPUDeployment. |  | Optional: \{\} <br /> |
+| `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  | Optional: \{\} <br /> |
 
 
 #### ExcludeRange
@@ -4654,8 +4653,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `source` _[ApplicationSource](#applicationsource)_ | Source specifies information about the Helm chart |  |  |
-| `values` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#rawextension-runtime-pkg)_ | Values specifies Helm values to be passed to Helm template, defined as a map. This takes precedence over Values. |  |  |
+| `source` _[ApplicationSource](#applicationsource)_ | Source specifies information about the Helm chart |  | Required: \{\} <br /> |
+| `values` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#rawextension-runtime-pkg)_ | Values specifies Helm values to be passed to Helm template, defined as a map. This takes precedence over Values. |  | Optional: \{\} <br /> |
 
 
 
@@ -4677,7 +4676,7 @@ _Appears in:_
 | `network` _string_ | Network is the CIDR from which subnets should be allocated per node. |  |  |
 | `gatewayIndex` _integer_ | GatewayIndex determines which IP in the subnet extracted from the CIDR should be the gateway IP. For point to<br />point networks (/31), one needs to leave this empty to make use of both the IPs. |  |  |
 | `prefixSize` _integer_ | PrefixSize is the size of the subnet that should be allocated per node. |  |  |
-| `exclusions` _string array_ | Exclusions is a list of IPs that should be excluded when splitting the CIDR into subnets per node.<br /><br />Deprecated: This field is deprecated and will be removed with v26.10.0. Use ExcludeRanges instead. |  |  |
+| `exclusions` _string array_ | Exclusions is a list of IPs that should be excluded when splitting the CIDR into subnets per node.<br />Deprecated: This field is deprecated and will be removed with v26.10.0. Use ExcludeRanges instead. |  |  |
 | `excludeRanges` _[ExcludeRange](#excluderange) array_ | ExcludeRanges is a list of IP ranges that should be excluded from the allocation. |  |  |
 | `allocations` _object (keys:string, values:string)_ | Allocations describes the subnets that should be assigned in each DPU node. |  |  |
 | `defaultGateway` _boolean_ | DefaultGateway adds gateway as default gateway in the routes list if true. |  |  |
@@ -4720,7 +4719,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name is the name of the object |  |  |
+| `name` _string_ | Name is the name of the object |  | Required: \{\} <br /> |
 
 
 #### NamespacedName
@@ -4737,8 +4736,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name of the object. |  |  |
-| `namespace` _string_ | Namespace of the object, if not provided the object will be looked up in<br />the same namespace as the referring object |  |  |
+| `name` _string_ | Name of the object. |  | Required: \{\} <br /> |
+| `namespace` _string_ | Namespace of the object, if not provided the object will be looked up in<br />the same namespace as the referring object |  | Optional: \{\} <br /> |
 
 
 #### OVN
@@ -4754,7 +4753,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `externalBridge` _string_ | ExternalBridge is the name of the OVN bridge | br-ovn |  |
+| `externalBridge` _string_ | ExternalBridge is the name of the OVN bridge | br-ovn | Optional: \{\} <br /> |
 
 
 #### ObjectMeta
@@ -4775,8 +4774,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `labels` _object (keys:string, values:string)_ | Labels is a map of string keys and values. |  |  |
-| `annotations` _object (keys:string, values:string)_ | Annotations is a map of string keys and values. |  |  |
+| `labels` _object (keys:string, values:string)_ | Labels is a map of string keys and values. |  | Optional: \{\} <br /> |
+| `annotations` _object (keys:string, values:string)_ | Annotations is a map of string keys and values. |  | Optional: \{\} <br /> |
 
 
 #### PF
@@ -4792,8 +4791,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `pfID` _integer_ | The PF ID |  |  |
-| `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  |  |
+| `pfID` _integer_ | The PF ID |  | Required: \{\} <br /> |
+| `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  | Optional: \{\} <br /> |
 
 
 #### PatchDef
@@ -4809,9 +4808,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `peerBridge` _string_ | PeerBridge is the name of the bridge to which the patch port is connected.<br />This bridge must be created before the ServiceInterface is created. |  |  |
-| `peerPatchName` _string_ | PeerPatchName is the name of the patch port on the peer bridge.<br />If not set, it is auto-generated in the format: `p_<bridgeA>_to_<bridgeB>_<hash>`<br />where bridge names have hyphens removed and `<hash>` is an 8-character FNV-1a hash<br />derived from the ServiceInterface's namespace/name.<br />Example: p_brovn_to_brsfc_7aea60f7 (for bridges br-ovn and br-sfc). |  |  |
-| `peerExternalIDs` _object (keys:string, values:string)_ | PeerExternalIDs are the external IDs used to identify the peer patch port. |  |  |
+| `peerBridge` _string_ | PeerBridge is the name of the bridge to which the patch port is connected.<br />This bridge must be created before the ServiceInterface is created. |  | Required: \{\} <br /> |
+| `peerPatchName` _string_ | PeerPatchName is the name of the patch port on the peer bridge.<br />If not set, it is auto-generated in the format: `p_<bridgeA>_to_<bridgeB>_<hash>`<br />where bridge names have hyphens removed and `<hash>` is an 8-character FNV-1a hash<br />derived from the ServiceInterface's namespace/name.<br />Example: p_brovn_to_brsfc_7aea60f7 (for bridges br-ovn and br-sfc). |  | Optional: \{\} <br /> |
+| `peerExternalIDs` _object (keys:string, values:string)_ | PeerExternalIDs are the external IDs used to identify the peer patch port. |  | Optional: \{\} <br /> |
 
 
 #### Physical
@@ -4827,7 +4826,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `interfaceName` _string_ | The interface name |  |  |
+| `interfaceName` _string_ | The interface name |  | Required: \{\} <br /> |
 
 
 #### Port
@@ -4843,7 +4842,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `serviceInterface` _[ServiceIfc](#serviceifc)_ |  |  |  |
+| `serviceInterface` _[ServiceIfc](#serviceifc)_ |  |  | Required: \{\} <br /> |
 
 
 #### Route
@@ -4953,8 +4952,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Nodes with specific labels, ServiceChain CRs will be created<br />only for these Nodes |  |  |
-| `template` _[ServiceChainSpecTemplate](#servicechainspectemplate)_ | ServiceChainSpecTemplate holds the template for the ServiceChainSpec |  |  |
+| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Nodes with specific labels, ServiceChain CRs will be created<br />only for these Nodes |  | Optional: \{\} <br /> |
+| `template` _[ServiceChainSpecTemplate](#servicechainspectemplate)_ | ServiceChainSpecTemplate holds the template for the ServiceChainSpec |  | Required: \{\} <br /> |
 
 
 #### ServiceChainSetSpecTemplate
@@ -5007,8 +5006,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `node` _string_ | Node where this ServiceChain applies to |  |  |
-| `switches` _[Switch](#switch) array_ | The switches of the ServiceChain, order is significant |  | MaxItems: 50 <br />MinItems: 1 <br /> |
+| `node` _string_ | Node where this ServiceChain applies to |  | Optional: \{\} <br /> |
+| `switches` _[Switch](#switch) array_ | The switches of the ServiceChain, order is significant |  | MaxItems: 50 <br />MinItems: 1 <br />Required: \{\} <br /> |
 
 
 #### ServiceChainSpecTemplate
@@ -5025,8 +5024,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `spec` _[ServiceChainSpec](#servicechainspec)_ | ServiceChainSpec is the spec for the ServiceChainSpec |  |  |
-| `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[ServiceChainSpec](#servicechainspec)_ | ServiceChainSpec is the spec for the ServiceChainSpec |  | Required: \{\} <br /> |
+| `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
 
 
 #### ServiceChainStatus
@@ -5059,8 +5058,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `upgradePolicy` _[UpgradePolicy](#upgradepolicy)_ | UpgradePolicy contains the configuration for the upgrade process | \{  \} |  |
-| `switches` _[DPUDeploymentSwitch](#dpudeploymentswitch) array_ | Switches is the list of switches that form the service chain |  | MaxItems: 50 <br />MinItems: 1 <br /> |
+| `upgradePolicy` _[UpgradePolicy](#upgradepolicy)_ | UpgradePolicy contains the configuration for the upgrade process | \{  \} | Required: \{\} <br /> |
+| `switches` _[DPUDeploymentSwitch](#dpudeploymentswitch) array_ | Switches is the list of switches that form the service chain |  | MaxItems: 50 <br />MinItems: 1 <br />Required: \{\} <br /> |
 
 
 #### ServiceConfiguration
@@ -5076,10 +5075,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `helmChart` _[ServiceConfigurationHelmChart](#serviceconfigurationhelmchart)_ | HelmChart reflects the Helm related configuration. The user is supposed to configure values specific to that<br />DPUServiceConfiguration used in a DPUDeployment and should not specify values that could be shared across multiple<br />DPUDeployments using different DPUServiceConfigurations. These values are merged with values specified in the<br />DPUServiceTemplate. In case of conflict, the DPUServiceConfiguration values take precedence. |  |  |
-| `serviceDaemonSet` _[DPUServiceConfigurationServiceDaemonSetValues](#dpuserviceconfigurationservicedaemonsetvalues)_ | ServiceDaemonSet contains settings related to the underlying DaemonSet that is part of the Helm chart |  |  |
-| `deployInCluster` _boolean_ | DeployInCluster indicates if the DPUService Helm Chart will be deployed on the Host cluster. Default to false. |  |  |
-| `configPorts` _[ConfigPorts](#configports)_ | ConfigPorts defines the desired state of port configurations for a DPUService.<br />This struct determines how ports are exposed from the DPU to the host cluster.<br />A DPUService can only have a single ServiceType across all ports. |  |  |
+| `helmChart` _[ServiceConfigurationHelmChart](#serviceconfigurationhelmchart)_ | HelmChart reflects the Helm related configuration. The user is supposed to configure values specific to that<br />DPUServiceConfiguration used in a DPUDeployment and should not specify values that could be shared across multiple<br />DPUDeployments using different DPUServiceConfigurations. These values are merged with values specified in the<br />DPUServiceTemplate. In case of conflict, the DPUServiceConfiguration values take precedence. |  | Optional: \{\} <br /> |
+| `serviceDaemonSet` _[DPUServiceConfigurationServiceDaemonSetValues](#dpuserviceconfigurationservicedaemonsetvalues)_ | ServiceDaemonSet contains settings related to the underlying DaemonSet that is part of the Helm chart |  | Optional: \{\} <br /> |
+| `deployInCluster` _boolean_ | DeployInCluster indicates if the DPUService Helm Chart will be deployed on the Host cluster. Default to false. |  | Optional: \{\} <br /> |
+| `configPorts` _[ConfigPorts](#configports)_ | ConfigPorts defines the desired state of port configurations for a DPUService.<br />This struct determines how ports are exposed from the DPU to the host cluster.<br />A DPUService can only have a single ServiceType across all ports. |  | Optional: \{\} <br /> |
 
 
 #### ServiceConfigurationHelmChart
@@ -5095,7 +5094,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `values` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#rawextension-runtime-pkg)_ | Values specifies Helm values to be passed to Helm template, defined as a map. This takes precedence over Values. |  |  |
+| `values` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#rawextension-runtime-pkg)_ | Values specifies Helm values to be passed to Helm template, defined as a map. This takes precedence over Values. |  | Optional: \{\} <br /> |
 
 
 #### ServiceDaemonSetValues
@@ -5111,11 +5110,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeSelector` _[NodeSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#nodeselector-v1-core)_ | NodeSelector specifies which Nodes to deploy the ServiceDaemonSet to. |  |  |
-| `updateStrategy` _[DaemonSetUpdateStrategy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#daemonsetupdatestrategy-v1-apps)_ | UpdateStrategy specifies the DeaemonSet update strategy for the ServiceDaemonset. |  |  |
-| `labels` _object (keys:string, values:string)_ | Labels specifies labels which are added to the ServiceDaemonSet. |  |  |
-| `annotations` _object (keys:string, values:string)_ | Annotations specifies annotations which are added to the ServiceDaemonSet. |  |  |
-| `resources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | Resources specifies resources which are added to the ServiceDaemonSet. |  |  |
+| `nodeSelector` _[NodeSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#nodeselector-v1-core)_ | NodeSelector specifies which Nodes to deploy the ServiceDaemonSet to. |  | Optional: \{\} <br /> |
+| `updateStrategy` _[DaemonSetUpdateStrategy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#daemonsetupdatestrategy-v1-apps)_ | UpdateStrategy specifies the DeaemonSet update strategy for the ServiceDaemonset. |  | Optional: \{\} <br /> |
+| `labels` _object (keys:string, values:string)_ | Labels specifies labels which are added to the ServiceDaemonSet. |  | Optional: \{\} <br /> |
+| `annotations` _object (keys:string, values:string)_ | Annotations specifies annotations which are added to the ServiceDaemonSet. |  | Optional: \{\} <br /> |
+| `resources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | Resources specifies resources which are added to the ServiceDaemonSet. |  | Optional: \{\} <br /> |
 
 
 #### ServiceDef
@@ -5131,10 +5130,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `serviceID` _string_ | ServiceID is the DPU Service Identifier |  |  |
-| `network` _string_ | Network is the Network Attachment Definition in the form of "namespace/name"<br />or just "name" if the namespace is the same as the ServiceInterface. |  |  |
-| `interfaceName` _string_ | The interface name |  | MaxLength: 15 <br />MinLength: 1 <br /> |
-| `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  |  |
+| `serviceID` _string_ | ServiceID is the DPU Service Identifier |  | Required: \{\} <br /> |
+| `network` _string_ | Network is the Network Attachment Definition in the form of "namespace/name"<br />or just "name" if the namespace is the same as the ServiceInterface. |  | Required: \{\} <br /> |
+| `interfaceName` _string_ | The interface name |  | MaxLength: 15 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  | Optional: \{\} <br /> |
 
 
 #### ServiceIfc
@@ -5151,8 +5150,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `matchLabels` _object (keys:string, values:string)_ | Labels matching service interface |  | MaxProperties: 50 <br />MinProperties: 1 <br /> |
-| `ipam` _[IPAM](#ipam)_ | IPAM defines the IPAM configuration when referencing a serviceInterface of type 'service' |  |  |
+| `matchLabels` _object (keys:string, values:string)_ | Labels matching service interface |  | MaxProperties: 50 <br />MinProperties: 1 <br />Required: \{\} <br /> |
+| `ipam` _[IPAM](#ipam)_ | IPAM defines the IPAM configuration when referencing a serviceInterface of type 'service' |  | Optional: \{\} <br /> |
 
 
 #### ServiceInterface
@@ -5245,8 +5244,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Nodes with specific labels, ServiceInterface CRs will be<br />created only for these Nodes |  |  |
-| `template` _[ServiceInterfaceSpecTemplate](#serviceinterfacespectemplate)_ | Template holds the template for the serviceInterfaceSpec |  |  |
+| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the Nodes with specific labels, ServiceInterface CRs will be<br />created only for these Nodes |  | Optional: \{\} <br /> |
+| `template` _[ServiceInterfaceSpecTemplate](#serviceinterfacespectemplate)_ | Template holds the template for the serviceInterfaceSpec |  | Required: \{\} <br /> |
 
 
 #### ServiceInterfaceSetSpecTemplate
@@ -5299,15 +5298,15 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `node` _string_ | Node where this interface exists |  |  |
-| `interfaceType` _string_ | The interface type ("vlan", "physical", "pf", "vf", "ovn", "patch", "service") |  | Enum: [vlan physical pf vf ovn patch service] <br /> |
-| `physical` _[Physical](#physical)_ | The physical interface definition |  |  |
-| `vlan` _[VLAN](#vlan)_ | The VLAN definition |  |  |
-| `vf` _[VF](#vf)_ | The VF definition |  |  |
-| `pf` _[PF](#pf)_ | The PF definition |  |  |
-| `service` _[ServiceDef](#servicedef)_ | The Service definition |  |  |
-| `ovn` _[OVN](#ovn)_ | The OVN definition<br />Deprecated: This field is deprecated and will be removed with v26.10.0.<br />Migrate to interfaceType="patch" with spec.patch.peerBridge and spec.patch.peerPatchName instead. |  |  |
-| `patch` _[PatchDef](#patchdef)_ | The Patch definition |  |  |
+| `node` _string_ | Node where this interface exists |  | Optional: \{\} <br /> |
+| `interfaceType` _string_ | The interface type ("vlan", "physical", "pf", "vf", "ovn", "patch", "service") |  | Enum: [vlan physical pf vf ovn patch service] <br />Required: \{\} <br /> |
+| `physical` _[Physical](#physical)_ | The physical interface definition |  | Optional: \{\} <br /> |
+| `vlan` _[VLAN](#vlan)_ | The VLAN definition |  | Optional: \{\} <br /> |
+| `vf` _[VF](#vf)_ | The VF definition |  | Optional: \{\} <br /> |
+| `pf` _[PF](#pf)_ | The PF definition |  | Optional: \{\} <br /> |
+| `service` _[ServiceDef](#servicedef)_ | The Service definition |  | Optional: \{\} <br /> |
+| `ovn` _[OVN](#ovn)_ | The OVN definition<br />Deprecated: This field is deprecated and will be removed with v26.10.0.<br />Migrate to interfaceType="patch" with spec.patch.peerBridge and spec.patch.peerPatchName instead. |  | Optional: \{\} <br /> |
+| `patch` _[PatchDef](#patchdef)_ | The Patch definition |  | Optional: \{\} <br /> |
 
 
 #### ServiceInterfaceSpecTemplate
@@ -5324,8 +5323,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `spec` _[ServiceInterfaceSpec](#serviceinterfacespec)_ | ServiceInterfaceSpec is the spec for the ServiceInterfaceSpec |  |  |
-| `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[ServiceInterfaceSpec](#serviceinterfacespec)_ | ServiceInterfaceSpec is the spec for the ServiceInterfaceSpec |  | Required: \{\} <br /> |
+| `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
 
 
 #### ServiceInterfaceStatus
@@ -5358,9 +5357,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name is the name of the interface |  | MaxLength: 15 <br />MinLength: 1 <br /> |
-| `network` _string_ | Network is the Network Attachment Definition in the form of "namespace/name"<br />or just "name" if the namespace is the same as the namespace the pod is running. |  |  |
-| `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  |  |
+| `name` _string_ | Name is the name of the interface |  | MaxLength: 15 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `network` _string_ | Network is the Network Attachment Definition in the form of "namespace/name"<br />or just "name" if the namespace is the same as the namespace the pod is running. |  | Required: \{\} <br /> |
+| `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  | Optional: \{\} <br /> |
 
 
 #### Switch
@@ -5376,8 +5375,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ports` _[Port](#port) array_ | Ports of the switch |  | MaxItems: 50 <br />MinItems: 1 <br /> |
-| `serviceMTU` _integer_ | ServiceMTU of the switch<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br /> |
+| `ports` _[Port](#port) array_ | Ports of the switch |  | MaxItems: 50 <br />MinItems: 1 <br />Required: \{\} <br /> |
+| `serviceMTU` _integer_ | ServiceMTU of the switch<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br />Optional: \{\} <br /> |
 
 
 #### UpgradePolicy
@@ -5394,7 +5393,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `applyNodeEffect` _boolean_ | ApplyNodeEffect specifies if the node effect should be applied during the<br />upgrade. It signals the reconciler that this object upgrade is disruptive.<br />Hence a new revision of the object should be created and node effect should<br />be applied. | true |  |
+| `applyNodeEffect` _boolean_ | ApplyNodeEffect specifies if the node effect should be applied during the<br />upgrade. It signals the reconciler that this object upgrade is disruptive.<br />Hence a new revision of the object should be created and node effect should<br />be applied. | true | Optional: \{\} <br /> |
 
 
 #### VF
@@ -5410,10 +5409,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `vfID` _integer_ | The VF ID |  |  |
-| `pfID` _integer_ | The PF ID |  |  |
-| `parentInterfaceRef` _string_ | The parent interface reference<br />TODO: Figure out what this field is supposed to be |  |  |
-| `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  |  |
+| `vfID` _integer_ | The VF ID |  | Required: \{\} <br /> |
+| `pfID` _integer_ | The PF ID |  | Required: \{\} <br /> |
+| `parentInterfaceRef` _string_ | The parent interface reference |  | Optional: \{\} <br /> |
+| `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  | Optional: \{\} <br /> |
 
 
 #### VLAN
@@ -5429,8 +5428,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `vlanID` _integer_ | The VLAN ID |  |  |
-| `parentInterfaceRef` _string_ | The parent interface reference<br />TODO: Figure out what this field is supposed to be |  |  |
+| `vlanID` _integer_ | The VLAN ID |  | Required: \{\} <br /> |
+| `parentInterfaceRef` _string_ | The parent interface reference |  | Required: \{\} <br /> |
 
 
 
@@ -5464,9 +5463,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `dhcp` _boolean_ | DHCP if set, enables DHCP for the network |  |  |
-| `subnet` _string_ | Subnet is the network subnet in CIDR format to use for DHCP. the first IP in the subnet is the gateway. |  |  |
-| `excludeIPs` _[ExcludeIPsEntry](#excludeipsentry) array_ | ExcludeIPs are the IPs to exclude from DHCP allocation. |  |  |
+| `dhcp` _boolean_ | DHCP if set, enables DHCP for the network |  | Required: \{\} <br /> |
+| `subnet` _string_ | Subnet is the network subnet in CIDR format to use for DHCP. the first IP in the subnet is the gateway. |  | Required: \{\} <br /> |
+| `excludeIPs` _[ExcludeIPsEntry](#excludeipsentry) array_ | ExcludeIPs are the IPs to exclude from DHCP allocation. |  | Optional: \{\} <br /> |
 
 
 #### BridgedNetworkIPAMSpec
@@ -5482,7 +5481,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ipv4` _[BridgedNetworkIPAMIPv4Spec](#bridgednetworkipamipv4spec)_ | IPv4 contains the IPv4 IPAM configuration |  |  |
+| `ipv4` _[BridgedNetworkIPAMIPv4Spec](#bridgednetworkipamipv4spec)_ | IPv4 contains the IPv4 IPAM configuration |  | Optional: \{\} <br /> |
 
 
 #### BridgedNetworkSpec
@@ -5498,7 +5497,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ipam` _[BridgedNetworkIPAMSpec](#bridgednetworkipamspec)_ | IPAM contains the IPAM configuration for the bridged network |  |  |
+| `ipam` _[BridgedNetworkIPAMSpec](#bridgednetworkipamspec)_ | IPAM contains the IPAM configuration for the bridged network |  | Optional: \{\} <br /> |
 
 
 #### DPUVPC
@@ -5552,10 +5551,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `tenant` _string_ | Tenant which owns the VPC. |  | MinLength: 1 <br /> |
-| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | NodeSelector Selects the DPU Nodes with specific labels which belong to this VPC. |  |  |
-| `isolationClassName` _string_ | IsolationClassName is the name of the isolation class to use for the VPC |  | MinLength: 1 <br /> |
-| `interNetworkAccess` _boolean_ | InterNetworkAccess defines if virtual networks within the VPC are routed or not.<br />if set to false, communication between virtual networks is not allowed. |  |  |
+| `tenant` _string_ | Tenant which owns the VPC. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | NodeSelector Selects the DPU Nodes with specific labels which belong to this VPC. |  | Optional: \{\} <br /> |
+| `isolationClassName` _string_ | IsolationClassName is the name of the isolation class to use for the VPC |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `interNetworkAccess` _boolean_ | InterNetworkAccess defines if virtual networks within the VPC are routed or not.<br />if set to false, communication between virtual networks is not allowed. |  | Required: \{\} <br /> |
 
 
 #### DPUVPCStatus
@@ -5571,9 +5570,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `virtualNetworks` _[VirtualNetworkStatus](#virtualnetworkstatus) array_ | VirtualNetworks contains the virtual networks that belong to this VPC |  |  |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `virtualNetworks` _[VirtualNetworkStatus](#virtualnetworkstatus) array_ | VirtualNetworks contains the virtual networks that belong to this VPC |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 
 
 #### DPUVirtualNetwork
@@ -5627,12 +5626,12 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | NodeSelector Selects the DPU Nodes with specific labels which can belong to the virtual network. |  |  |
-| `vpcName` _string_ | vpcName is the name of the DPUVPC the virtual network belongs within the same namespace. |  |  |
-| `type` _[NetworkType](#networktype)_ | Type of the virtual network |  | Enum: [Bridged] <br /> |
-| `externallyRouted` _boolean_ | ExternallyRouted defines if the virtual network can be routed externally |  |  |
-| `masquerade` _boolean_ | Masquerade defines if the virtual network should masquerade the traffic before egressing to external networks.<br />valid only if ExternallyRouted is true | true |  |
-| `bridgedNetwork` _[BridgedNetworkSpec](#bridgednetworkspec)_ | BridgedNetwork contains the bridged network configuration |  |  |
+| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | NodeSelector Selects the DPU Nodes with specific labels which can belong to the virtual network. |  | Optional: \{\} <br /> |
+| `vpcName` _string_ | vpcName is the name of the DPUVPC the virtual network belongs within the same namespace. |  | Required: \{\} <br /> |
+| `type` _[NetworkType](#networktype)_ | Type of the virtual network |  | Enum: [Bridged] <br />Required: \{\} <br /> |
+| `externallyRouted` _boolean_ | ExternallyRouted defines if the virtual network can be routed externally |  | Required: \{\} <br /> |
+| `masquerade` _boolean_ | Masquerade defines if the virtual network should masquerade the traffic before egressing to external networks.<br />valid only if ExternallyRouted is true | true | Optional: \{\} <br /> |
+| `bridgedNetwork` _[BridgedNetworkSpec](#bridgednetworkspec)_ | BridgedNetwork contains the bridged network configuration |  | Optional: \{\} <br /> |
 
 
 #### DPUVirtualNetworkStatus
@@ -5648,8 +5647,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 
 
 #### ExcludeIPsEntry
@@ -5665,8 +5664,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ip` _string_ | IP is the IP address to exclude from DHCP allocation. must be part for the virtual network subnet. |  |  |
-| `range` _[RangeEntry](#rangeentry)_ | Range is the range of IP addresses to exclude from DHCP allocation. must be part for the virtual network subnet. |  |  |
+| `ip` _string_ | IP is the IP address to exclude from DHCP allocation. must be part for the virtual network subnet. |  | Optional: \{\} <br /> |
+| `range` _[RangeEntry](#rangeentry)_ | Range is the range of IP addresses to exclude from DHCP allocation. must be part for the virtual network subnet. |  | Optional: \{\} <br /> |
 
 
 #### IsolationClass
@@ -5720,8 +5719,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `provisioner` _string_ | Provisioner indicates the type of the provisioner. |  |  |
-| `parameters` _object (keys:string, values:string)_ | Parameters holds the parameters for the provisioner |  |  |
+| `provisioner` _string_ | Provisioner indicates the type of the provisioner. |  | Required: \{\} <br /> |
+| `parameters` _object (keys:string, values:string)_ | Parameters holds the parameters for the provisioner |  | Optional: \{\} <br /> |
 
 
 #### IsolationClassStatus
@@ -5780,6 +5779,6 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | the name of the virtual network |  |  |
+| `name` _string_ | the name of the virtual network |  | Required: \{\} <br /> |
 
 
