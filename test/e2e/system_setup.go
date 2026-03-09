@@ -202,6 +202,11 @@ func (t *systemTestInput) applyConfig(conf config) {
 		dpuCluster := &provisioningv1.DPUCluster{}
 		dpuClusterUnstructured := unstructuredFromFile(dpuClusterPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuClusterUnstructured.Object, dpuCluster)).To(Succeed())
+		// Override interface if DPUCLUSTER_INTERFACE environment variable is set
+		if dpuClusterInterface != "" && dpuCluster.Spec.ClusterEndpoint != nil && dpuCluster.Spec.ClusterEndpoint.Keepalived != nil {
+			By(fmt.Sprintf("Overriding DPUCluster interface with DPUCLUSTER_INTERFACE=%s", dpuClusterInterface))
+			dpuCluster.Spec.ClusterEndpoint.Keepalived.Interface = dpuClusterInterface
+		}
 		t.dpuClusters = append(t.dpuClusters, dpuCluster)
 	}
 
