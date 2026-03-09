@@ -434,6 +434,7 @@ spec:
   dpus:
     bfb: "bfb-2.9"
     flavor: "producer-consumer"
+    secureBoot: true
     dpuSets:
     - nameSuffix: "dpuset1"
       dpuNodeSelector:
@@ -473,6 +474,8 @@ The following fields are available in the `spec.dpus`:
 * `flavor`: The `DPUFlavor` object that describes the configuration to be applied
   on the DPU during the provisioning. It must exist in the same namespace as the
   `DPUDeployment`.
+* `secureBoot` (optional): When set to `true`, enables UEFI Secure Boot on the DPUs. See
+  [Secure Boot](./dpuset.md#secure-boot) for mode-specific behavior and details.
 * `dpuSets`: A list of `DPUSet` configurations that describe the DPUs to be targeted
   by the `DPUDeployment`.
     * `nameSuffix`: A suffix to be added to the `DPUSet` name. This is a required

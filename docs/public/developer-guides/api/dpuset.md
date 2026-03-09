@@ -259,6 +259,35 @@ spec:
           effect: NoSchedule
 ```
 
+## Secure Boot
+
+The DPUSet template supports an optional `secureBoot` field that controls whether UEFI Secure Boot should be enabled
+on the DPUs. When set, DPF detects the current hardware state and configures it to match the desired value during
+provisioning.
+
+```yaml
+spec:
+  dpuTemplate:
+    spec:
+      secureBoot: true
+```
+
+### Behavior by provisioning mode
+
+**Zero Trust (Redfish):** If the current hardware state does not match `secureBoot`, the controller stages the
+configuration via the BMC and performs the required ARM force restarts.
+
+**Trusted Host (Host Agent):** The host agent can detect the current Secure Boot state but **cannot configure** it.
+If there is a mismatch between the desired and actual state, the DPU transitions to **Error**.
+Secure Boot must be configured manually (e.g. via the DPU's UEFI menu) before provisioning.
+See [Arm OS Secure Boot (Configured from UEFI)](https://docs.nvidia.com/networking/display/bluefieldbsp/arm+os+secure+boot+(configured+from+uefi)) for details.
+
+### Changing Secure Boot on an existing DPUSet
+
+The `secureBoot` field on a `DPU` object is **immutable**. Changing `secureBoot` in the
+DPUSet template triggers a **disruptive update**: existing DPUs are deleted and recreated with the new value, following
+the DPUSet's update strategy (e.g. `RollingUpdate`).
+
 ## IPMI Command Annotation for Kubernetes Worker Node
 
 The provisioning controller will issue a `ipmi` command to the host to do host power-cycle(cold boot) or warm reboot
