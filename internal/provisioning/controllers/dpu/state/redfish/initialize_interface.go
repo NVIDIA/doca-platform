@@ -102,7 +102,7 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 	}
 
 	// Configure Secure Boot if requested, may trigger phase transition
-	done, err := reconcileSecureBoot(ctx, dpu, device, state, tlsClient)
+	done, err := reconcileSecureBoot(ctx, dpu, state, tlsClient)
 	if err != nil {
 		return *state, err
 	}
@@ -159,7 +159,7 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 // Returns (true, nil) when a phase transition was set and the caller should return early.
 // Returns (false, nil) when no action was needed and the caller should continue.
 // Returns (false, err) on retryable errors.
-func reconcileSecureBoot(ctx context.Context, dpu *provisioningv1.DPU, device *provisioningv1.DPUDevice, state *provisioningv1.DPUStatus, tlsClient *rfclient.Client) (bool, error) {
+func reconcileSecureBoot(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, tlsClient *rfclient.Client) (bool, error) {
 	tracker, err := dutil.LoadArmRestartTracker(dpu)
 	if err != nil {
 		log.FromContext(ctx).Error(err, "Failed to load ArmRestartTracker")
@@ -182,7 +182,7 @@ func reconcileSecureBoot(ctx context.Context, dpu *provisioningv1.DPU, device *p
 	}
 
 	// Initial detection: check if configuration is needed
-	return detectAndStageSecureBoot(ctx, dpu, device, state, tlsClient)
+	return detectAndStageSecureBoot(ctx, dpu, state, tlsClient)
 }
 
 // verifySecureBootAfterRestarts verifies that the BMC applied the Secure Boot configuration
@@ -250,21 +250,19 @@ func verifySecureBootAfterRestarts(ctx context.Context, dpu *provisioningv1.DPU,
 // a tracker to initiate ARM restarts.
 // Returns (true, nil) on phase transition, (false, nil) when already in desired state,
 // or (false, err) on retryable failure.
-func detectAndStageSecureBoot(ctx context.Context, dpu *provisioningv1.DPU, device *provisioningv1.DPUDevice, state *provisioningv1.DPUStatus, tlsClient *rfclient.Client) (bool, error) {
+func detectAndStageSecureBoot(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, tlsClient *rfclient.Client) (bool, error) {
 	log := log.FromContext(ctx)
 
-	secureBootStatus := device.Status.SecureBoot
-	if secureBootStatus == nil || secureBootStatus.Enabled == nil {
-		err := fmt.Errorf("DPUDevice.Status.SecureBoot not yet detected")
+	_, sbInfo, err := tlsClient.GetSecureBoot()
+	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(
 			string(provisioningv1.DPUCondInterfaceInitialized),
-			err, "SecureBootStatusNotDetected",
-			"Waiting for initial hardware discovery"))
-		return false, err // Retryable - requeue until hardware discovery populates status
+			err, "FailedToGetSecureBootStatus", err.Error()))
+		return false, err // Retryable - BMC may be temporarily unreachable
 	}
 
 	desiredEnabled := *dpu.Spec.SecureBoot
-	currentEnabled := *secureBootStatus.Enabled
+	currentEnabled := sbInfo != nil && sbInfo.IsCurrentlyActive()
 
 	// Already in desired state - sync status and continue
 	if desiredEnabled == currentEnabled {
@@ -276,7 +274,6 @@ func detectAndStageSecureBoot(ctx context.Context, dpu *provisioningv1.DPU, devi
 	log.Info("Secure Boot configuration mismatch, staging change",
 		"dpu", dpu.Name, "desired", desiredEnabled, "current", currentEnabled)
 
-	var err error
 	if desiredEnabled {
 		_, err = tlsClient.EnableSecureBoot()
 	} else {
