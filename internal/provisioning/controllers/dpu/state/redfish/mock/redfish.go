@@ -43,6 +43,7 @@ type RedfishMockServer struct {
 	secureBootEnable      bool                     // Configured/desired Secure Boot state (for next boot)
 	secureBootCurrentBoot bool                     // Actual Secure Boot state of current boot session
 	secureBootError       bool                     // Simulate Secure Boot endpoint error for testing
+	secureBootPatchError  bool                     // Simulate Secure Boot PATCH-only error for testing
 	systemError           bool                     // Simulate GetSystem endpoint error for testing
 	resetSystemError      bool                     // Simulate ResetSystem endpoint error for testing
 	oemLastState          string                   // Current ARM OS boot state: "OsIsRunning", "OsStarting", etc.
@@ -484,6 +485,12 @@ func (r *RedfishMockServer) SetSecureBootError(simulateError bool) {
 	r.secureBootError = simulateError
 }
 
+// SetSecureBootPatchError enables or disables Secure Boot PATCH-only error simulation.
+// GET requests still succeed, allowing detection to pass while staging fails.
+func (r *RedfishMockServer) SetSecureBootPatchError(simulateError bool) {
+	r.secureBootPatchError = simulateError
+}
+
 // SetSystemError enables or disables GetSystem endpoint error simulation for testing
 func (r *RedfishMockServer) SetSystemError(simulateError bool) {
 	r.systemError = simulateError
@@ -620,6 +627,10 @@ func (r *RedfishMockServer) handleSecureBoot(w http.ResponseWriter, req *http.Re
 		writeJSONResponse(w, response)
 
 	case http.MethodPatch:
+		if r.secureBootPatchError {
+			http.Error(w, "Secure Boot PATCH endpoint unavailable", http.StatusInternalServerError)
+			return
+		}
 		// Update Secure Boot setting (only changes SecureBootEnable, not SecureBootCurrentBoot)
 		// SecureBootCurrentBoot will only update after system reboot
 		var body map[string]interface{}
