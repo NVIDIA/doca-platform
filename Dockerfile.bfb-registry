@@ -1,5 +1,7 @@
-# Stage 1: Build Tengine
+ARG builder_image
 ARG base_image=ubuntu:22.04
+
+# Stage 1: Build Tengine
 FROM ${base_image} AS builder
 
 ARG TARGETARCH
@@ -55,7 +57,7 @@ RUN mkdir -p /nginx
 WORKDIR /workspace
 ARG PACKAGE_SOURCES
 # First, create a dummy source-code.tar file to avoid copy failures.
-RUN touch /workspace/source-code.tar
+RUN touch /workspace/source-code.tar.gz
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     test "${PACKAGE_SOURCES}" = "false" || ( \
@@ -65,10 +67,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       apt-get update && \
       apt-get source --download-only ${PACKAGES} && \
       cd /workspace && \
-      tar -cf source-code.tar src \
+      tar -cfz source-code.tar.gz src \
     )
 
-# Stage 1.5: Prepare architecture-specific libraries (for multi-arch support)
+# Prepare architecture-specific libraries (for multi-arch support)
 FROM ${base_image} AS lib-selector
 ARG TARGETARCH
 
@@ -88,19 +90,66 @@ RUN case ${TARGETARCH} in \
           /tmp/lib/${GNU_ARCH}/libcrypt.so* \
           /output/lib/${GNU_ARCH}/
 
-# Stage 1.6: Prepare APT repository with dpu-agent packages
-FROM ${base_image} AS apt-repo-builder
-ARG TARGETARCH
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y -qq --no-install-recommends dpkg-dev createrepo-c
+# Stage 2: Build dpuagent binary.
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS dpuagent-builder
+WORKDIR /workspace
 
-# Copy pre-built dpu-agent packages (passed as build context "packages")
-ARG DPUAGENT_DEB
-ARG DPUAGENT_RPM
-RUN mkdir -p /deb /rpm
-COPY --from=packages ${DPUAGENT_DEB} /deb/
-COPY --from=packages ${DPUAGENT_RPM} /rpm/
+# Copy source files needed for proper vendoring
+COPY go.mod go.sum ./
+COPY third_party/ third_party/
+COPY api/ api/
+COPY cmd/ cmd/
+COPY test/ test/
+COPY internal/ internal/
+COPY pkg/ pkg/
+
+ARG gcflags
+ARG ldflags
+ARG TARGETARCH
+
+ENV GO_LDFLAGS=${ldflags}
+ENV GO_GCFLAGS=${gcflags}
+ENV ARCH=${TARGETARCH}
+ENV TAG=${TAG}
+
+# Vendor dependencies first
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod vendor
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=bind,source=Makefile,target=Makefile \
+    --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
+    GOFLAGS="-mod=vendor" make binary-dpuagent
+
+# Copy the go source code so it can be distributed in the final image.
+RUN mkdir src && \
+    find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
+    -exec cp --parents \{\}  src/ \; && \
+    tar -czf source-code.tar.gz src
+
+# DPU Agent packager stage - packages binary with actual TAG version
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS dpuagent-packager
+WORKDIR /workspace
+
+# Install rpm tools (required by nfpm for creating .rpm packages)
+RUN apt-get update && apt-get install -y --no-install-recommends rpm dpkg-dev createrepo-c && rm -rf /var/lib/apt/lists/*
+
+# Copy packaging configuration and binary from builder
+COPY internal/provisioning/dpuagent/packaging/ internal/provisioning/dpuagent/packaging/
+COPY --from=dpuagent-builder /workspace/bin/dpuagent /workspace/bin/dpuagent
+
+# Package with actual TAG version (binary already built, just call packaging targets)
+ARG TAG
+RUN --mount=type=cache,target=/workspace/hack/tools/bin \
+    --mount=type=bind,source=Makefile,target=Makefile \
+    --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
+    make deb-dpuagent rpm-dpuagent
+
+# Copy dpu-agent packages built with actual TAG version
+RUN mkdir -p /deb /rpm \
+    && cp /workspace/bin/dpu-agent_*_arm64.deb /deb/ \
+    && cp /workspace/bin/dpu-agent-*.aarch64.rpm /rpm/
 
 # Generate APT repository metadata
 WORKDIR /deb
@@ -110,12 +159,13 @@ RUN dpkg-scanpackages -m . > Packages && gzip -k Packages
 WORKDIR /rpm
 RUN createrepo_c .
 
-# Stage 2: Create final image based on distroless
+# Stage 3: Create final image based on distroless
 FROM nvcr.io/nvidia/doca/dpf_containers:1.0.2-ubuntu22.04-distroless AS distroless
 
 # copy the tengine source code
 ARG version=3.1.0
-COPY --from=builder /workspace/source-code.tar source-code.tar
+COPY --from=builder /workspace/source-code.tar.gz source-code.tar.gz
+COPY --from=dpuagent-builder /workspace/source-code.tar.gz dpuagent-source-code.tar.gz
 
 # Copy architecture-specific libraries from lib-selector stage
 COPY --from=lib-selector /output/lib/ /lib/
@@ -132,7 +182,7 @@ ENV uid=65532
 COPY --chown=${uid}:${uid} --chmod=700 --from=builder /nginx /nginx
 
 # Copy APT/YUM repositories containing dpu-agent packages
-COPY --from=apt-repo-builder /deb /deb
-COPY --from=apt-repo-builder /rpm /rpm
+COPY --from=dpuagent-packager /deb /deb
+COPY --from=dpuagent-packager /rpm /rpm
 
 USER ${uid}:${uid}
