@@ -261,8 +261,8 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(loaded.Attempt).To(Equal(2))
 	})
 
-	It("should wait for boot when all restarts done but OS not yet running", func() {
-		mockServer.SetOemLastState("OsStarting")
+	It("should return to InitializeInterface when all restarts done regardless of OS state", func() {
+		mockServer.SetOemLastState("OsStarting") // OS not running
 		tracker := &dutil.ArmRestartTracker{
 			MaxAttempts:       2,
 			Attempt:           2,
@@ -273,9 +273,13 @@ var _ = Describe("PerformArmForceRestart", func() {
 
 		status, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(status.Phase).To(Equal(provisioningv1.DPUPerformArmForceRestart))
+		Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface))
 		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
-		Expect(cond.Reason).To(Equal("WaitingForBoot"))
+		Expect(cond).NotTo(BeNil())
+		Expect(cond.Status).To(Equal(metav1.ConditionTrue), "condition True only when step is done")
+		// Tracker should NOT be cleared (InitializeInterface needs it for verification)
+		loaded, _ := dutil.LoadArmRestartTracker(dpu)
+		Expect(loaded).NotTo(BeNil())
 	})
 
 	It("should wait for OS to boot when not running after restart", func() {
