@@ -446,18 +446,10 @@ var _ = Describe("InitializeInterface", func() {
 			}
 		})
 
-		// Helper to set DPUDevice SecureBoot status
-		setDeviceSecureBoot := func(enabled bool) {
-			patch := client.MergeFrom(dpuDevice.DeepCopy())
-			dpuDevice.Status.SecureBoot = &provisioningv1.SecureBootStatus{Enabled: ptr.To(enabled)}
-			Expect(k8sClient.Status().Patch(ctx, dpuDevice, patch)).To(Succeed())
-		}
-
 		It("should stage enable and transition to PerformArmForceRestart on mismatch", func() {
 			mockServer.SetSecureBootCurrentBoot(false)
 			mockServer.SetSecureBootEnable(false)
 			dpu.Spec.SecureBoot = ptr.To(true)
-			setDeviceSecureBoot(false)
 
 			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
 			Expect(err).NotTo(HaveOccurred())
@@ -473,7 +465,6 @@ var _ = Describe("InitializeInterface", func() {
 			mockServer.SetSecureBootCurrentBoot(true)
 			mockServer.SetSecureBootEnable(true)
 			dpu.Spec.SecureBoot = ptr.To(false)
-			setDeviceSecureBoot(true)
 
 			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
 			Expect(err).NotTo(HaveOccurred())
@@ -485,7 +476,6 @@ var _ = Describe("InitializeInterface", func() {
 			mockServer.SetSecureBootCurrentBoot(true)
 			mockServer.SetSecureBootEnable(true)
 			dpu.Spec.SecureBoot = ptr.To(true)
-			setDeviceSecureBoot(true)
 
 			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
 			Expect(err).To(Succeed())
@@ -504,7 +494,6 @@ var _ = Describe("InitializeInterface", func() {
 
 		It("should re-assert PerformArmForceRestart when tracker in progress but phase is still Initialize Interface", func() {
 			dpu.Spec.SecureBoot = ptr.To(true)
-			setDeviceSecureBoot(false)
 			tracker := &dutil.ArmRestartTracker{
 				MaxAttempts:       2,
 				Attempt:           0,
@@ -573,22 +562,23 @@ var _ = Describe("InitializeInterface", func() {
 			Expect(loaded).To(BeNil())
 		})
 
-		It("should retry when DPUDevice.Status.SecureBoot is not yet detected", func() {
+		It("should retry when BMC GetSecureBoot fails during initial detection", func() {
+			mockServer.SetSecureBootError(true)
 			dpu.Spec.SecureBoot = ptr.To(true)
-			// DPUDevice.Status.SecureBoot is nil by default from setDPUDeviceReady
 
 			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("not yet detected"))
 			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface))
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondInterfaceInitialized.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal("FailedToGetSecureBootStatus"))
 		})
 
 		It("should retry when BMC Secure Boot staging fails", func() {
 			mockServer.SetSecureBootCurrentBoot(true)
 			mockServer.SetSecureBootEnable(true)
-			mockServer.SetSecureBootError(true)
+			mockServer.SetSecureBootPatchError(true)
 			dpu.Spec.SecureBoot = ptr.To(false)
-			setDeviceSecureBoot(true)
 
 			_, err := InitializeInterface(ctx, dpu, ctrlCtx)
 			Expect(err).To(HaveOccurred())
