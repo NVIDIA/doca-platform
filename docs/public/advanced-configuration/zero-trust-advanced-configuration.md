@@ -125,6 +125,18 @@ spec:
     external: {}
 ```
 
+# Secure Boot
+
+DPF supports configuring UEFI Secure Boot on DPUs during Zero Trust provisioning. When `secureBoot` is set in the
+DPUDeployment (or DPUSet), the controller detects the current hardware state via the BMC and configures it
+automatically, performing the required ARM force restarts.
+
+For configuration details, mode-specific behavior, and the impact of changing this setting on existing DPUs, see
+[Secure Boot](../developer-guides/api/dpuset.md#secure-boot). 
+
+For more information on BlueField Secure Boot, see
+[Secure Boot](https://docs.nvidia.com/networking/display/bluefieldbsp/secure+boot) in the NVIDIA documentation.
+
 # External Host Reboot
 
 In the Zero Trust scenario, DPF cannot manage the DPU's host machine. During the DPU provisioning process, when the DPU
