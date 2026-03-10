@@ -303,20 +303,17 @@ func reconcileCurrentDPUServiceInterfaceRevision(ctx context.Context,
 		return isDisruptiveUpgradeOngoing
 	}
 
-	// if the current revision is ready, clean old revisions. If not, the stale entries won't be removed in the caller
-	// function unless they have their DPUService deleted.
+	// If we have old revisions, it means that we are still under upgrade and we need to handle those old revisions
+	// before we can mark the upgrade as done.
+	isDisruptiveUpgradeOngoing = true
+
+	// If the current revision is still not ready, keep the old revisions and requeue otherwise, clean old revisions.
+	// We expect additional reconciliations to be triggered for leftovers that are getting deleted.
 	if conditions.IsTrue(currentDPUService, conditions.TypeReady) && len(getNotReadyDPUSets(existingDPUSets)) == 0 {
 		err := cleanStaleDPUServiceInterfaces(ctx, c, oldRevs)
 		if err != nil {
 			log.Error(err, "failed to clean stale DPUServiceInterfaces")
 		}
-		// If we reached that stage, it means that we have completed the upgrade and now we just need to clean any
-		// leftovers. We expect additional reconcilliations to be triggered for leftovers that are getting deleted.
-		isDisruptiveUpgradeOngoing = false
-	} else {
-		// If we found old revisions and either the DPUServiceChain or the DPUSets are not ready, it means that an
-		// upgrade is still ongoing
-		isDisruptiveUpgradeOngoing = true
 	}
 
 	return isDisruptiveUpgradeOngoing
