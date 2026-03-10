@@ -59,7 +59,7 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
-GO_VERSION ?= $(shell awk '/^go /{print $$2}' go.mod | awk -F '.' '{print $$1 "." $$2}')
+GO_VERSION ?= $(shell awk '/^toolchain /{print $$2}' go.mod | awk -F 'go' '{print $$2}')
 
 # Allows for defining additional Go test args, e.g. '-tags integration'.
 # The linkmode=internal flag is used to force using Go linker to do the linking.
@@ -484,7 +484,7 @@ test: envtest ## Run tests.
 
 .PHONY: test-report
 test-report: envtest gotestsum ## Run tests and generate a junit style report
-	set +o errexit; KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test -count 1 -race -json $(TESTPKGS) -coverprofile cover.out > junit.stdout; echo $$? > junit.exitcode;
+	set +o errexit; GOTOOLCHAIN=$(shell go version | awk '{print $$3}')+auto KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test -count 1 -race -json $(TESTPKGS) -coverprofile cover.out > junit.stdout; echo $$? > junit.exitcode;
 	$(GOTESTSUM) --junitfile junit.xml --raw-command cat junit.stdout
 	exit $$(cat junit.exitcode)
 
