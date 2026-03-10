@@ -39,11 +39,11 @@ const (
 	// the first restart applies the BIOS setting and the second validates it.
 	secureBootRequiredRestarts = 2
 
-	// secureBootVerificationTimeout is the maximum time after OS boot detection
+	// secureBootVerificationTimeout is the maximum time after all restarts completed
 	// to wait for the BMC to reflect the new SecureBootCurrentBoot value.
 	// Anchored to ArmForceRestarted condition's LastTransitionTime, which is set
-	// when PerformArmForceRestart detects AllRestartsDone && OS running.
-	secureBootVerificationTimeout = 90 * time.Second
+	// when PerformArmForceRestart detects AllRestartsDone (regardless of OS state).
+	secureBootVerificationTimeout = 2 * time.Minute
 )
 
 func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
@@ -219,7 +219,7 @@ func verifySecureBootAfterRestarts(ctx context.Context, dpu *provisioningv1.DPU,
 	}
 
 	// Mismatch -- retry while within the verification window.
-	// Primary anchor: ArmForceRestarted.LastTransitionTime (marks OS boot detection).
+	// Primary anchor: ArmForceRestarted.LastTransitionTime (marks all restarts completed).
 	// Fallback: tracker.IsStale() guards against infinite retry if the condition
 	// is permanently absent (e.g., corrupted state after controller restart).
 	_, armCond := cutil.GetDPUCondition(state, provisioningv1.DPUCondArmForceRestarted.String())

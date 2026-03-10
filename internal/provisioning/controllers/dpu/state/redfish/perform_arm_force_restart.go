@@ -163,12 +163,7 @@ func createRedfishClientForDPU(ctx context.Context, dpu *provisioningv1.DPU, ctr
 func executeRestartStateMachine(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, tracker *dutil.ArmRestartTracker, client *rc.Client, osRunning bool) (provisioningv1.DPUStatus, error) {
 	log := log.FromContext(ctx)
 
-	// OS is rebooting after a triggered restart - wait or timeout.
-	if !osRunning && tracker.Attempt > 0 {
-		return handleWaitingForBoot(dpu, state, tracker)
-	}
-
-	// All restarts done.
+	// All restarts done — return to InitializeInterface for verification.
 	if tracker.AllRestartsDone() {
 		log.Info("All ARM restarts complete, returning to InitializeInterface",
 			"attempts", tracker.Attempt, "maxAttempts", tracker.MaxAttempts)
@@ -176,6 +171,12 @@ func executeRestartStateMachine(ctx context.Context, dpu *provisioningv1.DPU, st
 			provisioningv1.DPUCondArmForceRestarted, "", ""))
 		state.Phase = provisioningv1.DPUInitializeInterface
 		return *state, nil
+	}
+
+	// OS is rebooting after a triggered intermediate restart — wait for it to come
+	// back before triggering the next one (ForceRestart requires the system to be up).
+	if !osRunning && tracker.Attempt > 0 {
+		return handleWaitingForBoot(dpu, state, tracker)
 	}
 
 	// More restarts needed - trigger next one
