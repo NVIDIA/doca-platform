@@ -598,11 +598,12 @@ func addDPUs(ctx context.Context, o objectScope, root client.Object, matchLabels
 			APIVersion: provisioningv1.GroupVersion.String(),
 		}
 
-		conds := dpu.GetConditions()
+		conds := addAdditionalDPUConditions(dpu)
 
 		// TODO: remove this workaround as soon as all conditions gets initialized.
 		_, readyCondition := util.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUReady))
 		if readyCondition != nil {
+			dpu.SetConditions(conds)
 			addToTree = append(addToTree, &dpu)
 			continue
 		}
@@ -635,6 +636,26 @@ func addDPUs(ctx context.Context, o objectScope, root client.Object, matchLabels
 	o.tree.AddMultipleWithHeader(root, addToTree, "DPUs", GroupingObject(true))
 
 	return nil
+}
+
+// addAdditionalDPUConditions processes and modifies the DPU's operational and agent conditions,
+// returning an updated list of conditions.
+func addAdditionalDPUConditions(dpu provisioningv1.DPU) []metav1.Condition {
+	// Add operational conditions
+	for i := range dpu.Status.OperationalConditions {
+		dpu.Status.OperationalConditions[i].Type = fmt.Sprintf("Operational/%s", dpu.Status.OperationalConditions[i].Type)
+	}
+	conds := append(dpu.GetConditions(), dpu.Status.OperationalConditions...)
+
+	// Add dpuagent conditions
+	if dpu.Status.AgentStatus != nil {
+		for i := range dpu.Status.AgentStatus.Conditions {
+			dpu.Status.AgentStatus.Conditions[i].Type = fmt.Sprintf("Agent/%s", dpu.Status.AgentStatus.Conditions[i].Type)
+		}
+		conds = append(conds, dpu.Status.AgentStatus.Conditions...)
+	}
+
+	return conds
 }
 
 func addDPUServices(ctx context.Context, o objectScope, root client.Object, matchLabels client.MatchingLabels, skipFunc func(map[string]string) bool) error {
