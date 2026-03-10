@@ -440,8 +440,8 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		// If: standard e2e run, or post-upgrade phase of the upgrade test (current branch state).
 		// Else: initial phase of the upgrade test (deployed from the last GA release).
 		if !isCurrentVersionLastReleasedGA {
-			g.Expect(dpuServices.Items).To(HaveLen(10),
-				"Expected 10 DPUServices, got %d: [%s]", len(dpuServices.Items), strings.Join(itemNames, ", "))
+			g.Expect(dpuServices.Items).To(HaveLen(11),
+				"Expected 11 DPUServices, got %d: [%s]", len(dpuServices.Items), strings.Join(itemNames, ", "))
 		} else {
 			g.Expect(dpuServices.Items).To(HaveLen(9),
 				"Expected 9 DPUServices, got %d: [%s]", len(dpuServices.Items), strings.Join(itemNames, ", "))
@@ -608,6 +608,7 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.NVIPAMName.String())))
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.OVSCNIName.String())))
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SFCControllerName.String())))
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.OpenTelemetryCollectorName.String())))
 	}).WithTimeout(600 * time.Second).Should(Succeed())
 }
 
@@ -617,6 +618,11 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersInput) {
 	expectedDPUs := input.numberOfDPUNodes * input.numberOfDPUsPerNode
 	tracker := NewByTracker()
+
+	if err := verifyExpectedDPUsToBeReady(ctx, nil, input, expectedDPUs); err == nil {
+		By("All DPUs are already ready.")
+		return
+	}
 
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
 		ProcessDPUNodeMaintenanceHold(ctx, input)
@@ -634,16 +640,29 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 
 	// Verify DPUs are ready
 	Eventually(func(g Gomega) {
-		dpus := &provisioningv1.DPUList{}
-		g.Expect(input.client.List(ctx, dpus)).ToNot(HaveOccurred())
-		g.Expect(dpus.Items).To(HaveLen(expectedDPUs))
-		for _, dpu := range dpus.Items {
-			dpuStatusKey := fmt.Sprintf("%s/%v", dpu.Name, dpu.Status.Phase)
-			tracker.By(dpuStatusKey, "DPU %s dpu.Status.Phase=%v", dpu.Name, dpu.Status.Phase)
-			g.Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPUReady))
-		}
+		g.Expect(verifyExpectedDPUsToBeReady(ctx, tracker, input, expectedDPUs)).To(Succeed())
 	}).WithTimeout(20 * time.Minute).Should(Succeed())
 
+}
+
+func verifyExpectedDPUsToBeReady(ctx context.Context, tracker *ByTracker, input ProvisionDPUClustersInput, expectedDPUs int) error {
+	dpus := &provisioningv1.DPUList{}
+	if err := input.client.List(ctx, dpus); err != nil {
+		return err
+	}
+	if len(dpus.Items) != expectedDPUs {
+		return fmt.Errorf("expected %d DPUs, got %d", expectedDPUs, len(dpus.Items))
+	}
+	for _, dpu := range dpus.Items {
+		dpuStatusKey := fmt.Sprintf("%s/%v", dpu.Name, dpu.Status.Phase)
+		if tracker != nil {
+			tracker.By(dpuStatusKey, "DPU %s dpu.Status.Phase=%v", dpu.Name, dpu.Status.Phase)
+		}
+		if dpu.Status.Phase != provisioningv1.DPUReady {
+			return fmt.Errorf("DPU %s is not ready. dpu.Status.Phase=%v", dpu.Name, dpu.Status.Phase)
+		}
+	}
+	return nil
 }
 
 // isDPUNodeMaintenanceOnHold returns true if the DPUNodeMaintenance waits for hold to be released

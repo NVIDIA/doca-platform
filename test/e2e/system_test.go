@@ -43,6 +43,9 @@ func SetInput() {
 	By("Validating the input")
 	validateFlags()
 
+	By("Get control plane IP")
+	controlPlaneIP := getClusterControlPlaneIP(ctx, testClient)
+
 	By("Setting operatorConfig for the test")
 	dpfOperatorConfig := &operatorv1.DPFOperatorConfig{
 		ObjectMeta: metav1.ObjectMeta{
@@ -68,6 +71,9 @@ func SetInput() {
 			},
 			Monitoring: &operatorv1.MonitoringConfiguration{
 				Disabled: ptr.To(false),
+				OpenTelemetryCollector: &operatorv1.OpenTelemetryCollectorConfiguration{
+					Endpoint: ptr.To(fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort)),
+				},
 			},
 			NodeSRIOVDevicePluginController: &operatorv1.NodeSRIOVDevicePluginControllerConfiguration{
 				BaseComponentConfig: operatorv1.BaseComponentConfig{
@@ -81,13 +87,11 @@ func SetInput() {
 		dpfOperatorConfig.Spec.StaticClusterManager.BaseComponentConfig.Disable = ptr.To(true)
 		dpfOperatorConfig.Spec.KamajiClusterManager.BaseComponentConfig.Disable = ptr.To(false)
 		dpfOperatorConfig.Spec.NodeSRIOVDevicePluginController.BaseComponentConfig.Disable = ptr.To(true)
-		By("Get control-plane IP")
-		trustedHostIP := getClusterControlPlaneIP(ctx, testClient)
-		By(fmt.Sprintf("Zero trust mode is applied to operatorConfig with trusted host IP %s", trustedHostIP))
+		By(fmt.Sprintf("Zero trust mode is applied to operatorConfig with trusted host IP %s", controlPlaneIP))
 		dpfOperatorConfig.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
 			InstallViaRedfish: &operatorv1.InstallViaRedfish{
 				// Use NodePort service port 30082
-				BFBRegistryAddress:   fmt.Sprintf("%s:30082", trustedHostIP),
+				BFBRegistryAddress:   fmt.Sprintf("%s:30082", controlPlaneIP),
 				SkipDPUNodeDiscovery: ptr.To(false),
 			},
 		}
@@ -104,9 +108,9 @@ func SetInput() {
 				}
 			}
 		}
-		By(fmt.Sprintf("Using API server VIP %s:%d for zero-trust kubeconfig", trustedHostIP, apiServerPort))
+		By(fmt.Sprintf("Using API server VIP %s:%d for zero-trust kubeconfig", controlPlaneIP, apiServerPort))
 		dpfOperatorConfig.Spec.Overrides = &operatorv1.Overrides{
-			KubernetesAPIServerVIP:  ptr.To(trustedHostIP),
+			KubernetesAPIServerVIP:  ptr.To(controlPlaneIP),
 			KubernetesAPIServerPort: ptr.To(apiServerPort),
 		}
 	}
@@ -266,30 +270,6 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
-	Context("KSM Metrics Collection", Labels{Domain.ZeroTrust}, func() {
-		It("validate host cluster kube-state-metrics is accessible", func() {
-			VerifyHostKSMMetricsCollection(ctx)
-		})
-		It("validate DPU cluster kube-state-metrics is accessible", func() {
-			By("Waiting for DPU cluster kube-state-metrics to be ready")
-			VerifyClusterPods(ctx, input.client, []string{"in-cluster-kube-state-metrics"})
-			By("Validating DPU cluster kube-state-metrics accessibility")
-			VerifyDPUKSMMetricsCollection(ctx, input)
-		})
-	})
-
-	Context("Node Problem Detector", Labels{Domain.ZeroTrust, Domain.RequiresNodes}, func() {
-		It("validate node-problem-detector is reporting DPU-specific node conditions", func() {
-			if !input.hasDpuNodes() {
-				Skip("Skip Node Problem Detector test as there are no DPU nodes")
-			}
-			By("Waiting for node-problem-detector to be ready")
-			VerifyClusterPods(ctx, dpuClusterClient[0], []string{"node-problem-detector"})
-			By("Validating node-problem-detector conditions for DPU nodes")
-			VerifyNodeProblemDetectorConditions(ctx, input)
-		})
-	})
-
 	Context("DPU Service IPAM", Labels{Domain.ZeroTrust}, func() {
 		It("create an invalid DPUServiceIPAM and ensure that the webhook rejects the request", func() {
 			ValidateDPUServiceIPAMCreationInvalid(ctx, input)
@@ -365,6 +345,71 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 	Context("Validate General DPF Metrics", Labels{Domain.ZeroTrust}, func() {
 		It("should validate general DPF Metrics ", func() {
 			ValidateGeneralDPFMetrics(ctx, input)
+		})
+	})
+
+	Context("Observability", Labels{Domain.Observability, Domain.ZeroTrust}, func() {
+		Context("Monitoring", func() {
+			Context("KSM Metrics Collection", Labels{Domain.ZeroTrust}, func() {
+				It("validate host cluster kube-state-metrics is accessible", func() {
+					VerifyHostKSMMetricsCollection(ctx)
+				})
+				It("validate DPU cluster kube-state-metrics is accessible", func() {
+					By("Waiting for DPU cluster kube-state-metrics to be ready")
+					VerifyClusterPods(ctx, input.client, []string{"in-cluster-kube-state-metrics"})
+					By("Validating DPU cluster kube-state-metrics accessibility")
+					VerifyDPUKSMMetricsCollection(ctx, input)
+				})
+			})
+
+			Context("Node Problem Detector", Labels{Domain.ZeroTrust, Domain.RequiresNodes}, func() {
+				It("validate node-problem-detector is reporting DPU-specific node conditions", func() {
+					if !input.hasDpuNodes() {
+						Skip("Skip Node Problem Detector test as there are no DPU nodes")
+					}
+					By("Waiting for node-problem-detector to be ready")
+					VerifyClusterPods(ctx, dpuClusterClient[0], []string{"node-problem-detector"})
+					By("Validating node-problem-detector conditions for DPU nodes")
+					VerifyNodeProblemDetectorConditions(ctx, input)
+				})
+			})
+		})
+		Context("Logging Infrastructure", func() {
+			Context("Component Deployment", func() {
+				It("should verify OpenTelemetry Collector DaemonSets running in host cluster", func() {
+					By("running in host cluster")
+					VerifyClusterPods(ctx, input.client, []string{"opentelemetry-collector"})
+				})
+				It("should verify OpenTelemetry Collector DaemonSets running in DPU cluster", Labels{Domain.RequiresNodes}, func() {
+					if !input.hasDpuNodes() {
+						Skip("Skip test as there are no DPU nodes")
+					}
+					By("running in DPUCluster")
+					VerifyClusterPods(ctx, dpuClusterClient[0], []string{"opentelemetry-collector"})
+				})
+			})
+
+			Context("Configuration", func() {
+				It("should verify DPU cluster collector configuration", Labels{Domain.RequiresNodes}, func() {
+					if !input.hasDpuNodes() {
+						Skip("Skip test as there are no DPU nodes")
+					}
+					ValidateDPUClusterOpenTelemetryConfiguration(ctx, input)
+				})
+			})
+
+			Context("Log Flow", func() {
+				It("should collect and forward logs from management cluster to Loki", func() {
+					ValidateManagementClusterLogFlow(ctx, input)
+				})
+
+				It("should collect and forward logs from DPU cluster to Loki", Labels{Domain.RequiresNodes}, func() {
+					if !input.hasDpuNodes() {
+						Skip("Skip test as there are no DPU nodes")
+					}
+					ValidateDPUClusterLogFlow(ctx, input)
+				})
+			})
 		})
 	})
 
