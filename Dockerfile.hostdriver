@@ -35,10 +35,15 @@ ENV TAG=${TAG}
 # Copy the source code from the dependency image
 COPY --from=dependency /workspace .
 
+# Vendor dependencies first
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod vendor
+
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,source=Makefile,target=Makefile \
     --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
-    GOFLAGS="-mod=vendor" make binary-hostagent
+    GOFLAGS="-mod=vendor" make binary-hostagent binary-dpuagent
 
 # Copy the go source code so it can be distributed in the final image.
 RUN mkdir src && \
@@ -53,7 +58,39 @@ ARG TAG
 # The command echo is not present in the final image so this stage is needed.
 RUN echo "${TAG}" > /tmp/dpf-version
 
-# 4) Final stage copies artefacts from the builder and dependency stages.
+# 4) DPU Agent packager stage - packages binary with actual TAG version
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS dpuagent-packager
+WORKDIR /workspace
+
+# Install rpm tools (required by nfpm for creating .rpm packages)
+RUN apt-get update -qq \
+    && apt-get install -y -qq --no-install-recommends rpm dpkg-dev createrepo-c
+
+# Copy packaging configuration and binary from builder
+COPY internal/provisioning/dpuagent/packaging/ internal/provisioning/dpuagent/packaging/
+COPY --from=builder /workspace/bin/dpuagent /workspace/bin/dpuagent
+
+# Package with actual TAG version (binary already built, just call packaging targets)
+ARG TAG
+RUN --mount=type=cache,target=/workspace/hack/tools/bin \
+    --mount=type=bind,source=Makefile,target=Makefile \
+    --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
+    make deb-dpuagent rpm-dpuagent
+
+# Copy dpu-agent packages built with actual TAG version
+RUN mkdir -p /deb /rpm \
+    && cp /workspace/bin/dpu-agent_*_arm64.deb /deb/ \
+    && cp /workspace/bin/dpu-agent-*.aarch64.rpm /rpm/
+
+# Generate APT repository metadata
+WORKDIR /deb
+RUN dpkg-scanpackages -m . > Packages && gzip -k Packages
+
+# Generate YUM/DNF repository metadata
+WORKDIR /rpm
+RUN createrepo_c .
+
+# 5) Final stage copies artefacts from the builder and dependency stages.
 FROM ${hostdriver_base_image}
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -107,19 +144,6 @@ RUN case ${TARGETARCH} in \
 
 RUN mkdir -p /bfb-folder
 
-# Copy pre-built dpu-agent packages and generate APT/YUM repository metadata.
-ARG DPUAGENT_DEB
-ARG DPUAGENT_RPM
-RUN mkdir -p /deb /rpm
-COPY --from=packages ${DPUAGENT_DEB} /deb/
-COPY --from=packages ${DPUAGENT_RPM} /rpm/
-WORKDIR /deb
-RUN dpkg-scanpackages -m . > Packages && gzip -k Packages
-WORKDIR /rpm
-RUN createrepo_c .
-
-WORKDIR /
-
 RUN echo "dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager.Reboot boolean:false" > /usr/sbin/reboot && chmod +x /usr/sbin/reboot
 
 RUN curl -LO https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl && \
@@ -127,6 +151,8 @@ RUN curl -LO https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${TARGETARC
     mv kubectl /usr/local/bin
 
 COPY --from=builder /workspace/bin/ .
+
+WORKDIR /workspace
 
 # Move source code to a directory
 ARG PACKAGE_SOURCES
@@ -142,8 +168,17 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       apt-get source --download-only ${PACKAGES} && \
       curl -LO https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz && \
       cd / && \
-      tar -cf source-code.tar src && \
+      tar -cf pkg-source-code.tar src && \
       rm -rf src \
     )
+
+# Copy source code from builder stage
+COPY --chown=root:root --from=builder /workspace/source-code.tar.gz source-code.tar.gz
+
+# Copy APT/YUM repositories containing dpu-agent packages
+COPY --from=dpuagent-packager /deb /deb
+COPY --from=dpuagent-packager /rpm /rpm
+
+WORKDIR /
 
 COPY --chown=root:root --from=version /tmp/dpf-version /etc/dpf-version
