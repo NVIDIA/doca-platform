@@ -2042,6 +2042,26 @@ var _ = Describe("DPUDeployment Controller", func() {
 					}
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
+				By("Adding a finalizer to the DPUServices to simulate slow deletion")
+				gotDPUServicesList := &dpuservicev1.DPUServiceList{}
+				Expect(testClient.List(ctx, gotDPUServicesList)).To(Succeed())
+				Expect(gotDPUServicesList.Items).To(HaveLen(2))
+				DeferCleanup(func() {
+					By("Cleaning up the finalizers so that objects can be deleted")
+					for _, dpuService := range gotDPUServicesList.Items {
+						Expect(client.IgnoreNotFound(testClient.Patch(ctx, &dpuService, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`))))).To(Succeed())
+					}
+				})
+
+				for _, dpuService := range gotDPUServicesList.Items {
+					finalizers := dpuService.GetFinalizers()
+					finalizers = append(finalizers, "test.io/some-finalizer")
+					dpuService.SetFinalizers(finalizers)
+					dpuService.GetObjectKind().SetGroupVersionKind(dpuservicev1.DPUServiceGroupVersionKind)
+					dpuService.SetManagedFields(nil)
+					Expect(testClient.Patch(ctx, &dpuService, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+				}
+
 				Expect(gotDPUService).ToNot(Equal(gotInitialDPUService))
 				for i := range expectedDPUSetSpecs {
 					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
@@ -2148,6 +2168,32 @@ var _ = Describe("DPUDeployment Controller", func() {
 					Expect(testClient.Status().Patch(ctx, &dpuSet, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
 				}
 
+				By("triggering additional DPUDeployment reconciliations and ensuring the DPUSet generation doesn't change and ApplyOnLabelChange is still true")
+				Consistently(func(g Gomega) {
+					updatedDPUDeployment := &dpuservicev1.DPUDeployment{}
+					g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), updatedDPUDeployment)).To(Succeed())
+					g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedDPUDeployment)).To(Succeed())
+
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+
+					for _, dpuSet := range gotDPUSetList.Items {
+						// Validate that the generation hasn't changed
+						g.Expect(dpuSet.Generation).To(Equal(dpuSetGenerationAfterModification[dpuSet.Name]))
+						// Validate that ApplyOnLabelChange is still true
+						g.Expect(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
+					}
+				}).WithTimeout(5 * time.Second).Should(Succeed())
+
+				By("Removing the fake finalizers")
+				gotDPUServicesList = &dpuservicev1.DPUServiceList{}
+				Expect(testClient.List(ctx, gotDPUServicesList)).To(Succeed())
+				Expect(gotDPUServicesList.Items).To(HaveLen(2))
+				for _, dpuService := range gotDPUServicesList.Items {
+					Expect(client.IgnoreNotFound(testClient.Patch(ctx, &dpuService, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`))))).To(Succeed())
+				}
+
 				By("checking that the DPUServices are correctly updated")
 				Eventually(func(g Gomega) {
 					gotDPUServices := &dpuservicev1.DPUServiceList{}
@@ -2163,8 +2209,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("checking that the DPUSets are correctly updated")
 				for i := range expectedDPUSetSpecs {
-					// We have no more diusruptive changes, and we kicked a new reconciliation by setting the DPUService ready,
-					// so the ApplyOnLabelChange should be false
+					// The old DPUService has been deleted and the upgrade is complete, so the ApplyOnLabelChange should
+					// be false
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(false)
 				}
 				Eventually(func(g Gomega) {
@@ -2190,6 +2236,25 @@ var _ = Describe("DPUDeployment Controller", func() {
 					}
 					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				By("triggering additional DPUDeployment reconciliations and ensuring the DPUSet generation doesn't change and ApplyOnLabelChange is still false")
+				Consistently(func(g Gomega) {
+					updatedDPUDeployment := &dpuservicev1.DPUDeployment{}
+					g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), updatedDPUDeployment)).To(Succeed())
+					g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedDPUDeployment)).To(Succeed())
+
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+
+					for _, dpuSet := range gotDPUSetList.Items {
+						// Validate that the generation hasn't changed
+						g.Expect(dpuSet.Generation).To(Equal(dpuSetGenerationAfterModification[dpuSet.Name] + 1))
+						// Validate that ApplyOnLabelChange is still false
+						g.Expect(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(false)))
+					}
+				}).WithTimeout(5 * time.Second).Should(Succeed())
+
 			})
 			It("should update the existing DPUSets labels on update of a disruptive DPUServiceChain", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
@@ -2326,7 +2391,26 @@ var _ = Describe("DPUDeployment Controller", func() {
 					g.Expect(gotDPUServiceChain).ToNot(BeNil())
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
-				Expect(gotDPUServiceChain).ToNot(Equal(gotInitialDPUServiceChain))
+				By("Adding a finalizer to the old DPUServiceChain to simulate slow deletion")
+				gotDPUServiceChains := &dpuservicev1.DPUServiceChainList{}
+				Expect(testClient.List(ctx, gotDPUServiceChains)).To(Succeed())
+				Expect(gotDPUServiceChains.Items).To(HaveLen(2))
+				DeferCleanup(func() {
+					By("Cleaning up the finalizers so that objects can be deleted")
+					for _, dpuServiceChain := range gotDPUServiceChains.Items {
+						Expect(client.IgnoreNotFound(testClient.Patch(ctx, &dpuServiceChain, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`))))).To(Succeed())
+					}
+				})
+
+				for _, dpuServiceChain := range gotDPUServiceChains.Items {
+					finalizers := dpuServiceChain.GetFinalizers()
+					finalizers = append(finalizers, "test.io/some-finalizer")
+					dpuServiceChain.SetFinalizers(finalizers)
+					dpuServiceChain.GetObjectKind().SetGroupVersionKind(dpuservicev1.DPUServiceChainGroupVersionKind)
+					dpuServiceChain.SetManagedFields(nil)
+					Expect(testClient.Patch(ctx, &dpuServiceChain, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+				}
+
 				for i := range expectedDPUSetSpecs {
 					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
 						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
@@ -2431,6 +2515,32 @@ var _ = Describe("DPUDeployment Controller", func() {
 					Expect(testClient.Status().Patch(ctx, &dpuSet, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
 				}
 
+				By("triggering additional DPUDeployment reconciliations and ensuring the DPUSet generation doesn't change and ApplyOnLabelChange is still true")
+				Consistently(func(g Gomega) {
+					updatedDPUDeployment := &dpuservicev1.DPUDeployment{}
+					g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), updatedDPUDeployment)).To(Succeed())
+					g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedDPUDeployment)).To(Succeed())
+
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+
+					for _, dpuSet := range gotDPUSetList.Items {
+						// Validate that the generation hasn't changed
+						g.Expect(dpuSet.Generation).To(Equal(dpuSetGenerationAfterModification[dpuSet.Name]))
+						// Validate that ApplyOnLabelChange is still true
+						g.Expect(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
+					}
+				}).WithTimeout(5 * time.Second).Should(Succeed())
+
+				By("Removing the fake finalizers")
+				gotDPUServiceChains = &dpuservicev1.DPUServiceChainList{}
+				Expect(testClient.List(ctx, gotDPUServiceChains)).To(Succeed())
+				Expect(gotDPUServiceChains.Items).To(HaveLen(2))
+				for _, dpuServiceChain := range gotDPUServiceChains.Items {
+					Expect(client.IgnoreNotFound(testClient.Patch(ctx, &dpuServiceChain, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`))))).To(Succeed())
+				}
+
 				By("checking that the DPUServiceChains are correctly updated")
 				Eventually(func(g Gomega) {
 					gotDPUServiceChains := &dpuservicev1.DPUServiceChainList{}
@@ -2446,8 +2556,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("checking that the DPUSets are correctly updated")
 				for i := range expectedDPUSetSpecs {
-					// We have no more disruptive changes, and we kicked a new reconciliation by setting the DPUServiceChain ready,
-					// so the ApplyOnLabelChange should be false
+					// The old DPUServiceChain has been deleted and the upgrade is complete, so the ApplyOnLabelChange
+					// should be false
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(false)
 				}
 				Eventually(func(g Gomega) {
@@ -2473,6 +2583,25 @@ var _ = Describe("DPUDeployment Controller", func() {
 					}
 					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				By("triggering additional DPUDeployment reconciliations and ensuring the DPUSet generation doesn't change and ApplyOnLabelChange is still false")
+				Consistently(func(g Gomega) {
+					updatedDPUDeployment := &dpuservicev1.DPUDeployment{}
+					g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), updatedDPUDeployment)).To(Succeed())
+					g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, updatedDPUDeployment)).To(Succeed())
+
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+
+					for _, dpuSet := range gotDPUSetList.Items {
+						// Validate that the generation hasn't changed
+						g.Expect(dpuSet.Generation).To(Equal(dpuSetGenerationAfterModification[dpuSet.Name] + 1))
+						// Validate that ApplyOnLabelChange is still false
+						g.Expect(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(false)))
+					}
+				}).WithTimeout(5 * time.Second).Should(Succeed())
+
 			})
 			It("should keep the existing DPUSets labels on update of a dpudeployment service chain", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
