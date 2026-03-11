@@ -75,6 +75,7 @@ type TestDomain struct {
 	DPFVPCOVN            string // VPC OVN test suite
 	MultiDPUCluster      string // Multi DPUCluster setup tests
 	ZeroTrust            string // Zero Trust mode in DPFOperatorConfig on the BeforeSuite stage
+	Observability        string // Observability test suite
 }
 
 // Domain is the global instance of test label domains
@@ -94,6 +95,7 @@ var Domain = TestDomain{
 	DPFVPCOVN:            "DPFVPCOVN",
 	MultiDPUCluster:      "MultiDPUCluster",
 	ZeroTrust:            "ZeroTrust",
+	Observability:        "Observability",
 }
 
 var (
