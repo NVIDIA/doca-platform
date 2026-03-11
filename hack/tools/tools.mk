@@ -260,7 +260,6 @@ $(GOLANGCI_LINT): | $(TOOLSDIR_GO)
 mockgen: $(MOCKGEN) ## Download mockgen locally if necessary.
 	@$(MAKE) tools-path-go TOOL=mockgen VERSION=$(MOCKGEN_VERSION)
 $(MOCKGEN): | $(TOOLSDIR_GO)
-	@echo "Installing mockgen-$(MOCKGEN_VERSION) to $(TOOLSDIR) - target: $(MOCKGEN)z	"
 	$(call go-install-tool,$(MOCKGEN),go.uber.org/mock/mockgen,${MOCKGEN_VERSION})
 	ln -f $(MOCKGEN) $(abspath $(TOOLSDIR)/mockgen)
 
