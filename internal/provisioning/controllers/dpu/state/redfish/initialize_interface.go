@@ -28,6 +28,7 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -38,11 +39,11 @@ const (
 	// the first restart applies the BIOS setting and the second validates it.
 	secureBootRequiredRestarts = 2
 
-	// secureBootVerificationCooldown is the minimum time after the last ARM
-	// restart before querying the BMC for Secure Boot state. The BMC Redfish
-	// endpoint may not reflect new BIOS settings immediately after the ARM
-	// boots; querying too early can cause a false mismatch and a terminal error.
-	secureBootVerificationCooldown = 60 * time.Second
+	// secureBootVerificationTimeout is the maximum time after OS boot detection
+	// to wait for the BMC to reflect the new SecureBootCurrentBoot value.
+	// Anchored to ArmForceRestarted condition's LastTransitionTime, which is set
+	// when PerformArmForceRestart detects AllRestartsDone && OS running.
+	secureBootVerificationTimeout = 90 * time.Second
 )
 
 func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
@@ -186,8 +187,9 @@ func reconcileSecureBoot(ctx context.Context, dpu *provisioningv1.DPU, state *pr
 
 // verifySecureBootAfterRestarts verifies that the BMC applied the Secure Boot configuration
 // after all ARM restarts completed. Clears the tracker and updates DPU status.
-// Returns (true, nil) on terminal error (DPUError), (false, nil) on success,
-// or (false, err) on retryable BMC failure.
+//
+// Returns (true, nil) to stay in current phase (retry or terminal error),
+// (false, nil) on success, or (false, err) on retryable BMC failure.
 func verifySecureBootAfterRestarts(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, tlsClient *rfclient.Client, tracker *dutil.ArmRestartTracker) (bool, error) {
 	log := log.FromContext(ctx)
 
@@ -195,15 +197,6 @@ func verifySecureBootAfterRestarts(ctx context.Context, dpu *provisioningv1.DPU,
 	if dpu.Spec.SecureBoot == nil {
 		dutil.ClearArmRestartTracker(dpu)
 		return false, nil
-	}
-
-	// Wait for cooldown after last restart before verifying.
-	if !tracker.LastRestartTime.IsZero() && time.Since(tracker.LastRestartTime) < secureBootVerificationCooldown {
-		cutil.SetDPUCondition(state, cutil.NewCondition(
-			string(provisioningv1.DPUCondInterfaceInitialized),
-			fmt.Errorf("waiting for BMC to reflect Secure Boot state after ARM restarts"),
-			"WaitingForVerificationCooldown", ""))
-		return true, nil
 	}
 
 	_, sbInfo, err := tlsClient.GetSecureBoot()
@@ -214,28 +207,42 @@ func verifySecureBootAfterRestarts(ctx context.Context, dpu *provisioningv1.DPU,
 		return false, err // Retryable - BMC may be temporarily unreachable
 	}
 
-	// BMC call succeeded - safe to clear the tracker now
-	dutil.ClearArmRestartTracker(dpu)
-
 	desiredEnabled := *dpu.Spec.SecureBoot
 	actualEnabled := sbInfo != nil && sbInfo.IsCurrentlyActive()
 
-	if desiredEnabled != actualEnabled {
-		err := fmt.Errorf("secure Boot verification failed after %d restarts: desired=%v, actual=%v",
-			tracker.MaxAttempts, desiredEnabled, actualEnabled)
-		log.Error(err, "Secure Boot configuration was not applied by BMC",
-			"dpu", dpu.Name, "desired", desiredEnabled, "actual", actualEnabled)
-		cutil.SetDPUCondition(state, cutil.NewCondition(
-			string(provisioningv1.DPUCondInterfaceInitialized),
-			err, "SecureBootConfigurationFailed", err.Error()))
-		state.Phase = provisioningv1.DPUError
-		return true, nil // Terminal error
+	if desiredEnabled == actualEnabled {
+		dutil.ClearArmRestartTracker(dpu)
+		state.SecureBoot = &provisioningv1.SecureBootStatus{Enabled: &actualEnabled}
+		log.Info("Secure Boot verification passed after ARM restarts",
+			"dpu", dpu.Name, "enabled", actualEnabled)
+		return false, nil
 	}
 
+	// Mismatch -- retry while within the verification window.
+	// Primary anchor: ArmForceRestarted.LastTransitionTime (marks OS boot detection).
+	// Fallback: tracker.IsStale() guards against infinite retry if the condition
+	// is permanently absent (e.g., corrupted state after controller restart).
+	_, armCond := cutil.GetDPUCondition(state, provisioningv1.DPUCondArmForceRestarted.String())
+	withinRetryWindow := false
+	if armCond != nil && armCond.Status == metav1.ConditionTrue {
+		withinRetryWindow = time.Since(armCond.LastTransitionTime.Time) < secureBootVerificationTimeout
+	} else {
+		withinRetryWindow = !tracker.IsStale()
+	}
+	if withinRetryWindow {
+		return true, nil
+	}
+
+	// Timeout exceeded (verification window or stale tracker)
 	state.SecureBoot = &provisioningv1.SecureBootStatus{Enabled: &actualEnabled}
-	log.Info("Secure Boot verification passed after ARM restarts",
-		"dpu", dpu.Name, "enabled", actualEnabled)
-	return false, nil
+	err = fmt.Errorf("secure boot verification failed after %d restarts: desired=%v, actual=%v",
+		tracker.MaxAttempts, desiredEnabled, actualEnabled)
+	cutil.SetDPUCondition(state, cutil.NewCondition(
+		string(provisioningv1.DPUCondInterfaceInitialized),
+		err, "SecureBootConfigurationFailed", err.Error()))
+	dutil.ClearArmRestartTracker(dpu)
+	state.Phase = provisioningv1.DPUError
+	return true, nil
 }
 
 // detectAndStageSecureBoot checks whether the current hardware Secure Boot state matches

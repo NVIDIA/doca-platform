@@ -542,26 +542,6 @@ var _ = Describe("InitializeInterface", func() {
 			Expect(loaded).To(BeNil(), "orphaned tracker should be cleaned up")
 		})
 
-		It("should go to Error when BMC reports mismatch after completed restarts", func() {
-			dpu.Spec.SecureBoot = ptr.To(true)
-			mockServer.SetSecureBootCurrentBoot(false)
-			tracker := &dutil.ArmRestartTracker{
-				MaxAttempts:       2,
-				Attempt:           2,
-				InitialGeneration: dpu.Generation,
-			}
-			Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
-
-			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(status.Phase).To(Equal(provisioningv1.DPUError))
-			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondInterfaceInitialized.String())
-			Expect(cond).NotTo(BeNil())
-			Expect(cond.Reason).To(Equal("SecureBootConfigurationFailed"))
-			loaded, _ := dutil.LoadArmRestartTracker(dpu)
-			Expect(loaded).To(BeNil())
-		})
-
 		It("should retry when BMC GetSecureBoot fails during initial detection", func() {
 			mockServer.SetSecureBootError(true)
 			dpu.Spec.SecureBoot = ptr.To(true)
@@ -635,57 +615,146 @@ var _ = Describe("InitializeInterface", func() {
 			Expect(err).To(HaveOccurred())
 		})
 
-		It("should wait for cooldown before verifying Secure Boot after restarts", func() {
+		It("should retry verification when SecureBootCurrentBoot mismatches within timeout", func() {
 			dpu.Spec.SecureBoot = ptr.To(true)
-			mockServer.SetSecureBootCurrentBoot(false) // mismatch - but should not be queried yet
+			mockServer.SetSecureBootCurrentBoot(false)
 			tracker := &dutil.ArmRestartTracker{
 				MaxAttempts:       2,
 				Attempt:           2,
-				LastRestartTime:   time.Now(), // just restarted - cooldown not elapsed
 				InitialGeneration: dpu.Generation,
 			}
 			Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
+
+			By("Set ArmForceRestarted condition with recent LastTransitionTime (within timeout)")
+			dpu.Status.Conditions = append(dpu.Status.Conditions, metav1.Condition{
+				Type:               provisioningv1.DPUCondArmForceRestarted.String(),
+				Status:             metav1.ConditionTrue,
+				Reason:             provisioningv1.DPUCondArmForceRestarted.String(),
+				LastTransitionTime: metav1.Now(),
+			})
 
 			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface),
-				"should stay in InitializeInterface while waiting for cooldown")
+				"should stay in InitializeInterface while retrying verification")
 
 			By("Verify tracker is preserved for next reconcile")
 			loaded, loadErr := dutil.LoadArmRestartTracker(dpu)
 			Expect(loadErr).NotTo(HaveOccurred())
-			Expect(loaded).NotTo(BeNil(), "tracker must be preserved during cooldown")
+			Expect(loaded).NotTo(BeNil(), "tracker must be preserved during retry window")
 			Expect(loaded.Attempt).To(Equal(2))
-
-			By("Verify condition indicates waiting with Status=False")
-			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondInterfaceInitialized.String())
-			Expect(cond).NotTo(BeNil())
-			Expect(cond.Reason).To(Equal("WaitingForVerificationCooldown"))
-			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 		})
 
-		It("should verify Secure Boot after cooldown has elapsed", func() {
+		It("should succeed when SecureBootCurrentBoot matches after retry window", func() {
 			dpu.Spec.SecureBoot = ptr.To(true)
-			mockServer.SetSecureBootCurrentBoot(false) // mismatch after cooldown -> should go to Error
+			mockServer.SetSecureBootCurrentBoot(true)
 			tracker := &dutil.ArmRestartTracker{
 				MaxAttempts:       2,
 				Attempt:           2,
-				LastRestartTime:   time.Now().Add(-secureBootVerificationCooldown - time.Second),
 				InitialGeneration: dpu.Generation,
 			}
 			Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
 
+			By("Set ArmForceRestarted condition with recent LastTransitionTime")
+			dpu.Status.Conditions = append(dpu.Status.Conditions, metav1.Condition{
+				Type:               provisioningv1.DPUCondArmForceRestarted.String(),
+				Status:             metav1.ConditionTrue,
+				Reason:             provisioningv1.DPUCondArmForceRestarted.String(),
+				LastTransitionTime: metav1.Now(),
+			})
+
+			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters),
+				"should proceed when BMC reports correct value")
+			Expect(*status.SecureBoot.Enabled).To(BeTrue())
+
+			By("Verify tracker is cleared after successful verification")
+			loaded, _ := dutil.LoadArmRestartTracker(dpu)
+			Expect(loaded).To(BeNil())
+		})
+
+		It("should requeue when ArmForceRestarted condition is absent during mismatch", func() {
+			dpu.Spec.SecureBoot = ptr.To(true)
+			mockServer.SetSecureBootCurrentBoot(false) // mismatch
+			tracker := &dutil.ArmRestartTracker{
+				MaxAttempts:       2,
+				Attempt:           2,
+				InitialGeneration: dpu.Generation,
+			}
+			Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
+
+			By("Do NOT set ArmForceRestarted condition - simulating cache staleness")
+
+			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface),
+				"should requeue (not DPUError) when ArmForceRestarted condition is absent")
+
+			By("Verify tracker is preserved")
+			loaded, loadErr := dutil.LoadArmRestartTracker(dpu)
+			Expect(loadErr).NotTo(HaveOccurred())
+			Expect(loaded).NotTo(BeNil(), "tracker must be preserved when requeueing")
+			Expect(loaded.Attempt).To(Equal(2))
+		})
+
+		It("should go to DPUError when ArmForceRestarted condition is absent and tracker is stale", func() {
+			dpu.Spec.SecureBoot = ptr.To(true)
+			mockServer.SetSecureBootCurrentBoot(false)
+			tracker := &dutil.ArmRestartTracker{
+				MaxAttempts:       2,
+				Attempt:           2,
+				LastRestartTime:   time.Now().Add(-dutil.StaleTrackerTimeout - time.Second),
+				InitialGeneration: dpu.Generation,
+			}
+			Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
+
+			By("Do NOT set ArmForceRestarted condition - condition permanently absent")
+
 			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUError),
-				"should go to Error when BMC still reports mismatch after cooldown")
+				"should fall through to DPUError when tracker is stale and condition is absent")
 			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondInterfaceInitialized.String())
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Reason).To(Equal("SecureBootConfigurationFailed"))
-
-			By("Verify tracker is cleared")
+			Expect(status.SecureBoot).NotTo(BeNil())
+			Expect(*status.SecureBoot.Enabled).To(BeFalse(),
+				"status should reflect actual BMC value, not desired")
 			loaded, _ := dutil.LoadArmRestartTracker(dpu)
-			Expect(loaded).To(BeNil())
+			Expect(loaded).To(BeNil(), "tracker should be cleared on terminal error")
+		})
+
+		It("should go to DPUError when mismatch persists past verification timeout", func() {
+			dpu.Spec.SecureBoot = ptr.To(true)
+			mockServer.SetSecureBootCurrentBoot(false)
+			tracker := &dutil.ArmRestartTracker{
+				MaxAttempts:       2,
+				Attempt:           2,
+				InitialGeneration: dpu.Generation,
+			}
+			Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
+
+			By("Set ArmForceRestarted condition with expired LastTransitionTime")
+			dpu.Status.Conditions = append(dpu.Status.Conditions, metav1.Condition{
+				Type:               provisioningv1.DPUCondArmForceRestarted.String(),
+				Status:             metav1.ConditionTrue,
+				Reason:             provisioningv1.DPUCondArmForceRestarted.String(),
+				LastTransitionTime: metav1.NewTime(time.Now().Add(-secureBootVerificationTimeout - time.Second)),
+			})
+
+			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUError),
+				"should transition to DPUError when mismatch persists past timeout")
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondInterfaceInitialized.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal("SecureBootConfigurationFailed"))
+			Expect(status.SecureBoot).NotTo(BeNil())
+			Expect(*status.SecureBoot.Enabled).To(BeFalse(),
+				"status should reflect actual BMC value, not desired")
+			loaded, _ := dutil.LoadArmRestartTracker(dpu)
+			Expect(loaded).To(BeNil(), "tracker should be cleared on terminal error")
 		})
 	})
 
