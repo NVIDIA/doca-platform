@@ -33,8 +33,8 @@ import (
 )
 
 const (
-	defaultRootFS    = "/"
-	containerdConfig = "/etc/containerd/config.toml"
+	defaultRootFS       = "/"
+	containerdConfigDir = "/etc/containerd"
 )
 
 type ConfigureContainerd struct {
@@ -85,9 +85,9 @@ func (c *ConfigureContainerd) Execute(execCtx context.Context, optCtx *operation
 }
 
 func (c *ConfigureContainerd) configureRegistryMirror(endpoint string) error {
-	configPath := filepath.Join(c.rootFS, containerdConfig)
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return fmt.Errorf("containerd config file %s does not exist, skipping configuration", configPath)
+	configPath, err := c.resolveContainerdConfigPath()
+	if err != nil {
+		return err
 	}
 
 	var config map[string]interface{}
@@ -153,6 +153,11 @@ func (c *ConfigureContainerd) configureRegistryMirror(endpoint string) error {
 		mirrors["nvcr.io"] = nvcrMirror
 	}
 	nvcrMirror["endpoint"] = []string{endpoint}
+	// registry.mirrors will have conflict with config_path
+	if _, hasConfigPath := registry["config_path"]; hasConfigPath {
+		klog.Infof("Removing config_path from containerd registry config to avoid conflict with registry.mirrors")
+		delete(registry, "config_path")
+	}
 
 	buf := new(bytes.Buffer)
 	if err := toml.NewEncoder(buf).Encode(config); err != nil {
@@ -165,6 +170,27 @@ func (c *ConfigureContainerd) configureRegistryMirror(endpoint string) error {
 
 	klog.Infof("Successfully updated containerd configuration at %s", configPath)
 	return nil
+}
+
+func (c *ConfigureContainerd) resolveContainerdConfigPath() (string, error) {
+	if c.rootFS == "" {
+		c.rootFS = defaultRootFS
+	}
+
+	configDir := filepath.Join(c.rootFS, containerdConfigDir)
+	entries, err := os.ReadDir(configDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read containerd config dir %s: %w", configDir, err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".toml" {
+			continue
+		}
+		return filepath.Join(configDir, entry.Name()), nil
+	}
+
+	return "", fmt.Errorf("no containerd config file found in %s", configDir)
 }
 
 func (c *ConfigureContainerd) containerdVersion() (*semver.Version, error) {
