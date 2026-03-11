@@ -1136,6 +1136,8 @@ BASE_IMAGE = nvcr.io/nvidia/doca/dpf_containers:1.0.2-ubuntu22.04-distroless
 ALPINE_IMAGE = alpine:3.19
 # Base image for hostdriver (DOCA full runtime host image)
 HOSTDRIVER_BASE_IMAGE ?= nvcr.io/nvidia/doca/doca:3.2.1-full-rt-ubuntu24.04-host
+# Base image for storage-host, by default it is the same as the hostdriver base image
+STORAGE_HOST_BASE_IMAGE ?= $(HOSTDRIVER_BASE_IMAGE)
 
 .PHONY: binaries
 binaries: $(addprefix binary-,$(BUILD_TARGETS)) ## Build all binaries
@@ -1597,6 +1599,7 @@ docker-build-storage-host-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 		--platform=linux/$* \
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg storage_host_base_image=$(STORAGE_HOST_BASE_IMAGE) \
 		--build-arg ldflags="$(GO_LDFLAGS)" \
 		--build-arg gcflags="$(GO_GCFLAGS)" \
 		--build-arg TAG=$(TAG) \
