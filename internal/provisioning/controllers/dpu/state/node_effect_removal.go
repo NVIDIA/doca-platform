@@ -27,6 +27,7 @@ import (
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -51,6 +52,9 @@ func NodeEffectRemoval(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *du
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "UpdateLabelsOnNodeInDPUClusterError", err.Error()))
 		return *state, err
 	} else if needUpdateLabels {
+		// Reset the NodeEffectRemoved condition so the removal timeout timer starts fresh
+		// when we re-enter NodeEffectRemoval after the label update in ClusterConfig.
+		meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondNodeEffectRemoved.String())
 		state.Phase = provisioningv1.DPUClusterConfig
 		logger.V(3).Info(fmt.Sprintf("node %s needs to update label", node.Name))
 		return *state, nil
@@ -79,6 +83,12 @@ func NodeEffectRemoval(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *du
 			return *state, err
 		}
 
+		// Set InProgress condition before the timeout check so that LastTransitionTime
+		// is reset when entering a new removal cycle (Status changes from True to False),
+		// preventing stale timestamps from previous cycles from causing false timeouts.
+		inProgressErr := fmt.Errorf("node effect removal is in progress")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), inProgressErr, "NodeEffectRemovalInProgress", inProgressErr.Error()))
+
 		// Check timeout only when the DPUNodeMaintenance still has requestors (not in deletion).
 		// If it is in deletion phase, the normal flow will either succeed or fail on its own.
 		if dpunodemaintenance.DeletionTimestamp.IsZero() {
@@ -88,9 +98,6 @@ func NodeEffectRemoval(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *du
 				return *state, nil
 			}
 		}
-
-		err := fmt.Errorf("node effect removal is in progress")
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "NodeEffectRemovalInProgress", err.Error()))
 	}
 	return *state, nil
 }
