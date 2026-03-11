@@ -718,6 +718,64 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 				),
 			))
 		})
+
+		It("should not timeout when entering new cycle with stale True condition from previous cycle", func() {
+			dpu := createBasicDPU(
+				nil,
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+			)
+
+			// Simulate a stale condition from a previous successful removal cycle:
+			// Status=True with an old LastTransitionTime that exceeds the timeout.
+			// Before the fix, this would cause a false timeout on the new cycle entry.
+			dpu.Status.Conditions = []metav1.Condition{
+				{
+					Type:               provisioningv1.DPUCondNodeEffectRemoved.String(),
+					Status:             metav1.ConditionTrue,
+					Reason:             "NodeEffectRemoved",
+					Message:            "",
+					LastTransitionTime: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
+				},
+			}
+
+			By("creating a Node in the DPUCluster")
+			createNodeInDPUCluster(dpu, nil, nil)
+
+			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+			Expect(err).To(Succeed())
+
+			dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      dpunodemaintenanceName,
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUNodeMaintenanceSpec{
+					DPUNodeName: dpu.Spec.DPUNodeName,
+					NodeEffect:  dpu.Spec.NodeEffect,
+					Requestor:   []string{"other-requestor"},
+				},
+			}
+			createObject(dpunodemaintenance)
+
+			status, err := state.NodeEffectRemoval(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						NodeEffectRemovalTimeout: 2 * time.Minute,
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+			By("should remain in NodeEffectRemoval, not Error, because the timer resets on new cycle entry")
+			Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffectRemoval))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondNodeEffectRemoved.String()),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", "NodeEffectRemovalInProgress"),
+				),
+			))
+		})
 	})
 
 	Context("Label Change Scenarios", func() {
@@ -745,6 +803,43 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 				Expect(err).To(Succeed())
 				Expect(status.Phase).To(Equal(provisioningv1.DPUClusterConfig))
 			})
+		})
+
+		It("should remove NodeEffectRemoved condition when bouncing to ClusterConfig for label update", func() {
+			dpu := createBasicDPU(
+				map[string]string{"new": "label"},
+				&provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+			)
+
+			// Pre-set the condition as if we were mid-removal with an old timer
+			dpu.Status.Conditions = []metav1.Condition{
+				{
+					Type:               provisioningv1.DPUCondNodeEffectRemoved.String(),
+					Status:             metav1.ConditionFalse,
+					Reason:             "NodeEffectRemovalInProgress",
+					Message:            "node effect removal is in progress",
+					LastTransitionTime: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
+				},
+			}
+
+			By("creating a Node in the DPUCluster with stale labels to trigger bounce")
+			createNodeInDPUCluster(dpu,
+				map[string]string{cutil.LastAppliedLabelsOnDPUKey: `{"old":"label"}`},
+				nil,
+			)
+
+			status, err := state.NodeEffectRemoval(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+				},
+			)
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUClusterConfig))
+
+			By("verifying NodeEffectRemoved condition was removed so timer resets on re-entry")
+			for _, cond := range status.Conditions {
+				Expect(cond.Type).NotTo(Equal(provisioningv1.DPUCondNodeEffectRemoved.String()))
+			}
 		})
 	})
 })
