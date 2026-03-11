@@ -49,6 +49,34 @@ var _ = Describe("Containerd Configuration", func() {
 	})
 
 	Context("Containerd Configuration", func() {
+		It("should use config-mlnx.toml when config.toml is absent", func() {
+			configPath := filepath.Join(tempDir, "/etc/containerd/config.toml")
+			Expect(os.Remove(configPath)).To(Succeed())
+
+			mlnxPath := filepath.Join(tempDir, "/etc/containerd/config-mlnx.toml")
+			Expect(os.WriteFile(mlnxPath, []byte("version = 2\n"), 0644)).To(Succeed())
+
+			operation := &ConfigureContainerd{
+				rootFS: tempDir,
+				getContainerdVersion: func() (string, error) {
+					return "containerd github.com/containerd/containerd v1.7.20 8fc6bcff51318944179630522a095cc9dbf9f353", nil
+				},
+			}
+
+			err := operation.configureRegistryMirror("my.registry.com")
+			Expect(err).NotTo(HaveOccurred())
+
+			var config map[string]interface{}
+			_, err = toml.DecodeFile(mlnxPath, &config)
+			Expect(err).NotTo(HaveOccurred())
+
+			registry := config["plugins"].(map[string]interface{})["io.containerd.grpc.v1.cri"].(map[string]interface{})["registry"].(map[string]interface{})
+			mirror := registry["mirrors"].(map[string]interface{})["nvcr.io"].(map[string]interface{})
+			endpoints := mirror["endpoint"].([]interface{})
+			Expect(endpoints).To(HaveLen(1))
+			Expect(endpoints[0]).To(Equal("my.registry.com"))
+		})
+
 		It("should skip if SkipContainerdConfigration is true", func() {
 			operation := &ConfigureContainerd{}
 			Expect(operation.ShouldSkip(&operations.Context{
@@ -106,6 +134,7 @@ oom_score = 0
           [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
             systemdCgroup = true
     [plugins."io.containerd.grpc.v1.cri".registry]
+      config_path = "/etc/containerd/certs.d"
       [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
         [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
           endpoint = ["dockerhub.nvidia.com"]			
@@ -177,6 +206,10 @@ oom_score = 0
 			endpoints := mirrorMap["endpoint"].([]interface{})
 			Expect(endpoints).To(HaveLen(1))
 			Expect(endpoints[0]).To(Equal("my.registry.com"))
+
+			// config_path should be removed once mirrors endpoint is configured.
+			configPathValue := get(config, "plugins", "io.containerd.grpc.v1.cri", "registry", "config_path")
+			Expect(configPathValue).To(BeNil())
 		})
 	})
 
