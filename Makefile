@@ -21,6 +21,8 @@ PROJECT_DIR := $(shell cd $(dir $(lastword $(MAKEFILE_LIST))) && pwd -L)
 # Example: $(dir ...) returns "/path/to/project/" but we want "/path/to/project"
 PROJECT_DIR := $(patsubst %/,%,$(PROJECT_DIR))
 
+GO_VERSION ?= $(shell awk '/^toolchain /{print $$2}' go.mod | awk -F 'go' '{print $$2}')
+
 ## Include Make modules which are split up in this repo for better structure.
 include hack/tools/tools.mk
 
@@ -58,8 +60,6 @@ GOBIN=$(shell go env GOPATH)/bin
 else
 GOBIN=$(shell go env GOBIN)
 endif
-
-GO_VERSION ?= $(shell awk '/^toolchain /{print $$2}' go.mod | awk -F 'go' '{print $$2}')
 
 # Allows for defining additional Go test args, e.g. '-tags integration'.
 # The linkmode=internal flag is used to force using Go linker to do the linking.
