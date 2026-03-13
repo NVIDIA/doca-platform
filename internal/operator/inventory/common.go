@@ -269,11 +269,11 @@ func (p *simpleDeploymentObjects) IsReady(ctx context.Context, c client.Client, 
 // daemonSetReadyCheck can be used to check for readiness of an inventory Component that has exactly one Kubernetes DaemonSet of interest.
 // The Component returns and error when the number of Ready is zero or below the current number of desiredNumberScheduled.
 func daemonSetReadyCheck(ctx context.Context, c client.Client, namespace string, objects []*unstructured.Unstructured, versionValidation bool) error {
-	deamonset := &appsv1.DaemonSet{}
+	daemonset := &appsv1.DaemonSet{}
 	found := false
 	for _, obj := range objects {
 		if obj.GetKind() == string(DaemonsetKind) {
-			err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: obj.GetName()}, deamonset)
+			err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: obj.GetName()}, daemonset)
 			if err != nil {
 				return err
 			}
@@ -286,21 +286,18 @@ func daemonSetReadyCheck(ctx context.Context, c client.Client, namespace string,
 	}
 
 	if versionValidation {
-		if deamonset.GetLabels()[release.DPFVersionLabelKey] != "" && deamonset.GetLabels()[release.DPFVersionLabelKey] != release.DPFVersion() {
+		if daemonset.GetLabels()[release.DPFVersionLabelKey] != "" && daemonset.GetLabels()[release.DPFVersionLabelKey] != release.DPFVersion() {
 			return fmt.Errorf("DaemonSet %s/%s has version %s, want %s",
-				deamonset.GetNamespace(), deamonset.GetName(), deamonset.GetLabels()[release.DPFVersionLabelKey], release.DPFVersion())
+				daemonset.GetNamespace(), daemonset.GetName(), daemonset.GetLabels()[release.DPFVersionLabelKey], release.DPFVersion())
 		}
 	}
-	if deamonset.GetGeneration() != deamonset.Status.ObservedGeneration {
-		return fmt.Errorf("DaemonSet %s/%s is not ready: generation is not equal to observed generation", deamonset.Namespace, deamonset.Name)
+	if daemonset.GetGeneration() != daemonset.Status.ObservedGeneration {
+		return fmt.Errorf("DaemonSet %s/%s is not ready: generation is not equal to observed generation", daemonset.Namespace, daemonset.Name)
 	}
-	// Consider the deployment not ready if it has no replicas.
-	if deamonset.Status.NumberReady == 0 {
-		return fmt.Errorf("DaemonSet %s/%s has no ready replicas", deamonset.GetNamespace(), deamonset.GetName())
-	}
-	if deamonset.Status.NumberReady != deamonset.Status.DesiredNumberScheduled {
-		return fmt.Errorf("DaemonSet %s/%s has %d ready, want %d",
-			deamonset.GetNamespace(), deamonset.GetName(), deamonset.Status.NumberReady, deamonset.Status.DesiredNumberScheduled)
+	if daemonset.Status.UpdatedNumberScheduled != daemonset.Status.DesiredNumberScheduled ||
+		daemonset.Status.NumberAvailable != daemonset.Status.DesiredNumberScheduled {
+		return fmt.Errorf("DaemonSet %s/%s has %d available and %d up-to-date, want %d",
+			daemonset.GetNamespace(), daemonset.GetName(), daemonset.Status.NumberAvailable, daemonset.Status.UpdatedNumberScheduled, daemonset.Status.DesiredNumberScheduled)
 	}
 	return nil
 }
