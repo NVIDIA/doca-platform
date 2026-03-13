@@ -64,3 +64,7 @@ NVIDIA DPF has been validated in the following scenarios:
 | Operating System | Containerd | CRI-O | Notes |
 |------------------|------------|-------|-------|
 | Ubuntu 24.04 LTS | Yes        | No    |       |
+
+## Limitations
+
+* **Socket Direct environments are not supported.** DPF does not currently support environments where NVIDIA Mellanox [Socket Direct](https://www.nvidia.com/en-us/networking/ethernet/socket-direct/) adapters are used. Socket Direct is a network adapter architecture that provides direct PCIe access from multiple CPU sockets to a single NIC, bypassing the inter-processor bus. DPUs in Socket Direct configurations are not tested or validated with DPF.
