@@ -142,14 +142,15 @@ func (p *dpuDetectorObjects) GenerateManifests(vars Variables, options ...Genera
 	return ret, nil
 }
 
-// IsReadyForUpgrade reports the readiness of the dpu detector objects. It returns an error when the number of Replicas in
-// the single dpu detector daemonset is true.
+// IsReadyForUpgrade reports the readiness of the dpu detector objects for upgrade.
+// It returns an error if the dpu detector DaemonSet does not have all desired pods available and up-to-date.
 func (p *dpuDetectorObjects) IsReadyForUpgrade(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig) error {
 	return daemonSetReadyCheck(ctx, c, config.GetNamespace(), p.objects, false)
 }
 
-// IsReady reports the readiness of the dpu detector objects as well as the version state.
-// It returns an error when the number of Replicas in the single dpu detector daemonset is true.
+// IsReady reports the readiness of the dpu detector objects.
+// It returns an error if the dpu detector DaemonSet does not have all desired pods available and up-to-date,
+// or if the DaemonSet is not running the expected DPF version.
 func (p *dpuDetectorObjects) IsReady(ctx context.Context, c client.Client, namespace string) error {
 	return daemonSetReadyCheck(ctx, c, namespace, p.objects, true)
 }

@@ -122,31 +122,42 @@ func Test_deamonsetReadyCheck(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "error if daemonset has empty status",
-			status:  appsv1.DaemonSetStatus{},
-			wantErr: true,
-		},
-		{
-			name: "error if daemonset doesn't define DesiredNumberScheduled",
+			name: "error if daemonset has no ready pods",
 			status: appsv1.DaemonSetStatus{
-				NumberReady: 1,
+				DesiredNumberScheduled: 3,
 			},
 			wantErr: true,
 		},
 		{
-			name: "error if daemonset NumberReady != DesiredNumberScheduled",
+			name: "error if daemonset NumberAvailable != DesiredNumberScheduled",
 			status: appsv1.DaemonSetStatus{
-				NumberReady:            3,
-				DesiredNumberScheduled: 1,
+				NumberAvailable:        1,
+				UpdatedNumberScheduled: 1,
+				DesiredNumberScheduled: 3,
 			},
 			wantErr: true,
 		},
 		{
-			name: "succeed if daemonset has NumberReady == DesiredNumberScheduled",
+			name: "error if daemonset UpdatedNumberScheduled != DesiredNumberScheduled",
 			status: appsv1.DaemonSetStatus{
-				NumberReady:            5,
+				NumberAvailable:        5,
+				UpdatedNumberScheduled: 3,
 				DesiredNumberScheduled: 5,
 			},
+			wantErr: true,
+		},
+		{
+			name: "succeed if daemonset has NumberAvailable == UpdatedNumberScheduled == DesiredNumberScheduled",
+			status: appsv1.DaemonSetStatus{
+				NumberAvailable:        5,
+				UpdatedNumberScheduled: 5,
+				DesiredNumberScheduled: 5,
+			},
+			wantErr: false,
+		},
+		{
+			name:    "succeed if daemonset targets zero nodes",
+			status:  appsv1.DaemonSetStatus{},
 			wantErr: false,
 		},
 	}
