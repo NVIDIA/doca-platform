@@ -1,0 +1,169 @@
+From 5bd294a9d4ee4fa8808479db06382bbc2509c617 Mon Sep 17 00:00:00 2001
+From: Yury Kulazhenkov <ykulazhenkov@nvidia.com>
+Date: Tue, 30 Sep 2025 09:59:32 +0000
+Subject: [PATCH 3/3] fix: avoid querying CSINode object
+
+Use nodeName directly from SVVolumeAttachment.
+In DPU cluster we don't have CSINode objects,
+so we can't rely on info from them.
+
+Signed-off-by: Yury Kulazhenkov <ykulazhenkov@nvidia.com>
+---
+ pkg/controller/csi_handler.go      | 31 ++------------------
+ pkg/controller/csi_handler_test.go | 46 +++++++++++++++++++-----------
+ 2 files changed, 31 insertions(+), 46 deletions(-)
+
+diff --git a/pkg/controller/csi_handler.go b/pkg/controller/csi_handler.go
+index 93ca401d..870ad191 100644
+--- a/pkg/controller/csi_handler.go
++++ b/pkg/controller/csi_handler.go
+@@ -756,36 +756,9 @@ func (h *csiHandler) getCredentialsFromPV(ctx context.Context, csiSource *v1.CSI
+ 	return credentials, nil
+ }
+ 
+-// getNodeID finds node ID from CSINode API object. If caller wants, it can find
+-// node ID stored in VolumeAttachment annotation.
++// getNodeID returns the nodeName directly as the node ID.
+ func (h *csiHandler) getNodeID(logger klog.Logger, driver string, nodeName string, va *dpfstorage.SVVolumeAttachment) (string, error) {
+-	// Try to find CSINode first.
+-	csiNode, err := h.csiNodeLister.Get(nodeName)
+-	if err == nil {
+-		if nodeID, found := GetNodeIDFromCSINode(driver, csiNode); found {
+-			logger.V(4).Info("Found nodeID in CSINode", "nodeID", nodeID, "CSINode", nodeName)
+-			return nodeID, nil
+-		}
+-		// CSINode exists, but does not have the requested driver; this can happen if the CSI pod is not running, for
+-		// example the node might be currently shut down. We don't want to block the controller unpublish in that scenario.
+-		// We should treat missing driver in the same way as missing CSINode; attempt to use the node ID from the volume
+-		// attachment.
+-		err = fmt.Errorf("CSINode %s does not contain driver %s", nodeName, driver)
+-	}
+-
+-	// Can't get CSINode, check Volume Attachment.
+-	logger.V(4).Info("Failed to get nodeID from CSINode", "nodeName", nodeName, "err", err.Error())
+-
+-	// Check VolumeAttachment annotation as the last resort if caller wants so (i.e. has provided one).
+-	if va == nil {
+-		return "", err
+-	}
+-	if nodeID, found := va.Annotations[vaNodeIDAnnotation]; found {
+-		return nodeID, nil
+-	}
+-
+-	// return csiNodeLister.Get error
+-	return "", err
++	return nodeName, nil
+ }
+ 
+ func (h *csiHandler) patchVA(ctx context.Context, va, clone *dpfstorage.SVVolumeAttachment, subresources ...string) (*dpfstorage.SVVolumeAttachment,
+diff --git a/pkg/controller/csi_handler_test.go b/pkg/controller/csi_handler_test.go
+index 0c86096b..db7a602e 100644
+--- a/pkg/controller/csi_handler_test.go
++++ b/pkg/controller/csi_handler_test.go
+@@ -716,13 +716,16 @@ func TestCSIHandler(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			name:           "unknown node -> error",
++			name:           "no CSINode -> successful attach",
+ 			initialObjects: []runtime.Object{pvWithFinalizer()},
+ 			addedVA:        va(false, fin, ann),
+ 			expectedActions: []core.Action{
+ 				core.NewPatchSubresourceAction(vaGroupResourceVersion, DefaultNS, testPVName+"-"+testNodeName,
+-					types.MergePatchType, patch(va(false, fin, ann), vaWithAttachError(va(false, fin, ann),
+-						"csinode.storage.k8s.io \"node1\" not found")), "status"),
++					types.MergePatchType, patch(va(false /*attached*/, fin, ann),
++						va(true /*attached*/, fin, ann)), "status"),
++			},
++			expectedCSICalls: []csiCall{
++				{"attach", testVolumeHandle, testNodeName, noAttrs, noSecrets, readWrite, success, notDetached, noMetadata, 0},
+ 			},
+ 		},
+ 		{
+@@ -875,24 +878,29 @@ func TestCSIHandler(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			name:           "Node without CSINode -> error",
++			name:           "Node without CSINode -> successful attach",
+ 			initialObjects: []runtime.Object{pvWithFinalizer(), node()},
+ 			addedVA:        va(false, fin, ann),
+ 			expectedActions: []core.Action{
+ 				core.NewPatchSubresourceAction(vaGroupResourceVersion, DefaultNS, testPVName+"-"+testNodeName,
+ 					types.MergePatchType, patch(va(false /*attached*/, fin, ann),
+-						vaWithAttachError(va(false, fin, ann), "csinode.storage.k8s.io \"node1\" not found")), "status"),
++						va(true /*attached*/, fin, ann)), "status"),
++			},
++			expectedCSICalls: []csiCall{
++				{"attach", testVolumeHandle, testNodeName, noAttrs, noSecrets, readWrite, success, notDetached, noMetadata, 0},
+ 			},
+ 		},
+ 		{
+-			name:           "CSINode exists without the driver -> error",
++			name:           "CSINode exists without the driver -> successful attach",
+ 			initialObjects: []runtime.Object{pvWithFinalizer(), csiNodeEmpty()},
+ 			addedVA:        va(false, fin, ann),
+ 			expectedActions: []core.Action{
+ 				core.NewPatchSubresourceAction(vaGroupResourceVersion, DefaultNS, testPVName+"-"+testNodeName,
+ 					types.MergePatchType, patch(va(false /*attached*/, fin, ann),
+-						vaWithAttachError(va(false, fin, ann), "CSINode node1 does not contain driver csi/test")),
+-					"status"),
++						va(true /*attached*/, fin, ann)), "status"),
++			},
++			expectedCSICalls: []csiCall{
++				{"attach", testVolumeHandle, testNodeName, noAttrs, noSecrets, readWrite, success, notDetached, noMetadata, 0},
+ 			},
+ 		},
+ 		{
+@@ -1190,27 +1198,31 @@ func TestCSIHandler(t *testing.T) {
+ 					"status")},
+ 		},
+ 		{
+-			name:           "detach unknown node -> error",
++			name:           "detach no CSINode -> successful detach",
+ 			initialObjects: []runtime.Object{pvWithFinalizer()},
+ 			addedVA:        deleted(va(true, fin, nil)),
+ 			expectedActions: []core.Action{
+-				core.NewPatchSubresourceAction(vaGroupResourceVersion, DefaultNS,
+-					testPVName+"-"+testNodeName,
++				core.NewPatchAction(vaGroupResourceVersion, DefaultNS, testPVName+"-"+testNodeName,
+ 					types.MergePatchType, patch(deleted(va(true, fin, nil)),
+-						deleted(vaWithDetachError(va(true, fin, nil),
+-							"csinode.storage.k8s.io \"node1\" not found"))), "status"),
++						deleted(va(true /*attached*/, "", nil)))),
++				core.NewPatchSubresourceAction(vaGroupResourceVersion, DefaultNS, testPVName+"-"+testNodeName,
++					types.MergePatchType, patch(deleted(va(true, "", nil)),
++						deleted(va(false /*attached*/, "", nil))), "status"),
++			},
++			expectedCSICalls: []csiCall{
++				{"detach", testVolumeHandle, testNodeName, noAttrs, noSecrets, readWrite, success, ignored, noMetadata, 0},
+ 			},
+ 		},
+ 		{
+-			name:           "detach unknown node -> use annotation",
++			name:           "detach no CSINode with annotation -> successful detach",
+ 			initialObjects: []runtime.Object{pvWithFinalizer()},
+ 			addedVA:        deleted(va(true, fin, map[string]string{vaNodeIDAnnotation: "annotatedNodeID"})),
+ 			expectedActions: []core.Action{
+-				core.NewPatchSubresourceAction(vaGroupResourceVersion, DefaultNS, testPVName+"-"+testNodeName,
++				core.NewPatchAction(vaGroupResourceVersion, DefaultNS, testPVName+"-"+testNodeName,
+ 					types.MergePatchType, patch(
+ 						deleted(va(true, fin, map[string]string{vaNodeIDAnnotation: "annotatedNodeID"})),
+ 						deleted(va(true /*attached*/, "",
+-							map[string]string{vaNodeIDAnnotation: "annotatedNodeID"}))), ""),
++							map[string]string{vaNodeIDAnnotation: "annotatedNodeID"})))),
+ 				core.NewPatchSubresourceAction(vaGroupResourceVersion, DefaultNS, testPVName+"-"+testNodeName,
+ 					types.MergePatchType, patch(
+ 						deleted(va(true, "", map[string]string{vaNodeIDAnnotation: "annotatedNodeID"})),
+@@ -1218,7 +1230,7 @@ func TestCSIHandler(t *testing.T) {
+ 							map[string]string{vaNodeIDAnnotation: "annotatedNodeID"}))), "status"),
+ 			},
+ 			expectedCSICalls: []csiCall{
+-				{"detach", testVolumeHandle, "annotatedNodeID", noAttrs, noSecrets, readWrite, success, detached, noMetadata, 0},
++				{"detach", testVolumeHandle, testNodeName, noAttrs, noSecrets, readWrite, success, ignored, noMetadata, 0},
+ 			},
+ 		},
+ 		{
+-- 
+2.43.0
+
