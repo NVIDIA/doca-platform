@@ -131,7 +131,7 @@ $(SOS_REPORT_DIR): | $(REPOSDIR)
 	curl -sL ${DOCA_SOSREPORT_REPO_URL} | tar -xz -C ${REPOSDIR}
 
 # nvidia-external-attacher dependencies to be able to build its docker image
-EXTERNAL_ATTACHER_BRANCH=release-4.9
+EXTERNAL_ATTACHER_BRANCH=release-4.11
 NVIDIA_EXTERNAL_ATTACHER_DIR=third_party/forked/nvidia-external-attacher
 
 # Image for the SR-IOV device plugin, deployed by the NodeSRIOVDevicePlugin controller in the host cluster
@@ -1251,7 +1251,7 @@ binary-storage-nvidia-external-attacher: generate-client-for-storage-nvidia-exte
 
 	# Build nvidia-external-attacher binary
 	cd $(NVIDIA_EXTERNAL_ATTACHER_DIR)/external-attacher && \
-	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/nvidia-external-attacher github.com/kubernetes-csi/external-attacher/cmd/csi-attacher
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/nvidia-external-attacher github.com/kubernetes-csi/external-attacher/v4/cmd/csi-attacher
 
 .PHONY: binary-dpfctl
 binary-dpfctl: ## Build the dpfctl binary.
