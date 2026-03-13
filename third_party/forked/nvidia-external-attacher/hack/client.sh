@@ -38,8 +38,9 @@ mkdir -p "$CRD_DET_DIR"
 mkdir -p "$CLIENT_DET_DIR"
 cp -r "$CRD_SRC_DIR"/* "$CRD_DET_DIR"
 cp -r "$CLIENT_SRC_DIR"/* "$CLIENT_DET_DIR"
+MODULE=$(head -1 "$CODE_DIR/external-attacher/go.mod" | awk '{print $2}')
 find "$CODE_DIR"/external-attacher -type f \
-  -exec sed -i 's|github.com/nvidia/doca-platform/third_party/forked/nvidia-external-attacher|github.com/kubernetes-csi/external-attacher|g' {} +
+  -exec sed -i "s|github.com/nvidia/doca-platform/third_party/forked/nvidia-external-attacher|$MODULE|g" {} +
 
 # apply the patch
 PATCH_DIR=$CODE_DIR/hack/patches/$BRANCH
