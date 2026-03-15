@@ -348,6 +348,46 @@ var _ = Describe("OVSUtils", func() {
 		)
 	})
 
+	Describe("ListBridgesWithExternalIDs", func() {
+		It("should return bridges when match found", func() {
+			externalIDs := map[string]string{"ovs-vpc-owner-ref": "global"}
+			expectedBridges := []ovsmodel.Bridge{
+				{Name: "br-vpc-1", ExternalIDs: externalIDs},
+				{Name: "br-vpc-2", ExternalIDs: externalIDs},
+			}
+			mockAPI.EXPECT().
+				ListBridgesWithExternalIDs(ctx, externalIDs).
+				Return(expectedBridges, nil)
+
+			bridges, err := mockAPI.ListBridgesWithExternalIDs(ctx, externalIDs)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(bridges).To(Equal(expectedBridges))
+		})
+
+		It("should return empty slice when no bridges match", func() {
+			externalIDs := map[string]string{"ovs-vpc-owner-ref": "global"}
+			mockAPI.EXPECT().
+				ListBridgesWithExternalIDs(ctx, externalIDs).
+				Return([]ovsmodel.Bridge{}, nil)
+
+			bridges, err := mockAPI.ListBridgesWithExternalIDs(ctx, externalIDs)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(bridges).To(BeEmpty())
+		})
+
+		It("should fail when query returns error", func() {
+			externalIDs := map[string]string{"ovs-vpc-owner-ref": "global"}
+			expectedErr := errors.New("failed to list bridges with external_ids: connection timeout")
+			mockAPI.EXPECT().
+				ListBridgesWithExternalIDs(ctx, externalIDs).
+				Return(nil, expectedErr)
+
+			bridges, err := mockAPI.ListBridgesWithExternalIDs(ctx, externalIDs)
+			Expect(err).To(MatchError(expectedErr))
+			Expect(bridges).To(BeNil())
+		})
+	})
+
 	Describe("SetIfaceExternalIDs", func() {
 		It("should succeed when setting external IDs", func() {
 			externalIDs := map[string]string{"key": "value"}
@@ -1557,6 +1597,89 @@ var _ = Describe("OVSUtils", func() {
 				Expect(err.Error()).To(ContainSubstring("failed to delete bridge"))
 			})
 
+		})
+
+		Describe("ListBridgesWithExternalIDs", func() {
+			var mockConditionalAPI *MockConditionalAPI
+
+			BeforeEach(func() {
+				mockConditionalAPI = NewMockConditionalAPI(mockCtrl)
+			})
+
+			It("should return error when externalIDs is empty", func() {
+				bridges, err := client.ListBridgesWithExternalIDs(ctx, nil)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("externalIDs cannot be empty"))
+				Expect(bridges).To(BeNil())
+
+				bridges, err = client.ListBridgesWithExternalIDs(ctx, map[string]string{})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("externalIDs cannot be empty"))
+				Expect(bridges).To(BeNil())
+			})
+
+			It("should return bridges when List succeeds", func() {
+				externalIDs := map[string]string{"ovs-vpc-owner-ref": "global"}
+				expectedBridges := []ovsmodel.Bridge{
+					{Name: "br-vpc-1", ExternalIDs: externalIDs},
+					{Name: "br-vpc-2", ExternalIDs: externalIDs},
+				}
+
+				mockOVSClient.EXPECT().
+					WhereAll(gomock.Any(), gomock.Any()).
+					Return(mockConditionalAPI)
+
+				mockConditionalAPI.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]ovsmodel.Bridge)
+						*ptr = expectedBridges
+						return nil
+					})
+
+				bridges, err := client.ListBridgesWithExternalIDs(ctx, externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(bridges).To(Equal(expectedBridges))
+			})
+
+			It("should return empty slice when no bridges match", func() {
+				externalIDs := map[string]string{"ovs-vpc-owner-ref": "global"}
+
+				mockOVSClient.EXPECT().
+					WhereAll(gomock.Any(), gomock.Any()).
+					Return(mockConditionalAPI)
+
+				mockConditionalAPI.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]ovsmodel.Bridge)
+						*ptr = []ovsmodel.Bridge{}
+						return nil
+					})
+
+				bridges, err := client.ListBridgesWithExternalIDs(ctx, externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(bridges).To(BeEmpty())
+			})
+
+			It("should return error when List fails", func() {
+				externalIDs := map[string]string{"ovs-vpc-owner-ref": "global"}
+				listErr := errors.New("ovsdb list failed")
+
+				mockOVSClient.EXPECT().
+					WhereAll(gomock.Any(), gomock.Any()).
+					Return(mockConditionalAPI)
+
+				mockConditionalAPI.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					Return(listErr)
+
+				bridges, err := client.ListBridgesWithExternalIDs(ctx, externalIDs)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to list bridges with external_ids"))
+				Expect(errors.Is(err, listErr)).To(BeTrue())
+				Expect(bridges).To(BeNil())
+			})
 		})
 	})
 

@@ -46,6 +46,7 @@ type API interface {
 	GetOpenVSwitchExternalIDs(ctx context.Context) (map[string]string, error)
 	AddBridge(ctx context.Context, bridgeConfig BridgeConfig) error
 	SetBridgeExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error
+	ListBridgesWithExternalIDs(ctx context.Context, externalIDs map[string]string) ([]ovsmodel.Bridge, error)
 	GetIfaceWithName(ctx context.Context, name string) (*ovsmodel.Interface, error)
 	DeleteBridge(ctx context.Context, name string) error
 }
@@ -298,6 +299,33 @@ func (c *Client) GetIfaceWithExternalIDs(ctx context.Context, externalIDs map[st
 	}
 
 	return &ifaces[0], nil
+}
+
+// ListBridgesWithExternalIDs returns all bridges whose external_ids contain the given key-value pairs.
+// For example, externalIDs map[string]string{"ovs-vpc-owner-ref": "global"} returns all bridges
+// with that external_id. Returns an error if externalIDs is empty (to avoid accidentally listing all bridges).
+func (c *Client) ListBridgesWithExternalIDs(ctx context.Context, externalIDs map[string]string) ([]ovsmodel.Bridge, error) {
+	if len(externalIDs) == 0 {
+		return nil, fmt.Errorf("externalIDs cannot be empty")
+	}
+
+	var bridges []ovsmodel.Bridge
+	br := &ovsmodel.Bridge{
+		ExternalIDs: externalIDs,
+	}
+	err := c.WhereAll(
+		br,
+		model.Condition{
+			Field:    &br.ExternalIDs,
+			Function: ovsdb.ConditionIncludes,
+			Value:    br.ExternalIDs,
+		},
+	).List(ctx, &bridges)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list bridges with external_ids: %w", err)
+	}
+
+	return bridges, nil
 }
 
 func (c *Client) SetIfaceOptions(ctx context.Context, name string, options map[string]string) error {
