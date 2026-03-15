@@ -731,6 +731,95 @@ var _ = Describe("OVSUtils", func() {
 				Expect(err.Error()).To(ContainSubstring("exceeds maximum length"))
 			})
 
+			It("should not create port or interface when SkipCreateInternalPort is true", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+				mockOVSClient.EXPECT().
+					Create(gomock.Any()).
+					DoAndReturn(func(models ...interface{}) ([]ovsdb.Operation, error) {
+						Expect(models[0]).To(BeAssignableToTypeOf(&ovsmodel.Bridge{}))
+						return []ovsdb.Operation{}, nil
+					})
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]*ovsmodel.OpenvSwitch)
+						*ptr = []*ovsmodel.OpenvSwitch{{UUID: "ovs-uuid"}}
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				config := BridgeConfig{
+					Name:                   "br-test",
+					DatapathType:           "system",
+					SkipCreateInternalPort: true,
+				}
+				err := client.AddBridge(ctx, config)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should create port and interface with bridge name by default", func() {
+				var createdPort *ovsmodel.Port
+				var createdIface *ovsmodel.Interface
+
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+				mockOVSClient.EXPECT().
+					Create(gomock.Any()).
+					DoAndReturn(func(models ...interface{}) ([]ovsdb.Operation, error) {
+						createdPort = models[0].(*ovsmodel.Port)
+						return []ovsdb.Operation{}, nil
+					})
+				mockOVSClient.EXPECT().
+					Create(gomock.Any()).
+					DoAndReturn(func(models ...interface{}) ([]ovsdb.Operation, error) {
+						createdIface = models[0].(*ovsmodel.Interface)
+						return []ovsdb.Operation{}, nil
+					})
+				mockOVSClient.EXPECT().
+					Create(gomock.Any()).
+					DoAndReturn(func(models ...interface{}) ([]ovsdb.Operation, error) {
+						return []ovsdb.Operation{}, nil
+					})
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]*ovsmodel.OpenvSwitch)
+						*ptr = []*ovsmodel.OpenvSwitch{{UUID: "ovs-uuid"}}
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				config := BridgeConfig{
+					Name:         "br-test",
+					DatapathType: "system",
+				}
+				err := client.AddBridge(ctx, config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(createdPort).NotTo(BeNil())
+				Expect(createdPort.Name).To(Equal("br-test"))
+				Expect(createdIface).NotTo(BeNil())
+				Expect(createdIface.Name).To(Equal("br-test"))
+			})
+
 			It("should use InternalInterfaceName for port and interface when set", func() {
 				var createdPort *ovsmodel.Port
 				var createdIface *ovsmodel.Interface
@@ -741,21 +830,18 @@ var _ = Describe("OVSUtils", func() {
 				mockOVSClient.EXPECT().
 					Create(gomock.Any()).
 					DoAndReturn(func(models ...interface{}) ([]ovsdb.Operation, error) {
-						// First Create is bridge
+						createdPort = models[0].(*ovsmodel.Port)
 						return []ovsdb.Operation{}, nil
 					})
 				mockOVSClient.EXPECT().
 					Create(gomock.Any()).
 					DoAndReturn(func(models ...interface{}) ([]ovsdb.Operation, error) {
-						port := models[0].(*ovsmodel.Port)
-						createdPort = port
+						createdIface = models[0].(*ovsmodel.Interface)
 						return []ovsdb.Operation{}, nil
 					})
 				mockOVSClient.EXPECT().
 					Create(gomock.Any()).
 					DoAndReturn(func(models ...interface{}) ([]ovsdb.Operation, error) {
-						iface := models[0].(*ovsmodel.Interface)
-						createdIface = iface
 						return []ovsdb.Operation{}, nil
 					})
 				mockOVSClient.EXPECT().

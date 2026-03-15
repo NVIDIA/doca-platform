@@ -57,11 +57,21 @@ type Client struct {
 	ovsclient.Client
 }
 
+// BridgeConfig holds the configuration for creating an OVS bridge.
 type BridgeConfig struct {
-	Name                  string
-	DatapathType          string
+	// Name is the OVS bridge name.
+	Name string
+	// DatapathType is the OVS datapath type (e.g. "system", "netdev").
+	DatapathType string
+	// SkipCreateInternalPort, when true, skips creating the default internal port and interface.
+	// By default (false), an internal port is created using InternalInterfaceName if set, otherwise the bridge name.
+	SkipCreateInternalPort bool
+	// InternalInterfaceName overrides the name of the internal port/interface (must be <= 15 characters, Linux IFNAMSIZ).
+	// When nil, the bridge name is used. Only relevant when SkipCreateInternalPort is false.
 	InternalInterfaceName *string
-	FailMode              *string
+	// FailMode controls the bridge's behavior when no OpenFlow controller is connected.
+	// "secure" drops all traffic, "standalone" falls back to normal L2 learning. Nil leaves it unset.
+	FailMode *string
 }
 
 type PortConfig struct {
@@ -476,60 +486,60 @@ func (c *Client) AddBridge(ctx context.Context, bridgeConfig BridgeConfig) error
 		return nil
 	}
 
-	// Internal interface name is used to provide a name different from the bridge name.
-	// The bridge name may be too long for the internal interface name which is limited to 15 characters.
-	portAndIfaceName := bridgeConfig.Name
-	if bridgeConfig.InternalInterfaceName != nil && *bridgeConfig.InternalInterfaceName != "" {
-		portAndIfaceName = *bridgeConfig.InternalInterfaceName
-	}
-	if len(portAndIfaceName) > maxInterfaceNameLen {
-		return fmt.Errorf("bridge internal interface name %q exceeds maximum length of %d characters. Set InternalInterfaceName for a shorter netdev name",
-			bridgeConfig.Name, maxInterfaceNameLen)
-	}
-
 	bridgeUUID := uuid.New().String()
-	portUUID := uuid.New().String()
-	interfaceUUID := uuid.New().String()
-
-	operations := []ovsdb.Operation{}
-	// Create Bridge
 	bridge := &ovsmodel.Bridge{
 		Name:         bridgeConfig.Name,
 		UUID:         bridgeUUID,
-		Ports:        []string{portUUID},
 		DatapathType: bridgeConfig.DatapathType,
 		FailMode:     bridgeConfig.FailMode,
+	}
+
+	var portOps []ovsdb.Operation
+	if !bridgeConfig.SkipCreateInternalPort {
+		portAndIfaceName := bridgeConfig.Name
+		if bridgeConfig.InternalInterfaceName != nil && *bridgeConfig.InternalInterfaceName != "" {
+			portAndIfaceName = *bridgeConfig.InternalInterfaceName
+		}
+		if len(portAndIfaceName) > maxInterfaceNameLen {
+			return fmt.Errorf("internal interface name %q exceeds maximum length of %d characters. Set InternalInterfaceName for a shorter netdev name",
+				portAndIfaceName, maxInterfaceNameLen)
+		}
+
+		portUUID := uuid.New().String()
+		interfaceUUID := uuid.New().String()
+		bridge.Ports = []string{portUUID}
+
+		// Create Port
+		port := &ovsmodel.Port{
+			Name:       portAndIfaceName,
+			UUID:       portUUID,
+			Interfaces: []string{interfaceUUID},
+		}
+		portCreateOp, err := c.Create(port)
+		if err != nil {
+			return fmt.Errorf(errMsgFailedToCreatePort, portAndIfaceName, err)
+		}
+
+		// Create Interface
+		interfaceInsert := &ovsmodel.Interface{
+			Name: portAndIfaceName,
+			UUID: interfaceUUID,
+			Type: InterfaceTypeInternal,
+		}
+		interfaceCreateOp, err := c.Create(interfaceInsert)
+		if err != nil {
+			return fmt.Errorf("failed to create interface %s: %v", portAndIfaceName, err)
+		}
+
+		portOps = append(portCreateOp, interfaceCreateOp...)
 	}
 
 	bridgeCreateOp, err := c.Create(bridge)
 	if err != nil {
 		return fmt.Errorf(errMsgFailedToCreateBridge, bridgeConfig.Name, err)
 	}
-	operations = append(operations, bridgeCreateOp...)
 
-	// Create Port
-	port := &ovsmodel.Port{
-		Name:       portAndIfaceName,
-		UUID:       portUUID,
-		Interfaces: []string{interfaceUUID},
-	}
-	portCreateOp, err := c.Create(port)
-	if err != nil {
-		return fmt.Errorf(errMsgFailedToCreatePort, portAndIfaceName, err)
-	}
-	operations = append(operations, portCreateOp...)
-
-	// Create Interface
-	interfaceInsert := &ovsmodel.Interface{
-		Name: portAndIfaceName,
-		UUID: interfaceUUID,
-		Type: InterfaceTypeInternal,
-	}
-	interfaceCreateOp, err := c.Create(interfaceInsert)
-	if err != nil {
-		return fmt.Errorf("failed to create interface %s: %v", portAndIfaceName, err)
-	}
-	operations = append(operations, interfaceCreateOp...)
+	operations := append(bridgeCreateOp, portOps...)
 
 	// Mutate Open_vSwitch table
 	ovsRow, err := c.GetOpenVSwitch(ctx)
