@@ -333,6 +333,21 @@ func (mr *MockAPIMockRecorder) List(ctx, result any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockAPI)(nil).List), ctx, result)
 }
 
+// ListBridgesWithExternalIDs mocks base method.
+func (m *MockAPI) ListBridgesWithExternalIDs(ctx context.Context, externalIDs map[string]string) ([]ovsmodel.Bridge, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListBridgesWithExternalIDs", ctx, externalIDs)
+	ret0, _ := ret[0].([]ovsmodel.Bridge)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListBridgesWithExternalIDs indicates an expected call of ListBridgesWithExternalIDs.
+func (mr *MockAPIMockRecorder) ListBridgesWithExternalIDs(ctx, externalIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBridgesWithExternalIDs", reflect.TypeOf((*MockAPI)(nil).ListBridgesWithExternalIDs), ctx, externalIDs)
+}
+
 // Monitor mocks base method.
 func (m *MockAPI) Monitor(arg0 context.Context, arg1 *client.Monitor) (client.MonitorCookie, error) {
 	m.ctrl.T.Helper()
