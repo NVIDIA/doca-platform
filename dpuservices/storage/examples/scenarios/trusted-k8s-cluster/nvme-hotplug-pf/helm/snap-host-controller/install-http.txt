@@ -1,0 +1,9 @@
+helm repo add --force-update dpf-repository ${DPF_CHART_REPO}
+helm repo update
+helm upgrade --install -n dpf-operator-system snap-host-controller \
+  dpf-repository/dpf-storage --version=$DPF_CHART_VERSION \
+  --set-json "imagePullSecrets=$DPF_IMAGE_PULL_SECRET" \
+  --set host.snapHostController.image.repository=$DPF_IMAGE_REGISTRY/storage-system \
+  --set host.snapHostController.image.tag=$DPF_IMAGE_TAG \
+  --wait \
+  -f trusted-k8s-cluster/nvme-hotplug-pf/helm/snap-host-controller/values.yaml

@@ -1,0 +1,7 @@
+host:
+  enabled: true
+  config:
+    # required parameter, name of the secret that contains connection
+    # details to access the DPU cluster.
+    # this secret should be created by the DPUServiceCredentialRequest API.
+    dpuClusterSecret: nfs-csi-controller-dpu-cluster-credentials

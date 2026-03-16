@@ -1,0 +1,4 @@
+helm upgrade --install -n dpf-operator-system spdk-csi-controller \
+  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/spdk-csi-controller --version=v0.3.0 \
+  --wait \
+  -f non-trusted-host/nvme-hotplug-pf/helm/spdk-csi-controller/values.yaml
