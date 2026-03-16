@@ -33,4 +33,4 @@ dependencies:
   repository: file://charts/opentelemetry-collector
   version: 0.1.0
 digest: sha256:adabe6af415b63687521efaa6f5fef5742b91704bd48dd3367d7dd2bbd703917
-generated: "2026-02-25T18:25:34.490873+01:00"
+generated: "2026-03-10T07:58:31.405453039Z"

@@ -27,6 +27,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	operatorutils "github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
@@ -343,11 +344,35 @@ func verifySystemReady() {
 		// DPUDeployment pods
 		"example",
 	})
-	verifyDPUServicesReady(ctx, input, dpfOperatorSystemNamespace, []string{
-		"flannel", "multus", "sriov-device-plugin",
-		"nvidia-k8s-ipam", "ovs-cni", "sfc-controller",
-		"servicechainset-rbac-and-crds",
-	})
+
+	dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
+	objectKey := client.ObjectKey{Name: configName, Namespace: dpfOperatorSystemNamespace}
+	Expect(input.client.Get(ctx, objectKey, dpfOperatorConfig)).To(Succeed())
+	Expect(dpfOperatorConfig.Status.Version).NotTo(BeNil())
+	isCurrentVersionLastReleasedGA := operatorutils.IsUpgradeFromLastReleasedGA(*dpfOperatorConfig.Status.Version)
+
+	dpuServiceNames := []string{
+		"flannel", "multus", "sriov-device-plugin", "ovs-cni", "sfc-controller", "servicechainset-rbac-and-crds",
+		"cni-installer",
+	}
+	// TODO: Figure out a more clear way to do that and adjust the relevant fields when we bump to the next release
+	if isCurrentVersionLastReleasedGA {
+		// Previous release: single nvidia-k8s-ipam service and single servicechainset-controller service.
+		dpuServiceNames = append(dpuServiceNames, "nvidia-k8s-ipam", "servicechainset-controller")
+	} else {
+		// Current version: nvidia-k8s-ipam is split into a per-cluster controller service and a node service,
+		// servicechainset-controller is split into a per-cluster controller service, and
+		// kube-state-metrics is split into a per-cluster controller service and an RBAC service.
+		perClusterNVIPAMControllerServiceName := getPerClusterDPUServiceName("nvidia-k8s-ipam", input.dpuClusters[0].Name, input.dpuClusters[0].Namespace)
+		perClusterServiceChainSetControllerServiceName := getPerClusterDPUServiceName("servicechainset-controller", input.dpuClusters[0].Name, input.dpuClusters[0].Namespace)
+		perClusterKubeStateMetricsServiceName := getPerClusterDPUServiceName("kube-state-metrics", input.dpuClusters[0].Name, input.dpuClusters[0].Namespace)
+		dpuServiceNames = append(dpuServiceNames,
+			perClusterNVIPAMControllerServiceName, "nvidia-k8s-ipam-node",
+			perClusterServiceChainSetControllerServiceName,
+			perClusterKubeStateMetricsServiceName, "kube-state-metrics-rbac",
+		)
+	}
+	verifyDPUServicesReady(ctx, input, dpfOperatorSystemNamespace, dpuServiceNames)
 }
 
 func validateDPFVersionUpgrade() {

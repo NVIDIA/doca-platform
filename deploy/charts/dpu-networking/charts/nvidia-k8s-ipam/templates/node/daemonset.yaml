@@ -1,7 +1,8 @@
+{{ if .Values.deployDPUManifests }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: {{ .Release.Name }}-node-ds
+  name: {{ include "nvidia-k8s-ipam.fullname" . }}-node-ds
   namespace: {{ .Release.Namespace }}
   labels:
     tier: node
@@ -108,3 +109,4 @@ spec:
           hostPath:
             path: /var/lib/cni/nv-ipam/
             type: DirectoryOrCreate
+{{- end }}
