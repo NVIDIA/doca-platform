@@ -59,6 +59,7 @@ rules:
   - ""
   resources:
   - nodes
+  - services
   verbs:
   - get
   - list

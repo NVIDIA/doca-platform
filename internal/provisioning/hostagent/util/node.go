@@ -27,6 +27,7 @@ const (
 	MaximumHostNameLength = 48
 	NodeNameEnv           = "NODE_NAME"
 	K8sNodeNameEnv        = "KUBERNETES_NODE_NAME"
+	K8sPodNamespaceEnv    = "POD_NAMESPACE"
 )
 
 // GetNodeName returns the name of the DPUNode.
