@@ -61,6 +61,11 @@ func (c *DPUServiceChain) SetServiceChainSetLabelSelector(selector *metav1.Label
 	c.Spec.Template.Spec.NodeSelector = selector
 }
 
+// GetServiceChainSetLabelSelector returns the label selector for the ServiceChainSet
+func (c *DPUServiceChain) GetServiceChainSetLabelSelector() *metav1.LabelSelector {
+	return c.Spec.Template.Spec.NodeSelector
+}
+
 // GetDPUClusterSelector returns the DPUCluster selector of the DPUServiceChain
 func (c *DPUServiceChain) GetDPUClusterSelector() *metav1.LabelSelector {
 	return c.Spec.DPUClusterSelector
