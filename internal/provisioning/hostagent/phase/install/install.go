@@ -27,7 +27,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
-	utils "github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -191,7 +191,7 @@ func (h *Handler) downloadWithBFBRegistryServiceEnv(ctx context.Context, filenam
 		logger.Error(err, "failed to generate URL from BFB Registry Service host and port", bfbRegistryServiceHostEnv, bfbRegistryServiceHost, bfbRegistryServicePortEnv, bfbRegistryServicePort, "filename", filename)
 		return err
 	}
-	logger.Info("workaround 1: download with bfb-register service address read from env", "url", httpURL, "dst", dst)
+	logger.Info("workaround 1: download with bfb-registry service address read from env", "url", httpURL, "dst", dst)
 	err = utils.DownloadFile(ctx, httpURL, dst, 0644)
 	if err != nil {
 		logger.Error(fmt.Errorf("workaround 1 failed to download file: %w", err), "url", httpURL, "dst", dst)
@@ -247,6 +247,7 @@ func (h *Handler) downloadWithKubernetesAPIServerVIP(ctx context.Context, filena
 			logger.Error(fmt.Errorf("workaround 3 failed to download file: %w", err), "url", httpURL, "dst", dst)
 			return err
 		}
+		return nil
 	}
 	return err
 }
