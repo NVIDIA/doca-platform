@@ -499,7 +499,7 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 		waitForDPUService(g, config.Namespace, operatorv1.MultusName, operatorv1.MultusName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.SRIOVDevicePluginName, operatorv1.SRIOVDevicePluginName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.FlannelName, operatorv1.FlannelName.String(), initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMName, operatorv1.NVIPAMName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMControllerName, operatorv1.NVIPAMNodeName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, operatorv1.OVSCNIName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, operatorv1.SFCControllerName.String(), initialImagePullSecrets)
 
@@ -597,7 +597,7 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 			},
 			NVIPAM: &operatorv1.NVIPAMConfiguration{
 				HelmComponentConfig: operatorv1.HelmComponentConfig{
-					HelmChart: ptr.To(fmt.Sprintf(helmTemplate, operatorv1.NVIPAMName)),
+					HelmChart: ptr.To(fmt.Sprintf(helmTemplate, operatorv1.NVIPAMControllerName)),
 				},
 			},
 			SFCController: &operatorv1.SFCControllerConfiguration{
@@ -661,8 +661,8 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 			)).To(BeTrue())
 
 			g.Expect(dpuServiceReferencesHelmChart(
-				waitForDPUService(g, config.Namespace, operatorv1.NVIPAMName, operatorv1.NVIPAMName.String(), initialImagePullSecrets),
-				fmt.Sprintf(helmTemplate, operatorv1.NVIPAMName),
+				waitForDPUService(g, config.Namespace, operatorv1.NVIPAMControllerName, operatorv1.NVIPAMNodeName.String(), initialImagePullSecrets),
+				fmt.Sprintf(helmTemplate, operatorv1.NVIPAMControllerName),
 			)).To(BeTrue())
 
 		}).WithTimeout(20 * time.Second).Should(Succeed())
@@ -686,7 +686,7 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 		waitForDPUService(g, config.Namespace, operatorv1.ServiceSetControllerName, operatorv1.ServiceChainSetCRDsName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.SRIOVDevicePluginName, operatorv1.SRIOVDevicePluginName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.FlannelName, operatorv1.FlannelName.String(), initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMName, operatorv1.NVIPAMName.String(), initialImagePullSecrets)
+		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMControllerName, operatorv1.NVIPAMNodeName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, operatorv1.OVSCNIName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, operatorv1.SFCControllerName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.CNIInstallerName, operatorv1.CNIInstallerName.String(), initialImagePullSecrets)
@@ -775,11 +775,23 @@ func TestDPFOperatorConfigReconciler_ReconcileWithTwoDPUClusters(t *testing.T) {
 		perClusterServiceSetControllerDPUServiceName2 := fmt.Sprintf("%s-%s", operatorv1.ServiceSetControllerName.String(), hash2)
 		waitForDPUService(g, config.Namespace, operatorv1.ServiceSetControllerName, perClusterServiceSetControllerDPUServiceName2, initialImagePullSecrets)
 
+		// For NVIPAM with 2 DPU clusters, we should have:
+		// - 1 RBAC/CRDs/Node component DPUService
+		// - 2 per-cluster DPUServices
+		// Verify the RBAC/CRDs DPUService exists
+		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMControllerName, operatorv1.NVIPAMNodeName.String(), initialImagePullSecrets)
+
+		// Compute per-cluster DPUService names using the digest function
+		perClusterNVIPAMDPUServiceName1 := fmt.Sprintf("%s-%s", operatorv1.NVIPAMControllerName.String(), hash1)
+		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMControllerName, perClusterNVIPAMDPUServiceName1, initialImagePullSecrets)
+
+		perClusterNVIPAMDPUServiceName2 := fmt.Sprintf("%s-%s", operatorv1.NVIPAMControllerName.String(), hash2)
+		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMControllerName, perClusterNVIPAMDPUServiceName2, initialImagePullSecrets)
+
 		// Check other system DPUServices
 		waitForDPUService(g, config.Namespace, operatorv1.MultusName, operatorv1.MultusName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.SRIOVDevicePluginName, operatorv1.SRIOVDevicePluginName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.FlannelName, operatorv1.FlannelName.String(), initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMName, operatorv1.NVIPAMName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, operatorv1.OVSCNIName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, operatorv1.SFCControllerName.String(), initialImagePullSecrets)
 	})

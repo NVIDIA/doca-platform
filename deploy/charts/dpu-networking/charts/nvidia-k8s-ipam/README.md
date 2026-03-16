@@ -10,6 +10,9 @@ A Helm chart for Kubernetes
 |-----|------|---------|-------------|
 | cniBinDir | string | `"/opt/cni/bin"` |  |
 | cniConfDir | string | `"/etc/cni/net.d"` |  |
+| deployDPUManifests | bool | `false` |  |
+| deployHostManifests | bool | `false` |  |
+| env | list | `[]` |  |
 | imagePullSecrets | list | `[]` |  |
 | nvIpam.controller.resources.limits.memory | string | `"300Mi"` |  |
 | nvIpam.controller.resources.requests.cpu | string | `"100m"` |  |
@@ -23,4 +26,8 @@ A Helm chart for Kubernetes
 | nvIpam.node.resources.requests.cpu | string | `"100m"` |  |
 | nvIpam.node.resources.requests.memory | string | `"50Mi"` |  |
 | nvIpam.pullPolicy | string | `"IfNotPresent"` |  |
+| rbac.serviceAccounts | list | `[]` |  |
+| serviceAccount.name | string | `nil` |  |
+| volumeMounts | list | `[]` |  |
+| volumes | list | `[]` |  |
 
