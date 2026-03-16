@@ -82,6 +82,14 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 			},
 		},
 	})
+	extraEnvs = append(extraEnvs, corev1.EnvVar{
+		Name: hostutil.K8sPodNamespaceEnv,
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "metadata.namespace",
+			},
+		},
+	})
 
 	hostPathType := corev1.HostPathDirectory
 	pod := &corev1.Pod{
