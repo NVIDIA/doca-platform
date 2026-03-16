@@ -59,7 +59,7 @@ type SystemComponents struct {
 	ServiceFunctionChainSet         Component
 	Multus                          Component
 	SRIOVDevicePlugin               Component
-	NvIPAM                          Component
+	NVIPAM                          Component
 	OvsCni                          Component
 	Flannel                         Component
 	SfcController                   Component
@@ -157,10 +157,7 @@ func New() *SystemComponents {
 			name: operatorv1.OVSCNIName,
 			data: ovsCniData,
 		},
-		NvIPAM: &fromDPUService{
-			name: operatorv1.NVIPAMName,
-			data: nvK8sIpamData,
-		},
+		NVIPAM:        newNVIPAMObjects(nvK8sIpamData),
 		SfcController: newSFCControllerObjects(sfcControllerData),
 		DPUDetector: &dpuDetectorObjects{
 			data: dpuDetectorData,
@@ -192,7 +189,7 @@ func (s *SystemComponents) SystemDPUServices() []Component {
 		s.Multus,
 		s.SRIOVDevicePlugin,
 		s.Flannel,
-		s.NvIPAM,
+		s.NVIPAM,
 		s.OvsCni,
 		s.SfcController,
 		s.CNIInstaller,
@@ -214,7 +211,7 @@ func (s *SystemComponents) AllComponents() []Component {
 		s.Multus,
 		s.SRIOVDevicePlugin,
 		s.Flannel,
-		s.NvIPAM,
+		s.NVIPAM,
 		s.OvsCni,
 		s.SfcController,
 		s.CNIInstaller,
@@ -305,8 +302,8 @@ func (s *SystemComponents) setFlannel(input fromDPUService) *SystemComponents {
 	return s
 }
 
-func (s *SystemComponents) setNvK8sIpam(input fromDPUService) *SystemComponents {
-	s.NvIPAM = &input
+func (s *SystemComponents) setNvK8sIpam(input dpuServicePerDPUClusterObjects) *SystemComponents {
+	s.NVIPAM = &input
 	return s
 }
 

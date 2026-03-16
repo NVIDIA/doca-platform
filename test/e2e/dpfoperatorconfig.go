@@ -125,11 +125,14 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 	modifiedConfig.Spec.NVIPAM = &operatorv1.NVIPAMConfiguration{
 		Controller: &operatorv1.NVIPAMController{
 			ImageComponentConfig: operatorv1.ImageComponentConfig{
-				Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.NVIPAMName)),
+				Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.NVIPAMControllerName)),
 			},
 			ResourceComponentConfig: dummyResourceRequirements,
 		},
 		Node: &operatorv1.NVIPAMNode{
+			ImageComponentConfig: operatorv1.ImageComponentConfig{
+				Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.NVIPAMNodeName)),
+			},
 			ResourceComponentConfig: dummyResourceRequirements,
 		},
 	}
@@ -192,7 +195,8 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 	modifiedConfig.Spec.SFCController.Controller.Image = nil
 	modifiedConfig.Spec.SFCController.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.SFCControllerName))
 	modifiedConfig.Spec.NVIPAM.Controller.Image = nil
-	modifiedConfig.Spec.NVIPAM.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.NVIPAMName))
+	modifiedConfig.Spec.NVIPAM.Node.Image = nil
+	modifiedConfig.Spec.NVIPAM.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.NVIPAMControllerName))
 	modifiedConfig.Spec.ProvisioningController.Controller.Image = nil
 	modifiedConfig.Spec.ProvisioningController.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.ProvisioningControllerName))
 	modifiedConfig.Spec.DPUServiceController.Controller.Image = nil
@@ -228,15 +232,13 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 	Eventually(func(g Gomega) {
 		inClusterDeploymentDPUServices := map[operatorv1.ComponentName]bool{
 			operatorv1.ServiceSetControllerName: true,
-		}
-		deploymentDPUservices := map[operatorv1.ComponentName]bool{
-			operatorv1.NVIPAMName: true,
+			operatorv1.NVIPAMControllerName:     true,
 		}
 		daemonSetDPUServices := map[operatorv1.ComponentName]bool{
 			operatorv1.SRIOVDevicePluginName: true,
 			operatorv1.SFCControllerName:     true,
 			operatorv1.OVSCNIName:            true,
-			operatorv1.NVIPAMName:            true,
+			operatorv1.NVIPAMNodeName:        true,
 			operatorv1.MultusName:            true,
 			operatorv1.FlannelName:           true,
 		}
@@ -272,16 +274,10 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 
 		// Verify overrides for inCluster DPUServices
 		for name := range inClusterDeploymentDPUServices {
-			n := name.String()
-			if name == operatorv1.ServiceSetControllerName {
-				n = getServiceChainSetControllerDPUServiceName(input.dpuClusters[0].Name, input.dpuClusters[0].Namespace)
-			}
+			n := getPerClusterDPUServiceName(name, input.dpuClusters[0].Name, input.dpuClusters[0].Namespace)
 			deployValidation(input.client, "in-cluster", n)
 		}
 		// Verify overrides in the DPUClusters
-		for name := range deploymentDPUservices {
-			deployValidation(dpuClusterClient[0], input.dpuClusters[0].Name, name.String())
-		}
 		for name := range daemonSetDPUServices {
 			nameForCluster := fmt.Sprintf("%s-%s", input.dpuClusters[0].Name, name)
 			tracker.By(nameForCluster, "verifying overrides for %s", nameForCluster)
@@ -509,7 +505,7 @@ func ValidateDPFOperatorPathConfiguration(ctx context.Context, input *systemTest
 	dpuServiceDaemonSetsWithPathChanges := map[operatorv1.ComponentName]bool{
 		operatorv1.SFCControllerName: true,
 		operatorv1.OVSCNIName:        true,
-		operatorv1.NVIPAMName:        true,
+		operatorv1.NVIPAMNodeName:    true,
 		operatorv1.MultusName:        true,
 		operatorv1.FlannelName:       true,
 	}
@@ -540,7 +536,7 @@ func ValidateDPFOperatorPathConfiguration(ctx context.Context, input *systemTest
 			case operatorv1.OVSCNIName:
 				g.Expect(volumeNameHasPath("cnibin", volumes, filepath.Join(modifiedCNIBinPath))).To(BeTrue())
 				g.Expect(volumeNameHasPath("ovs-var-run", volumes, filepath.Join(modifiedOVSRunPath))).To(BeTrue())
-			case operatorv1.NVIPAMName:
+			case operatorv1.NVIPAMNodeName:
 				g.Expect(volumeNameHasPath("cnibin", volumes, filepath.Join(modifiedCNIBinPath))).To(BeTrue())
 				g.Expect(volumeNameHasPath("cniconf", volumes, filepath.Join(modifiedCNIConfigPath, "nv-ipam.d"))).To(BeTrue())
 			case operatorv1.MultusName:
@@ -800,7 +796,7 @@ func DeleteDPFOperatorConfig(ctx context.Context, testClient client.Client) {
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
-// getServiceChainSetControllerDPUServiceName returns the ServiceChainSetController DPUService name per cluster
-func getServiceChainSetControllerDPUServiceName(clusterName string, clusterNamespace string) string {
-	return fmt.Sprintf("%s-%s", operatorv1.ServiceSetControllerName, digest.Short(digest.FromObjects(clusterName, clusterNamespace), 10))
+// getPerClusterDPUServiceName returns the per-cluster DPUService name for a given component and DPUCluster.
+func getPerClusterDPUServiceName(componentName operatorv1.ComponentName, clusterName string, clusterNamespace string) string {
+	return fmt.Sprintf("%s-%s", componentName, digest.Short(digest.FromObjects(clusterName, clusterNamespace), 10))
 }

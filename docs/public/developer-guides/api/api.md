@@ -574,6 +574,7 @@ _Appears in:_
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
 - [NVIPAMController](#nvipamcontroller)
+- [NVIPAMNode](#nvipamnode)
 - [NodeSRIOVDevicePluginSettings](#nodesriovdevicepluginsettings)
 - [OVSCNIConfiguration](#ovscniconfiguration)
 - [ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)
@@ -598,6 +599,7 @@ _Appears in:_
 - [FlannelCNI](#flannelcni)
 - [FlannelDaemon](#flanneldaemon)
 - [NVIPAMController](#nvipamcontroller)
+- [NVIPAMNode](#nvipamnode)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -775,6 +777,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  | Optional: \{\} <br /> |
 
 

@@ -72,6 +72,15 @@ func newKubeStateMetricsObjects(data []byte) *dpuServicePerDPUClusterObjects {
 	}
 }
 
+func newNVIPAMObjects(data []byte) *dpuServicePerDPUClusterObjects {
+	return &dpuServicePerDPUClusterObjects{
+		data:               data,
+		templateDPUService: fromDPUService{name: operatorv1.NVIPAMControllerName},
+		componentName:      operatorv1.NVIPAMControllerName,
+		rbacAndCRDsName:    operatorv1.NVIPAMNodeName,
+	}
+}
+
 func (p *dpuServicePerDPUClusterObjects) Name() operatorv1.ComponentName {
 	return p.componentName
 }

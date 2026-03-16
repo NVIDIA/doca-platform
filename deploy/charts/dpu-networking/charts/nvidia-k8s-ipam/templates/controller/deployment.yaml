@@ -1,7 +1,8 @@
+{{ if .Values.deployHostManifests }}
 kind: Deployment
 apiVersion: apps/v1
 metadata:
-  name: {{ .Release.Name }}-controller
+  name: {{ include "nvidia-k8s-ipam.fullname" . }}
   namespace: {{ .Release.Namespace }}
   annotations:
     kubernetes.io/description: |
@@ -20,7 +21,7 @@ spec:
     spec:
       automountServiceAccountToken: false
       priorityClassName: system-cluster-critical
-      serviceAccountName: {{ include "nvidia-k8s-ipam.fullname" . }}-controller
+      serviceAccountName: {{ .Values.serviceAccount.name }}
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
       affinity:
         podAntiAffinity:
@@ -60,6 +61,10 @@ spec:
         - key: nvidia.com/gpu
           operator: Exists
           effect: NoSchedule
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: controller
           image: "{{ .Values.nvIpam.image.repository }}:{{ .Values.nvIpam.image.tag | default .Chart.AppVersion }}"
@@ -74,6 +79,9 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            {{- with .Values.env }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             runAsUser: 1000
@@ -97,27 +105,10 @@ spec:
             - containerPort: 9443
               name: webhook-server
               protocol: TCP
+          {{- with .Values.volumeMounts }}
           volumeMounts:
-            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
-              name: kube-api-access
-              readOnly: true
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
       securityContext:
         runAsNonRoot: true
-      volumes:
-        - name: kube-api-access
-          projected:
-            defaultMode: 420
-            sources:
-            - serviceAccountToken:
-                path: token
-            - configMap:
-                items:
-                - key: ca.crt
-                  path: ca.crt
-                name: kube-root-ca.crt
-            - downwardAPI:
-                items:
-                - fieldRef:
-                    apiVersion: v1
-                    fieldPath: metadata.namespace
-                  path: namespace
+{{ end }}

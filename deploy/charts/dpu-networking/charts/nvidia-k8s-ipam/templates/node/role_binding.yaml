@@ -1,3 +1,5 @@
+{{ if .Values.deployDPUManifests }}
+---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -10,3 +12,4 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "nvidia-k8s-ipam.fullname" . }}-node
     namespace: {{ .Release.Namespace }}
+{{- end }}
