@@ -24,7 +24,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -1047,8 +1046,6 @@ func collectKubernetesResources(ctx context.Context, input collectResourcesInput
 	}
 
 	// Get the path to place artifacts in
-	_, basePath, _, _ := runtime.Caller(0)
-	inventoryManifestsPath := filepath.Join(filepath.Dir(basePath), "../../internal/operator/inventory/manifests")
 	artifactsPath := filepath.Join(input.artifactsDir, testName)
 
 	cc := collector.ClusterCollector{
@@ -1058,7 +1055,7 @@ func collectKubernetesResources(ctx context.Context, input collectResourcesInput
 	}
 
 	// Create a resourceCollector to dump logs and resources for test debugging.
-	clusters, err := collector.GetClusterCollectors(ctx, cc, artifactsPath, inventoryManifestsPath)
+	clusters, err := collector.GetClusterCollectors(ctx, cc, artifactsPath)
 	Expect(err).NotTo(HaveOccurred())
 	return collector.New(clusters).Run(ctx)
 }
