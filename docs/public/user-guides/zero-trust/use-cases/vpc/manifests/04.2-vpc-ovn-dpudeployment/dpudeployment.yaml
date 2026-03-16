@@ -16,15 +16,9 @@ spec:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
   services:
-    ovn-central:
-      serviceTemplate: ovn-central
-      serviceConfiguration: ovn-central
     ovn-controller:
       serviceTemplate: ovn-controller
       serviceConfiguration: ovn-controller
-    vpc-ovn-controller:
-      serviceTemplate: vpc-ovn-controller
-      serviceConfiguration: vpc-ovn-controller
     vpc-ovn-node:
       serviceTemplate: vpc-ovn-node
       serviceConfiguration: vpc-ovn-node

@@ -444,12 +444,88 @@ spec:
 
 The OVN VPC service consists of the following components:
 
-1. **ovn-central**: Deployed in the target cluster (runs northd, sb_db, nb_db)
-2. **ovn-controller**: Deployed in the DPU cluster
-3. **vpc-ovn-controller**: VPC controller in the target cluster
+1. **ovn-central**: OVN central(runs northd, sb_db, nb_db) deployed in the target cluster
+2. **ovn-controller**: OVN controller deployed in the DPU cluster
+3. **vpc-ovn-controller**: VPC controller deployed in the target cluster
 4. **vpc-ovn-node**: VPC node agent in the DPU cluster
 
-#### Deploy OVN VPC DPUDeployment
+#### Deploy target cluster components using Helm
+
+##### Using HTTP Registry (default)
+
+```shell
+helm repo add --force-update ovn-vpc-repository ${HELM_REGISTRY_REPO_URL}
+helm repo update
+helm upgrade --install -n dpf-operator-system ovn-central ovn-vpc-repository/ovn-chart \
+  --version=$TAG --wait -f manifests/04.1-vpc-ovn-target-cluster/helm-values/ovn-central.yaml
+helm upgrade --install -n dpf-operator-system vpc-ovn-controller ovn-vpc-repository/dpf-vpc-ovn \
+  --version=$TAG --wait -f manifests/04.1-vpc-ovn-target-cluster/helm-values/vpc-ovn-controller.yaml
+```
+
+##### Using OCI Registry
+
+For development purposes, if the $HELM_REGISTRY_REPO_URL is an OCI Registry use this command:
+```shell
+helm upgrade --install -n dpf-operator-system ovn-central $HELM_REGISTRY_REPO_URL/ovn-chart \
+  --version=$TAG --wait -f manifests/04.1-vpc-ovn-target-cluster/helm-values/ovn-central.yaml
+helm upgrade --install -n dpf-operator-system vpc-ovn-controller $HELM_REGISTRY_REPO_URL/dpf-vpc-ovn \
+  --version=$TAG --wait -f manifests/04.1-vpc-ovn-target-cluster/helm-values/vpc-ovn-controller.yaml
+```
+
+<details markdown="1"><summary>OVN Central Helm Values</summary>
+
+[embedmd]:#(manifests/04.1-vpc-ovn-target-cluster/helm-values/ovn-central.yaml)
+```yaml
+exposedPorts:
+  ports:
+    ovnnb: true
+    ovnsb: true
+management:
+  ovnCentral:
+    enabled: true
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/master"
+                  operator: Exists
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/control-plane"
+                  operator: Exists
+    tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+```
+
+</details>
+
+<details markdown="1"><summary>VPC OVN Controller Helm Values</summary>
+
+[embedmd]:#(manifests/04.1-vpc-ovn-target-cluster/helm-values/vpc-ovn-controller.yaml)
+```yaml
+host:
+  vpcOVNController:
+    enabled: true
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: "node-role.kubernetes.io/master"
+              operator: Exists
+          - matchExpressions:
+            - key: "node-role.kubernetes.io/control-plane"
+              operator: Exists
+```
+
+</details>
+
+#### Deploy DPU cluster components using DPUDeployment
 
 > [!WARNING]
 > In case more than 1 DPU exists per node, the relevant selector should be applied in the DPUDeployment
@@ -457,14 +533,14 @@ The OVN VPC service consists of the following components:
 > to understand more about the selectors.
 
 ```shell
-cat manifests/04-vpc-ovn-dpudeployment/* | envsubst | kubectl apply -f -
+cat manifests/04.2-vpc-ovn-dpudeployment/* | envsubst | kubectl apply -f -
 ```
 
 This will deploy the following objects:
 
 <details markdown="1"><summary>OVN VPC DPUDeployment</summary>
 
-[embedmd]:#(manifests/04-vpc-ovn-dpudeployment/dpudeployment.yaml)
+[embedmd]:#(manifests/04.2-vpc-ovn-dpudeployment/dpudeployment.yaml)
 ```yaml
 ---
 apiVersion: svc.dpu.nvidia.com/v1alpha1
@@ -484,15 +560,9 @@ spec:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
   services:
-    ovn-central:
-      serviceTemplate: ovn-central
-      serviceConfiguration: ovn-central
     ovn-controller:
       serviceTemplate: ovn-controller
       serviceConfiguration: ovn-controller
-    vpc-ovn-controller:
-      serviceTemplate: vpc-ovn-controller
-      serviceConfiguration: vpc-ovn-controller
     vpc-ovn-node:
       serviceTemplate: vpc-ovn-node
       serviceConfiguration: vpc-ovn-node
@@ -507,49 +577,7 @@ spec:
               ovn.vpc.dpu.nvidia.com/interface: ovn-ext-patch
 ```
 
-[embedmd]:#(manifests/04-vpc-ovn-dpudeployment/dpuserviceconfig-ovn-central.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceConfiguration
-metadata:
-  name: ovn-central
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: ovn-central
-  upgradePolicy:
-    applyNodeEffect: false
-  serviceConfiguration:
-    deployInCluster: true
-    helmChart:
-      values:
-        exposedPorts:
-          ports:
-            ovnnb: true
-            ovnsb: true
-        management:
-          ovnCentral:
-            enabled: true
-            affinity:
-              nodeAffinity:
-                requiredDuringSchedulingIgnoredDuringExecution:
-                  nodeSelectorTerms:
-                    - matchExpressions:
-                        - key: "node-role.kubernetes.io/master"
-                          operator: Exists
-                    - matchExpressions:
-                        - key: "node-role.kubernetes.io/control-plane"
-                          operator: Exists
-            tolerations:
-              - key: node-role.kubernetes.io/master
-                operator: Exists
-                effect: NoSchedule
-              - key: node-role.kubernetes.io/control-plane
-                operator: Exists
-                effect: NoSchedule
-```
-
-[embedmd]:#(manifests/04-vpc-ovn-dpudeployment/dpuserviceconfig-ovn-controller.yaml)
+[embedmd]:#(manifests/04.2-vpc-ovn-dpudeployment/dpuserviceconfig-ovn-controller.yaml)
 ```yaml
 ---
 apiVersion: svc.dpu.nvidia.com/v1alpha1
@@ -569,39 +597,7 @@ spec:
             enabled: true
 ```
 
-[embedmd]:#(manifests/04-vpc-ovn-dpudeployment/dpuserviceconfig-vpc-ovn-controller.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceConfiguration
-metadata:
-  name: vpc-ovn-controller
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: vpc-ovn-controller
-  upgradePolicy:
-    applyNodeEffect: false
-  serviceConfiguration:
-    deployInCluster: true
-    helmChart:
-      values:
-        host:
-          vpcOVNController:
-            enabled: true
-            affinity:
-              nodeAffinity:
-                requiredDuringSchedulingIgnoredDuringExecution:
-                  nodeSelectorTerms:
-                  - matchExpressions:
-                    - key: "node-role.kubernetes.io/master"
-                      operator: Exists
-                  - matchExpressions:
-                    - key: "node-role.kubernetes.io/control-plane"
-                      operator: Exists
-
-```
-
-[embedmd]:#(manifests/04-vpc-ovn-dpudeployment/dpuserviceconfig-vpc-ovn-node.yaml)
+[embedmd]:#(manifests/04.2-vpc-ovn-dpudeployment/dpuserviceconfig-vpc-ovn-node.yaml)
 ```yaml
 ---
 apiVersion: svc.dpu.nvidia.com/v1alpha1
@@ -632,24 +628,7 @@ spec:
                 allocateIPWithIndex: 1
 ```
 
-[embedmd]:#(manifests/04-vpc-ovn-dpudeployment/dpuservicetemplate-ovn-central.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceTemplate
-metadata:
-  name: ovn-central
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: ovn-central
-  helmChart:
-    source:
-      repoURL: $HELM_REGISTRY_REPO_URL
-      version: $TAG
-      chart: ovn-chart
-```
-
-[embedmd]:#(manifests/04-vpc-ovn-dpudeployment/dpuservicetemplate-ovn-controller.yaml)
+[embedmd]:#(manifests/04.2-vpc-ovn-dpudeployment/dpuservicetemplate-ovn-controller.yaml)
 ```yaml
 ---
 apiVersion: svc.dpu.nvidia.com/v1alpha1
@@ -666,24 +645,7 @@ spec:
       chart: ovn-chart
 ```
 
-[embedmd]:#(manifests/04-vpc-ovn-dpudeployment/dpuservicetemplate-vpc-ovn-controller.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceTemplate
-metadata:
-  name: vpc-ovn-controller
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: vpc-ovn-controller
-  helmChart:
-    source:
-      repoURL: $HELM_REGISTRY_REPO_URL
-      version: $TAG
-      chart: dpf-vpc-ovn
-```
-
-[embedmd]:#(manifests/04-vpc-ovn-dpudeployment/dpuservicetemplate-vpc-ovn-node.yaml)
+[embedmd]:#(manifests/04.2-vpc-ovn-dpudeployment/dpuservicetemplate-vpc-ovn-node.yaml)
 ```yaml
 ---
 apiVersion: svc.dpu.nvidia.com/v1alpha1
@@ -700,7 +662,7 @@ spec:
       chart: dpf-vpc-ovn
 ```
 
-[embedmd]:#(manifests/04-vpc-ovn-dpudeployment/dpuserviceipam.yaml)
+[embedmd]:#(manifests/04.2-vpc-ovn-dpudeployment/dpuserviceipam.yaml)
 ```yaml
 ---
 apiVersion: svc.dpu.nvidia.com/v1alpha1
@@ -732,7 +694,7 @@ spec:
     perNodeIPCount: 4
 ```
 
-[embedmd]:#(manifests/04-vpc-ovn-dpudeployment/dpuserviceinterface.yaml)
+[embedmd]:#(manifests/04.2-vpc-ovn-dpudeployment/dpuserviceinterface.yaml)
 ```yaml
 ---
 apiVersion: "svc.dpu.nvidia.com/v1alpha1"
@@ -1203,14 +1165,21 @@ cat manifests/06-optional-test-traffic/* | kubectl delete --wait -f -
 cat manifests/05-vpc-resources/* | kubectl delete --wait -f -
 ```
 
-### 2. Remove DPF System and Operator Installation
+### 2. Remove Deployed OVN VPC charts
+
+```shell
+helm uninstall -n dpf-operator-system vpc-ovn-controller --wait
+helm uninstall -n dpf-operator-system ovn-central --wait
+```
+
+### 3. Remove DPF System and Operator Installation
 
 ```shell
 kubectl delete -n dpf-operator-system dpfoperatorconfig dpfoperatorconfig --wait
 helm uninstall -n dpf-operator-system dpf-operator --wait
 ```
 
-### 3. Delete DPF Operator PVC
+### 4. Delete DPF Operator PVC
 
 ```shell
 kubectl -n dpf-operator-system delete pvc bfb-pvc
