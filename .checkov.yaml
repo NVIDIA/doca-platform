@@ -77,17 +77,17 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
   dpu-networking-nvidia-k8s-ipam:
   # Daemonset has to run as root.
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: DaemonSet.default.release-name-node-ds
+    resource: DaemonSet.default.release-name-nvidia-k8s-ipam-node-ds
   # Deployment has to run as user 1000.
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: Deployment.default.release-name-controller
+    resource: Deployment.default.release-name-nvidia-k8s-ipam
   # Daemonset does not provide a liveness or readiness probe.
   - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
-    resource: DaemonSet.default.release-name-node-ds
+    resource: DaemonSet.default.release-name-nvidia-k8s-ipam-node-ds
     evaluated_keys:
       - spec/template/spec/containers/[0]/livenessProbe
   - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
-    resource: DaemonSet.default.release-name-node-ds
+    resource: DaemonSet.default.release-name-nvidia-k8s-ipam-node-ds
     evaluated_keys:
       - spec/template/spec/containers/[0]/readinessProbe
 
@@ -278,7 +278,7 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
   ## VPC chart components
 
   vpc-ovn-host: []
-  
+
   vpc-ovn-dpu:
   # Components need to run as root e.g. for socket access.
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict

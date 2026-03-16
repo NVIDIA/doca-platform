@@ -125,7 +125,7 @@ func VerifyDPUServicesDeployed(ctx context.Context, clusterClient client.Client,
 			operatorv1.MultusName.String(),
 			operatorv1.FlannelName.String(),
 			operatorv1.SRIOVDevicePluginName.String(),
-			operatorv1.NVIPAMName.String(),
+			operatorv1.NVIPAMControllerName.String(),
 			operatorv1.OVSCNIName.String(),
 			operatorv1.SFCControllerName.String(),
 		}
@@ -144,7 +144,7 @@ func VerifyDPUServicesDeployed(ctx context.Context, clusterClient client.Client,
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.MultusName.String())), "Multus should be deployed")
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.FlannelName.String())), "Flannel should be deployed")
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SRIOVDevicePluginName.String())), "SRIOV should be deployed")
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.NVIPAMName.String())), "NVIPAM should be deployed")
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.NVIPAMControllerName.String())), "NVIPAM should be deployed")
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.OVSCNIName.String())), "OVS-CNI should be deployed")
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SFCControllerName.String())), "SFC-Controller should be deployed")
 	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
@@ -391,7 +391,7 @@ func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
 }
 
 func VerifyProvisioning(ctx context.Context, input *systemTestInput) {
-	deploymentName := fmt.Sprintf("in-cluster-%s", getServiceChainSetControllerDPUServiceName(input.dpuClusters[0].Name, input.dpuClusters[0].Namespace))
+	deploymentName := fmt.Sprintf("in-cluster-%s", getPerClusterDPUServiceName(operatorv1.ServiceSetControllerName, input.dpuClusters[0].Name, input.dpuClusters[0].Namespace))
 	deploymentTracker := NewByTracker()
 	By(fmt.Sprintf("Verifying Deployment %s/%s", dpfOperatorSystemNamespace, deploymentName))
 	Eventually(func(g Gomega) {
