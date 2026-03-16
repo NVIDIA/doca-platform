@@ -17,6 +17,9 @@ limitations under the License.
 package predicates
 
 import (
+	"github.com/nvidia/doca-platform/pkg/conditions"
+
+	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -35,6 +38,29 @@ func TypedResourceIsChanged[T client.Object]() predicate.TypedFuncs[T] {
 		CreateFunc:  func(event.TypedCreateEvent[T]) bool { return true },
 		DeleteFunc:  func(event.TypedDeleteEvent[T]) bool { return true },
 		GenericFunc: func(event.TypedGenericEvent[T]) bool { return true },
+	}
+}
+
+// ReadyConditionChanged returns a predicate that triggers only on Ready condition changes.
+// This is useful for filtering out status updates that don't affect the Ready state.
+// The object must implement conditions.GetSet interface.
+func ReadyConditionChanged() predicate.Funcs {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldObj, oldOk := e.ObjectOld.(conditions.GetSet)
+			newObj, newOk := e.ObjectNew.(conditions.GetSet)
+			if !oldOk || !newOk {
+				// If objects don't implement GetSet, skip this event
+				return false
+			}
+
+			oldReady := meta.IsStatusConditionTrue(oldObj.GetConditions(), string(conditions.TypeReady))
+			newReady := meta.IsStatusConditionTrue(newObj.GetConditions(), string(conditions.TypeReady))
+			return oldReady != newReady
+		},
+		CreateFunc:  func(event.CreateEvent) bool { return true }, // Trigger on creation to get the status already
+		DeleteFunc:  func(event.DeleteEvent) bool { return true }, // Trigger on deletion as it will affect readiness
+		GenericFunc: func(event.GenericEvent) bool { return false },
 	}
 }
 
