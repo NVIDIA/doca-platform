@@ -17,9 +17,6 @@ spec:
     snap-csi-plugin:
       serviceTemplate: snap-csi-plugin
       serviceConfiguration: snap-csi-plugin
-    snap-host-controller:
-      serviceTemplate: snap-host-controller
-      serviceConfiguration: snap-host-controller
     snap-node-driver:
       serviceTemplate: snap-node-driver
       serviceConfiguration: snap-node-driver
@@ -29,9 +26,6 @@ spec:
     block-storage-dpu-plugin:
       serviceTemplate: block-storage-dpu-plugin
       serviceConfiguration: block-storage-dpu-plugin
-    spdk-csi-controller:
-      serviceTemplate: spdk-csi-controller
-      serviceConfiguration: spdk-csi-controller
     spdk-csi-controller-dpu:
       serviceTemplate: spdk-csi-controller-dpu
       serviceConfiguration: spdk-csi-controller-dpu

@@ -35,6 +35,13 @@ declare -A USECASE_HEADERS=(
 	["virtiofs-hotplug-pf"]="#### VirtioFS with hot-plug Physical Functions"
 )
 
+# Static mappings for helm component names to friendly titles
+declare -A HELM_COMPONENT_TITLES=(
+	["snap-host-controller"]="SNAP Host Controller"
+	["spdk-csi-controller"]="SPDK CSI Controller"
+	["nfs-csi-controller"]="NFS CSI Controller"
+)
+
 # Function to extract resource name and kind from YAML file
 extract_yaml_metadata() {
 	local yaml_file=$1
@@ -100,6 +107,139 @@ rebuild_readme_scenarios() {
 
 					{
 						echo "$usecase_header"
+						echo ""
+					} >> "$content_file"
+
+					if [[ -d "$usecase_dir/credentials" ]]; then
+						{
+							echo "##### Create Vendor CSI Controller Credentials"
+							echo ""
+							echo "Create the credential requests for the host-cluster vendor CSI controllers before installing the charts:"
+							echo ""
+							echo '```shell'
+							echo "kubectl apply -f $mode/$usecase/credentials/"
+						} >> "$content_file"
+
+						readarray -t credential_yaml_files < <(find "$usecase_dir/credentials" -maxdepth 1 -name "*.yaml" -type f -print0 2> /dev/null | LC_ALL=C sort -z | tr '\0' '\n')
+
+						{
+							echo '```'
+							echo ""
+							echo "This will create the following objects:"
+							echo ""
+						} >> "$content_file"
+
+						for credential_yaml_file in "${credential_yaml_files[@]}"; do
+							if [[ -f "$credential_yaml_file" ]]; then
+								local credential_yaml_basename
+								local credential_name
+								local credential_kind
+								credential_yaml_basename=$(basename "$credential_yaml_file")
+								read -r credential_name credential_kind < <(extract_yaml_metadata "$credential_yaml_file")
+
+								{
+									echo "<details markdown=\"1\"><summary>$credential_kind $credential_name</summary>"
+									echo ""
+									echo "[embedmd]:#($mode/$usecase/credentials/$credential_yaml_basename)"
+									echo '```yaml'
+									echo '```'
+									echo "</details>"
+									echo ""
+								} >> "$content_file"
+							fi
+						done
+					fi
+
+					# Process helm component directories if helm directory exists
+					if [[ -d "$usecase_dir/helm" ]]; then
+						local helm_component_dirs=()
+						local component_dir
+						for component_name in snap-host-controller spdk-csi-controller nfs-csi-controller; do
+							component_dir="$usecase_dir/helm/$component_name"
+							if [[ -d "$component_dir" ]]; then
+								helm_component_dirs+=("$component_dir")
+							fi
+						done
+
+						readarray -t extra_helm_component_dirs < <(find "$usecase_dir/helm" -mindepth 1 -maxdepth 1 -type d -print0 | LC_ALL=C sort -z | tr '\0' '\n')
+						for component_dir in "${extra_helm_component_dirs[@]}"; do
+							component_name=$(basename "$component_dir")
+							case "$component_name" in
+							snap-host-controller | spdk-csi-controller | nfs-csi-controller) ;;
+							*)
+								helm_component_dirs+=("$component_dir")
+								;;
+							esac
+						done
+
+						for component_dir in "${helm_component_dirs[@]}"; do
+							local component_name
+							local component_title
+							component_name=$(basename "$component_dir")
+							component_title="${HELM_COMPONENT_TITLES[$component_name]:-$component_name}"
+
+							{
+								echo "##### Install ${component_title} on the Host Cluster"
+								echo ""
+								echo "Install the ${component_title} that runs on the host cluster for this scenario:"
+								echo ""
+							} >> "$content_file"
+
+							if [[ -f "$component_dir/install-http.txt" ]]; then
+								{
+									echo "**HTTP Registry**"
+									echo ""
+									echo 'If the `$DPF_CHART_REPO` is an HTTP Registry use this command:'
+									echo ""
+									echo '[embedmd]:# ('"$mode/$usecase/helm/$component_name/install-http.txt"' sh)'
+									echo '```sh'
+									echo '```'
+									echo ""
+								} >> "$content_file"
+							fi
+
+							if [[ -f "$component_dir/install-oci.txt" ]]; then
+								{
+									echo "**OCI Registry**"
+									echo ""
+									echo 'For development purposes, if the `$DPF_CHART_REPO` is an OCI Registry use this command:'
+									echo ""
+									echo '[embedmd]:# ('"$mode/$usecase/helm/$component_name/install-oci.txt"' sh)'
+									echo '```sh'
+									echo '```'
+									echo ""
+								} >> "$content_file"
+							elif [[ -f "$component_dir/install.txt" ]]; then
+								{
+									echo '[embedmd]:# ('"$mode/$usecase/helm/$component_name/install.txt"' sh)'
+									echo '```sh'
+									echo '```'
+									echo ""
+								} >> "$content_file"
+							fi
+
+							if [[ -f "$component_dir/values.yaml" ]]; then
+								{
+									echo "<details markdown=\"1\"><summary>Helm values</summary>"
+									echo ""
+									echo "[embedmd]:#($mode/$usecase/helm/$component_name/values.yaml)"
+									echo '```yaml'
+									echo '```'
+									echo "</details>"
+									echo ""
+								} >> "$content_file"
+							fi
+						done
+					fi
+
+					{
+						echo "##### Apply DPU-side Storage Resources"
+						echo ""
+						if [[ -d "$usecase_dir/helm" ]]; then
+							echo "After the host-cluster controllers are installed, apply the DPU-side resources for this scenario:"
+						else
+							echo "Apply the DPU-side resources for this scenario:"
+						fi
 						echo ""
 						echo '```shell'
 						echo "cat $mode/$usecase/*.yaml | envsubst | kubectl apply -f -"
@@ -191,9 +331,39 @@ function apply_common_manifests() {
 	local target_dir=$1
 	cp -r manifests/bfb/*.yaml "$target_dir"
 	cp -r manifests/network/*.yaml "$target_dir"
-	cp -r manifests/snap-host-controller/*.yaml "$target_dir"
 	cp -r manifests/snap-node-driver/*.yaml "$target_dir"
 	cp -r manifests/doca-snap/*.yaml "$target_dir"
+}
+
+# copy a helm component (install.txt + values.yaml) into the scenario
+function copy_helm_component() {
+	local target_dir=$1
+	local component=$2
+	local scenario_dir
+	scenario_dir=${target_dir#../scenarios/}
+	mkdir -p "$target_dir/helm/$component"
+	for install_file in manifests/helm/"$component"/install*.txt; do
+		if [[ -f "$install_file" ]]; then
+			local install_basename
+			install_basename=$(basename "$install_file")
+			sed "s|-f values.yaml|-f ${scenario_dir}/helm/${component}/values.yaml|" \
+				"$install_file" > "$target_dir/helm/$component/$install_basename"
+		fi
+	done
+	cp manifests/helm/"$component"/values.yaml "$target_dir/helm/$component/"
+}
+
+function move_credential_requests() {
+	local target_dir=$1
+	readarray -t credential_files < <(find "$target_dir" -maxdepth 1 -name "*credentialrequest*.yaml" -type f -print0 2> /dev/null | LC_ALL=C sort -z | tr '\0' '\n')
+	if [[ ${#credential_files[@]} -eq 0 ]]; then
+		return
+	fi
+
+	mkdir -p "$target_dir/credentials"
+	for credential_file in "${credential_files[@]}"; do
+		mv "$credential_file" "$target_dir/credentials/"
+	done
 }
 
 # apply manifests that are common for all block storage scenarios
@@ -201,6 +371,7 @@ function apply_block_common_manifests() {
 	local target_dir=$1
 	cp -r manifests/spdk-csi/*.yaml "$target_dir"
 	cp -r manifests/block-storage-dpu-plugin/*.yaml "$target_dir"
+	move_credential_requests "$target_dir"
 }
 
 # apply manifests that are common for all trusted host scenarios
@@ -217,7 +388,9 @@ target_dir="../scenarios/non-trusted-host/nvme-hotplug-pf"
 mkdir -p "$target_dir/workload"
 
 apply_common_manifests "$target_dir"
+copy_helm_component "$target_dir" snap-host-controller
 apply_block_common_manifests "$target_dir"
+copy_helm_component "$target_dir" spdk-csi-controller
 cp -r manifests/doca-snap/nvme-hotplug-pf/*.yaml "$target_dir"
 cp -r manifests/dpudeployment/non-trusted-host/*.yaml "$target_dir"
 cp -r manifests/dpuflavor/nvme-hotplug-pf/*.yaml "$target_dir"
@@ -228,7 +401,9 @@ target_dir="../scenarios/non-trusted-host/nvme-vf-on-static-pf"
 mkdir -p "$target_dir/workload"
 
 apply_common_manifests "$target_dir"
+copy_helm_component "$target_dir" snap-host-controller
 apply_block_common_manifests "$target_dir"
+copy_helm_component "$target_dir" spdk-csi-controller
 cp -r manifests/doca-snap/nvme-vf-on-static-pf/*.yaml "$target_dir"
 cp -r manifests/dpudeployment/non-trusted-host/*.yaml "$target_dir"
 cp -r manifests/dpuflavor/nvme-vf-on-static-pf/*.yaml "$target_dir"
@@ -238,7 +413,10 @@ echo "Build examples for non-trusted-host/virtiofs-hotplug-pf"
 target_dir="../scenarios/non-trusted-host/virtiofs-hotplug-pf"
 mkdir -p "$target_dir/workload"
 apply_common_manifests "$target_dir"
+copy_helm_component "$target_dir" snap-host-controller
+copy_helm_component "$target_dir" nfs-csi-controller
 cp -r manifests/nfs-csi/*.yaml "$target_dir"
+move_credential_requests "$target_dir"
 cp -r manifests/fs-storage-dpu-plugin/*.yaml "$target_dir"
 cp -r manifests/dpudeployment/non-trusted-host/virtiofs-hotplug-pf/*.yaml "$target_dir"
 cp -r manifests/dpuflavor/virtiofs-hotplug-pf/*.yaml "$target_dir"
@@ -248,7 +426,9 @@ echo "Build examples for non-trusted-host/nvme-static-pf"
 target_dir="../scenarios/non-trusted-host/nvme-static-pf"
 mkdir -p "$target_dir/workload"
 apply_common_manifests "$target_dir"
+copy_helm_component "$target_dir" snap-host-controller
 apply_block_common_manifests "$target_dir"
+copy_helm_component "$target_dir" spdk-csi-controller
 cp -r manifests/doca-snap/nvme-static-pf/*.yaml "$target_dir"
 cp -r manifests/dpudeployment/non-trusted-host/*.yaml "$target_dir"
 cp -r manifests/dpuflavor/nvme-static-pf/*.yaml "$target_dir"
@@ -258,7 +438,9 @@ echo "Build examples for trusted-k8s-cluster/nvme-hotplug-pf"
 target_dir="../scenarios/trusted-k8s-cluster/nvme-hotplug-pf"
 mkdir -p "$target_dir/workload"
 apply_common_manifests "$target_dir"
+copy_helm_component "$target_dir" snap-host-controller
 apply_block_common_manifests "$target_dir"
+copy_helm_component "$target_dir" spdk-csi-controller
 apply_trusted_host_manifests "$target_dir"
 cp -r manifests/doca-snap/nvme-hotplug-pf/*.yaml "$target_dir"
 cp -r manifests/dpudeployment/trusted-k8s-cluster/*.yaml "$target_dir"
@@ -269,7 +451,9 @@ echo "Build examples for trusted-k8s-cluster/nvme-vf-on-static-pf"
 target_dir="../scenarios/trusted-k8s-cluster/nvme-vf-on-static-pf"
 mkdir -p "$target_dir/workload"
 apply_common_manifests "$target_dir"
+copy_helm_component "$target_dir" snap-host-controller
 apply_block_common_manifests "$target_dir"
+copy_helm_component "$target_dir" spdk-csi-controller
 apply_trusted_host_manifests "$target_dir"
 cp -r manifests/doca-snap/nvme-vf-on-static-pf/*.yaml "$target_dir"
 cp -r manifests/dpudeployment/trusted-k8s-cluster/*.yaml "$target_dir"
@@ -280,8 +464,11 @@ echo "Build examples for trusted-k8s-cluster/virtiofs-hotplug-pf"
 target_dir="../scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf"
 mkdir -p "$target_dir/workload"
 apply_common_manifests "$target_dir"
+copy_helm_component "$target_dir" snap-host-controller
+copy_helm_component "$target_dir" nfs-csi-controller
 apply_trusted_host_manifests "$target_dir"
 cp -r manifests/nfs-csi/*.yaml "$target_dir"
+move_credential_requests "$target_dir"
 cp -r manifests/fs-storage-dpu-plugin/*.yaml "$target_dir"
 cp -r manifests/snap-csi-plugin/virtiofs-hotplug-pf/*.yaml "$target_dir"
 cp -r manifests/dpudeployment/trusted-k8s-cluster/virtiofs-hotplug-pf/*.yaml "$target_dir"
