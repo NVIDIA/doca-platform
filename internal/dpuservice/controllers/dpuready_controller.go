@@ -24,12 +24,12 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	sfcsetcontroller "github.com/nvidia/doca-platform/internal/servicechainset/controllers"
 	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/dpuselector"
+	predicateutils "github.com/nvidia/doca-platform/pkg/utils/predicates"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
@@ -110,31 +110,12 @@ func (r *DPUReadyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return true
 	})
 
-	dpuPredicate := predicate.Funcs{
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldDPU, ok := e.ObjectOld.(*provisioningv1.DPU)
-			if !ok {
-				return false
-			}
-			newDPU, ok := e.ObjectNew.(*provisioningv1.DPU)
-			if !ok {
-				return false
-			}
-			// Trigger on phase changes to update taints/maintenance
-			return oldDPU.Status.Phase != newDPU.Status.Phase
-		},
-		CreateFunc: func(e event.CreateEvent) bool {
-			return false // Don't reconcile on DPU creation
-		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			return false // Don't reconcile on DPU deletion
-		},
-	}
-
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&provisioningv1.DPUNode{}).
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.nodeToDPUNodeReq), builder.WithPredicates(nodePredicate)).
-		Watches(&provisioningv1.DPU{}, handler.EnqueueRequestsFromMapFunc(r.dpuToDPUNodeReq), builder.WithPredicates(dpuPredicate)).
+		Watches(&provisioningv1.DPU{}, handler.EnqueueRequestsFromMapFunc(r.dpuToDPUNodeReq), builder.WithPredicates(predicateutils.ReadyConditionChanged())).
+		Watches(&dpuservicev1.DPUServiceChain{}, handler.EnqueueRequestsFromMapFunc(r.sfcObjToDPUNodeReq), builder.WithPredicates(predicateutils.ReadyConditionChanged())).
+		Watches(&dpuservicev1.DPUServiceInterface{}, handler.EnqueueRequestsFromMapFunc(r.sfcObjToDPUNodeReq), builder.WithPredicates(predicateutils.ReadyConditionChanged())).
 		Build(r)
 	if err != nil {
 		return err
@@ -174,6 +155,130 @@ func (r *DPUReadyReconciler) nodeToDPUNodeReq(ctx context.Context, obj client.Ob
 		})
 	}
 	return requests
+}
+
+func (r *DPUReadyReconciler) sfcObjToDPUNodeReq(ctx context.Context, obj client.Object) []reconcile.Request {
+	dpuClusterSelector, nodeSelector := extractSelectors(ctx, obj)
+	ctx = ctrllog.IntoContext(ctx, ctrl.LoggerFrom(ctx).WithValues(
+		"objectType", fmt.Sprintf("%T", obj),
+		"object", client.ObjectKeyFromObject(obj)),
+	)
+
+	// Fast path: both selectors are nil, meaning "all clusters, all nodes"
+	if dpuClusterSelector == nil && nodeSelector == nil {
+		return r.listAllDPUNodes(ctx)
+	}
+
+	// Selective path: filter by selectors using remote cache
+	return r.selectiveDPUNodeFiltering(ctx, dpuClusterSelector, nodeSelector)
+}
+
+// listAllDPUNodes lists all DPUNodes from the host cluster (fast path for nil selectors)
+func (r *DPUReadyReconciler) listAllDPUNodes(ctx context.Context) []reconcile.Request {
+	log := ctrllog.FromContext(ctx)
+	dpuNodeList := &provisioningv1.DPUNodeList{}
+	if err := r.List(ctx, dpuNodeList); err != nil {
+		log.Error(err, "Failed to list DPUNodes", "objectType")
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(dpuNodeList.Items))
+	for _, dpuNode := range dpuNodeList.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: client.ObjectKeyFromObject(&dpuNode),
+		})
+	}
+	return requests
+}
+
+// selectiveDPUNodeFiltering filters DPUNodes based on DPUClusterSelector and NodeSelector
+func (r *DPUReadyReconciler) selectiveDPUNodeFiltering(ctx context.Context, dpuClusterSelector *metav1.LabelSelector, nodeSelector *metav1.LabelSelector) []reconcile.Request {
+	log := ctrllog.FromContext(ctx)
+	// Get all DPUCluster configs
+	dpuClusterConfigs, err := dpucluster.GetConfigs(ctx, r.Client)
+	if err != nil {
+		log.Error(err, "Failed to get DPUCluster configs")
+		return nil
+	}
+
+	// Filter to matching clusters
+	matchingClusters, err := utils.GetMatchingDPUClusters(dpuClusterConfigs, dpuClusterSelector)
+	if err != nil {
+		log.Error(err, "Failed to match DPUClusters")
+		return nil
+	}
+
+	if len(matchingClusters) == 0 {
+		log.V(1).Info("No matching DPUClusters found")
+		return nil
+	}
+
+	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, r.Client)
+	if err != nil {
+		log.Error(err, "Failed to get DPFOperatorConfig")
+		return nil
+	}
+
+	requestMap := make(map[reconcile.Request]bool)
+	// For each matching cluster, list nodes with NodeSelector filter
+	for _, clusterConfig := range matchingClusters {
+		clusterKey := client.ObjectKey{
+			Namespace: clusterConfig.Cluster.Namespace,
+			Name:      clusterConfig.Cluster.Name,
+		}
+		log.WithValues("cluster", clusterKey)
+
+		dpuClusterClient, err := r.RemoteCache.GetClient(clusterKey)
+		if err != nil {
+			log.Error(err, "Failed to get cached client for DPUCluster (cluster may not be connected yet), skipping")
+			continue
+		}
+
+		nodeList := &corev1.NodeList{}
+		listOpts := []client.ListOption{}
+
+		// Apply NodeSelector if specified
+		selector, err := utils.LabelSelectorAsSelector(nodeSelector)
+		if err != nil {
+			log.Error(err, "Failed to parse NodeSelector, skipping cluster")
+			continue
+		}
+		listOpts = append(listOpts, client.MatchingLabelsSelector{Selector: selector})
+
+		if err := dpuClusterClient.List(ctx, nodeList, listOpts...); err != nil {
+			log.Error(err, "Failed to list Nodes in DPUCluster, skipping cluster")
+			continue
+		}
+
+		// Map each node to a DPUNode reconcile request
+		for _, node := range nodeList.Items {
+			nn, found := extractDPUNodeFromNodeLabels(&node, dpfOperatorConfig.GetNamespace())
+			if found {
+				requestMap[reconcile.Request{NamespacedName: nn}] = true
+			}
+		}
+	}
+	requests := []reconcile.Request{}
+	for request := range requestMap {
+		requests = append(requests, request)
+	}
+
+	return requests
+}
+
+// extractSelectors extracts DPUClusterSelector and NodeSelector from a DPUServiceChain or DPUServiceInterface
+func extractSelectors(ctx context.Context, obj client.Object) (*metav1.LabelSelector, *metav1.LabelSelector) {
+	switch v := obj.(type) {
+	case *dpuservicev1.DPUServiceChain:
+		return v.GetDPUClusterSelector(), v.GetServiceChainSetLabelSelector()
+
+	case *dpuservicev1.DPUServiceInterface:
+		return v.GetDPUClusterSelector(), v.GetServiceInterfaceSetLabelSelector()
+
+	default:
+		ctrllog.FromContext(ctx).Error(fmt.Errorf("unexpected object type %T", obj), "Failed to extract selectors")
+		return nil, nil
+	}
 }
 
 // Reconcile handles the reconciliation of DPUNode objects for DPU readiness
@@ -918,23 +1023,15 @@ func enqueueDPUNodeFromNodeInDPUCluster(ctx context.Context, c client.Client, no
 		return
 	}
 
-	// Use new DPUNodeNameLabel and DPUNodeNamespaceLabel, fall back to deprecated HostNameDPULabelKey for backward compatibility
-	dpuNodeName, exists := node.Labels[provisioningv1.DPUNodeNameLabel]
-	dpuNodeNamespace := node.Labels[provisioningv1.DPUNodeNamespaceLabel]
-	if !exists {
-		dpuNodeName, exists = node.Labels[cutil.HostNameDPULabelKey]
-		if !exists {
-			log.Error(fmt.Errorf("DPUNode reference to which the node %s in the DPUCluster belongs to not found", node.Name), "Failed to get DPUNode reference for node in DPUCluster")
-			return
-		}
-		dpuNodeNamespace = dpuNodeDefaultNamespace
+	// Extract DPUNode name and namespace from node labels
+	nn, found := extractDPUNodeFromNodeLabels(node, dpuNodeDefaultNamespace)
+	if !found {
+		log.Error(fmt.Errorf("DPUNode reference to which the node %s in the DPUCluster belongs to not found", node.Name), "Failed to get DPUNode reference for node in DPUCluster")
+		return
 	}
 
 	// Enqueue request for DPUNode
-	enqueueRequests([]reconcile.Request{{NamespacedName: client.ObjectKey{
-		Namespace: dpuNodeNamespace,
-		Name:      dpuNodeName,
-	}}}, q)
+	enqueueRequests([]reconcile.Request{{NamespacedName: nn}}, q)
 }
 
 // podEventHandler is a handler for pod events

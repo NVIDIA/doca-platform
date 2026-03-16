@@ -20,6 +20,8 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -610,6 +612,167 @@ var _ = Describe("listNodesByNodeAffinity", func() {
 			nodes, err := listNodesByNodeAffinity(ctx, testClient, terms)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(nodes).To(HaveLen(3))
+		})
+	})
+})
+
+var _ = Describe("extractSelectors", func() {
+	Context("When extracting selectors from DPUServiceChain", func() {
+		It("should extract DPUClusterSelector and NodeSelector", func() {
+			dpuClusterSelector := &metav1.LabelSelector{
+				MatchLabels: map[string]string{"cluster": "test"},
+			}
+			nodeSelector := &metav1.LabelSelector{
+				MatchLabels: map[string]string{"node": "worker"},
+			}
+
+			chain := &dpuservicev1.DPUServiceChain{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-chain"},
+				Spec: dpuservicev1.DPUServiceChainSpec{
+					DPUClusterSelector: dpuClusterSelector,
+					Template: dpuservicev1.ServiceChainSetSpecTemplate{
+						Spec: dpuservicev1.ServiceChainSetSpec{
+							NodeSelector: nodeSelector,
+						},
+					},
+				},
+			}
+
+			dpuCluster, node := extractSelectors(ctx, chain)
+			Expect(dpuCluster).To(Equal(dpuClusterSelector))
+			Expect(node).To(Equal(nodeSelector))
+		})
+
+		It("should return nil selectors when not specified", func() {
+			chain := &dpuservicev1.DPUServiceChain{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-chain"},
+			}
+
+			dpuCluster, node := extractSelectors(ctx, chain)
+			Expect(dpuCluster).To(BeNil())
+			Expect(node).To(BeNil())
+		})
+	})
+
+	Context("When extracting selectors from DPUServiceInterface", func() {
+		It("should extract DPUClusterSelector and NodeSelector", func() {
+			dpuClusterSelector := &metav1.LabelSelector{
+				MatchLabels: map[string]string{"cluster": "test"},
+			}
+			nodeSelector := &metav1.LabelSelector{
+				MatchLabels: map[string]string{"node": "worker"},
+			}
+
+			iface := &dpuservicev1.DPUServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-interface"},
+				Spec: dpuservicev1.DPUServiceInterfaceSpec{
+					DPUClusterSelector: dpuClusterSelector,
+					Template: dpuservicev1.ServiceInterfaceSetSpecTemplate{
+						Spec: dpuservicev1.ServiceInterfaceSetSpec{
+							NodeSelector: nodeSelector,
+						},
+					},
+				},
+			}
+
+			dpuCluster, node := extractSelectors(ctx, iface)
+			Expect(dpuCluster).To(Equal(dpuClusterSelector))
+			Expect(node).To(Equal(nodeSelector))
+		})
+	})
+
+	Context("When extracting selectors from unknown object type", func() {
+		It("should return nil selectors", func() {
+			unknownObj := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-pod"},
+			}
+
+			dpuCluster, node := extractSelectors(ctx, unknownObj)
+			Expect(dpuCluster).To(BeNil())
+			Expect(node).To(BeNil())
+		})
+	})
+})
+
+var _ = Describe("extractDPUNodeFromNodeLabels", func() {
+	Context("When extracting DPUNode info from node labels", func() {
+		It("should extract from new labels", func() {
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-node",
+					Labels: map[string]string{
+						provisioningv1.DPUNodeNameLabel:      "test-dpunode",
+						provisioningv1.DPUNodeNamespaceLabel: "test-namespace",
+					},
+				},
+			}
+
+			nn, found := extractDPUNodeFromNodeLabels(node, "default-ns")
+			Expect(found).To(BeTrue())
+			Expect(nn.Name).To(Equal("test-dpunode"))
+			Expect(nn.Namespace).To(Equal("test-namespace"))
+		})
+
+		It("should fall back to deprecated label", func() {
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-node",
+					Labels: map[string]string{
+						cutil.HostNameDPULabelKey: "test-dpunode",
+					},
+				},
+			}
+
+			nn, found := extractDPUNodeFromNodeLabels(node, "default-ns")
+			Expect(found).To(BeTrue())
+			Expect(nn.Name).To(Equal("test-dpunode"))
+			Expect(nn.Namespace).To(Equal("default-ns"))
+		})
+
+		It("should prefer new labels over deprecated", func() {
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-node",
+					Labels: map[string]string{
+						provisioningv1.DPUNodeNameLabel:      "new-dpunode",
+						provisioningv1.DPUNodeNamespaceLabel: "new-namespace",
+						cutil.HostNameDPULabelKey:            "old-dpunode",
+					},
+				},
+			}
+
+			nn, found := extractDPUNodeFromNodeLabels(node, "default-ns")
+			Expect(found).To(BeTrue())
+			Expect(nn.Name).To(Equal("new-dpunode"))
+			Expect(nn.Namespace).To(Equal("new-namespace"))
+		})
+
+		It("should return false when no labels present", func() {
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "test-node",
+					Labels: map[string]string{},
+				},
+			}
+
+			_, found := extractDPUNodeFromNodeLabels(node, "default-ns")
+			Expect(found).To(BeFalse())
+		})
+
+		It("should use empty namespace when new label has no namespace", func() {
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-node",
+					Labels: map[string]string{
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
+					},
+				},
+			}
+
+			nn, found := extractDPUNodeFromNodeLabels(node, "default-ns")
+			Expect(found).To(BeTrue())
+			Expect(nn.Name).To(Equal("test-dpunode"))
+			Expect(nn.Namespace).To(Equal(""))
 		})
 	})
 })
