@@ -859,6 +859,347 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 			}).WithTimeout(5 * time.Second).Should(Succeed())
 		})
 
+		It("should only add labels to nodes that have DPUDevices matching the DPUSet DPUDeviceSelector", func() {
+			By("Creating multiple nodes")
+			matchingNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{GenerateName: "matching-node-"}}
+			Expect(testClient.Create(ctx, matchingNode)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, matchingNode)
+
+			nonMatchingNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{GenerateName: "non-matching-node-"}}
+			Expect(testClient.Create(ctx, nonMatchingNode)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, nonMatchingNode)
+
+			By("Creating DPUNodes - both matching the DPUNodeSelector")
+			matchingDPUNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "device-selector-matching-dpu-node",
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						"node-type": "device-selector-target",
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, matchingDPUNode)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, matchingDPUNode)
+			matchingDPUNode.Status.KubeNodeRef = ptr.To(matchingNode.Name)
+			matchingDPUNode.SetGroupVersionKind(provisioningv1.DPUNodeGroupVersionKind)
+			matchingDPUNode.SetManagedFields(nil)
+			Expect(testClient.Status().Patch(ctx, matchingDPUNode, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+
+			nonMatchingDPUNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "device-selector-non-matching-dpu-node",
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						"node-type": "device-selector-target",
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, nonMatchingDPUNode)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, nonMatchingDPUNode)
+			nonMatchingDPUNode.Status.KubeNodeRef = ptr.To(nonMatchingNode.Name)
+			nonMatchingDPUNode.SetGroupVersionKind(provisioningv1.DPUNodeGroupVersionKind)
+			nonMatchingDPUNode.SetManagedFields(nil)
+			Expect(testClient.Status().Patch(ctx, nonMatchingDPUNode, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+
+			By("Creating a DPUDevice matching the DPUDeviceSelector attached to the matching DPUNode")
+			matchingDPUDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "device-selector-matching-device",
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						"device-type": "accelerator",
+					},
+				},
+				Spec: provisioningv1.DPUDeviceSpec{SerialNumber: "SN-matching"},
+			}
+			Expect(testClient.Create(ctx, matchingDPUDevice)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, matchingDPUDevice)
+
+			By("Creating a DPUDevice NOT matching the DPUDeviceSelector attached to the non-matching DPUNode")
+			nonMatchingDPUDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "device-selector-non-matching-device",
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						"device-type": "standard",
+					},
+				},
+				Spec: provisioningv1.DPUDeviceSpec{SerialNumber: "SN-non-matching"},
+			}
+			Expect(testClient.Create(ctx, nonMatchingDPUDevice)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, nonMatchingDPUDevice)
+
+			By("Adding DPUDevices to their respective DPUNodes' spec.dpus")
+			originalMatchingDPUNode := matchingDPUNode.DeepCopy()
+			matchingDPUNode.Spec.DPUs = []provisioningv1.DPURef{{Name: matchingDPUDevice.Name}}
+			Expect(testClient.Patch(ctx, matchingDPUNode, client.MergeFrom(originalMatchingDPUNode))).To(Succeed())
+
+			originalNonMatchingDPUNode := nonMatchingDPUNode.DeepCopy()
+			nonMatchingDPUNode.Spec.DPUs = []provisioningv1.DPURef{{Name: nonMatchingDPUDevice.Name}}
+			Expect(testClient.Patch(ctx, nonMatchingDPUNode, client.MergeFrom(originalNonMatchingDPUNode))).To(Succeed())
+
+			By("Creating a DPUDeployment targeting all DPUNodes but filtering by DPUDeviceSelector")
+			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Name = "device-sel-deploy"
+			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
+				{
+					NameSuffix: "test-dpuset",
+					DPUNodeSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-type": "device-selector-target",
+						},
+					},
+					DPUDeviceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"device-type": "accelerator",
+						},
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+
+			By("Creating a DPUService for the deployment")
+			dpuService := getMinimalInClusterDPUServiceCreatedByDPUDeployment(testNS.Name)
+			dpuService.Name = "device-selector-service"
+			dpuService.Labels[dpuservicev1.ParentDPUDeploymentNameLabel] = fmt.Sprintf("%s_%s", testNS.Name, dpuDeployment.Name)
+			dpuService.Spec.ServiceDaemonSet.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Key = "svc.dpu.nvidia.com/dpuservice-device-selector-version"
+			dpuService.Spec.ServiceDaemonSet.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values = []string{"device-selector-service"}
+			Expect(testClient.Create(ctx, dpuService)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuService)
+
+			By("Setting DPUServiceReconciled condition on the deployment")
+			dpuDeployment.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(dpuservicev1.ConditionDPUServicesReconciled),
+					Status:             metav1.ConditionTrue,
+					Reason:             string(conditions.ReasonSuccess),
+					LastTransitionTime: metav1.NewTime(time.Now()),
+					ObservedGeneration: dpuDeployment.Generation,
+				},
+			}
+			dpuDeployment.SetGroupVersionKind(dpuservicev1.DPUDeploymentGroupVersionKind)
+			dpuDeployment.SetManagedFields(nil)
+			Expect(testClient.Status().Patch(ctx, dpuDeployment, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+
+			By("Checking that only the node with a matching DPUDevice gets the label")
+			Eventually(func(g Gomega) {
+				gotMatchingNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(matchingNode), gotMatchingNode)).To(Succeed())
+				g.Expect(gotMatchingNode.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpuservice-device-selector-version", "device-selector-service"))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Checking that the node without a matching DPUDevice does not get the label")
+			Consistently(func(g Gomega) {
+				gotNonMatchingNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(nonMatchingNode), gotNonMatchingNode)).To(Succeed())
+				g.Expect(gotNonMatchingNode.Labels).ToNot(HaveKey("svc.dpu.nvidia.com/dpuservice-device-selector-version"))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+		})
+
+		It("should handle the lifecycle of the label on the node when a DPUDevice label is added and then removed", func() {
+			By("Creating a DPUNode for the corev1.Node")
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpudevice-label-lifecycle-dpu-node",
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						"node-type": "dpudevice-label-lifecycle-target",
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, dpuNode)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuNode)
+			dpuNode.Status.KubeNodeRef = ptr.To(testNode.Name)
+			dpuNode.SetGroupVersionKind(provisioningv1.DPUNodeGroupVersionKind)
+			dpuNode.SetManagedFields(nil)
+			Expect(testClient.Status().Patch(ctx, dpuNode, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+
+			By("Creating a DPUDevice with a matching label")
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpudevice-label-lifecycle-device",
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						"device-type": "dpudevice-label-lifecycle",
+					},
+				},
+				Spec: provisioningv1.DPUDeviceSpec{SerialNumber: "SN-dpudevice-label-lifecycle"},
+			}
+			Expect(testClient.Create(ctx, dpuDevice)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDevice)
+
+			By("Adding the DPUDevice to the DPUNode's spec.DPUs")
+			originalDPUNode := dpuNode.DeepCopy()
+			dpuNode.Spec.DPUs = []provisioningv1.DPURef{{Name: dpuDevice.Name}}
+			Expect(testClient.Patch(ctx, dpuNode, client.MergeFrom(originalDPUNode))).To(Succeed())
+
+			By("Creating a DPUDeployment targeting DPUNodes with DPUDeviceSelector")
+			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Name = "dev-lbl-lc"
+			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
+				{
+					NameSuffix: "test-dpuset",
+					DPUNodeSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-type": "dpudevice-label-lifecycle-target",
+						},
+					},
+					DPUDeviceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"device-type": "dpudevice-label-lifecycle",
+						},
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+
+			By("Patching the DPUDeployment with a fake finalizer to prevent deletion")
+			DeferCleanup(func() {
+				By("Cleaning up the finalizers so that the DPUDeployment can be deleted")
+				Expect(client.IgnoreNotFound(testClient.Patch(ctx, dpuDeployment, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`))))).To(Succeed())
+			})
+			finalizers := dpuDeployment.GetFinalizers()
+			finalizers = append(finalizers, "test.io/some-finalizer")
+			dpuDeployment.SetFinalizers(finalizers)
+			dpuDeployment.SetGroupVersionKind(dpuservicev1.DPUDeploymentGroupVersionKind)
+			dpuDeployment.SetManagedFields(nil)
+			Expect(testClient.Patch(ctx, dpuDeployment, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+
+			By("Creating a DPUService associated with the DPUDeployment")
+			dpuService := getMinimalInClusterDPUServiceCreatedByDPUDeployment(testNS.Name)
+			dpuService.Name = "dpudevice-label-lifecycle-svc"
+			dpuService.Labels[dpuservicev1.ParentDPUDeploymentNameLabel] = fmt.Sprintf("%s_%s", testNS.Name, dpuDeployment.Name)
+			dpuService.Spec.ServiceDaemonSet.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Key = "svc.dpu.nvidia.com/dpuservice-dpudevice-label-lifecycle-version"
+			dpuService.Spec.ServiceDaemonSet.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values = []string{"dpudevice-label-lifecycle-svc"}
+			Expect(testClient.Create(ctx, dpuService)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuService)
+
+			By("Setting DPUServiceReconciled condition on the DPUDeployment")
+			dpuDeployment.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(dpuservicev1.ConditionDPUServicesReconciled),
+					Status:             metav1.ConditionTrue,
+					Reason:             string(conditions.ReasonSuccess),
+					LastTransitionTime: metav1.NewTime(time.Now()),
+					ObservedGeneration: dpuDeployment.Generation,
+				},
+			}
+			dpuDeployment.SetGroupVersionKind(dpuservicev1.DPUDeploymentGroupVersionKind)
+			dpuDeployment.SetManagedFields(nil)
+			Expect(testClient.Status().Patch(ctx, dpuDeployment, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+
+			By("Checking that the node label is added")
+			Eventually(func(g Gomega) {
+				gotNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(testNode), gotNode)).To(Succeed())
+				g.Expect(gotNode.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpuservice-dpudevice-label-lifecycle-version", "dpudevice-label-lifecycle-svc"))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Removing the matching label from the DPUDevice")
+			originalDPUDevice := dpuDevice.DeepCopy()
+			dpuDevice.Labels = map[string]string{}
+			Expect(testClient.Patch(ctx, dpuDevice, client.MergeFrom(originalDPUDevice))).To(Succeed())
+
+			By("Checking that the node label is removed")
+			Eventually(func(g Gomega) {
+				gotNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(testNode), gotNode)).To(Succeed())
+				g.Expect(gotNode.Labels).ToNot(HaveKey("svc.dpu.nvidia.com/dpuservice-dpudevice-label-lifecycle-version"))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+		})
+
+		It("should handle the lifecycle of the label on the node when a DPUNode label is added and then removed", func() {
+			By("Creating a DPUNode with a matching label for the corev1.Node")
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpunode-label-lifecycle-dpu-node",
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						"node-type": "dpunode-label-lifecycle-target",
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, dpuNode)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuNode)
+			dpuNode.Status.KubeNodeRef = ptr.To(testNode.Name)
+			dpuNode.SetGroupVersionKind(provisioningv1.DPUNodeGroupVersionKind)
+			dpuNode.SetManagedFields(nil)
+			Expect(testClient.Status().Patch(ctx, dpuNode, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+
+			By("Creating a DPUDeployment with a DPUNodeSelector matching the DPUNode's label")
+			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Name = "node-lbl-lc"
+			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
+				{
+					NameSuffix: "test-dpuset",
+					DPUNodeSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-type": "dpunode-label-lifecycle-target",
+						},
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+
+			By("Patching the DPUDeployment with a fake finalizer to prevent deletion")
+			DeferCleanup(func() {
+				By("Cleaning up the finalizers so that the DPUDeployment can be deleted")
+				Expect(client.IgnoreNotFound(testClient.Patch(ctx, dpuDeployment, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`))))).To(Succeed())
+			})
+			finalizers := dpuDeployment.GetFinalizers()
+			finalizers = append(finalizers, "test.io/some-finalizer")
+			dpuDeployment.SetFinalizers(finalizers)
+			dpuDeployment.SetGroupVersionKind(dpuservicev1.DPUDeploymentGroupVersionKind)
+			dpuDeployment.SetManagedFields(nil)
+			Expect(testClient.Patch(ctx, dpuDeployment, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+
+			By("Creating a DPUService associated with the DPUDeployment")
+			dpuService := getMinimalInClusterDPUServiceCreatedByDPUDeployment(testNS.Name)
+			dpuService.Name = "dpunode-label-lifecycle-svc"
+			dpuService.Labels[dpuservicev1.ParentDPUDeploymentNameLabel] = fmt.Sprintf("%s_%s", testNS.Name, dpuDeployment.Name)
+			dpuService.Spec.ServiceDaemonSet.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Key = "svc.dpu.nvidia.com/dpuservice-dpunode-label-lifecycle-version"
+			dpuService.Spec.ServiceDaemonSet.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values = []string{"dpunode-label-lifecycle-svc"}
+			Expect(testClient.Create(ctx, dpuService)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuService)
+
+			By("Setting DPUServiceReconciled condition on the DPUDeployment")
+			dpuDeployment.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(dpuservicev1.ConditionDPUServicesReconciled),
+					Status:             metav1.ConditionTrue,
+					Reason:             string(conditions.ReasonSuccess),
+					LastTransitionTime: metav1.NewTime(time.Now()),
+					ObservedGeneration: dpuDeployment.Generation,
+				},
+			}
+			dpuDeployment.SetGroupVersionKind(dpuservicev1.DPUDeploymentGroupVersionKind)
+			dpuDeployment.SetManagedFields(nil)
+			Expect(testClient.Status().Patch(ctx, dpuDeployment, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+
+			By("Checking that the node label is added")
+			Eventually(func(g Gomega) {
+				gotNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(testNode), gotNode)).To(Succeed())
+				g.Expect(gotNode.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpuservice-dpunode-label-lifecycle-version", "dpunode-label-lifecycle-svc"))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Removing the matching label from the DPUNode")
+			originalDPUNode := dpuNode.DeepCopy()
+			dpuNode.Labels = map[string]string{}
+			Expect(testClient.Patch(ctx, dpuNode, client.MergeFrom(originalDPUNode))).To(Succeed())
+
+			By("Checking that the node label is removed")
+			Eventually(func(g Gomega) {
+				gotNode := &corev1.Node{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(testNode), gotNode)).To(Succeed())
+				g.Expect(gotNode.Labels).ToNot(HaveKey("svc.dpu.nvidia.com/dpuservice-dpunode-label-lifecycle-version"))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+		})
+
 		It("should remove stale node labels when DPUServices are deleted", func() {
 			By("Creating a DPUNode for the corev1.Node")
 			dpuNode := &provisioningv1.DPUNode{
