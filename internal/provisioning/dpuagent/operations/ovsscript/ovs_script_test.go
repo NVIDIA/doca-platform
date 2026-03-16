@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 
@@ -49,6 +50,20 @@ var _ = Describe("OVSscriptOperation", func() {
 			Expect(operation.ShouldSkip(&operations.Context{
 				Options: opts.Options{
 					SkipOVSRawScript: true,
+				},
+			})).To(BeTrue())
+		})
+
+		It("should skip if RawConfigScript is empty", func() {
+			operation := &RunOVSScript{
+				scriptPath: tempDir,
+			}
+			Expect(operation.ShouldSkip(&operations.Context{
+				Options: opts.Options{
+					SkipOVSRawScript: false,
+				},
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{},
 				},
 			})).To(BeTrue())
 		})

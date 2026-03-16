@@ -19,6 +19,7 @@ package ovsscript
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
@@ -41,7 +42,7 @@ func (o *RunOVSScript) ConditionType() string {
 }
 
 func (o *RunOVSScript) ShouldSkip(ctx *operations.Context) bool {
-	return ctx.Options.SkipOVSRawScript
+	return ctx.Options.SkipOVSRawScript || strings.TrimSpace(ctx.DPUFlavor.Spec.OVS.RawConfigScript) == ""
 }
 
 func (o *RunOVSScript) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {
