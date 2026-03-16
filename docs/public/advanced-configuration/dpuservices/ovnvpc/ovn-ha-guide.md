@@ -4,6 +4,9 @@ title: OVN High Availability (HA) guide
 
 To achieve high availability (HA) for OVN, deploy the `ovn-central` DPUService with the `enableHA` option enabled.
 
+Assuming the deployment of all the DPF VPC OVN components are done based on the following guide.
+[VPC OVN Deployment](../../../user-guides/zero-trust/use-cases/vpc/README.md)
+
 ### 0. Prerequisites
 
 Requires at least three schedulable control-plane nodes for quorum.
@@ -18,53 +21,40 @@ export HELM_REGISTRY_REPO_URL=https://helm.ngc.nvidia.com/nvidia/doca
 export TAG=v25.10.1
 ```
 
-### 1. Deploy ovn-central DPUService
+### 1. Deploy ovn-central using Helm
 
 ```shell
-cat examples/dpuservice-ovn-central.yaml | envsubst | kubectl apply -f -
+helm upgrade --install -n dpf-operator-system ovn-central ovn-vpc-repository/ovn-chart \
+  --version=$TAG --wait -f examples/ovn-central-ha-helm-values.yaml
 ```
 
-This will deploy `ovn-central` DPUService with `enableHA` set to `true`, it will create 3 ovn-central pods on the control-plane nodes.
+This will deploy `ovn-central` with `enableHA` set to `true`, it will create 3 ovn-central pods on the control-plane nodes.
 
-[embedmd]:#(examples/dpuservice-ovn-central.yaml)
+[embedmd]:#(examples/ovn-central-ha-helm-values.yaml)
 ```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUService
-metadata:
-  name: ovn-central
-  namespace: dpf-operator-system
-spec:
-  deployInCluster: true
-  helmChart:
-    source:
-      repoURL: $HELM_REGISTRY_REPO_URL
-      version: $TAG
-      chart: ovn-chart
-    values:
-      exposedPorts:
-        ports:
-          ovnnb: true
-          ovnsb: true
-      management:
-        ovnCentral:
-          enabled: true
-          enableHA: true
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: "node-role.kubernetes.io/master"
-                        operator: Exists
-                  - matchExpressions:
-                      - key: "node-role.kubernetes.io/control-plane"
-                        operator: Exists
-          tolerations:
-            - key: node-role.kubernetes.io/master
-              operator: Exists
-              effect: NoSchedule
-            - key: node-role.kubernetes.io/control-plane
-              operator: Exists
-              effect: NoSchedule
+exposedPorts:
+  ports:
+    ovnnb: true
+    ovnsb: true
+management:
+  ovnCentral:
+    enabled: true
+    enableHA: true
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/master"
+                  operator: Exists
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/control-plane"
+                  operator: Exists
+    tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
 ```
