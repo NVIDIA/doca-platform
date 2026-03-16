@@ -19,25 +19,13 @@ package collector
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 
-	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
-	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
-	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	"github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/test/utils/tunnel"
-	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
-	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
-	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
-	appsv1 "k8s.io/api/apps/v1"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -62,11 +50,10 @@ func New(clusters []*Cluster) *Collector {
 }
 
 type Cluster struct {
-	clusterName           string
-	client                client.Client
-	artifactsDir          string
-	inventoryManifestsDir string
-	clientset             *kubernetes.Clientset
+	clusterName  string
+	client       client.Client
+	artifactsDir string
+	clientset    *kubernetes.Clientset
 }
 
 type ClusterCollector struct {
@@ -75,10 +62,10 @@ type ClusterCollector struct {
 	RestConfig *rest.Config
 }
 
-func GetClusterCollectors(ctx context.Context, cc ClusterCollector, artifactsDirectory string, inventoryManifestsDirectory string) ([]*Cluster, error) {
+func GetClusterCollectors(ctx context.Context, cc ClusterCollector, artifactsDirectory string) ([]*Cluster, error) {
 	log := ctrllog.FromContext(ctx)
 	directory := filepath.Join(artifactsDirectory, "main")
-	mainCluster, err := NewCluster(cc.Client, directory, inventoryManifestsDirectory, cc.ClientSet, "main")
+	mainCluster, err := NewCluster(cc.Client, directory, cc.ClientSet, "main")
 	if err != nil {
 		// If the main cluster client isn't created return early.
 		return nil, err
@@ -95,7 +82,7 @@ func GetClusterCollectors(ctx context.Context, cc ClusterCollector, artifactsDir
 		dpuClusterClient, _ := tunnel.NewTunneledClient(ctx, cc.Client, cc.RestConfig, conf.Cluster)
 		dpuClusterClientset, _ := tunnel.NewTunneledClientset(ctx, cc.Client, cc.RestConfig, conf.Cluster)
 		directory = filepath.Join(artifactsDirectory, conf.Cluster.Name)
-		c, err := NewCluster(dpuClusterClient, directory, inventoryManifestsDirectory, dpuClusterClientset, conf.Cluster.Name)
+		c, err := NewCluster(dpuClusterClient, directory, dpuClusterClientset, conf.Cluster.Name)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -108,13 +95,12 @@ func GetClusterCollectors(ctx context.Context, cc ClusterCollector, artifactsDir
 	return collectors, nil
 }
 
-func NewCluster(client client.Client, artifactsDirectory string, inventoryManifestsDirectory string, clientset *kubernetes.Clientset, name string) (*Cluster, error) {
+func NewCluster(client client.Client, artifactsDirectory string, clientset *kubernetes.Clientset, name string) (*Cluster, error) {
 	return &Cluster{
-		clusterName:           name,
-		client:                client,
-		artifactsDir:          artifactsDirectory,
-		inventoryManifestsDir: inventoryManifestsDirectory,
-		clientset:             clientset,
+		clusterName:  name,
+		client:       client,
+		artifactsDir: artifactsDirectory,
+		clientset:    clientset,
 	}, nil
 }
 
@@ -135,69 +121,19 @@ func (c *Collector) Run(ctx context.Context) error {
 }
 
 func (c *Cluster) run(ctx context.Context) error {
-	// You can add entries here for resources that are not part of the inventory. Inventory resources are collected
-	// automatically.
-	resourcesToCollect := []schema.GroupVersionKind{
-		corev1.SchemeGroupVersion.WithKind("Namespace"),
-		corev1.SchemeGroupVersion.WithKind("Pod"),
-		corev1.SchemeGroupVersion.WithKind("Node"),
-		corev1.SchemeGroupVersion.WithKind("Secret"),
-		corev1.SchemeGroupVersion.WithKind("PersistentVolumeClaim"),
-		appsv1.SchemeGroupVersion.WithKind("DaemonSet"),
-		appsv1.SchemeGroupVersion.WithKind("Deployment"),
-		appsv1.SchemeGroupVersion.WithKind("ReplicaSet"),
-		batchv1.SchemeGroupVersion.WithKind("Job"),
-		operatorv1.DPFOperatorConfigGroupVersionKind,
-		provisioningv1.DPUFlavorGroupVersionKind,
-		provisioningv1.DPUGroupVersionKind,
-		provisioningv1.DPUSetGroupVersionKind,
-		provisioningv1.BFBGroupVersionKind,
-		provisioningv1.DPUNodeGroupVersionKind,
-		provisioningv1.DPUNodeMaintenanceGroupVersionKind,
-		provisioningv1.DPUDeviceGroupVersionKind,
-		provisioningv1.DPUClusterGroupVersionKind,
-		dpuservicev1.DPUServiceGroupVersionKind,
-		dpuservicev1.DPUDeploymentGroupVersionKind,
-		dpuservicev1.DPUServiceTemplateGroupVersionKind,
-		dpuservicev1.DPUServiceConfigurationGroupVersionKind,
-		dpuservicev1.DPUServiceCredentialRequestGroupVersionKind,
-		dpuservicev1.DPUServiceIPAMGroupVersionKind,
-		dpuservicev1.DPUServiceChainGroupVersionKind,
-		dpuservicev1.ServiceChainSetGroupVersionKind,
-		dpuservicev1.ServiceChainGroupVersionKind,
-		dpuservicev1.DPUServiceInterfaceGroupVersionKind,
-		dpuservicev1.ServiceInterfaceSetGroupVersionKind,
-		dpuservicev1.ServiceInterfaceGroupVersionKind,
-		argov1.ApplicationSchemaGroupVersionKind,
-		nvipamv1.GroupVersion.WithKind(nvipamv1.IPPoolKind),
-		nvipamv1.GroupVersion.WithKind(nvipamv1.CIDRPoolKind),
-		kamajiv1.GroupVersion.WithKind(kamajiv1.TenantControlPlaneKind),
-	}
 	namespacesToCollectEvents := []string{
 		"dpf-operator-system",
 	}
 	errs := make([]error, 0)
-
-	gvks, err := c.getDPFOperatorInventoryGVKs()
+	resourcesToCollect, err := getResourcesToCollect(c.clientset)
 	if err != nil {
-		errs = append(errs, fmt.Errorf("error collecting GVKs that the DPF Operator inventory contains: %w", err))
+		return err
 	}
-	gvks = append(gvks, operatorv1.DPFOperatorConfigGroupVersionKind)
-	// best effort to include as many GVKs as possible
-	resourcesToCollect = append(resourcesToCollect, gvks...)
-	resourcesToCollect = slices.Compact(resourcesToCollect)
 
 	for _, resource := range resourcesToCollect {
-		gvkExists, err := verifyGVKExists(c.client, resource)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("error verifying GVK: %v", err))
-		}
-		if !gvkExists {
-			continue
-		}
 		err = c.dumpResource(ctx, resource)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("error dumping %vs %w", resource.Kind, err))
+			ctrllog.FromContext(ctx).Info(fmt.Sprintf("Cannot dump resource %s: %v", resource.String(), err))
 		}
 	}
 
@@ -215,46 +151,24 @@ func (c *Cluster) run(ctx context.Context) error {
 	return kerrors.NewAggregate(errs)
 }
 
-func verifyGVKExists(c client.Client, gvk schema.GroupVersionKind) (bool, error) {
-	mapper := c.RESTMapper()
-
-	// Try to map the GVK to a resource.
-	_, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+func getResourcesToCollect(clientset *kubernetes.Clientset) ([]schema.GroupVersionKind, error) {
+	resourcesToCollect := []schema.GroupVersionKind{}
+	resourceList, err := clientset.DiscoveryClient.ServerPreferredResources()
 	if err != nil {
-		if meta.IsNoMatchError(err) {
-			return false, nil
-		}
-		return false, err
+		return nil, fmt.Errorf("get supported resources with the preferred version: %w", err)
 	}
+	for _, rl := range resourceList {
+		gv, err := schema.ParseGroupVersion(rl.GroupVersion)
+		if err != nil {
+			continue
+		}
 
-	return true, nil
-}
-
-// getDPFOperatorInventoryGVKs returns the GVKs that are part of the inventory which DPF Operator is using to deploy
-// resources.
-func (c *Cluster) getDPFOperatorInventoryGVKs() ([]schema.GroupVersionKind, error) {
-	output := []schema.GroupVersionKind{}
-	err := filepath.WalkDir(c.inventoryManifestsDir, func(path string, dirEntry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+		for _, r := range rl.APIResources {
+			gvk := gv.WithKind(r.Kind)
+			resourcesToCollect = append(resourcesToCollect, gvk)
 		}
-		if dirEntry.IsDir() {
-			return nil
-		}
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		objs, err := utils.BytesToUnstructured(content)
-		if err != nil {
-			return fmt.Errorf("error while converting bytes to unstructured for path %s: %w", path, err)
-		}
-		for _, obj := range objs {
-			output = append(output, obj.GetObjectKind().GroupVersionKind())
-		}
-		return nil
-	})
-	return output, err
+	}
+	return resourcesToCollect, nil
 }
 
 func (c *Cluster) dumpPodEvents(ctx context.Context) error {
