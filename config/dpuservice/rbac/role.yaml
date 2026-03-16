@@ -138,7 +138,6 @@ rules:
   - bfbs
   - dpuflavors
   - dpunodemaintenances
-  - dpunodes
   verbs:
   - get
   - list
@@ -156,6 +155,8 @@ rules:
   - provisioning.dpu.nvidia.com
   resources:
   - dpuclusters
+  - dpudevices
+  - dpunodes
   - dpus
   verbs:
   - get

@@ -26,18 +26,21 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 const (
@@ -49,7 +52,8 @@ const (
 var pauseDPUDeploymentNodeReconciler atomic.Bool
 
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpudeployments;dpuservices,verbs=get;list;watch
-// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodemaintenances;dpunodes,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodemaintenances,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodes;dpudevices,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update;patch
 
 // DPUDeploymentNodeReconciler reconciles Node Objects that are affected by a DPUDeployment
@@ -65,6 +69,13 @@ func (r *DPUDeploymentNodeReconciler) SetupWithManager(ctx context.Context, mgr 
 		For(&corev1.Node{}).
 		Watches(&provisioningv1.DPUNodeMaintenance{}, handler.EnqueueRequestsFromMapFunc(r.DPUNodeMaintenanceToNode)).
 		Watches(&dpuservicev1.DPUDeployment{}, handler.EnqueueRequestsFromMapFunc(r.DPUDeploymentToNode)).
+		Watches(&provisioningv1.DPUNode{}, handler.EnqueueRequestsFromMapFunc(r.DPUNodeToNode),
+			builder.WithPredicates(predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				predicate.LabelChangedPredicate{},
+			))).
+		Watches(&provisioningv1.DPUDevice{}, handler.EnqueueRequestsFromMapFunc(r.DPUDeviceToNode),
+			builder.WithPredicates(predicate.LabelChangedPredicate{})).
 		Complete(r)
 }
 
@@ -123,17 +134,60 @@ func (r *DPUDeploymentNodeReconciler) DPUDeploymentToNode(ctx context.Context, o
 	return result
 }
 
+// DPUNodeToNode maps a DPUNode to the corev1.Node it references via KubeNodeRef.
+func (r *DPUDeploymentNodeReconciler) DPUNodeToNode(ctx context.Context, o client.Object) []ctrl.Request {
+	log := ctrllog.FromContext(ctx)
+	dpuNode, ok := o.(*provisioningv1.DPUNode)
+	if !ok {
+		log.Error(fmt.Errorf("bad type %T", o), "failed to convert object to DPUNode")
+		return nil
+	}
+
+	// If we don't have this field set, it means that we are not in the Host Trusted use case, where in cluster
+	// disruptive upgrades are not applicable, or that the field is not propagated yet.
+	if dpuNode.Status.KubeNodeRef == nil {
+		return nil
+	}
+	return []ctrl.Request{{NamespacedName: types.NamespacedName{Name: *dpuNode.Status.KubeNodeRef}}}
+}
+
+// DPUDeviceToNode maps a DPUDevice to the corev1.Node it is associated with by listing all DPUNodes in the same
+// namespace and finding the one that references this DPUDevice in its Spec.DPUs.
+func (r *DPUDeploymentNodeReconciler) DPUDeviceToNode(ctx context.Context, o client.Object) []ctrl.Request {
+	log := ctrllog.FromContext(ctx)
+	dpuDevice, ok := o.(*provisioningv1.DPUDevice)
+	if !ok {
+		log.Error(fmt.Errorf("bad type %T", o), "failed to convert object to DPUDevice")
+		return nil
+	}
+
+	dpuNodeList := &provisioningv1.DPUNodeList{}
+	if err := r.Client.List(ctx, dpuNodeList, client.InNamespace(dpuDevice.Namespace)); err != nil {
+		log.Error(err, "failed to list DPUNodes")
+		return nil
+	}
+
+	for _, dpuNode := range dpuNodeList.Items {
+		// If we don't have this field set, it means that we are not in the Host Trusted use case, where in cluster
+		// disruptive upgrades are not applicable, or that the field is not propagated yet.
+		if dpuNode.Status.KubeNodeRef == nil {
+			continue
+		}
+		for _, dpuRef := range dpuNode.Spec.DPUs {
+			if dpuRef.Name == dpuDevice.Name {
+				return []ctrl.Request{{NamespacedName: types.NamespacedName{Name: *dpuNode.Status.KubeNodeRef}}}
+			}
+		}
+	}
+	return nil
+}
+
 // getDPUDeploymentMatchingNodeNames returns the names of the corev1.Nodes that a DPUDeployment matches by checking the
-// DPUSet NodeSelectors against the provisioningv1.DPUNodes they target.
+// DPUSet DPUNodeSelectors and DPUDeviceSelectors against the provisioningv1.DPUNodes they target.
 func getDPUDeploymentMatchingNodeNames(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment) ([]string, error) {
 	var matchingNodes []string
 	for _, dpuSet := range dpuDeployment.Spec.DPUs.DPUSets {
-		nodeSelector := dpuSet.DPUNodeSelector
-		if nodeSelector == nil {
-			//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
-			nodeSelector = dpuSet.NodeSelector
-		}
-		labelSelector, err := utils.LabelSelectorAsSelector(nodeSelector)
+		labelSelector, err := getDPUNodeSelector(dpuSet)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse label selector from dpuNodeSelector or nodeSelector found in dpudeployment.spec.dpus.dpusets: %w", err)
 		}
@@ -143,12 +197,47 @@ func getDPUDeploymentMatchingNodeNames(ctx context.Context, c client.Client, dpu
 			return nil, fmt.Errorf("failed to list DPUNodes: %w", err)
 		}
 
+		dpuDeviceSelector, err := getDPUDeviceSelector(dpuSet)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse label selector from dpuDeviceSelector or dpuSelector found in dpudeployment.spec.dpus.dpusets: %w", err)
+		}
+
+		// If the DPUDevice selector is specified, list all matching DPUDevices once and build a lookup set.
+		var matchingDPUDeviceKeys map[string]struct{}
+		if dpuDeviceSelector != nil {
+			dpuDeviceList := &provisioningv1.DPUDeviceList{}
+			if err := c.List(ctx, dpuDeviceList, client.MatchingLabelsSelector{Selector: dpuDeviceSelector}); err != nil {
+				return nil, fmt.Errorf("failed to list DPUDevices: %w", err)
+			}
+			matchingDPUDeviceKeys = make(map[string]struct{}, len(dpuDeviceList.Items))
+			for _, dpuDevice := range dpuDeviceList.Items {
+				matchingDPUDeviceKeys[client.ObjectKeyFromObject(&dpuDevice).String()] = struct{}{}
+			}
+		}
+
 		for _, dpuNode := range dpuNodeList.Items {
-			// If we don't have this field set, it means that the we are not in the Host Trusted use case, where
-			// in cluster disruptive upgrades are not applicable.
+			// If we don't have this field set, it means that we are not in the Host Trusted use case, where in cluster
+			// disruptive upgrades are not applicable, or that the field is not propagated yet.
 			if dpuNode.Status.KubeNodeRef == nil {
 				continue
 			}
+
+			// If a device selector is specified, only include this DPUNode if it has at least one matching DPUDevice.
+			if matchingDPUDeviceKeys != nil {
+				hasMatchingDPUDevice := false
+				// We intentionally don't list DPUDevices that match the selector + provisioningv1.DPUNodeNameLabel
+				// because this is prone to race conditions and we will have to enqueue for DPUDevice as well.
+				for _, dpuRef := range dpuNode.Spec.DPUs {
+					if _, ok := matchingDPUDeviceKeys[types.NamespacedName{Name: dpuRef.Name, Namespace: dpuNode.Namespace}.String()]; ok {
+						hasMatchingDPUDevice = true
+						break
+					}
+				}
+				if !hasMatchingDPUDevice {
+					continue
+				}
+			}
+
 			matchingNodes = append(matchingNodes, *dpuNode.Status.KubeNodeRef)
 		}
 	}
@@ -156,6 +245,34 @@ func getDPUDeploymentMatchingNodeNames(ctx context.Context, c client.Client, dpu
 	slices.Sort(matchingNodes)
 	uniqueMatchingNodes := slices.Compact(matchingNodes)
 	return uniqueMatchingNodes, nil
+}
+
+// getDPUNodeSelector returns a labels.Selector from the DPUSet's DPUNodeSelector or the deprecated NodeSelector.
+// Returns labels.Everything() if neither is specified (i.e., all DPUNodes match).
+func getDPUNodeSelector(dpuSet dpuservicev1.DPUSet) (labels.Selector, error) {
+	if dpuSet.DPUNodeSelector != nil {
+		return metav1.LabelSelectorAsSelector(dpuSet.DPUNodeSelector)
+	}
+	//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
+	if dpuSet.NodeSelector != nil {
+		//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
+		return metav1.LabelSelectorAsSelector(dpuSet.NodeSelector)
+	}
+	return labels.Everything(), nil
+}
+
+// getDPUDeviceSelector returns a labels.Selector from the DPUSet's DPUDeviceSelector or the deprecated DPUSelector.
+// Returns nil if neither is specified (i.e., no device filtering should be applied).
+func getDPUDeviceSelector(dpuSet dpuservicev1.DPUSet) (labels.Selector, error) {
+	if dpuSet.DPUDeviceSelector != nil {
+		return metav1.LabelSelectorAsSelector(dpuSet.DPUDeviceSelector)
+	}
+	//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
+	if dpuSet.DPUSelector != nil {
+		//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
+		return metav1.LabelSelectorAsSelector(&metav1.LabelSelector{MatchLabels: dpuSet.DPUSelector})
+	}
+	return nil, nil
 }
 
 func (r *DPUDeploymentNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
@@ -297,13 +414,7 @@ func handleDPUNodeMaintenanceObjects(node *corev1.Node, dpuServices []dpuservice
 			}
 
 			// Add corev1.Node label for this DPUService
-			nodeLabels := node.GetLabels()
-			if nodeLabels == nil {
-				nodeLabels = make(map[string]string)
-			}
-
-			nodeLabels[dpuServiceVersionLabelKey] = dpuService.Name
-			node.SetLabels(nodeLabels)
+			addNodeLabel(node, dpuServiceVersionLabelKey, dpuService.Name)
 
 			// Remove requestor from the DPUNodeMaintenance
 			dpuNodeMaintenance.Spec.Requestor = slices.DeleteFunc(dpuNodeMaintenance.Spec.Requestor, func(requestor string) bool {
@@ -337,7 +448,8 @@ func getDPUServiceVersionLabelKeyFromDPUService(dpuService dpuservicev1.DPUServi
 // ensureNodeLabelsFromDPUServices checks whether the corev1.Node has labels associated with the given in-cluster DPUServices
 // managed by a DPUDeployment. If any label is missing, the corev1.Node is updated in memory. This function is needed
 // to ensure that non-disruptive and disruptive in-cluster services are scheduled when they are created for the first time
-// if a DPUNodeMaintenance is not created.
+// if a DPUNodeMaintenance is not created. It also removes labels for DPUDeployments that no longer match the node
+// (e.g. because a DPUDevice or DPUNode label was removed).
 func ensureNodeLabelsFromDPUServices(ctx context.Context, c client.Client, node *corev1.Node, dpuDeployments []dpuservicev1.DPUDeployment, dpuServices []dpuservicev1.DPUService) error {
 	for _, dpuDeployment := range dpuDeployments {
 		// Skip terminating DPUDeployments
@@ -351,30 +463,29 @@ func ensureNodeLabelsFromDPUServices(ctx context.Context, c client.Client, node 
 			return fmt.Errorf("failed to find matching corev1.Nodes for DPUDeployment %v: %w", client.ObjectKeyFromObject(&dpuDeployment), err)
 		}
 
-		// If the node doesn't match the selector the DPUDeployment is targeting, move to the next DPUDeployment
-		if !slices.Contains(matchingNodes, node.Name) {
-			continue
-		}
-
+		nodeMatches := slices.Contains(matchingNodes, node.Name)
 		for _, dpuService := range dpuServices {
+			// If the service doesn't belong to the currently checked DPUDeployment, continue
+			if dpuService.Labels[dpuservicev1.ParentDPUDeploymentNameLabel] != getParentDPUDeploymentLabelValue(client.ObjectKeyFromObject(&dpuDeployment)) {
+				continue
+			}
+
 			dpuServiceVersionLabelKey, err := getDPUServiceVersionLabelKeyFromDPUService(dpuService, dpuService.Name)
 			if err != nil {
 				return fmt.Errorf("failed to find DPUService version label key for DPUService %s: %w", dpuService.Name, err)
 			}
 
-			// Add corev1.Node label for this DPUService
-			nodeLabels := node.GetLabels()
-			if nodeLabels == nil {
-				nodeLabels = make(map[string]string)
-			}
-
-			// Skip this DPUService if the label exists, even outdated. Existing labels must be updated only via the handleDPUNodeMaintenanceObjects
-			if _, ok := nodeLabels[dpuServiceVersionLabelKey]; ok {
+			// If the node doesn't match, it might be that it matched at some point so cleanup any leftover label
+			if !nodeMatches {
+				removeNodeLabel(node, dpuServiceVersionLabelKey)
 				continue
 			}
 
-			nodeLabels[dpuServiceVersionLabelKey] = dpuService.Name
-			node.SetLabels(nodeLabels)
+			// Skip this DPUService if the label exists, even outdated. Existing labels must be updated only via the handleDPUNodeMaintenanceObjects
+			if _, ok := node.GetLabels()[dpuServiceVersionLabelKey]; ok {
+				continue
+			}
+			addNodeLabel(node, dpuServiceVersionLabelKey, dpuService.Name)
 		}
 	}
 	return nil
@@ -401,12 +512,27 @@ func removeNodeLabelsFromTerminatingDPUDeployment(node *corev1.Node, dpuDeployme
 				return fmt.Errorf("failed to find DPUService version label key for DPUService %s: %w", dpuService.Name, err)
 			}
 
-			nodeLabels := node.GetLabels()
-			delete(nodeLabels, dpuServiceVersionLabelKey)
-			node.SetLabels(nodeLabels)
+			removeNodeLabel(node, dpuServiceVersionLabelKey)
 		}
 	}
 	return nil
+}
+
+// addNodeLabel adds the given key/value label to the node in memory.
+func addNodeLabel(node *corev1.Node, key, value string) {
+	nodeLabels := node.GetLabels()
+	if nodeLabels == nil {
+		nodeLabels = make(map[string]string)
+	}
+	nodeLabels[key] = value
+	node.SetLabels(nodeLabels)
+}
+
+// removeNodeLabel removes the given label key from the node in memory.
+func removeNodeLabel(node *corev1.Node, key string) {
+	nodeLabels := node.GetLabels()
+	delete(nodeLabels, key)
+	node.SetLabels(nodeLabels)
 }
 
 // removeStaleNodeLabels removes stale corev1.Node labels that exist on nodes from DPUServices managed by DPUDeployments
@@ -433,11 +559,9 @@ func removeStaleNodeLabels(node *corev1.Node, dpuServices []dpuservicev1.DPUServ
 	}
 
 	// Remove all the stale labels from the in memory corev1.Node
-	nodeLabels := node.GetLabels()
 	for label := range staleDPUServiceVersionLabelKeys {
-		delete(nodeLabels, label)
+		removeNodeLabel(node, label)
 	}
-	node.SetLabels(nodeLabels)
 
 	return nil
 }
