@@ -410,9 +410,128 @@ Please refer to the relevant sections below and follow the instructions to deplo
 
 #### SNAP Block (NVMe)
 
-##### Create the DPUDeployment, DPUServiceConfig, DPUServiceTemplate and other necessary objects
+A number of [environment variables](#0-required-variables) must be set before running these commands.
 
-A number of [environment variables](#0-required-variables) must be set before running this command.
+##### Create Vendor CSI Controller Credentials
+
+Create the credential request for the SPDK CSI Controller before installing the chart:
+
+```shell
+kubectl apply -f manifests/04.1-dpudeployment-installation-nvme/credentials/
+```
+
+<details markdown="1"><summary>DPUServiceCredentialRequest for SPDK CSI Controller</summary>
+
+[embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/credentials/spdk-csi-controller-dpuservicecredentialrequest.yaml)
+```yaml
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceCredentialRequest
+metadata:
+  name: spdk-csi-controller-credentials
+  namespace: dpf-operator-system
+spec:
+  duration: 10m
+  serviceAccount:
+    name: spdk-csi-controller-sa
+    namespace: dpf-operator-system
+  targetCluster:
+    name: dpu-cplane-tenant1
+    namespace: dpu-cplane-tenant1
+  type: tokenFile
+  secret:
+    name: spdk-csi-controller-dpu-cluster-credentials
+    namespace: dpf-operator-system
+```
+</details>
+
+##### Install SNAP Host Controller on the Host Cluster
+
+Install the SNAP Host Controller that runs on the host cluster for this scenario:
+
+###### HTTP Registry (default)
+
+If the $REGISTRY is an HTTP Registry (default value) use this command:
+
+```shell
+helm repo add --force-update dpf-repository ${REGISTRY}
+helm repo update
+helm upgrade --install -n dpf-operator-system snap-host-controller \
+  dpf-repository/dpf-storage --version=$TAG \
+  --wait \
+  -f manifests/04.1-dpudeployment-installation-nvme/helm-values/snap-host-controller.yml
+```
+
+###### OCI Registry
+
+For development purposes, if the $REGISTRY is an OCI Registry use this command:
+
+```shell
+helm upgrade --install -n dpf-operator-system snap-host-controller \
+  $REGISTRY/dpf-storage --version=$TAG \
+  --wait \
+  -f manifests/04.1-dpudeployment-installation-nvme/helm-values/snap-host-controller.yml
+```
+
+<details markdown="1"><summary>SNAP Host Controller Helm values</summary>
+
+[embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/helm-values/snap-host-controller.yml)
+```yml
+host:
+  snapHostController:
+    enabled: true
+    config:
+      targetNamespace: dpf-operator-system
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/master"
+                operator: Exists
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/control-plane"
+                operator: Exists
+```
+</details>
+
+##### Install SPDK CSI Controller on the Host Cluster
+
+Install the SPDK CSI Controller that runs on the host cluster for this scenario:
+
+```shell
+helm upgrade --install -n dpf-operator-system spdk-csi-controller \
+  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/spdk-csi-controller --version=v0.3.0 \
+  --wait \
+  -f manifests/04.1-dpudeployment-installation-nvme/helm-values/spdk-csi-controller.yml
+```
+
+<details markdown="1"><summary>SPDK CSI Controller Helm values</summary>
+
+[embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/helm-values/spdk-csi-controller.yml)
+```yml
+host:
+  enabled: true
+  config:
+    targets:
+      nodes:
+        # name of the target
+        - name: spdk-target
+          # management address
+          rpcURL: http://10.0.110.25:8000
+          # type of the target, e.g. nvme-tcp, nvme-rdma
+          targetType: nvme-rdma
+          # target service IP
+          targetAddr: 10.0.124.1
+    # required parameter, name of the secret that contains connection
+    # details to access the DPU cluster.
+    # this secret should be created by the DPUServiceCredentialRequest API.
+    dpuClusterSecret: spdk-csi-controller-dpu-cluster-credentials
+```
+</details>
+
+##### Apply DPU-side Storage Resources
+
 ```shell
 cat manifests/04.1-dpudeployment-installation-nvme/*.yaml | envsubst | kubectl apply -f -
 ```
@@ -942,59 +1061,6 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for SNAP Host Controller</summary>
-
-[embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/snap-host-controller-dpuserviceconfiguration.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceConfiguration
-metadata:
-  name: snap-host-controller
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: snap-host-controller
-  upgradePolicy:
-    applyNodeEffect: false
-  serviceConfiguration:
-    deployInCluster: true
-    helmChart:
-      values:
-        host:
-          snapHostController:
-            enabled: true
-            config:
-              targetNamespace: dpf-operator-system
-            affinity:
-              nodeAffinity:
-                requiredDuringSchedulingIgnoredDuringExecution:
-                  nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: "node-role.kubernetes.io/master"
-                        operator: Exists
-                  - matchExpressions:
-                      - key: "node-role.kubernetes.io/control-plane"
-                        operator: Exists
-```
-
-[embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/snap-host-controller-dpuservicetemplate.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceTemplate
-metadata:
-  name: snap-host-controller
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: snap-host-controller
-  helmChart:
-    source:
-      repoURL: $REGISTRY
-      version: $TAG
-      chart: dpf-storage
-```
-</details>
-
 <details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for SNAP Node Driver</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/snap-node-driver-dpuserviceconfiguration.yaml)
@@ -1026,6 +1092,44 @@ metadata:
   namespace: dpf-operator-system
 spec:
   deploymentServiceName: snap-node-driver
+  helmChart:
+    source:
+      repoURL: $REGISTRY
+      version: $TAG
+      chart: dpf-storage
+```
+</details>
+
+<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for Block Storage DPU Plugin</summary>
+
+[embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/block-storage-dpu-plugin-dpuserviceconfiguration.yaml)
+```yaml
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: block-storage-dpu-plugin
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: block-storage-dpu-plugin
+  serviceConfiguration:
+    helmChart:
+      values:
+        dpu:
+          blockStorageVendorDpuPlugin:
+            enabled: true
+```
+
+[embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/block-storage-dpu-plugin-dpuservicetemplate.yaml)
+```yaml
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: block-storage-dpu-plugin
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: block-storage-dpu-plugin
   helmChart:
     source:
       repoURL: $REGISTRY
@@ -1084,121 +1188,6 @@ spec:
       repoURL: $REGISTRY
       version: $TAG
       chart: dpf-storage
-```
-</details>
-
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for Block Storage DPU Plugin</summary>
-
-[embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/block-storage-dpu-plugin-dpuserviceconfiguration.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceConfiguration
-metadata:
-  name: block-storage-dpu-plugin
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: block-storage-dpu-plugin
-  serviceConfiguration:
-    helmChart:
-      values:
-        dpu:
-          blockStorageVendorDpuPlugin:
-            enabled: true
-```
-
-[embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/block-storage-dpu-plugin-dpuservicetemplate.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceTemplate
-metadata:
-  name: block-storage-dpu-plugin
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: block-storage-dpu-plugin
-  helmChart:
-    source:
-      repoURL: $REGISTRY
-      version: $TAG
-      chart: dpf-storage
-```
-</details>
-
-<details markdown="1"><summary>DPUServiceConfiguration, DPUServiceTemplate and DPUServiceCredentialRequest for SPDK CSI Controller</summary>
-
-[embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/spdk-csi-controller-dpuserviceconfiguration.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceConfiguration
-metadata:
-  name: spdk-csi-controller
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: spdk-csi-controller
-  upgradePolicy:
-    applyNodeEffect: false
-  serviceConfiguration:
-    deployInCluster: true
-    helmChart:
-      values:
-        host:
-          enabled: true
-          config:
-            targets:
-              nodes:
-                # name of the target
-                - name: spdk-target
-                  # management address
-                  rpcURL: http://10.0.110.25:8000
-                  # type of the target, e.g. nvme-tcp, nvme-rdma
-                  targetType: nvme-rdma
-                  # target service IP
-                  targetAddr: 10.0.124.1
-            # required parameter, name of the secret that contains connection
-            # details to access the DPU cluster.
-            # this secret should be created by the DPUServiceCredentialRequest API.
-            dpuClusterSecret: spdk-csi-controller-dpu-cluster-credentials
-```
-
-[embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/spdk-csi-controller-dpuservicetemplate.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceTemplate
-metadata:
-  name: spdk-csi-controller
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: spdk-csi-controller
-  helmChart:
-    source:
-      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
-      version: v0.3.0
-      chart: spdk-csi-controller
-```
-
-[embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/spdk-csi-controller-dpuservicecredentialrequest.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceCredentialRequest
-metadata:
-  name: spdk-csi-controller-credentials
-  namespace: dpf-operator-system
-spec:
-  duration: 10m
-  serviceAccount:
-    name: spdk-csi-controller-sa
-    namespace: dpf-operator-system
-  targetCluster:
-    name: dpu-cplane-tenant1
-    namespace: dpu-cplane-tenant1
-  type: tokenFile
-  secret:
-    name: spdk-csi-controller-dpu-cluster-credentials
-    namespace: dpf-operator-system
 ```
 </details>
 
@@ -1312,12 +1301,6 @@ spec:
     doca-hbn:
       serviceTemplate: doca-hbn
       serviceConfiguration: doca-hbn
-    snap-csi-plugin:
-      serviceTemplate: snap-csi-plugin
-      serviceConfiguration: snap-csi-plugin
-    snap-host-controller:
-      serviceTemplate: snap-host-controller
-      serviceConfiguration: snap-host-controller
     snap-node-driver:
       serviceTemplate: snap-node-driver
       serviceConfiguration: snap-node-driver
@@ -1327,9 +1310,9 @@ spec:
     block-storage-dpu-plugin:
       serviceTemplate: block-storage-dpu-plugin
       serviceConfiguration: block-storage-dpu-plugin
-    spdk-csi-controller:
-      serviceTemplate: spdk-csi-controller
-      serviceConfiguration: spdk-csi-controller
+    snap-csi-plugin:
+      serviceTemplate: snap-csi-plugin
+      serviceConfiguration: snap-csi-plugin
     spdk-csi-controller-dpu:
       serviceTemplate: spdk-csi-controller-dpu
       serviceConfiguration: spdk-csi-controller-dpu
@@ -1393,9 +1376,118 @@ kubectl wait --for=condition=ServiceChainSetReconciled --namespace dpf-operator-
 
 #### SNAP VirtioFS
 
-##### Create the DPUDeployment, DPUServiceConfig, DPUServiceTemplate and other necessary objects
+A number of [environment variables](#0-required-variables) must be set before running these commands.
 
-A number of [environment variables](#0-required-variables) must be set before running this command.
+##### Create Vendor CSI Controller Credentials
+
+Create the credential request for the NFS CSI Controller before installing the chart:
+
+```shell
+kubectl apply -f manifests/04.2-dpudeployment-installation-virtiofs/credentials/
+```
+
+<details markdown="1"><summary>DPUServiceCredentialRequest for NFS CSI Controller</summary>
+
+[embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/credentials/nfs-csi-controller-dpuservicecredentialrequest.yaml)
+```yaml
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceCredentialRequest
+metadata:
+  name: nfs-csi-controller-credentials
+  namespace: dpf-operator-system
+spec:
+  duration: 24h
+  serviceAccount:
+    name: nfs-csi-controller-sa
+    namespace: dpf-operator-system
+  targetCluster:
+    name: dpu-cplane-tenant1
+    namespace: dpu-cplane-tenant1
+  type: tokenFile
+  secret:
+    name: nfs-csi-controller-dpu-cluster-credentials
+    namespace: dpf-operator-system
+```
+</details>
+
+##### Install SNAP Host Controller on the Host Cluster
+
+Install the SNAP Host Controller that runs on the host cluster for this scenario:
+
+###### HTTP Registry (default)
+
+If the $REGISTRY is an HTTP Registry (default value) use this command:
+
+```shell
+helm repo add --force-update dpf-repository ${REGISTRY}
+helm repo update
+helm upgrade --install -n dpf-operator-system snap-host-controller \
+  dpf-repository/dpf-storage --version=$TAG \
+  --wait \
+  -f manifests/04.2-dpudeployment-installation-virtiofs/helm-values/snap-host-controller.yml
+```
+
+###### OCI Registry
+
+For development purposes, if the $REGISTRY is an OCI Registry use this command:
+
+```shell
+helm upgrade --install -n dpf-operator-system snap-host-controller \
+  $REGISTRY/dpf-storage --version=$TAG \
+  --wait \
+  -f manifests/04.2-dpudeployment-installation-virtiofs/helm-values/snap-host-controller.yml
+```
+
+<details markdown="1"><summary>SNAP Host Controller Helm values</summary>
+
+[embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/helm-values/snap-host-controller.yml)
+```yml
+host:
+  snapHostController:
+    enabled: true
+    config:
+      targetNamespace: dpf-operator-system
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/master"
+                operator: Exists
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/control-plane"
+                operator: Exists
+```
+</details>
+
+##### Install NFS CSI Controller on the Host Cluster
+
+Install the NFS CSI Controller that runs on the host cluster for this scenario:
+
+```shell
+helm upgrade --install -n dpf-operator-system nfs-csi-controller \
+  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/nfs-csi-controller --version=v0.2.0 \
+  --wait \
+  -f manifests/04.2-dpudeployment-installation-virtiofs/helm-values/nfs-csi-controller.yml
+```
+
+<details markdown="1"><summary>NFS CSI Controller Helm values</summary>
+
+[embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/helm-values/nfs-csi-controller.yml)
+```yml
+host:
+  enabled: true
+  config:
+    # required parameter, name of the secret that contains connection
+    # details to access the DPU cluster.
+    # this secret should be created by the DPUServiceCredentialRequest API.
+    dpuClusterSecret: nfs-csi-controller-dpu-cluster-credentials
+```
+</details>
+
+##### Apply DPU-side Storage Resources
+
 ```shell
 cat manifests/04.2-dpudeployment-installation-virtiofs/*.yaml | envsubst | kubectl apply -f -
 ```
@@ -1785,59 +1877,6 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for SNAP Host Controller</summary>
-
-[embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/snap-host-controller-dpuserviceconfiguration.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceConfiguration
-metadata:
-  name: snap-host-controller
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: snap-host-controller
-  upgradePolicy:
-    applyNodeEffect: false
-  serviceConfiguration:
-    deployInCluster: true
-    helmChart:
-      values:
-        host:
-          snapHostController:
-            enabled: true
-            config:
-              targetNamespace: dpf-operator-system
-            affinity:
-              nodeAffinity:
-                requiredDuringSchedulingIgnoredDuringExecution:
-                  nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: "node-role.kubernetes.io/master"
-                        operator: Exists
-                  - matchExpressions:
-                      - key: "node-role.kubernetes.io/control-plane"
-                        operator: Exists
-```
-
-[embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/snap-host-controller-dpuservicetemplate.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceTemplate
-metadata:
-  name: snap-host-controller
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: snap-host-controller
-  helmChart:
-    source:
-      repoURL: $REGISTRY
-      version: $TAG
-      chart: dpf-storage
-```
-</details>
-
 <details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for SNAP Node Driver</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/snap-node-driver-dpuserviceconfiguration.yaml)
@@ -1869,59 +1908,6 @@ metadata:
   namespace: dpf-operator-system
 spec:
   deploymentServiceName: snap-node-driver
-  helmChart:
-    source:
-      repoURL: $REGISTRY
-      version: $TAG
-      chart: dpf-storage
-```
-</details>
-
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for SNAP CSI Plugin</summary>
-
-[embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/snap-csi-plugin-dpuserviceconfiguration.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceConfiguration
-metadata:
-  name: snap-csi-plugin
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: snap-csi-plugin
-  upgradePolicy:
-    applyNodeEffect: false
-  serviceConfiguration:
-    deployInCluster: true
-    helmChart:
-      values:
-        host:
-          snapCsiPlugin:
-            enabled: true
-            emulationMode: "virtiofs"
-            controller:
-              affinity:
-                nodeAffinity:
-                  requiredDuringSchedulingIgnoredDuringExecution:
-                    nodeSelectorTerms:
-                      - matchExpressions:
-                          - key: "node-role.kubernetes.io/master"
-                            operator: Exists
-                      - matchExpressions:
-                          - key: "node-role.kubernetes.io/control-plane"
-                            operator: Exists
-```
-
-[embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/snap-csi-plugin-dpuservicetemplate.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceTemplate
-metadata:
-  name: snap-csi-plugin
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: snap-csi-plugin
   helmChart:
     source:
       repoURL: $REGISTRY
@@ -1977,18 +1963,18 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration, DPUServiceTemplate and DPUServiceCredentialRequest for NFS CSI Controller (host)</summary>
+<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for SNAP CSI Plugin</summary>
 
-[embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/nfs-csi-controller-dpuserviceconfiguration.yaml)
+[embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/snap-csi-plugin-dpuserviceconfiguration.yaml)
 ```yaml
 ---
 apiVersion: svc.dpu.nvidia.com/v1alpha1
 kind: DPUServiceConfiguration
 metadata:
-  name: nfs-csi-controller
+  name: snap-csi-plugin
   namespace: dpf-operator-system
 spec:
-  deploymentServiceName: nfs-csi-controller
+  deploymentServiceName: snap-csi-plugin
   upgradePolicy:
     applyNodeEffect: false
   serviceConfiguration:
@@ -1996,51 +1982,37 @@ spec:
     helmChart:
       values:
         host:
-          enabled: true
-          config:
-            # required parameter, name of the secret that contains connection
-            # details to access the DPU cluster.
-            # this secret should be created by the DPUServiceCredentialRequest API.
-            dpuClusterSecret: nfs-csi-controller-dpu-cluster-credentials
+          snapCsiPlugin:
+            enabled: true
+            emulationMode: "virtiofs"
+            controller:
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: "node-role.kubernetes.io/master"
+                            operator: Exists
+                      - matchExpressions:
+                          - key: "node-role.kubernetes.io/control-plane"
+                            operator: Exists
 ```
 
-[embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/nfs-csi-controller-dpuservicetemplate.yaml)
+[embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/snap-csi-plugin-dpuservicetemplate.yaml)
 ```yaml
 ---
 apiVersion: svc.dpu.nvidia.com/v1alpha1
 kind: DPUServiceTemplate
 metadata:
-  name: nfs-csi-controller
+  name: snap-csi-plugin
   namespace: dpf-operator-system
 spec:
-  deploymentServiceName: nfs-csi-controller
+  deploymentServiceName: snap-csi-plugin
   helmChart:
     source:
-      repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
-      version: v0.2.0
-      chart: nfs-csi-controller
-```
-
-[embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/nfs-csi-controller-dpuservicecredentialrequest.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceCredentialRequest
-metadata:
-  name: nfs-csi-controller-credentials
-  namespace: dpf-operator-system
-spec:
-  duration: 24h
-  serviceAccount:
-    name: nfs-csi-controller-sa
-    namespace: dpf-operator-system
-  targetCluster:
-    name: dpu-cplane-tenant1
-    namespace: dpu-cplane-tenant1
-  type: tokenFile
-  secret:
-    name: nfs-csi-controller-dpu-cluster-credentials
-    namespace: dpf-operator-system
+      repoURL: $REGISTRY
+      version: $TAG
+      chart: dpf-storage
 ```
 </details>
 
@@ -2263,12 +2235,6 @@ spec:
     doca-hbn:
       serviceTemplate: doca-hbn
       serviceConfiguration: doca-hbn
-    snap-csi-plugin:
-      serviceTemplate: snap-csi-plugin
-      serviceConfiguration: snap-csi-plugin
-    snap-host-controller:
-      serviceTemplate: snap-host-controller
-      serviceConfiguration: snap-host-controller
     snap-node-driver:
       serviceTemplate: snap-node-driver
       serviceConfiguration: snap-node-driver
@@ -2278,9 +2244,9 @@ spec:
     fs-storage-dpu-plugin:
       serviceTemplate: fs-storage-dpu-plugin
       serviceConfiguration: fs-storage-dpu-plugin
-    nfs-csi-controller:
-      serviceTemplate: nfs-csi-controller
-      serviceConfiguration: nfs-csi-controller
+    snap-csi-plugin:
+      serviceTemplate: snap-csi-plugin
+      serviceConfiguration: snap-csi-plugin
     nfs-csi-controller-dpu:
       serviceTemplate: nfs-csi-controller-dpu
       serviceConfiguration: nfs-csi-controller-dpu
@@ -2643,6 +2609,14 @@ kubectl delete -n dpf-operator-system dpuvolume --all --wait
 # delete storage configuration
 kubectl delete -f manifests/07.1-storage-configuration-nvme --wait --ignore-not-found=true
 kubectl delete -f manifests/07.2-storage-configuration-virtiofs --wait --ignore-not-found=true
+```
+
+### Delete Storage Controllers from the Host Cluster
+
+```shell
+helm uninstall -n dpf-operator-system snap-host-controller --wait
+helm uninstall -n dpf-operator-system spdk-csi-controller --wait
+helm uninstall -n dpf-operator-system nfs-csi-controller --wait
 ```
 
 ### Delete DPF CNI acceleration components

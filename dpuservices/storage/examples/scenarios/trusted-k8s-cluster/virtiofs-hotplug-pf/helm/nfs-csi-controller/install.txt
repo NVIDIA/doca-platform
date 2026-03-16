@@ -1,0 +1,4 @@
+helm upgrade --install -n dpf-operator-system nfs-csi-controller \
+  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/nfs-csi-controller --version=v0.2.0 \
+  --wait \
+  -f trusted-k8s-cluster/virtiofs-hotplug-pf/helm/nfs-csi-controller/values.yaml
