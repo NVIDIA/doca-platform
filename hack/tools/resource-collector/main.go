@@ -65,8 +65,6 @@ func main() {
 		artifactsDirectory = filepath.Join(filepath.Dir(basePath), "../../../artifacts")
 	}
 
-	inventoryManifestsDirectory := filepath.Join(filepath.Dir(basePath), "../../../internal/operator/inventory/manifests")
-
 	// creates the clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -79,7 +77,7 @@ func main() {
 		RestConfig: config,
 	}
 
-	clusters, err := collector.GetClusterCollectors(ctx, cc, artifactsDirectory, inventoryManifestsDirectory)
+	clusters, err := collector.GetClusterCollectors(ctx, cc, artifactsDirectory)
 
 	if err != nil {
 		log.Error(err, "Failed to get cluster collectors")

@@ -19,11 +19,9 @@ repositories:
     url: git+https://github.com/rancher/local-path-provisioner@deploy/chart?ref=v0.0.34
 
 helmDefaults:
-  atomic: true
-  cleanupOnFail: true
   skipDeps: false
-  wait: false
-  timeout: 600
+  wait: true
+  cleanupOnFail: true
 
 releases:
   - name: cert-manager
