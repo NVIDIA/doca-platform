@@ -157,6 +157,7 @@ func (r *BFBRegistryRunnable) desiredPod(namespace, nodeName, image string, owne
 					SecurityContext: &corev1.SecurityContext{
 						RunAsUser:  ptr.To(int64(65532)),
 						RunAsGroup: ptr.To(int64(65532)),
+						Privileged: ptr.To(true),
 					},
 					VolumeMounts: []corev1.VolumeMount{
 						{Name: "bfb", MountPath: "/bfb"},

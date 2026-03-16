@@ -414,7 +414,8 @@ func addBFBHostPathInitContainer(deploy *appsv1.Deployment) {
 		Image:   "busybox:1.36",
 		Command: []string{"sh", "-c", "mkdir -p /bfb && chown -R 65532:65532 /bfb"},
 		SecurityContext: &corev1.SecurityContext{
-			RunAsUser: ptr.To(int64(0)),
+			RunAsUser:  ptr.To(int64(0)),
+			Privileged: ptr.To(true),
 		},
 		VolumeMounts: []corev1.VolumeMount{
 			{Name: bfbVolumeName, MountPath: "/bfb"},
