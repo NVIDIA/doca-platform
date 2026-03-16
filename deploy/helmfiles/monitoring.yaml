@@ -7,10 +7,9 @@ repositories:
     url: https://grafana.github.io/helm-charts
 
 helmDefaults:
-  atomic: true
-  cleanupOnFail: true
   skipDeps: false
-  timeout: 600
+  wait: true
+  cleanupOnFail: true
 
 releases:
   - name: kube-prometheus-stack

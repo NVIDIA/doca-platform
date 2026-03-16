@@ -16,6 +16,9 @@
 
 set -euo pipefail
 
+# Mandatory env variables
+: ${YQ:?env not set}
+
 # Default values
 HELMFILE_FILE=""
 HELM_CHART_VERSION=""
@@ -26,6 +29,11 @@ HELMFILE_BIN="helmfile"
 HELM_BIN="helm"
 ENVIRONMENT=""
 SELECTOR=""
+COLLECT_ON_FAIL="true"
+CLEANUP_ON_FAIL="false"
+WAIT="true"
+ARTIFACTS_DIR="${HELMFILE_ARTIFACTS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../artifacts/helmfile}"
+DPFDEV_BIN="${DPFDEV_BIN:-"$(which dpfdev)"}"
 
 # Function to print usage
 usage() {
@@ -35,21 +43,24 @@ Usage: $0 [OPTIONS]
 Deploy helm dependencies using helmfile. Supports local files, OCI registries, and traditional Helm repositories.
 
 OPTIONS:
-    -f, --file FILE           Path to helmfile (required for local and remote deployments)
-    --repo-url URL            Repository URL (supports both OCI and HTTPS)
-                              Examples:
-                              - OCI: oci://harbor.example.com/my-chart
-                              - HTTPS: https://charts.example.com
-    --chart-name NAME         Chart name (required for HTTPS repos, optional for OCI)
-                              - For OCI: used if not included in repo-url
-                              - For HTTPS: the chart name to pull from the repository
-    -v, --version VERSION     Chart version to pull from repository
-    -n, --name NAME           Chart name for extraction (default: dpf-operator)
-    --environment NAME        Defines the environment for the deployment (e.g., shared-fs)
-    --selector SELECTOR       Selector for filtering resources (e.g., "app=grafana" or "app!=prometheus")
-    --helmfile-bin PATH       Path to helmfile binary (default: helmfile)
-    --helm-bin PATH           Path to helm binary (default: helm)
-    -h, --help                Show this help message
+    -f, --file FILE                     Path to helmfile (required for local and remote deployments)
+    --repo-url URL                      Repository URL (supports both OCI and HTTPS)
+                                        Examples:
+                                        - OCI: oci://harbor.example.com/my-chart
+                                        - HTTPS: https://charts.example.com
+    --chart-name NAME                   Chart name (required for HTTPS repos, optional for OCI)
+                                        - For OCI: used if not included in repo-url
+                                        - For HTTPS: the chart name to pull from the repository
+    --collect-resources-on-fail BOOL    Whether to collect resources on failure (default: true)
+    --cleanup-on-fail BOOL              Whether to clean up resources on failure (default: false)
+    --wait BOOL                         Whether to wait for resources to be ready (default: true)
+    -v, --version VERSION               Chart version to pull from repository
+    -n, --name NAME                     Chart name for extraction (default: dpf-operator)
+    --environment NAME                  Defines the environment for the deployment (e.g., shared-fs)
+    --selector SELECTOR                 Selector for filtering resources (e.g., "app=grafana" or "app!=prometheus")
+    --helmfile-bin PATH                 Path to helmfile binary (default: helmfile)
+    --helm-bin PATH                     Path to helm binary (default: helm)
+    -h, --help                          Show this help message
 
 EXAMPLES:
     # Deploy from local file
@@ -79,6 +90,18 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--chart-name)
 		CHART_NAME="$2"
+		shift 2
+		;;
+	--collect-resources-on-fail)
+		COLLECT_ON_FAIL="$2"
+		shift 2
+		;;
+	--cleanup-on-fail)
+		CLEANUP_ON_FAIL="$2"
+		shift 2
+		;;
+	--wait)
+		WAIT="$2"
 		shift 2
 		;;
 	-v | --version)
@@ -240,12 +263,37 @@ deploy_from_chart() {
 	deploy_helmfile "$helmfilePath"
 }
 
+# Function to collect resources on failure
+collect_resources_on_failure() {
+	if [[ "$COLLECT_ON_FAIL" != "true" ]]; then
+		return 0
+	fi
+
+	if ! command -v "$DPFDEV_BIN" &> /dev/null; then
+		echo "Warning: dpfdev not found at '$DPFDEV_BIN', skipping resource collection" >&2
+		return 0
+	fi
+
+	echo "Collecting resources to $ARTIFACTS_DIR..." >&2
+	"$DPFDEV_BIN" collect --output-dir "$ARTIFACTS_DIR" ${HELMFILE_INVENTORY_DIR:+--inventory-dir "$HELMFILE_INVENTORY_DIR"} \
+		|| echo "Warning: resource collection failed, continuing..." >&2
+}
+
 # Generic function to deploy helmfile
 deploy_helmfile() {
 	local helmfilePath="$1"
 
 	# Make apply-crds.sh executable
 	chmod +x "$(dirname "$helmfilePath")/apply-crds.sh"
+
+	# Create temp helmfile with cleanupOnFail set based on parameter.
+	# Cannot use process substitution `<()` here, the fd would close before command execution.
+	# Creating a persistent temp file instead.
+	# Select the document that has releases set and update it. The first document might be the environments document
+	# which cannot exist in the same document as releases.
+	${YQ} "select(has(\"releases\")) |= (.helmDefaults.cleanupOnFail=${CLEANUP_ON_FAIL} | .helmDefaults.wait=${WAIT})" "$helmfilePath" > "$helmfilePath.tmp"
+	# Delete tmp helmfile on exit
+	trap "rm -f $helmfilePath.tmp" EXIT
 
 	# Build helmfile command
 	local helmfile_cmd=(
@@ -256,7 +304,7 @@ deploy_helmfile() {
 		--color
 		--hide-notes
 		--allow-no-matching-release
-		--file "$helmfilePath"
+		--file "$helmfilePath.tmp"
 		--helm-binary "$HELM_BIN"
 	)
 
@@ -271,7 +319,10 @@ deploy_helmfile() {
 	fi
 
 	# Deploy using helmfile
-	"${helmfile_cmd[@]}"
+	if ! "${helmfile_cmd[@]}"; then
+		collect_resources_on_failure
+		return 1
+	fi
 }
 
 # Main execution

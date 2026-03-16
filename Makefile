@@ -591,14 +591,20 @@ test-deploy-mock-dms: helm # Deploy mock-dms to the kind test cluster.
 
 HELMFILE_FILE ?= $(CURDIR)/deploy/helmfiles/prereqs.yaml
 HELMFILE_SELECTOR ?=
+HELMFILE_COLLECT_RESOURCES_ON_FAIL ?= true
+HELMFILE_CLEANUP_ON_FAIL ?= false
+HELMFILE_WAIT ?= true
 .PHONY: test-deploy-helmfile
-test-deploy-helmfile: helmfile helm helm-diff helm-git ## Deploy helm dependencies from local helmfile
-	@$(CURDIR)/hack/scripts/deploy-helmfile.sh \
+test-deploy-helmfile: helmfile helm helm-diff helm-git yq binary-dpfdev ## Deploy helm dependencies from local helmfile
+	@DPFDEV_BIN=$(LOCALBIN)/dpfdev $(CURDIR)/hack/scripts/deploy-helmfile.sh \
 		--file "$(HELMFILE_FILE)" \
+		--wait "$(HELMFILE_WAIT)" \
+		--cleanup-on-fail "$(HELMFILE_CLEANUP_ON_FAIL)" \
+		--collect-resources-on-fail "$(HELMFILE_COLLECT_RESOURCES_ON_FAIL)" \
+		--helm-bin "$(HELM)" \
 		--helmfile-bin "$(HELMFILE)" \
 		$(if $(strip $(HELMFILE_ENV)),--environment "$(HELMFILE_ENV)") \
-		$(if $(strip $(HELMFILE_SELECTOR)),--selector "$(HELMFILE_SELECTOR)") \
-		--helm-bin "$(HELM)"
+		$(if $(strip $(HELMFILE_SELECTOR)),--selector "$(HELMFILE_SELECTOR)")
 
 ARTIFACTS_DIR ?= $(CURDIR)/artifacts
 $(ARTIFACTS_DIR):
