@@ -13,8 +13,12 @@
 #See the License for the specific language governing permissions and
 #limitations under the License.
 
-TOOLSDIR ?= $(PROJECT_DIR)/hack/tools/bin
+TOOLSDIR := $(PROJECT_DIR)/hack/tools/bin
 $(TOOLSDIR):
+	@mkdir -p $@
+
+TOOLSDIR_GO := $(TOOLSDIR)/go$(shell echo $(GO_VERSION) | cut -d. -f1,2)
+$(TOOLSDIR_GO):
 	@mkdir -p $@
 
 # Detect architecture and platform
@@ -100,37 +104,37 @@ TRIVY_VERSION ?= 0.69.3
 NFPM_VERSION ?= 2.45.0
 
 ## Tool Binaries
-export YQ = $(TOOLSDIR)/yq-$(YQ_VERSION)
+export YQ = $(TOOLSDIR_GO)/yq-$(YQ_VERSION)
 export HELM = $(TOOLSDIR)/helm-$(HELM_VER)
 export HELMFILE = $(TOOLSDIR)/helmfile-$(HELMFILE_VERSION)
 KUBECTL ?= kubectl
-KUSTOMIZE ?= $(TOOLSDIR)/kustomize-$(KUSTOMIZE_VERSION)
-CONTROLLER_GEN ?= $(TOOLSDIR)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
-ENVTEST ?= $(TOOLSDIR)/setup-envtest-$(ENVTEST_VERSION)
-GOLANGCI_LINT ?= $(TOOLSDIR)/golangci-lint-$(GOLANGCI_LINT_VERSION)
-MOCKGEN ?= $(TOOLSDIR)/mockgen-$(MOCKGEN_VERSION)
-GOTESTSUM ?= $(TOOLSDIR)/gotestsum-$(GOTESTSUM_VERSION)
-ENVSUBST ?= $(TOOLSDIR)/envsubst-$(ENVSUBST_VERSION)
+KUSTOMIZE ?= $(TOOLSDIR_GO)/kustomize-$(KUSTOMIZE_VERSION)
+CONTROLLER_GEN ?= $(TOOLSDIR_GO)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
+ENVTEST ?= $(TOOLSDIR_GO)/setup-envtest-$(ENVTEST_VERSION)
+GOLANGCI_LINT ?= $(TOOLSDIR_GO)/golangci-lint-$(GOLANGCI_LINT_VERSION)
+MOCKGEN ?= $(TOOLSDIR_GO)/mockgen-$(MOCKGEN_VERSION)
+GOTESTSUM ?= $(TOOLSDIR_GO)/gotestsum-$(GOTESTSUM_VERSION)
+ENVSUBST ?= $(TOOLSDIR_GO)/envsubst-$(ENVSUBST_VERSION)
 KIND ?= $(TOOLSDIR)/kind-$(KIND_VER)
-GEN_CRD_API_REFERENCE_DOCS ?= $(TOOLSDIR)/crd-ref-docs-$(GEN_API_REF_DOCS_VERSION)
-MDTOC ?= $(TOOLSDIR)/mdtoc-$(MDTOC_VER)
-STERN ?= $(TOOLSDIR)/stern-$(STERN_VER)
-HELM_DOCS ?= $(TOOLSDIR)/helm-docs-$(HELM_DOCS_VER)
-EMBEDMD ?= $(TOOLSDIR)/embedmd-$(EMBEDMD_VER)
+GEN_CRD_API_REFERENCE_DOCS ?= $(TOOLSDIR_GO)/crd-ref-docs-$(GEN_API_REF_DOCS_VERSION)
+MDTOC ?= $(TOOLSDIR_GO)/mdtoc-$(MDTOC_VER)
+STERN ?= $(TOOLSDIR_GO)/stern-$(STERN_VER)
+HELM_DOCS ?= $(TOOLSDIR_GO)/helm-docs-$(HELM_DOCS_VER)
+EMBEDMD ?= $(TOOLSDIR_GO)/embedmd-$(EMBEDMD_VER)
 PROTOC ?= $(TOOLSDIR)/protoc/bin/protoc
 PROTOC_GEN_GO ?= $(TOOLSDIR)/protoc-gen-go
 PROTOC_GEN_GO_GRPC ?= $(TOOLSDIR)/protoc-gen-go-grpc
 BUF ?= $(TOOLSDIR)/buf
-CONFORM ?= $(TOOLSDIR)/conform-$(CONFORM_VERSION)
+CONFORM ?= $(TOOLSDIR_GO)/conform-$(CONFORM_VERSION)
 LYCHEE ?= $(TOOLSDIR)/lychee-$(LYCHEE_VER)
-MODELGEN ?= $(TOOLSDIR)/modelgen-$(MODELGEN_VERSION)
-CLIENT_GEN ?= $(TOOLSDIR)/client-gen-$(CODE_GENERATOR_VERSION)
-LISTER_GEN ?= $(TOOLSDIR)/lister-gen-$(CODE_GENERATOR_VERSION)
-INFORMER_GEN ?= $(TOOLSDIR)/informer-gen-$(CODE_GENERATOR_VERSION)
-DEEPCOPY_GEN ?= $(TOOLSDIR)/deepcopy-gen-$(CODE_GENERATOR_VERSION)
+MODELGEN ?= $(TOOLSDIR_GO)/modelgen-$(MODELGEN_VERSION)
+CLIENT_GEN ?= $(TOOLSDIR_GO)/client-gen-$(CODE_GENERATOR_VERSION)
+LISTER_GEN ?= $(TOOLSDIR_GO)/lister-gen-$(CODE_GENERATOR_VERSION)
+INFORMER_GEN ?= $(TOOLSDIR_GO)/informer-gen-$(CODE_GENERATOR_VERSION)
+DEEPCOPY_GEN ?= $(TOOLSDIR_GO)/deepcopy-gen-$(CODE_GENERATOR_VERSION)
 NGC_DIR ?= $(TOOLSDIR)/ngc-$(NGC_VERSION)
 NGC ?= $(NGC_DIR)/ngc-cli/ngc
-SHFMT ?= $(TOOLSDIR)/shfmt-$(SHFMT_VERSION)
+SHFMT ?= $(TOOLSDIR_GO)/shfmt-$(SHFMT_VERSION)
 TRIVY ?= $(TOOLSDIR)/trivy-$(TRIVY_VERSION)
 NFPM ?= $(TOOLSDIR)/nfpm-$(NFPM_VERSION)
 
@@ -139,14 +143,14 @@ NFPM ?= $(TOOLSDIR)/nfpm-$(NFPM_VERSION)
 # mdtoc is used to generate a table of contents for our documentation
 .PHONY: mdtoc
 mdtoc: $(MDTOC) ## Download mdtoc locally if necessary.
-	@$(MAKE) tools-path TOOL=mdtoc VERSION=$(MDTOC_VER)
-$(MDTOC): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=mdtoc VERSION=$(MDTOC_VER)
+$(MDTOC): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(MDTOC),sigs.k8s.io/mdtoc,$(MDTOC_VER))
 
 .PHONY: yq
 yq: $(YQ) ## Download conform locally if necessary.
-	@$(MAKE) tools-path TOOL=yq VERSION=$(YQ_VERSION)
-$(YQ): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=yq VERSION=$(YQ_VERSION)
+$(YQ): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(YQ),github.com/mikefarah/yq/v4,$(YQ_VERSION))
 
 # helm is used to manage helm deployments and artifacts.
@@ -194,8 +198,8 @@ helm-git: helm
 
 .PHONY: conform
 conform: $(CONFORM) ## Download conform locally if necessary.
-	@$(MAKE) tools-path TOOL=conform VERSION=$(CONFORM_VERSION)
-$(CONFORM): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=conform VERSION=$(CONFORM_VERSION)
+$(CONFORM): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(CONFORM),github.com/siderolabs/conform/cmd/conform,$(CONFORM_VERSION))
 
 .PHONY: protoc
@@ -230,75 +234,75 @@ $(BUF): | $(TOOLSDIR)
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
-	@$(MAKE) tools-path TOOL=kustomize VERSION=$(KUSTOMIZE_VERSION)
-$(KUSTOMIZE): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=kustomize VERSION=$(KUSTOMIZE_VERSION)
+$(KUSTOMIZE): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
-	@$(MAKE) tools-path TOOL=controller-gen VERSION=$(CONTROLLER_TOOLS_VERSION)
-$(CONTROLLER_GEN): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=controller-gen VERSION=$(CONTROLLER_TOOLS_VERSION)
+$(CONTROLLER_GEN): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
-	@$(MAKE) tools-path TOOL=setup-envtest VERSION=$(ENVTEST_VERSION)
-$(ENVTEST): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=setup-envtest VERSION=$(ENVTEST_VERSION)
+$(ENVTEST): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
-	@$(MAKE) tools-path TOOL=golangci-lint VERSION=$(GOLANGCI_LINT_VERSION)
-$(GOLANGCI_LINT): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=golangci-lint VERSION=$(GOLANGCI_LINT_VERSION)
+$(GOLANGCI_LINT): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,${GOLANGCI_LINT_VERSION})
 
 .PHONY: mockgen
 mockgen: $(MOCKGEN) ## Download mockgen locally if necessary.
-	@$(MAKE) tools-path TOOL=mockgen VERSION=$(MOCKGEN_VERSION)
-$(MOCKGEN): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=mockgen VERSION=$(MOCKGEN_VERSION)
+$(MOCKGEN): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(MOCKGEN),go.uber.org/mock/mockgen,${MOCKGEN_VERSION})
 	ln -f $(MOCKGEN) $(abspath $(TOOLSDIR)/mockgen)
 
 .PHONY: modelgen
 modelgen: $(MODELGEN) ## Download modelgen locally if necessary.
-	@$(MAKE) tools-path TOOL=modelgen VERSION=$(MODELGEN_VERSION)
-$(MODELGEN): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=modelgen VERSION=$(MODELGEN_VERSION)
+$(MODELGEN): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(MODELGEN),github.com/ovn-org/libovsdb/cmd/modelgen,${MODELGEN_VERSION})
 	ln -f $(MODELGEN) $(abspath $(TOOLSDIR)/modelgen)
 
 # gotestsum is used to generate junit style test reports
 .PHONY: gotestsum
 gotestsum: $(GOTESTSUM) # download gotestsum locally if necessary
-	@$(MAKE) tools-path TOOL=gotestsum VERSION=$(GOTESTSUM_VERSION)
-$(GOTESTSUM): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=gotestsum VERSION=$(GOTESTSUM_VERSION)
+$(GOTESTSUM): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(GOTESTSUM),gotest.tools/gotestsum,${GOTESTSUM_VERSION})
 
 # envsubst is used to template files with environment variables
 .PHONY: envsubst
 envsubst: $(ENVSUBST) # download envsubst locally if necessary
-	@$(MAKE) tools-path TOOL=envsubst VERSION=$(ENVSUBST_VERSION)
-$(ENVSUBST): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=envsubst VERSION=$(ENVSUBST_VERSION)
+$(ENVSUBST): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(ENVSUBST),github.com/a8m/envsubst/cmd/envsubst,${ENVSUBST_VERSION})
 
 # gen-crd-api-reference-docs is used for CRD API doc generation
 .PHONY: gen-crd-api-reference-docs
 gen-crd-api-reference-docs: $(GEN_CRD_API_REFERENCE_DOCS) ## Download gen-crd-api-reference-docs locally if necessary.
-	@$(MAKE) tools-path TOOL=crd-ref-docs VERSION=$(GEN_API_REF_DOCS_VERSION)
-$(GEN_CRD_API_REFERENCE_DOCS): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=crd-ref-docs VERSION=$(GEN_API_REF_DOCS_VERSION)
+$(GEN_CRD_API_REFERENCE_DOCS): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(GEN_CRD_API_REFERENCE_DOCS),github.com/elastic/crd-ref-docs,$(GEN_API_REF_DOCS_VERSION))
 
 # stern is used to collect logs for our e2e tests
 .PHONY: stern
 stern: $(STERN) ## Download stern locally if necessary.
-	@$(MAKE) tools-path TOOL=stern VERSION=$(STERN_VER)
-$(STERN): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=stern VERSION=$(STERN_VER)
+$(STERN): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(STERN),github.com/stern/stern,$(STERN_VER))
 
 # stern is used to collect logs for our e2e tests
 .PHONY: embedmd
 embedmd: $(EMBEDMD) ## Download stern locally if necessary.
-	@$(MAKE) tools-path TOOL=embedmd VERSION=$(EMBEDMD_VER)
-$(EMBEDMD): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=embedmd VERSION=$(EMBEDMD_VER)
+$(EMBEDMD): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(EMBEDMD),github.com/grafana/embedmd,$(EMBEDMD_VER))
 
 # kind is used to run a local Kubernetes cluster in Docker.
@@ -349,36 +353,36 @@ $(TRIVY): | $(TOOLSDIR)
 
 # helm-docs is used to generate helm chart documentation
 helm-docs: $(HELM_DOCS)
-	@$(MAKE) tools-path TOOL=helm-docs VERSION=$(HELM_DOCS_VER)
-$(HELM_DOCS): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=helm-docs VERSION=$(HELM_DOCS_VER)
+$(HELM_DOCS): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(HELM_DOCS),github.com/norwoodj/helm-docs/cmd/helm-docs,$(HELM_DOCS_VER))
 
 # client-gen is used to generate client code for custom resources
 .PHONY: client-gen
 client-gen: $(CLIENT_GEN)
-	@$(MAKE) tools-path TOOL=client-gen VERSION=$(CODE_GENERATOR_VERSION)
-$(CLIENT_GEN): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=client-gen VERSION=$(CODE_GENERATOR_VERSION)
+$(CLIENT_GEN): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(CLIENT_GEN),k8s.io/code-generator/cmd/client-gen,$(CODE_GENERATOR_VERSION))
 
 # lister-gen is used to generate lister code for custom resources
 .PHONY: lister-gen
 lister-gen: $(LISTER_GEN)
-	@$(MAKE) tools-path TOOL=lister-gen VERSION=$(CODE_GENERATOR_VERSION)
-$(LISTER_GEN): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=lister-gen VERSION=$(CODE_GENERATOR_VERSION)
+$(LISTER_GEN): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(LISTER_GEN),k8s.io/code-generator/cmd/lister-gen,$(CODE_GENERATOR_VERSION))
 
 # informer-gen is used to generate informer code for custom resources
 .PHONY: informer-gen
 informer-gen: $(INFORMER_GEN)
-	@$(MAKE) tools-path TOOL=informer-gen VERSION=$(CODE_GENERATOR_VERSION)
-$(INFORMER_GEN): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=informer-gen VERSION=$(CODE_GENERATOR_VERSION)
+$(INFORMER_GEN): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(INFORMER_GEN),k8s.io/code-generator/cmd/informer-gen,$(CODE_GENERATOR_VERSION))
 
 # deepcopy-gen is used to generate deepcopy code for custom resources
 .PHONY: deepcopy-gen
 deepcopy-gen: $(DEEPCOPY_GEN)
-	@$(MAKE) tools-path TOOL=deepcopy-gen VERSION=$(CODE_GENERATOR_VERSION)
-$(DEEPCOPY_GEN): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=deepcopy-gen VERSION=$(CODE_GENERATOR_VERSION)
+$(DEEPCOPY_GEN): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(DEEPCOPY_GEN),k8s.io/code-generator/cmd/deepcopy-gen,$(CODE_GENERATOR_VERSION))
 
 .PHONY: checkov
@@ -425,8 +429,8 @@ endif
 # shfmt is used to format shell scripts
 .PHONY: shfmt
 shfmt: $(SHFMT)
-	@$(MAKE) tools-path TOOL=shfmt VERSION=$(SHFMT_VERSION)
-$(SHFMT): | $(TOOLSDIR)
+	@$(MAKE) tools-path-go TOOL=shfmt VERSION=$(SHFMT_VERSION)
+$(SHFMT): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(SHFMT),mvdan.cc/sh/v3/cmd/shfmt,$(SHFMT_VERSION))
 
 # nfpm is used to build .deb and .rpm packages for dpu-agent
@@ -451,7 +455,7 @@ define go-install-tool
 set -e; \
 package=$(2)@$(3) ;\
 echo "Downloading $${package}" ;\
-GOTOOLCHAIN=$(shell go version | awk '{print $$3}')+auto GOBIN=$(TOOLSDIR) go install $${package} ;\
+GOTOOLCHAIN=go$(GO_VERSION)+auto GOBIN=$(TOOLSDIR_GO) go install $${package} ;\
 mv "$$(echo "$(1)" | sed "s/-$(3)$$//")" $(1) ;\
 }
 endef
@@ -465,6 +469,21 @@ tools-path:
 		exit 1; \
 	fi; \
 	src="$(TOOLSDIR)/$(TOOL)-$(VERSION)"; \
+	dest="$(TOOLSDIR)/$(TOOL)"; \
+	if [ ! -f "$$src" ]; then \
+		echo "Error: $$src does not exist!"; \
+		exit 2; \
+	fi; \
+	ln -sf "$$src" "$$dest"; \
+	echo "Created symlink: $$dest -> $$(basename $$src)"
+
+.PHONY: tools-path-go
+tools-path-go:
+	@if [ -z "$(TOOL)" ] || [ -z "$(VERSION)" ]; then \
+		echo "Usage: make tools-path TOOL=<toolname> VERSION=<version>"; \
+		exit 1; \
+	fi; \
+	src="$(TOOLSDIR_GO)/$(TOOL)-$(VERSION)"; \
 	dest="$(TOOLSDIR)/$(TOOL)"; \
 	if [ ! -f "$$src" ]; then \
 		echo "Error: $$src does not exist!"; \
