@@ -58,6 +58,16 @@ func (c *DPUServiceInterface) SetConditions(conditions []metav1.Condition) {
 	c.Status.Conditions = conditions
 }
 
+// SetServiceInterfaceSetLabelSelector sets the label selector for the ServiceInterfaceSet
+func (c *DPUServiceInterface) SetServiceInterfaceSetLabelSelector(selector *metav1.LabelSelector) {
+	c.Spec.Template.Spec.NodeSelector = selector
+}
+
+// GetServiceInterfaceSetLabelSelector returns the label selector for the ServiceInterfaceSet
+func (c *DPUServiceInterface) GetServiceInterfaceSetLabelSelector() *metav1.LabelSelector {
+	return c.Spec.Template.Spec.NodeSelector
+}
+
 // GetDPUClusterSelector returns the DPUCluster selector of the DPUServiceInterface
 func (c *DPUServiceInterface) GetDPUClusterSelector() *metav1.LabelSelector {
 	return c.Spec.DPUClusterSelector
@@ -94,11 +104,6 @@ type DPUServiceInterfaceStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-}
-
-// SetServiceInterfaceSetLabelSelector sets the label selector for the ServiceInterfaceSet
-func (c *DPUServiceInterface) SetServiceInterfaceSetLabelSelector(selector *metav1.LabelSelector) {
-	c.Spec.Template.Spec.NodeSelector = selector
 }
 
 // GetVirtualNetworkName returns the virtual network name from the DPUServiceInterface.

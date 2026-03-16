@@ -21,6 +21,8 @@ import (
 	"slices"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -248,4 +250,29 @@ func enqueueRequests(requests []ctrl.Request, q workqueue.TypedRateLimitingInter
 	for req := range reqs {
 		q.Add(req)
 	}
+}
+
+// extractDPUNodeFromNodeLabels extracts DPUNode name and namespace from the labels of a node that belongs to a DPUCluster.
+// Supports backward compatibility with deprecated HostNameDPULabelKey.
+// Returns (name, namespace, found) where found indicates if the labels were present.
+func extractDPUNodeFromNodeLabels(node *corev1.Node, dpuNodeDefaultNamespace string) (types.NamespacedName, bool) {
+	// Use new DPUNodeNameLabel and DPUNodeNamespaceLabel, fall back to deprecated HostNameDPULabelKey for backward compatibility
+	dpuNodeName, hasName := node.Labels[provisioningv1.DPUNodeNameLabel]
+	dpuNodeNamespace := node.Labels[provisioningv1.DPUNodeNamespaceLabel]
+
+	if !hasName {
+		// Fall back to deprecated label for backward compatibility
+		dpuNodeName, hasName = node.Labels[cutil.HostNameDPULabelKey]
+		if !hasName {
+			// Node doesn't have DPUNode labels
+			return types.NamespacedName{}, false
+		}
+		// Use default namespace when using deprecated label
+		dpuNodeNamespace = dpuNodeDefaultNamespace
+	}
+
+	return types.NamespacedName{
+		Namespace: dpuNodeNamespace,
+		Name:      dpuNodeName,
+	}, true
 }
