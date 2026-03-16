@@ -14,9 +14,6 @@ spec:
           matchLabels:
             feature.node.kubernetes.io/dpu-enabled: "true"
   services:
-    snap-host-controller:
-      serviceTemplate: snap-host-controller
-      serviceConfiguration: snap-host-controller
     snap-node-driver:
       serviceTemplate: snap-node-driver
       serviceConfiguration: snap-node-driver
@@ -26,9 +23,6 @@ spec:
     fs-storage-dpu-plugin:
       serviceTemplate: fs-storage-dpu-plugin
       serviceConfiguration: fs-storage-dpu-plugin
-    nfs-csi-controller:
-      serviceTemplate: nfs-csi-controller
-      serviceConfiguration: nfs-csi-controller
     nfs-csi-controller-dpu:
       serviceTemplate: nfs-csi-controller-dpu
       serviceConfiguration: nfs-csi-controller-dpu
