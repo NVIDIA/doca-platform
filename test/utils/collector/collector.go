@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/test/utils/tunnel"
@@ -164,6 +165,10 @@ func getResourcesToCollect(clientset *kubernetes.Clientset) ([]schema.GroupVersi
 		}
 
 		for _, r := range rl.APIResources {
+			// Skip resources that don't support list operations
+			if !slices.Contains(r.Verbs, "list") {
+				continue
+			}
 			gvk := gv.WithKind(r.Kind)
 			resourcesToCollect = append(resourcesToCollect, gvk)
 		}
