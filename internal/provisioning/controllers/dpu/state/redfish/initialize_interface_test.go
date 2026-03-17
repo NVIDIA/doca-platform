@@ -722,7 +722,9 @@ var _ = Describe("InitializeInterface", func() {
 			Expect(*status.SecureBoot.Enabled).To(BeFalse(),
 				"status should reflect actual BMC value, not desired")
 			loaded, _ := dutil.LoadArmRestartTracker(dpu)
-			Expect(loaded).To(BeNil(), "tracker should be cleared on terminal error")
+			Expect(loaded).NotTo(BeNil(), "tracker should be preserved on terminal error for forensics and race prevention")
+			Expect(loaded.MaxAttempts).To(Equal(2))
+			Expect(loaded.Attempt).To(Equal(2))
 		})
 
 		It("should go to DPUError when mismatch persists past verification timeout", func() {
@@ -754,7 +756,50 @@ var _ = Describe("InitializeInterface", func() {
 			Expect(*status.SecureBoot.Enabled).To(BeFalse(),
 				"status should reflect actual BMC value, not desired")
 			loaded, _ := dutil.LoadArmRestartTracker(dpu)
-			Expect(loaded).To(BeNil(), "tracker should be cleared on terminal error")
+			Expect(loaded).NotTo(BeNil(), "tracker should be preserved on terminal error for forensics and race prevention")
+			Expect(loaded.MaxAttempts).To(Equal(2))
+			Expect(loaded.Attempt).To(Equal(2))
+		})
+
+		It("should remain in DPUError on re-reconcile when tracker is preserved after timeout", func() {
+			dpu.Spec.SecureBoot = ptr.To(true)
+			mockServer.SetSecureBootCurrentBoot(false)
+			tracker := &dutil.ArmRestartTracker{
+				MaxAttempts:       2,
+				Attempt:           2,
+				InitialGeneration: dpu.Generation,
+			}
+			Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
+
+			By("Set ArmForceRestarted condition with expired LastTransitionTime")
+			dpu.Status.Conditions = append(dpu.Status.Conditions, metav1.Condition{
+				Type:               provisioningv1.DPUCondArmForceRestarted.String(),
+				Status:             metav1.ConditionTrue,
+				Reason:             provisioningv1.DPUCondArmForceRestarted.String(),
+				LastTransitionTime: metav1.NewTime(time.Now().Add(-secureBootVerificationTimeout - time.Second)),
+			})
+
+			By("First reconcile: should transition to DPUError")
+			status1, err := InitializeInterface(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status1.Phase).To(Equal(provisioningv1.DPUError))
+			_, cond1 := cutil.GetDPUCondition(&status1, provisioningv1.DPUCondInterfaceInitialized.String())
+			Expect(cond1).NotTo(BeNil())
+			Expect(cond1.Reason).To(Equal("SecureBootConfigurationFailed"))
+
+			By("Simulate race: second reconcile with preserved tracker and phase still InitializeInterface")
+			dpu.Status = status1
+			dpu.Status.Phase = provisioningv1.DPUInitializeInterface
+			status2, err := InitializeInterface(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status2.Phase).To(Equal(provisioningv1.DPUError),
+				"second reconcile should still produce DPUError, not re-stage Secure Boot")
+			_, cond2 := cutil.GetDPUCondition(&status2, provisioningv1.DPUCondInterfaceInitialized.String())
+			Expect(cond2).NotTo(BeNil())
+			Expect(cond2.Reason).To(Equal("SecureBootConfigurationFailed"),
+				"should not have re-staged (SecureBootConfigurationStaged)")
+			loaded, _ := dutil.LoadArmRestartTracker(dpu)
+			Expect(loaded).NotTo(BeNil(), "tracker must remain to prevent race-driven re-staging")
 		})
 	})
 
