@@ -82,8 +82,8 @@ Commands in this guide are run in the same directory that contains this readme.
 
 <details markdown="1"><summary>Environment variables file</summary>
 
-[embedmd]:# (manifests/00-env-vars/envvars.env sh)
-```sh
+[embedmd]:# (manifests/00-env-vars/envvars.env ini)
+```ini
 ## IP Address for the Kubernetes API server of the target cluster on which DPF is installed.
 ## This should never include a scheme or a port.
 ## e.g. 10.10.10.10
@@ -139,27 +139,33 @@ export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundl
 ```
 </details>
 
-Modify the variables in `manifests/00-env-vars/envvars.env` to fit your environment, then source the file:
+First change the directory to the location of this readme:
 
 ```shell
+cd docs/public/user-guides/host-trusted/use-cases/hbn-ovnk
+```
+
+Then modify the variables in `manifests/00-env-vars/envvars.env` to fit your environment, then source the file:
+
+```shell no-exec
 source manifests/00-env-vars/envvars.env
+```
+
+Verify that all required environment variables are set:
+
+```shell
+../../../../check-required-env.sh
 ```
 
 ### 1. CNI Installation
 
 OVN Kubernetes is used as the primary CNI for the cluster. On worker nodes the primary CNI will be accelerated by offloading work to the DPU. On control plane nodes OVN Kubernetes will run without offloading.
 
-#### Create the Namespace
-
-```shell
-kubectl create ns ovn-kubernetes
-```
-
 #### Install OVN Kubernetes from the helm chart
 
 Install the OVN Kubernetes CNI components from the helm chart. A number of [environment variables](#0-required-variables) must be set before running this command.
 ```shell
-envsubst < manifests/01-cni-installation/helm-values/ovn-kubernetes.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version ${OVN_KUBERNETES_CHART_TAG} --values -
+envsubst < manifests/01-cni-installation/helm-values/ovn-kubernetes.yml | helm upgrade --install --create-namespace --namespace ovn-kubernetes ovn-kubernetes ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version ${OVN_KUBERNETES_CHART_TAG} --values -
 ```
 
 <details markdown="1"><summary>OVN-Kubernetes Helm values</summary>
@@ -191,9 +197,9 @@ These verification commands may need to be run multiple times to ensure the cond
 Verify the CNI installation with:
 ```shell
 ## Ensure all nodes in the cluster are ready.
-kubectl wait --for=condition=ready nodes --all
+kubectl wait --for=condition=ready nodes -l node-role.kubernetes.io/control-plane --timeout=5m
 ## Ensure all pods in the ovn-kubernetes namespace are ready.
-kubectl wait --for=condition=ready --namespace ovn-kubernetes pods --all --timeout=300s
+kubectl wait --for=condition=Ready --namespace ovn-kubernetes pods -l 'app.kubernetes.io/component!=ovnkube-node-dpu-host' --timeout=5m
 ```
 
 ### 2. DPF Operator Installation
@@ -202,7 +208,7 @@ kubectl wait --for=condition=ready --namespace ovn-kubernetes pods --all --timeo
 #### Create storage required by the DPF Operator
 A number of [environment variables](#0-required-variables) must be set before running this command.
 
-```shell
+```shell no-exec
 kubectl create ns dpf-operator-system
 cat manifests/02-dpf-operator-installation/*.yaml | envsubst | kubectl apply -f - 
 ```
@@ -259,9 +265,7 @@ NFD needs to target the VIP because it needs to be up before cluster services ca
 Example commands to set the environment variables:
 
 ```shell
-kubectl -n dpf-operator-system set env daemonset/node-feature-discovery-worker \
-KUBERNETES_SERVICE_HOST=$TARGETCLUSTER_API_SERVER_HOST \
-KUBERNETES_SERVICE_PORT=$TARGETCLUSTER_API_SERVER_PORT
+kubectl -n dpf-operator-system set env daemonset/node-feature-discovery-worker KUBERNETES_SERVICE_HOST=$TARGETCLUSTER_API_SERVER_HOST KUBERNETES_SERVICE_PORT=$TARGETCLUSTER_API_SERVER_PORT
 ```
 
 #### Deploy the DPF Operator
@@ -271,7 +275,7 @@ A number of [environment variables](#0-required-variables) must be set before ru
 ##### HTTP Registry (default)
 
 If the $REGISTRY is an HTTP Registry (default value) use this command:
-```shell
+```shell http
 helm repo add --force-update dpf-repository ${REGISTRY}
 helm repo update
 helm upgrade --install -n dpf-operator-system dpf-operator dpf-repository/dpf-operator --version=$TAG
@@ -282,8 +286,8 @@ helm upgrade --install -n dpf-operator-system dpf-operator dpf-repository/dpf-op
 ##### OCI Registry
 
 For development purposes, if the $REGISTRY is an OCI Registry use this command:
-```shell
-helm upgrade --install -n dpf-operator-system dpf-operator $REGISTRY/dpf-operator --version=$TAG
+```shell oci
+helm upgrade --install -n dpf-operator-system dpf-operator oci://$REGISTRY/dpf-operator --version=$TAG
 ```
 
 #### Verification
@@ -295,7 +299,7 @@ Verify the DPF Operator installation with:
 ## Ensure the DPF Operator deployment is available.
 kubectl rollout status deployment --namespace dpf-operator-system dpf-operator-controller-manager
 ## Ensure all pods in the DPF Operator system are ready.
-kubectl wait --for=condition=ready --namespace dpf-operator-system pods --all
+kubectl rollout status deployment,daemonset,statefulset --namespace dpf-operator-system --timeout=5m
 ```
 
 ### 3. DPF System installation
@@ -367,12 +371,16 @@ These verification commands may need to be run multiple times to ensure the cond
 
 Verify the DPF System with:
 ```shell
+## Wait for DPFOperatorConfig to be reconciled.
+kubectl wait --for=condition=SystemComponentsReconciled --namespace dpf-operator-system dpfoperatorconfig dpfoperatorconfig  --timeout=5m
+## Wait for the creation of the Deployments.
+kubectl wait --for=create deployment --namespace dpf-operator-system dpf-provisioning-controller-manager dpuservice-controller-manager  --timeout=5m
 ## Ensure the provisioning and DPUService controller manager deployments are available.
-kubectl rollout status deployment --namespace dpf-operator-system dpf-provisioning-controller-manager dpuservice-controller-manager
+kubectl rollout status deployment --namespace dpf-operator-system dpf-provisioning-controller-manager dpuservice-controller-manager --timeout=5m
 ## Ensure all other deployments in the DPF Operator system are Available.
-kubectl rollout status deployment --namespace dpf-operator-system
+kubectl rollout status deployment --namespace dpf-operator-system  --timeout=5m
 ## Ensure the DPUCluster is ready for nodes to join.
-kubectl wait --for=condition=ready --namespace dpu-cplane-tenant1 dpucluster --all
+kubectl wait --for=condition=ready --namespace dpu-cplane-tenant1 dpucluster --all --timeout=5m
 ```
 
 ### 4. Install components to enable accelerated CNI nodes
@@ -381,7 +389,7 @@ OVN Kubernetes will accelerate traffic by attaching a VF to each pod using the p
 
 #### Install Multus using NVIDIA Network Operator
 
-```shell
+```shell no-exec
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia --force-update
 helm upgrade --no-hooks --install --create-namespace --namespace nvidia-network-operator network-operator nvidia/network-operator --version 25.7.0 -f ./manifests/04-enable-accelerated-cni/helm-values/network-operator.yml
 ```
@@ -496,13 +504,15 @@ The `NodeSRIOVDevicePluginConfig` is linked to DPUs via the `noderesources.dpu.n
 These verification commands may need to be run multiple times to ensure the condition is met.
 
 Verify that the accelerated CNI is enabled with:
-```shell
+```shell no-exec
 ## Ensure all pods in the nvidia-network-operator namespace are ready.
-kubectl wait --for=condition=Ready --namespace nvidia-network-operator pods --all
-## Expect the Multus Daemonset to be successfully rolled out.
-kubectl rollout status daemonset --namespace nvidia-network-operator kube-multus-ds
+kubectl rollout status deployment,daemonset,statefulset --namespace nvidia-network-operator --timeout=5m
+```
+
+Verify that the OVN Kubernetes resource injection webhook is enabled with:
+```shell
 ## Expect the network injector to be successfully rolled out.
-kubectl rollout status deployment --namespace ovn-kubernetes ovn-kubernetes-resource-injector
+kubectl rollout status deployment --namespace ovn-kubernetes ovn-kubernetes-resource-injector --timeout=5m
 ```
 
 ### 5. DPU Provisioning and Service Installation
@@ -1104,14 +1114,16 @@ Note that the DPUService name will have a random suffix. For example, `ovn-hbn-d
 
 Verify the DPU and Service installation with:
 ```shell
+## Ensure the DPUDeployment has reconciled the DPUServices.
+kubectl wait --for=condition=DPUServicesReconciled --namespace dpf-operator-system dpudeployment ovn-hbn --timeout=5m
 ## Ensure the DPUServices are created and have been reconciled.
-kubectl wait --for=condition=ApplicationsReconciled --namespace dpf-operator-system dpuservices -l svc.dpu.nvidia.com/owned-by-dpudeployment=dpf-operator-system_ovn-hbn
+kubectl wait --for=condition=ApplicationsReconciled --namespace dpf-operator-system dpuservices -l svc.dpu.nvidia.com/owned-by-dpudeployment=dpf-operator-system_ovn-hbn --timeout=5m
 ## Ensure the DPUServiceIPAMs have been reconciled
-kubectl wait --for=condition=DPUIPAMObjectReconciled --namespace dpf-operator-system dpuserviceipam --all
+kubectl wait --for=condition=DPUIPAMObjectReconciled --namespace dpf-operator-system dpuserviceipam --all --timeout=5m
 ## Ensure the DPUServiceInterfaces have been reconciled
-kubectl wait --for=condition=ServiceInterfaceSetReconciled --namespace dpf-operator-system dpuserviceinterface --all
+kubectl wait --for=condition=ServiceInterfaceSetReconciled --namespace dpf-operator-system dpuserviceinterface --all --timeout=5m
 ## Ensure the DPUServiceChains have been reconciled
-kubectl wait --for=condition=ServiceChainSetReconciled --namespace dpf-operator-system dpuservicechain --all
+kubectl wait --for=condition=ServiceChainSetReconciled --namespace dpf-operator-system dpuservicechain --all --timeout=5m
 ```
 
 ### 6. Test Traffic
@@ -1123,7 +1135,7 @@ As workers are added to the cluster DPUs will be provisioned and DPUServices wil
 
 You can verify the status of the DPUDeployment and its components with the following command:
 
-```shell
+```shell no-exec
 $ kubectl -n dpf-operator-system exec deploy/dpf-operator-controller-manager -- /dpfctl describe dpudeployments
 NAME                                        NAMESPACE              STATUS        REASON     SINCE  MESSAGE
 DPFOperatorConfig/dpfoperatorconfig         dpf-operator-system    Ready: True   Success    2h
@@ -1145,7 +1157,7 @@ DPFOperatorConfig/dpfoperatorconfig         dpf-operator-system    Ready: True  
 
 #### Deploy test pods 
 
-```shell
+```shell no-exec
 kubectl apply -f manifests/06-test-traffic
 ```
 
@@ -1159,12 +1171,12 @@ It is important to follow the steps in the correct order to ensure that all
 components are removed cleanly and that the cluster remains functional.
 
 ### Delete the test pods
-```shell
+```shell no-exec
 kubectl delete -f manifests/06-test-traffic --wait
 ```
 
 ### Delete DPF CNI acceleration components
-```shell
+```shell no-exec
 kubectl delete -f manifests/04-enable-accelerated-cni --wait
 helm uninstall -n nvidia-network-operator network-operator --wait
 
@@ -1176,19 +1188,19 @@ helm uninstall -n ovn-kubernetes ovn-kubernetes-resource-injector --wait
 
 First we have to delete some DPUServiceInterfaces. This is necessary because of a known issue during uninstallation.
 
-```shell
+```shell no-exec
 kubectl delete -n dpf-operator-system dpuserviceinterface p0 p1 ovn --wait
 ```
 
 Then we can delete the config and system namespace.
 
-```shell
+```shell no-exec
 kubectl delete -n dpf-operator-system dpfoperatorconfig dpfoperatorconfig --wait
 helm uninstall -n dpf-operator-system dpf-operator --wait
 ```
 
 ### Delete DPF Operator PVC
-```shell
+```shell no-exec
 kubectl -n dpf-operator-system delete pvc bfb-pvc
 kubectl delete pv bfb-pv
 ```
