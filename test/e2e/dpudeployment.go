@@ -185,7 +185,7 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 		g.Expect(input.client.List(ctx, gotApplicationList, client.InNamespace(dpuDeployment.GetNamespace()))).To(Succeed())
 		dpuServiceNameToApplication := getDPUServiceNameToApplication(gotDPUServiceList.Items, gotApplicationList.Items)
 
-		// modify Application to have no malformedPullPolicy in their values
+		// Modify Application to have no malformedPullPolicy in their values
 		for _, application := range dpuServiceNameToApplication {
 			if bytes.Contains(application.Spec.Source.Helm.ValuesObject.Raw, []byte("malformedPullPolicy")) {
 				origApp := application.DeepCopy()
@@ -202,8 +202,13 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 				if application.Spec.SyncPolicy.Retry.Backoff == nil {
 					application.Spec.SyncPolicy.Retry.Backoff = &argov1.Backoff{}
 				}
+				// Set limit to 0 to ensure that operation is retried.
 				application.Spec.SyncPolicy.Retry.Limit = 0
+				// Set maximum backoff duration to 1s for the existing operation to ensure it is not waiting for a long backoff duration.
 				application.Spec.SyncPolicy.Retry.Backoff.MaxDuration = "1s"
+				// Refresh ensures we use the updated values.
+				application.Spec.SyncPolicy.Retry.Refresh = true
+
 				// Force a new operation
 				application.Operation = &argov1.Operation{
 					InitiatedBy: argov1.OperationInitiator{
@@ -214,21 +219,21 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 							Hook: &argov1.SyncStrategyHook{},
 						},
 					},
+					Retry: argov1.RetryStrategy{
+						// Refresh ensures we use the updated values.
+						Refresh: true,
+						Limit:   0,
+					},
 				}
-				// Only patch status if there is an actual ongoing change.
-				// Note: status is not a subresource.
+
+				// Overwrite an existing operation.
 				if application.Status.OperationState != nil {
-					// Set valid helm values
-					if application.Status.OperationState.SyncResult != nil && application.Status.OperationState.SyncResult.Source.Helm != nil {
-						application.Status.OperationState.SyncResult.Source.Helm.ValuesObject = &machineryruntime.RawExtension{Raw: []byte(`{}`)}
-					}
+					application.Status.OperationState.Operation.Retry.Refresh = true
+					application.Status.OperationState.Operation.Retry.Limit = 0
 					if application.Status.OperationState.Operation.Retry.Backoff == nil {
 						application.Status.OperationState.Operation.Retry.Backoff = &argov1.Backoff{}
 					}
-					// Set maximum backoff duration to 1s for the existing operation to ensure it is not waiting for a long backoff duration.
 					application.Status.OperationState.Operation.Retry.Backoff.MaxDuration = "1s"
-					// Set limit to 0 to ensure that operation is retried.
-					application.Status.OperationState.Operation.Retry.Limit = 0
 				}
 
 				// Use optimistic locking to ensure that we patch the latest version of the application to not forget a operation which was just triggered.
@@ -239,13 +244,20 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 			}
 		}
 
-		// ensure Applications don't have malformedPullPolicy in their values
+		// Ensure Applications don't have malformedPullPolicy in their values and on-going operation.
 		gotApplicationList = &argov1.ApplicationList{}
 		g.Expect(input.client.List(ctx, gotApplicationList, client.InNamespace(dpuDeployment.GetNamespace()))).To(Succeed())
 		dpuServiceNameToApplication = getDPUServiceNameToApplication(gotDPUServiceList.Items, gotApplicationList.Items)
 
 		for _, application := range dpuServiceNameToApplication {
 			g.Expect(bytes.Contains(application.Spec.Source.Helm.ValuesObject.Raw, []byte("malformedPullPolicy"))).To(BeFalse())
+			if application.Status.OperationState == nil ||
+				application.Status.OperationState.SyncResult == nil ||
+				application.Status.OperationState.SyncResult.Source.Helm == nil ||
+				application.Status.OperationState.SyncResult.Source.Helm.ValuesObject == nil {
+				continue
+			}
+			g.Expect(bytes.Contains(application.Status.OperationState.SyncResult.Source.Helm.ValuesObject.Raw, []byte("malformedPullPolicy"))).To(BeFalse())
 		}
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 
