@@ -80,8 +80,6 @@ The collected artifacts are saved to the specified directory for analysis.`,
 				return fmt.Errorf("failed to create artifacts directory: %w", err)
 			}
 
-			log.Info("Starting resource collection", "artifactsDir", artifactsDir)
-
 			// Get collectors
 			var collectors []*collector.Cluster
 			if includeClusters {
