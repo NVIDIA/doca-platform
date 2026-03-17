@@ -144,7 +144,11 @@ RUN case ${TARGETARCH} in \
 
 RUN mkdir -p /bfb-folder
 
-RUN echo "dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager.Reboot boolean:false" > /usr/sbin/reboot && chmod +x /usr/sbin/reboot
+# Remove the /usr/sbin/reboot file first, since on some systems it is a symlink to /usr/bin/systemctl.
+# Failing to do so replaces `systemctl` with `reboot`, causing every invocation of `systemctl` to trigger a reboot.
+RUN rm -f /usr/sbin/reboot \
+    && echo "dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager.Reboot boolean:false" > /usr/sbin/reboot \
+    && chmod +x /usr/sbin/reboot
 
 RUN curl -LO https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl && \
     chmod +x kubectl && \
