@@ -434,9 +434,12 @@ $(SHFMT): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(SHFMT),mvdan.cc/sh/v3/cmd/shfmt,$(SHFMT_VERSION))
 
 # nfpm is used to build .deb and .rpm packages for dpu-agent
-# nfpm release tarballs use title-case OS (Linux/Darwin) and uname -m arch (x86_64/arm64).
+# nfpm release tarballs use title-case OS (Linux/Darwin) and arch (x86_64/arm64).
 NFPM_OS = $(shell uname -s)
 NFPM_ARCH = $(TOOL_ARCH)
+ifeq ($(TOOL_ARCH),aarch64)
+  NFPM_ARCH = arm64
+endif
 .PHONY: nfpm
 nfpm: $(NFPM) ## Download nfpm locally if necessary.
 	@$(MAKE) tools-path TOOL=nfpm VERSION=$(NFPM_VERSION)
