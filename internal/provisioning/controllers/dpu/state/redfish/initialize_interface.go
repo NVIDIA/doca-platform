@@ -186,7 +186,9 @@ func reconcileSecureBoot(ctx context.Context, dpu *provisioningv1.DPU, state *pr
 }
 
 // verifySecureBootAfterRestarts verifies that the BMC applied the Secure Boot configuration
-// after all ARM restarts completed. Clears the tracker and updates DPU status.
+// after all ARM restarts completed. On success the tracker is cleared; on terminal error the
+// tracker is intentionally preserved to avoid a SerialPatcher race (metadata patch triggering
+// a new reconcile before the status patch lands) and to retain forensic state.
 //
 // Returns (true, nil) to stay in current phase (retry or terminal error),
 // (false, nil) on success, or (false, err) on retryable BMC failure.
@@ -240,7 +242,6 @@ func verifySecureBootAfterRestarts(ctx context.Context, dpu *provisioningv1.DPU,
 	cutil.SetDPUCondition(state, cutil.NewCondition(
 		string(provisioningv1.DPUCondInterfaceInitialized),
 		err, "SecureBootConfigurationFailed", err.Error()))
-	dutil.ClearArmRestartTracker(dpu)
 	state.Phase = provisioningv1.DPUError
 	return true, nil
 }
