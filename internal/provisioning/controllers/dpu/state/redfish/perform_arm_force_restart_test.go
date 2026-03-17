@@ -178,6 +178,9 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(cond).NotTo(BeNil())
 		Expect(cond.Status).To(Equal(metav1.ConditionFalse), "error case must set condition False")
 		Expect(cond.Reason).To(Equal("MaxSafetyLimitExceeded"))
+		loaded, _ := dutil.LoadArmRestartTracker(dpu)
+		Expect(loaded).NotTo(BeNil(), "tracker should be preserved on terminal error for forensics and race prevention")
+		Expect(loaded.Attempt).To(Equal(MaxSafetyLimit))
 	})
 
 	It("should transition to DPUDeleting when DPU is being deleted", func() {
@@ -320,6 +323,9 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(cond).NotTo(BeNil())
 		Expect(cond.Status).To(Equal(metav1.ConditionFalse), "error case must set condition False")
 		Expect(cond.Reason).To(Equal("OSBootTimeout"))
+		loaded, _ := dutil.LoadArmRestartTracker(dpu)
+		Expect(loaded).NotTo(BeNil(), "tracker should be preserved on terminal error for forensics and race prevention")
+		Expect(loaded.Attempt).To(Equal(1))
 	})
 
 	It("should skip restart when minimum restart interval has not elapsed", func() {
@@ -388,6 +394,63 @@ var _ = Describe("PerformArmForceRestart", func() {
 		loaded, loadErr := dutil.LoadArmRestartTracker(dpu)
 		Expect(loadErr).NotTo(HaveOccurred())
 		Expect(loaded.Attempt).To(Equal(0))
+	})
+
+	It("should remain in DPUError on re-reconcile when tracker is preserved after safety limit", func() {
+		tracker := &dutil.ArmRestartTracker{
+			MaxAttempts:       2,
+			Attempt:           MaxSafetyLimit,
+			InitialGeneration: dpu.Generation,
+			LastRestartTime:   time.Now(),
+		}
+		Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
+
+		By("First reconcile: should transition to DPUError")
+		status1, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status1.Phase).To(Equal(provisioningv1.DPUError))
+
+		By("Simulate race: second reconcile with preserved tracker and stale phase")
+		dpu.Status = status1
+		dpu.Status.Phase = provisioningv1.DPUPerformArmForceRestart
+		status2, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status2.Phase).To(Equal(provisioningv1.DPUError),
+			"second reconcile should still produce DPUError, not fall back to InitializeInterface")
+		_, cond := cutil.GetDPUCondition(&status2, provisioningv1.DPUCondArmForceRestarted.String())
+		Expect(cond).NotTo(BeNil())
+		Expect(cond.Reason).To(Equal("MaxSafetyLimitExceeded"))
+		loaded, _ := dutil.LoadArmRestartTracker(dpu)
+		Expect(loaded).NotTo(BeNil(), "tracker must remain to prevent race-driven re-staging")
+	})
+
+	It("should remain in DPUError on re-reconcile when tracker is preserved after OS boot timeout", func() {
+		mockServer.SetOemLastState("OsStarting")
+		tracker := &dutil.ArmRestartTracker{
+			MaxAttempts:       2,
+			Attempt:           1,
+			InitialGeneration: dpu.Generation,
+			LastRestartTime:   time.Now().Add(-OSRunningTimeout - 30*time.Second),
+		}
+		Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
+
+		By("First reconcile: should transition to DPUError")
+		status1, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status1.Phase).To(Equal(provisioningv1.DPUError))
+
+		By("Simulate race: second reconcile with preserved tracker and stale phase")
+		dpu.Status = status1
+		dpu.Status.Phase = provisioningv1.DPUPerformArmForceRestart
+		status2, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status2.Phase).To(Equal(provisioningv1.DPUError),
+			"second reconcile should still produce DPUError, not trigger more restarts")
+		_, cond := cutil.GetDPUCondition(&status2, provisioningv1.DPUCondArmForceRestarted.String())
+		Expect(cond).NotTo(BeNil())
+		Expect(cond.Reason).To(Equal("OSBootTimeout"))
+		loaded, _ := dutil.LoadArmRestartTracker(dpu)
+		Expect(loaded).NotTo(BeNil(), "tracker must remain to prevent race-driven re-staging")
 	})
 
 	It("should return to InitializeInterface for validation when all restarts done and OS running", func() {
