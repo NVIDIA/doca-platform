@@ -115,6 +115,15 @@ func SetInput() {
 		}
 	}
 
+	if isGinkgoLabelApplied(Domain.Scale) {
+		// For scale environments, the nodes are fake, therefore we can't have DPUDetector running
+		dpfOperatorConfig.Spec.DPUDetector = &operatorv1.DPUDetectorConfiguration{
+			BaseComponentConfig: operatorv1.BaseComponentConfig{
+				Disable: ptr.To(true),
+			},
+		}
+	}
+
 	input = &systemTestInput{
 		namespace:        dpfOperatorSystemNamespace,
 		config:           dpfOperatorConfig,
