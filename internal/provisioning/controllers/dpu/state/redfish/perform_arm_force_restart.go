@@ -132,7 +132,6 @@ func validateTracker(dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus) (
 
 	// Safety check - prevent infinite loops
 	if tracker.Attempt >= MaxSafetyLimit {
-		dutil.ClearArmRestartTracker(dpu)
 		state.Phase = provisioningv1.DPUError
 		err := fmt.Errorf("exceeded maximum safety limit of %d restart attempts", MaxSafetyLimit)
 		setArmCondition(state, "MaxSafetyLimitExceeded", err.Error())
@@ -176,7 +175,7 @@ func executeRestartStateMachine(ctx context.Context, dpu *provisioningv1.DPU, st
 	// OS is rebooting after a triggered intermediate restart — wait for it to come
 	// back before triggering the next one (ForceRestart requires the system to be up).
 	if !osRunning && tracker.Attempt > 0 {
-		return handleWaitingForBoot(dpu, state, tracker)
+		return handleWaitingForBoot(state, tracker)
 	}
 
 	// More restarts needed - trigger next one
@@ -184,9 +183,8 @@ func executeRestartStateMachine(ctx context.Context, dpu *provisioningv1.DPU, st
 }
 
 // handleWaitingForBoot handles the case when OS is not yet running after a restart.
-func handleWaitingForBoot(dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, tracker *dutil.ArmRestartTracker) (provisioningv1.DPUStatus, error) {
+func handleWaitingForBoot(state *provisioningv1.DPUStatus, tracker *dutil.ArmRestartTracker) (provisioningv1.DPUStatus, error) {
 	if !tracker.LastRestartTime.IsZero() && time.Since(tracker.LastRestartTime) > OSRunningTimeout {
-		dutil.ClearArmRestartTracker(dpu)
 		state.Phase = provisioningv1.DPUError
 		err := fmt.Errorf("OS boot timeout after %s", OSRunningTimeout)
 		setArmCondition(state, "OSBootTimeout", err.Error())
