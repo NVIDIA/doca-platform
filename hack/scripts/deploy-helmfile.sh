@@ -16,9 +16,6 @@
 
 set -euo pipefail
 
-# Mandatory env variables
-: ${YQ:?env not set}
-
 # Default values
 HELMFILE_FILE=""
 HELM_CHART_VERSION=""
@@ -33,7 +30,13 @@ COLLECT_ON_FAIL="true"
 CLEANUP_ON_FAIL="false"
 WAIT="true"
 ARTIFACTS_DIR="${HELMFILE_ARTIFACTS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../artifacts/helmfile}"
-DPFDEV_BIN="${DPFDEV_BIN:-"$(which dpfdev)"}"
+YQ_BIN="${YQ:-"$(which yq || true)"}"
+DPFDEV_BIN="${DPFDEV_BIN:-"$(which dpfdev || true)"}"
+
+if ! command -v "$YQ_BIN" &> /dev/null; then
+	echo "Error: yq not found. Please install yq and ensure it's in your PATH, or set the YQ environment variable to its location." >&2
+	exit 1
+fi
 
 # Function to print usage
 usage() {
@@ -291,7 +294,7 @@ deploy_helmfile() {
 	# Creating a persistent temp file instead.
 	# Select the document that has releases set and update it. The first document might be the environments document
 	# which cannot exist in the same document as releases.
-	${YQ} "select(has(\"releases\")) |= (.helmDefaults.cleanupOnFail=${CLEANUP_ON_FAIL} | .helmDefaults.wait=${WAIT})" "$helmfilePath" > "$helmfilePath.tmp"
+	${YQ_BIN} "select(has(\"releases\")) |= (.helmDefaults.cleanupOnFail=${CLEANUP_ON_FAIL} | .helmDefaults.wait=${WAIT})" "$helmfilePath" > "$helmfilePath.tmp"
 	# Delete tmp helmfile on exit
 	trap "rm -f $helmfilePath.tmp" EXIT
 
