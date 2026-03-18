@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net"
 	"strings"
 	"time"
 
@@ -290,6 +291,23 @@ func getClusterControlPlaneIP(ctx context.Context, testClient client.Client) str
 	}
 	Fail("No internal IP found for control plane node")
 	return ""
+}
+
+// GetNodeInternalIP returns the internal IP of the node with the given name.
+func GetNodeInternalIP(ctx context.Context, c client.Client, nodeName string) net.IP {
+	node := &corev1.Node{}
+	Expect(c.Get(ctx, client.ObjectKey{Name: nodeName}, node)).To(Succeed())
+	for _, addr := range node.Status.Addresses {
+		if addr.Type != corev1.NodeInternalIP {
+			continue
+		}
+		ip := net.ParseIP(addr.Address)
+		if ip != nil {
+			return ip
+		}
+	}
+	Fail(fmt.Sprintf("No internal IP found for node %s", nodeName))
+	return nil
 }
 
 // getDPUClusterNodes returns all the nodes in the DPU cluster
