@@ -373,14 +373,18 @@ network:
 )
 
 var _ = Describe("getTemplateDataFromConfigMap", func() {
+	const testProvisioningNamespace = "dpf-provisioning"
+
 	var (
-		ctx              context.Context
-		scheme           *runtime.Scheme
-		namespace        string
-		bfbName          string
-		bfbNamespace     string
-		clusterName      string
-		clusterNamespace string
+		ctx                context.Context
+		scheme             *runtime.Scheme
+		namespace          string
+		bfbName            string
+		bfbNamespace       string
+		clusterName        string
+		clusterNamespace   string
+		dpuFlavorName      string
+		dpuFlavorNamespace string
 	)
 
 	BeforeEach(func() {
@@ -389,9 +393,11 @@ var _ = Describe("getTemplateDataFromConfigMap", func() {
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 		namespace = "dpf-system"
 		bfbName = "my-bfb"
-		bfbNamespace = "dpf-provisioning"
+		bfbNamespace = testProvisioningNamespace
 		clusterName = "my-cluster"
-		clusterNamespace = "dpf-provisioning"
+		clusterNamespace = testProvisioningNamespace
+		dpuFlavorName = "my-flavor"
+		dpuFlavorNamespace = testProvisioningNamespace
 	})
 
 	makeConfigMap := func(name string, templateData string) *corev1.ConfigMap {
@@ -403,10 +409,12 @@ var _ = Describe("getTemplateDataFromConfigMap", func() {
 					cutil.BFCFGTemplateLabel: "true",
 				},
 				Annotations: map[string]string{
-					cutil.BFCFGTemplateBFBNameAnnotation:          bfbName,
-					cutil.BFCFGTemplateBFBNamespaceAnnotation:     bfbNamespace,
-					cutil.BFCFGTemplateClusterNameAnnotation:      clusterName,
-					cutil.BFCFGTemplateClusterNamespaceAnnotation: clusterNamespace,
+					cutil.BFCFGTemplateBFBNameAnnotation:            bfbName,
+					cutil.BFCFGTemplateBFBNamespaceAnnotation:       bfbNamespace,
+					cutil.BFCFGTemplateClusterNameAnnotation:        clusterName,
+					cutil.BFCFGTemplateClusterNamespaceAnnotation:   clusterNamespace,
+					cutil.BFCFGTemplateDPUFlavorNameAnnotation:      dpuFlavorName,
+					cutil.BFCFGTemplateDPUFlavorNamespaceAnnotation: dpuFlavorNamespace,
 				},
 			},
 			Data: map[string]string{
@@ -417,7 +425,7 @@ var _ = Describe("getTemplateDataFromConfigMap", func() {
 
 	It("should return nil when no matching ConfigMaps exist", func() {
 		c := fake.NewClientBuilder().WithScheme(scheme).Build()
-		_, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace)
+		_, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace, dpuFlavorName, dpuFlavorNamespace)
 		Expect(err).To(HaveOccurred())
 	})
 
@@ -425,7 +433,7 @@ var _ = Describe("getTemplateDataFromConfigMap", func() {
 		cm := makeConfigMap("bfcfg-template-1", "hostname={{.DPUHostName}}")
 		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
 
-		data, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace)
+		data, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace, dpuFlavorName, dpuFlavorNamespace)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(data).NotTo(BeNil())
 		Expect(string(data)).To(Equal("hostname={{.DPUHostName}}"))
@@ -436,7 +444,7 @@ var _ = Describe("getTemplateDataFromConfigMap", func() {
 		cm2 := makeConfigMap("bfcfg-template-2", "template2")
 		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm1, cm2).Build()
 
-		data, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace)
+		data, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace, dpuFlavorName, dpuFlavorNamespace)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("found 2 bf.cfg template ConfigMaps"))
 		Expect(data).To(BeNil())
@@ -451,10 +459,12 @@ var _ = Describe("getTemplateDataFromConfigMap", func() {
 					cutil.BFCFGTemplateLabel: "true",
 				},
 				Annotations: map[string]string{
-					cutil.BFCFGTemplateBFBNameAnnotation:          bfbName,
-					cutil.BFCFGTemplateBFBNamespaceAnnotation:     bfbNamespace,
-					cutil.BFCFGTemplateClusterNameAnnotation:      clusterName,
-					cutil.BFCFGTemplateClusterNamespaceAnnotation: clusterNamespace,
+					cutil.BFCFGTemplateBFBNameAnnotation:            bfbName,
+					cutil.BFCFGTemplateBFBNamespaceAnnotation:       bfbNamespace,
+					cutil.BFCFGTemplateClusterNameAnnotation:        clusterName,
+					cutil.BFCFGTemplateClusterNamespaceAnnotation:   clusterNamespace,
+					cutil.BFCFGTemplateDPUFlavorNameAnnotation:      dpuFlavorName,
+					cutil.BFCFGTemplateDPUFlavorNamespaceAnnotation: dpuFlavorNamespace,
 				},
 			},
 			Data: map[string]string{
@@ -463,14 +473,14 @@ var _ = Describe("getTemplateDataFromConfigMap", func() {
 		}
 		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
 
-		data, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace)
+		data, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace, dpuFlavorName, dpuFlavorNamespace)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("missing required key"))
 		Expect(err.Error()).To(ContainSubstring(ConfigMapDataKey))
 		Expect(data).To(BeNil())
 	})
 
-	It("should not match ConfigMaps with different annotations", func() {
+	It("should not match ConfigMaps with different BFB annotations", func() {
 		cm := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "bfcfg-template-different",
@@ -479,10 +489,12 @@ var _ = Describe("getTemplateDataFromConfigMap", func() {
 					cutil.BFCFGTemplateLabel: "true",
 				},
 				Annotations: map[string]string{
-					cutil.BFCFGTemplateBFBNameAnnotation:          "different-bfb",
-					cutil.BFCFGTemplateBFBNamespaceAnnotation:     bfbNamespace,
-					cutil.BFCFGTemplateClusterNameAnnotation:      clusterName,
-					cutil.BFCFGTemplateClusterNamespaceAnnotation: clusterNamespace,
+					cutil.BFCFGTemplateBFBNameAnnotation:            "different-bfb",
+					cutil.BFCFGTemplateBFBNamespaceAnnotation:       bfbNamespace,
+					cutil.BFCFGTemplateClusterNameAnnotation:        clusterName,
+					cutil.BFCFGTemplateClusterNamespaceAnnotation:   clusterNamespace,
+					cutil.BFCFGTemplateDPUFlavorNameAnnotation:      dpuFlavorName,
+					cutil.BFCFGTemplateDPUFlavorNamespaceAnnotation: dpuFlavorNamespace,
 				},
 			},
 			Data: map[string]string{
@@ -491,7 +503,34 @@ var _ = Describe("getTemplateDataFromConfigMap", func() {
 		}
 		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
 
-		_, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace)
+		_, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace, dpuFlavorName, dpuFlavorNamespace)
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("should not match ConfigMaps with different DPUFlavor annotations", func() {
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "bfcfg-template-different-flavor",
+				Namespace: namespace,
+				Labels: map[string]string{
+					cutil.BFCFGTemplateLabel: "true",
+				},
+				Annotations: map[string]string{
+					cutil.BFCFGTemplateBFBNameAnnotation:            bfbName,
+					cutil.BFCFGTemplateBFBNamespaceAnnotation:       bfbNamespace,
+					cutil.BFCFGTemplateClusterNameAnnotation:        clusterName,
+					cutil.BFCFGTemplateClusterNamespaceAnnotation:   clusterNamespace,
+					cutil.BFCFGTemplateDPUFlavorNameAnnotation:      "different-flavor",
+					cutil.BFCFGTemplateDPUFlavorNamespaceAnnotation: dpuFlavorNamespace,
+				},
+			},
+			Data: map[string]string{
+				ConfigMapDataKey: "template",
+			},
+		}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
+
+		_, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace, dpuFlavorName, dpuFlavorNamespace)
 		Expect(err).To(HaveOccurred())
 	})
 
@@ -500,7 +539,7 @@ var _ = Describe("getTemplateDataFromConfigMap", func() {
 		cm.Namespace = "other-namespace"
 		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
 
-		_, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace)
+		_, err := getTemplateDataFromConfigMap(ctx, c, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace, dpuFlavorName, dpuFlavorNamespace)
 		Expect(err).To(HaveOccurred())
 	})
 })

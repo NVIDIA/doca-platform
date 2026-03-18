@@ -178,6 +178,7 @@ By default DPF will use a bf.cfg - the Bluefield configuration file - that is ti
 The DPU controller in the provisioning controller manager uses a template to render the bfb.cfg with values supplied by the user-supplied DPUFlavor. The [default bf.cfg.template for v25.1 is here](https://github.com/NVIDIA/doca-platform/blob/release-v25.1/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template).
 The template takes the form of a go template. The [values used to render it are supplied to it are described in this package](https://github.com/NVIDIA/doca-platform/blob/release-v25.1/internal/provisioning/controllers/dpu/bfcfg/bfcfg.go).
 
+Note: This flow is deprecated in favor of using [dynamic bf.cfg templates](#dynamic-bfcfg-templates)
 To supply a custom bf.cfg template:
 
 **1.** Create a `ConfigMap` with the following format in the target cluster:
@@ -210,6 +211,50 @@ spec:
 
 This example template contains only one variable and misses many important configuration steps. It is not sufficient to provision a DPU in DPF.
 To understand how to write a custom bf.cfg.template [the default template](https://github.com/NVIDIA/doca-platform/blob/release-v25.1/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template) serves as the best example.
+
+#### Dynamic bf.cfg templates
+
+As an alternative to the deprecated `bfCFGTemplateConfigMap` approach, you can use `enableDynamicBFCFGTemplates` for
+runtime discovery of bf.cfg templates. When enabled, the provisioning controller discovers ConfigMaps by matching
+a label and annotations for the BFB, DPUCluster, and DPUFlavor used during provisioning.
+
+**1.** Create a `ConfigMap` with the required label and annotations:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-bfcfg-template
+  namespace: dpf-operator-system # Must be in the same namespace as the DPFOperator.
+  labels:
+    provisioning.dpu.nvidia.com/bfcfg-template: "true"
+  annotations:
+    provisioning.dpu.nvidia.com/bfcfg-template-bfb-name: "my-bfb"
+    provisioning.dpu.nvidia.com/bfcfg-template-bfb-namespace: "dpf-provisioning"
+    provisioning.dpu.nvidia.com/bfcfg-template-cluster-name: "my-cluster"
+    provisioning.dpu.nvidia.com/bfcfg-template-cluster-namespace: "dpf-provisioning"
+    provisioning.dpu.nvidia.com/bfcfg-template-dpuflavor-name: "my-flavor"
+    provisioning.dpu.nvidia.com/bfcfg-template-dpuflavor-namespace: "dpf-provisioning"
+data:
+  BF_CFG_TEMPLATE: |
+    {{.KubeadmSecretName}}
+```
+
+Exactly one ConfigMap must match for a given combination of BFB, DPUCluster, and DPUFlavor.
+
+**2.** Enable dynamic templates in the DPFOperatorConfig:
+
+```yaml
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  provisioningController:
+    enableDynamicBFCFGTemplates: true
+...
+```
 
 ## DPUService System
 

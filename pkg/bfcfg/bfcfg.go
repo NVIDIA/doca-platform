@@ -74,7 +74,8 @@ func getTemplateData(ctx context.Context, controllerCtx *util.ControllerContext,
 	if provisioningConfig != nil && provisioningConfig.EnableDynamicBFCFGTemplates {
 		data, err := getTemplateDataFromConfigMap(ctx, controllerCtx.Client, dpfOperatorConfig.Namespace,
 			dpu.Spec.BFB, dpu.Namespace,
-			dpu.Spec.Cluster.Name, dpu.Spec.Cluster.Namespace)
+			dpu.Spec.Cluster.Name, dpu.Spec.Cluster.Namespace,
+			dpu.Spec.DPUFlavor, dpu.Namespace)
 		if err != nil {
 			return nil, fmt.Errorf("resolving dynamic bf.cfg template: %w", err)
 		}
@@ -270,9 +271,9 @@ func bfcfgParams(flavor *provisioningv1.DPUFlavor) ([]string, string) {
 }
 
 // getTemplateDataFromConfigMap discovers a bf.cfg template ConfigMap by listing ConfigMaps
-// with the well-known label and filtering by annotation values for the given BFB and DPUCluster.
+// with the well-known label and filtering by annotation values for the given BFB, DPUCluster, and DPUFlavor.
 // It returns an error if there is not exactly one matching ConfigMap for the given parameters.
-func getTemplateDataFromConfigMap(ctx context.Context, c client.Client, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace string) ([]byte, error) {
+func getTemplateDataFromConfigMap(ctx context.Context, c client.Client, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace, dpuFlavorName, dpuFlavorNamespace string) ([]byte, error) {
 	selector := labels.SelectorFromSet(labels.Set{
 		cutil.BFCFGTemplateLabel: "true",
 	})
@@ -300,14 +301,16 @@ func getTemplateDataFromConfigMap(ctx context.Context, c client.Client, namespac
 		if annotations[cutil.BFCFGTemplateBFBNameAnnotation] == bfbName &&
 			annotations[cutil.BFCFGTemplateBFBNamespaceAnnotation] == bfbNamespace &&
 			annotations[cutil.BFCFGTemplateClusterNameAnnotation] == clusterName &&
-			annotations[cutil.BFCFGTemplateClusterNamespaceAnnotation] == clusterNamespace {
+			annotations[cutil.BFCFGTemplateClusterNamespaceAnnotation] == clusterNamespace &&
+			annotations[cutil.BFCFGTemplateDPUFlavorNameAnnotation] == dpuFlavorName &&
+			annotations[cutil.BFCFGTemplateDPUFlavorNamespaceAnnotation] == dpuFlavorNamespace {
 			matches = append(matches, *item)
 		}
 	}
 
 	if len(matches) != 1 {
-		return nil, fmt.Errorf("found %d bf.cfg template ConfigMaps matching BFB %s/%s and DPUCluster %s/%s; exactly one is required",
-			len(matches), bfbNamespace, bfbName, clusterNamespace, clusterName)
+		return nil, fmt.Errorf("found %d bf.cfg template ConfigMaps matching BFB %s/%s, DPUCluster %s/%s, and DPUFlavor %s/%s; exactly one is required",
+			len(matches), bfbNamespace, bfbName, clusterNamespace, clusterName, dpuFlavorNamespace, dpuFlavorName)
 	}
 	// Fetch the full ConfigMap to get the data.
 	cm := &corev1.ConfigMap{}
