@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	dpucluster "github.com/nvidia/doca-platform/pkg/dpucluster"
@@ -38,6 +39,11 @@ func ClusterConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.
 	if !dpu.DeletionTimestamp.IsZero() {
 		state.Phase = provisioningv1.DPUDeleting
 		return *state, nil
+	}
+
+	if err := checkFwVersion(ctx, dpu, ctrlCtx); err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUClusterReady.String(), err, "CheckFwVersionError", err.Error()))
+		return *state, err
 	}
 
 	dpuName := dpu.Name
@@ -91,4 +97,49 @@ func ClusterConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.
 	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondDPUClusterReady, "", "cluster configured"))
 	state.Phase = provisioningv1.DPUNodeEffectRemoval
 	return *state, nil
+}
+
+func checkFwVersion(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) error {
+	if dpu.Status.DPUInstallInterface == nil || *dpu.Status.DPUInstallInterface != string(provisioningv1.InstallViaRedFish) {
+		return nil
+	}
+
+	dpuDevice := &provisioningv1.DPUDevice{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
+		return err
+	}
+
+	bfb := &provisioningv1.BFB{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.BFB}, bfb); err != nil {
+		return err
+	}
+
+	var rfClient *rfclient.Client
+	var err error
+	var versionInfo *rfclient.VersionInfo
+
+	if rfClient, err = rfclient.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client); err != nil {
+		return err
+	}
+
+	if _, versionInfo, err = rfClient.CheckDPUUEFI(); err != nil {
+		return err
+	}
+
+	bfbUEFIVersion := bfb.Status.Versions.UEFI
+
+	if versionInfo.Version != bfbUEFIVersion {
+		return fmt.Errorf("DPU UEFI version %s was not updated, expected %s", versionInfo.Version, bfbUEFIVersion)
+	}
+
+	if _, versionInfo, err = rfClient.CheckDPUBSP(); err != nil {
+		return err
+	}
+
+	bfbBSPVersion := bfb.Status.Versions.BSP
+
+	if versionInfo.Version != bfbBSPVersion {
+		return fmt.Errorf("DPU BSP version %s was not updated, expected %s", versionInfo.Version, bfbBSPVersion)
+	}
+	return nil
 }
