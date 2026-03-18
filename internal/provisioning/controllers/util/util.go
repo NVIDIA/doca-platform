@@ -143,6 +143,10 @@ const (
 	BFCFGTemplateClusterNameAnnotation = DPUProvisioningPrefix + "bfcfg-template-cluster-name"
 	// BFCFGTemplateClusterNamespaceAnnotation is the annotation on a bf.cfg template ConfigMap specifying the target DPUCluster namespace.
 	BFCFGTemplateClusterNamespaceAnnotation = DPUProvisioningPrefix + "bfcfg-template-cluster-namespace"
+	// BFCFGTemplateDPUFlavorNameAnnotation is the annotation on a bf.cfg template ConfigMap specifying the target DPUFlavor name.
+	BFCFGTemplateDPUFlavorNameAnnotation = DPUProvisioningPrefix + "bfcfg-template-dpuflavor-name"
+	// BFCFGTemplateDPUFlavorNamespaceAnnotation is the annotation on a bf.cfg template ConfigMap specifying the target DPUFlavor namespace.
+	BFCFGTemplateDPUFlavorNamespaceAnnotation = DPUProvisioningPrefix + "bfcfg-template-dpuflavor-namespace"
 )
 
 var (
