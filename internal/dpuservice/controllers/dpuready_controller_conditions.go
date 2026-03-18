@@ -31,6 +31,7 @@ import (
 	"github.com/fluxcd/pkg/runtime/patch"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -51,17 +52,24 @@ func (r *DPUReadyReconciler) reconcileDPUOperationalConditions(ctx context.Conte
 	var errs []error
 	for _, dpu := range scope.dpus {
 		// Fetch common cluster data once
-		clusterData, err := r.getDPUClusterData(ctx, dpu)
+		dpuClusterClient, node, err := r.getDPUClusterData(ctx, dpu)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("fetch cluster data for DPU %s: %w", dpu.Name, err))
 			continue
 		}
 
-		// Only update operational conditions for the specific DPU being reconciled
-		operationalConditions, err := r.aggregateOperationalConditions(ctx, clusterData, dpu, scope.dpuServiceList)
-		if err != nil {
-			log.Error(err, "Errors during condition aggregation, some conditions set to Unknown", "dpu", dpu.Name)
-			errs = append(errs, fmt.Errorf("aggregate operational conditions for DPU %s: %w", dpu.Name, err))
+		var operationalConditions []metav1.Condition
+		if node == nil || !node.DeletionTimestamp.IsZero() {
+			// Set the operational conditions to Unknown if the Node is in deletion, as we cannot reliably determine the
+			// status of conditions during deletion.
+			operationalConditions = setOperationalConditionsToUnknown()
+		} else {
+			// Only update operational conditions for the specific DPU being reconciled if the Node is not in deletion.
+			operationalConditions, err = r.aggregateOperationalConditions(ctx, dpuClusterClient, node, dpu, scope.dpuServiceList)
+			if err != nil {
+				log.Error(err, "Errors during condition aggregation, some conditions set to Unknown", "dpu", dpu.Name)
+				errs = append(errs, fmt.Errorf("aggregate operational conditions for DPU %s: %w", dpu.Name, err))
+			}
 		}
 
 		// Always update conditions, even if there were errors during aggregation
@@ -75,20 +83,50 @@ func (r *DPUReadyReconciler) reconcileDPUOperationalConditions(ctx context.Conte
 	return kerrors.NewAggregate(errs)
 }
 
-// dpuClusterData holds commonly used data fetched once from the DPU cluster
-type dpuClusterData struct {
-	client client.Client
-	node   *corev1.Node
+func setOperationalConditionsToUnknown() []metav1.Condition {
+	deletionReason := string(conditions.ReasonAwaitingDeletion)
+	return []metav1.Condition{
+		conditions.NewUnknownCondition(
+			string(provisioningv1.DPUOperationalCondNodeProblemsReady),
+			deletionReason,
+			"Cannot assess node health: node is being deleted",
+		),
+		conditions.NewUnknownCondition(
+			string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady),
+			deletionReason,
+			"Cannot assess critical pods: node is being deleted",
+		),
+		conditions.NewUnknownCondition(
+			string(provisioningv1.DPUOperationalCondDPUServiceNonCriticalPodsReady),
+			deletionReason,
+			"Cannot assess non-critical pods: node is being deleted",
+		),
+		conditions.NewUnknownCondition(
+			string(provisioningv1.DPUOperationalCondDPUServiceInterfacesReady),
+			deletionReason,
+			"Cannot assess service interfaces: node is being deleted",
+		),
+		conditions.NewUnknownCondition(
+			string(provisioningv1.DPUOperationalCondDPUServiceChainsReady),
+			deletionReason,
+			"Cannot assess service chains: node is being deleted",
+		),
+		conditions.NewUnknownCondition(
+			string(provisioningv1.DPUOperationalCondReady),
+			deletionReason,
+			"Cannot assess operational readiness: node is being deleted",
+		),
+	}
 }
 
-func (r *DPUReadyReconciler) aggregateOperationalConditions(ctx context.Context, clusterData *dpuClusterData, dpu provisioningv1.DPU, dpuServiceList *dpuservicev1.DPUServiceList) ([]metav1.Condition, error) {
+func (r *DPUReadyReconciler) aggregateOperationalConditions(ctx context.Context, dpuClusterClient client.Client, node *corev1.Node, dpu provisioningv1.DPU, dpuServiceList *dpuservicev1.DPUServiceList) ([]metav1.Condition, error) {
 	// 1. Node Problems condition from node-problem-detector
-	nodeProblemsCondition := r.aggregateNodeProblemsCondition(clusterData.node)
+	nodeProblemsCondition := r.aggregateNodeProblemsCondition(node)
 	result := []metav1.Condition{nodeProblemsCondition}
 
 	var errs []error
 	// 2. & 3. DPU Service Pods conditions (critical and non-critical) - fetch pods once
-	criticalPodsCondition, nonCriticalPodsCondition, err := r.aggregateDPUServicePodsConditions(ctx, dpu.Name, dpuServiceList, clusterData.client)
+	criticalPodsCondition, nonCriticalPodsCondition, err := r.aggregateDPUServicePodsConditions(ctx, dpu.Name, dpuServiceList, dpuClusterClient)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("aggregate DPUService Pods conditions: %w", err))
 		// Set both pod conditions to Unknown
@@ -106,7 +144,7 @@ func (r *DPUReadyReconciler) aggregateOperationalConditions(ctx context.Context,
 	result = append(result, criticalPodsCondition, nonCriticalPodsCondition)
 
 	// 4. DPU Service Interfaces condition
-	interfacesCondition, err := r.aggregateDPUServiceInterfacesCondition(ctx, dpu, clusterData)
+	interfacesCondition, err := r.aggregateDPUServiceInterfacesCondition(ctx, dpuClusterClient, dpu, node)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("aggregate DPUServiceInterfaces condition: %w", err))
 		// Set interfaces condition to Unknown
@@ -119,7 +157,7 @@ func (r *DPUReadyReconciler) aggregateOperationalConditions(ctx context.Context,
 	result = append(result, interfacesCondition)
 
 	// 5. DPU Service Chains condition
-	chainsCondition, err := r.aggregateDPUServiceChainsCondition(ctx, dpu, clusterData)
+	chainsCondition, err := r.aggregateDPUServiceChainsCondition(ctx, dpuClusterClient, dpu, node)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("aggregate DPUServiceChains condition: %w", err))
 		// Set chains condition to Unknown
@@ -139,25 +177,25 @@ func (r *DPUReadyReconciler) aggregateOperationalConditions(ctx context.Context,
 }
 
 // getDPUClusterData fetches commonly used data from the DPU cluster once
-func (r *DPUReadyReconciler) getDPUClusterData(ctx context.Context, dpu provisioningv1.DPU) (*dpuClusterData, error) {
+func (r *DPUReadyReconciler) getDPUClusterData(ctx context.Context, dpu provisioningv1.DPU) (client.Client, *corev1.Node, error) {
 	clusterKey := client.ObjectKey{
 		Namespace: dpu.Spec.Cluster.Namespace,
 		Name:      dpu.Spec.Cluster.Name,
 	}
 	dpuClusterClient, err := r.RemoteCache.GetClient(clusterKey)
 	if err != nil {
-		return nil, fmt.Errorf("could not get cached client for dpucluster: %w", err)
+		return nil, nil, fmt.Errorf("could not get cached client for dpucluster: %w", err)
 	}
 
 	node := &corev1.Node{}
 	if err := dpuClusterClient.Get(ctx, types.NamespacedName{Name: dpu.Name}, node); err != nil {
-		return nil, fmt.Errorf("failed to get the dpu node %s: %w", dpu.Name, err)
+		if apierrors.IsNotFound(err) {
+			return dpuClusterClient, nil, nil
+		}
+		return nil, nil, fmt.Errorf("failed to get the dpu node %s: %w", dpu.Name, err)
 	}
 
-	return &dpuClusterData{
-		client: dpuClusterClient,
-		node:   node,
-	}, nil
+	return dpuClusterClient, node, nil
 }
 
 // aggregateOperationalReadySummary creates a summary condition based on all operational conditions
@@ -198,15 +236,7 @@ func (r *DPUReadyReconciler) aggregateOperationalReadySummary(operationalConditi
 }
 
 func (r *DPUReadyReconciler) aggregateNodeProblemsCondition(node *corev1.Node) metav1.Condition {
-	// TODO: use provisioningv1.GetNodeProblemDetectorConditions() as soon as MR 4072 is merged
-	expectedConditions := []string{
-		"OVSHealthy",
-		"DPUModeCorrect",
-		"UplinkHealthy",
-		"SRIOVHealthy",
-		"MTUConfigured",
-	}
-
+	expectedConditions := provisioningv1.GetNodeProblemDetectorConditions()
 	nodeConditionsMap := make(map[string]corev1.NodeCondition, len(node.Status.Conditions))
 	for _, condition := range node.Status.Conditions {
 		nodeConditionsMap[string(condition.Type)] = condition
@@ -231,7 +261,7 @@ func (r *DPUReadyReconciler) aggregateNodeProblemsCondition(node *corev1.Node) m
 		return conditions.NewFalseCondition(
 			string(provisioningv1.DPUOperationalCondNodeProblemsReady),
 			"NodeProblemDetectorNotReady",
-			fmt.Sprintf("Node problems detected (%d/%d): %s",
+			fmt.Sprintf("Node problems detected (%d/%d Conditions): %s",
 				len(expectedConditions)-len(problematicConditions),
 				len(expectedConditions),
 				strings.Join(problematicConditions, ", "),
@@ -242,7 +272,7 @@ func (r *DPUReadyReconciler) aggregateNodeProblemsCondition(node *corev1.Node) m
 	return conditions.NewTrueCondition(
 		string(provisioningv1.DPUOperationalCondNodeProblemsReady),
 		"NoProblemsDetected",
-		fmt.Sprintf("All node health checks passing (Ready=%d)", len(expectedConditions)),
+		fmt.Sprintf("All node health checks passing (%d Conditions)", len(expectedConditions)),
 	)
 }
 
@@ -302,7 +332,7 @@ func (r *DPUReadyReconciler) aggregateDPUServicePodsConditions(ctx context.Conte
 		criticalCondition = conditions.NewFalseCondition(
 			string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady),
 			"PodsNotReady",
-			fmt.Sprintf("Critical Pods not ready (%d/%d Pods): %s",
+			fmt.Sprintf("Critical Pods not ready (%d/%d): %s",
 				criticalPodCount-len(criticalNotReadyPods),
 				criticalPodCount,
 				formatUnreadyItems(criticalNotReadyPods)),
@@ -311,7 +341,7 @@ func (r *DPUReadyReconciler) aggregateDPUServicePodsConditions(ctx context.Conte
 		criticalCondition = conditions.NewTrueCondition(
 			string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady),
 			"AllPodsReady",
-			fmt.Sprintf("All critical Pods are ready (%d Pods)", criticalPodCount),
+			fmt.Sprintf("All critical Pods are ready (%d)", criticalPodCount),
 		)
 	}
 
@@ -320,7 +350,7 @@ func (r *DPUReadyReconciler) aggregateDPUServicePodsConditions(ctx context.Conte
 		nonCriticalCondition = conditions.NewFalseCondition(
 			string(provisioningv1.DPUOperationalCondDPUServiceNonCriticalPodsReady),
 			"PodsNotReady",
-			fmt.Sprintf("Pods not ready (%d/%d Pods): %s",
+			fmt.Sprintf("Pods not ready (%d/%d): %s",
 				nonCriticalPodCount-len(nonCriticalNotReadyPods),
 				nonCriticalPodCount,
 				formatUnreadyItems(nonCriticalNotReadyPods)),
@@ -329,7 +359,7 @@ func (r *DPUReadyReconciler) aggregateDPUServicePodsConditions(ctx context.Conte
 		nonCriticalCondition = conditions.NewTrueCondition(
 			string(provisioningv1.DPUOperationalCondDPUServiceNonCriticalPodsReady),
 			"AllPodsReady",
-			fmt.Sprintf("All Pods are ready (%d Pods)", nonCriticalPodCount),
+			fmt.Sprintf("All Pods are ready (%d)", nonCriticalPodCount),
 		)
 	}
 
@@ -337,7 +367,7 @@ func (r *DPUReadyReconciler) aggregateDPUServicePodsConditions(ctx context.Conte
 }
 
 // aggregateDPUServiceInterfacesCondition aggregates the interfaces condition
-func (r *DPUReadyReconciler) aggregateDPUServiceInterfacesCondition(ctx context.Context, dpu provisioningv1.DPU, clusterData *dpuClusterData) (metav1.Condition, error) {
+func (r *DPUReadyReconciler) aggregateDPUServiceInterfacesCondition(ctx context.Context, dpuClusterClient client.Client, dpu provisioningv1.DPU, node *corev1.Node) (metav1.Condition, error) {
 	// Get all DPUServiceInterfaces from management cluster
 	dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
 	if err := r.Client.List(ctx, dpuServiceInterfaceList,
@@ -348,7 +378,7 @@ func (r *DPUReadyReconciler) aggregateDPUServiceInterfacesCondition(ctx context.
 
 	// Fetch ServiceInterfaces from DPU cluster
 	serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-	if err := clusterData.client.List(ctx, serviceInterfaceList,
+	if err := dpuClusterClient.List(ctx, serviceInterfaceList,
 		client.MatchingFields{nodeNameField: dpu.Name},
 	); err != nil {
 		return metav1.Condition{}, fmt.Errorf("failed to list ServiceInterfaces: %w", err)
@@ -366,11 +396,11 @@ func (r *DPUReadyReconciler) aggregateDPUServiceInterfacesCondition(ctx context.
 	}
 
 	// Build and return condition
-	return buildServiceInterfacesCondition(ctrllog.FromContext(ctx), dpuServiceInterfaceList.Items, serviceInterfaceReadiness, clusterData.node), nil
+	return buildServiceInterfacesCondition(ctrllog.FromContext(ctx), dpuServiceInterfaceList.Items, serviceInterfaceReadiness, node), nil
 }
 
 // aggregateDPUServiceChainsCondition aggregates the chains condition
-func (r *DPUReadyReconciler) aggregateDPUServiceChainsCondition(ctx context.Context, dpu provisioningv1.DPU, clusterData *dpuClusterData) (metav1.Condition, error) {
+func (r *DPUReadyReconciler) aggregateDPUServiceChainsCondition(ctx context.Context, dpuClusterClient client.Client, dpu provisioningv1.DPU, node *corev1.Node) (metav1.Condition, error) {
 	// Get all DPUServiceChains from management cluster
 	dpuServiceChainList := &dpuservicev1.DPUServiceChainList{}
 	if err := r.Client.List(ctx, dpuServiceChainList,
@@ -381,7 +411,7 @@ func (r *DPUReadyReconciler) aggregateDPUServiceChainsCondition(ctx context.Cont
 
 	// Fetch ServiceChains from DPU cluster
 	serviceChainList := &dpuservicev1.ServiceChainList{}
-	if err := clusterData.client.List(ctx, serviceChainList,
+	if err := dpuClusterClient.List(ctx, serviceChainList,
 		client.MatchingFields{nodeNameField: dpu.Name},
 	); err != nil {
 		return metav1.Condition{}, fmt.Errorf("failed to list ServiceChains: %w", err)
@@ -399,7 +429,7 @@ func (r *DPUReadyReconciler) aggregateDPUServiceChainsCondition(ctx context.Cont
 	}
 
 	// Build and return condition
-	return buildServiceChainsCondition(dpuServiceChainList.Items, serviceChainReadiness, clusterData.node), nil
+	return buildServiceChainsCondition(dpuServiceChainList.Items, serviceChainReadiness, node), nil
 }
 
 // buildServiceInterfacesCondition constructs the ServiceInterface condition.
@@ -442,7 +472,7 @@ func buildServiceInterfacesCondition(log logr.Logger, dpuServiceInterfaces []dpu
 	return conditions.NewTrueCondition(
 		condType,
 		"AllServiceInterfacesReady",
-		fmt.Sprintf("All ServiceInterfaces are ready (Ready=%d)", applicableCount),
+		fmt.Sprintf("All ServiceInterfaces are ready (%d)", applicableCount),
 	)
 }
 
@@ -485,7 +515,7 @@ func buildServiceChainsCondition(dpuServiceChains []dpuservicev1.DPUServiceChain
 	return conditions.NewTrueCondition(
 		condType,
 		"AllServiceChainsReady",
-		fmt.Sprintf("All ServiceChains are ready (Ready=%d)", applicableCount),
+		fmt.Sprintf("All ServiceChains are ready (%d)", applicableCount),
 	)
 }
 
