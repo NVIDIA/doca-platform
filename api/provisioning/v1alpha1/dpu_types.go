@@ -136,31 +136,26 @@ const (
 	DPUCondMessageRebootFinishedForModeUpdate DPUConditionMessage = "Reboot finished for DPU mode update"
 )
 
-// NodeProblemDetectorConditionType represents Kubernetes Node condition types reported
-// by node-problem-detector that indicate DPU node health. These conditions are monitored
-// on DPUCluster nodes and aggregated into DPU operational readiness.
-type NodeProblemDetectorConditionType string
-
 // Keep in sync with deploy/charts/dpu-networking/charts/node-problem-detector/templates/configmap.yaml
 const (
 	// NPDConditionKernelDeadlock indicates the node is in a kernel deadlock state.
-	NPDConditionKernelDeadlock NodeProblemDetectorConditionType = "KernelDeadlock"
+	NPDConditionKernelDeadlock corev1.NodeConditionType = "KernelDeadlock"
 	// NPDConditionReadonlyFilesystem indicates the filesystem is read-only.
-	NPDConditionReadonlyFilesystem NodeProblemDetectorConditionType = "ReadonlyFilesystem"
+	NPDConditionReadonlyFilesystem corev1.NodeConditionType = "ReadonlyFilesystem"
 	// NPDConditionOVSvSwitchdHealthy indicates the ovs-vswitchd service is running
-	NPDConditionOVSvSwitchdHealthy NodeProblemDetectorConditionType = "OVSvSwitchdHealthy"
+	NPDConditionOVSvSwitchdHealthy corev1.NodeConditionType = "OVSvSwitchdHealthy"
 	// NPDConditionOVSDBHealthy indicates the ovsdb-server service is running
-	NPDConditionOVSDBHealthy NodeProblemDetectorConditionType = "OVSDBHealthy"
+	NPDConditionOVSDBHealthy corev1.NodeConditionType = "OVSDBHealthy"
 	// NPDConditionOVSHealthy indicates OVS processes have not been OOM killed recently
-	NPDConditionOVSHealthy NodeProblemDetectorConditionType = "OVSHealthy"
+	NPDConditionOVSHealthy corev1.NodeConditionType = "OVSHealthy"
 	// NPDConditionDPUModeCorrect indicates DPU is in the correct separated mode
-	NPDConditionDPUModeCorrect NodeProblemDetectorConditionType = "DPUModeCorrect"
+	NPDConditionDPUModeCorrect corev1.NodeConditionType = "DPUModeCorrect"
 	// NPDConditionUplinkHealthy indicates the physical uplink interface is up
-	NPDConditionUplinkHealthy NodeProblemDetectorConditionType = "UplinkHealthy"
+	NPDConditionUplinkHealthy corev1.NodeConditionType = "UplinkHealthy"
 	// NPDConditionSRIOVHealthy indicates SR-IOV VF representors are present
-	NPDConditionSRIOVHealthy NodeProblemDetectorConditionType = "SRIOVHealthy"
+	NPDConditionSRIOVHealthy corev1.NodeConditionType = "SRIOVHealthy"
 	// NPDConditionMTUConfigured indicates network MTU is correctly configured
-	NPDConditionMTUConfigured NodeProblemDetectorConditionType = "MTUConfigured"
+	NPDConditionMTUConfigured corev1.NodeConditionType = "MTUConfigured"
 )
 
 // GetNodeProblemDetectorConditions returns all expected node-problem-detector condition types

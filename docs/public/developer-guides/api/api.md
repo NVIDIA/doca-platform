@@ -2627,8 +2627,6 @@ _Appears in:_
 | `nodeMaintenanceAdditionalRequestors` _string array_ | Additional requestors to be added to the NvidiaNodeMaintenance CR when Drain is selected |  | Optional: \{\} <br /> |
 
 
-
-
 #### NodeRebootMethod
 
 
