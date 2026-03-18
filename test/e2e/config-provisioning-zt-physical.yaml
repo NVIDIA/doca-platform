@@ -1,4 +1,3 @@
-provisioningControllerPVC: "../objects/infrastructure/pvc-provisioning.yaml"
 bfb: "../objects/infrastructure/bfb.yaml"
 dpuClusters:
   - "../objects/infrastructure/dpucluster-kamaji.yaml"
