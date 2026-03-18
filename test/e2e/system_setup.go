@@ -451,21 +451,25 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		// Else: initial phase of the upgrade test (deployed from the last GA release).
 		if !isCurrentVersionLastReleasedGA {
 			g.Expect(found).To(HaveKey(operatorv1.ServiceChainSetCRDsName.String()))
+			g.Expect(found).To(HaveKey(operatorv1.NVIPAMNodeName.String()))
 			g.Expect(found).To(HaveKey(operatorv1.KubeStateMetricsRBACName.String()))
 			g.Expect(found).To(HaveKey(operatorv1.NodeProblemDetectorName.String()))
 		} else {
 			g.Expect(found).To(HaveKey(operatorv1.ServiceSetControllerName.String()))
+			g.Expect(found).To(HaveKey(operatorv1.NVIPAMControllerName.String()))
 		}
 
 		// Expect each of the following to have been created by the operator.
 		g.Expect(found).To(HaveKey(operatorv1.MultusName.String()))
 		g.Expect(found).To(HaveKey(operatorv1.SRIOVDevicePluginName.String()))
 		g.Expect(found).To(HaveKey(operatorv1.FlannelName.String()))
-		g.Expect(found).To(HaveKey(operatorv1.NVIPAMName.String()))
 		g.Expect(found).To(HaveKey(operatorv1.OVSCNIName.String()))
 		g.Expect(found).To(HaveKey(operatorv1.SFCControllerName.String()))
 		g.Expect(found).To(HaveKey(operatorv1.CNIInstallerName.String()))
 	}).WithTimeout(60 * time.Second).Should(Succeed())
+
+	By("Ensure the DPFOperatorConfig is ready")
+	VerifyDPFOperatorConfigReady(ctx, testClient, 60*time.Second)
 }
 
 // ProvisionDPUClusters provisions DPUClusters.
@@ -564,14 +568,20 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 
 	By("Checking the DPUServices have been mirrored to the target cluster")
-	Eventually(func(g Gomega) {
-		serviceSetDeployment := &appsv1.Deployment{}
-		g.Expect(input.client.Get(ctx, client.ObjectKey{
-			Namespace: dpfOperatorSystemNamespace,
-			Name:      fmt.Sprintf("in-cluster-%s", getServiceChainSetControllerDPUServiceName(input.dpuClusters[0].Name, input.dpuClusters[0].Namespace))},
-			serviceSetDeployment)).To(Succeed())
-		g.Expect(serviceSetDeployment.Status.ReadyReplicas).To(Equal(*serviceSetDeployment.Spec.Replicas))
-	}).WithTimeout(600 * time.Second).Should(Succeed())
+	for _, componentName := range []operatorv1.ComponentName{
+		operatorv1.ServiceSetControllerName,
+		operatorv1.NVIPAMControllerName,
+	} {
+		deploymentName := fmt.Sprintf("in-cluster-%s", getPerClusterDPUServiceName(componentName, input.dpuClusters[0].Name, input.dpuClusters[0].Namespace))
+		Eventually(func(g Gomega) {
+			deployment := &appsv1.Deployment{}
+			g.Expect(input.client.Get(ctx, client.ObjectKey{
+				Namespace: dpfOperatorSystemNamespace,
+				Name:      deploymentName},
+				deployment)).To(Succeed())
+			g.Expect(deployment.Status.ReadyReplicas).To(Equal(*deployment.Spec.Replicas))
+		}).WithTimeout(600 * time.Second).Should(Succeed())
+	}
 
 	By("Checking that DPUService objects have been mirrored to the DPUClusters")
 	Eventually(func(g Gomega) {
@@ -599,7 +609,7 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.FlannelName.String())))
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SRIOVDevicePluginName.String())))
 		// Note: The NVIPAM DPUService contains both a Daemonset and a Deployment - but this is overwritten in the map.
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.NVIPAMName.String())))
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.NVIPAMContainerNode.String())))
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.OVSCNIName.String())))
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SFCControllerName.String())))
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.OpenTelemetryCollectorName.String())))

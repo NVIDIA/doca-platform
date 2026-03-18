@@ -154,25 +154,29 @@ func TestManifests_Parse_Generate_All(t *testing.T) {
 		// nv-ipam
 		{
 			name: "fail if nv-ipam data is nil",
-			inventory: New().setNvK8sIpam(fromDPUService{
-				name: operatorv1.NVIPAMName,
+			inventory: New().setNvK8sIpam(dpuServicePerDPUClusterObjects{
 				data: nil,
 			}),
 			wantErr: true,
 		},
 		{
 			name: "fail if nv-ipam data has an unexpected object",
-			inventory: New().setNvK8sIpam(fromDPUService{
-				name: operatorv1.NVIPAMName,
+			inventory: New().setNvK8sIpam(dpuServicePerDPUClusterObjects{
 				data: addUnexpectedKindToObjects(g, nvK8sIpamData),
 			}),
 			wantErr: true,
 		},
 		{
 			name: "fail if nv-ipam is missing the DPUService",
-			inventory: New().setNvK8sIpam(fromDPUService{
-				name: operatorv1.NVIPAMName,
+			inventory: New().setNvK8sIpam(dpuServicePerDPUClusterObjects{
 				data: removeKindFromObjects(g, "DPUService", nvK8sIpamData),
+			}),
+			wantErr: true,
+		},
+		{
+			name: "fail if nv-ipam is missing the DPUServiceCredentialRequest",
+			inventory: New().setNvK8sIpam(dpuServicePerDPUClusterObjects{
+				data: removeKindFromObjects(g, "DPUServiceCredentialRequest", nvK8sIpamData),
 			}),
 			wantErr: true,
 		},
@@ -322,7 +326,7 @@ func TestManifests_generateAllManifests(t *testing.T) {
 		},
 		{
 			name:               "Disable nvidia-k8s-ipam manifests",
-			componentToDisable: operatorv1.NVIPAMName,
+			componentToDisable: operatorv1.NVIPAMControllerName,
 			wantErr:            false,
 		},
 		{

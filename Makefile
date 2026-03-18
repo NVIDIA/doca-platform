@@ -729,6 +729,8 @@ verify-manifest-dpu-networking-sriov-device-plugin: helm-package-dpu-networking 
 verify-manifest-dpu-networking-nvidia-k8s-ipam: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking nvidia-k8s-ipam subchart
 	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
 	  --set nvidia-k8s-ipam.enabled=true \
+	  --set nvidia-k8s-ipam.deployDPUManifests=true \
+	  --set nvidia-k8s-ipam.deployHostManifests=true \
 	  --set nvidia-k8s-ipam.nvIpam.controller.resources.limits.cpu=1m \
 	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-nvidia-k8s-ipam-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-nvidia-k8s-ipam-$(TAG).yaml" \

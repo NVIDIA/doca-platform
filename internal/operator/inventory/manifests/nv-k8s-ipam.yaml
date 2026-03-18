@@ -9,3 +9,21 @@ spec:
       repoURL: oci://example.com
       chart: nvidia-k8s-ipam-chart
       version: v0.1.0
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceCredentialRequest
+metadata:
+  name: nvidia-k8s-ipam
+  namespace: dpf-operator-system
+spec:
+  duration: 24h
+  serviceAccount:
+    name: example-serviceaccount-name
+    namespace: example-serviceaccount-namespace
+  targetCluster:
+    name: example-cluster-name
+    namespace: example-cluster-namespace
+  type: tokenFile
+  secret:
+    name: example-secret-name
+    namespace: example-secret-namespace
