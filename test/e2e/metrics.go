@@ -90,8 +90,6 @@ func ValidateGeneralDPFMetrics(ctx context.Context, input *systemTestInput) {
 }
 
 func VerifyNodeProblemDetectorConditions(ctx context.Context, input *systemTestInput) {
-	expectedConditions := provisioningv1.GetNodeProblemDetectorConditions()
-
 	Eventually(func(g Gomega) {
 		for i, dpuCluster := range input.dpuClusters {
 			By(fmt.Sprintf("Checking node conditions in DPUCluster %s", dpuCluster.Name))
@@ -108,12 +106,35 @@ func VerifyNodeProblemDetectorConditions(ctx context.Context, input *systemTestI
 					nodeConditions[string(condition.Type)] = condition.Status
 				}
 
-				// Verify each expected condition exists on this node
-				for _, expectedCondition := range expectedConditions {
-					g.Expect(nodeConditions).To(HaveKey(expectedCondition),
-						fmt.Sprintf("Node %s in DPUCluster %s is missing expected condition %s",
-							node.Name, dpuCluster.Name, expectedCondition))
-				}
+				// Verify that the full set of Node conditions on DPUCluster nodes matches exactly
+				// the expected NPD and kubelet condition types.
+				//
+				// This assertion is intentionally strict: it will fail if any condition type is
+				// added, removed, or renamed (including non-NPD conditions). This guards against
+				// unintended changes to the overall condition surface of these nodes.
+				//
+				// If new legitimate condition types are introduced, this list must be updated
+				// accordingly.
+				//
+				// Keep in sync with GetNodeProblemDetectorConditions() in api/provisioning/v1alpha1/dpu_types.go:168
+				Expect(node.Status.Conditions).
+					To(ConsistOf(
+						HaveField("Type", Equal(provisioningv1.NPDConditionKernelDeadlock)),
+						HaveField("Type", Equal(provisioningv1.NPDConditionReadonlyFilesystem)),
+						HaveField("Type", Equal(provisioningv1.NPDConditionOVSvSwitchdHealthy)),
+						HaveField("Type", Equal(provisioningv1.NPDConditionOVSDBHealthy)),
+						HaveField("Type", Equal(provisioningv1.NPDConditionOVSHealthy)),
+						HaveField("Type", Equal(provisioningv1.NPDConditionDPUModeCorrect)),
+						HaveField("Type", Equal(provisioningv1.NPDConditionUplinkHealthy)),
+						HaveField("Type", Equal(provisioningv1.NPDConditionSRIOVHealthy)),
+						HaveField("Type", Equal(provisioningv1.NPDConditionMTUConfigured)),
+						// Kubelet conditions, not part of GetNodeProblemDetectorConditions()
+						HaveField("Type", Equal(corev1.NodeReady)),
+						HaveField("Type", Equal(corev1.NodeMemoryPressure)),
+						HaveField("Type", Equal(corev1.NodeDiskPressure)),
+						HaveField("Type", Equal(corev1.NodePIDPressure)),
+						HaveField("Type", Equal(corev1.NodeNetworkUnavailable)),
+					), "Node conditions do not match expected conditions")
 			}
 		}
 	}).WithTimeout(120 * time.Second).Should(Succeed())
