@@ -304,13 +304,15 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			pf0vf3Worker1MacAddress = pf0vf3Worker1MacAddressesMap[dpuNode1.Name]
 		})
 
-		//Note: This is a workaround for testing in nic cloud to avoid rebooting the hosts.
+		//Note: This is a workaround for testing to avoid rebooting the hosts.
 		//  	MAC addresses will be set as part of the BFB, then when the host boots up, the mac address will be set.
-		It("set mac address of the VF to the pod", func() {
+		It("set host VF MAC addresses", func() {
 			workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.client)
-			Expect(vpcutils.SetLinkMacAddress(workerNode1, hostPf0Vf2, pf0vf2Worker1MacAddress)).To(Succeed())
-			Expect(vpcutils.SetLinkMacAddress(workerNode2, hostPf0Vf2, pf0vf2Worker2MacAddress)).To(Succeed())
-			Expect(vpcutils.SetLinkMacAddress(workerNode1, hostPf0Vf3, pf0vf3Worker1MacAddress)).To(Succeed())
+			workerNode1IP := GetNodeInternalIP(ctx, input.client, workerNode1)
+			workerNode2IP := GetNodeInternalIP(ctx, input.client, workerNode2)
+			vpcutils.SetLinkMacAddress(workerNode1IP, hostPf0Vf2, pf0vf2Worker1MacAddress)
+			vpcutils.SetLinkMacAddress(workerNode2IP, hostPf0Vf2, pf0vf2Worker2MacAddress)
+			vpcutils.SetLinkMacAddress(workerNode1IP, hostPf0Vf3, pf0vf3Worker1MacAddress)
 		})
 
 		It("create netshoot pods and NetworkAttachmentDefinitions", func() {
@@ -515,13 +517,15 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			pf0vf3Worker1MacAddress = pf0vf3Worker1MacAddressesMap[dpuNode1.Name]
 		})
 
-		//Note: This is a workaround for testing in nic cloud to avoid rebooting the hosts.
+		//Note: This is a workaround for testing to avoid rebooting the hosts.
 		//  	MAC addresses will be set as part of the BFB, then when the host boots up, the mac address will be set.
-		It("set mac address of the VF to the pod", func() {
+		It("set host VF MAC addresses", func() {
 			workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.client)
-			Expect(vpcutils.SetLinkMacAddress(workerNode1, hostPf0Vf2, pf0vf2Worker1MacAddress)).To(Succeed())
-			Expect(vpcutils.SetLinkMacAddress(workerNode2, hostPf0Vf2, pf0vf2Worker2MacAddress)).To(Succeed())
-			Expect(vpcutils.SetLinkMacAddress(workerNode1, hostPf0Vf3, pf0vf3Worker1MacAddress)).To(Succeed())
+			workerNode1IP := GetNodeInternalIP(ctx, input.client, workerNode1)
+			workerNode2IP := GetNodeInternalIP(ctx, input.client, workerNode2)
+			vpcutils.SetLinkMacAddress(workerNode1IP, hostPf0Vf2, pf0vf2Worker1MacAddress)
+			vpcutils.SetLinkMacAddress(workerNode2IP, hostPf0Vf2, pf0vf2Worker2MacAddress)
+			vpcutils.SetLinkMacAddress(workerNode1IP, hostPf0Vf3, pf0vf3Worker1MacAddress)
 		})
 
 		It("create netshoot pods and NetworkAttachmentDefinitions", func() {
@@ -732,13 +736,15 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			Expect(pf0vf3Worker2MacAddress).ToNot(BeEmpty())
 		})
 
-		//Note: This is a workaround for testing in nic cloud to avoid rebooting the hosts.
+		//Note: This is a workaround for testing to avoid rebooting the hosts.
 		//  	MAC addresses will be set as part of the BFB, then when the host boots up, the mac address will be set.
-		It("set mac address of the VF to the pod", func() {
+		It("set host VF MAC addresses", func() {
 			workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.client)
-			Expect(vpcutils.SetLinkMacAddress(workerNode1, hostPf0Vf2, pf0vf2Worker1MacAddress)).To(Succeed())
-			Expect(vpcutils.SetLinkMacAddress(workerNode2, hostPf0Vf2, pf0vf2Worker2MacAddress)).To(Succeed())
-			Expect(vpcutils.SetLinkMacAddress(workerNode2, hostPf0Vf3, pf0vf3Worker2MacAddress)).To(Succeed())
+			workerNode1IP := GetNodeInternalIP(ctx, input.client, workerNode1)
+			workerNode2IP := GetNodeInternalIP(ctx, input.client, workerNode2)
+			vpcutils.SetLinkMacAddress(workerNode1IP, hostPf0Vf2, pf0vf2Worker1MacAddress)
+			vpcutils.SetLinkMacAddress(workerNode2IP, hostPf0Vf2, pf0vf2Worker2MacAddress)
+			vpcutils.SetLinkMacAddress(workerNode2IP, hostPf0Vf3, pf0vf3Worker2MacAddress)
 		})
 
 		It("create netshoot pods and NetworkAttachmentDefinitions", func() {
@@ -938,11 +944,13 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			Expect(pf0vf2Worker2MacAddress).ToNot(BeEmpty())
 		})
 
-		//Note: This is a workaround for testing in nic cloud to avoid rebooting the hosts.
+		//Note: This is a workaround for testing to avoid rebooting the hosts.
 		//  	MAC addresses will be set as part of the BFB, then when the host boots up, the mac address will be set.
-		It("set mac address of the VF to the pod", func() {
-			Expect(vpcutils.SetLinkMacAddress(hostWorkerNode1, hostPf0Vf2, pf0vf2Worker1MacAddress)).To(Succeed())
-			Expect(vpcutils.SetLinkMacAddress(hostWorkerNode2, hostPf0Vf2, pf0vf2Worker2MacAddress)).To(Succeed())
+		It("set host VF MAC addresses", func() {
+			hostWorkerNode1IP := GetNodeInternalIP(ctx, input.client, hostWorkerNode1)
+			hostWorkerNode2IP := GetNodeInternalIP(ctx, input.client, hostWorkerNode2)
+			vpcutils.SetLinkMacAddress(hostWorkerNode1IP, hostPf0Vf2, pf0vf2Worker1MacAddress)
+			vpcutils.SetLinkMacAddress(hostWorkerNode2IP, hostPf0Vf2, pf0vf2Worker2MacAddress)
 		})
 
 		It("create netshoot pods and NetworkAttachmentDefinition", func() {
@@ -1139,11 +1147,12 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			pf0vf2Worker1MacAddress = pf0vf2Worker1MacAddressesMap[dpuNode1.Name]
 		})
 
-		//Note: This is a workaround for testing in nic cloud to avoid rebooting the hosts.
+		//Note: This is a workaround for testing to avoid rebooting the hosts.
 		//  	MAC addresses will be set as part of the BFB, then when the host boots up, the mac address will be set.
-		It("set mac address of the VF to the pod", func() {
+		It("set host VF MAC addresses", func() {
 			workerNode1, _ := getTwoWorkerNodeNames(ctx, input.client)
-			Expect(vpcutils.SetLinkMacAddress(workerNode1, hostPf0Vf2, pf0vf2Worker1MacAddress)).To(Succeed())
+			workerNode1IP := GetNodeInternalIP(ctx, input.client, workerNode1)
+			vpcutils.SetLinkMacAddress(workerNode1IP, hostPf0Vf2, pf0vf2Worker1MacAddress)
 		})
 
 		It("create netshoot pods and NetworkAttachmentDefinitions", func() {
