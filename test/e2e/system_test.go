@@ -47,6 +47,10 @@ func SetInput() {
 	controlPlaneIP := getClusterControlPlaneIP(ctx, testClient)
 
 	By("Setting operatorConfig for the test")
+	var bfbPVCName *string
+	if conf.ProvisioningControllerPVCPath != nil {
+		bfbPVCName = ptr.To("bfb-pvc")
+	}
 	dpfOperatorConfig := &operatorv1.DPFOperatorConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      configName,
@@ -55,7 +59,7 @@ func SetInput() {
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
-				BFBPersistentVolumeClaimName: ptr.To("bfb-pvc"),
+				BFBPersistentVolumeClaimName: bfbPVCName,
 			},
 			StaticClusterManager: &operatorv1.StaticClusterManagerConfiguration{
 				BaseComponentConfig: operatorv1.BaseComponentConfig{
@@ -90,8 +94,6 @@ func SetInput() {
 		By(fmt.Sprintf("Zero trust mode is applied to operatorConfig with trusted host IP %s", controlPlaneIP))
 		dpfOperatorConfig.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
 			InstallViaRedfish: &operatorv1.InstallViaRedfish{
-				// Use NodePort service port 30082
-				BFBRegistryAddress:   fmt.Sprintf("%s:30082", controlPlaneIP),
 				SkipDPUNodeDiscovery: ptr.To(false),
 			},
 		}
