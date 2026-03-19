@@ -199,7 +199,6 @@ var _ = Describe("PerformArmForceRestart", func() {
 	})
 
 	It("should trigger ARM restart, increment tracker, and set initial condition", func() {
-		mockServer.SetOemLastState("OsIsRunning")
 		tracker := &dutil.ArmRestartTracker{
 			MaxAttempts:       2,
 			Attempt:           0,
@@ -225,31 +224,7 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(cond.Reason).To(Equal("RestartTriggered"))
 	})
 
-	It("should trigger first restart even when OS is not running (unsigned BFB + Secure Boot)", func() {
-		mockServer.SetOemLastState("OsStarting") // OS not running
-		tracker := &dutil.ArmRestartTracker{
-			MaxAttempts:       2,
-			Attempt:           0,
-			InitialGeneration: dpu.Generation,
-		}
-		Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
-
-		status, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(status.Phase).To(Equal(provisioningv1.DPUPerformArmForceRestart))
-
-		loaded, loadErr := dutil.LoadArmRestartTracker(dpu)
-		Expect(loadErr).NotTo(HaveOccurred())
-		Expect(loaded.Attempt).To(Equal(1), "restart should be triggered even when OS is down")
-
-		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
-		Expect(cond).NotTo(BeNil())
-		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-		Expect(cond.Reason).To(Equal("RestartTriggered"))
-	})
-
-	It("should trigger next restart when OS is running and more restarts needed", func() {
-		mockServer.SetOemLastState("OsIsRunning")
+	It("should trigger next restart when more restarts needed", func() {
 		tracker := &dutil.ArmRestartTracker{
 			MaxAttempts:       2,
 			Attempt:           1,
@@ -265,7 +240,6 @@ var _ = Describe("PerformArmForceRestart", func() {
 	})
 
 	It("should return to InitializeInterface when all restarts done regardless of OS state", func() {
-		mockServer.SetOemLastState("OsStarting") // OS not running
 		tracker := &dutil.ArmRestartTracker{
 			MaxAttempts:       2,
 			Attempt:           2,
@@ -285,51 +259,29 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(loaded).NotTo(BeNil())
 	})
 
-	It("should wait for OS to boot when not running after restart", func() {
-		mockServer.SetOemLastState("OsStarting") // OS not running yet
+	It("should trigger intermediate restart even when OS is not running", func() {
 		tracker := &dutil.ArmRestartTracker{
 			MaxAttempts:       2,
 			Attempt:           1,
 			InitialGeneration: dpu.Generation,
-			LastRestartTime:   time.Now(),
 		}
 		Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
 
 		status, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
 		Expect(err).NotTo(HaveOccurred())
-		// Should stay in same phase, waiting for boot
 		Expect(status.Phase).To(Equal(provisioningv1.DPUPerformArmForceRestart))
+
+		loaded, loadErr := dutil.LoadArmRestartTracker(dpu)
+		Expect(loadErr).NotTo(HaveOccurred())
+		Expect(loaded.Attempt).To(Equal(2), "intermediate restart must proceed regardless of OS state")
+
 		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
 		Expect(cond).NotTo(BeNil())
-		Expect(cond.Status).To(Equal(metav1.ConditionFalse), "in-progress must set condition False")
-		Expect(cond.Reason).To(Equal("WaitingForBoot"))
-	})
-
-	It("should go to Error on OS boot timeout", func() {
-		mockServer.SetOemLastState("OsStarting")
-		// Set LastRestartTime past OSRunningTimeout (5min) but within StaleTrackerTimeout (15min)
-		tracker := &dutil.ArmRestartTracker{
-			MaxAttempts:       2,
-			Attempt:           1,
-			InitialGeneration: dpu.Generation,
-			LastRestartTime:   time.Now().Add(-OSRunningTimeout - 30*time.Second),
-		}
-		Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
-
-		status, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(status.Phase).To(Equal(provisioningv1.DPUError))
-		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
-		Expect(cond).NotTo(BeNil())
-		Expect(cond.Status).To(Equal(metav1.ConditionFalse), "error case must set condition False")
-		Expect(cond.Reason).To(Equal("OSBootTimeout"))
-		loaded, _ := dutil.LoadArmRestartTracker(dpu)
-		Expect(loaded).NotTo(BeNil(), "tracker should be preserved on terminal error for forensics and race prevention")
-		Expect(loaded.Attempt).To(Equal(1))
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		Expect(cond.Reason).To(Equal("RestartTriggered"))
 	})
 
 	It("should skip restart when minimum restart interval has not elapsed", func() {
-		mockServer.SetOemLastState("OsIsRunning")
 		tracker := &dutil.ArmRestartTracker{
 			MaxAttempts:       2,
 			Attempt:           0,
@@ -353,27 +305,7 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(loaded.Attempt).To(Equal(0))
 	})
 
-	It("should return retryable error when BMC GetSystem returns non-200", func() {
-		mockServer.SetSystemError(true)
-		tracker := &dutil.ArmRestartTracker{
-			MaxAttempts:       2,
-			Attempt:           0,
-			InitialGeneration: dpu.Generation,
-		}
-		Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
-
-		status, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
-		Expect(err).To(HaveOccurred())
-		// Phase should not change — retryable error
-		Expect(status.Phase).To(Equal(provisioningv1.DPUPerformArmForceRestart))
-		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
-		Expect(cond).NotTo(BeNil())
-		Expect(cond.Status).To(Equal(metav1.ConditionFalse), "error case must set condition False")
-		Expect(cond.Reason).To(Equal("FailedToGetSystemState"))
-	})
-
 	It("should return retryable error when ForceRestartDPUArm fails", func() {
-		mockServer.SetOemLastState("OsIsRunning")
 		mockServer.SetResetSystemError(true)
 		tracker := &dutil.ArmRestartTracker{
 			MaxAttempts:       2,
@@ -394,6 +326,34 @@ var _ = Describe("PerformArmForceRestart", func() {
 		loaded, loadErr := dutil.LoadArmRestartTracker(dpu)
 		Expect(loadErr).NotTo(HaveOccurred())
 		Expect(loaded.Attempt).To(Equal(0))
+	})
+
+	It("should return retryable error when tracker annotation is corrupt", func() {
+		dpu.Annotations = map[string]string{
+			provisioningv1.AnnotationArmRestartTracker: "not-valid-json",
+		}
+
+		status, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
+		Expect(err).To(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUPerformArmForceRestart))
+	})
+
+	It("should return retryable error when DPUDevice is not found", func() {
+		dpu.Spec.DPUDeviceName = "non-existent-device"
+		tracker := &dutil.ArmRestartTracker{
+			MaxAttempts:       2,
+			Attempt:           0,
+			InitialGeneration: dpu.Generation,
+		}
+		Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
+
+		status, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
+		Expect(err).To(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUPerformArmForceRestart))
+		_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
+		Expect(cond).NotTo(BeNil())
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		Expect(cond.Reason).To(Equal("FailedToGetDPUDevice"))
 	})
 
 	It("should remain in DPUError on re-reconcile when tracker is preserved after safety limit", func() {
@@ -424,37 +384,7 @@ var _ = Describe("PerformArmForceRestart", func() {
 		Expect(loaded).NotTo(BeNil(), "tracker must remain to prevent race-driven re-staging")
 	})
 
-	It("should remain in DPUError on re-reconcile when tracker is preserved after OS boot timeout", func() {
-		mockServer.SetOemLastState("OsStarting")
-		tracker := &dutil.ArmRestartTracker{
-			MaxAttempts:       2,
-			Attempt:           1,
-			InitialGeneration: dpu.Generation,
-			LastRestartTime:   time.Now().Add(-OSRunningTimeout - 30*time.Second),
-		}
-		Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
-
-		By("First reconcile: should transition to DPUError")
-		status1, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(status1.Phase).To(Equal(provisioningv1.DPUError))
-
-		By("Simulate race: second reconcile with preserved tracker and stale phase")
-		dpu.Status = status1
-		dpu.Status.Phase = provisioningv1.DPUPerformArmForceRestart
-		status2, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(status2.Phase).To(Equal(provisioningv1.DPUError),
-			"second reconcile should still produce DPUError, not trigger more restarts")
-		_, cond := cutil.GetDPUCondition(&status2, provisioningv1.DPUCondArmForceRestarted.String())
-		Expect(cond).NotTo(BeNil())
-		Expect(cond.Reason).To(Equal("OSBootTimeout"))
-		loaded, _ := dutil.LoadArmRestartTracker(dpu)
-		Expect(loaded).NotTo(BeNil(), "tracker must remain to prevent race-driven re-staging")
-	})
-
-	It("should return to InitializeInterface for validation when all restarts done and OS running", func() {
-		mockServer.SetOemLastState("OsIsRunning")
+	It("should return to InitializeInterface for validation when all restarts done", func() {
 		tracker := &dutil.ArmRestartTracker{
 			MaxAttempts:       2,
 			Attempt:           2,
