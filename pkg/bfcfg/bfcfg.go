@@ -143,7 +143,11 @@ func GenerateBFConfig(ctx context.Context, controllerContext *util.ControllerCon
 			return nil, fmt.Errorf("generating dpu-agent kubeconfig: %w", err)
 		}
 		kubeconfig = string(kubeconfigData)
-		dpuAgentRepoURL = strings.TrimRight(controllerContext.Options.BFBRegistry, "/") + "/deb"
+		bfbRegistryAddr, err := cutil.GetBFBRegistryAddressWithPort(ctx, controllerContext.Client, os.Getenv("POD_NAMESPACE"), controllerContext.Options.BFBRegistry)
+		if err != nil {
+			return nil, fmt.Errorf("bfb-registry address with port: %w", err)
+		}
+		dpuAgentRepoURL = strings.TrimRight(bfbRegistryAddr, "/") + "/deb"
 	} else {
 		dpuAgentRepoURL = "http://[fe80::1%25tmfifo_net0]:11029/deb"
 	}

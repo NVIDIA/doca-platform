@@ -40,7 +40,6 @@ const (
 	LabelValue        = "bfb-registry"
 	ContainerPort     = 8082
 	BFBHostPath       = "/var/lib/nvidia/dpf/bfb"
-	NodePort          = 30082
 )
 
 // BFBRegistryRunnable creates the bfb-registry Pod and Service when the provisioning controller.
@@ -146,7 +145,6 @@ func (r *BFBRegistryRunnable) desiredPod(namespace, nodeName, image string, owne
 			SecurityContext: &corev1.PodSecurityContext{
 				FSGroup: ptr.To(int64(65532)),
 			},
-			HostNetwork: true,
 			Containers: []corev1.Container{
 				{
 					Name:    "bfb-registry",
@@ -216,7 +214,6 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 					Name:       "http",
 					Port:       int32(ContainerPort),
 					TargetPort: intstr.FromInt(ContainerPort),
-					NodePort:   NodePort,
 				},
 			},
 		},
