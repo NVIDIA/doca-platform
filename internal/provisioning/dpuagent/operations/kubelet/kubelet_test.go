@@ -75,9 +75,13 @@ var _ = Describe("Kubelet", func() {
 	})
 
 	Context("when built-in kubelet config is present", func() {
-		It("should never be skipped", func() {
+		It("should be skipped if SkipRemoveBuiltinKubelet is true", func() {
 			operation := &RemoveBuiltinKubelet{}
-			Expect(operation.ShouldSkip(&operations.Context{})).To(BeFalse())
+			Expect(operation.ShouldSkip(&operations.Context{
+				Options: opts.Options{
+					SkipRemoveBuiltinKubelet: true,
+				},
+			})).To(BeTrue())
 		})
 
 		It("should remove the built-in kubelet config", func() {
@@ -115,9 +119,13 @@ var _ = Describe("Kubelet", func() {
 	})
 
 	Context("StartKubelet", func() {
-		It("should never be skipped", func() {
+		It("should be skipped if SkipStartKubelet is true", func() {
 			operation := &StartKubelet{}
-			Expect(operation.ShouldSkip(&operations.Context{})).To(BeFalse())
+			Expect(operation.ShouldSkip(&operations.Context{
+				Options: opts.Options{
+					SkipStartKubelet: true,
+				},
+			})).To(BeTrue())
 		})
 
 		It("should disable and start kubelet", func() {
@@ -164,6 +172,15 @@ var _ = Describe("Kubelet", func() {
 	})
 
 	Context("ConfigureKubelet", func() {
+		It("should be skipped if SkipConfigureKubelet is true", func() {
+			operation := &ConfigureKubelet{}
+			Expect(operation.ShouldSkip(&operations.Context{
+				Options: opts.Options{
+					SkipConfigureKubelet: true,
+				},
+			})).To(BeTrue())
+		})
+
 		It("should return error if LatestDPU is nil", func() {
 			operation := &ConfigureKubelet{}
 			err := operation.Execute(ctx, &operations.Context{

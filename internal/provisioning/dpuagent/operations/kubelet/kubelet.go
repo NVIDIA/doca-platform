@@ -68,7 +68,7 @@ func (k *RemoveBuiltinKubelet) ConditionType() string {
 }
 
 func (k *RemoveBuiltinKubelet) ShouldSkip(ctx *operations.Context) bool {
-	return false
+	return ctx.Options.SkipRemoveBuiltinKubelet
 }
 
 func (k *RemoveBuiltinKubelet) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {
@@ -127,7 +127,7 @@ func (s *StartKubelet) ConditionType() string {
 }
 
 func (s *StartKubelet) ShouldSkip(ctx *operations.Context) bool {
-	return false
+	return ctx.Options.SkipStartKubelet
 }
 
 func (s *StartKubelet) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {
@@ -169,7 +169,7 @@ func (c *ConfigureKubelet) ConditionType() string {
 }
 
 func (c *ConfigureKubelet) ShouldSkip(ctx *operations.Context) bool {
-	return false
+	return ctx.Options.SkipConfigureKubelet
 }
 
 func (c *ConfigureKubelet) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {
