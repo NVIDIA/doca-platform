@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -113,8 +114,15 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 	state := dpu.Status.DeepCopy()
 
 	if dpu.Status.RedfishTaskID == nil {
-		logger.Info("submit BFB install task", "will use bfbRegistry", ctrlCtx.Options.BFBRegistry, "bfbFile", dpu.Status.BFBFile, "bfcfgFile", dpu.Status.BFCFGFile)
-		resp, taskInfo, err := client.InstallBFB(concatBFBAndBFCFGPath(ctrlCtx.Options.BFBRegistry, dpu.Status.BFBFile, dpu.Status.BFCFGFile))
+		bfbRegistryAddr, err := getBFBRegistryAddress(ctx, ctrlCtx)
+		if err != nil {
+			err = fmt.Errorf("failed to get bfb-registry address: %w", err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToGetBFBRegistryAddress", err.Error()))
+			state.Phase = provisioningv1.DPUError
+			return *state, nil
+		}
+		logger.Info("submit BFB install task", "will use bfbRegistry", bfbRegistryAddr, "bfbFile", dpu.Status.BFBFile, "bfcfgFile", dpu.Status.BFCFGFile)
+		resp, taskInfo, err := client.InstallBFB(concatBFBAndBFCFGPath(bfbRegistryAddr, dpu.Status.BFBFile, dpu.Status.BFCFGFile))
 		if err != nil {
 			err = fmt.Errorf("failed to install BFB: %w", err)
 			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToInstall", err.Error()))
@@ -168,6 +176,11 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 	cond.Status = metav1.ConditionTrue
 	cutil.SetDPUCondition(state, cond)
 	return *state, nil
+}
+
+// getBFBRegistryAddress returns the full bfb-registry address (e.g. http://host:nodePort)
+func getBFBRegistryAddress(ctx context.Context, ctrlCtx *dutil.ControllerContext) (string, error) {
+	return cutil.GetBFBRegistryAddressWithPort(ctx, ctrlCtx.Client, os.Getenv("POD_NAMESPACE"), ctrlCtx.Options.BFBRegistry)
 }
 
 // concatBFBAndBFCFGPath returns the bfb-registry path of concatenated bfbFile and bfcfgFile
