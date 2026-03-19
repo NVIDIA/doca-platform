@@ -21,12 +21,15 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/bfbregistry"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -746,4 +749,38 @@ func NeedUpdateLabelsOnNodeInDPUCluster(dpuNode *corev1.Node, labelsOnDPUObject 
 		return true, nil
 	}
 	return false, nil
+}
+
+// GetBFBRegistryAddressWithPort returns the full bfb-registry address with port
+func GetBFBRegistryAddressWithPort(ctx context.Context, c crclient.Client, namespace, hostOnlyBase string) (string, error) {
+	base := strings.TrimSuffix(hostOnlyBase, "/")
+	if base == "" {
+		return "", fmt.Errorf("bfb-registry base address is empty")
+	}
+	u, err := parseURLWithOptionalScheme(base)
+	if err != nil {
+		return "", fmt.Errorf("bfb-registry address: %w", err)
+	}
+	if u.Port() != "" {
+		return "", fmt.Errorf("bfb-registry address must not contain a port (got %q)", hostOnlyBase)
+	}
+	svc := &corev1.Service{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: bfbregistry.PodName}, svc); err != nil {
+		return "", fmt.Errorf("get bfb-registry Service %s/%s: %w", namespace, bfbregistry.PodName, err)
+	}
+	if len(svc.Spec.Ports) == 0 {
+		return "", fmt.Errorf("bfb-registry Service %s/%s has no ports", svc.Namespace, svc.Name)
+	}
+	nodePort := svc.Spec.Ports[0].NodePort
+	if nodePort == 0 {
+		return "", fmt.Errorf("bfb-registry Service %s/%s has no NodePort allocated yet", svc.Namespace, svc.Name)
+	}
+	return base + ":" + strconv.Itoa(int(nodePort)), nil
+}
+
+func parseURLWithOptionalScheme(s string) (*url.URL, error) {
+	if !strings.Contains(s, "://") {
+		s = "http://" + s
+	}
+	return url.Parse(s)
 }
