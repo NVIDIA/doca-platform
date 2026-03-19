@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -315,37 +316,26 @@ func GetServiceInterfaceMacAddressesMatchingLabels(ctx context.Context, dpuClust
 	return nodeToMACAddresseMap
 }
 
-// SetLinkMacAddress sets the MAC address on a link
-func SetLinkMacAddress(host, interfaceName, macAddress string) error {
-	// Get password from environment variable
+// SetLinkMacAddress sets the MAC address on a link (idempotent; uses Ginkgo Expect for assertions).
+func SetLinkMacAddress(hostIP net.IP, interfaceName, macAddress string) {
 	password := os.Getenv("VM_PASSWORD")
-	if password == "" {
-		return fmt.Errorf("VM_PASSWORD environment variable is not set")
-	}
+	Expect(password).ToNot(BeEmpty(), "VM_PASSWORD environment variable is not set")
 
-	// Validate inputs to prevent command injection
-	if strings.ContainsAny(interfaceName, ";|&$`") || strings.ContainsAny(macAddress, ";|&$`") {
-		return fmt.Errorf("invalid characters in interface name or MAC address")
-	}
+	Expect(strings.ContainsAny(interfaceName, ";|&$`")).To(BeFalse(), "invalid characters in interface name")
+	Expect(strings.ContainsAny(macAddress, ";|&$`")).To(BeFalse(), "invalid characters in MAC address")
 
-	// Remove host from known_hosts to avoid conflicts
-	sshKeygenCmd := fmt.Sprintf("ssh-keygen -R %s 2>/dev/null || true", host)
-	err := exec.Command("bash", "-c", sshKeygenCmd).Run()
-	if err != nil {
-		return fmt.Errorf("failed to remove host from known_hosts: %v", err)
-	}
+	sshKeygenCmd := fmt.Sprintf("ssh-keygen -R %s 2>/dev/null || true", hostIP.String())
+	Expect(exec.Command("bash", "-c", sshKeygenCmd).Run()).To(Succeed(), "failed to remove host from known_hosts")
 
-	// Use password authentication for internal testing
-	sshCommand := fmt.Sprintf("sshpass -p '%s' ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root@%s 'ip link set dev %s down && ip link set dev %s address %s && ip link set dev %s up'",
-		password, host, interfaceName, interfaceName, macAddress, interfaceName)
+	sshOpts := "-o StrictHostKeyChecking=no -o PubkeyAuthentication=no -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
+	sshCommand := fmt.Sprintf("sshpass -p '%s' ssh %s root@%s 'ip link set dev %s down && ip link set dev %s address %s && ip link set dev %s up'",
+		password, sshOpts, hostIP.String(), interfaceName, interfaceName, macAddress, interfaceName)
 
-	cmd := exec.Command("bash", "-c", sshCommand)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to set MAC address on %s: %w, output: %s", host, err, string(output))
-	}
-
-	return nil
+	Eventually(func(g Gomega) {
+		cmd := exec.Command("bash", "-c", sshCommand)
+		output, runErr := cmd.CombinedOutput()
+		g.Expect(runErr).ToNot(HaveOccurred(), "failed to set MAC address on %s, output: %s", hostIP.String(), string(output))
+	}, DefaultTimeout).Should(Succeed())
 }
 
 func CreateTestNamespace(ctx context.Context, testClient client.Client, namespace string, labels map[string]string) {
