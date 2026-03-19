@@ -282,20 +282,33 @@ func extractSelectors(ctx context.Context, obj client.Object) (*metav1.LabelSele
 }
 
 // Reconcile handles the reconciliation of DPUNode objects for DPU readiness
-func (r *DPUReadyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *DPUReadyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, reterr error) {
 	dpuNode := provisioningv1.DPUNode{}
 	log := ctrllog.FromContext(ctx)
 	log.Info("Reconciling DPUNode", "dpuNode", req.NamespacedName)
 	if err := r.Get(ctx, req.NamespacedName, &dpuNode); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		return res, client.IgnoreNotFound(err)
 	}
 
-	// Return early if the object is getting deleted
+	scope, err := r.newReconcileScope(ctx, &dpuNode)
+	if err != nil {
+		return res, err
+	}
+
+	// Defer a patch call to always patch the DPU operational conditions when Reconcile exits.
+	defer func() {
+		log.Info("Patching DPU")
+		if err := r.reconcileDPUOperationalConditions(ctx, scope); err != nil {
+			reterr = kerrors.NewAggregate([]error{reterr, err})
+		}
+	}()
+
+	// Handle deletion.
 	if !dpuNode.ObjectMeta.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, nil
+		return res, nil
 	}
 
-	return r.reconcile(ctx, &dpuNode)
+	return res, r.reconcile(ctx, scope)
 }
 
 type reconcileScope struct {
@@ -337,25 +350,16 @@ func (r *DPUReadyReconciler) newReconcileScope(ctx context.Context, dpuNode *pro
 	}, nil
 }
 
-func (r *DPUReadyReconciler) reconcile(ctx context.Context, dpuNode *provisioningv1.DPUNode) (ctrl.Result, error) {
-	scope, err := r.newReconcileScope(ctx, dpuNode)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
+func (r *DPUReadyReconciler) reconcile(ctx context.Context, scope *reconcileScope) (reterr error) {
 	if err := r.reconcileDPUReadyTaints(ctx, scope); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to reconcile DPUServices: %w", err)
+		return fmt.Errorf("failed to reconcile DPUServices: %w", err)
 	}
 
 	if err := r.reconcileDPUNodeMaintenance(ctx, scope); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to reconcile DPUNodeMaintenance: %w", err)
+		return fmt.Errorf("failed to reconcile DPUNodeMaintenance: %w", err)
 	}
 
-	if err := r.reconcileDPUOperationalConditions(ctx, scope); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to reconcile DPU operational conditions: %w", err)
-	}
-
-	return ctrl.Result{}, nil
+	return nil
 }
 
 // reconcileDPUReadyTaints reconciles the DPUServices for a given node
@@ -946,7 +950,7 @@ func (r *DPUReadyReconciler) WatchNodes(ctx context.Context, c client.Client, cl
 		Kind:         &corev1.Node{},
 		EventHandler: &nodeInDPUClusterEventHandler{client: c, dpuNodeDefaultNamespace: dpfOperatorConfig.Namespace},
 		Predicates: []predicate.Predicate{
-			// Only trigger on node condition changes
+			// Only trigger on node condition changes and deletion
 			newNodeConditionPredicate(),
 		},
 		Watcher: r.controller,
@@ -1185,9 +1189,7 @@ func newNodeConditionPredicate() predicate.Funcs {
 			return !nodeConditionsEqual(oldNode.Status.Conditions, newNode.Status.Conditions)
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
-			// Don't reconcile on node deletion
-			// TODO(tgiese): handle delete events.
-			return false
+			return true
 		},
 		GenericFunc: func(e event.GenericEvent) bool {
 			// we are not interested in generic events

@@ -264,7 +264,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 		dpu              *provisioningv1.DPU
 		dpuCluster       provisioningv1.DPUCluster
 		dpuClusterClient client.Client
-		dpuNode          *corev1.Node
+		dpuClusterNode   *corev1.Node
 		dpuNodeObj       *provisioningv1.DPUNode
 	)
 
@@ -365,7 +365,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 		Expect(patcher.Patch(ctx, dpuNodeObj, patch.WithFieldOwner("test"))).To(Succeed())
 
 		By("Creating a Node in the DPUCluster with healthy conditions")
-		dpuNode = &corev1.Node{
+		dpuClusterNode = &corev1.Node{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: dpu.Name,
 				Labels: map[string]string{
@@ -376,16 +376,17 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 			Status: corev1.NodeStatus{
 				Conditions: []corev1.NodeCondition{
 					{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
-					{Type: "OVSHealthy", Status: corev1.ConditionFalse},
-					{Type: "DPUModeCorrect", Status: corev1.ConditionFalse},
-					{Type: "UplinkHealthy", Status: corev1.ConditionFalse},
-					{Type: "SRIOVHealthy", Status: corev1.ConditionFalse},
-					{Type: "MTUConfigured", Status: corev1.ConditionFalse},
 				},
 			},
 		}
-		Expect(dpuClusterClient.Create(ctx, dpuNode)).To(Succeed())
-		DeferCleanup(dpuClusterClient.Delete, ctx, dpuNode)
+		for _, cond := range provisioningv1.GetNodeProblemDetectorConditions() {
+			dpuClusterNode.Status.Conditions = append(dpuClusterNode.Status.Conditions, corev1.NodeCondition{
+				Type:   corev1.NodeConditionType(cond),
+				Status: corev1.ConditionFalse,
+			})
+		}
+		Expect(dpuClusterClient.Create(ctx, dpuClusterNode)).To(Succeed())
+		DeferCleanup(testutils.CleanupWithFinalizerRemovalAndWait, ctx, testClient, dpuClusterNode)
 
 		By("Creating DPUServices")
 		criticalService := &dpuservicev1.DPUService{
@@ -437,37 +438,98 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
 				g.Expect(dpu.Status.OperationalConditions).NotTo(BeEmpty())
-
-				nodeProblemsCondition := meta.FindStatusCondition(dpu.Status.OperationalConditions,
-					string(provisioningv1.DPUOperationalCondNodeProblemsReady))
-				g.Expect(nodeProblemsCondition).NotTo(BeNil())
-				g.Expect(nodeProblemsCondition.Status).To(Equal(metav1.ConditionTrue))
-				g.Expect(nodeProblemsCondition.Reason).To(Equal("NoProblemsDetected"))
+				g.Expect(dpu.Status.OperationalConditions).To(ContainElement(
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondNodeProblemsReady))),
+						HaveField("Status", Equal(metav1.ConditionTrue)),
+						HaveField("Reason", Equal("NoProblemsDetected")),
+					),
+				))
 			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
 		})
 
 		It("should set NodeProblemsReady to False when node has problems", func() {
 			By("Updating node to have a problem")
-			Expect(dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), dpuNode)).To(Succeed())
-			dpuNode.Status.Conditions = []corev1.NodeCondition{
-				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
-				{Type: "OVSHealthy", Status: corev1.ConditionTrue, Reason: "vSwitchdDown"},
-				{Type: "DPUModeCorrect", Status: corev1.ConditionFalse},
-				{Type: "UplinkHealthy", Status: corev1.ConditionFalse},
-				{Type: "SRIOVHealthy", Status: corev1.ConditionFalse},
-				{Type: "MTUConfigured", Status: corev1.ConditionFalse},
+			Expect(dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(dpuClusterNode), dpuClusterNode)).To(Succeed())
+			patcher := patch.NewSerialPatcher(dpuClusterNode, dpuClusterClient)
+			for i, cond := range dpuClusterNode.Status.Conditions {
+				if cond.Type != "OVSHealthy" {
+					continue
+				}
+				dpuClusterNode.Status.Conditions[i] = corev1.NodeCondition{
+					Type:   "OVSHealthy",
+					Status: corev1.ConditionTrue,
+					Reason: "vSwitchdDown",
+				}
+				break
 			}
-			Expect(dpuClusterClient.Status().Update(ctx, dpuNode)).To(Succeed())
+			Expect(patcher.Patch(ctx, dpuClusterNode, patch.WithFieldOwner("test"))).To(Succeed())
 
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+				g.Expect(dpu.Status.OperationalConditions).To(ContainElement(
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondNodeProblemsReady))),
+						HaveField("Status", Equal(metav1.ConditionFalse)),
+						HaveField("Reason", Equal("NodeProblemDetectorNotReady")),
+						HaveField("Message", ContainSubstring("OVSHealthy=vSwitchdDown")),
+					),
+				))
+			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+		})
 
-				nodeProblemsCondition := meta.FindStatusCondition(dpu.Status.OperationalConditions,
-					string(provisioningv1.DPUOperationalCondNodeProblemsReady))
-				g.Expect(nodeProblemsCondition).NotTo(BeNil())
-				g.Expect(nodeProblemsCondition.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(nodeProblemsCondition.Reason).To(Equal("NodeProblemDetectorNotReady"))
-				g.Expect(nodeProblemsCondition.Message).To(ContainSubstring("OVSHealthy=vSwitchdDown"))
+		It("should set all operational conditions to Unknown when Node is being deleted", func() {
+			patcher := patch.NewSerialPatcher(dpuClusterNode, testClient)
+			// We have to set a finalizer to the Node and only delete it then.
+			// If we don't set a finalizer and delete it, the Ginkgo test will fail because the
+			// object does no longer exist during DeferCleanup()
+			dpuClusterNode.SetFinalizers([]string{"foo.bar/test-finalizer"})
+			Expect(patcher.Patch(ctx, dpuClusterNode, patch.WithFieldOwner("test"))).To(Succeed())
+			By("Setting DeletionTimestamp on the Node in DPU cluster")
+			Expect(dpuClusterClient.Delete(ctx, dpuClusterNode)).To(Succeed())
+
+			By("Verifying all operational conditions are set to Unknown with AwaitingDeletion reason")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+				g.Expect(dpu.Status.OperationalConditions).To(HaveLen(6))
+				g.Expect(dpu.Status.OperationalConditions).To(ConsistOf(
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondNodeProblemsReady))),
+						HaveField("Status", Equal(metav1.ConditionUnknown)),
+						HaveField("Reason", Equal("AwaitingDeletion")),
+						HaveField("Message", ContainSubstring("node is being deleted")),
+					),
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady))),
+						HaveField("Status", Equal(metav1.ConditionUnknown)),
+						HaveField("Reason", Equal("AwaitingDeletion")),
+						HaveField("Message", ContainSubstring("node is being deleted")),
+					),
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondDPUServiceNonCriticalPodsReady))),
+						HaveField("Status", Equal(metav1.ConditionUnknown)),
+						HaveField("Reason", Equal("AwaitingDeletion")),
+						HaveField("Message", ContainSubstring("node is being deleted")),
+					),
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondDPUServiceInterfacesReady))),
+						HaveField("Status", Equal(metav1.ConditionUnknown)),
+						HaveField("Reason", Equal("AwaitingDeletion")),
+						HaveField("Message", ContainSubstring("node is being deleted")),
+					),
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondDPUServiceChainsReady))),
+						HaveField("Status", Equal(metav1.ConditionUnknown)),
+						HaveField("Reason", Equal("AwaitingDeletion")),
+						HaveField("Message", ContainSubstring("node is being deleted")),
+					),
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondReady))),
+						HaveField("Status", Equal(metav1.ConditionUnknown)),
+						HaveField("Reason", Equal("AwaitingDeletion")),
+						HaveField("Message", ContainSubstring("node is being deleted")),
+					),
+				))
 			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
 		})
 	})
@@ -529,17 +591,19 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
-
-				criticalPodsCondition := meta.FindStatusCondition(dpu.Status.OperationalConditions,
-					string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady))
-				g.Expect(criticalPodsCondition).NotTo(BeNil())
-				g.Expect(criticalPodsCondition.Status).To(Equal(metav1.ConditionTrue))
-
-				nonCriticalPodsCondition := meta.FindStatusCondition(dpu.Status.OperationalConditions,
-					string(provisioningv1.DPUOperationalCondDPUServiceNonCriticalPodsReady))
-				g.Expect(nonCriticalPodsCondition).NotTo(BeNil())
-				g.Expect(nonCriticalPodsCondition.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(nonCriticalPodsCondition.Message).To(ContainSubstring("non-critical-pod"))
+				g.Expect(dpu.Status.OperationalConditions).To(ContainElements(
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady))),
+						HaveField("Status", Equal(metav1.ConditionTrue)),
+						HaveField("Reason", Equal("AllPodsReady")),
+					),
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondDPUServiceNonCriticalPodsReady))),
+						HaveField("Status", Equal(metav1.ConditionFalse)),
+						HaveField("Reason", Equal("PodsNotReady")),
+						HaveField("Message", ContainSubstring("non-critical-pod")),
+					),
+				))
 			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
 		})
 	})
@@ -597,11 +661,13 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
-
-				interfacesCondition := meta.FindStatusCondition(dpu.Status.OperationalConditions,
-					string(provisioningv1.DPUOperationalCondDPUServiceInterfacesReady))
-				g.Expect(interfacesCondition).NotTo(BeNil())
-				g.Expect(interfacesCondition.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(dpu.Status.OperationalConditions).To(ContainElement(
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondDPUServiceInterfacesReady))),
+						HaveField("Status", Equal(metav1.ConditionTrue)),
+						HaveField("Reason", Equal("AllServiceInterfacesReady")),
+					),
+				))
 			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
 		})
 
@@ -663,11 +729,13 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
-
-				chainsCondition := meta.FindStatusCondition(dpu.Status.OperationalConditions,
-					string(provisioningv1.DPUOperationalCondDPUServiceChainsReady))
-				g.Expect(chainsCondition).NotTo(BeNil())
-				g.Expect(chainsCondition.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(dpu.Status.OperationalConditions).To(ContainElement(
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondDPUServiceChainsReady))),
+						HaveField("Status", Equal(metav1.ConditionTrue)),
+						HaveField("Reason", Equal("AllServiceChainsReady")),
+					),
+				))
 			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
 		})
 	})
@@ -686,25 +754,31 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 
 		It("should set OperationalReady to False when any sub-condition is False", func() {
 			By("Making a node condition fail")
-			Expect(dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), dpuNode)).To(Succeed())
-			dpuNode.Status.Conditions = []corev1.NodeCondition{
-				{Type: "OVSHealthy", Status: corev1.ConditionFalse, Reason: "Failed"},
-				{Type: "DPUModeCorrect", Status: corev1.ConditionTrue},
-				{Type: "UplinkHealthy", Status: corev1.ConditionTrue},
-				{Type: "SRIOVHealthy", Status: corev1.ConditionTrue},
-				{Type: "MTUConfigured", Status: corev1.ConditionTrue},
+			Expect(dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(dpuClusterNode), dpuClusterNode)).To(Succeed())
+			patcher := patch.NewSerialPatcher(dpuClusterNode, dpuClusterClient)
+			for i, cond := range dpuClusterNode.Status.Conditions {
+				if cond.Type != "OVSHealthy" {
+					continue
+				}
+				dpuClusterNode.Status.Conditions[i] = corev1.NodeCondition{
+					Type:   "OVSHealthy",
+					Status: corev1.ConditionTrue,
+					Reason: "vSwitchdDown",
+				}
+				break
 			}
-			Expect(dpuClusterClient.Status().Update(ctx, dpuNode)).To(Succeed())
+			Expect(patcher.Patch(ctx, dpuClusterNode, patch.WithFieldOwner("test"))).To(Succeed())
 
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
-
-				operationalReadyCondition := meta.FindStatusCondition(dpu.Status.OperationalConditions,
-					string(provisioningv1.DPUOperationalCondReady))
-				g.Expect(operationalReadyCondition).NotTo(BeNil())
-				g.Expect(operationalReadyCondition.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(operationalReadyCondition.Reason).To(Equal("NotReady"))
-				g.Expect(operationalReadyCondition.Message).To(ContainSubstring("NodeProblemsReady"))
+				g.Expect(dpu.Status.OperationalConditions).To(ContainElement(
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondNodeProblemsReady))),
+						HaveField("Status", Equal(metav1.ConditionFalse)),
+						HaveField("Reason", Equal("NodeProblemDetectorNotReady")),
+						HaveField("Message", ContainSubstring("OVSHealthy=vSwitchdDown")),
+					),
+				))
 			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
 		})
 	})
