@@ -38,6 +38,9 @@ type Options struct {
 	SkipVFMac                  bool
 	SkipOVSRawScript           bool
 	SkipKernelCmdLine          bool
+	SkipRemoveBuiltinKubelet   bool
+	SkipConfigureKubelet       bool
+	SkipStartKubelet           bool
 }
 
 func (o Options) Validate() error {
