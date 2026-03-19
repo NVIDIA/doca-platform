@@ -69,8 +69,15 @@ else ifeq ($(TOOL_ARCH),arm64)
   TRIVY_ARCH = ARM64
 endif
 
+YQ_ARCH = $(TOOL_ARCH)
+ifeq ($(TOOL_ARCH),x86_64)
+  YQ_ARCH = amd64
+else ifeq ($(TOOL_ARCH),aarch64)
+  YQ_ARCH = arm64
+endif
+
 ## Tool Versions
-YQ_VERSION ?= v4.45.1
+YQ_VERSION ?= v4.52.4
 HELM_VER ?= v3.18.3
 HELM_CM_PUSH_VERSION ?= 0.10.4
 HELMFILE_VERSION ?= v1.4.1
@@ -151,7 +158,9 @@ $(MDTOC): | $(TOOLSDIR_GO)
 yq: $(YQ) ## Download conform locally if necessary.
 	@$(MAKE) tools-path-go TOOL=yq VERSION=$(YQ_VERSION)
 $(YQ): | $(TOOLSDIR_GO)
-	$(call go-install-tool,$(YQ),github.com/mikefarah/yq/v4,$(YQ_VERSION))
+	$Q echo "Installing yq-$(YQ_VERSION) to $(TOOLSDIR_GO)"
+	$Q curl -fsSL https://github.com/mikefarah/yq/releases/download/$(YQ_VERSION)/yq_$(TOOL_OS)_$(YQ_ARCH) -o $(YQ)
+	$Q chmod +x $(YQ)
 
 # helm is used to manage helm deployments and artifacts.
 .PHONY: helm
