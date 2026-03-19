@@ -57,6 +57,9 @@ func main() {
 	pflag.BoolVar(&options.SkipVFMac, "skip-vf-mac", false, "Skip VF MAC configuration")
 	pflag.BoolVar(&options.SkipOVSRawScript, "skip-ovs-raw-script", false, "Skip OVS raw script configuration")
 	pflag.BoolVar(&options.SkipKernelCmdLine, "skip-kernel-cmd-line", false, "Skip kernel cmd line configuration")
+	pflag.BoolVar(&options.SkipRemoveBuiltinKubelet, "skip-remove-builtin-kubelet", false, "Skip removing the built-in kubelet configuration")
+	pflag.BoolVar(&options.SkipConfigureKubelet, "skip-configure-kubelet", false, "Skip kubelet configuration")
+	pflag.BoolVar(&options.SkipStartKubelet, "skip-start-kubelet", false, "Skip starting kubelet")
 	pflag.Parse()
 
 	if err := options.Validate(); err != nil {
