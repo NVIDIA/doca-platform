@@ -417,12 +417,13 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 	}
 
 	By("ensure the system DPUServices are created")
+	var isCurrentVersionLastReleasedGA bool
 	Eventually(func(g Gomega) {
 		// TODO: Remove as soon as we have version aware upgrade logic for the pre-upgrade validation
 		gotDPFOperatorConfig := &operatorv1.DPFOperatorConfig{}
 		g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(input.operatorConfig), gotDPFOperatorConfig)).NotTo(HaveOccurred())
 		g.Expect(gotDPFOperatorConfig.Status.Version).NotTo(BeNil())
-		isCurrentVersionLastReleasedGA := operatorutils.IsUpgradeFromLastReleasedGA(*gotDPFOperatorConfig.Status.Version)
+		isCurrentVersionLastReleasedGA = operatorutils.IsUpgradeFromLastReleasedGA(*gotDPFOperatorConfig.Status.Version)
 
 		dpuServices := &dpuservicev1.DPUServiceList{}
 		g.Expect(testClient.List(ctx, dpuServices)).To(Succeed())
@@ -470,8 +471,12 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		g.Expect(found).To(HaveKey(operatorv1.CNIInstallerName.String()))
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 
-	By("Ensure the DPFOperatorConfig is ready")
-	VerifyDPFOperatorConfigReady(ctx, testClient, 60*time.Second)
+	// TODO: Remove this if condition once we move to 26.4 -> next release upgrade. The reason we add it here is because
+	// in DPF 25.10 the DPFOperatorConfig couldn't become ready if no DPUCluster is available.
+	if !isCurrentVersionLastReleasedGA {
+		By("Ensure the DPFOperatorConfig is ready")
+		VerifyDPFOperatorConfigReady(ctx, testClient, 60*time.Second)
+	}
 }
 
 // ProvisionDPUClusters provisions DPUClusters.
