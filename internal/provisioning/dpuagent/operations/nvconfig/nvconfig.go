@@ -37,7 +37,7 @@ import (
 
 const (
 	CondNVConfigApplied = "NVConfigApplied"
-	minMftVersion       = "4.35.1"
+	minMftVersion       = "4.36.0-86"
 
 	pciPrefix       = "pci/"
 	flavourPhysical = "physical"
@@ -160,7 +160,10 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 		pci, params := pair.pci, pair.params
 		klog.Infof("Setting NVConfig params on device %s: %s", pci, params)
 		if params == "" {
-			if err := n.runMlxconfig(pci, "reset", ""); err != nil {
+			// Avoid mlxconfig reset (which always forces a device reset). Use --with_default set
+			// with a parameter that equals its default (e.g. BOOT_DBG_LOG=0), so the config is
+			// unchanged but no reset is triggered when current configuration equal to default.
+			if err := n.runMlxconfig(pci, "--with_default set", "BOOT_DBG_LOG=0"); err != nil {
 				return err
 			}
 		} else {
@@ -180,7 +183,8 @@ func (n *ConfigureNVConfig) mlxconfigVersion() (*semver.Version, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get mlxconfig version: %w", err)
 	}
-	// Output format: "mlxconfig, mft 4.30.1-8, built on Nov 28 2024..."
+	// Output format: "mlxconfig, mft 4.36.0-86. Git SHA Hash: e44fa1501" or
+	// "mlxconfig, mft 4.30.1-8, built on Nov 28 2024..."
 	var ver *semver.Version
 	for _, field := range strings.Fields(output) {
 		field = strings.TrimRight(field, ".,;")

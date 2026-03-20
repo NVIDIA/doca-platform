@@ -102,7 +102,7 @@ var _ = Describe("NVConfig Operation", func() {
 					recorded = append(recorded, cmd)
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
-				getMlxconfigVersion: func() (string, error) { return "mlxconfig, mft 4.35.1", nil },
+				getMlxconfigVersion: func() (string, error) { return "mlxconfig, mft 4.36.0-86. Git SHA Hash: d11871e33", nil },
 				getDevlinkPort:      func() (string, error) { return devlinkPortShowRealistic, nil },
 				getUplinkName:       getUplinkNameForTest,
 			}
@@ -112,8 +112,8 @@ var _ = Describe("NVConfig Operation", func() {
 			}
 			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
 			Expect(recorded).To(ConsistOf(
-				fmt.Sprintf("mlxconfig -d %s -y reset", pci0),
-				fmt.Sprintf("mlxconfig -d %s -y reset", pci1),
+				fmt.Sprintf("mlxconfig -d %s -y --with_default set BOOT_DBG_LOG=0", pci0),
+				fmt.Sprintf("mlxconfig -d %s -y --with_default set BOOT_DBG_LOG=0", pci1),
 			))
 		})
 
@@ -126,7 +126,7 @@ var _ = Describe("NVConfig Operation", func() {
 					recorded = append(recorded, cmd)
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
-				getMlxconfigVersion: func() (string, error) { return "mlxconfig, mft 4.35.1", nil },
+				getMlxconfigVersion: func() (string, error) { return "mlxconfig, mft 4.36.0-86. Git SHA Hash: d11871e33", nil },
 				getDevlinkPort:      func() (string, error) { return devlinkPortShowRealistic, nil },
 				getUplinkName:       getUplinkNameForTest,
 			}
@@ -398,6 +398,10 @@ var _ = Describe("NVConfig Operation", func() {
 					output:          "mlxconfig 4.29.0",
 					expectedVersion: semver.MustParse("4.29.0"),
 				},
+				{
+					output:          "mlxconfig, mft 4.36.0-86. Git SHA Hash: e44fa1501",
+					expectedVersion: semver.MustParse("4.36.0-86"),
+				},
 			}
 			for _, tc := range testCases {
 				operation := ConfigureNVConfig{
@@ -431,6 +435,21 @@ var _ = Describe("NVConfig Operation", func() {
 			_, err := operation.mlxconfigVersion()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to extract version"))
+		})
+
+		It("version.LessThan(minVer) works for minVer in different formats", func() {
+			version := semver.MustParse("4.35.0")
+
+			for _, minVerStr := range []string{"4.36.0-86", "4.36.0", "4.36"} {
+				minVer, err := semver.NewVersion(minVerStr)
+				Expect(err).NotTo(HaveOccurred(), "minVer %q must parse", minVerStr)
+				Expect(version.LessThan(minVer)).To(BeTrue(), "4.35.0 should be less than %s", minVerStr)
+			}
+
+			// Check prerelease ordering: 4.36.0-85 < 4.36.0-86
+			v850 := semver.MustParse("4.36.0-85")
+			v860 := semver.MustParse("4.36.0-86")
+			Expect(v850.LessThan(v860)).To(BeTrue(), "4.36.0-85 should be less than 4.36.0-86")
 		})
 	})
 
