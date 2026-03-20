@@ -56,8 +56,8 @@ func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *sy
 			g.Expect(exists).To(BeTrue(), "otel-collector-config.yaml not found in ConfigMap")
 			g.Expect(c).To(ContainSubstring(fmt.Sprintf(":%d", otelNodePort)),
 				fmt.Sprintf("ConfigMap should contain management endpoint with NodePort %d", otelNodePort))
-			g.Expect(c).To(ContainSubstring("otlphttp:"),
-				"ConfigMap should contain OTLP HTTP exporter")
+			g.Expect(c).To(ContainSubstring("otlphttp/log:"),
+				"ConfigMap should contain OTLP HTTP exporter for logging")
 			// Verify DOCA log receiver configuration
 			g.Expect(c).To(ContainSubstring("filelog/doca"),
 				"ConfigMap should contain filelog/doca receiver")

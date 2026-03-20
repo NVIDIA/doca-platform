@@ -81,10 +81,15 @@ data:
             action: upsert
 
     exporters:
-      otlphttp:
-        endpoint: {{ .Values.managementEndpoint | quote }}
+      otlphttp/log:
+        endpoint: {{ .Values.logging.endpoint | quote }}
         tls:
           insecure: true
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 1h
 
       debug:
         verbosity: basic
@@ -97,19 +102,19 @@ data:
         logs/pods:
           receivers: [filelog/pods]
           processors: [memory_limiter, k8sattributes, resource, batch]
-          exporters: [otlphttp, debug]
+          exporters: [otlphttp/log, debug]
 
         logs/doca:
           receivers: [filelog/doca]
           processors: [memory_limiter, resource, batch]
-          exporters: [otlphttp, debug]
+          exporters: [otlphttp/log, debug]
 
         logs/otlp:
           receivers: [otlp]
           processors: [memory_limiter, k8sattributes, resource, batch]
-          exporters: [otlphttp, debug]
+          exporters: [otlphttp/log, debug]
 
         metrics:
           receivers: [otlp]
           processors: [memory_limiter, k8sattributes, resource, batch]
-          exporters: [otlphttp, debug]
+          exporters: [debug]
