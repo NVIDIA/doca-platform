@@ -281,9 +281,9 @@ func openTelemetryCollectorEdits(vars Variables) ([]StructuredEdit, error) {
 	edits := []StructuredEdit{}
 
 	// Set the management endpoint if provided
-	if vars.OpenTelemetryCollector.ManagementEndpoint != nil {
-		edits = append(edits, dpuServiceAddValueEdit(*vars.OpenTelemetryCollector.ManagementEndpoint,
-			operatorv1.OpenTelemetryCollectorName.String(), "managementEndpoint"))
+	if vars.OpenTelemetryCollector.LoggingEndpoint != "" {
+		edits = append(edits, dpuServiceAddValueEdit(vars.OpenTelemetryCollector.LoggingEndpoint,
+			operatorv1.OpenTelemetryCollectorName.String(), "logging", "endpoint"))
 	}
 
 	return edits, nil
