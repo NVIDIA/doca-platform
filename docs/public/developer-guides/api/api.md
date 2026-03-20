@@ -891,7 +891,23 @@ _Appears in:_
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
 | `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the opentelemetry-collector component.<br />It contains the image for opentelemetry-collector and its resource requirements. |  | Optional: \{\} <br /> |
-| `endpoint` _string_ | Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends logs and metrics.<br />This could be the management cluster's opentelemetry-collector endpoint.<br />If not specified, logs will not be forwarded from DPU clusters. |  | Optional: \{\} <br /> |
+| `logging` _[OpenTelemetryCollectorLoggingConfiguration](#opentelemetrycollectorloggingconfiguration)_ | Logging contains the configuration for the opentelemetry-collector logging component.<br />If not specified, logging will not be streamed. |  | Optional: \{\} <br /> |
+
+
+#### OpenTelemetryCollectorLoggingConfiguration
+
+
+
+
+
+
+
+_Appears in:_
+- [OpenTelemetryCollectorConfiguration](#opentelemetrycollectorconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `endpoint` _string_ | Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends data to.<br />This could be the management cluster's opentelemetry-collector endpoint.<br />If not specified, nothing will be forwarded from DPU clusters. |  | Required: \{\} <br /> |
 
 
 #### Overrides
