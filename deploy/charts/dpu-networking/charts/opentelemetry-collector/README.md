@@ -12,7 +12,7 @@ OpenTelemetry Collector for DPU nodes
 | image.repository | string | `"otel/opentelemetry-collector-contrib"` |  |
 | image.tag | string | `"0.146.1@sha256:f6e429c1052ab50f85a7afa5f7e32f25931697751622b0e1f453d10f79a1df3c"` |  |
 | imagePullSecrets | list | `[]` |  |
-| managementEndpoint | string | `""` |  |
+| logging.endpoint | string | `""` |  |
 | resources.limits.cpu | string | `"200m"` |  |
 | resources.limits.memory | string | `"512Mi"` |  |
 | resources.requests.cpu | string | `"100m"` |  |

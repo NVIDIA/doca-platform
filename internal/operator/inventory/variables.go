@@ -169,7 +169,7 @@ type NodeSRIOVDevicePluginControllerVariables struct {
 }
 
 type OpenTelemetryCollectorVariables struct {
-	ManagementEndpoint *string
+	LoggingEndpoint string
 }
 
 func VariablesFromDPFOperatorConfig(defaults *release.Defaults, config *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config) Variables {
@@ -402,10 +402,10 @@ func setMonitoringConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 	if otelConfig := config.Spec.Monitoring.OpenTelemetryCollector; otelConfig != nil {
 		if otelConfig.Disabled() {
 			variables.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] = true
-		} else if otelConfig.Endpoint != nil {
+		} else if otelConfig.Logging != nil {
 			// Only enable if endpoint is explicitly provided
 			variables.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] = false
-			variables.OpenTelemetryCollector.ManagementEndpoint = otelConfig.Endpoint
+			variables.OpenTelemetryCollector.LoggingEndpoint = otelConfig.Logging.Endpoint
 		}
 		// If enabled but no endpoint provided, it remains disabled
 	}
