@@ -27,6 +27,7 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/cloudinit"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
@@ -58,7 +59,7 @@ var (
 // If spec.provisioningController.bfCFGTemplateConfigMap is set it will try to mount a configMap as a volume in the provisioning controller. This behavior is deprecated.
 // If spec.provisioningController.enableDynamicBFCFGTemplates is set it will retrieve a configMap with a custom template.
 // By default it will return the default template data which is embedded in the controller.
-func getTemplateData(ctx context.Context, controllerCtx *util.ControllerContext, dpfOperatorConfig *operatorv1.DPFOperatorConfig, dpu *provisioningv1.DPU) ([]byte, error) {
+func getTemplateData(ctx context.Context, controllerCtx *util.ControllerContext, dpfOperatorConfig *operatorv1.DPFOperatorConfig, dpu *provisioningv1.DPU) (templateData []byte, isDefault bool, err error) {
 	provisioningConfig := dpfOperatorConfig.Spec.ProvisioningController
 
 	// This behavior is deprecated and will be removed in a future release.
@@ -66,9 +67,9 @@ func getTemplateData(ctx context.Context, controllerCtx *util.ControllerContext,
 	if provisioningConfig != nil && provisioningConfig.BFCFGTemplateConfigMap != nil {
 		data, err := os.ReadFile(controllerCtx.Options.BFCFGTemplateFile)
 		if err != nil {
-			return nil, fmt.Errorf("reading bf.cfg template file %v: %w", provisioningConfig.BFCFGTemplateConfigMap, err)
+			return nil, false, fmt.Errorf("reading bf.cfg template file %v: %w", provisioningConfig.BFCFGTemplateConfigMap, err)
 		}
-		return data, nil
+		return data, false, nil
 	}
 
 	if provisioningConfig != nil && provisioningConfig.EnableDynamicBFCFGTemplates {
@@ -77,13 +78,12 @@ func getTemplateData(ctx context.Context, controllerCtx *util.ControllerContext,
 			dpu.Spec.Cluster.Name, dpu.Spec.Cluster.Namespace,
 			dpu.Spec.DPUFlavor, dpu.Namespace)
 		if err != nil {
-			return nil, fmt.Errorf("resolving dynamic bf.cfg template: %w", err)
+			return nil, false, fmt.Errorf("resolving dynamic bf.cfg template: %w", err)
 		}
-		return data, nil
+		return data, false, nil
 	}
 
-	// Use the embedded config by default.
-	return DefaultBFCFGTemplateData, nil
+	return nil, true, nil
 }
 
 type BFCFGData struct {
@@ -115,61 +115,25 @@ type BFCFGWriteFile struct {
 
 func GenerateBFConfig(ctx context.Context, controllerContext *util.ControllerContext, dpu *provisioningv1.DPU, dpuNode *provisioningv1.DPUNode, dpuDevice *provisioningv1.DPUDevice, flavor *provisioningv1.DPUFlavor, kubeadmSecret *corev1.Secret) ([]byte, error) {
 	logger := log.FromContext(ctx)
-	dpfOperatorConfigList := operatorv1.DPFOperatorConfigList{}
-	if err := controllerContext.List(ctx, &dpfOperatorConfigList, &client.ListOptions{}); err != nil {
-		return nil, fmt.Errorf("list DPFOperatorConfigs: %w", err)
-	}
-	if len(dpfOperatorConfigList.Items) == 0 || len(dpfOperatorConfigList.Items) > 1 {
-		return nil, fmt.Errorf("exactly one DPFOperatorConfig necessary")
-	}
-	if dpfOperatorConfigList.Items[0].Spec.Networking == nil {
-		return nil, fmt.Errorf("DPFOperatorConfig networking section is missing")
-	}
-	dpfOperatorConfig := dpfOperatorConfigList.Items[0]
-	controlPlaneMTU := *dpfOperatorConfig.Spec.Networking.ControlPlaneMTU
-
-	isRedfish := controllerContext.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish)
-
-	var dpuAgentRepoURL string
-	var kubeconfig string
-	if isRedfish {
-		if dpfOperatorConfig.Spec.Overrides == nil || dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerVIP == nil || dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort == nil {
-			return nil, fmt.Errorf("KubernetesAPIServerVIP and KubernetesAPIServerPort must be set in DPFOperatorConfig for zero-trust mode")
-		}
-		apiServerAddress := fmt.Sprintf("https://%s:%d", *dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerVIP, *dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort)
-		// TODO: each DPU agent should use its own kubeconfig instead of sharing one.
-		kubeconfigData, err := cutil.GenerateKubeconfig(ctx, controllerContext.Client, apiServerAddress, dpu.Namespace)
-		if err != nil {
-			return nil, fmt.Errorf("generating dpu-agent kubeconfig: %w", err)
-		}
-		kubeconfig = string(kubeconfigData)
-		bfbRegistryAddr, err := cutil.GetBFBRegistryAddressWithPort(ctx, controllerContext.Client, os.Getenv("POD_NAMESPACE"), controllerContext.Options.BFBRegistry)
-		if err != nil {
-			return nil, fmt.Errorf("bfb-registry address with port: %w", err)
-		}
-		dpuAgentRepoURL = strings.TrimRight(bfbRegistryAddr, "/") + "/deb"
-	} else {
-		dpuAgentRepoURL = "http://[fe80::1%25tmfifo_net0]:11029/deb"
-	}
-
-	templateData, err := getTemplateData(ctx, controllerContext, &dpfOperatorConfig, dpu)
+	params, dpfOperatorConfig, err := cloudinit.ResolveParams(ctx, controllerContext, dpu, kubeadmSecret)
 	if err != nil {
 		return nil, err
 	}
 
-	opts := GenerateOptions{
-		DPUHostName:            cutil.GenerateNodeName(dpu),
-		KubeadmSecretName:      kubeadmSecret.Name,
-		KubeadmSecretNamespace: kubeadmSecret.Namespace,
-		Kubeconfig:             kubeconfig,
-		IsRedfish:              isRedfish,
-		ControlPlaneMTU:        controlPlaneMTU,
-		DPUName:                dpu.Name,
-		DPUNamespace:           dpu.Namespace,
-		DPUUID:                 string(dpu.UID),
-		DPUAgentRepoURL:        dpuAgentRepoURL,
+	templateData, isDefault, err := getTemplateData(ctx, controllerContext, &dpfOperatorConfig, dpu)
+	if err != nil {
+		return nil, err
 	}
-	buf, err := Generate(flavor, opts, templateData)
+
+	// Custom templates still use the legacy Generate path, which renders
+	// cloud-init content inline via the template itself. This keeps the
+	// cloud-init extraction transparent to third-party custom templates.
+	var buf []byte
+	if isDefault {
+		buf, err = generateDefault(flavor, params)
+	} else {
+		buf, err = Generate(flavor, params, templateData)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -188,43 +152,30 @@ func GenerateBFConfig(ctx context.Context, controllerContext *util.ControllerCon
 	return buf, nil
 }
 
-// GenerateOptions holds the deployment-specific parameters for Generate.
-type GenerateOptions struct {
-	DPUHostName            string
-	KubeadmSecretName      string
-	KubeadmSecretNamespace string
-	Kubeconfig             string
-	IsRedfish              bool
-	ControlPlaneMTU        int
-	DPUName                string
-	DPUNamespace           string
-	DPUUID                 string
-	DPUAgentRepoURL        string
-}
-
-// Generate creates a bf.cfg file from a DPUFlavor, deployment options, and template data.
-func Generate(flavor *provisioningv1.DPUFlavor, opts GenerateOptions, templateData []byte) ([]byte, error) {
+// Generate renders a bf.cfg from a custom template
+func Generate(flavor *provisioningv1.DPUFlavor, params cloudinit.Params, templateData []byte) ([]byte, error) {
 	flavorBytes, err := yaml.Marshal(flavor)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling DPUFlavor: %w", err)
 	}
 
 	config := &BFCFGData{
-		KubeadmSecretName:      opts.KubeadmSecretName,
-		KubeadmSecretNamespace: opts.KubeadmSecretNamespace,
-		Kubeconfig:             opts.Kubeconfig,
+		KubeadmSecretName:      params.KubeadmSecretName,
+		KubeadmSecretNamespace: params.KubeadmSecretNamespace,
+		Kubeconfig:             params.Kubeconfig,
 		DPUFlavorYAML:          string(flavorBytes),
-		DPUHostName:            opts.DPUHostName,
-		ControlPlaneMTU:        opts.ControlPlaneMTU,
-		RedfishInterface:       opts.IsRedfish,
-		OOBNetwork:             opts.IsRedfish,
-		DPUName:                opts.DPUName,
-		DPUNamespace:           opts.DPUNamespace,
-		DPUUID:                 opts.DPUUID,
-		DPUAgentRepoURL:        opts.DPUAgentRepoURL,
+		DPUHostName:            params.DPUHostName,
+		ControlPlaneMTU:        params.ControlPlaneMTU,
+		RedfishInterface:       params.IsRedfish,
+		OOBNetwork:             params.IsRedfish,
+		DPUName:                params.DPUName,
+		DPUNamespace:           params.DPUNamespace,
+		DPUUID:                 params.DPUUID,
+		DPUAgentRepoURL:        params.DPUAgentRepoURL,
 	}
 
-	config.BFGCFGParams, config.UbuntuPassword = bfcfgParams(flavor)
+	config.BFGCFGParams = bfcfgParams(flavor)
+	config.UbuntuPassword = cloudinit.ExtractUbuntuPassword(flavor)
 	for _, f := range flavor.Spec.ConfigFiles {
 		config.ConfigFiles = append(config.ConfigFiles, BFCFGWriteFile{
 			Path:        f.Path,
@@ -249,9 +200,45 @@ func Generate(flavor *provisioningv1.DPUFlavor, opts GenerateOptions, templateDa
 	return buf.Bytes(), nil
 }
 
-func bfcfgParams(flavor *provisioningv1.DPUFlavor) ([]string, string) {
+type defaultBFCFGData struct {
+	BFGCFGParams     []string
+	RedfishInterface bool
+	CloudInitFiles   []cloudinit.File
+}
+
+// generateDefault builds a bf.cfg by first rendering cloud-init files through
+// the cloudinit package, then embedding them into the default bf.cfg template.
+func generateDefault(flavor *provisioningv1.DPUFlavor, params cloudinit.Params) ([]byte, error) {
+	networkCfg := cloudinit.GenerateNetworkCfg()
+	userData, err := cloudinit.GenerateUserData(flavor, params)
+	if err != nil {
+		return nil, fmt.Errorf("generating cloud-init user-data: %w", err)
+	}
+
+	// Cloud-init files are written inside bfb_modify_os() in bf.cfg, where
+	// the target root filesystem is mounted at /mnt.
+	networkCfg.Path = "/mnt" + networkCfg.Path
+	userData.Path = "/mnt" + userData.Path
+
+	data := &defaultBFCFGData{
+		BFGCFGParams:     bfcfgParams(flavor),
+		RedfishInterface: params.IsRedfish,
+		CloudInitFiles:   []cloudinit.File{networkCfg, userData},
+	}
+
+	tmpl, err := template.New("").Funcs(sprig.FuncMap()).Parse(string(DefaultBFCFGTemplateData))
+	if err != nil {
+		return nil, fmt.Errorf("parsing default bf.cfg template: %w", err)
+	}
+	buf := bytes.NewBuffer(nil)
+	if err := tmpl.Execute(buf, data); err != nil {
+		return nil, fmt.Errorf("executing default bf.cfg template: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+func bfcfgParams(flavor *provisioningv1.DPUFlavor) []string {
 	var ret []string
-	var passwd string
 	for _, param := range flavor.Spec.BFCfgParameters {
 		info := strings.Split(param, "=")
 		if len(info) != 2 {
@@ -261,17 +248,9 @@ func bfcfgParams(flavor *provisioningv1.DPUFlavor) ([]string, string) {
 		key := strings.TrimSpace(info[0])
 		if key != "ubuntu_PASSWORD" {
 			ret = append(ret, param)
-			continue
 		}
-		passwd = strings.TrimSpace(info[1])
 	}
-	if passwd == "" {
-		return ret, passwd
-	}
-	if !strings.HasPrefix(passwd, "'") {
-		passwd = fmt.Sprintf("'%s'", passwd)
-	}
-	return ret, passwd
+	return ret
 }
 
 // getTemplateDataFromConfigMap discovers a bf.cfg template ConfigMap by listing ConfigMaps
