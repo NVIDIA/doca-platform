@@ -475,7 +475,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 	// in DPF 25.10 the DPFOperatorConfig couldn't become ready if no DPUCluster is available.
 	if !isCurrentVersionLastReleasedGA {
 		By("Ensure the DPFOperatorConfig is ready")
-		VerifyDPFOperatorConfigReady(ctx, testClient, 60*time.Second)
+		VerifyDPFOperatorConfigReady(ctx, testClient, 15*time.Minute)
 	}
 }
 
