@@ -1,0 +1,119 @@
+#cloud-config
+debug:
+  verbose: true
+users:
+  - name: ubuntu
+    lock_passwd: False
+    groups: adm, audio, cdrom, dialout, dip, floppy, lxd, netdev, plugdev, sudo, video
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+{{- if .UbuntuPassword}}
+    passwd: {{.UbuntuPassword}}
+{{else}}
+chpasswd:
+  list: |
+    ubuntu:ubuntu
+  expire: True
+{{end}}
+
+write_files:
+  - path: /etc/netplan/50-dpf-bootstrap.yaml
+    permissions: '0600'
+    content: |
+      network:
+        renderer: networkd
+        version: 2
+        ethernets:
+{{- if .OOBNetwork}}
+          oob_net0:
+            dhcp4: true
+{{- else}}
+          oob_net0:
+            dhcp4: false
+            dhcp6: false
+            link-local: []
+            optional: true
+          tmfifo_net0:
+            addresses:
+            - fe80::2/64
+            dhcp4: false
+{{- end}}
+
+{{- range .ConfigFiles}}
+  - path: {{.Path}}
+    {{if .IsAppend}}append: true
+    {{end -}}
+    permissions: {{.Permissions}}
+    content: |
+{{indent 6 .Content}}
+{{end}}
+
+{{- if .OVSRawScript}}
+  - path: /opt/dpf/ovs.sh
+    permissions: '0755'
+    content: |
+      #! /bin/bash
+      set -e
+{{indent 6 .OVSRawScript}}
+{{end}}
+
+  - path: /opt/dpf/dpuflavor.yaml
+    permissions: '0400'
+    content: |
+{{indent 6 .DPUFlavorYAML}}
+
+  - path: /opt/dpf/dpuagent.conf
+    permissions: '0600'
+    content: |
+      --dpu-name={{.DPUName}}
+      --dpu-namespace={{.DPUNamespace}}
+      --dpu-uid={{.DPUUID}}
+      --dpuflavor=/opt/dpf/dpuflavor.yaml
+      --control-plane-mtu={{.ControlPlaneMTU}}
+      --zero-trust-mode={{.RedfishInterface}}
+      --kubeadm-secret-name={{.KubeadmSecretName}}
+      --kubeadm-secret-namespace={{.KubeadmSecretNamespace}}
+{{- if .RedfishInterface}}
+      --kubeconfig=/opt/dpf/kubeconfig
+{{- end}}
+
+{{- if .Kubeconfig}}
+  - path: /opt/dpf/kubeconfig
+    permissions: '0600'
+    content: |
+{{indent 6 .Kubeconfig}}
+{{- end}}
+
+  - path: /etc/apt/sources.list.d/dpf.list
+    permissions: '0644'
+    content: |
+      deb [trusted=yes] {{.DPUAgentRepoURL}} ./
+
+  - path: /opt/dpf/install-dpu-agent.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      netplan apply
+
+      # Install dpu-agent with retry.
+      # Using "if" so that apt-get failures don't trigger "set -e" exit;
+      # bash ignores -e for commands evaluated as part of a condition.
+      for i in $(seq 1 60); do
+        if apt-get update -o Dir::Etc::sourcelist="sources.list.d/dpf.list" -o Dir::Etc::sourceparts="-" && apt-get install -y --no-install-recommends dpu-agent; then
+          break
+        fi
+        echo "apt-get failed, retrying ($i/60)..."
+        sleep 10
+      done
+
+      # Enable and start dpu-agent
+      # The systemd service file is included in the dpu-agent package.
+      # It reads startup parameters from /opt/dpf/dpuagent.conf (written by cloud-init above).
+      systemctl daemon-reload
+      systemctl enable --now dpu-agent.service
+
+runcmd:
+  - [ hostnamectl, set-hostname, {{.DPUHostName}} ]
+  - [ /opt/dpf/install-dpu-agent.sh ]
