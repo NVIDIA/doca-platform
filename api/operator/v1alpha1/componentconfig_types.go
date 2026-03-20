@@ -992,11 +992,18 @@ type OpenTelemetryCollectorConfiguration struct {
 	// +optional
 	Daemon *DefaultOverridesConfiguration `json:"daemon,omitempty"`
 
-	// Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends logs and metrics.
-	// This could be the management cluster's opentelemetry-collector endpoint.
-	// If not specified, logs will not be forwarded from DPU clusters.
+	// Logging contains the configuration for the opentelemetry-collector logging component.
+	// If not specified, logging will not be streamed.
 	// +optional
-	Endpoint *string `json:"endpoint,omitempty"`
+	Logging *OpenTelemetryCollectorLoggingConfiguration `json:"logging,omitempty"`
+}
+
+type OpenTelemetryCollectorLoggingConfiguration struct {
+	// Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends data to.
+	// This could be the management cluster's opentelemetry-collector endpoint.
+	// If not specified, nothing will be forwarded from DPU clusters.
+	// +required
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 func (c *OpenTelemetryCollectorConfiguration) Name() string {

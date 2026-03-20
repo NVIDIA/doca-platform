@@ -76,7 +76,9 @@ func SetInput() {
 			Monitoring: &operatorv1.MonitoringConfiguration{
 				Disabled: ptr.To(false),
 				OpenTelemetryCollector: &operatorv1.OpenTelemetryCollectorConfiguration{
-					Endpoint: ptr.To(fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort)),
+					Logging: &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+						Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort),
+					},
 				},
 			},
 			NodeSRIOVDevicePluginController: &operatorv1.NodeSRIOVDevicePluginControllerConfiguration{
