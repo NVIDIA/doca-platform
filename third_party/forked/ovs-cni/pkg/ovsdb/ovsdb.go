@@ -42,6 +42,17 @@ const (
 	ovsTable    = "Open_vSwitch"
 )
 
+// OpenvSwitch limits the port numbers that it automatically assigns to
+// the range 1 through 32,767, inclusive.  Controllers therefore have
+// free use of ports 32,768 and up. Maximum valid ofport_request is 65279.
+// Hence valid `ofport_request` range is from 32768 to 65279 (inclusive)
+// See: https://github.com/openvswitch/ovs/blob/a8b0e4cab94f57bc414b20b4af43c7c5a800cf6c/vswitchd/vswitch.xml#L2738-L2760
+const (
+	minOFPort   = uint(32768)
+	maxOFPort   = uint(65279)
+	oFPortCount = maxOFPort - minOFPort + 1
+)
+
 var (
 	errObjectNotFound = errors.New("object not found")
 )
@@ -76,10 +87,14 @@ const (
 	MirrorConsumer
 )
 
-func hash(s string) uint16 {
+// hashToOFPort maps interface name to an OpenFlow port number in [minOFPort, maxOFPort]
+// It takes hash + modulo of oFPortCount, giving a number in [0, oFPortCount-1], then
+// shifts that 0‑based result into the desired port range [minOFPort, maxOFPort].
+// So the final returned value is always between 32768 and 65279 (inclusive).
+func hashToOFPort(s string) uint {
 	h := fnv.New32a()
 	h.Write([]byte(s))
-	return uint16(h.Sum32())
+	return minOFPort + uint(h.Sum32()%uint32(oFPortCount))
 }
 
 // ConnectToOvsDb connect to ovsdb
@@ -1141,13 +1156,13 @@ func createInterfaceOperation(intfName string, ofportRequest uint, ovnPortName s
 		// Some interfaces are added in the br-sfc without ofport_request. In particular, this is the case for p0 and p1.
 		// When ofport_request is specified, then this interface might temporarily evict another interface that has this
 		// ofport, if the latter doesn't specify ofport_request. In particular, this is the case for p0 and p1. Evicting
-		// those interface leads to downtime in traffic. The hash function returns uint16 to decrease the chance of
-		// hitting that issue, but it's not guaranteed that we won't hit that issue.
+		// those interface leads to downtime in traffic. The hash function returns a ofport_request in [minOFPort, maxOFPort]
+		// to decrease the chance of hitting that issue, but it's not guaranteed that we won't hit that issue.
 		// TODO: Consider adding ofport_request when adding DPUServiceInterface of type physical to ensure those ports
 		// are not evicted. This may lead to issues with collisions and errors when trying to bring up HBN, but it's not
 		// worse than what we have today, as it's going to be visible why this issue occurs. Additional logic in the hash
 		// function can be added to ensure no collisions.
-		intf["ofport_request"] = hash(intfName)
+		intf["ofport_request"] = hashToOFPort(intfName)
 	}
 
 	// Add an entry in Interface table
