@@ -26,8 +26,9 @@ import (
 
 const (
 	// StaleTrackerTimeout defines when a tracker is considered stale (controller restart recovery).
-	// Must be longer than OSRunningTimeout to allow boot timeout detection.
-	StaleTrackerTimeout = 15 * time.Minute
+	// Must be longer than (MaxSafetyLimit * MinRestartInterval = 10 * 90s = 15min) to allow
+	// the full restart cycle to complete before declaring the tracker stale.
+	StaleTrackerTimeout = 20 * time.Minute
 )
 
 // ArmRestartTracker tracks ARM restart operations across reconcile loops.
