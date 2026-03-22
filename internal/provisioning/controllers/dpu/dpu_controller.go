@@ -20,11 +20,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"slices"
 	"sort"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/bfbregistry"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/hostagent"
@@ -35,6 +37,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
 	"github.com/fluxcd/pkg/runtime/patch"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -125,7 +128,7 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices/finalizers,verbs=update
-// +kubebuilder:rbac:groups="",resources=pods;nodes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=pods;nodes;services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;create;delete;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;create;delete
@@ -145,6 +148,13 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconcile")
+
+	if req.Name == bfbregistry.PodName {
+		if err := r.reconcileBFBRegistry(ctx, req.NamespacedName.Namespace); err != nil {
+			return ctrl.Result{}, fmt.Errorf("reconcile bfb-registry: %w", err)
+		}
+		return ctrl.Result{}, nil
+	}
 
 	dpu := &provisioningv1.DPU{}
 	if err := r.ctrlCtx.Client.Get(ctx, req.NamespacedName, dpu); err != nil {
@@ -245,6 +255,9 @@ func (r *DPUReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&provisioningv1.DPUCluster{}, handler.EnqueueRequestsFromMapFunc(r.nonInitializedDPU)).
 		// Watch DPUNode annotation changes for external reboot method
 		Watches(&provisioningv1.DPUNode{}, handler.EnqueueRequestsFromMapFunc(r.dpuNodeToDPU), builder.WithPredicates(predicate.AnnotationChangedPredicate{})).
+		Watches(&corev1.Pod{},
+			handler.EnqueueRequestsFromMapFunc(r.bfbRegistryPodToRequest),
+			builder.WithPredicates(predicate.NewPredicateFuncs(r.isBFBRegistryPod))).
 		Complete(r)
 }
 
@@ -281,6 +294,41 @@ func (r *DPUReconciler) dpuNodeToDPU(ctx context.Context, obj client.Object) []r
 		ret = append(ret, reconcile.Request{NamespacedName: cutil.GetNamespacedName(&dpu)})
 	}
 	return ret
+}
+
+func (r *DPUReconciler) isBFBRegistryPod(obj client.Object) bool {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return false
+	}
+	return pod.Labels[bfbregistry.LabelDPUComponent] == bfbregistry.LabelValue
+}
+
+func (r *DPUReconciler) bfbRegistryPodToRequest(ctx context.Context, obj client.Object) []reconcile.Request {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return nil
+	}
+	log.FromContext(ctx).Info("Mapping bfb-registry Pod to reconcile request", "pod", pod.Name, "namespace", pod.Namespace)
+	return []reconcile.Request{
+		{NamespacedName: types.NamespacedName{Namespace: pod.Namespace, Name: bfbregistry.PodName}},
+	}
+}
+
+// reconcileBFBRegistry ensures the bfb-registry pod and service exist in the given namespace.
+func (r *DPUReconciler) reconcileBFBRegistry(ctx context.Context, namespace string) error {
+	logger := log.FromContext(ctx)
+	podName := os.Getenv("POD_NAME")
+	nodeName := os.Getenv("NODE_NAME")
+	registryImage := os.Getenv("BFB_REGISTRY_IMAGE")
+	if podName == "" || nodeName == "" || registryImage == "" {
+		logger.V(4).Info("bfb-registry reconcile skipping: required env not set (POD_NAME, NODE_NAME, BFB_REGISTRY_IMAGE)")
+		return nil
+	}
+	if err := bfbregistry.EnsureBFBRegistry(ctx, r.ctrlCtx.Client, namespace, podName, nodeName, registryImage, r.ctrlCtx.Options.BFBPVC, r.ctrlCtx.Options.ImagePullSecrets); err != nil {
+		return fmt.Errorf("ensure bfb-registry: %w", err)
+	}
+	return nil
 }
 
 func (r *DPUReconciler) UpdateDPUNodeMaintenanceRequestors(ctx context.Context, dpu *provisioningv1.DPU, client client.Client) error {
