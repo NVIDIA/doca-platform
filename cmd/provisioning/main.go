@@ -260,6 +260,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferen
 		DPUInstallInterface:         flags.dpuInstallInterface,
 		BFCFGTemplateFile:           flags.bfCFGTemplateFile,
 		BFBRegistry:                 flags.bfbRegistry,
+		BFBPVC:                      flags.bfbPVC,
 		CustomCASecretName:          flags.customCASecretName,
 		MaxDPUParallelInstallations: flags.maxDPUParallelInstallations,
 		OSInstallTimeout:            flags.osInstallTimeout,
