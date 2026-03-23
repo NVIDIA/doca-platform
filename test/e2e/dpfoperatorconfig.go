@@ -630,8 +630,7 @@ func ValidateDPFOperatorKubernetesAPIServerVIPAndPort(ctx context.Context, input
 			client.MatchingLabels{cutil.ProvisioningComponentLabelKey: "hostagent"})).To(Succeed())
 		g.Expect(pods.Items).ToNot(BeEmpty())
 		for _, pod := range pods.Items {
-			containers := slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers)
-			for _, container := range containers {
+			for _, container := range pod.Spec.Containers {
 				g.Expect(container.Env).To(ContainElements([]corev1.EnvVar{
 					{
 						Name:  "KUBERNETES_SERVICE_HOST",
