@@ -2310,6 +2310,7 @@ _Appears in:_
 | `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} | Optional: \{\} <br /> |
 | `cluster` _[K8sCluster](#k8scluster)_ | Specifies details on the K8S cluster to join |  | Optional: \{\} <br /> |
 | `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `astraEnabled` _boolean_ | AstraEnabled indicates whether E/W NIC configuration (Astra) is enabled |  | Optional: \{\} <br /> |
 | `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  | Optional: \{\} <br /> |
 | `bmcIP` _string_ | BMCIP is the ip address of the DPU BMC<br />Deprecated: Use BMCIP from DPUDevice instead. |  | Optional: \{\} <br /> |
 
@@ -2383,6 +2384,7 @@ _Appears in:_
 | `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} | Optional: \{\} <br /> |
 | `cluster` _[ClusterSpec](#clusterspec)_ | Specifies details on the K8S cluster to join |  | Optional: \{\} <br /> |
 | `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `astraEnabled` _boolean_ | AstraEnabled indicates whether E/W NIC configuration (Astra) is enabled |  | Optional: \{\} <br /> |
 | `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  | Optional: \{\} <br /> |
 
 
@@ -4631,6 +4633,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `bfb` _string_ | BFB is the name of the BFB object to be used in this DPUDeployment. It must be in the same namespace as the<br />DPUDeployment. |  | Required: \{\} <br /> |
 | `flavor` _string_ | Flavor is the name of the DPUFlavor object to be used in this DPUDeployment. It must be in the same namespace as<br />the DPUDeployment. |  | Required: \{\} <br /> |
+| `astraEnabled` _boolean_ | AstraEnabled indicates whether E/W NIC configuration (Astra) is enabled |  | Optional: \{\} <br /> |
 | `dpuSets` _[DPUSet](#dpuset) array_ | DPUSets contains configuration for each DPUSet that is going to be created by the DPUDeployment |  | MaxItems: 50 <br />MinItems: 1 <br />Optional: \{\} <br /> |
 | `nodeEffect` _[Action](#action)_ | NodeEffect is the effect the DPU has on Nodes during provisioning. |  | Optional: \{\} <br /> |
 | `dpuSetStrategy` _[DPUSetStrategy](#dpusetstrategy)_ | DPUSetStrategy is the strategy to use for the DPUSets created by the DPUDeployment. |  | Optional: \{\} <br /> |

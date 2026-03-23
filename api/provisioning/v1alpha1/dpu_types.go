@@ -260,6 +260,10 @@ type DPUSpec struct {
 	// +required
 	DPUFlavor string `json:"dpuFlavor"`
 
+	// AstraEnabled indicates whether E/W NIC configuration (Astra) is enabled
+	// +optional
+	AstraEnabled *bool `json:"astraEnabled,omitempty"`
+
 	// SecureBoot specifies whether UEFI Secure Boot should be enabled.
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="Value is immutable"
