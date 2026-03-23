@@ -1485,6 +1485,11 @@ func (in *DPUSpec) DeepCopyInto(out *DPUSpec) {
 		(*in).DeepCopyInto(*out)
 	}
 	in.Cluster.DeepCopyInto(&out.Cluster)
+	if in.AstraEnabled != nil {
+		in, out := &in.AstraEnabled, &out.AstraEnabled
+		*out = new(bool)
+		**out = **in
+	}
 	if in.SecureBoot != nil {
 		in, out := &in.SecureBoot, &out.SecureBoot
 		*out = new(bool)
@@ -1612,6 +1617,11 @@ func (in *DPUTemplateSpec) DeepCopyInto(out *DPUTemplateSpec) {
 		in, out := &in.Cluster, &out.Cluster
 		*out = new(ClusterSpec)
 		(*in).DeepCopyInto(*out)
+	}
+	if in.AstraEnabled != nil {
+		in, out := &in.AstraEnabled, &out.AstraEnabled
+		*out = new(bool)
+		**out = **in
 	}
 	if in.SecureBoot != nil {
 		in, out := &in.SecureBoot, &out.SecureBoot
