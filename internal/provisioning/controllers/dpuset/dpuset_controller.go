@@ -441,6 +441,7 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 				},
 			},
 			DPUFlavor:    dpuSet.Spec.DPUTemplate.Spec.DPUFlavor,
+			AstraEnabled: dpuSet.Spec.DPUTemplate.Spec.AstraEnabled,
 			SecureBoot:   dpuSet.Spec.DPUTemplate.Spec.SecureBoot,
 			SerialNumber: dpuDevice.Spec.SerialNumber,
 			PCIAddress:   dpuDevice.Status.PCIAddress,

@@ -177,6 +177,10 @@ type DPUs struct {
 	// +required
 	Flavor string `json:"flavor"`
 
+	// AstraEnabled indicates whether E/W NIC configuration (Astra) is enabled
+	// +optional
+	AstraEnabled *bool `json:"astraEnabled,omitempty"`
+
 	// DPUSets contains configuration for each DPUSet that is going to be created by the DPUDeployment
 	// +optional
 	// +kubebuilder:validation:MinItems=1

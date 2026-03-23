@@ -66,6 +66,10 @@ spec:
           spec:
             description: DPUSpec defines the desired state of DPU
             properties:
+              astraEnabled:
+                description: AstraEnabled indicates whether E/W NIC configuration
+                  (Astra) is enabled
+                type: boolean
               bfb:
                 description: Specifies name of the bfb CR to use for this DPU
                 type: string

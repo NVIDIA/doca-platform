@@ -55,6 +55,10 @@ spec:
               dpus:
                 description: DPUs contains the DPU related configuration
                 properties:
+                  astraEnabled:
+                    description: AstraEnabled indicates whether E/W NIC configuration
+                      (Astra) is enabled
+                    type: boolean
                   bfb:
                     description: |-
                       BFB is the name of the BFB object to be used in this DPUDeployment. It must be in the same namespace as the

@@ -950,6 +950,30 @@ var _ = Describe("DPUSet", func() {
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 
+		It("DPUSet: should propagate DPUFlavor and AstraEnabled fields to created DPUs", func() {
+			By("creating dpuset with custom dpuFlavor and AstraEnabled enabled")
+			obj := createDPUSet("obj-dpuset")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = "custom-flavor"
+			obj.Spec.DPUTemplate.Spec.AstraEnabled = ptr.To(true)
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, obj))).To(Succeed())
+			})
+
+			dpuList := &provisioningv1.DPUList{}
+
+			By("checking DPU is created with correct DPUFlavor and AstraEnabled")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name))).To(Succeed())
+				g.Expect(dpuList.Items).To(HaveLen(1))
+
+				dpu := dpuList.Items[0]
+				g.Expect(dpu.Spec.DPUFlavor).To(Equal("custom-flavor"))
+				g.Expect(dpu.Spec.AstraEnabled).NotTo(BeNil())
+				g.Expect(*dpu.Spec.AstraEnabled).To(BeTrue())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
 		It("DPUSet: should update NodeEffect Action from Taint to Drain", func() {
 			By("creating dpuset with Taint nodeEffect")
 			obj := createDPUSet("obj-dpuset")
