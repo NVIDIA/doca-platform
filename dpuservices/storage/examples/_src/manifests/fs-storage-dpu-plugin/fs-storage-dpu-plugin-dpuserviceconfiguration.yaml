@@ -18,4 +18,4 @@ spec:
               tag: $DPF_IMAGE_TAG
   interfaces:
     - name: app_sf
-      network: mybrsfc
+      network: mybrsfc-storage

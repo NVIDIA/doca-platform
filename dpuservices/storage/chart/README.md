@@ -66,6 +66,7 @@ A Helm chart for DPF storage subsystem
 | dpu.snapNodeDriver.securityContext.runAsUser | int | `0` |  |
 | dpu.snapNodeDriver.tolerations | list | `[]` |  |
 | host.snapCsiPlugin.controller.affinity | object | `{}` |  |
+| host.snapCsiPlugin.controller.enabled | bool | `false` |  |
 | host.snapCsiPlugin.controller.externalAttacher.image.repository | string | `"registry.k8s.io/sig-storage/csi-attacher"` |  |
 | host.snapCsiPlugin.controller.externalAttacher.image.tag | string | `"v4.11.0"` |  |
 | host.snapCsiPlugin.controller.externalAttacher.imagePullPolicy | string | `"IfNotPresent"` |  |
@@ -109,6 +110,7 @@ A Helm chart for DPF storage subsystem
 | host.snapCsiPlugin.node.config.snapControllerDeviceId | string | `"6001"` |  |
 | host.snapCsiPlugin.node.config.virtiofsFSTypeName | string | `"virtiofs"` |  |
 | host.snapCsiPlugin.node.config.virtiofsLoadDriver | bool | `true` |  |
+| host.snapCsiPlugin.node.enabled | bool | `false` |  |
 | host.snapCsiPlugin.node.hostNetwork | bool | `false` |  |
 | host.snapCsiPlugin.node.imagePullSecrets | list | `[]` |  |
 | host.snapCsiPlugin.node.kubeletDir | string | `"/var/lib/kubelet"` |  |

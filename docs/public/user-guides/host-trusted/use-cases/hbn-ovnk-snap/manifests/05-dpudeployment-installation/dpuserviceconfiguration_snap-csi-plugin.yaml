@@ -15,16 +15,5 @@ spec:
         host:
           snapCsiPlugin:
             enabled: true
-            controller:
-              affinity:
-                nodeAffinity:
-                  requiredDuringSchedulingIgnoredDuringExecution:
-                    nodeSelectorTerms:
-                      - matchExpressions:
-                          - key: "node-role.kubernetes.io/master"
-                            operator: Exists
-                      - matchExpressions:
-                          - key: "node-role.kubernetes.io/control-plane"
-                            operator: Exists
             node:
-              hostNetwork: true
+              enabled: true
