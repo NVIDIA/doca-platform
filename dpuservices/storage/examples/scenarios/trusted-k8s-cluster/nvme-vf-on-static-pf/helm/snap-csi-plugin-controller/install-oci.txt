@@ -1,0 +1,7 @@
+helm upgrade --install -n dpf-operator-system snap-csi-plugin \
+  $DPF_CHART_REPO/dpf-storage --version=$DPF_CHART_VERSION \
+  --set-json "imagePullSecrets=$DPF_IMAGE_PULL_SECRET" \
+  --set host.snapCsiPlugin.controller.plugin.image.repository=$DPF_IMAGE_REGISTRY/storage-system \
+  --set host.snapCsiPlugin.controller.plugin.image.tag=$DPF_IMAGE_TAG \
+  --wait \
+  -f trusted-k8s-cluster/nvme-vf-on-static-pf/helm/snap-csi-plugin-controller/values.yaml

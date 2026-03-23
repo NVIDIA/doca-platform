@@ -38,6 +38,7 @@ declare -A USECASE_HEADERS=(
 # Static mappings for helm component names to friendly titles
 declare -A HELM_COMPONENT_TITLES=(
 	["snap-host-controller"]="SNAP Host Controller"
+	["snap-csi-plugin-controller"]="SNAP CSI Plugin Controller"
 	["spdk-csi-controller"]="SPDK CSI Controller"
 	["nfs-csi-controller"]="NFS CSI Controller"
 )
@@ -154,7 +155,7 @@ rebuild_readme_scenarios() {
 					if [[ -d "$usecase_dir/helm" ]]; then
 						local helm_component_dirs=()
 						local component_dir
-						for component_name in snap-host-controller spdk-csi-controller nfs-csi-controller; do
+						for component_name in snap-host-controller snap-csi-plugin-controller spdk-csi-controller nfs-csi-controller; do
 							component_dir="$usecase_dir/helm/$component_name"
 							if [[ -d "$component_dir" ]]; then
 								helm_component_dirs+=("$component_dir")
@@ -165,7 +166,7 @@ rebuild_readme_scenarios() {
 						for component_dir in "${extra_helm_component_dirs[@]}"; do
 							component_name=$(basename "$component_dir")
 							case "$component_name" in
-							snap-host-controller | spdk-csi-controller | nfs-csi-controller) ;;
+							snap-host-controller | snap-csi-plugin-controller | spdk-csi-controller | nfs-csi-controller) ;;
 							*)
 								helm_component_dirs+=("$component_dir")
 								;;
@@ -175,13 +176,19 @@ rebuild_readme_scenarios() {
 						for component_dir in "${helm_component_dirs[@]}"; do
 							local component_name
 							local component_title
+							local component_description
 							component_name=$(basename "$component_dir")
 							component_title="${HELM_COMPONENT_TITLES[$component_name]:-$component_name}"
+							if [[ "$component_name" == "snap-csi-plugin-controller" ]]; then
+								component_description="Install the ${component_title} that runs on the host cluster for this scenario. The node part is deployed later with the DPUDeployment:"
+							else
+								component_description="Install the ${component_title} that runs on the host cluster for this scenario:"
+							fi
 
 							{
 								echo "##### Install ${component_title} on the Host Cluster"
 								echo ""
-								echo "Install the ${component_title} that runs on the host cluster for this scenario:"
+								echo "$component_description"
 								echo ""
 							} >> "$content_file"
 
@@ -330,15 +337,17 @@ rebuild_readme_scenarios() {
 function apply_common_manifests() {
 	local target_dir=$1
 	cp -r manifests/bfb/*.yaml "$target_dir"
+	cp -r manifests/dpuservicenad/*.yaml "$target_dir"
 	cp -r manifests/network/*.yaml "$target_dir"
 	cp -r manifests/snap-node-driver/*.yaml "$target_dir"
 	cp -r manifests/doca-snap/*.yaml "$target_dir"
 }
 
 # copy a helm component (install.txt + values.yaml) into the scenario
-function copy_helm_component() {
+function copy_helm_component_with_values() {
 	local target_dir=$1
 	local component=$2
+	local values_file=$3
 	local scenario_dir
 	scenario_dir=${target_dir#../scenarios/}
 	mkdir -p "$target_dir/helm/$component"
@@ -350,7 +359,11 @@ function copy_helm_component() {
 				"$install_file" > "$target_dir/helm/$component/$install_basename"
 		fi
 	done
-	cp manifests/helm/"$component"/values.yaml "$target_dir/helm/$component/"
+	cp "manifests/helm/$component/$values_file" "$target_dir/helm/$component/values.yaml"
+}
+
+function copy_helm_component() {
+	copy_helm_component_with_values "$1" "$2" values.yaml
 }
 
 function move_credential_requests() {
@@ -439,6 +452,7 @@ target_dir="../scenarios/trusted-k8s-cluster/nvme-hotplug-pf"
 mkdir -p "$target_dir/workload"
 apply_common_manifests "$target_dir"
 copy_helm_component "$target_dir" snap-host-controller
+copy_helm_component_with_values "$target_dir" snap-csi-plugin-controller values-nvme.yaml
 apply_block_common_manifests "$target_dir"
 copy_helm_component "$target_dir" spdk-csi-controller
 apply_trusted_host_manifests "$target_dir"
@@ -452,6 +466,7 @@ target_dir="../scenarios/trusted-k8s-cluster/nvme-vf-on-static-pf"
 mkdir -p "$target_dir/workload"
 apply_common_manifests "$target_dir"
 copy_helm_component "$target_dir" snap-host-controller
+copy_helm_component_with_values "$target_dir" snap-csi-plugin-controller values-nvme.yaml
 apply_block_common_manifests "$target_dir"
 copy_helm_component "$target_dir" spdk-csi-controller
 apply_trusted_host_manifests "$target_dir"
@@ -465,6 +480,7 @@ target_dir="../scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf"
 mkdir -p "$target_dir/workload"
 apply_common_manifests "$target_dir"
 copy_helm_component "$target_dir" snap-host-controller
+copy_helm_component_with_values "$target_dir" snap-csi-plugin-controller values-virtiofs.yaml
 copy_helm_component "$target_dir" nfs-csi-controller
 apply_trusted_host_manifests "$target_dir"
 cp -r manifests/nfs-csi/*.yaml "$target_dir"

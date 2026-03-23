@@ -49,6 +49,8 @@ host:
     # In "virtiofs" mode, the plugin creates filesystem DPUVolumes and exposes them as VirtioFS devices.
     emulationMode: "nvme"
     controller:
+      # enable deployment of the controller part of snap-csi-plugin
+      enabled: false
       # imagePullSecrets to add to the controller Pod spec,
       # if not set use .Values.imagePullSecrets
       imagePullSecrets: []
@@ -131,6 +133,8 @@ host:
       # affinity to add to the Pod spec
       affinity: {}
     node:
+      # enable deployment of the node part of snap-csi-plugin
+      enabled: false
       # use hostNetwork for the plugin pod
       hostNetwork: false
       config:
