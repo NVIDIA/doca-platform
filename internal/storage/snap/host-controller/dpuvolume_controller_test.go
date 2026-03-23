@@ -82,6 +82,7 @@ var _ = Describe("DPUVolume Controller", Ordered, func() {
 			dpucluster.OptionUserAgent{UserAgent: "snap-host-controller"},
 			dpucluster.OptionGetWatcherCallbacks{
 				GetWatcherCallbacks: []dpucluster.GetWatcherCallback{
+					volumeReconciler.WatchDPUClusterPV,
 					volumeReconciler.WatchDPUClusterPVC,
 					volumeReconciler.WatchDPUClusterVolume,
 				},
@@ -267,7 +268,7 @@ var _ = Describe("DPUVolume Controller", Ordered, func() {
 			}, timeout, interval).Should(Succeed())
 
 			By("Create and bind PV to the PVC to simulate full lifecycle")
-			createAndBindPV(pvc)
+			pv := createAndBindPV(pvc)
 
 			By("Verify Volume CR is created in DPU cluster")
 			volume := &storagev1.Volume{}
@@ -275,6 +276,14 @@ var _ = Describe("DPUVolume Controller", Ordered, func() {
 			Eventually(func(g Gomega) {
 				g.Expect(testClientDPU.Get(ctx, volumeKey, volume)).NotTo(HaveOccurred())
 				g.Expect(volume.Status.State).To(Equal(storagev1.VolumeStateAvailable))
+			}, timeout, interval).Should(Succeed())
+
+			By("Verify DPUVolume has PV name in status")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
+				g.Expect(dpuVolume.Status.State).NotTo(BeNil())
+				g.Expect(dpuVolume.Status.State.VolumeInfo).NotTo(BeNil())
+				g.Expect(dpuVolume.Status.State.VolumeInfo.VolumeName).To(HaveValue(Equal(pv.Name)))
 			}, timeout, interval).Should(Succeed())
 
 			By("Delete DPUVolume")
@@ -294,6 +303,15 @@ var _ = Describe("DPUVolume Controller", Ordered, func() {
 
 			By("Force remove PVC")
 			Expect(testutils.CleanupWithFinalizerRemovalAndWait(ctx, testClientDPU, pvc)).To(Succeed())
+
+			By("Verify DPUVolume is not deleted yet because PV still exists in DPU cluster")
+			Consistently(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolume), dpuVolume)).NotTo(HaveOccurred())
+				g.Expect(dpuVolume.DeletionTimestamp).NotTo(BeNil())
+			}, time.Second*3, interval).Should(Succeed())
+
+			By("Remove PV from DPU cluster")
+			Expect(testutils.CleanupWithFinalizerRemovalAndWait(ctx, testClientDPU, pv)).To(Succeed())
 
 			By("Verify DPUVolume is deleted")
 			Eventually(func(g Gomega) {

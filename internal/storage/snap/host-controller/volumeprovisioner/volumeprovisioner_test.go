@@ -530,7 +530,7 @@ var _ = Describe("VolumeProvisioner", func() {
 				[]client.Object{volume2, pvc2},
 			)
 
-			result, err := provisioner.Remove(ctx, targetClusters, client.ObjectKeyFromObject(dpuVolume))
+			result, err := provisioner.Remove(ctx, targetClusters, client.ObjectKeyFromObject(dpuVolume), "")
 
 			Expect(err).ToNot(HaveOccurred())
 			// The removal process should be initiated successfully.
@@ -547,7 +547,7 @@ var _ = Describe("VolumeProvisioner", func() {
 				[]client.Object{},
 			)
 
-			result, err := provisioner.Remove(ctx, targetClusters, client.ObjectKeyFromObject(dpuVolume))
+			result, err := provisioner.Remove(ctx, targetClusters, client.ObjectKeyFromObject(dpuVolume), "")
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result.Completed).To(BeTrue())
@@ -560,7 +560,7 @@ var _ = Describe("VolumeProvisioner", func() {
 				[]client.Object{},
 			)
 
-			result, err := provisioner.Remove(ctx, targetClusters, client.ObjectKeyFromObject(dpuVolume))
+			result, err := provisioner.Remove(ctx, targetClusters, client.ObjectKeyFromObject(dpuVolume), "")
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result.Completed).To(BeFalse())
@@ -575,12 +575,69 @@ var _ = Describe("VolumeProvisioner", func() {
 				[]client.Object{},
 			)
 
-			result, err := provisioner.Remove(ctx, targetClusters, client.ObjectKeyFromObject(dpuVolume))
+			result, err := provisioner.Remove(ctx, targetClusters, client.ObjectKeyFromObject(dpuVolume), "")
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result.Completed).To(BeFalse())
 			Expect(result.Reason).To(ContainSubstring("PersistentVolumeClaim"))
 			Expect(result.Reason).To(ContainSubstring("is not removed yet"))
+		})
+		It("should complete when pvNameInDPUCluster is provided and PV does not exist", func() {
+			_, targetClusters := setupClusterClients(
+				[]client.Object{},
+				[]client.Object{},
+			)
+
+			result, err := provisioner.Remove(ctx, targetClusters, client.ObjectKeyFromObject(dpuVolume), testPVName)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.Completed).To(BeTrue())
+		})
+		It("should wait when pvNameInDPUCluster is provided and PV still exists", func() {
+			pv1 := getTestPV(testPVName, dpuVolume.Name+"-pvc")
+			pv2 := getTestPV(testPVName, dpuVolume.Name+"-pvc")
+
+			_, targetClusters := setupClusterClients(
+				[]client.Object{pv1},
+				[]client.Object{pv2},
+			)
+
+			result, err := provisioner.Remove(ctx, targetClusters, client.ObjectKeyFromObject(dpuVolume), testPVName)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.Completed).To(BeFalse())
+			Expect(result.Reason).To(ContainSubstring("PersistentVolume"))
+			Expect(result.Reason).To(ContainSubstring("not removed yet"))
+		})
+		It("should return error when PV Get fails", func() {
+			getFailure := interceptor.Funcs{
+				Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, ok := obj.(*corev1.PersistentVolume); ok {
+						return errTest
+					}
+					return client.Get(ctx, key, obj, opts...)
+				},
+			}
+			_, targetClusters := setupClusterClientsWithInterceptors(
+				[]client.Object{},
+				[]client.Object{},
+				&getFailure,
+				nil,
+			)
+
+			_, err := provisioner.Remove(ctx, targetClusters, client.ObjectKeyFromObject(dpuVolume), testPVName)
+			Expect(err).To(MatchError(errTest))
+		})
+		It("should skip PV check when pvNameInDPUCluster is empty", func() {
+			_, targetClusters := setupClusterClients(
+				[]client.Object{},
+				[]client.Object{},
+			)
+
+			result, err := provisioner.Remove(ctx, targetClusters, client.ObjectKeyFromObject(dpuVolume), "")
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.Completed).To(BeTrue())
 		})
 	})
 
