@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -65,7 +66,6 @@ var _ = Describe("DPUService Controller", func() {
 			testDPU1NS          *corev1.Namespace
 			testDPU2NS          *corev1.Namespace
 			testDPU3NS          *corev1.Namespace
-			cleanupObjs         []client.Object
 		)
 		BeforeEach(func() {
 			By("creating the namespaces")
@@ -92,11 +92,10 @@ var _ = Describe("DPUService Controller", func() {
 
 			dpuServiceInterface = getMinimalDPUServiceInterface(testNS.Name)
 			Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, dpuServiceInterface))).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServiceInterface)
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceInterface)
 		})
 		AfterEach(func() {
-			By("Cleanup the Namespace and Secrets")
-			Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjs...)).To(Succeed())
+			By("Cleanup the Namespaces")
 			Expect(testClient.Delete(ctx, testNS)).To(Succeed())
 			Expect(testClient.Delete(ctx, testDPU1NS)).To(Succeed())
 			Expect(testClient.Delete(ctx, testDPU2NS)).To(Succeed())
@@ -107,7 +106,7 @@ var _ = Describe("DPUService Controller", func() {
 			clusters := []provisioningv1.DPUCluster{
 				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
 			}
-			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
+			createDPUClusters(clusters)
 
 			By("Get DPUCluster client")
 			dpuClusterConfigs, err := dpucluster.GetConfigs(ctx, testClient)
@@ -128,7 +127,7 @@ var _ = Describe("DPUService Controller", func() {
 				},
 			}
 			Expect(dpuClusterClient.Create(ctx, node)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, node)
+			DeferCleanup(testutils.CleanupAndWait, ctx, dpuClusterClient, node)
 
 			By("Create fake Node in DPUCluster with non-matching label")
 			nonMatchingNode := &corev1.Node{
@@ -142,7 +141,7 @@ var _ = Describe("DPUService Controller", func() {
 				},
 			}
 			Expect(dpuClusterClient.Create(ctx, nonMatchingNode)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, nonMatchingNode)
+			DeferCleanup(testutils.CleanupAndWait, ctx, dpuClusterClient, nonMatchingNode)
 
 			By("Add addresses to the fake Node")
 			patcher := patch.NewSerialPatcher(node, dpuClusterClient)
@@ -199,12 +198,12 @@ var _ = Describe("DPUService Controller", func() {
 			// Create DPUServices which are reconciled to the DPU clusters.
 			for i := range dpuServices {
 				Expect(testClient.Create(ctx, dpuServices[i])).To(Succeed())
-				cleanupObjs = append(cleanupObjs, dpuServices[i])
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[i])
 			}
 
 			// Expect a hostDPUService to be reconciled to the host cluster.
 			Expect(testClient.Create(ctx, hostDPUService)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, hostDPUService)
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, hostDPUService)
 
 			Eventually(func(g Gomega) {
 				assertDPUService(g, testClient, dpuServices)
@@ -212,7 +211,7 @@ var _ = Describe("DPUService Controller", func() {
 
 			// Check that argo secrets have been created correctly.
 			Eventually(func(g Gomega) {
-				assertArgoCDSecrets(g, testClient, clusters, &cleanupObjs, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
+				assertArgoCDSecrets(g, testClient, clusters, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			// Check that the argo AppProject has been created correctly
@@ -373,7 +372,7 @@ var _ = Describe("DPUService Controller", func() {
 			// Add labels to clusters
 			clusters[0].Labels = map[string]string{"dpucluster": "cluster1"}
 			clusters[1].Labels = map[string]string{"dpucluster": "cluster2"}
-			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
+			createDPUClusters(clusters)
 
 			By("Creating some secrets in the DPUService namespace")
 			labels := map[string]string{dpuservicev1.DPFImagePullSecretLabelKey: ""}
@@ -384,7 +383,7 @@ var _ = Describe("DPUService Controller", func() {
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			dpuServices[0].Spec.DPUClusterSelector = nil
 			Expect(testClient.Create(ctx, dpuServices[0])).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServices[0])
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[0])
 
 			By("Validating that ArgoCD AppProject is configured for all DPUClusters")
 			Eventually(func(g Gomega) {
@@ -394,7 +393,7 @@ var _ = Describe("DPUService Controller", func() {
 			By("Validating that ArgoCD Secrets are created for all DPUClusters")
 			Eventually(func(g Gomega) {
 				testNamespaces := []string{testDPU1NS.Name, testDPU2NS.Name}
-				assertArgoCDSecrets(g, testClient, clusters, &cleanupObjs, testNamespaces)
+				assertArgoCDSecrets(g, testClient, clusters, testNamespaces)
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 
 			By("Validating that image pull secrets are created in each DPUCluster")
@@ -440,11 +439,7 @@ var _ = Describe("DPUService Controller", func() {
 			By("Ensuring the applications are deleted")
 			Eventually(func(g Gomega) {
 				applications := &argov1.ApplicationList{}
-				g.Expect(testClient.List(ctx, applications, client.InNamespace(testConfig.Namespace),
-					client.MatchingLabels{
-						dpuservicev1.DPUServiceNameLabelKey:      dpuServices[0].Name,
-						dpuservicev1.DPUServiceNamespaceLabelKey: dpuServices[0].Namespace,
-					})).To(Succeed())
+				g.Expect(testClient.List(ctx, applications, client.InNamespace(testConfig.Namespace), dpuServices[0].MatchLabels())).To(Succeed())
 				// We're not running the ArgoCD controllers in this test so the finalizers must be removed here.
 				// Do this in each loop as there's a race condition where the Application is patched again
 				// by the DPUService controller.
@@ -489,7 +484,7 @@ var _ = Describe("DPUService Controller", func() {
 			}
 			clusters[0].Labels = map[string]string{"dpucluster": "cluster1"}
 			clusters[1].Labels = map[string]string{"dpucluster": "cluster2"}
-			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
+			createDPUClusters(clusters)
 
 			By("Creating image pull secrets in the DPUService namespace")
 			labels := map[string]string{dpuservicev1.DPFImagePullSecretLabelKey: ""}
@@ -504,7 +499,7 @@ var _ = Describe("DPUService Controller", func() {
 				},
 			}
 			Expect(testClient.Create(ctx, dpuServices[0])).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServices[0])
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[0])
 
 			By("Validating that ArgoCD AppProject is configured for all DPUClusters")
 			Eventually(func(g Gomega) {
@@ -514,7 +509,7 @@ var _ = Describe("DPUService Controller", func() {
 			By("Validating that ArgoCD Secrets are created for all DPUClusters")
 			Eventually(func(g Gomega) {
 				testNamespaces := []string{testDPU1NS.Name, testDPU2NS.Name}
-				assertArgoCDSecrets(g, testClient, clusters, &cleanupObjs, testNamespaces)
+				assertArgoCDSecrets(g, testClient, clusters, testNamespaces)
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 
 			By("Validating that image pull secrets are created in all DPUClusters")
@@ -555,11 +550,7 @@ var _ = Describe("DPUService Controller", func() {
 			By("Ensuring the applications are deleted")
 			Eventually(func(g Gomega) {
 				applications := &argov1.ApplicationList{}
-				g.Expect(testClient.List(ctx, applications, client.InNamespace(testConfig.Namespace),
-					client.MatchingLabels{
-						dpuservicev1.DPUServiceNameLabelKey:      dpuServices[0].Name,
-						dpuservicev1.DPUServiceNamespaceLabelKey: dpuServices[0].Namespace,
-					})).To(Succeed())
+				g.Expect(testClient.List(ctx, applications, client.InNamespace(testConfig.Namespace), dpuServices[0].MatchLabels())).To(Succeed())
 				// We're not running the ArgoCD controllers in this test so the finalizers must be removed here.
 				// Do this in each loop as there's a race condition where the Application is patched again
 				// by the DPUService controller.
@@ -604,7 +595,7 @@ var _ = Describe("DPUService Controller", func() {
 			}
 			clusters[0].Labels = map[string]string{"dpucluster": "cluster1"}
 			clusters[1].Labels = map[string]string{"dpucluster": "cluster2"}
-			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
+			createDPUClusters(clusters)
 
 			By("Creating image pull secrets in the DPUService namespace")
 			labels := map[string]string{dpuservicev1.DPFImagePullSecretLabelKey: ""}
@@ -615,7 +606,7 @@ var _ = Describe("DPUService Controller", func() {
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			dpuServices[0].Spec.DPUClusterSelector = nil
 			Expect(testClient.Create(ctx, dpuServices[0])).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServices[0])
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[0])
 
 			By("Validating that ArgoCD AppProject is configured for all DPUClusters")
 			Eventually(func(g Gomega) {
@@ -625,7 +616,7 @@ var _ = Describe("DPUService Controller", func() {
 			By("Validating that ArgoCD Secrets are created for all DPUClusters")
 			Eventually(func(g Gomega) {
 				testNamespaces := []string{testDPU1NS.Name, testDPU2NS.Name}
-				assertArgoCDSecrets(g, testClient, clusters, &cleanupObjs, testNamespaces)
+				assertArgoCDSecrets(g, testClient, clusters, testNamespaces)
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 
 			By("Validating that image pull secrets are created in all DPUClusters initially")
@@ -722,11 +713,7 @@ var _ = Describe("DPUService Controller", func() {
 			By("Ensuring the applications are deleted")
 			Eventually(func(g Gomega) {
 				applications := &argov1.ApplicationList{}
-				g.Expect(testClient.List(ctx, applications, client.InNamespace(testConfig.Namespace),
-					client.MatchingLabels{
-						dpuservicev1.DPUServiceNameLabelKey:      dpuServices[0].Name,
-						dpuservicev1.DPUServiceNamespaceLabelKey: dpuServices[0].Namespace,
-					})).To(Succeed())
+				g.Expect(testClient.List(ctx, applications, client.InNamespace(testConfig.Namespace), dpuServices[0].MatchLabels())).To(Succeed())
 				// We're not running the ArgoCD controllers in this test so the finalizers must be removed here.
 				// Do this in each loop as there's a race condition where the Application is patched again
 				// by the DPUService controller.
@@ -763,17 +750,73 @@ var _ = Describe("DPUService Controller", func() {
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 		})
 
+		It("should delete orphaned applications when a DPUCluster is deleted", func() {
+			By("Creating two DPUClusters")
+			clusters := []provisioningv1.DPUCluster{
+				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
+				testutils.GetTestDPUCluster(testDPU2NS.Name, "cluster-two"),
+			}
+			createDPUClusters(clusters)
+
+			By("Creating a DPUService targeting all clusters")
+			dpuServices := getMinimalDPUServices(testNS.Name)
+			dpuServices[0].Spec.DPUClusterSelector = nil
+			Expect(testClient.Create(ctx, dpuServices[0])).To(Succeed())
+			DeferCleanup(cleanupDPUServiceAndApplication, ctx, testClient, dpuServices[0], testConfig.Namespace)
+
+			By("Validating that Applications are created for both DPUClusters")
+			Eventually(func(g Gomega) {
+				applications := &argov1.ApplicationList{}
+				g.Expect(testClient.List(ctx, applications, client.InNamespace(testConfig.Namespace), dpuServices[0].MatchLabels())).To(Succeed())
+				g.Expect(applications.Items).To(HaveLen(2))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Deleting cluster-two")
+			Expect(testClient.Delete(ctx, &clusters[1])).To(Succeed())
+			Eventually(func(g Gomega) {
+				err := testClient.Get(ctx, client.ObjectKeyFromObject(&clusters[1]), &clusters[1])
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Ensuring the orphaned Application for cluster-two is deleted")
+			Eventually(func(g Gomega) {
+				applications := &argov1.ApplicationList{}
+				g.Expect(testClient.List(ctx, applications, client.InNamespace(testConfig.Namespace),
+					client.MatchingLabels{
+						dpuservicev1.DPUServiceNameLabelKey:      dpuServices[0].Name,
+						dpuservicev1.DPUServiceNamespaceLabelKey: dpuServices[0].Namespace,
+						provisioningv1.DPUClusterNameLabelKey:    "cluster-two",
+					})).To(Succeed())
+				// We're not running the ArgoCD controllers in this test so the finalizers must be removed here.
+				for i := range applications.Items {
+					err := testClient.Patch(ctx, &applications.Items[i], client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`)))
+					if err != nil && !apierrors.IsNotFound(err) {
+						g.Expect(err).ToNot(HaveOccurred())
+					}
+				}
+				g.Expect(applications.Items).To(BeEmpty())
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Validating that only the application for cluster-one remains")
+			Eventually(func(g Gomega) {
+				applications := &argov1.ApplicationList{}
+				g.Expect(testClient.List(ctx, applications, client.InNamespace(testConfig.Namespace), dpuServices[0].MatchLabels())).To(Succeed())
+				g.Expect(applications.Items).To(HaveLen(1))
+				g.Expect(applications.Items[0].Labels[provisioningv1.DPUClusterNameLabelKey]).To(Equal("cluster-one"))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+		})
+
 		It("should successfully reconcile a DPUService with maximum name length", func() {
 			By("Adding fake kamaji cluster")
 			// 63 is the max name length of a DPUCluster
 			dpuCluster := testutils.GetTestDPUCluster(testNS.Name, utilrand.String(63))
-			cleanupObjs = createDPUClusters([]provisioningv1.DPUCluster{dpuCluster}, cleanupObjs)
+			createDPUClusters([]provisioningv1.DPUCluster{dpuCluster})
 
 			By("creating the DPUService")
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			dpuServices[0].Name = utilrand.String(63)
 			Expect(testClient.Create(ctx, dpuServices[0])).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServices[0])
+			DeferCleanup(cleanupDPUServiceAndApplication, ctx, testClient, dpuServices[0], testConfig.Namespace)
 
 			By("Validating that the underlying Application has been created")
 			Eventually(func(g Gomega) {
@@ -784,26 +827,6 @@ var _ = Describe("DPUService Controller", func() {
 					g.Expect(app.Labels).To(HaveKey(dpuservicev1.DPUServiceNameLabelKey))
 					g.Expect(app.Labels).To(HaveKey(dpuservicev1.DPUServiceNamespaceLabelKey))
 				}
-			}).WithTimeout(30 * time.Second).Should(Succeed())
-
-			By("Cleaning up the DPUService and Application")
-			// TODO: Refactor the whole file to use DeferCleanup instead of cleanupObjs to ensure smoother deletion on
-			//failure
-			Eventually(func(g Gomega) {
-				g.Expect(testClient.Delete(ctx, dpuServices[0])).To(Succeed())
-
-				applications := &argov1.ApplicationList{}
-				g.Expect(testClient.List(ctx, applications, client.InNamespace(testConfig.Namespace))).To(Succeed())
-				// We're not running the ArgoCD controllers in this test so the finalizers must be removed here.
-				// Do this in each loop as there's a race condition where the Application is patched again
-				// by the DPUService controller.
-				for i := range applications.Items {
-					err := testClient.Patch(ctx, &applications.Items[i], client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`)))
-					if err != nil && !apierrors.IsNotFound(err) {
-						g.Expect(err).ToNot(HaveOccurred())
-					}
-				}
-				g.Expect(applications.Items).To(BeEmpty())
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 		})
 
@@ -813,7 +836,7 @@ var _ = Describe("DPUService Controller", func() {
 			dpuServices[0].Name = utilrand.String(63)
 			dpuServices[0].Spec.DeployInCluster = ptr.To(true)
 			Expect(testClient.Create(ctx, dpuServices[0])).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServices[0])
+			DeferCleanup(cleanupDPUServiceAndApplication, ctx, testClient, dpuServices[0], testConfig.Namespace)
 
 			By("Validating that the underlying Application has been created")
 			Eventually(func(g Gomega) {
@@ -824,26 +847,6 @@ var _ = Describe("DPUService Controller", func() {
 					g.Expect(app.Labels).To(HaveKey(dpuservicev1.DPUServiceNameLabelKey))
 					g.Expect(app.Labels).To(HaveKey(dpuservicev1.DPUServiceNamespaceLabelKey))
 				}
-			}).WithTimeout(30 * time.Second).Should(Succeed())
-
-			By("Cleaning up the DPUService and Application")
-			// TODO: Refactor the whole file to use DeferCleanup instead of cleanupObjs to ensure smoother deletion on
-			//failure
-			Eventually(func(g Gomega) {
-				g.Expect(testClient.Delete(ctx, dpuServices[0])).To(Succeed())
-
-				applications := &argov1.ApplicationList{}
-				g.Expect(testClient.List(ctx, applications, client.InNamespace(testConfig.Namespace))).To(Succeed())
-				// We're not running the ArgoCD controllers in this test so the finalizers must be removed here.
-				// Do this in each loop as there's a race condition where the Application is patched again
-				// by the DPUService controller.
-				for i := range applications.Items {
-					err := testClient.Patch(ctx, &applications.Items[i], client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`)))
-					if err != nil && !apierrors.IsNotFound(err) {
-						g.Expect(err).ToNot(HaveOccurred())
-					}
-				}
-				g.Expect(applications.Items).To(BeEmpty())
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 		})
 
@@ -858,14 +861,14 @@ var _ = Describe("DPUService Controller", func() {
 			By("creating the DPUService with serviceID and interfaces")
 			dpuService := getMinimalDPUServices(testNS.Name)
 			Expect(testClient.Create(ctx, dpuService[0])).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuService[0])
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuService[0])
 		})
 		It("should successfully create the DPUService with serviceID", func() {
 			By("creating the DPUService with serviceID and interfaces")
 			dpuService := getMinimalDPUServices(testNS.Name)
 			dpuService[0].Spec.Interfaces = nil
 			Expect(testClient.Create(ctx, dpuService[0])).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuService[0])
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuService[0])
 		})
 
 		It("should fail to create the DPUService without serviceID but with interfaces", func() {
@@ -879,14 +882,14 @@ var _ = Describe("DPUService Controller", func() {
 			clusters := []provisioningv1.DPUCluster{
 				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
 			}
-			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
+			createDPUClusters(clusters)
 
 			By("creating the DPUService without serviceID")
 			dpuService := getMinimalDPUServices(testNS.Name)
 			dpuService[0].Spec.ServiceID = nil
 			dpuService[0].Spec.Interfaces = nil
 			Expect(testClient.Create(ctx, dpuService[0])).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuService[0])
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuService[0])
 
 			Eventually(func(g Gomega) {
 				assertDPUService(g, testClient, []*dpuservicev1.DPUService{dpuService[0]})
@@ -896,7 +899,7 @@ var _ = Describe("DPUService Controller", func() {
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			Eventually(func(g Gomega) {
-				assertArgoCDSecrets(g, testClient, clusters, &cleanupObjs, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
+				assertArgoCDSecrets(g, testClient, clusters, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			Eventually(func(g Gomega) {
@@ -906,10 +909,7 @@ var _ = Describe("DPUService Controller", func() {
 			// Check that the argo Application has been created correctly with generated serviceID
 			Eventually(func(g Gomega) {
 				applications := &argov1.ApplicationList{}
-				g.Expect(testClient.List(ctx, applications, client.MatchingLabels{
-					dpuservicev1.DPUServiceNameLabelKey:      dpuService[0].Name,
-					dpuservicev1.DPUServiceNamespaceLabelKey: dpuService[0].Namespace,
-				})).To(Succeed())
+				g.Expect(testClient.List(ctx, applications, dpuService[0].MatchLabels())).To(Succeed())
 				g.Expect(applications.Items).To(HaveLen(1))
 
 				app := applications.Items[0]
@@ -928,23 +928,7 @@ var _ = Describe("DPUService Controller", func() {
 				g.Expect(generatedServiceID).To(MatchRegexp(`^[a-z-0-9]{10}$`))
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 
-			Expect(testClient.Delete(ctx, dpuService[0])).To(Succeed())
-			// Ensure the applications are deleted.
-			Eventually(func(g Gomega) {
-				applications := &argov1.ApplicationList{}
-				g.Expect(testClient.List(ctx, applications)).To(Succeed())
-				// We're not running the ArgoCD controllers in this test so the finalizers must be removed here.
-				// Do this in each loop as there's a race condition where the Application is patched again
-				// by the DPUService controller.
-				for i := range applications.Items {
-					err := testClient.Patch(ctx, &applications.Items[i], client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`)))
-					if err != nil && !apierrors.IsNotFound(err) {
-						g.Expect(err).ToNot(HaveOccurred())
-					}
-				}
-				g.Expect(applications.Items).To(BeEmpty())
-
-			}).WithTimeout(30 * time.Second).Should(BeNil())
+			cleanupDPUServiceAndApplication(ctx, testClient, dpuService[0], testConfig.Namespace)
 
 			// Ensure the DPUService finalizer is removed and they are deleted.
 			Eventually(func(g Gomega) {
@@ -959,7 +943,7 @@ var _ = Describe("DPUService Controller", func() {
 			clusters := []provisioningv1.DPUCluster{
 				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
 			}
-			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
+			createDPUClusters(clusters)
 
 			By("creating the DPUService with serviceID and interfaces")
 			dpuService := getDPUServiceWithoutHelmchartValues(testNS.Name)
@@ -969,11 +953,11 @@ var _ = Describe("DPUService Controller", func() {
 			dpuServiceNAD.Annotations = make(map[string]string)
 			dpuServiceNAD.Annotations[dpuservicev1.TrustedSfAnnotationKey] = ""
 			Expect(testClient.Create(ctx, dpuServiceNAD)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServiceNAD)
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceNAD)
 			Expect(testClient.Create(ctx, dpuServiceInterface)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServiceInterface)
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceInterface)
 			Expect(testClient.Create(ctx, dpuService[0])).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuService[0])
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuService[0])
 
 			Eventually(func(g Gomega) {
 				assertDPUService(g, testClient, []*dpuservicev1.DPUService{dpuService[0]})
@@ -981,7 +965,7 @@ var _ = Describe("DPUService Controller", func() {
 
 			// Check that argo secrets have been created correctly.
 			Eventually(func(g Gomega) {
-				assertArgoCDSecrets(g, testClient, clusters, &cleanupObjs, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
+				assertArgoCDSecrets(g, testClient, clusters, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			// Check that the argo AppProject has been created correctly
@@ -1035,7 +1019,7 @@ var _ = Describe("DPUService Controller", func() {
 			clusters := []provisioningv1.DPUCluster{
 				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
 			}
-			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
+			createDPUClusters(clusters)
 
 			By("creating the DPUService with serviceID and interfaces")
 			dpuService := getDPUServiceWithoutHelmchartValues(testNS.Name)
@@ -1043,11 +1027,11 @@ var _ = Describe("DPUService Controller", func() {
 			dpuService[0].Spec.Interfaces[0] = dpuServiceInterface.Name
 			dpuServiceNAD := getDPUServiceNADWithSpec(testNS.Name)
 			Expect(testClient.Create(ctx, dpuServiceNAD)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServiceNAD)
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceNAD)
 			Expect(testClient.Create(ctx, dpuServiceInterface)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServiceInterface)
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceInterface)
 			Expect(testClient.Create(ctx, dpuService[0])).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuService[0])
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuService[0])
 
 			Eventually(func(g Gomega) {
 				assertDPUService(g, testClient, []*dpuservicev1.DPUService{dpuService[0]})
@@ -1055,7 +1039,7 @@ var _ = Describe("DPUService Controller", func() {
 
 			// Check that argo secrets have been created correctly.
 			Eventually(func(g Gomega) {
-				assertArgoCDSecrets(g, testClient, clusters, &cleanupObjs, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
+				assertArgoCDSecrets(g, testClient, clusters, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			// Check that the argo AppProject has been created correctly
@@ -1109,7 +1093,7 @@ var _ = Describe("DPUService Controller", func() {
 			clusters := []provisioningv1.DPUCluster{
 				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
 			}
-			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
+			createDPUClusters(clusters)
 
 			By("creating the DPUService with serviceID and interfaces")
 			dpuService := getDPUServiceWithoutHelmchartValues(testNS.Name)
@@ -1117,11 +1101,11 @@ var _ = Describe("DPUService Controller", func() {
 			dpuService[0].Spec.Interfaces[0] = dpuServiceInterface.Name
 			dpuServiceNAD := getDPUServiceNADWithSpec(testNS.Name)
 			Expect(testClient.Create(ctx, dpuServiceNAD)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServiceNAD)
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceNAD)
 			Expect(testClient.Create(ctx, dpuServiceInterface)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServiceInterface)
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceInterface)
 			Expect(testClient.Create(ctx, dpuService[0])).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuService[0])
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuService[0])
 
 			Eventually(func(g Gomega) {
 				assertDPUService(g, testClient, []*dpuservicev1.DPUService{dpuService[0]})
@@ -1129,7 +1113,7 @@ var _ = Describe("DPUService Controller", func() {
 
 			// Check that argo secrets have been created correctly.
 			Eventually(func(g Gomega) {
-				assertArgoCDSecrets(g, testClient, clusters, &cleanupObjs, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
+				assertArgoCDSecrets(g, testClient, clusters, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			// Check that the argo AppProject has been created correctly
@@ -1205,7 +1189,7 @@ var _ = Describe("DPUService Controller", func() {
 			clusters := []provisioningv1.DPUCluster{
 				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
 			}
-			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
+			createDPUClusters(clusters)
 
 			By("creating the DPUService with serviceID and interfaces")
 			dpuService := getMinimalDPUServices(testNS.Name)
@@ -1218,11 +1202,11 @@ var _ = Describe("DPUService Controller", func() {
 			dpuServiceNAD := getDPUServiceNADWithSpec(testNS.Name)
 			dpuServiceNAD.Spec.ResourceType = "veth"
 			Expect(testClient.Create(ctx, dpuServiceNAD)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServiceNAD)
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceNAD)
 			Expect(testClient.Create(ctx, dpuServiceInterface)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServiceInterface)
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceInterface)
 			Expect(testClient.Create(ctx, dpuService[0])).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuService[0])
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuService[0])
 
 			Eventually(func(g Gomega) {
 				assertDPUService(g, testClient, []*dpuservicev1.DPUService{dpuService[0]})
@@ -1230,7 +1214,7 @@ var _ = Describe("DPUService Controller", func() {
 
 			// Check that argo secrets have been created correctly.
 			Eventually(func(g Gomega) {
-				assertArgoCDSecrets(g, testClient, clusters, &cleanupObjs, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
+				assertArgoCDSecrets(g, testClient, clusters, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			// Check that the argo AppProject has been created correctly
@@ -1277,7 +1261,7 @@ var _ = Describe("DPUService Controller", func() {
 			clusters := []provisioningv1.DPUCluster{
 				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
 			}
-			cleanupObjs = createDPUClusters(clusters, cleanupObjs)
+			createDPUClusters(clusters)
 
 			By("creating the DPUService with serviceID and interfaces")
 			dpuService := getMinimalDPUServices(testNS.Name)
@@ -1290,11 +1274,11 @@ var _ = Describe("DPUService Controller", func() {
 			dpuServiceNAD := getDPUServiceNADWithSpec(testNS.Name)
 			dpuServiceNAD.Spec.ResourceType = "sf"
 			Expect(testClient.Create(ctx, dpuServiceNAD)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServiceNAD)
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceNAD)
 			Expect(testClient.Create(ctx, dpuServiceInterface)).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuServiceInterface)
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceInterface)
 			Expect(testClient.Create(ctx, dpuService[0])).To(Succeed())
-			cleanupObjs = append(cleanupObjs, dpuService[0])
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuService[0])
 
 			Eventually(func(g Gomega) {
 				assertDPUService(g, testClient, []*dpuservicev1.DPUService{dpuService[0]})
@@ -1302,7 +1286,7 @@ var _ = Describe("DPUService Controller", func() {
 
 			// Check that argo secrets have been created correctly.
 			Eventually(func(g Gomega) {
-				assertArgoCDSecrets(g, testClient, clusters, &cleanupObjs, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
+				assertArgoCDSecrets(g, testClient, clusters, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			// Check that the argo AppProject has been created correctly
@@ -1366,35 +1350,51 @@ var _ = Describe("DPUService Controller", func() {
 	})
 })
 
-func createDPUClusters(clusters []provisioningv1.DPUCluster, cleanupObjs []client.Object) []client.Object {
-	if len(cleanupObjs) == 0 {
-		cleanupObjs = []client.Object{}
-	}
+func createDPUClusters(clusters []provisioningv1.DPUCluster) {
 	for i := range clusters {
 		kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(clusters[i], cfg)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(testClient.Create(ctx, kamajiSecret)).To(Succeed())
-		cleanupObjs = append(cleanupObjs, kamajiSecret)
+		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, kamajiSecret)
 	}
 
 	for i, cl := range clusters {
 		Expect(testClient.Create(ctx, &cl)).To(Succeed())
-		cleanupObjs = append(cleanupObjs, &clusters[i])
+		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, &clusters[i])
 		patcher := patch.NewSerialPatcher(&cl, testClient)
 
 		// mark the cluster as ready so that the remoteCache treats it as ready
 		cl.Status.Phase = provisioningv1.PhaseReady
 		Expect(patcher.Patch(ctx, &cl, patch.WithFieldOwner(dpuServiceControllerName))).To(Succeed())
 	}
+}
 
-	return cleanupObjs
+func cleanupDPUServiceAndApplication(ctx context.Context, testClient client.Client, dpuService *dpuservicev1.DPUService, argoNamespace string) {
+	By(fmt.Sprintf("Cleaning up the DPUService and Application for %s/%s", dpuService.Namespace, dpuService.Name))
+	Eventually(func(g Gomega) {
+		g.Expect(testClient.Delete(ctx, dpuService)).To(Succeed())
+	}).WithTimeout(30 * time.Second).Should(Succeed())
+
+	Eventually(func(g Gomega) {
+		applications := &argov1.ApplicationList{}
+		g.Expect(testClient.List(ctx, applications, client.InNamespace(argoNamespace))).To(Succeed())
+		// We're not running the ArgoCD controllers in this test so the finalizers must be removed here.
+		// Do this in each loop as there's a race condition where the Application is patched again
+		// by the DPUService controller.
+		for i := range applications.Items {
+			err := testClient.Patch(ctx, &applications.Items[i], client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`)))
+			if err != nil && !apierrors.IsNotFound(err) {
+				g.Expect(err).ToNot(HaveOccurred())
+			}
+		}
+		g.Expect(applications.Items).To(BeEmpty())
+	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
 var _ = Describe("DPUService Controller reconcile interfaces", func() {
 	var (
 		testNS              *corev1.Namespace
 		dpuServiceInterface *dpuservicev1.DPUServiceInterface
-		cleanupObjs         []client.Object
 	)
 	BeforeEach(func() {
 		By("creating the namespaces")
@@ -1403,11 +1403,10 @@ var _ = Describe("DPUService Controller reconcile interfaces", func() {
 
 		dpuServiceInterface = getMinimalDPUServiceInterface(testNS.Name)
 		Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, dpuServiceInterface))).To(Succeed())
-		cleanupObjs = append(cleanupObjs, dpuServiceInterface)
+		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceInterface)
 	})
 	AfterEach(func() {
 		By("Cleanup the Namespace and Secrets")
-		Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjs...)).To(Succeed())
 		Expect(testClient.Delete(ctx, testNS)).To(Succeed())
 	})
 
@@ -1783,7 +1782,7 @@ func assertDPUServiceCondition(g Gomega, testClient client.Client, dpuServices [
 	}
 }
 
-func assertArgoCDSecrets(g Gomega, testClient client.Client, clusters []provisioningv1.DPUCluster, cleanupObjs *[]client.Object, testNamespaces []string) {
+func assertArgoCDSecrets(g Gomega, testClient client.Client, clusters []provisioningv1.DPUCluster, testNamespaces []string) {
 	selector := labels.NewSelector()
 	req1, _ := labels.NewRequirement(argoCDSecretLabelKey, selection.Equals, []string{"cluster"})
 	selector = selector.Add(*req1)
@@ -1809,7 +1808,7 @@ func assertArgoCDSecrets(g Gomega, testClient client.Client, clusters []provisio
 		g.Expect(s.OwnerReferences).To(HaveLen(1))
 		g.Expect(s.OwnerReferences[0].Name).To(Equal(operatorcontroller.DefaultDPFOperatorConfigSingletonName))
 		g.Expect(s.OwnerReferences[0].Kind).To(Equal(operatorv1.DPFOperatorConfigKind))
-		*cleanupObjs = append(*cleanupObjs, s.DeepCopy())
+		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, s.DeepCopy())
 	}
 
 }
@@ -1871,10 +1870,7 @@ func assertApplicationPaused(g Gomega, testClient client.Client, dpuServices []*
 
 func getApplicationServiceDaemonSetValues(g Gomega, dpuService *dpuservicev1.DPUService) *dpuservicev1.ServiceDaemonSetValues {
 	applications := &argov1.ApplicationList{}
-	g.Expect(testClient.List(ctx, applications, client.MatchingLabels{
-		dpuservicev1.DPUServiceNameLabelKey:      dpuService.Name,
-		dpuservicev1.DPUServiceNamespaceLabelKey: dpuService.Namespace,
-	})).To(Succeed())
+	g.Expect(testClient.List(ctx, applications, dpuService.MatchLabels())).To(Succeed())
 	g.Expect(applications.Items).To(HaveLen(1))
 	for _, app := range applications.Items {
 		g.Expect(app.Labels).To(HaveKey(dpuservicev1.DPUServiceNameLabelKey))
