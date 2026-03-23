@@ -839,21 +839,15 @@ func (r *DPUServiceReconciler) reconcileAppProject(ctx context.Context, dpuClust
 func (r *DPUServiceReconciler) reconcileApplication(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpfOperatorConfigNamespace, serviceID string) error {
 	project := getProjectName(dpuService)
 	if project != dpuAppProjectName {
-		return r.ensureApplication(ctx, dpuService, serviceDaemonSet, "in-cluster", dpfOperatorConfigNamespace, serviceID)
+		return r.ensureApplication(ctx, dpuService, serviceDaemonSet, "in-cluster", "", dpfOperatorConfigNamespace, serviceID)
 	}
 	return r.reconcileStandardApplications(ctx, dpuClusterConfigs, dpuService, serviceDaemonSet, dpfOperatorConfigNamespace, serviceID)
 }
 
 // reconcileStandardApplications reconciles ArgoCD Applications across DPU clusters.
 // It creates/updates applications in clusters that match the DPUService's cluster selector,
-// and deletes applications from clusters that no longer match.
+// and deletes applications from clusters that no longer match or no longer exist.
 func (r *DPUServiceReconciler) reconcileStandardApplications(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpfOperatorConfigNamespace, serviceID string) error {
-	// Create a map for all DPUClusters that need to be processed
-	unprocessedDPUClusters := make(map[string]*dpucluster.Config)
-	for i, dpuClusterConfig := range dpuClusterConfigs {
-		unprocessedDPUClusters[client.ObjectKeyFromObject(dpuClusterConfig.Cluster).String()] = dpuClusterConfigs[i]
-	}
-
 	// Get the list of the DPUClusters the DPUService is targeting
 	targetDPUClusterConfigs, err := utils.GetMatchingDPUClusters(dpuClusterConfigs, dpuService.Spec.DPUClusterSelector)
 	if err != nil {
@@ -861,25 +855,51 @@ func (r *DPUServiceReconciler) reconcileStandardApplications(ctx context.Context
 	}
 
 	// Create and update applications in each targeted cluster
+	targetClusterNames := make(map[string]struct{}, len(targetDPUClusterConfigs))
 	for _, dpuClusterConfig := range targetDPUClusterConfigs {
-		if err := r.ensureApplication(ctx, dpuService, serviceDaemonSet, dpuClusterConfig.Cluster.Name, dpfOperatorConfigNamespace, serviceID); err != nil {
+		// Skip DPUClusters that are being deleted. Instead existing applications will be deleted below.
+		if !dpuClusterConfig.Cluster.DeletionTimestamp.IsZero() {
+			continue
+		}
+
+		if err := r.ensureApplication(ctx, dpuService, serviceDaemonSet, dpuClusterConfig.Cluster.Name, dpuClusterConfig.Cluster.Namespace, dpfOperatorConfigNamespace, serviceID); err != nil {
 			return fmt.Errorf("ensure application for DPUCluster %s: %w", dpuClusterConfig.ClusterNamespaceName(), err)
 		}
-
-		// Remove the cluster from the map to keep only clusters where applications need to be deleted
-		delete(unprocessedDPUClusters, client.ObjectKeyFromObject(dpuClusterConfig.Cluster).String())
+		targetClusterNames[applicationTargetClusterKey(dpuClusterConfig.Cluster.Namespace, dpuClusterConfig.Cluster.Name)] = struct{}{}
 	}
 
-	// Delete leftover applications in clusters that are no longer selected
+	// List all existing Applications for this DPUService, including those for DPUClusters that
+	// no longer exist. This ensures orphaned applications are cleaned up when a DPUCluster is deleted.
+	existingApplications := &argov1.ApplicationList{}
+	if err := r.Client.List(ctx, existingApplications, client.InNamespace(dpfOperatorConfigNamespace), dpuService.MatchLabels()); err != nil {
+		return fmt.Errorf("listing applications for DPUService %s: %w", client.ObjectKeyFromObject(dpuService), err)
+	}
+
+	// Delete leftover applications in clusters that are no longer selected or no longer exist
 	var staleApplications []string
-	for _, dpuClusterConfig := range unprocessedDPUClusters {
-		isAppDeleted, err := r.deleteApplication(ctx, dpuService, dpuClusterConfig.Cluster.Name, dpfOperatorConfigNamespace)
+	for _, app := range existingApplications.Items {
+		clusterName, hasDPUClusterNameLabel := app.Labels[provisioningv1.DPUClusterNameLabelKey]
+		// Ignore applications that don't have the DPUClusterNameLabel. They have not been created by the DPUService controller.
+		if !hasDPUClusterNameLabel {
+			continue
+		}
+		clusterNamespace, hasDPUClusterNamespaceLabel := app.Labels[provisioningv1.DPUClusterNamespaceLabelKey]
+		// Ignore applications that don't have the DPUClusterNamespaceLabel, this is the case for e.g. in-cluster services.
+		if !hasDPUClusterNamespaceLabel {
+			continue
+		}
+
+		// Ignore applications we expect to exist.
+		if _, ok := targetClusterNames[applicationTargetClusterKey(clusterNamespace, clusterName)]; ok {
+			continue
+		}
+		// Try to trigger deletion of the application.
+		isAppDeleted, err := r.deleteApplication(ctx, dpuService, clusterName, dpfOperatorConfigNamespace)
 		if err != nil {
-			return fmt.Errorf("deleting application for DPUCluster %s: %w", dpuClusterConfig.ClusterNamespaceName(), err)
+			return fmt.Errorf("deleting application for DPUCluster %s: %w", klog.KRef(clusterNamespace, clusterName), err)
 		}
 		if !isAppDeleted {
-			appName := argocd.GetApplicationName(dpuClusterConfig.Cluster.Name, dpuService.Name)
-			staleApplications = append(staleApplications, fmt.Sprintf("%s/%s", dpfOperatorConfigNamespace, appName))
+			staleApplications = append(staleApplications, fmt.Sprintf("%s/%s", dpfOperatorConfigNamespace, app.Name))
 		}
 	}
 
@@ -891,7 +911,11 @@ func (r *DPUServiceReconciler) reconcileStandardApplications(ctx context.Context
 	return nil
 }
 
-func (r *DPUServiceReconciler) ensureApplication(ctx context.Context, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, clusterName, dpfOperatorConfigNamespace, serviceID string) error {
+func applicationTargetClusterKey(clusterNamespace, clusterName string) string {
+	return fmt.Sprintf("%s-%s", clusterNamespace, clusterName)
+}
+
+func (r *DPUServiceReconciler) ensureApplication(ctx context.Context, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, clusterName, clusterNamespace, dpfOperatorConfigNamespace, serviceID string) error {
 	log := ctrllog.FromContext(ctx)
 	project := getProjectName(dpuService)
 	values, err := argoCDValuesFromDPUService(serviceDaemonSet, dpuService, clusterName, serviceID)
@@ -899,7 +923,7 @@ func (r *DPUServiceReconciler) ensureApplication(ctx context.Context, dpuService
 		return err
 	}
 
-	argoApplication := argocd.NewApplication(dpfOperatorConfigNamespace, project, dpuService, values, clusterName)
+	argoApplication := argocd.NewApplication(dpfOperatorConfigNamespace, project, dpuService, values, clusterName, clusterNamespace)
 	gotArgoApplication := &argov1.Application{}
 
 	// If Application does not exist, create it. Otherwise, patch the object.
