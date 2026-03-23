@@ -163,6 +163,10 @@ spec:
                   spec:
                     description: Spec specifies the DPU specification.
                     properties:
+                      astraEnabled:
+                        description: AstraEnabled indicates whether E/W NIC configuration
+                          (Astra) is enabled
+                        type: boolean
                       bfb:
                         description: Specifies a BFB CR
                         properties:
