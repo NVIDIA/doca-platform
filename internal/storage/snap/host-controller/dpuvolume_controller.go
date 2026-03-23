@@ -89,7 +89,7 @@ func (r *DPUVolumeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err := r.Client.Get(ctx, req.NamespacedName, dpuVolume); err != nil {
 		if apierrors.IsNotFound(err) {
 			reqLog.Info("DPUVolume not found, ensure that all resources are removed from DPUClusters")
-			_, err = r.dpuClusterResourcesCleanup(ctx, nil, req.NamespacedName)
+			_, err = r.dpuClusterResourcesCleanup(ctx, nil, req.NamespacedName, "")
 		}
 		return FinalizeReconcileResult(ctrl.Result{}, err)
 	}
@@ -319,7 +319,12 @@ func (r *DPUVolumeReconciler) reconcileDelete(ctx context.Context, dpuVolume *st
 	} else {
 		reqLog.Info("DPUCluster for DPUVolume is unknown, trying to clean up resources in all ready DPUClusters")
 	}
-	cleanupResult, err := r.dpuClusterResourcesCleanup(ctx, []client.ObjectKey{targetCluster}, client.ObjectKeyFromObject(dpuVolume))
+	pvNameInDPUCluster := ""
+	if dpuVolume.Status.State != nil && dpuVolume.Status.State.VolumeInfo != nil &&
+		dpuVolume.Status.State.VolumeInfo.VolumeName != nil {
+		pvNameInDPUCluster = *dpuVolume.Status.State.VolumeInfo.VolumeName
+	}
+	cleanupResult, err := r.dpuClusterResourcesCleanup(ctx, []client.ObjectKey{targetCluster}, client.ObjectKeyFromObject(dpuVolume), pvNameInDPUCluster)
 	if err != nil {
 		reqLog.Error(err, "Failed to cleanup DPUVolume")
 		return ctrl.Result{}, err
@@ -360,9 +365,10 @@ func (r *DPUVolumeReconciler) setAwaitingDeletion(dpuVolume *storagev1.DPUVolume
 		conditions.ReasonAwaitingDeletion, conditions.ConditionMessage(msg))
 }
 
-// dpuClusterResourcesCleanup removes Volume and PVC resources for a DPUVolume from target DPUClusters
+// dpuClusterResourcesCleanup removes Volume and PVC resources for a DPUVolume from target DPUClusters.
+// If pvNameInDPUCluster is provided (not empty), it also waits for the PV to be removed in the DPU cluster.
 func (r *DPUVolumeReconciler) dpuClusterResourcesCleanup(ctx context.Context,
-	mandatoryDPUClusters []client.ObjectKey, dpuVolume client.ObjectKey) (DPUClusterResourcesCleanupResult, error) {
+	mandatoryDPUClusters []client.ObjectKey, dpuVolume client.ObjectKey, pvNameInDPUCluster string) (DPUClusterResourcesCleanupResult, error) {
 	reqLog := ctrllog.FromContext(ctx)
 	reqLog.Info("DPUCluster resources cleanup", "dpuVolume", dpuVolume, "mandatoryDPUClusters", mandatoryDPUClusters)
 	targetDPUClusters, err := r.dpuClusterHelper.GetTargetDPUClusters(ctx, mandatoryDPUClusters)
@@ -380,7 +386,7 @@ func (r *DPUVolumeReconciler) dpuClusterResourcesCleanup(ctx context.Context,
 		return DPUClusterResourcesCleanupResult{}, err
 	}
 	reqLog.Info("Call Remove volume")
-	removeResult, err := r.volumeProvisioner.Remove(ctx, dpuClustersClients, dpuVolume)
+	removeResult, err := r.volumeProvisioner.Remove(ctx, dpuClustersClients, dpuVolume, pvNameInDPUCluster)
 	if err != nil {
 		reqLog.Error(err, "Failed to remove Volume in DPU clusters")
 		return DPUClusterResourcesCleanupResult{}, err
@@ -488,6 +494,39 @@ func (r *DPUVolumeReconciler) enqueueDPUVolumeByVolumeInDPUCluster(ctx context.C
 		reqLog.Info("Enqueuing DPUVolume objects by Volume in DPU cluster", "volume", client.ObjectKeyFromObject(o), "result", result)
 	}
 	return result
+}
+
+// enqueueDPUVolumeByPVInDPUCluster enqueues DPUVolume objects that reference the PV by name in status.state.volumeInfo.volumeName
+//
+//nolint:dupl
+func (r *DPUVolumeReconciler) enqueueDPUVolumeByPVInDPUCluster(ctx context.Context, o client.Object) []reconcile.Request {
+	reqLog := ctrllog.FromContext(ctx).WithValues("controller", "dpuvolume")
+	result := func() []reconcile.Request {
+		dpuVolumeList := &storagev1.DPUVolumeList{}
+		if err := r.Client.List(ctx, dpuVolumeList, client.InNamespace(r.Options.Namespace),
+			client.MatchingFields{indexers.DPUVolumeStatusStateVolumeInfoVolumeName: o.GetName()}); err != nil {
+			return nil
+		}
+		result := make([]reconcile.Request, 0, len(dpuVolumeList.Items))
+		for _, dpuVolume := range dpuVolumeList.Items {
+			result = append(result, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&dpuVolume)})
+		}
+		return result
+	}()
+	if len(result) > 0 {
+		reqLog.Info("Enqueuing DPUVolume objects by PV in DPU cluster", "pv", client.ObjectKeyFromObject(o), "result", result)
+	}
+	return result
+}
+
+// WatchDPUClusterPV registers a watch for PVs in the DPU cluster
+func (r *DPUVolumeReconciler) WatchDPUClusterPV(_ context.Context, _ client.Client, _ client.ObjectKey) (dpucluster.Watcher, error) {
+	return dpucluster.NewWatcher(dpucluster.WatcherOptions{
+		Name:         "dpuvolume-watch-pv",
+		Watcher:      r.controller,
+		Kind:         &corev1.PersistentVolume{},
+		EventHandler: handler.EnqueueRequestsFromMapFunc(r.enqueueDPUVolumeByPVInDPUCluster),
+	}), nil
 }
 
 // WatchDPUClusterPVC registers a watch for PVCs in the DPU cluster

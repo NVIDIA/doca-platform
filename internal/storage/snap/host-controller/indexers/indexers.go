@@ -42,6 +42,8 @@ const (
 	DPUVolumeSpecDPUStoragePolicyName = "spec.dpuStoragePolicyName"
 	// DPUVolumeStatusStateSelectedDPUStorageVendorName is the field index key for DPUVolume.Status.State.SelectedDPUStorageVendorName
 	DPUVolumeStatusStateSelectedDPUStorageVendorName = "status.state.selectedDPUStorageVendorName"
+	// DPUVolumeStatusStateVolumeInfoVolumeName is the field index key for DPUVolume.Status.State.VolumeInfo.VolumeName
+	DPUVolumeStatusStateVolumeInfoVolumeName = "status.state.volumeInfo.volumeName"
 )
 
 // setupDPUSpecDPUNodeNameIndexer sets up indexer for DPU objects by spec.dpuNodeName
@@ -148,6 +150,26 @@ func setupDPUVolumeStatusStateSelectedDPUStorageVendorNameIndexer(ctx context.Co
 	return nil
 }
 
+// setupDPUVolumeStatusStateVolumeInfoVolumeNameIndexer sets up indexer for DPUVolume objects by status.state.volumeInfo.volumeName
+func setupDPUVolumeStatusStateVolumeInfoVolumeNameIndexer(ctx context.Context, mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &storagev1.DPUVolume{}, DPUVolumeStatusStateVolumeInfoVolumeName, func(o client.Object) []string {
+		dpuVolume, ok := o.(*storagev1.DPUVolume)
+		if !ok {
+			return nil
+		}
+		if dpuVolume.Status.State == nil ||
+			dpuVolume.Status.State.VolumeInfo == nil ||
+			dpuVolume.Status.State.VolumeInfo.VolumeName == nil ||
+			*dpuVolume.Status.State.VolumeInfo.VolumeName == "" {
+			return nil
+		}
+		return []string{*dpuVolume.Status.State.VolumeInfo.VolumeName}
+	}); err != nil {
+		return fmt.Errorf("failed to register indexer for DPUVolume CR status.state.volumeInfo.volumeName field: %w", err)
+	}
+	return nil
+}
+
 // SetupIndexers initializes all field indexers required by the storage host controllers
 func SetupIndexers(ctx context.Context, mgr ctrl.Manager) error {
 	indexers := []func(context.Context, ctrl.Manager) error{
@@ -158,6 +180,7 @@ func SetupIndexers(ctx context.Context, mgr ctrl.Manager) error {
 		setupDPUStoragePolicySpecDPUStorageVendorsIndexer,
 		setupDPUVolumeSpecDPUStoragePolicyNameIndexer,
 		setupDPUVolumeStatusStateSelectedDPUStorageVendorNameIndexer,
+		setupDPUVolumeStatusStateVolumeInfoVolumeNameIndexer,
 	}
 	for _, setupIndexer := range indexers {
 		if err := setupIndexer(ctx, mgr); err != nil {
