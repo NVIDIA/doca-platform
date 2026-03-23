@@ -18,7 +18,6 @@ package dpunode
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -46,6 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -485,7 +485,7 @@ func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provis
 	}
 
 	var podTemplate corev1.PodTemplateSpec
-	if err := json.Unmarshal([]byte(podTemplateStr), &podTemplate); err != nil {
+	if err := yaml.Unmarshal([]byte(podTemplateStr), &podTemplate); err != nil {
 		logger.Error(err, fmt.Sprintf("Unable to unmarshal pod template from ConfigMap %s for DPUNode %s", dpuNode.Spec.NodeRebootMethod.Script.Name, dpuNode.Name))
 		return err
 	}

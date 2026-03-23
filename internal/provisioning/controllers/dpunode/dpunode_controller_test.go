@@ -526,6 +526,59 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 			Expect(job.Name).To(Equal("test-dpunode-script-job"))
 		})
 
+		It("should create Job successfully with YAML pod-template in ConfigMap", func() {
+			podTemplateYAML := `
+spec:
+  restartPolicy: Never
+  containers:
+    - name: reboot-script
+      image: busybox:latest
+      command:
+        - /bin/sh
+        - -c
+        - echo 'rebooting'
+`
+
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-configmap-yaml",
+					Namespace: "test-namespace",
+				},
+				Data: map[string]string{
+					PodTemplateConfigMapKey: podTemplateYAML,
+				},
+			}
+			Expect(fakeClient.Create(ctx, configMap)).To(Succeed())
+
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpunode-yaml",
+					Namespace: "test-namespace",
+				},
+				Spec: provisioningv1.DPUNodeSpec{
+					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+						Script: &provisioningv1.Script{
+							Name: "test-configmap-yaml",
+						},
+					},
+				},
+			}
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
+
+			err := reconciler.createScriptJob(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify Job was created from YAML template
+			job := &batchv1.Job{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode-yaml-script-job",
+				Namespace: "test-namespace",
+			}, job)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(job.Spec.Template.Spec.Containers).To(HaveLen(1))
+			Expect(job.Spec.Template.Spec.Containers[0].Name).To(Equal("reboot-script"))
+		})
+
 		It("should add DPUNODE_NAME env var to containers", func() {
 			podTemplate := corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
