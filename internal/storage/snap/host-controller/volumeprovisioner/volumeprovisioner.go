@@ -70,7 +70,7 @@ type VolumeProvisioner interface {
 		dpuVolume *storagev1.DPUVolume) (ProvisionResult, error)
 	Remove(ctx context.Context,
 		targetClusters []dpuclusterhelper.ClientForDPUCluster,
-		dpuVolumeKey client.ObjectKey) (RemoveResult, error)
+		dpuVolumeKey client.ObjectKey, pvNameInDPUCluster string) (RemoveResult, error)
 }
 
 // New creates a new VolumeProvisioner instance
@@ -117,11 +117,12 @@ func (p *volumeProvisioner) Provision(ctx context.Context, clientForPrimary dpuc
 	return provisionResult, nil
 }
 
-// Remove deletes Volume CRs and PVCs from target clusters
+// Remove deletes Volume CRs and PVCs from the target clusters and,
+// if a PV name is provided, waits for the PV to be removed in the DPU cluster.
 func (p *volumeProvisioner) Remove(ctx context.Context,
 	targetClusters []dpuclusterhelper.ClientForDPUCluster,
-	dpuVolumeKey client.ObjectKey) (RemoveResult, error) {
-	reqLog := ctrllog.FromContext(ctx).WithValues("dpuVolume", dpuVolumeKey)
+	dpuVolumeKey client.ObjectKey, pvNameInDPUCluster string) (RemoveResult, error) {
+	reqLog := ctrllog.FromContext(ctx).WithValues("dpuVolume", dpuVolumeKey, "pvNameInDPUCluster", pvNameInDPUCluster)
 	reqLog.Info("removing volume")
 
 	volumeCRsDeletionResult, err := resourcehelper.DeleteResourceInDPUClusters(ctx, targetClusters, storagev1.VolumeKind,
@@ -145,6 +146,20 @@ func (p *volumeProvisioner) Remove(ctx context.Context,
 		reqLog.Info("PVCs in removal state", "result", pvcsDeletionResult)
 		return RemoveResult{Completed: false, Reason: pvcsDeletionResult.Reason}, nil
 	}
+
+	if pvNameInDPUCluster != "" {
+		pvDeletionResult, err := resourcehelper.WaitForResourceRemovalInDPUClusters(ctx, targetClusters, "PersistentVolume",
+			client.ObjectKey{Name: pvNameInDPUCluster},
+			&corev1.PersistentVolume{})
+		if err != nil {
+			return RemoveResult{Completed: false}, err
+		}
+		if !pvDeletionResult.Completed {
+			reqLog.Info("PV not removed yet", "result", pvDeletionResult)
+			return RemoveResult{Completed: false, Reason: pvDeletionResult.Reason}, nil
+		}
+	}
+
 	reqLog.Info("successfully removed volume")
 	return RemoveResult{Completed: true}, nil
 }

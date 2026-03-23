@@ -319,3 +319,136 @@ var _ = Describe("DeleteResourceInDPUClusters", func() {
 		})
 	})
 })
+
+var _ = Describe("WaitForResourceRemovalInDPUClusters", func() {
+	var (
+		ctx               context.Context
+		dpuClient         client.Client
+		dpuCluster        *provisioningv1.DPUCluster
+		dpuClusterClients []dpuclusterhelper.ClientForDPUCluster
+		configMap         *corev1.ConfigMap
+		objectKey         client.ObjectKey
+	)
+	BeforeEach(func() {
+		ctx = context.Background()
+		dpuClient = getFakeClientBuilder().Build()
+		dpuCluster = getDPUCluster(testDPUCluster)
+		dpuClusterClients = []dpuclusterhelper.ClientForDPUCluster{{DPUCluster: dpuCluster, Client: dpuClient}}
+		configMap = getTestConfigMap()
+		objectKey = client.ObjectKey{Name: testConfigMapName, Namespace: testNamespace}
+	})
+	Context("when resource does not exist", func() {
+		It("should succeed and return completed result", func() {
+			result, err := WaitForResourceRemovalInDPUClusters(ctx, dpuClusterClients, "ConfigMap",
+				objectKey, configMap)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Completed).To(BeTrue())
+			Expect(result.Reason).To(BeEmpty())
+		})
+	})
+	Context("when resource still exists", func() {
+		BeforeEach(func() {
+			dpuClient = getFakeClientBuilder().WithObjects(configMap).Build()
+			dpuClusterClients = []dpuclusterhelper.ClientForDPUCluster{{DPUCluster: dpuCluster, Client: dpuClient}}
+		})
+		It("should return not completed", func() {
+			result, err := WaitForResourceRemovalInDPUClusters(ctx, dpuClusterClients, "ConfigMap",
+				objectKey, configMap)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Completed).To(BeFalse())
+			Expect(result.Reason).To(ContainSubstring("not removed yet"))
+		})
+		It("should not attempt deletion", func() {
+			deletionAttempted := false
+			interceptorClient := getFakeClientBuilder().
+				WithObjects(getTestConfigMap()).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Delete: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+						deletionAttempted = true
+						return nil
+					},
+				}).
+				Build()
+			interceptorClusterClients := []dpuclusterhelper.ClientForDPUCluster{{DPUCluster: dpuCluster, Client: interceptorClient}}
+			_, err := WaitForResourceRemovalInDPUClusters(ctx, interceptorClusterClients, "ConfigMap",
+				objectKey, configMap)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(deletionAttempted).To(BeFalse())
+		})
+	})
+	Context("when working with multiple DPU clusters", func() {
+		var (
+			secondDPUClient     client.Client
+			secondDPUCluster    *provisioningv1.DPUCluster
+			multiClusterClients []dpuclusterhelper.ClientForDPUCluster
+		)
+
+		BeforeEach(func() {
+			secondDPUClient = getFakeClientBuilder().Build()
+			secondDPUCluster = getDPUCluster("second-dpu-cluster")
+			multiClusterClients = []dpuclusterhelper.ClientForDPUCluster{
+				{DPUCluster: dpuCluster, Client: dpuClient},
+				{DPUCluster: secondDPUCluster, Client: secondDPUClient},
+			}
+		})
+
+		It("should return completed when resource is gone from all clusters", func() {
+			result, err := WaitForResourceRemovalInDPUClusters(ctx, multiClusterClients, "ConfigMap",
+				objectKey, configMap)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Completed).To(BeTrue())
+			Expect(result.Reason).To(BeEmpty())
+		})
+
+		It("should return not completed when resource exists in some clusters", func() {
+			configMap1 := getTestConfigMap()
+			dpuClient = getFakeClientBuilder().WithObjects(configMap1).Build()
+			multiClusterClients = []dpuclusterhelper.ClientForDPUCluster{
+				{DPUCluster: dpuCluster, Client: dpuClient},
+				{DPUCluster: secondDPUCluster, Client: secondDPUClient},
+			}
+
+			result, err := WaitForResourceRemovalInDPUClusters(ctx, multiClusterClients, "ConfigMap",
+				objectKey, configMap)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Completed).To(BeFalse())
+			Expect(result.Reason).To(ContainSubstring(testDPUCluster))
+			Expect(result.Reason).To(ContainSubstring("not removed yet"))
+		})
+
+		It("should return error when Get fails in one cluster", func() {
+			failingClient := getFakeClientBuilder().
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						return errTest
+					},
+				}).
+				Build()
+			mixedClusterClients := []dpuclusterhelper.ClientForDPUCluster{
+				{DPUCluster: dpuCluster, Client: dpuClient},
+				{DPUCluster: secondDPUCluster, Client: failingClient},
+			}
+			_, err := WaitForResourceRemovalInDPUClusters(ctx, mixedClusterClients, "ConfigMap",
+				objectKey, configMap)
+			Expect(err).To(MatchError(errTest))
+		})
+	})
+	Context("when Get operation fails", func() {
+		It("should return error when Get fails with non-NotFound error", func() {
+			failingClient := getFakeClientBuilder().
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						return errTest
+					},
+				}).
+				Build()
+
+			failingClusterClients := []dpuclusterhelper.ClientForDPUCluster{
+				{DPUCluster: dpuCluster, Client: failingClient},
+			}
+			_, err := WaitForResourceRemovalInDPUClusters(ctx, failingClusterClients, "ConfigMap",
+				objectKey, configMap)
+			Expect(err).To(MatchError(errTest))
+		})
+	})
+})
