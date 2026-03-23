@@ -87,6 +87,9 @@ func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *systemTestInput) 
 		g.Expect(metrics.VerifyMetrics(expectedHostMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
 
+	By("Waiting for DPU cluster kube-state-metrics to be ready")
+	VerifyClusterPods(ctx, input.client, []string{"in-cluster-kube-state-metrics"})
+
 	By("wait for IPPool to be created in DPU clusters")
 	Eventually(func(g Gomega) {
 		ipPools := &nvipamv1.IPPoolList{}
@@ -111,7 +114,7 @@ func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *systemTestInput) 
 		actualMetricsNames := metrics.GetKSMMetrics(ctx, hostClusterRESTClient, dpuKSMMetricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedDPUMetricsNames, actualMetricsNames)).To(BeEmpty())
-	}).WithTimeout(10 * time.Second).Should(Succeed())
+	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
 func ValidateDPUServiceIPAMMetricsDeletion(ctx context.Context, input *systemTestInput) {
