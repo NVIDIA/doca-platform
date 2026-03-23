@@ -498,6 +498,25 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		g.Expect(dpuClusterClient[0].List(ctx, serviceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
 		g.Expect(serviceInterfaceList.Items).To(HaveLen(input.totalDPUs()))
 	}).WithTimeout(15 * time.Minute).WithPolling(120 * time.Second).Should(Succeed())
+
+	By("Verify service pods have the service reference label")
+	Eventually(func(g Gomega) {
+		for serviceName, svcConfig := range dpuDeployment.Spec.Services {
+			dpuSvcConfig := &dpuservicev1.DPUServiceConfiguration{}
+			g.Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpuDeployment.GetNamespace(), Name: svcConfig.ServiceConfiguration}, dpuSvcConfig)).To(Succeed())
+			podList := &corev1.PodList{}
+			// We currently don't have an in-cluster DPUService that matches the contract for e2e tests, but in theory
+			// could do the same check as below for those services.
+			if dpuSvcConfig.Spec.ServiceConfiguration.ShouldDeployInCluster() {
+				continue
+			}
+
+			g.Expect(dpuClusterClient[0].List(ctx, podList,
+				client.MatchingLabels{dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: serviceName},
+				client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			g.Expect(podList.Items).To(HaveLen(input.totalDPUs()), "expected %d pods for service %s", input.totalDPUs(), serviceName)
+		}
+	}).WithTimeout(15 * time.Minute).WithPolling(120 * time.Second).Should(Succeed())
 }
 
 func VerifyDPUDeploymentIsReady(ctx context.Context, input *systemTestInput) {
