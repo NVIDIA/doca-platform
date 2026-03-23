@@ -260,9 +260,6 @@ var _ = Describe("Node Controller", func() {
 				By("checking Pod env")
 				pod := &corev1.Pod{}
 				Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: cutil.GenerateDMSPodName(testNode)}, pod)).To(Succeed())
-				for _, ic := range pod.Spec.InitContainers {
-					Expect(ic.Env).To(ContainElements(corev1.EnvVar{Name: "k1", Value: "v1"}, corev1.EnvVar{Name: "k2", Value: "v2"}))
-				}
 				for _, c := range pod.Spec.Containers {
 					Expect(c.Env).To(ContainElements(corev1.EnvVar{Name: "k1", Value: "v1"}, corev1.EnvVar{Name: "k2", Value: "v2"}))
 				}

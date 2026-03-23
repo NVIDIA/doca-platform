@@ -36,13 +36,15 @@ import (
 )
 
 const (
-	DMSImageFolder        string = "/tmp/dms"
-	DMSServiceAccountName string = "dpf-provisioning-hostagent-service-account"
-	DMSContainerName      string = "dms"
-	// DPFLocalDir is mounted to the containers.
+	dmsImageFolder         string = "/tmp/dms"
+	dmsServiceAccountName  string = "dpf-provisioning-hostagent-service-account"
+	rshimInitContainerName string = "rshim"
+	dmsContainerName       string = "dms"
+	hostagentContainerName string = "hostagent"
+	// dpfLocalDir is mounted to the containers.
 	// For backwards compatibility, /var/lib/dpf is used, which is the parent directory of /var/lib/dpf/hostagent and the old /var/lib/dpf/dms.
-	DPFLocalDir                     string = "/var/lib/dpf"
-	SystemNodeCriticalPriorityClass string = "system-node-critical"
+	dpfLocalDir                     string = "/var/lib/dpf"
+	systemNodeCriticalPriorityClass string = "system-node-critical"
 )
 
 func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.Node, option dnutil.HostAgentPodOptions, namespace string, dpfOperatorConfigOwnerRef *metav1.OwnerReference) error {
@@ -103,13 +105,36 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 			OwnerReferences: []metav1.OwnerReference{*dpfOperatorConfigOwnerRef},
 		},
 		Spec: corev1.PodSpec{
-			ServiceAccountName: DMSServiceAccountName,
+			ServiceAccountName: dmsServiceAccountName,
 			HostNetwork:        true,
 			DNSPolicy:          hostAgentDNSPolicy(option),
-			PriorityClassName:  SystemNodeCriticalPriorityClass,
+			PriorityClassName:  systemNodeCriticalPriorityClass,
+			// Required to enable sharing of the rshim device among containers within the Pod.
+			ShareProcessNamespace: ptr.To(true),
+			InitContainers: []corev1.Container{
+				{
+					Name:            rshimInitContainerName,
+					Image:           option.HostAgentImageWithTag,
+					ImagePullPolicy: corev1.PullIfNotPresent,
+					RestartPolicy:   ptr.To(corev1.ContainerRestartPolicyAlways),
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "dev",
+							MountPath: "/dev",
+						},
+					},
+					SecurityContext: &corev1.SecurityContext{
+						Privileged: ptr.To(true),
+					},
+					Command: []string{"/bin/bash", "-c", "--"},
+					Args: []string{
+						"rshim --force --foreground",
+					},
+				},
+			},
 			Containers: []corev1.Container{
 				{
-					Name:            DMSContainerName,
+					Name:            dmsContainerName,
 					Image:           option.HostAgentImageWithTag,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					VolumeMounts: []corev1.VolumeMount{
@@ -128,7 +153,7 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 						},
 						{
 							Name:      "dms-image",
-							MountPath: DMSImageFolder,
+							MountPath: dmsImageFolder,
 						},
 						{
 							Name:      "systemd-dbus",
@@ -141,11 +166,11 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 					Env:     extraEnvs,
 					Command: []string{"/bin/bash", "-c", "--"},
 					Args: []string{
-						"rshim --force && /hostagent rundms",
+						"/hostagent rundms",
 					},
 				},
 				{
-					Name:            "hostagent",
+					Name:            hostagentContainerName,
 					Image:           option.HostAgentImageWithTag,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					SecurityContext: &corev1.SecurityContext{
@@ -172,11 +197,11 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 						},
 						{
 							Name:      "dms-image",
-							MountPath: DMSImageFolder,
+							MountPath: dmsImageFolder,
 						},
 						{
 							Name:      "dpf-local-dir",
-							MountPath: DPFLocalDir,
+							MountPath: dpfLocalDir,
 						},
 						{
 							Name:      "systemd-dbus",
@@ -241,7 +266,7 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 					Name: "dpf-local-dir",
 					VolumeSource: corev1.VolumeSource{
 						HostPath: &corev1.HostPathVolumeSource{
-							Path: DPFLocalDir,
+							Path: dpfLocalDir,
 							Type: ptr.To(corev1.HostPathDirectoryOrCreate),
 						},
 					},
