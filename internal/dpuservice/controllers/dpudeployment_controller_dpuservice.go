@@ -470,7 +470,8 @@ func generateDPUService(dpuDeploymentNamespacedName types.NamespacedName,
 				dpuServiceVersionAnnotationKey: versionDigest,
 			},
 			Labels: map[string]string{
-				dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(dpuDeploymentNamespacedName),
+				dpuservicev1.ParentDPUDeploymentNameLabel:            getParentDPUDeploymentLabelValue(dpuDeploymentNamespacedName),
+				dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: name,
 			},
 		},
 		Spec: dpuservicev1.DPUServiceSpec{
@@ -484,7 +485,7 @@ func generateDPUService(dpuDeploymentNamespacedName types.NamespacedName,
 		},
 	}
 
-	dpuService.Spec.ServiceDaemonSet = generateDPUServiceDaemonSetValues(serviceConfig.Spec.ServiceConfiguration.ServiceDaemonSet)
+	dpuService.Spec.ServiceDaemonSet = generateDPUServiceDaemonSetValues(name, serviceConfig.Spec.ServiceConfiguration.ServiceDaemonSet)
 
 	if serviceConfig.Spec.ServiceConfiguration.ConfigPorts != nil {
 		dpuService.Spec.ConfigPorts = serviceConfig.Spec.ServiceConfiguration.ConfigPorts
@@ -499,15 +500,16 @@ func generateDPUService(dpuDeploymentNamespacedName types.NamespacedName,
 	return dpuService, nil
 }
 
-func generateDPUServiceDaemonSetValues(serviceDaemonSet dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues) *dpuservicev1.ServiceDaemonSetValues {
-	var serviceDaemonSetValues *dpuservicev1.ServiceDaemonSetValues
-	if serviceDaemonSet.Labels != nil || serviceDaemonSet.Annotations != nil || serviceDaemonSet.UpdateStrategy != nil || serviceDaemonSet.Resources != nil {
-		serviceDaemonSetValues = &dpuservicev1.ServiceDaemonSetValues{
-			Labels:         serviceDaemonSet.Labels,
-			Annotations:    serviceDaemonSet.Annotations,
-			UpdateStrategy: serviceDaemonSet.UpdateStrategy,
-			Resources:      serviceDaemonSet.Resources,
-		}
+func generateDPUServiceDaemonSetValues(name string, serviceDaemonSet dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues) *dpuservicev1.ServiceDaemonSetValues {
+	labels := map[string]string{
+		dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: name,
+	}
+	maps.Copy(labels, serviceDaemonSet.Labels)
+	serviceDaemonSetValues := &dpuservicev1.ServiceDaemonSetValues{
+		Labels:         labels,
+		Annotations:    serviceDaemonSet.Annotations,
+		UpdateStrategy: serviceDaemonSet.UpdateStrategy,
+		Resources:      serviceDaemonSet.Resources,
 	}
 	return serviceDaemonSetValues
 }
