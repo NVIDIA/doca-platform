@@ -23,7 +23,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -100,21 +99,14 @@ func (r *BFBRegistryRunnable) removeLegacyDaemonSet(ctx context.Context, namespa
 }
 
 func (r *BFBRegistryRunnable) ensurePod(ctx context.Context, namespace, nodeName, image string, ownerRef *metav1.OwnerReference) error {
-	desired := r.desiredPod(namespace, nodeName, image, ownerRef)
 	existing := &corev1.Pod{}
 	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, existing)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
+			desired := r.desiredPod(namespace, nodeName, image, ownerRef)
 			return r.Client.Create(ctx, desired)
 		}
 		return err
-	}
-	// Pod spec is largely immutable; recreate if spec or owner ref changed.
-	if !equality.Semantic.DeepEqual(existing.Spec, desired.Spec) || !ownerRefEqual(existing.OwnerReferences, desired.OwnerReferences) {
-		if err := r.Client.Delete(ctx, existing); err != nil && !apierrors.IsNotFound(err) {
-			return err
-		}
-		return r.Client.Create(ctx, desired)
 	}
 	return nil
 }
@@ -187,52 +179,53 @@ func bfbRegistryPodLabels() map[string]string {
 	}
 }
 
-func ownerRefEqual(a, b []metav1.OwnerReference) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].UID != b[i].UID || a[i].Name != b[i].Name {
-			return false
-		}
-	}
-	return true
-}
-
 func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace string, ownerRef *metav1.OwnerReference) error {
-	desired := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace:       namespace,
-			Name:            PodName,
-			OwnerReferences: []metav1.OwnerReference{*ownerRef},
-		},
-		Spec: corev1.ServiceSpec{
-			Type:     corev1.ServiceTypeNodePort,
-			Selector: bfbRegistryPodLabels(),
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "http",
-					Port:       int32(ContainerPort),
-					TargetPort: intstr.FromInt(ContainerPort),
-				},
-			},
-		},
-	}
 	existing := &corev1.Service{}
 	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, existing)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return r.Client.Create(ctx, desired)
+		if !apierrors.IsNotFound(err) {
+			return err
 		}
-		return err
-	}
-	if existing.Spec.Type != desired.Spec.Type ||
-		!equality.Semantic.DeepEqual(existing.Spec.Ports, desired.Spec.Ports) ||
-		!equality.Semantic.DeepEqual(existing.Spec.Selector, desired.Spec.Selector) ||
-		!ownerRefEqual(existing.OwnerReferences, desired.OwnerReferences) {
-		existing.Spec = desired.Spec
-		existing.OwnerReferences = desired.OwnerReferences
-		return r.Client.Update(ctx, existing)
+		desired := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:       namespace,
+				Name:            PodName,
+				OwnerReferences: []metav1.OwnerReference{*ownerRef},
+			},
+			Spec: corev1.ServiceSpec{
+				Type:     corev1.ServiceTypeNodePort,
+				Selector: bfbRegistryPodLabels(),
+				Ports: []corev1.ServicePort{
+					{
+						Name:       "http",
+						Port:       int32(ContainerPort),
+						TargetPort: intstr.FromInt(ContainerPort),
+					},
+				},
+			},
+		}
+		return r.Client.Create(ctx, desired)
 	}
 	return nil
+}
+
+// EnsureBFBRegistry ensures the bfb-registry Pod and Service exist in the given namespace.
+func EnsureBFBRegistry(ctx context.Context, c client.Client, namespace, leaderPodName, nodeName, registryImage, bfbPVC string, imagePullSecrets []corev1.LocalObjectReference) error {
+	leaderPod := &corev1.Pod{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: leaderPodName}, leaderPod); err != nil {
+		return fmt.Errorf("get leader pod %s/%s: %w", namespace, leaderPodName, err)
+	}
+	ownerRef := metav1.NewControllerRef(leaderPod, corev1.SchemeGroupVersion.WithKind("Pod"))
+	ownerRef.Controller = ptr.To(true)
+	ownerRef.BlockOwnerDeletion = ptr.To(true)
+
+	run := &BFBRegistryRunnable{
+		Client:           c,
+		BFBPVC:           bfbPVC,
+		ImagePullSecrets: imagePullSecrets,
+	}
+	if err := run.ensurePod(ctx, namespace, nodeName, registryImage, ownerRef); err != nil {
+		return err
+	}
+	return run.ensureService(ctx, namespace, ownerRef)
 }
