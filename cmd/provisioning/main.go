@@ -20,9 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"net"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -239,29 +237,23 @@ func createManager(flags *cliFlags) (ctrl.Manager, *rest.Config) {
 	return mgr, clientConfig
 }
 
-// resolveBFBRegistry resolves the BFB registry address based on the installation interface and the environment variables.
-func resolveBFBRegistry(flags *cliFlags) {
-	if flags.bfbRegistry == "" {
-		if flags.dpuInstallInterface == string(provisioningv1.InstallViaRedFish) {
-			nodeIP := os.Getenv("NODE_IP")
-			nodePort := strconv.Itoa(int(bfbregistry.NodePort))
-			if nodeIP == "" || nodePort == "" {
-				setupLog.Info("NODE_IP or NODE_PORT is empty, can not build the bfb-registry address")
-				os.Exit(1)
-			}
-			flags.bfbRegistry = "http://" + net.JoinHostPort(nodeIP, nodePort)
-		} else {
-			flags.bfbRegistry = defaultBFBRegistryAddress
+func resolveBFBRegistry(flags *cliFlags) error {
+	// always parse address from environment variable NODE_IP for RedFish installation,ignore the bfb-registry flag
+	if flags.dpuInstallInterface == string(provisioningv1.InstallViaRedFish) {
+		nodeIP := os.Getenv("NODE_IP")
+		if nodeIP == "" {
+			return fmt.Errorf("NODE_IP is empty, can not build the bfb-registry address")
 		}
-		setupLog.Info("bfb-registry is empty, set bfb-registry address for downloading BFB files", "bfbRegistry", flags.bfbRegistry)
+		flags.bfbRegistry = "http://" + nodeIP
+	} else {
+		flags.bfbRegistry = defaultBFBRegistryAddress
 	}
 	flags.bfbRegistry = httputils.EnsureHTTPScheme(flags.bfbRegistry)
+	setupLog.Info("bfb-registry address for downloading BFB files", "bfbRegistry", flags.bfbRegistry)
+	return nil
 }
 
 func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferences []corev1.LocalObjectReference) *dutil.DPUInProvisioningMap {
-	resolveBFBRegistry(flags)
-	setupLog.Info("bfb-registry address", "bfbRegistry", flags.bfbRegistry)
-
 	alloc := allocator.NewAllocator(mgr.GetClient())
 	dpuOptions := dutil.DPUOptions{
 		ImagePullSecrets:            imagePullSecretsReferences,
@@ -471,6 +463,12 @@ func main() {
 		for _, secret := range secretList {
 			imagePullSecretsReferences = append(imagePullSecretsReferences, corev1.LocalObjectReference{Name: secret})
 		}
+	}
+
+	err := resolveBFBRegistry(flags)
+	if err != nil {
+		setupLog.Error(err, "unable to resolve bfb-registry address", "bfbRegistry", flags.bfbRegistry)
+		os.Exit(1)
 	}
 
 	dpuMap := setupControllers(mgr, flags, imagePullSecretsReferences)

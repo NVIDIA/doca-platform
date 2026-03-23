@@ -382,15 +382,12 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
 		By("verify bfb-registry Service and pods (created by provisioning controller leader)")
 		Eventually(func(g Gomega) {
-			const bfbRegistryNodePort = 30082
 			svc := &corev1.Service{}
 			g.Expect(testClient.Get(ctx, client.ObjectKey{
 				Namespace: input.systemNamespace,
 				Name:      "bfb-registry",
 			}, svc)).To(Succeed(), "bfb-registry Service should be created by provisioning controller leader")
 			g.Expect(svc.Spec.Ports).ToNot(BeEmpty())
-			g.Expect(svc.Spec.Ports[0].NodePort).To(Equal(int32(bfbRegistryNodePort)),
-				"bfb-registry Service should have NodePort %d", bfbRegistryNodePort)
 			pods := &corev1.PodList{}
 			g.Expect(testClient.List(ctx, pods,
 				client.InNamespace(input.systemNamespace),

@@ -17,9 +17,11 @@ limitations under the License.
 package redfish
 
 import (
+	"os"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/bfbregistry"
 	redfishmock "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
@@ -29,6 +31,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -167,11 +170,29 @@ var _ = Describe("Installing", func() {
 		dpu.Status.Phase = provisioningv1.DPUOSInstalling
 		Expect(k8sClient.Status().Patch(ctx, dpu, patch)).To(Succeed())
 
+		By("set POD_NAMESPACE and create bfb-registry Service for getBFBRegistryAddress")
+		prevNS := os.Getenv("POD_NAMESPACE")
+		Expect(os.Setenv("POD_NAMESPACE", testNS.Name)).To(Succeed())
+		defer func() { _ = os.Setenv("POD_NAMESPACE", prevNS) }()
+		bfbRegistrySvc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      bfbregistry.PodName,
+				Namespace: testNS.Name,
+			},
+			Spec: corev1.ServiceSpec{
+				Type: corev1.ServiceTypeNodePort,
+				Ports: []corev1.ServicePort{
+					{Name: "http", Port: int32(bfbregistry.ContainerPort), TargetPort: intstr.FromInt(bfbregistry.ContainerPort)},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, bfbRegistrySvc)).To(Succeed())
+
 		By("Step 1: Call Installing to submit BFB install task")
 		ctrlCtx := &dutil.ControllerContext{
 			Client: k8sClient,
 			Options: dutil.DPUOptions{
-				BFBRegistry: "10.0.110.1:8080",
+				BFBRegistry: "10.0.110.1",
 			},
 			DPUInProvisioningMap: dutil.NewDPUInProvisioningMap(10),
 		}
