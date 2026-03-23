@@ -19,4 +19,4 @@ spec:
               tag: 1.5.0-doca3.2.0
   interfaces:
   - name: app_sf
-    network: mybrsfc
+    network: mybrsfc-storage

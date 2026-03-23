@@ -16,22 +16,8 @@ spec:
         host:
           snapCsiPlugin:
             enabled: true
-            controller:
-              plugin:
-                image:
-                  repository: $DPF_IMAGE_REGISTRY/storage-system
-                  tag: $DPF_IMAGE_TAG
-              affinity:
-                nodeAffinity:
-                  requiredDuringSchedulingIgnoredDuringExecution:
-                    nodeSelectorTerms:
-                      - matchExpressions:
-                          - key: "node-role.kubernetes.io/master"
-                            operator: Exists
-                      - matchExpressions:
-                          - key: "node-role.kubernetes.io/control-plane"
-                            operator: Exists
             node:
+              enabled: true
               plugin:
                 image:
                   repository: $DPF_IMAGE_REGISTRY/storage-host

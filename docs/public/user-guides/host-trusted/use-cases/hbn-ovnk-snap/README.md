@@ -519,7 +519,7 @@ kubectl rollout status deployment --namespace ovn-kubernetes ovn-kubernetes-reso
 ### 5. DPU Provisioning and Service Installation
 
 This section covers creating the vendor CSI controller credentials, installing the
-required storage controllers on the host cluster, and deploying the DPUs together
+required storage components on the host cluster, and deploying the DPUs together
 with the services that run on them.
 
 The user is expected to create a DPUDeployment object that reflects a set of DPUServices
@@ -612,6 +612,57 @@ host:
 ```
 </details>
 
+#### Install SNAP CSI Plugin Controller on the Host Cluster
+
+Install the SNAP CSI Plugin Controller that runs on the host cluster for this scenario. The node part is deployed later with the DPUDeployment:
+
+##### HTTP Registry (default)
+
+If the $REGISTRY is an HTTP Registry (default value) use this command:
+
+```shell
+helm repo add --force-update dpf-repository ${REGISTRY}
+helm repo update
+helm upgrade --install -n dpf-operator-system snap-csi-plugin \
+  dpf-repository/dpf-storage --version=$TAG \
+  --wait \
+  -f manifests/05-dpudeployment-installation/helm-values/snap-csi-plugin-controller.yml
+```
+
+##### OCI Registry
+
+For development purposes, if the $REGISTRY is an OCI Registry use this command:
+
+```shell
+helm upgrade --install -n dpf-operator-system snap-csi-plugin \
+  $REGISTRY/dpf-storage --version=$TAG \
+  --wait \
+  -f manifests/05-dpudeployment-installation/helm-values/snap-csi-plugin-controller.yml
+```
+
+<details markdown="1"><summary>SNAP CSI Plugin Controller Helm values</summary>
+
+[embedmd]:#(manifests/05-dpudeployment-installation/helm-values/snap-csi-plugin-controller.yml)
+```yml
+host:
+  snapCsiPlugin:
+    enabled: true
+    emulationMode: "nvme"
+    controller:
+      enabled: true
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/master"
+                  operator: Exists
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/control-plane"
+                  operator: Exists
+```
+</details>
+
 #### Install SPDK CSI Controller on the Host Cluster
 
 Install the SPDK CSI Controller that runs on the host cluster for this scenario:
@@ -648,6 +699,13 @@ host:
 </details>
 
 #### Apply the DPUDeployment and DPU-side Storage Resources
+
+> [!NOTE]
+> Storage use-cases set `RDMA_SET_NETNS_EXCLUSIVE="no"` in the DPUFlavor, putting the DPU in shared RDMA
+> mode. The default SFC NAD (`mybrsfc`) enables RDMA for SF interfaces, which is not compatible with
+> shared RDMA mode. All services deployed on a DPU provisioned with a storage flavor that use SF
+> interfaces must reference a NAD without RDMA. A custom DPUServiceNAD (`mybrsfc-storage`) is included
+> in the manifests below for this reason.
 
 > [!WARNING]
 > In case more than 1 DPU exists per node, the relevant selector should be applied in the DPUDeployment
@@ -1165,6 +1223,23 @@ spec:
 ```
 </details>
 
+<details markdown="1"><summary>DPUServiceNAD for storage services (no RDMA CNI chaining)</summary>
+
+[embedmd]:#(manifests/05-dpudeployment-installation/dpuservicenad_storage.yaml)
+```yaml
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: mybrsfc-storage
+  namespace: dpf-operator-system
+spec:
+  resourceType: sf
+  ipam: true
+  bridge: "br-sfc"
+```
+</details>
+
 <details markdown="1"><summary>DOCA SNAP DPUServiceConfiguration and DPUServiceTemplate for NVMe emulation</summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfiguration_doca-snap.yaml)
@@ -1191,7 +1266,7 @@ spec:
               nvme_controller_create --nqn nqn.2022-10.io.nvda.nvme:0 --ctrl NVMeCtrl1 --pf_id 0 --admin_only
   interfaces:
     - name: app_sf
-      network: mybrsfc
+      network: mybrsfc-storage
 ```
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuservicetemplate_doca-snap.yaml)
@@ -1245,19 +1320,8 @@ spec:
         host:
           snapCsiPlugin:
             enabled: true
-            controller:
-              affinity:
-                nodeAffinity:
-                  requiredDuringSchedulingIgnoredDuringExecution:
-                    nodeSelectorTerms:
-                      - matchExpressions:
-                          - key: "node-role.kubernetes.io/master"
-                            operator: Exists
-                      - matchExpressions:
-                          - key: "node-role.kubernetes.io/control-plane"
-                            operator: Exists
             node:
-              hostNetwork: true
+              enabled: true
 ```
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuservicetemplate_snap-csi-plugin.yaml)
@@ -1788,6 +1852,7 @@ kubectl delete -f manifests/06-test-traffic --wait --ignore-not-found=true
 
 ```shell
 helm uninstall -n dpf-operator-system snap-host-controller --wait
+helm uninstall -n dpf-operator-system snap-csi-plugin --wait
 helm uninstall -n dpf-operator-system spdk-csi-controller --wait
 ```
 

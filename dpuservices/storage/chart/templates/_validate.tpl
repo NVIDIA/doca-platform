@@ -19,4 +19,9 @@ This is required to avoid misusage of the chart.
 {{- if ne $enabledCount 1 }}
 {{- fail "The chart has multiple enabled components, which is not supported. Please enable only one component at a time." }}
 {{- end }}
+{{- $snapCsiControllerEnabled := .Values.host.snapCsiPlugin.controller.enabled }}
+{{- $snapCsiNodeEnabled := .Values.host.snapCsiPlugin.node.enabled }}
+{{- if and .Values.host.snapCsiPlugin.enabled (not (or $snapCsiControllerEnabled $snapCsiNodeEnabled)) }}
+{{- fail "The snap-csi-plugin component is enabled, but both controller and node are disabled. Please enable at least one subcomponent." }}
+{{- end }}
 {{- end -}}

@@ -287,7 +287,7 @@ spec:
               nvme_subsystem_create --nqn nqn.2022-10.io.nvda.nvme:0
   interfaces:
     - name: app_sf
-      network: mybrsfc
+      network: mybrsfc-storage
 ```
 </details>
 
@@ -686,6 +686,23 @@ stringData:
 ```
 </details>
 
+<details markdown="1"><summary>DPUServiceNAD mybrsfc-storage</summary>
+
+[embedmd]:#(non-trusted-host/nvme-hotplug-pf/storage-dpuservicenad.yaml)
+```yaml
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: mybrsfc-storage
+  namespace: dpf-operator-system
+spec:
+  resourceType: sf
+  ipam: true
+  bridge: "br-sfc"
+```
+</details>
+
 <details markdown="1"><summary>DPUServiceIPAM storage-pool</summary>
 
 [embedmd]:#(non-trusted-host/nvme-hotplug-pf/storage-pool-dpuserviceipam.yaml)
@@ -981,7 +998,7 @@ spec:
               nvme_subsystem_create --nqn nqn.2022-10.io.nvda.nvme:0
   interfaces:
     - name: app_sf
-      network: mybrsfc
+      network: mybrsfc-storage
 ```
 </details>
 
@@ -1378,6 +1395,23 @@ stringData:
 ```
 </details>
 
+<details markdown="1"><summary>DPUServiceNAD mybrsfc-storage</summary>
+
+[embedmd]:#(non-trusted-host/nvme-static-pf/storage-dpuservicenad.yaml)
+```yaml
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: mybrsfc-storage
+  namespace: dpf-operator-system
+spec:
+  resourceType: sf
+  ipam: true
+  bridge: "br-sfc"
+```
+</details>
+
 <details markdown="1"><summary>DPUServiceIPAM storage-pool</summary>
 
 [embedmd]:#(non-trusted-host/nvme-static-pf/storage-pool-dpuserviceipam.yaml)
@@ -1674,7 +1708,7 @@ spec:
               nvme_controller_create --nqn nqn.2022-10.io.nvda.nvme:0 --ctrl NVMeCtrl1 --pf_id 0 --admin_only
   interfaces:
     - name: app_sf
-      network: mybrsfc
+      network: mybrsfc-storage
 ```
 </details>
 
@@ -2073,6 +2107,23 @@ stringData:
 ```
 </details>
 
+<details markdown="1"><summary>DPUServiceNAD mybrsfc-storage</summary>
+
+[embedmd]:#(non-trusted-host/nvme-vf-on-static-pf/storage-dpuservicenad.yaml)
+```yaml
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: mybrsfc-storage
+  namespace: dpf-operator-system
+spec:
+  resourceType: sf
+  ipam: true
+  bridge: "br-sfc"
+```
+</details>
+
 <details markdown="1"><summary>DPUServiceIPAM storage-pool</summary>
 
 [embedmd]:#(non-trusted-host/nvme-vf-on-static-pf/storage-pool-dpuserviceipam.yaml)
@@ -2313,7 +2364,7 @@ spec:
             imagePullSecrets: $DPF_SNAP_IMAGE_PULL_SECRET
   interfaces:
     - name: app_sf
-      network: mybrsfc
+      network: mybrsfc-storage
 ```
 </details>
 
@@ -2519,7 +2570,7 @@ spec:
               tag: $DPF_IMAGE_TAG
   interfaces:
     - name: app_sf
-      network: mybrsfc
+      network: mybrsfc-storage
 ```
 </details>
 
@@ -2741,6 +2792,23 @@ spec:
 ```
 </details>
 
+<details markdown="1"><summary>DPUServiceNAD mybrsfc-storage</summary>
+
+[embedmd]:#(non-trusted-host/virtiofs-hotplug-pf/storage-dpuservicenad.yaml)
+```yaml
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: mybrsfc-storage
+  namespace: dpf-operator-system
+spec:
+  resourceType: sf
+  ipam: true
+  bridge: "br-sfc"
+```
+</details>
+
 <details markdown="1"><summary>DPUServiceIPAM storage-pool</summary>
 
 [embedmd]:#(non-trusted-host/virtiofs-hotplug-pf/storage-pool-dpuserviceipam.yaml)
@@ -2906,6 +2974,65 @@ host:
 ```
 </details>
 
+##### Install SNAP CSI Plugin Controller on the Host Cluster
+
+Install the SNAP CSI Plugin Controller that runs on the host cluster for this scenario. The node part is deployed later with the DPUDeployment:
+
+**HTTP Registry**
+
+If the `$DPF_CHART_REPO` is an HTTP Registry use this command:
+
+[embedmd]:# (trusted-k8s-cluster/nvme-hotplug-pf/helm/snap-csi-plugin-controller/install-http.txt sh)
+```sh
+helm repo add --force-update dpf-repository ${DPF_CHART_REPO}
+helm repo update
+helm upgrade --install -n dpf-operator-system snap-csi-plugin \
+  dpf-repository/dpf-storage --version=$DPF_CHART_VERSION \
+  --set-json "imagePullSecrets=$DPF_IMAGE_PULL_SECRET" \
+  --set host.snapCsiPlugin.controller.plugin.image.repository=$DPF_IMAGE_REGISTRY/storage-system \
+  --set host.snapCsiPlugin.controller.plugin.image.tag=$DPF_IMAGE_TAG \
+  --wait \
+  -f trusted-k8s-cluster/nvme-hotplug-pf/helm/snap-csi-plugin-controller/values.yaml
+```
+
+**OCI Registry**
+
+For development purposes, if the `$DPF_CHART_REPO` is an OCI Registry use this command:
+
+[embedmd]:# (trusted-k8s-cluster/nvme-hotplug-pf/helm/snap-csi-plugin-controller/install-oci.txt sh)
+```sh
+helm upgrade --install -n dpf-operator-system snap-csi-plugin \
+  $DPF_CHART_REPO/dpf-storage --version=$DPF_CHART_VERSION \
+  --set-json "imagePullSecrets=$DPF_IMAGE_PULL_SECRET" \
+  --set host.snapCsiPlugin.controller.plugin.image.repository=$DPF_IMAGE_REGISTRY/storage-system \
+  --set host.snapCsiPlugin.controller.plugin.image.tag=$DPF_IMAGE_TAG \
+  --wait \
+  -f trusted-k8s-cluster/nvme-hotplug-pf/helm/snap-csi-plugin-controller/values.yaml
+```
+
+<details markdown="1"><summary>Helm values</summary>
+
+[embedmd]:#(trusted-k8s-cluster/nvme-hotplug-pf/helm/snap-csi-plugin-controller/values.yaml)
+```yaml
+host:
+  snapCsiPlugin:
+    enabled: true
+    emulationMode: "nvme"
+    controller:
+      enabled: true
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/master"
+                  operator: Exists
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/control-plane"
+                  operator: Exists
+```
+</details>
+
 ##### Install SPDK CSI Controller on the Host Cluster
 
 Install the SPDK CSI Controller that runs on the host cluster for this scenario:
@@ -3038,7 +3165,7 @@ spec:
               nvme_subsystem_create --nqn nqn.2022-10.io.nvda.nvme:0
   interfaces:
     - name: app_sf
-      network: mybrsfc
+      network: mybrsfc-storage
 ```
 </details>
 
@@ -3317,22 +3444,8 @@ spec:
         host:
           snapCsiPlugin:
             enabled: true
-            controller:
-              plugin:
-                image:
-                  repository: $DPF_IMAGE_REGISTRY/storage-system
-                  tag: $DPF_IMAGE_TAG
-              affinity:
-                nodeAffinity:
-                  requiredDuringSchedulingIgnoredDuringExecution:
-                    nodeSelectorTerms:
-                      - matchExpressions:
-                          - key: "node-role.kubernetes.io/master"
-                            operator: Exists
-                      - matchExpressions:
-                          - key: "node-role.kubernetes.io/control-plane"
-                            operator: Exists
             node:
+              enabled: true
               plugin:
                 image:
                   repository: $DPF_IMAGE_REGISTRY/storage-host
@@ -3502,6 +3615,23 @@ stringData:
         }
       ]
     }
+```
+</details>
+
+<details markdown="1"><summary>DPUServiceNAD mybrsfc-storage</summary>
+
+[embedmd]:#(trusted-k8s-cluster/nvme-hotplug-pf/storage-dpuservicenad.yaml)
+```yaml
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: mybrsfc-storage
+  namespace: dpf-operator-system
+spec:
+  resourceType: sf
+  ipam: true
+  bridge: "br-sfc"
 ```
 </details>
 
@@ -3686,6 +3816,65 @@ host:
 ```
 </details>
 
+##### Install SNAP CSI Plugin Controller on the Host Cluster
+
+Install the SNAP CSI Plugin Controller that runs on the host cluster for this scenario. The node part is deployed later with the DPUDeployment:
+
+**HTTP Registry**
+
+If the `$DPF_CHART_REPO` is an HTTP Registry use this command:
+
+[embedmd]:# (trusted-k8s-cluster/nvme-vf-on-static-pf/helm/snap-csi-plugin-controller/install-http.txt sh)
+```sh
+helm repo add --force-update dpf-repository ${DPF_CHART_REPO}
+helm repo update
+helm upgrade --install -n dpf-operator-system snap-csi-plugin \
+  dpf-repository/dpf-storage --version=$DPF_CHART_VERSION \
+  --set-json "imagePullSecrets=$DPF_IMAGE_PULL_SECRET" \
+  --set host.snapCsiPlugin.controller.plugin.image.repository=$DPF_IMAGE_REGISTRY/storage-system \
+  --set host.snapCsiPlugin.controller.plugin.image.tag=$DPF_IMAGE_TAG \
+  --wait \
+  -f trusted-k8s-cluster/nvme-vf-on-static-pf/helm/snap-csi-plugin-controller/values.yaml
+```
+
+**OCI Registry**
+
+For development purposes, if the `$DPF_CHART_REPO` is an OCI Registry use this command:
+
+[embedmd]:# (trusted-k8s-cluster/nvme-vf-on-static-pf/helm/snap-csi-plugin-controller/install-oci.txt sh)
+```sh
+helm upgrade --install -n dpf-operator-system snap-csi-plugin \
+  $DPF_CHART_REPO/dpf-storage --version=$DPF_CHART_VERSION \
+  --set-json "imagePullSecrets=$DPF_IMAGE_PULL_SECRET" \
+  --set host.snapCsiPlugin.controller.plugin.image.repository=$DPF_IMAGE_REGISTRY/storage-system \
+  --set host.snapCsiPlugin.controller.plugin.image.tag=$DPF_IMAGE_TAG \
+  --wait \
+  -f trusted-k8s-cluster/nvme-vf-on-static-pf/helm/snap-csi-plugin-controller/values.yaml
+```
+
+<details markdown="1"><summary>Helm values</summary>
+
+[embedmd]:#(trusted-k8s-cluster/nvme-vf-on-static-pf/helm/snap-csi-plugin-controller/values.yaml)
+```yaml
+host:
+  snapCsiPlugin:
+    enabled: true
+    emulationMode: "nvme"
+    controller:
+      enabled: true
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/master"
+                  operator: Exists
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/control-plane"
+                  operator: Exists
+```
+</details>
+
 ##### Install SPDK CSI Controller on the Host Cluster
 
 Install the SPDK CSI Controller that runs on the host cluster for this scenario:
@@ -3819,7 +4008,7 @@ spec:
               nvme_controller_create --nqn nqn.2022-10.io.nvda.nvme:0 --ctrl NVMeCtrl1 --pf_id 0 --admin_only
   interfaces:
     - name: app_sf
-      network: mybrsfc
+      network: mybrsfc-storage
 ```
 </details>
 
@@ -4098,22 +4287,8 @@ spec:
         host:
           snapCsiPlugin:
             enabled: true
-            controller:
-              plugin:
-                image:
-                  repository: $DPF_IMAGE_REGISTRY/storage-system
-                  tag: $DPF_IMAGE_TAG
-              affinity:
-                nodeAffinity:
-                  requiredDuringSchedulingIgnoredDuringExecution:
-                    nodeSelectorTerms:
-                      - matchExpressions:
-                          - key: "node-role.kubernetes.io/master"
-                            operator: Exists
-                      - matchExpressions:
-                          - key: "node-role.kubernetes.io/control-plane"
-                            operator: Exists
             node:
+              enabled: true
               plugin:
                 image:
                   repository: $DPF_IMAGE_REGISTRY/storage-host
@@ -4283,6 +4458,23 @@ stringData:
         }
       ]
     }
+```
+</details>
+
+<details markdown="1"><summary>DPUServiceNAD mybrsfc-storage</summary>
+
+[embedmd]:#(trusted-k8s-cluster/nvme-vf-on-static-pf/storage-dpuservicenad.yaml)
+```yaml
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: mybrsfc-storage
+  namespace: dpf-operator-system
+spec:
+  resourceType: sf
+  ipam: true
+  bridge: "br-sfc"
 ```
 </details>
 
@@ -4467,6 +4659,65 @@ host:
 ```
 </details>
 
+##### Install SNAP CSI Plugin Controller on the Host Cluster
+
+Install the SNAP CSI Plugin Controller that runs on the host cluster for this scenario. The node part is deployed later with the DPUDeployment:
+
+**HTTP Registry**
+
+If the `$DPF_CHART_REPO` is an HTTP Registry use this command:
+
+[embedmd]:# (trusted-k8s-cluster/virtiofs-hotplug-pf/helm/snap-csi-plugin-controller/install-http.txt sh)
+```sh
+helm repo add --force-update dpf-repository ${DPF_CHART_REPO}
+helm repo update
+helm upgrade --install -n dpf-operator-system snap-csi-plugin \
+  dpf-repository/dpf-storage --version=$DPF_CHART_VERSION \
+  --set-json "imagePullSecrets=$DPF_IMAGE_PULL_SECRET" \
+  --set host.snapCsiPlugin.controller.plugin.image.repository=$DPF_IMAGE_REGISTRY/storage-system \
+  --set host.snapCsiPlugin.controller.plugin.image.tag=$DPF_IMAGE_TAG \
+  --wait \
+  -f trusted-k8s-cluster/virtiofs-hotplug-pf/helm/snap-csi-plugin-controller/values.yaml
+```
+
+**OCI Registry**
+
+For development purposes, if the `$DPF_CHART_REPO` is an OCI Registry use this command:
+
+[embedmd]:# (trusted-k8s-cluster/virtiofs-hotplug-pf/helm/snap-csi-plugin-controller/install-oci.txt sh)
+```sh
+helm upgrade --install -n dpf-operator-system snap-csi-plugin \
+  $DPF_CHART_REPO/dpf-storage --version=$DPF_CHART_VERSION \
+  --set-json "imagePullSecrets=$DPF_IMAGE_PULL_SECRET" \
+  --set host.snapCsiPlugin.controller.plugin.image.repository=$DPF_IMAGE_REGISTRY/storage-system \
+  --set host.snapCsiPlugin.controller.plugin.image.tag=$DPF_IMAGE_TAG \
+  --wait \
+  -f trusted-k8s-cluster/virtiofs-hotplug-pf/helm/snap-csi-plugin-controller/values.yaml
+```
+
+<details markdown="1"><summary>Helm values</summary>
+
+[embedmd]:#(trusted-k8s-cluster/virtiofs-hotplug-pf/helm/snap-csi-plugin-controller/values.yaml)
+```yaml
+host:
+  snapCsiPlugin:
+    enabled: true
+    emulationMode: "virtiofs"
+    controller:
+      enabled: true
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/master"
+                  operator: Exists
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/control-plane"
+                  operator: Exists
+```
+</details>
+
 ##### Install NFS CSI Controller on the Host Cluster
 
 Install the NFS CSI Controller that runs on the host cluster for this scenario:
@@ -4544,7 +4795,7 @@ spec:
             imagePullSecrets: $DPF_SNAP_IMAGE_PULL_SECRET
   interfaces:
     - name: app_sf
-      network: mybrsfc
+      network: mybrsfc-storage
 ```
 </details>
 
@@ -4753,7 +5004,7 @@ spec:
               tag: $DPF_IMAGE_TAG
   interfaces:
     - name: app_sf
-      network: mybrsfc
+      network: mybrsfc-storage
 ```
 </details>
 
@@ -4952,22 +5203,8 @@ spec:
           snapCsiPlugin:
             enabled: true
             emulationMode: "virtiofs"
-            controller:
-              plugin:
-                image:
-                  repository: $DPF_IMAGE_REGISTRY/storage-system
-                  tag: $DPF_IMAGE_TAG
-              affinity:
-                nodeAffinity:
-                  requiredDuringSchedulingIgnoredDuringExecution:
-                    nodeSelectorTerms:
-                      - matchExpressions:
-                          - key: "node-role.kubernetes.io/master"
-                            operator: Exists
-                      - matchExpressions:
-                          - key: "node-role.kubernetes.io/control-plane"
-                            operator: Exists
             node:
+              enabled: true
               plugin:
                 image:
                   repository: $DPF_IMAGE_REGISTRY/storage-host
@@ -5038,6 +5275,23 @@ spec:
       repoURL: $DPF_CHART_REPO
       version: $DPF_CHART_VERSION
       chart: dpf-storage
+```
+</details>
+
+<details markdown="1"><summary>DPUServiceNAD mybrsfc-storage</summary>
+
+[embedmd]:#(trusted-k8s-cluster/virtiofs-hotplug-pf/storage-dpuservicenad.yaml)
+```yaml
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: mybrsfc-storage
+  namespace: dpf-operator-system
+spec:
+  resourceType: sf
+  ipam: true
+  bridge: "br-sfc"
 ```
 </details>
 
