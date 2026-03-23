@@ -20,4 +20,4 @@ spec:
               nvme_controller_create --nqn nqn.2022-10.io.nvda.nvme:0 --ctrl NVMeCtrl1 --pf_id 0 --admin_only
   interfaces:
     - name: app_sf
-      network: mybrsfc
+      network: mybrsfc-storage

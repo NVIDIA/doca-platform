@@ -1,5 +1,7 @@
 {{ include "validate" . }}
-{{- if .Values.host.snapCsiPlugin.enabled }}
+{{- $snapCsiControllerEnabled := and .Values.host.snapCsiPlugin.enabled .Values.host.snapCsiPlugin.controller.enabled }}
+{{- $snapCsiNodeEnabled := and .Values.host.snapCsiPlugin.enabled .Values.host.snapCsiPlugin.node.enabled }}
+{{- if $snapCsiControllerEnabled }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -228,7 +230,9 @@ spec:
   attachRequired: true
   volumeLifecycleModes:
     - Persistent
+{{- end }}
 
+{{- if $snapCsiNodeEnabled }}
 ---
 apiVersion: apps/v1
 kind: DaemonSet

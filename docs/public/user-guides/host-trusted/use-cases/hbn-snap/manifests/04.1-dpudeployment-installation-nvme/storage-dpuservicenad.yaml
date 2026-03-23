@@ -1,0 +1,10 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: mybrsfc-storage
+  namespace: dpf-operator-system
+spec:
+  resourceType: sf
+  ipam: true
+  bridge: "br-sfc"
