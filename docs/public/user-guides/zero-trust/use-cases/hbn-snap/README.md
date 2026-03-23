@@ -356,6 +356,13 @@ In this section, you'll provision your DPUs and deploy the required services. Yo
 This guide includes examples for both SNAP Block (NVMe) and SNAP VirtioFS Storage.
 Please refer to the relevant sections below and follow the instructions to deploy the desired storage type.
 
+> [!NOTE]
+> Storage use-cases set `RDMA_SET_NETNS_EXCLUSIVE="no"` in the DPUFlavor, putting the DPU in shared RDMA
+> mode. The default SFC NAD (`mybrsfc`) enables RDMA for SF interfaces, which is not compatible with
+> shared RDMA mode. All services deployed on a DPU provisioned with a storage flavor that use SF
+> interfaces must reference a NAD without RDMA. A custom DPUServiceNAD (`mybrsfc-storage`) is included
+> in the manifests below for this reason.
+
 #### SNAP Block (NVMe)
 
 A number of [environment variables](#0-required-variables) must be set before running these commands.
@@ -1043,6 +1050,23 @@ spec:
 ```
 </details>
 
+<details markdown="1"><summary>DPUServiceNAD for storage services (no RDMA CNI chaining)</summary>
+
+[embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/storage-dpuservicenad.yaml)
+```yaml
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: mybrsfc-storage
+  namespace: dpf-operator-system
+spec:
+  resourceType: sf
+  ipam: true
+  bridge: "br-sfc"
+```
+</details>
+
 <details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for DOCA SNAP</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/doca-snap-dpuserviceconfiguration.yaml)
@@ -1068,7 +1092,7 @@ spec:
               nvme_subsystem_create --nqn nqn.2022-10.io.nvda.nvme:0
   interfaces:
   - name: app_sf
-    network: mybrsfc
+    network: mybrsfc-storage
 ```
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/doca-snap-dpuservicetemplate.yaml)
@@ -2183,6 +2207,23 @@ spec:
 ```
 </details>
 
+<details markdown="1"><summary>DPUServiceNAD for storage services (no RDMA CNI chaining)</summary>
+
+[embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/storage-dpuservicenad.yaml)
+```yaml
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: mybrsfc-storage
+  namespace: dpf-operator-system
+spec:
+  resourceType: sf
+  ipam: true
+  bridge: "br-sfc"
+```
+</details>
+
 <details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for DOCA SNAP</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/doca-snap-dpuserviceconfiguration.yaml)
@@ -2208,7 +2249,7 @@ spec:
               tag: 1.5.0-doca3.2.0
   interfaces:
   - name: app_sf
-    network: mybrsfc
+    network: mybrsfc-storage
 ```
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/doca-snap-dpuservicetemplate.yaml)
@@ -2300,7 +2341,7 @@ spec:
             enabled: true
   interfaces:
     - name: app_sf
-      network: mybrsfc
+      network: mybrsfc-storage
 ```
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/fs-storage-dpu-plugin-dpuservicetemplate.yaml)
@@ -2686,7 +2727,9 @@ kubectl delete -n dpf-operator-system dpustoragevendors --all --wait
 
 ```shell
 helm uninstall -n dpf-operator-system snap-host-controller --wait
+# SNAP Block (NVMe) only:
 helm uninstall -n dpf-operator-system spdk-csi-controller --wait
+# SNAP VirtioFS only:
 helm uninstall -n dpf-operator-system nfs-csi-controller --wait
 ```
 

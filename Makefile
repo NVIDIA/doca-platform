@@ -896,6 +896,8 @@ verify-manifest-operator-embedded-%: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) bi
 verify-manifest-storage-host-snap-csi-plugin: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's host snap-csi-plugin component
 	$Q $(HELM) template dpuservices/storage/chart \
 	  --set host.snapCsiPlugin.enabled=true \
+	  --set host.snapCsiPlugin.node.enabled=true \
+	  --set host.snapCsiPlugin.controller.enabled=true \
 	  --set host.snapCsiPlugin.controller.plugin.resources.limits.cpu=1m \
 	  --set host.snapCsiPlugin.controller.plugin.resources.limits.memory=1Mi \
 	  --set host.snapCsiPlugin.controller.externalProvisioner.resources.limits.cpu=1m \
