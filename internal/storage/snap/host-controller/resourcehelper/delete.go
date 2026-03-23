@@ -129,3 +129,35 @@ func DeleteResourceInDPUClusters(ctx context.Context, dpuClustersClients []dpucl
 	}
 	return DeletionResult{Completed: completed, Reason: strings.Join(reasons, ",")}, nil
 }
+
+// WaitForResourceRemovalInDPUClusters checks whether the specified resource
+// has been fully removed from all provided DPU clusters. It does not initiate
+// deletion itself; it only verifies that the resource no longer exists.
+//
+// The function returns a DeletionResult indicating whether removal is
+// complete across all clusters, along with a reason describing any
+// clusters where the resource still exists.
+func WaitForResourceRemovalInDPUClusters(ctx context.Context, dpuClustersClients []dpuclusterhelper.ClientForDPUCluster,
+	resourceKind string, key client.ObjectKey, obj client.Object) (DeletionResult, error) {
+	reqLog := ctrllog.FromContext(ctx).WithValues("resourceKind", resourceKind, "name", key)
+	reasons := []string{}
+	completed := true
+	for _, c := range dpuClustersClients {
+		clusterKey := client.ObjectKeyFromObject(c.DPUCluster)
+		reqLog = reqLog.WithValues("dpuCluster", clusterKey)
+		reqLog.Info("Waiting for resource removal in DPU cluster")
+		err := c.Client.Get(ctx, key, obj)
+		if err != nil && !apierrors.IsNotFound(err) {
+			reqLog.Error(err, "Failed to get resource in DPU cluster")
+			return DeletionResult{}, err
+		}
+		if apierrors.IsNotFound(err) {
+			reqLog.Info("Resource not found")
+			continue
+		}
+		reasons = append(reasons, fmt.Sprintf("DPUCluster %s: %s %s is not removed yet",
+			clusterKey.String(), resourceKind, client.ObjectKeyFromObject(obj).String()))
+		completed = false
+	}
+	return DeletionResult{Completed: completed, Reason: strings.Join(reasons, ",")}, nil
+}

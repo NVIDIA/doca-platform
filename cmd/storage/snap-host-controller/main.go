@@ -237,6 +237,7 @@ func main() {
 			GetWatcherCallbacks: []dpucluster.GetWatcherCallback{
 				dpuStorageVendorReconciler.WatchDPUClusterStorageClass,
 				dpuStorageVendorReconciler.WatchDPUClusterCSIDriver,
+				dpuVolumeReconciler.WatchDPUClusterPV,
 				dpuVolumeReconciler.WatchDPUClusterPVC,
 				dpuVolumeReconciler.WatchDPUClusterVolume,
 				dpuVolumeAttachmentReconciler.WatchDPUClusterVolumeAttachment,

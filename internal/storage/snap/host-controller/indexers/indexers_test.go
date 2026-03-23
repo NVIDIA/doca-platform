@@ -173,4 +173,30 @@ var _ = Describe("Indexers", func() {
 		}).Should(Succeed())
 		Expect(testClient.Delete(ctx, volume)).To(Succeed())
 	})
+	It("should index DPUVolume by status.state.volumeInfo.volumeName", func() {
+		pvName := "test-pv-name"
+		volume := &storagev1.DPUVolume{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-dpu-volume-3", Namespace: "default"},
+			Spec: storagev1.DPUVolumeSpec{
+				DPUStoragePolicyName: "policy",
+				AccessModes:          []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				Resources: corev1.VolumeResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}},
+			},
+		}
+		Expect(testClient.Create(ctx, volume)).To(Succeed())
+		Eventually(func(g Gomega) {
+			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(volume), volume)).To(Succeed())
+			volume.Status.State = &storagev1.DPUVolumeState{VolumeInfo: &storagev1.VolumeInfo{VolumeName: &pvName}}
+			g.Expect(testClient.Status().Update(ctx, volume)).To(Succeed())
+		}).Should(Succeed())
+		Eventually(func(g Gomega) {
+			var list storagev1.DPUVolumeList
+			g.Expect(testClient.List(ctx, &list, client.MatchingFields{
+				DPUVolumeStatusStateVolumeInfoVolumeName: pvName})).To(Succeed())
+			g.Expect(list.Items).To(HaveLen(1))
+			g.Expect(list.Items[0].Name).To(Equal(volume.Name))
+		}).Should(Succeed())
+		Expect(testClient.Delete(ctx, volume)).To(Succeed())
+	})
 })
