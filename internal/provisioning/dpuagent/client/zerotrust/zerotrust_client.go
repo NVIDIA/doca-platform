@@ -80,6 +80,9 @@ func (c *ZerotrustClient) UpdateStatus(ctx context.Context, agentStatus provisio
 	if agentStatus.RebootMethod != nil {
 		latestDPU.Status.AgentStatus.RebootMethod = agentStatus.RebootMethod
 	}
+	if agentStatus.RebootSequenceCount != nil {
+		latestDPU.Status.AgentStatus.RebootSequenceCount = agentStatus.RebootSequenceCount
+	}
 	for _, condition := range agentStatus.Conditions {
 		meta.SetStatusCondition(&latestDPU.Status.AgentStatus.Conditions, condition)
 	}

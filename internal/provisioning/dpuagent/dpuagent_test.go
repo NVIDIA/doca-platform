@@ -22,6 +22,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -83,6 +84,82 @@ var _ = Describe("DPUAgent", func() {
 			err := agent.Run(ctx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(executionOrder).To(Equal([]string{"op1", "op2", "op3"}))
+		})
+
+		It("sets RebootMethodDiscovery on the operation context before operations run", func() {
+			var discovery bool
+			mockOps := []operations.Operation{
+				&mockOperation{
+					name:          "op1",
+					conditionType: "Op1Condition",
+					executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+						discovery = optCtx.RebootMethodDiscovery
+						return nil
+					},
+				},
+			}
+			agent := &DPUAgent{
+				retryInterval: testRetryInterval,
+				optCtx: &operations.Context{
+					Client: &mockClient{},
+				},
+				operations: mockOps,
+			}
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(discovery).To(BeFalse(), "discovery is false when MFT tools are missing or below min version")
+		})
+
+		It("sets RebootMethodDiscovery true when rebootMethodDiscoveryFunc returns true", func() {
+			var discovery bool
+			agent := &DPUAgent{
+				retryInterval: testRetryInterval,
+				rebootMethodDiscoveryFunc: func(context.Context) bool {
+					return true
+				},
+				optCtx: &operations.Context{
+					Client: &mockClient{},
+				},
+				operations: []operations.Operation{
+					&mockOperation{
+						name:          "op1",
+						conditionType: "Op1Condition",
+						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+							discovery = optCtx.RebootMethodDiscovery
+							return nil
+						},
+					},
+				},
+			}
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(discovery).To(BeTrue())
+		})
+
+		It("sets RebootMethodDiscovery false when SkipRebootMethodDiscovery is true", func() {
+			var discovery bool
+			agent := &DPUAgent{
+				retryInterval: testRetryInterval,
+				rebootMethodDiscoveryFunc: func(context.Context) bool {
+					return true
+				},
+				optCtx: &operations.Context{
+					Client: &mockClient{},
+					Options: opts.Options{
+						SkipRebootMethodDiscovery: true,
+					},
+				},
+				operations: []operations.Operation{
+					&mockOperation{
+						name:          "op1",
+						conditionType: "Op1Condition",
+						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+							discovery = optCtx.RebootMethodDiscovery
+							return nil
+						},
+					},
+				},
+			}
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(discovery).To(BeFalse())
 		})
 
 		It("should skip operations that should be skipped", func() {

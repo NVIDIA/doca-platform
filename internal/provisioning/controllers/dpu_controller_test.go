@@ -25,6 +25,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/bfbregistry"
+	dpuctrl "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
@@ -675,6 +676,54 @@ var _ = Describe("DPU", func() {
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
+	})
+})
+
+var _ = Describe("DPU UpdateDPUStatus", func() {
+	It("leaves PreviousPhase unset when Phase first becomes non-empty from empty (optional)", func() {
+		dpu := &provisioningv1.DPU{}
+		dpu.Status = provisioningv1.DPUStatus{Phase: ""}
+		next := provisioningv1.DPUStatus{Phase: provisioningv1.DPUInitializing}
+		Expect(dpuctrl.UpdateDPUStatus(dpu, next)).To(BeTrue())
+		Expect(dpu.Status.PreviousPhase).To(BeEmpty())
+		Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPUInitializing))
+	})
+	It("does not set PreviousPhase when handler status equals current (even if both omit PreviousPhase)", func() {
+		dpu := &provisioningv1.DPU{}
+		dpu.Status = provisioningv1.DPUStatus{Phase: provisioningv1.DPUInitializing}
+		next := provisioningv1.DPUStatus{Phase: provisioningv1.DPUInitializing}
+		Expect(dpuctrl.UpdateDPUStatus(dpu, next)).To(BeFalse())
+		Expect(dpu.Status.PreviousPhase).To(BeEmpty())
+	})
+	It("records prior phase when Phase changes from a non-empty Phase", func() {
+		dpu := &provisioningv1.DPU{}
+		dpu.Status = provisioningv1.DPUStatus{Phase: provisioningv1.DPUInitializing}
+		next := provisioningv1.DPUStatus{Phase: provisioningv1.DPUPending}
+		Expect(dpuctrl.UpdateDPUStatus(dpu, next)).To(BeTrue())
+		Expect(dpu.Status.PreviousPhase).To(Equal(provisioningv1.DPUInitializing))
+		Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPUPending))
+	})
+	It("does not overwrite PreviousPhase when only non-phase status fields change", func() {
+		dpu := &provisioningv1.DPU{}
+		dpu.Status = provisioningv1.DPUStatus{
+			Phase: provisioningv1.DPUPending, PreviousPhase: provisioningv1.DPUInitializing,
+			Conditions: []metav1.Condition{{Type: "A", Status: metav1.ConditionFalse}},
+		}
+		next := provisioningv1.DPUStatus{
+			Phase: provisioningv1.DPUPending, PreviousPhase: provisioningv1.DPUInitializing,
+			Conditions: []metav1.Condition{{Type: "A", Status: metav1.ConditionTrue}},
+		}
+		Expect(dpuctrl.UpdateDPUStatus(dpu, next)).To(BeFalse())
+		Expect(dpu.Status.PreviousPhase).To(Equal(provisioningv1.DPUInitializing))
+		Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPUPending))
+		Expect(dpu.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
+	})
+	It("preserves PreviousPhase when phase unchanged", func() {
+		dpu := &provisioningv1.DPU{}
+		dpu.Status = provisioningv1.DPUStatus{Phase: provisioningv1.DPUPending, PreviousPhase: provisioningv1.DPUInitializing}
+		next := provisioningv1.DPUStatus{Phase: provisioningv1.DPUPending, PreviousPhase: provisioningv1.DPUInitializing}
+		Expect(dpuctrl.UpdateDPUStatus(dpu, next)).To(BeFalse())
+		Expect(dpu.Status.PreviousPhase).To(Equal(provisioningv1.DPUInitializing))
 	})
 })
 

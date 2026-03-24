@@ -214,9 +214,8 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	if err != nil {
 		logger.Error(err, "State handle error")
 	}
-	if !reflect.DeepEqual(dpu.Status, nextState) {
-		logger.Info("Update DPU status", "current phase", dpu.Status.Phase, "next phase", nextState.Phase)
-		dpu.Status = nextState
+	if UpdateDPUStatus(dpu, nextState) {
+		logger.Info("DPU phase changed", "from", dpu.Status.PreviousPhase, "to", dpu.Status.Phase)
 	}
 	if nextState.Phase != provisioningv1.DPUError {
 		// TODO: move the state checking in state machine
@@ -226,6 +225,23 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 
 	// If we have an error we have to requeue the DPU and let controller-runtime handle the error.
 	return ctrl.Result{}, err
+}
+
+// UpdateDPUStatus updates only dpu.Status when next differs from the current status (DeepEqual).
+// Returns false without mutating status when unchanged.
+// Returns true only when Phase changes after applying next; still mutates status when other fields
+// differ so the deferred patch persists condition-only updates.
+func UpdateDPUStatus(dpu *provisioningv1.DPU, next provisioningv1.DPUStatus) bool {
+	if reflect.DeepEqual(dpu.Status, next) {
+		return false
+	}
+	before := dpu.Status
+	phaseChanged := before.Phase != next.Phase
+	if next.Phase != before.Phase && before.Phase != "" {
+		next.PreviousPhase = before.Phase
+	}
+	dpu.Status = next
+	return phaseChanged
 }
 
 // addDpuDeviceFinalizer adds the DpuDevice finalizer to prevent deletion while DPU is using it

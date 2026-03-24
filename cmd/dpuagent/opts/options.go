@@ -41,6 +41,7 @@ type Options struct {
 	SkipRemoveBuiltinKubelet   bool
 	SkipConfigureKubelet       bool
 	SkipStartKubelet           bool
+	SkipRebootMethodDiscovery  bool
 }
 
 func (o Options) Validate() error {

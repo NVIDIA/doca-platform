@@ -394,6 +394,14 @@ spec:
                     - SystemLevelReset
                     - FirmwareReset
                     type: string
+                  rebootSequenceCount:
+                    description: |-
+                      RebootSequenceCount is the length of the current non-NoAction RebootMethod sequence:
+                      it increments on each agent run that reports a RebootMethod other than NoAction and
+                      resets to 0 when the agent reports NoAction. Used with RebootMethod to bound host reboot loops.
+                    format: int32
+                    minimum: 0
+                    type: integer
                 type: object
               bfCFGFile:
                 description: BFCFGFile is the path to the bf.cfg
@@ -607,6 +615,30 @@ spec:
                 description: Indicates that node effect was triggered by post-provisioning
                   label changes
                 type: boolean
+              previousPhase:
+                description: |-
+                  PreviousPhase is the last non-empty Phase before the current Phase, set by the controller
+                  when Phase transitions. It may be unset during early initialization (empty Phase) or until
+                  the first transition from a non-empty Phase. Internal controller tracking only.
+                enum:
+                - Initializing
+                - Node Effect
+                - Pending
+                - Config FW Parameters
+                - Prepare BFB
+                - OS Installing
+                - DPU Config
+                - DPU Cluster Config
+                - Host Network Configuration
+                - Ready
+                - Error
+                - Deleting
+                - Rebooting
+                - Perform ARM Force Restart
+                - Initialize Interface
+                - Node Effect Removal
+                - Checking Host Reboot Required
+                type: string
               redfishTaskId:
                 description: The task ID of the last task performed on the DPU BMC
                 type: string
