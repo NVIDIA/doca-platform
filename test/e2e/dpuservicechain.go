@@ -87,7 +87,7 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *systemTestInput)
 	}
 
 	Eventually(func(g Gomega) {
-		actualMetricsNames := metrics.GetKSMMetrics(ctx, hostClusterRESTClient, metricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
@@ -114,7 +114,7 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *systemTestInput)
 		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
 
 		// Use hostClusterRESTClient because in-cluster KSM runs on the management cluster
-		actualMetricsNames := metrics.GetKSMMetrics(ctx, hostClusterRESTClient, dpuKSMMetricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, dpuKSMMetricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedDPUMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(10 * time.Second).Should(Succeed())

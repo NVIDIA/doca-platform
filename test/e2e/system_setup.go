@@ -886,17 +886,17 @@ func VerifyDPFOperatorConfigReady(ctx context.Context, kclient client.Client, ti
 func CreateDPUDiscovery(ctx context.Context, input DeployDPFSystemComponentsInput) {
 	By("Verify worker nodes are not present")
 	workerNodes := &corev1.NodeList{}
-	Eventually(func() int {
+	Eventually(func(g Gomega) int {
 		err := input.client.List(ctx, workerNodes, client.InNamespace(dpfOperatorSystemNamespace), client.MatchingLabels(map[string]string{"node-role.kubernetes.io/worker": ""}))
-		Expect(err).NotTo(HaveOccurred())
+		g.Expect(err).NotTo(HaveOccurred())
 		return len(workerNodes.Items)
 	}, time.Second*30, time.Millisecond*250).Should(Equal(0))
 
 	By("Verify DPU devices are not present")
 	dpuDeviceList := &provisioningv1.DPUDeviceList{}
-	Eventually(func() int {
+	Eventually(func(g Gomega) int {
 		err := input.client.List(ctx, dpuDeviceList, client.InNamespace(input.systemNamespace))
-		Expect(err).NotTo(HaveOccurred())
+		g.Expect(err).NotTo(HaveOccurred())
 		return len(dpuDeviceList.Items)
 	}, time.Second*30, time.Millisecond*250).Should(Equal(0))
 
@@ -910,9 +910,9 @@ func CreateDPUDiscovery(ctx context.Context, input DeployDPFSystemComponentsInpu
 
 	By("Waiting for DPU discovery to complete and create DPU devices")
 	dpuDeviceList = &provisioningv1.DPUDeviceList{}
-	Eventually(func() int {
+	Eventually(func(g Gomega) int {
 		err := input.client.List(ctx, dpuDeviceList, client.InNamespace(input.systemNamespace))
-		Expect(err).NotTo(HaveOccurred())
+		g.Expect(err).NotTo(HaveOccurred())
 		return len(dpuDeviceList.Items)
 	}, time.Minute*5, time.Millisecond*250).Should(Equal(input.numberOfDPUNodes))
 }
@@ -943,8 +943,8 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(input.dpuClusters[clusterIndex]), input.dpuClusters[clusterIndex])).To(Succeed())
 		g.Expect(input.dpuClusters[clusterIndex].Spec.Kubeconfig).ToNot(BeEmpty(), "DPUCluster kubeconfig should be populated")
 
-		dpuClusterClient[clusterIndex], clientHealthCheck = tunnel.NewTunneledClient(ctx, input.client, input.restConfig, input.dpuClusters[clusterIndex])
-		dpuClusterRestConfig[clusterIndex], restConfigHealthCheck = tunnel.NewTunneledRestConfig(ctx, input.client, input.restConfig, input.dpuClusters[clusterIndex])
+		dpuClusterClient[clusterIndex], clientHealthCheck = tunnel.NewTunneledClient(g, ctx, input.client, input.restConfig, input.dpuClusters[clusterIndex])
+		dpuClusterRestConfig[clusterIndex], restConfigHealthCheck = tunnel.NewTunneledRestConfig(g, ctx, input.client, input.restConfig, input.dpuClusters[clusterIndex])
 		// Setup the dpuClusterRestClient
 		dpuClusterRestConfig[clusterIndex].APIPath = "/api"
 		dpuClusterRestConfig[clusterIndex].GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
