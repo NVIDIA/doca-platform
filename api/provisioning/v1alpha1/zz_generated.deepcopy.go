@@ -96,6 +96,11 @@ func (in *AgentStatus) DeepCopyInto(out *AgentStatus) {
 		*out = new(RebootMethodType)
 		**out = **in
 	}
+	if in.RebootSequenceCount != nil {
+		in, out := &in.RebootSequenceCount, &out.RebootSequenceCount
+		*out = new(int32)
+		**out = **in
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]v1.Condition, len(*in))
