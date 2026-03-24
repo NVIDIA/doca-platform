@@ -29,7 +29,6 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 
-	"github.com/Masterminds/semver/v3"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
@@ -37,17 +36,15 @@ import (
 
 const (
 	CondNVConfigApplied = "NVConfigApplied"
-	minMftVersion       = "4.36.0-86"
 
 	pciPrefix       = "pci/"
 	flavourPhysical = "physical"
 )
 
 type ConfigureNVConfig struct {
-	runBash             func(cmd string) (bytes.Buffer, bytes.Buffer, error)
-	getMlxconfigVersion func() (string, error)
-	getDevlinkPort      func() (string, error)
-	getUplinkName       func(pci string) (string, error)
+	runBash        func(cmd string) (bytes.Buffer, bytes.Buffer, error)
+	getDevlinkPort func() (string, error)
+	getUplinkName  func(pci string) (string, error)
 }
 
 func (n *ConfigureNVConfig) Name() string {
@@ -66,10 +63,14 @@ func (n *ConfigureNVConfig) ShouldSkip(ctx *operations.Context) bool {
 	if ctx.LatestDPU.Status.AgentStatus == nil {
 		return false
 	}
-	cond := meta.FindStatusCondition(ctx.LatestDPU.Status.AgentStatus.Conditions, CondNVConfigApplied)
-	if cond != nil && cond.Status == metav1.ConditionTrue {
-		klog.Infof("NVConfig already configured, skip")
-		return true
+	// Re-run NV config when device-query reboot path is active;
+	// do not short-circuit on a prior NVConfigApplied.
+	if !ctx.RebootMethodDiscovery {
+		cond := meta.FindStatusCondition(ctx.LatestDPU.Status.AgentStatus.Conditions, CondNVConfigApplied)
+		if cond != nil && cond.Status == metav1.ConditionTrue {
+			klog.Infof("NVConfig already configured, skip")
+			return true
+		}
 	}
 	return false
 }
@@ -125,20 +126,10 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 	}
 
 	// 4. Execute mlxconfig.
-	// Get version and decide flow next to usage:
-	// legacy = reset+set, new = set --with_default [params].
-	version, err := n.mlxconfigVersion()
-	if err != nil {
-		return fmt.Errorf("failed to get mlxconfig (MFT) version: %w", err)
-	}
-	klog.Infof("mlxconfig (MFT) version: %s", version.String())
-	minVer, err := semver.NewVersion(minMftVersion)
-	if err != nil {
-		return fmt.Errorf("invalid min MFT version constant %q: %w", minMftVersion, err)
-	}
-	legacyFlow := version.LessThan(minVer)
-	if legacyFlow {
-		// Legacy flow requirement: reset all target PCI devices first, then set per PCI.
+	// RebootMethodDiscovery is set at agent start (see dpuagent MFT version probe logs).
+	// false: reset all target PCI devices, then set per PCI. true: --with_default set only.
+	if !optCtx.RebootMethodDiscovery {
+		// Reset all target PCI devices first, then set per PCI.
 		for _, pair := range ordered {
 			pci := pair.pci
 			if err := n.runMlxconfig(pci, "reset", ""); err != nil {
@@ -173,27 +164,6 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 		}
 	}
 	return nil
-}
-
-func (n *ConfigureNVConfig) mlxconfigVersion() (*semver.Version, error) {
-	if n.getMlxconfigVersion == nil {
-		n.getMlxconfigVersion = getMlxconfigVersion
-	}
-	output, err := n.getMlxconfigVersion()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get mlxconfig version: %w", err)
-	}
-	// Output format: "mlxconfig, mft 4.36.0-86. Git SHA Hash: e44fa1501" or
-	// "mlxconfig, mft 4.30.1-8, built on Nov 28 2024..."
-	var ver *semver.Version
-	for _, field := range strings.Fields(output) {
-		field = strings.TrimRight(field, ".,;")
-		ver, err = semver.NewVersion(field)
-		if err == nil && strings.Count(field, ".") >= 2 {
-			return ver, nil
-		}
-	}
-	return nil, fmt.Errorf("failed to extract version from output: %s", output)
 }
 
 // Possible nvconfigs input (per DPUFlavor CRD validation):
@@ -295,15 +265,6 @@ func (n *ConfigureNVConfig) runMlxconfig(dev, op, args string) error {
 		return fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
 	}
 	return nil
-}
-
-func getMlxconfigVersion() (string, error) {
-	const cmd = "mlxconfig -v"
-	stdout, stderr, err := bash.Run(cmd)
-	if err != nil {
-		return "", fmt.Errorf("%s: %w (stdout: %s, stderr: %s)", cmd, err, stdout.String(), stderr.String())
-	}
-	return stdout.String(), nil
 }
 
 func getDevlinkPort() (string, error) {

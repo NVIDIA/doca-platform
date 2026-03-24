@@ -41,20 +41,22 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/sysctl"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/vfmac"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 )
 
-const (
-	defaultRetryInterval = 30 * time.Second
-)
+const defaultRetryInterval = 30 * time.Second
 
 type DPUAgent struct {
 	optCtx        *operations.Context
 	operations    []operations.Operation
 	retryInterval time.Duration
+
+	// rebootMethodDiscoveryFunc, if non-nil, replaces MFT tool probing (tests only).
+	rebootMethodDiscoveryFunc func(context.Context) bool
 }
 
 func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
@@ -98,6 +100,7 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 		d.retryInterval = defaultRetryInterval
 	}
 	d.optCtx.UpdateStatusUntilSuccess = d.updateStatusUntilSuccess
+	d.optCtx.RebootMethodDiscovery = d.resolveRebootMethodDiscovery(ctx)
 	d.optCtx.Status = provisioningv1.AgentStatus{
 		Conditions: []metav1.Condition{},
 	}
@@ -143,4 +146,15 @@ func (d *DPUAgent) updateStatusUntilSuccess(ctx context.Context) {
 		}
 		return true, nil
 	})
+}
+
+func (d *DPUAgent) resolveRebootMethodDiscovery(ctx context.Context) bool {
+	if d.optCtx.Options.SkipRebootMethodDiscovery {
+		klog.Infof("RebootMethodDiscovery=false: skip-reboot-method-discovery is set (legacy boot-ID path)")
+		return false
+	}
+	if d.rebootMethodDiscoveryFunc != nil {
+		return d.rebootMethodDiscoveryFunc(ctx)
+	}
+	return reboot.ResolveRebootMethodDiscovery(bash.Run)
 }

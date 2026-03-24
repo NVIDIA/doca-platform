@@ -26,7 +26,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 
-	"github.com/Masterminds/semver/v3"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,9 +34,8 @@ import (
 )
 
 const (
-	testPci0         = "0000:03:00.0"
-	testPci1         = "0000:03:00.1"
-	mftVersionLegacy = "mlxconfig, mft 4.35.0"
+	testPci0 = "0000:03:00.0"
+	testPci1 = "0000:03:00.1"
 	// devlink JSON key; British spelling required by API
 	devlinkKeyFlavour = "flavour" //nolint:misspell
 )
@@ -73,16 +71,6 @@ var getUplinkNameForTest = func(pci string) (string, error) {
 }
 
 var _ = Describe("NVConfig Operation", func() {
-	BeforeEach(func() {
-		var err error
-		tempDir, err = os.MkdirTemp("", "nvconfig-test-*")
-		Expect(err).NotTo(HaveOccurred())
-	})
-
-	AfterEach(func() {
-		_ = os.RemoveAll(tempDir)
-	})
-
 	Context("Set NVConfig", func() {
 		It("should not skip when NVConfig is empty (Execute will run reset-only)", func() {
 			dpuFlavor := provisioningv1.DPUFlavor{
@@ -94,7 +82,7 @@ var _ = Describe("NVConfig Operation", func() {
 			Expect(operation.ShouldSkip(&operations.Context{DPUFlavor: dpuFlavor})).To(BeFalse())
 		})
 
-		It("when NVConfig is empty should run reset on all devices (new flow)", func() {
+		It("when NVConfig is empty and RebootMethodDiscovery is true should run --with_default BOOT_DBG_LOG=0 on all devices", func() {
 			pci0, pci1 := testPci0, testPci1
 			var recorded []string
 			operation := ConfigureNVConfig{
@@ -102,13 +90,13 @@ var _ = Describe("NVConfig Operation", func() {
 					recorded = append(recorded, cmd)
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
-				getMlxconfigVersion: func() (string, error) { return "mlxconfig, mft 4.36.0-86. Git SHA Hash: d11871e33", nil },
-				getDevlinkPort:      func() (string, error) { return devlinkPortShowRealistic, nil },
-				getUplinkName:       getUplinkNameForTest,
+				getDevlinkPort: func() (string, error) { return devlinkPortShowRealistic, nil },
+				getUplinkName:  getUplinkNameForTest,
 			}
 			operationCtx := &operations.Context{
-				DPUFlavor: provisioningv1.DPUFlavor{Spec: provisioningv1.DPUFlavorSpec{NVConfig: []provisioningv1.NVConfig{}}},
-				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+				DPUFlavor:             provisioningv1.DPUFlavor{Spec: provisioningv1.DPUFlavorSpec{NVConfig: []provisioningv1.NVConfig{}}},
+				RebootMethodDiscovery: true,
+				LatestDPU:             &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
 			}
 			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
 			Expect(recorded).To(ConsistOf(
@@ -117,7 +105,7 @@ var _ = Describe("NVConfig Operation", func() {
 			))
 		})
 
-		It("when NVConfig has single entry with device '*' should run set --with_default with same params on all netdevs (new flow)", func() {
+		It("when NVConfig has single entry with device '*' and RebootMethodDiscovery is true should run --with_default set with same params on all netdevs", func() {
 			pci0, pci1 := testPci0, testPci1
 			params := "PARAM1=VALUE1 PARAM2=VALUE2"
 			var recorded []string
@@ -126,11 +114,11 @@ var _ = Describe("NVConfig Operation", func() {
 					recorded = append(recorded, cmd)
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
-				getMlxconfigVersion: func() (string, error) { return "mlxconfig, mft 4.36.0-86. Git SHA Hash: d11871e33", nil },
-				getDevlinkPort:      func() (string, error) { return devlinkPortShowRealistic, nil },
-				getUplinkName:       getUplinkNameForTest,
+				getDevlinkPort: func() (string, error) { return devlinkPortShowRealistic, nil },
+				getUplinkName:  getUplinkNameForTest,
 			}
 			operationCtx := &operations.Context{
+				RebootMethodDiscovery: true,
 				DPUFlavor: provisioningv1.DPUFlavor{
 					Spec: provisioningv1.DPUFlavorSpec{
 						NVConfig: []provisioningv1.NVConfig{
@@ -147,7 +135,7 @@ var _ = Describe("NVConfig Operation", func() {
 			))
 		})
 
-		It("when NVConfig is empty and MFT is legacy should run reset only on all devices", func() {
+		It("when NVConfig is empty and RebootMethodDiscovery is false should run mlxconfig reset on all devices", func() {
 			pci0, pci1 := testPci0, testPci1
 			var recorded []string
 			operation := ConfigureNVConfig{
@@ -155,13 +143,13 @@ var _ = Describe("NVConfig Operation", func() {
 					recorded = append(recorded, cmd)
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
-				getMlxconfigVersion: func() (string, error) { return mftVersionLegacy, nil },
-				getDevlinkPort:      func() (string, error) { return devlinkPortShowRealistic, nil },
-				getUplinkName:       getUplinkNameForTest,
+				getDevlinkPort: func() (string, error) { return devlinkPortShowRealistic, nil },
+				getUplinkName:  getUplinkNameForTest,
 			}
 			operationCtx := &operations.Context{
-				DPUFlavor: provisioningv1.DPUFlavor{Spec: provisioningv1.DPUFlavorSpec{NVConfig: []provisioningv1.NVConfig{}}},
-				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+				RebootMethodDiscovery: false,
+				DPUFlavor:             provisioningv1.DPUFlavor{Spec: provisioningv1.DPUFlavorSpec{NVConfig: []provisioningv1.NVConfig{}}},
+				LatestDPU:             &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
 			}
 			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
 			Expect(recorded).To(ConsistOf(
@@ -170,7 +158,7 @@ var _ = Describe("NVConfig Operation", func() {
 			))
 		})
 
-		It("when MFT version is below min uses legacy flow (set without --with_default)", func() {
+		It("when RebootMethodDiscovery is false should use reset then set without --with_default", func() {
 			pci0, pci1 := testPci0, testPci1
 			params := "PARAM1=VALUE1 PARAM2=VALUE2"
 			var recorded []string
@@ -179,11 +167,11 @@ var _ = Describe("NVConfig Operation", func() {
 					recorded = append(recorded, cmd)
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
-				getMlxconfigVersion: func() (string, error) { return mftVersionLegacy, nil },
-				getDevlinkPort:      func() (string, error) { return devlinkPortShowRealistic, nil },
-				getUplinkName:       getUplinkNameForTest,
+				getDevlinkPort: func() (string, error) { return devlinkPortShowRealistic, nil },
+				getUplinkName:  getUplinkNameForTest,
 			}
 			operationCtx := &operations.Context{
+				RebootMethodDiscovery: false,
 				DPUFlavor: provisioningv1.DPUFlavor{
 					Spec: provisioningv1.DPUFlavorSpec{
 						NVConfig: []provisioningv1.NVConfig{
@@ -238,7 +226,38 @@ var _ = Describe("NVConfig Operation", func() {
 			Expect(operation.ShouldSkip(operationCtx)).To(BeTrue())
 		})
 
-		It("should succeed", func() {
+		It("should not skip when NVConfig is already configured if RebootMethodDiscovery is true", func() {
+			dpuFlavor := provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					NVConfig: []provisioningv1.NVConfig{
+						{
+							Parameters: []string{"PARAM1=VALUE1", "PARAM2=VALUE2"},
+						},
+					},
+				},
+			}
+			operation := ConfigureNVConfig{}
+			operationCtx := &operations.Context{
+				DPUFlavor:             dpuFlavor,
+				RebootMethodDiscovery: true,
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						AgentStatus: &provisioningv1.AgentStatus{
+							Conditions: []metav1.Condition{
+								{
+									Type:   CondNVConfigApplied,
+									Status: metav1.ConditionTrue,
+									Reason: CondNVConfigApplied,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(operation.ShouldSkip(operationCtx)).To(BeFalse())
+		})
+
+		It("should succeed with RebootMethodDiscovery true (--with_default per port)", func() {
 			pci0, pci1 := testPci0, testPci1
 
 			dpuFlavor := provisioningv1.DPUFlavor{
@@ -263,7 +282,6 @@ var _ = Describe("NVConfig Operation", func() {
 				},
 			}
 
-			// MFT >= minMftVersion: set --with_default only (no reset). p0 uses PARAM5/PARAM6, p1 uses PARAM7/PARAM8.
 			expectedCommands := []string{
 				fmt.Sprintf("mlxconfig -d %s -y --with_default set PARAM5=VALUE5 PARAM6=VALUE6", pci0),
 				fmt.Sprintf("mlxconfig -d %s -y --with_default set PARAM7=VALUE7 PARAM8=VALUE8", pci1),
@@ -274,15 +292,13 @@ var _ = Describe("NVConfig Operation", func() {
 				return bytes.Buffer{}, bytes.Buffer{}, nil
 			}
 			operation := ConfigureNVConfig{
-				runBash: runBash,
-				getMlxconfigVersion: func() (string, error) {
-					return "mlxconfig, mft 4.36.1, built on Feb 12 2026", nil
-				},
+				runBash:        runBash,
 				getDevlinkPort: func() (string, error) { return devlinkPortShowRealistic, nil },
 				getUplinkName:  getUplinkNameForTest,
 			}
 			operationCtx := &operations.Context{
-				DPUFlavor: dpuFlavor,
+				RebootMethodDiscovery: true,
+				DPUFlavor:             dpuFlavor,
 				Client: &mockClient{
 					updateStatusFunc: func(execCtx context.Context, status provisioningv1.AgentStatus) error {
 						return nil
@@ -309,7 +325,7 @@ var _ = Describe("NVConfig Operation", func() {
 			Expect(recorded).To(ConsistOf(expectedCommands))
 		})
 
-		It("should succeed (legacy flow)", func() {
+		It("should succeed with RebootMethodDiscovery false (reset then set per port)", func() {
 			pci0, pci1 := testPci0, testPci1
 
 			dpuFlavor := provisioningv1.DPUFlavor{
@@ -334,8 +350,6 @@ var _ = Describe("NVConfig Operation", func() {
 				},
 			}
 
-			// MFT < minMftVersion: reset all PCIs first, then set per PCI (no --with_default).
-			// p0 uses PARAM5/PARAM6, p1 uses PARAM7/PARAM8.
 			expectedCommands := []string{
 				fmt.Sprintf("mlxconfig -d %s -y reset", pci0),
 				fmt.Sprintf("mlxconfig -d %s -y reset", pci1),
@@ -348,15 +362,13 @@ var _ = Describe("NVConfig Operation", func() {
 				return bytes.Buffer{}, bytes.Buffer{}, nil
 			}
 			operation := ConfigureNVConfig{
-				runBash: runBash,
-				getMlxconfigVersion: func() (string, error) {
-					return mftVersionLegacy, nil
-				},
+				runBash:        runBash,
 				getDevlinkPort: func() (string, error) { return devlinkPortShowRealistic, nil },
 				getUplinkName:  getUplinkNameForTest,
 			}
 			operationCtx := &operations.Context{
-				DPUFlavor: dpuFlavor,
+				RebootMethodDiscovery: false,
+				DPUFlavor:             dpuFlavor,
 				Client: &mockClient{
 					updateStatusFunc: func(execCtx context.Context, status provisioningv1.AgentStatus) error {
 						return nil
@@ -384,75 +396,6 @@ var _ = Describe("NVConfig Operation", func() {
 		})
 	})
 
-	Context("Mlxconfig Version", func() {
-		It("should extract version from output", func() {
-			testCases := []struct {
-				output          string
-				expectedVersion *semver.Version
-			}{
-				{
-					output:          "mlxconfig, mft 4.30.1-8, built on Nov 28 2024",
-					expectedVersion: semver.MustParse("4.30.1-8"),
-				},
-				{
-					output:          "mlxconfig 4.29.0",
-					expectedVersion: semver.MustParse("4.29.0"),
-				},
-				{
-					output:          "mlxconfig, mft 4.36.0-86. Git SHA Hash: e44fa1501",
-					expectedVersion: semver.MustParse("4.36.0-86"),
-				},
-			}
-			for _, tc := range testCases {
-				operation := ConfigureNVConfig{
-					getMlxconfigVersion: func() (string, error) {
-						return tc.output, nil
-					},
-				}
-				version, err := operation.mlxconfigVersion()
-				Expect(err).NotTo(HaveOccurred())
-				Expect(version.Equal(tc.expectedVersion)).To(BeTrue(), "output %q => got %s, expected %s", tc.output, version.String(), tc.expectedVersion.String())
-			}
-		})
-
-		It("should fail when version cannot be extracted", func() {
-			operation := ConfigureNVConfig{
-				getMlxconfigVersion: func() (string, error) {
-					return "no version here", nil
-				},
-			}
-			_, err := operation.mlxconfigVersion()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to extract version"))
-		})
-
-		It("should fail when version is in short form (e.g. 4.30)", func() {
-			operation := ConfigureNVConfig{
-				getMlxconfigVersion: func() (string, error) {
-					return "mlxconfig 4.30", nil
-				},
-			}
-			_, err := operation.mlxconfigVersion()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to extract version"))
-		})
-
-		It("version.LessThan(minVer) works for minVer in different formats", func() {
-			version := semver.MustParse("4.35.0")
-
-			for _, minVerStr := range []string{"4.36.0-86", "4.36.0", "4.36"} {
-				minVer, err := semver.NewVersion(minVerStr)
-				Expect(err).NotTo(HaveOccurred(), "minVer %q must parse", minVerStr)
-				Expect(version.LessThan(minVer)).To(BeTrue(), "4.35.0 should be less than %s", minVerStr)
-			}
-
-			// Check prerelease ordering: 4.36.0-85 < 4.36.0-86
-			v850 := semver.MustParse("4.36.0-85")
-			v860 := semver.MustParse("4.36.0-86")
-			Expect(v850.LessThan(v860)).To(BeTrue(), "4.36.0-85 should be less than 4.36.0-86")
-		})
-	})
-
 	Context("pciToNetdevMap", func() {
 		It("should parse devlink JSON and return PCI -> netdev map", func() {
 			operation := ConfigureNVConfig{
@@ -467,7 +410,6 @@ var _ = Describe("NVConfig Operation", func() {
 		})
 
 		It("should include all pci/ keys and skip already included PCI", func() {
-			// All pci/... entries are included; second PCI is deduped if key repeats.
 			devlinkJSON := strings.ReplaceAll(`{
 				"port": {
 					"pci/0000:03:00.0/0": {"type": "eth", "netdev": "p0", "{{F}}": "physical"},
@@ -516,7 +458,6 @@ var _ = Describe("NVConfig Operation", func() {
 		})
 
 		It("should include each PCI once when devlink has multiple entries per PCI", func() {
-			// Same PCI in two keys; skip already included and get one PCI.
 			dupPCIJSON := strings.ReplaceAll(`{
 				"port": {
 					"pci/0000:03:00.0/0": {"type":"eth", "netdev":"p0", "{{F}}":"physical"},
