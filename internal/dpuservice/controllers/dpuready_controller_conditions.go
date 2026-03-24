@@ -44,6 +44,13 @@ const (
 	// maxUnreadyItemsInMessage is the maximum number of unready items (pods, interfaces, chains) to include
 	// in a condition message before truncating with "... (X more)"
 	maxUnreadyItemsInMessage = 5
+
+	// stateDeletion indicates the DPU or its node is being actively deleted.
+	stateDeletion = "deletion"
+	// statePending indicates the node has not yet joined the cluster (normal provisioning flow).
+	statePending = "pending"
+	// stateMissing indicates the node was deleted after having joined the cluster (error condition).
+	stateMissing = "missing"
 )
 
 func (r *DPUReadyReconciler) reconcileDPUOperationalConditions(ctx context.Context, scope *reconcileScope) error {
@@ -59,12 +66,24 @@ func (r *DPUReadyReconciler) reconcileDPUOperationalConditions(ctx context.Conte
 		}
 
 		var operationalConditions []metav1.Condition
-		if node == nil || !node.DeletionTimestamp.IsZero() {
-			// Set the operational conditions to Unknown if the Node is in deletion, as we cannot reliably determine the
-			// status of conditions during deletion.
-			operationalConditions = setOperationalConditionsToUnknown()
+		// Check if DPU or Node is being deleted
+		dpuBeingDeleted := !dpu.DeletionTimestamp.IsZero()
+		nodeBeingDeleted := node != nil && !node.DeletionTimestamp.IsZero()
+		dpuIsReady := dpu.Status.Phase == provisioningv1.DPUReady
+
+		if dpuBeingDeleted || nodeBeingDeleted {
+			// Set operational conditions to Unknown during deletion
+			operationalConditions = setAllOperationalConditions(stateDeletion)
+		} else if node == nil {
+			if dpuIsReady {
+				// Node was deleted after joining - error condition
+				operationalConditions = setAllOperationalConditions(stateMissing)
+			} else {
+				// Node hasn't joined yet - normal provisioning
+				operationalConditions = setAllOperationalConditions(statePending)
+			}
 		} else {
-			// Only update operational conditions for the specific DPU being reconciled if the Node is not in deletion.
+			// Normal case: node exists and is not being deleted
 			operationalConditions, err = r.aggregateOperationalConditions(ctx, dpuClusterClient, node, dpu, scope.dpuServiceList)
 			if err != nil {
 				log.Error(err, "Errors during condition aggregation, some conditions set to Unknown", "dpu", dpu.Name)
@@ -83,40 +102,78 @@ func (r *DPUReadyReconciler) reconcileDPUOperationalConditions(ctx context.Conte
 	return kerrors.NewAggregate(errs)
 }
 
-func setOperationalConditionsToUnknown() []metav1.Condition {
-	deletionReason := string(conditions.ReasonAwaitingDeletion)
-	return []metav1.Condition{
-		conditions.NewUnknownCondition(
-			string(provisioningv1.DPUOperationalCondNodeProblemsReady),
-			deletionReason,
-			"Cannot assess node health: node is being deleted",
-		),
-		conditions.NewUnknownCondition(
-			string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady),
-			deletionReason,
-			"Cannot assess critical pods: node is being deleted",
-		),
-		conditions.NewUnknownCondition(
-			string(provisioningv1.DPUOperationalCondDPUServiceNonCriticalPodsReady),
-			deletionReason,
-			"Cannot assess non-critical pods: node is being deleted",
-		),
-		conditions.NewUnknownCondition(
-			string(provisioningv1.DPUOperationalCondDPUServiceInterfacesReady),
-			deletionReason,
-			"Cannot assess service interfaces: node is being deleted",
-		),
-		conditions.NewUnknownCondition(
-			string(provisioningv1.DPUOperationalCondDPUServiceChainsReady),
-			deletionReason,
-			"Cannot assess service chains: node is being deleted",
-		),
-		conditions.NewUnknownCondition(
-			string(provisioningv1.DPUOperationalCondReady),
-			deletionReason,
-			"Cannot assess operational readiness: node is being deleted",
-		),
+type operationalConditionSpec struct {
+	status   metav1.ConditionStatus
+	reason   string
+	messages map[string]string
+}
+
+var operationalConditionTypes = []string{
+	string(provisioningv1.DPUOperationalCondNodeProblemsReady),
+	string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady),
+	string(provisioningv1.DPUOperationalCondDPUServiceNonCriticalPodsReady),
+	string(provisioningv1.DPUOperationalCondDPUServiceInterfacesReady),
+	string(provisioningv1.DPUOperationalCondDPUServiceChainsReady),
+	string(provisioningv1.DPUOperationalCondReady),
+}
+
+var operationalConditionSpecs = map[string]operationalConditionSpec{
+	stateDeletion: {
+		status: metav1.ConditionUnknown,
+		reason: string(conditions.ReasonAwaitingDeletion),
+		messages: map[string]string{
+			string(provisioningv1.DPUOperationalCondNodeProblemsReady):              "Cannot assess node health: node is being deleted",
+			string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady):    "Cannot assess critical pods: node is being deleted",
+			string(provisioningv1.DPUOperationalCondDPUServiceNonCriticalPodsReady): "Cannot assess non-critical pods: node is being deleted",
+			string(provisioningv1.DPUOperationalCondDPUServiceInterfacesReady):      "Cannot assess service interfaces: node is being deleted",
+			string(provisioningv1.DPUOperationalCondDPUServiceChainsReady):          "Cannot assess service chains: node is being deleted",
+			string(provisioningv1.DPUOperationalCondReady):                          "Cannot assess operational readiness: node is being deleted",
+		},
+	},
+	statePending: {
+		status: metav1.ConditionUnknown,
+		reason: string(conditions.ReasonPending),
+		messages: map[string]string{
+			string(provisioningv1.DPUOperationalCondNodeProblemsReady):              "Node has not joined the cluster yet",
+			string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady):    "Waiting for node to join before assessing critical pods",
+			string(provisioningv1.DPUOperationalCondDPUServiceNonCriticalPodsReady): "Waiting for node to join before assessing non-critical pods",
+			string(provisioningv1.DPUOperationalCondDPUServiceInterfacesReady):      "Waiting for node to join before assessing service interfaces",
+			string(provisioningv1.DPUOperationalCondDPUServiceChainsReady):          "Waiting for node to join before assessing service chains",
+			string(provisioningv1.DPUOperationalCondReady):                          "Waiting for node to join the cluster",
+		},
+	},
+	stateMissing: {
+		status: metav1.ConditionFalse,
+		reason: string(conditions.ReasonError),
+		messages: map[string]string{
+			string(provisioningv1.DPUOperationalCondNodeProblemsReady):              "Cannot assess node health: node is missing from cluster",
+			string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady):    "Cannot assess critical pods: node is missing from cluster",
+			string(provisioningv1.DPUOperationalCondDPUServiceNonCriticalPodsReady): "Cannot assess non-critical pods: node is missing from cluster",
+			string(provisioningv1.DPUOperationalCondDPUServiceInterfacesReady):      "Cannot assess service interfaces: node is missing from cluster",
+			string(provisioningv1.DPUOperationalCondDPUServiceChainsReady):          "Cannot assess service chains: node is missing from cluster",
+			string(provisioningv1.DPUOperationalCondReady):                          "Node is missing from cluster",
+		},
+	},
+}
+
+// setAllOperationalConditions creates all operational conditions with the specified state.
+func setAllOperationalConditions(state string) []metav1.Condition {
+	spec, ok := operationalConditionSpecs[state]
+	if !ok {
+		return nil
 	}
+
+	conds := make([]metav1.Condition, 0, len(operationalConditionTypes))
+	for _, condType := range operationalConditionTypes {
+		conds = append(conds, conditions.NewCondition(
+			condType,
+			spec.reason,
+			spec.messages[condType],
+			spec.status,
+		))
+	}
+
+	return conds
 }
 
 func (r *DPUReadyReconciler) aggregateOperationalConditions(ctx context.Context, dpuClusterClient client.Client, node *corev1.Node, dpu provisioningv1.DPU, dpuServiceList *dpuservicev1.DPUServiceList) ([]metav1.Condition, error) {
@@ -132,12 +189,12 @@ func (r *DPUReadyReconciler) aggregateOperationalConditions(ctx context.Context,
 		// Set both pod conditions to Unknown
 		criticalPodsCondition = conditions.NewUnknownCondition(
 			string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady),
-			"InternalError",
+			string(conditions.ReasonError),
 			"Failed to list or aggregate DPU service pods",
 		)
 		nonCriticalPodsCondition = conditions.NewUnknownCondition(
 			string(provisioningv1.DPUOperationalCondDPUServiceNonCriticalPodsReady),
-			"InternalError",
+			string(conditions.ReasonError),
 			"Failed to list or aggregate DPUServices or Pods",
 		)
 	}
@@ -150,7 +207,7 @@ func (r *DPUReadyReconciler) aggregateOperationalConditions(ctx context.Context,
 		// Set interfaces condition to Unknown
 		interfacesCondition = conditions.NewUnknownCondition(
 			string(provisioningv1.DPUOperationalCondDPUServiceInterfacesReady),
-			"InternalError",
+			string(conditions.ReasonError),
 			"Failed to list or aggregate ServiceInterfaces",
 		)
 	}
@@ -163,7 +220,7 @@ func (r *DPUReadyReconciler) aggregateOperationalConditions(ctx context.Context,
 		// Set chains condition to Unknown
 		chainsCondition = conditions.NewUnknownCondition(
 			string(provisioningv1.DPUOperationalCondDPUServiceChainsReady),
-			"InternalError",
+			string(conditions.ReasonError),
 			"Failed to list or aggregate ServiceChains",
 		)
 	}

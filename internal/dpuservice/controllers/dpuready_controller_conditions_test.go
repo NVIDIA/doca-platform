@@ -386,7 +386,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 			})
 		}
 		Expect(dpuClusterClient.Create(ctx, dpuClusterNode)).To(Succeed())
-		DeferCleanup(testutils.CleanupWithFinalizerRemovalAndWait, ctx, testClient, dpuClusterNode)
+		DeferCleanup(testutils.CleanupWithFinalizerRemovalAndWait, ctx, dpuClusterClient, dpuClusterNode)
 
 		By("Creating DPUServices")
 		criticalService := &dpuservicev1.DPUService{
@@ -531,6 +531,177 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 					),
 				))
 			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+		})
+	})
+
+	Context("Node lifecycle edge cases", func() {
+		It("should set all operational conditions to Unknown with Pending reason when Node hasn't joined and DPU is NOT being deleted", func() {
+			By("Setting DPU phase to DPUClusterConfig (not yet ready)")
+			patcher := patch.NewSerialPatcher(dpu, testClient)
+			dpu.Status.Phase = provisioningv1.DPUClusterConfig
+			Expect(patcher.Patch(ctx, dpu, patch.WithFieldOwner("test"))).To(Succeed())
+
+			By("Deleting the Node in DPU cluster to simulate not joined yet")
+			Expect(dpuClusterClient.Delete(ctx, dpuClusterNode)).To(Succeed())
+			Eventually(func() bool {
+				err := dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(dpuClusterNode), dpuClusterNode)
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(3 * time.Second).Should(BeTrue())
+
+			By("Verifying all operational conditions are set to Unknown with Pending reason")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+				g.Expect(dpu.Status.OperationalConditions).To(HaveLen(6))
+				for _, cond := range dpu.Status.OperationalConditions {
+					g.Expect(cond.Status).To(Equal(metav1.ConditionUnknown))
+					g.Expect(cond.Reason).To(Equal("Pending"))
+					g.Expect(cond.Message).To(Or(
+						ContainSubstring("not joined"),
+						ContainSubstring("Waiting for node"),
+					))
+				}
+			}).WithTimeout(5 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+		})
+
+		It("should set all operational conditions to False with Error reason when Node is deleted but DPU is Ready", func() {
+			By("Ensuring DPU is in Ready phase first")
+			patcher := patch.NewSerialPatcher(dpu, testClient)
+			dpu.Status.Phase = provisioningv1.DPUReady
+			Expect(patcher.Patch(ctx, dpu, patch.WithFieldOwner("test"))).To(Succeed())
+
+			By("Deleting the Node in DPU cluster (simulating kubectl delete node)")
+			Expect(dpuClusterClient.Delete(ctx, dpuClusterNode)).To(Succeed())
+			Eventually(func() bool {
+				err := dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(dpuClusterNode), dpuClusterNode)
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(3 * time.Second).Should(BeTrue())
+
+			By("Verifying all operational conditions are set to False with Error reason")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+				g.Expect(dpu.Status.OperationalConditions).To(HaveLen(6))
+				for _, cond := range dpu.Status.OperationalConditions {
+					g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+					g.Expect(cond.Reason).To(Equal(string(conditions.ReasonError)))
+					g.Expect(cond.Message).To(ContainSubstring("missing from cluster"))
+				}
+			}).WithTimeout(5 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+		})
+
+		It("should set all operational conditions to Unknown with AwaitingDeletion when Node doesn't exist AND DPU is being deleted", func() {
+			By("Deleting the Node in DPU cluster")
+			Expect(dpuClusterClient.Delete(ctx, dpuClusterNode)).To(Succeed())
+			Eventually(func() bool {
+				err := dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(dpuClusterNode), dpuClusterNode)
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(3 * time.Second).Should(BeTrue())
+
+			By("Marking DPU for deletion")
+			patcher := patch.NewSerialPatcher(dpu, testClient)
+			dpu.SetFinalizers([]string{"test.nvidia.com/finalizer"})
+			Expect(patcher.Patch(ctx, dpu, patch.WithFieldOwner("test"))).To(Succeed())
+			Expect(testClient.Delete(ctx, dpu)).To(Succeed())
+
+			By("Verifying all operational conditions are set to Unknown with AwaitingDeletion reason")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+				g.Expect(dpu.DeletionTimestamp.IsZero()).To(BeFalse())
+				g.Expect(dpu.Status.OperationalConditions).To(HaveLen(6))
+				for _, cond := range dpu.Status.OperationalConditions {
+					g.Expect(cond.Status).To(Equal(metav1.ConditionUnknown))
+					g.Expect(cond.Reason).To(Equal("AwaitingDeletion"))
+					g.Expect(cond.Message).To(ContainSubstring("being deleted"))
+				}
+			}).WithTimeout(5 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+			patcher = patch.NewSerialPatcher(dpu, testClient)
+			dpu.SetFinalizers([]string{})
+			Expect(patcher.Patch(ctx, dpu, patch.WithFieldOwner("test"))).To(Succeed())
+		})
+
+		It("should set all operational conditions to Unknown with AwaitingDeletion when DPU is being deleted (even if node exists)", func() {
+			By("Marking DPU for deletion while node still exists")
+			patcher := patch.NewSerialPatcher(dpu, testClient)
+			dpu.SetFinalizers([]string{"test.nvidia.com/finalizer"})
+			Expect(patcher.Patch(ctx, dpu, patch.WithFieldOwner("test"))).To(Succeed())
+			Expect(testClient.Delete(ctx, dpu)).To(Succeed())
+
+			By("Verifying all operational conditions are set to Unknown with AwaitingDeletion reason")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+				g.Expect(dpu.DeletionTimestamp.IsZero()).To(BeFalse())
+				g.Expect(dpu.Status.OperationalConditions).To(HaveLen(6))
+				for _, cond := range dpu.Status.OperationalConditions {
+					g.Expect(cond.Status).To(Equal(metav1.ConditionUnknown))
+					g.Expect(cond.Reason).To(Equal("AwaitingDeletion"))
+					g.Expect(cond.Message).To(ContainSubstring("being deleted"))
+				}
+			}).WithTimeout(5 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+			patcher = patch.NewSerialPatcher(dpu, testClient)
+			dpu.SetFinalizers([]string{})
+			Expect(patcher.Patch(ctx, dpu, patch.WithFieldOwner("test"))).To(Succeed())
+		})
+
+		It("should transition from Pending to normal aggregation when Node joins", func() {
+			By("Setting DPU phase to DPUClusterConfig (not yet ready)")
+			patcher := patch.NewSerialPatcher(dpu, testClient)
+			dpu.Status.Phase = provisioningv1.DPUClusterConfig
+			Expect(patcher.Patch(ctx, dpu, patch.WithFieldOwner("test"))).To(Succeed())
+
+			By("Initially having no node (simulating not joined)")
+			Expect(dpuClusterClient.Delete(ctx, dpuClusterNode)).To(Succeed())
+			Eventually(func() bool {
+				err := dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(dpuClusterNode), dpuClusterNode)
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(3 * time.Second).Should(BeTrue())
+
+			By("Waiting for Pending conditions")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+				cond := meta.FindStatusCondition(dpu.Status.OperationalConditions,
+					string(provisioningv1.DPUOperationalCondReady))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Reason).To(Equal("Pending"))
+			}).WithTimeout(5 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+			By("Creating the Node (simulating join)")
+			newNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: dpu.Name,
+					Labels: map[string]string{
+						provisioningv1.DPUNodeNameLabel:      dpuNodeObj.Name,
+						provisioningv1.DPUNodeNamespaceLabel: dpuNodeObj.Namespace,
+					},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+					},
+				},
+			}
+			for _, cond := range provisioningv1.GetNodeProblemDetectorConditions() {
+				newNode.Status.Conditions = append(newNode.Status.Conditions, corev1.NodeCondition{
+					Type:   corev1.NodeConditionType(cond),
+					Status: corev1.ConditionFalse,
+				})
+			}
+			Expect(dpuClusterClient.Create(ctx, newNode)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, newNode)
+
+			By("Verifying conditions transition to normal aggregation")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+				cond := meta.FindStatusCondition(dpu.Status.OperationalConditions,
+					string(provisioningv1.DPUOperationalCondNodeProblemsReady))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(cond.Reason).To(Equal("NoProblemsDetected"))
+			}).WithTimeout(5 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+			patcher = patch.NewSerialPatcher(dpu, testClient)
+			dpu.SetFinalizers([]string{})
+			Expect(patcher.Patch(ctx, dpu, patch.WithFieldOwner("test"))).To(Succeed())
 		})
 	})
 
