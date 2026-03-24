@@ -309,7 +309,7 @@ type DeployDPFSystemComponentsInput struct {
 // 5) Ensures the DPF System components - including DPUServices - have been deployed.
 func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemComponentsInput) {
 	testClient := input.client
-	By("ensure the DPF Operator is running and ready")
+	By("Ensure the DPF Operator is running and ready")
 	Eventually(func(g Gomega) {
 		deployment := &appsv1.Deployment{}
 		g.Expect(testClient.Get(ctx, client.ObjectKey{
@@ -319,7 +319,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		g.Expect(deployment.Status.ReadyReplicas).To(Equal(*deployment.Spec.Replicas))
 	}).WithTimeout(120 * time.Second).Should(Succeed())
 
-	By("create the PersistentVolumeClaim for the DPF Provisioning controller")
+	By("Create the PersistentVolumeClaim for the DPF Provisioning controller")
 	if input.ProvisioningControllerPVC == nil {
 		By("No PVC provided for the provisioning controller, skipping PVC creation")
 	} else {
@@ -332,7 +332,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, pvc))).NotTo(HaveOccurred())
 	}
 
-	By("creates the imagePullSecrets for the DPFOperatorConfig")
+	By("Creates the imagePullSecrets for the DPFOperatorConfig")
 	for _, secretName := range input.ImagePullSecrets {
 		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
@@ -344,7 +344,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, secret))).ToNot(HaveOccurred())
 	}
 
-	By("create the DPFOperatorConfig for the system")
+	By("Create the DPFOperatorConfig for the system")
 	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, input.operatorConfig))).NotTo(HaveOccurred())
 
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
@@ -352,7 +352,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		CreateDPUDiscovery(ctx, input)
 	}
 
-	By("ensure the DPF controllers are running and ready")
+	By("Ensure the DPF controllers are running and ready")
 	Eventually(func(g Gomega) {
 		// Check the DPUService controller manager is up and ready.
 		dpuServiceDeployment := &appsv1.Deployment{}
@@ -385,7 +385,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
-		By("verify bfb-registry Service and pods (created by provisioning controller leader)")
+		By("Verify bfb-registry Service and pods (created by provisioning controller leader)")
 		Eventually(func(g Gomega) {
 			svc := &corev1.Service{}
 			g.Expect(testClient.Get(ctx, client.ObjectKey{
@@ -416,7 +416,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 	}
 
-	By("ensure the system DPUServices are created")
+	By("Ensure the system DPUServices are created")
 	var isCurrentVersionLastReleasedGA bool
 	Eventually(func(g Gomega) {
 		// TODO: Remove as soon as we have version aware upgrade logic for the pre-upgrade validation
@@ -481,7 +481,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 
 // ProvisionDPUClusters provisions DPUClusters.
 func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) {
-	By("create prerequisites objects for DPUClusters")
+	By("Create prerequisites objects for DPUClusters")
 	for _, obj := range input.dpuClusterPrerequisites {
 		obj.SetLabels(CleanupScope.Suite)
 		// We need to check if object already exists before creating. client.IgnoreAlreadyExists does not work in this case as the error will be "port is already allocated"
@@ -500,7 +500,7 @@ func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) 
 		}
 	}
 
-	By("create DPUClusters")
+	By("Create DPUClusters")
 	for _, dpuCluster := range input.dpuClusters {
 		dpuClusterLabels := map[string]string{
 			"svc.dpu.nvidia.com/cluster": dpuCluster.Name,
@@ -522,7 +522,7 @@ func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) 
 		}
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
-	By("creating a client for the DPUCluster")
+	By("Creating a client for the DPUCluster")
 	getDPUClusterClients(ctx, input)
 }
 
@@ -530,12 +530,12 @@ func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) 
 func ProvisionBFBAndDPUFlavor(ctx context.Context, input ProvisionDPUClustersInput) {
 	// TODO: Pass this in as config instead of as a global.
 	if input.bfbImageURL != "" {
-		By(fmt.Sprintf("override BFB URL with env variable BFB_IMAGE_URL=%s", input.bfbImageURL))
+		By(fmt.Sprintf("Override BFB URL with env variable BFB_IMAGE_URL=%s", input.bfbImageURL))
 		input.bfb.Spec.URL = input.bfbImageURL
 	}
-	By("create the BFB and DPUFlavor")
+	By("Create the BFB and DPUFlavor")
 	Eventually(func(g Gomega) {
-		By("creating the BFB")
+		By("Creating the BFB")
 		bfb := input.bfb.DeepCopy()
 		bfb.SetLabels(CleanupScope.Suite)
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, bfb))).NotTo(HaveOccurred())
@@ -552,7 +552,7 @@ func ProvisionBFBAndDPUFlavor(ctx context.Context, input ProvisionDPUClustersInp
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuFlavor))).NotTo(HaveOccurred())
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 
-	By("checking that BFB is ready")
+	By("Checking that BFB is ready")
 	Eventually(func(g Gomega) {
 		bfb := &provisioningv1.BFB{}
 		g.Expect(input.client.Get(ctx, client.ObjectKey{
@@ -631,7 +631,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 	tracker := NewByTracker()
 
 	if err := verifyExpectedDPUsToBeReady(ctx, nil, input, expectedDPUs); err == nil {
-		By("All DPUs are already ready.")
+		By("All DPUs are already ready")
 		return
 	}
 

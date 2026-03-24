@@ -44,13 +44,13 @@ var _ = Describe("DPF System tests - SDN", SpecPriority(SDNTestPriority), Labels
 	})
 
 	Context("DPU Service Function Chain", Labels{Domain.RequiresNodes, Domain.L2Connectivity}, func() {
-		It("create plain dpu chain and verify performance", func() {
+		It("create plain DPU chain and verify performance", func() {
 			VerifyPlainServiceFunctionChain(ctx, input)
 		})
-		It("create HBN only dpu chain and verify performance", func() {
+		It("create HBN only DPU chain and verify performance", func() {
 			VerifyHBNOnlyServiceFunctionChain(ctx, input)
 		})
-		It("create HBN only dpu chain and verify performance after killing HBN", Labels{Domain.L2Connectivity}, func() {
+		It("create HBN only DPU chain and verify performance after killing HBN", Labels{Domain.L2Connectivity}, func() {
 			VerifyHBNOnlyBadFlowRecovery(ctx, input)
 		})
 		It("create simple chain and validate serviceMTU changes", func() {

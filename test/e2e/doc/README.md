@@ -122,7 +122,7 @@ obj.SetLabels(utils.AfterAllCleanupLabels)
 
 
 ## Resource Collection
-Artifacts collected on test failures.
+Artifacts collected on test failures and at suite teardown.
 
 ### Per failed test
 Path: `artifacts/failed_tests/<test-name>/`
@@ -131,9 +131,13 @@ Path: `artifacts/failed_tests/<test-name>/`
 * Kubernetes events
 * Node status
 
-### Final state
-Path: `artifacts/final/`
-* Final cluster state after all tests
+### Pre-DPF operator config cleanup
+Path: `artifacts/pre-dpf-operator-config-cleanup/`
+* Cluster state captured after all tests but before DPFOperatorConfig deletion
+
+### Post-DPF operator config cleanup
+Path: `artifacts/post-dpf-operator-config-cleanup/`
+* Cluster state captured after DPFOperatorConfig deletion (final state)
 
 
 ## Troubleshooting
@@ -157,7 +161,7 @@ var _ = Describe("DPF <some> tests ...", Labels{Domain.DPFSystem}, func() {
     })
     
     // Note the casing:
-    // * All strings in Context, Describe, By, ... start with a majuscule
+    // * All strings in Context, Describe, By, Skip, ... start with a majuscule
     // * Only It starts with a minuscule
 	Context("Validate my fancy feature", Labels{dpfSystemLabel, requiresNodesLabel}, func() {
 		It("create a pod consuming a DPUServiceNAD with all dependencies and check that it is created successfully", func() {
@@ -319,7 +323,7 @@ func constructDummyDPUServiceObject(serviceName, namespace, interfaceName string
 * Don't create resources without cleanup labels
 
 
-## Best practicse
+## Best practices
 * `dpuService := generateDPUObj("test", namespace, dpuServiceTemplate.DeepCopy())`
     * Use generator helper functions if available
     * Copy configuration templates before modifying

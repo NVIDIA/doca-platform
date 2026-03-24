@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var _ = Describe("dpuservice API Validation", func() {
+var _ = Describe("DPUService API Validation", func() {
 	var testNs *corev1.Namespace
 	var cleanupObjs []client.Object
 
@@ -48,7 +48,7 @@ var _ = Describe("dpuservice API Validation", func() {
 
 	Context("ServiceInterface", func() {
 		Context("ServiceInterface of type Service", func() {
-			Context("validate InterfaceName length", func() {
+			Context("Validate InterfaceName length", func() {
 				var si *dpuservicev1.ServiceInterface
 
 				BeforeEach(func() {
@@ -85,8 +85,8 @@ var _ = Describe("dpuservice API Validation", func() {
 				})
 			})
 		})
-		Context("validate ServiceInterface VirtualNetwork immutability", func() {
-			Context("validate ServiceInterface VirtualNetwork immutability - VF", func() {
+		Context("Validate ServiceInterface VirtualNetwork immutability", func() {
+			Context("Validate ServiceInterface VirtualNetwork immutability - VF", func() {
 				var si *dpuservicev1.ServiceInterface
 
 				BeforeEach(func() {
@@ -129,7 +129,7 @@ var _ = Describe("dpuservice API Validation", func() {
 				})
 			})
 
-			Context("validate ServiceInterface VirtualNetwork immutability - PF", func() {
+			Context("Validate ServiceInterface VirtualNetwork immutability - PF", func() {
 				var si *dpuservicev1.ServiceInterface
 
 				BeforeEach(func() {
@@ -171,7 +171,7 @@ var _ = Describe("dpuservice API Validation", func() {
 				})
 			})
 
-			Context("validate ServiceInterface VirtualNetwork immutability - Service", func() {
+			Context("Validate ServiceInterface VirtualNetwork immutability - Service", func() {
 				var si *dpuservicev1.ServiceInterface
 
 				BeforeEach(func() {
