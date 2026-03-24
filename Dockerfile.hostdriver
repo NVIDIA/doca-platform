@@ -163,8 +163,8 @@ ARG PACKAGE_SOURCES
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     test "${PACKAGE_SOURCES}" = "false" || ( \
-      mkdir src && \
-      cd src && \
+      mkdir /src && \
+      cd /src && \
       # Enable deb-src to be able to fetch sources
       sed -i 's/^# deb-src/deb-src/g' /etc/apt/sources.list /etc/apt/sources.list.d/* && \
       sed -i 's/^Types: deb$/Types: deb deb-src/g' /etc/apt/sources.list.d/*.sources && \
@@ -172,8 +172,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       apt-get source --download-only ${PACKAGES} && \
       curl -LO https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz && \
       cd / && \
-      tar -cf pkg-source-code.tar src && \
-      rm -rf src \
+      tar -cf pkg-source-code.tar /src && \
+      rm -rf /src \
     )
 
 # Copy source code from builder stage
