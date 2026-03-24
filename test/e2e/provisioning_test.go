@@ -39,19 +39,19 @@ var _ = Describe("DPF System tests - Provisioning", Labels{Domain.Provisioning},
 		}
 	})
 
-	It("Create DPU cluster and BFB", func() {
+	It("create DPU cluster and BFB", func() {
 		CreateProvisioningDPUCluster(ctx, input)
 	})
 
-	It("Create DPUSet and provision DPUs", func() {
+	It("create DPUSet and provision DPUs", func() {
 		CreateProvisioningDPUSet(ctx, input)
 	})
 
-	It("Verify provisioning is complete", func() {
+	It("verify provisioning is complete", func() {
 		VerifyProvisioning(ctx, input)
 	})
 
-	It("Delete all provisioning resources", func() {
+	It("delete all provisioning resources", func() {
 		if cleanupFlags.SkipCleanup {
 			Skip("Skipping deprovisioning tests because skipCleanup is enabled")
 		}
