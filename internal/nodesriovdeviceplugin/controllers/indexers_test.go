@@ -91,7 +91,7 @@ var _ = Describe("Indexers", Ordered, func() {
 				client.MatchingFields{dpuNodeNameField: dpuNodeName})).To(Succeed())
 			g.Expect(dpuList.Items).To(HaveLen(1))
 			g.Expect(dpuList.Items[0].Name).To(Equal(dpu.Name))
-		}).Should(Succeed())
+		}, testTimeout, testInterval).Should(Succeed())
 		Expect(testClient.Delete(ctx, dpu)).To(Succeed())
 	})
 	It("should index DPUNode by status.kubeNodeRef", func() {
@@ -105,7 +105,7 @@ var _ = Describe("Indexers", Ordered, func() {
 			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), dpuNode)).To(Succeed())
 			dpuNode.Status.KubeNodeRef = ptr.To(kubeNodeRef)
 			g.Expect(testClient.Status().Update(ctx, dpuNode)).To(Succeed())
-		}).Should(Succeed())
+		}, testTimeout, testInterval).Should(Succeed())
 		Eventually(func(g Gomega) {
 			var dpuNodeList provisioningv1.DPUNodeList
 			g.Expect(indexersClient.List(ctx, &dpuNodeList,
@@ -113,7 +113,7 @@ var _ = Describe("Indexers", Ordered, func() {
 				client.MatchingFields{dpuNodeKubeNodeRefField: kubeNodeRef})).To(Succeed())
 			g.Expect(dpuNodeList.Items).To(HaveLen(1))
 			g.Expect(dpuNodeList.Items[0].Name).To(Equal(dpuNode.Name))
-		}).Should(Succeed())
+		}, testTimeout, testInterval).Should(Succeed())
 		Expect(testClient.Delete(ctx, dpuNode)).To(Succeed())
 	})
 	It("should index Pod by target node from affinity", func() {
@@ -155,7 +155,7 @@ var _ = Describe("Indexers", Ordered, func() {
 				client.MatchingFields{podTargetNodeField: targetNode})).To(Succeed())
 			g.Expect(podList.Items).To(HaveLen(1))
 			g.Expect(podList.Items[0].Name).To(Equal(pod.Name))
-		}).Should(Succeed())
+		}, testTimeout, testInterval).Should(Succeed())
 		Expect(testClient.Delete(ctx, pod)).To(Succeed())
 	})
 })
