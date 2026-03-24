@@ -84,7 +84,17 @@ func NewAppProject(namespace, name string, clusters []types.NamespacedName) *arg
 	return &project
 }
 
-func NewApplication(namespace, projectName string, dpuService *dpuservicev1.DPUService, values *runtime.RawExtension, clusterName string) *argov1.Application {
+func NewApplication(namespace, projectName string, dpuService *dpuservicev1.DPUService, values *runtime.RawExtension, clusterName, clusterNamespace string) *argov1.Application {
+	labels := map[string]string{
+		provisioningv1.DPUClusterNameLabelKey:    clusterName,
+		dpuservicev1.DPUServiceNameLabelKey:      dpuService.Name,
+		dpuservicev1.DPUServiceNamespaceLabelKey: dpuService.Namespace,
+		operatorv1.DPFComponentLabelKey:          "dpuservice-manager",
+	}
+	// clusterNamespace is not set for DPUService targeting the host cluster.
+	if clusterNamespace != "" {
+		labels[provisioningv1.DPUClusterNamespaceLabelKey] = clusterNamespace
+	}
 	return &argov1.Application{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       argov1.ApplicationSchemaGroupVersionKind.Kind,
@@ -95,12 +105,7 @@ func NewApplication(namespace, projectName string, dpuService *dpuservicev1.DPUS
 			Name:      GetApplicationName(clusterName, dpuService.Name),
 			Namespace: namespace,
 			// TODO: Consider adding labels for the Application.
-			Labels: map[string]string{
-				provisioningv1.DPUClusterNameLabelKey:    clusterName,
-				dpuservicev1.DPUServiceNameLabelKey:      dpuService.Name,
-				dpuservicev1.DPUServiceNamespaceLabelKey: dpuService.Namespace,
-				operatorv1.DPFComponentLabelKey:          "dpuservice-manager",
-			},
+			Labels: labels,
 			// This finalizer is what enables cascading deletion in ArgoCD.
 			Finalizers:  []string{ArgoApplicationFinalizer},
 			Annotations: nil,
