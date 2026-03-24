@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+// Keys and paths for DPUNode pod template ConfigMap integration and pod-info volume (shared with dpunode controller).
 const (
 	PodTemplateConfigMapKey     string = "pod-template"
 	PodInfoVolumeName           string = "dpf-pod-info"
@@ -43,28 +44,9 @@ const (
 	DPUNodeNameEnvVar           string = "DPUNODE_NAME"
 )
 
-// handleRebootedCondition checks if the rebooting was triggered by mode update and transitions
-// to the appropriate phase accordingly.
-func handleRebootedCondition(dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus) provisioningv1.DPUStatus {
-	_, interfaceInitializedCondition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondInterfaceInitialized))
-	_, osInstalledCondition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondOSInstalled))
-	// If this rebooting is triggered by the mode update, we need to move to InitializeInterface phase back.
-	// For this case, the OSInstalled condition should not be set.
-	// We check OSInstalled condition to double-check to make sure moving to InitializeInterface phase is correct.
-	if interfaceInitializedCondition != nil && interfaceInitializedCondition.Message == string(provisioningv1.DPUCondMessageModeUpdate) &&
-		osInstalledCondition == nil {
-		// Remove the outdated conditions.
-		meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondRebooted.String())
-		meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondInterfaceInitialized.String())
-		state.RequiredReset = nil
-		state.Phase = provisioningv1.DPUInitializeInterface
-		return *state
-	} else {
-		state.Phase = provisioningv1.DPUHostNetworkConfiguration
-		return *state
-	}
-}
-
+// Rebooting handles DPURebooting: validates reboot preconditions, waits for DPUCondRebooted, then moves to
+// DPUInitializeInterface, DPUConfig (when agent reports reboot-method discovery after DPUConfig), DPUClusterConfig,
+// or DPUHostNetworkConfiguration as appropriate.
 func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 
@@ -107,36 +89,51 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 		return *state, nil
 	}
 
-	if dpuNode.Spec.NodeRebootMethod.GNOI != nil || dpuNode.Spec.NodeRebootMethod.HostAgent != nil { //nolint:staticcheck
-		_, rebootCondition := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondRebooted))
-
-		if rebootCondition != nil && rebootCondition.Status == metav1.ConditionTrue {
-			return handleRebootedCondition(dpu, state), nil
-		}
-		return *state, nil
-	} else if dpuNode.Spec.NodeRebootMethod.External != nil || dpuNode.Spec.NodeRebootMethod.Script != nil {
-		_, rebootCondition := cutil.GetDPUCondition(state, provisioningv1.DPUCondRebooted.String())
-		if rebootCondition != nil && rebootCondition.Status == metav1.ConditionTrue {
-
-			if ctrlCtx.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
-
-				if dpu.Status.DPUMode == provisioningv1.NicMode {
-					msg := fmt.Sprintf("DPU %s was in NicMode, proceeding to InitializeInterface", dpu.Name)
-					meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondRebooted.String())
-					state.Phase = provisioningv1.DPUInitializeInterface
-					logger.Info(msg)
-					return *state, nil
-				}
-
-				state.Phase = provisioningv1.DPUClusterConfig
-				logger.Info(fmt.Sprintf("DPU %s moves to DPU Cluster Configuration phase", dpu.Name))
-
-			} else {
-				return handleRebootedCondition(dpu, state), nil
-			}
-		}
-		return *state, nil
-	} else {
+	switch {
+	case dpuNode.Spec.NodeRebootMethod.GNOI != nil || dpuNode.Spec.NodeRebootMethod.HostAgent != nil: //nolint:staticcheck // GNOI is deprecated but still honored for compatibility.
+		return reconcileHostRebootPhase(ctx, dpu, state, false), nil
+	case dpuNode.Spec.NodeRebootMethod.External != nil || dpuNode.Spec.NodeRebootMethod.Script != nil:
+		zeroTrustMode := ctrlCtx.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish)
+		return reconcileHostRebootPhase(ctx, dpu, state, zeroTrustMode), nil
+	default:
 		panic("should not reach here")
 	}
+}
+
+// reconcileHostRebootPhase runs when the DPU is in DPURebooting and the reboot command is not Skip.
+func reconcileHostRebootPhase(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, zeroTrustMode bool) provisioningv1.DPUStatus {
+	_, rebootCondition := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondRebooted))
+	if rebootCondition == nil || rebootCondition.Status != metav1.ConditionTrue {
+		return *state
+	}
+
+	var discoveryCond *metav1.Condition
+	if dpu.Status.AgentStatus != nil {
+		discoveryCond = meta.FindStatusCondition(dpu.Status.AgentStatus.Conditions, cutil.AgentCondRebootMethodDiscovery)
+	}
+	// Next provisioning phase after host reboot completes (cases 1–4 in order; first match wins).
+	// 1. DPUInitializeInterface: in case the reboot was forced from DPUInitializeInterface.
+	// 2. DPUConfig: in case the reboot was forced from DPUConfig and the reboot method is based on device query.
+	// 3. DPUClusterConfig: in case the reboot method is based on boot ID and Zero Trusted mode.
+	// 4. DPUHostNetworkConfiguration: in case the reboot method is based on boot ID and Host Trusted mode.
+	switch {
+	case dpu.Status.PreviousPhase == provisioningv1.DPUInitializeInterface:
+		meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondRebooted.String())
+		meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondInterfaceInitialized.String())
+		state.RequiredReset = nil
+		state.Phase = provisioningv1.DPUInitializeInterface
+	case dpu.Status.PreviousPhase == provisioningv1.DPUConfig &&
+		discoveryCond != nil && discoveryCond.Status == metav1.ConditionTrue:
+		state.Phase = provisioningv1.DPUConfig
+	case zeroTrustMode:
+		state.Phase = provisioningv1.DPUClusterConfig
+	default:
+		state.Phase = provisioningv1.DPUHostNetworkConfiguration
+	}
+
+	logger := log.FromContext(ctx)
+	logger.Info("host reboot reported complete, advancing provisioning phase",
+		"dpu", dpu.Name,
+		"phase", state.Phase)
+	return *state
 }

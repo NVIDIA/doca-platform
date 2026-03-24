@@ -283,6 +283,12 @@ type DPUStatus struct {
 	// +required
 	Phase DPUPhase `json:"phase"`
 
+	// PreviousPhase is the last non-empty Phase before the current Phase, set by the controller
+	// when Phase transitions. It may be unset during early initialization (empty Phase) or until
+	// the first transition from a non-empty Phase. Internal controller tracking only.
+	// +optional
+	PreviousPhase DPUPhase `json:"previousPhase,omitempty"`
+
 	// Conditions represents the provisioning lifecycle conditions.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions"`
@@ -412,6 +418,13 @@ type AgentStatus struct {
 	// a non-nil value means the check ran and this is the result.
 	// +optional
 	RebootMethod *RebootMethodType `json:"rebootMethod,omitempty"`
+
+	// RebootSequenceCount is the length of the current non-NoAction RebootMethod sequence:
+	// it increments on each agent run that reports a RebootMethod other than NoAction and
+	// resets to 0 when the agent reports NoAction. Used with RebootMethod to bound host reboot loops.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RebootSequenceCount *int32 `json:"rebootSequenceCount,omitempty"`
 
 	// Conditions contains the conditions reported from inside the DPU
 	// +optional

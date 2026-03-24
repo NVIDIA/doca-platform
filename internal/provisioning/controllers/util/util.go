@@ -150,6 +150,10 @@ const (
 	BFCFGTemplateDPUFlavorNameAnnotation = DPUProvisioningPrefix + "bfcfg-template-dpuflavor-name"
 	// BFCFGTemplateDPUFlavorNamespaceAnnotation is the annotation on a bf.cfg template ConfigMap specifying the target DPUFlavor namespace.
 	BFCFGTemplateDPUFlavorNamespaceAnnotation = DPUProvisioningPrefix + "bfcfg-template-dpuflavor-namespace"
+
+	// AgentCondRebootMethodDiscovery is set True when the device-query reboot path is active.
+	// Reason is the resolved RebootMethodType (e.g. SystemLevelReset, NoAction); Message holds mlxfwreset JSON when reset is needed.
+	AgentCondRebootMethodDiscovery = "RebootMethodDiscovery"
 )
 
 var (
