@@ -23,7 +23,7 @@ import (
 //nolint:dupl
 var _ = Describe("DPF System tests - OVNK HBN", Labels{Domain.OVNKHBN, Domain.RequiresNodes}, func() {
 	BeforeEach(func() {
-		By("wait for OVNK HBN deployment to be ready")
+		By("Wait for OVNK HBN deployment to be ready")
 		WaitForOVNKHBNDeploymentReady(ctx, input)
 
 		By("Waiting for multus pods to be ready")

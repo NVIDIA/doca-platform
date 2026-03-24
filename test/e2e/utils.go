@@ -54,6 +54,13 @@ const (
 	CoreTestPriority = 101
 	// SDNTestPriority is the test priority for the "DPF System tests - SDN" test suite.
 	SDNTestPriority = 100
+
+	// kubeStateMetricsPort is the port used by kube-state-metrics across host and DPU clusters.
+	kubeStateMetricsPort = 8080
+	// testMTUValue is the MTU value used across e2e tests to trigger configuration changes.
+	testMTUValue = 1300
+	// bfbRegistryNodePort is the NodePort used by the BFB registry service.
+	bfbRegistryNodePort = 30082
 )
 
 // CleanupScope is an alias for cleanup.CleanupLabels for ease of use
@@ -331,14 +338,14 @@ func VerifyPerformancePodToPodSameNode(ctx context.Context, input *systemTestInp
 	hostNamespace := namespacePrefix + "-same-node"
 	createTestNamespace(ctx, input.client, hostNamespace)
 
-	By("creating test pods")
+	By("Creating test pods")
 	pod1Config, pod2Config := getPodSameNodeConfigs(ctx, input, hostNamespace)
 	netshoot.CreateAndWaitForPods(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
-	By("get pod2 IP")
+	By("Get pod2 IP")
 	pod2IP := netshoot.GetPodIP(ctx, input.client, hostNamespace, pod2Config.Name)
 
-	By("running traffic test between pods")
+	By("Running traffic test between pods")
 	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
 }
 
@@ -351,14 +358,14 @@ func VerifyPerformancePodToPodDifferentNode(ctx context.Context, input *systemTe
 	hostNamespace := namespacePrefix + "-different-node"
 	createTestNamespace(ctx, input.client, hostNamespace)
 
-	By("creating test pods")
+	By("Creating test pods")
 	pod1Config, pod2Config := getPodDifferentNodeConfigs(ctx, input, hostNamespace)
 	netshoot.CreateAndWaitForPods(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
-	By("get pod2 IP")
+	By("Get pod2 IP")
 	pod2IP := netshoot.GetPodIP(ctx, input.client, hostNamespace, pod2Config.Name)
 
-	By("running traffic test between pods")
+	By("Running traffic test between pods")
 	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
 }
 

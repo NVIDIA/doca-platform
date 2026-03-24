@@ -34,14 +34,14 @@ func ValidateDPUServiceInterfaceCreation(ctx context.Context, input *systemTestI
 	testDPUServiceInterfaceName := "pf0-vf2"
 	dpuServiceInterfaceNamespace := "test-service-interface"
 
-	By("create test namespace")
+	By("Create test namespace")
 	createTestNamespace(ctx, input.client, dpuServiceInterfaceNamespace)
 
-	By("create DPUServiceInterface")
+	By("Create DPUServiceInterface")
 	dpuServiceInterface := utils.GenerateDPUObj(testDPUServiceInterfaceName, dpuServiceInterfaceNamespace, input.dpuServiceInterface.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
 
-	By("verify ServiceInterfaceSet is created in DPF clusters")
+	By("Verify ServiceInterfaceSet is created in DPF clusters")
 	Eventually(func(g Gomega) {
 		scs := &dpuservicev1.ServiceInterfaceSet{ObjectMeta: metav1.ObjectMeta{Name: testDPUServiceInterfaceName, Namespace: dpuServiceInterfaceNamespace}}
 		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKeyFromObject(scs), scs)).NotTo(HaveOccurred())
@@ -51,14 +51,14 @@ func ValidateDPUServiceInterfaceCreation(ctx context.Context, input *systemTestI
 func ValidateDPUServiceChainCreation(ctx context.Context, input *systemTestInput) {
 	dpuServiceChainName := "svc-chain-test"
 	dpuServiceChainNamespace := "test-2"
-	By("create test namespace")
+	By("Create test namespace")
 	createTestNamespace(ctx, input.client, dpuServiceChainNamespace)
 
-	By("create DPUServiceChain")
+	By("Create DPUServiceChain")
 	dpuServiceChain := utils.GenerateDPUObj(dpuServiceChainName, dpuServiceChainNamespace, input.dpuServiceChain.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceChain)).To(Succeed())
 
-	By("verify ServiceChainSet is created in DPF clusters")
+	By("Verify ServiceChainSet is created in DPF clusters")
 	Eventually(func(g Gomega) {
 		scs := &dpuservicev1.ServiceChainSet{ObjectMeta: metav1.ObjectMeta{Name: dpuServiceChainName, Namespace: dpuServiceChainNamespace}}
 		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKeyFromObject(scs), scs)).NotTo(HaveOccurred())
@@ -71,16 +71,16 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *systemTestInput)
 	dpuServiceInterfaceNamespace := "test-metrics"
 	dpuServiceChainName := "svc-chain-test-metrics"
 
-	By("create test namespaces")
+	By("Create test namespaces")
 	createTestNamespace(ctx, input.client, dpuServiceInterfaceNamespace)
 
-	By("create DPUServiceInterface and DPUServiceChain")
+	By("Create DPUServiceInterface and DPUServiceChain")
 	dpuServiceInterface := utils.GenerateDPUObj(dpuServiceInterfaceName, dpuServiceInterfaceNamespace, input.dpuServiceInterface.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
 	dpuServiceChain := utils.GenerateDPUObj(dpuServiceChainName, dpuServiceInterfaceNamespace, input.dpuServiceChain.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceChain)).To(Succeed())
 
-	By("verify DPUServiceChain and DPUServiceInterface metrics in KSM")
+	By("Verify DPUServiceChain and DPUServiceInterface metrics in KSM")
 	expectedMetricsNames := map[string][]string{
 		"dpuservicechain":     {"created", "info", "status_conditions", "status_condition_last_transition_time"},
 		"dpuserviceinterface": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
@@ -92,7 +92,7 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *systemTestInput)
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
 
-	By("wait for ServiceChainSet and ServiceInterfaceSet to be created in DPU clusters")
+	By("Wait for ServiceChainSet and ServiceInterfaceSet to be created in DPU clusters")
 	Eventually(func(g Gomega) {
 		scs := &dpuservicev1.ServiceChainSet{}
 		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Name: dpuServiceChainName, Namespace: dpuServiceInterfaceNamespace}, scs)).To(Succeed())
@@ -101,7 +101,7 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *systemTestInput)
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
 	// TODO: add validation for ServiceChain and ServiceInterface metrics when DPU nodes are present
-	By("verify ServiceChainSet, ServiceInterfaceSet metrics in DPU cluster KSM")
+	By("Verify ServiceChainSet, ServiceInterfaceSet metrics in DPU cluster KSM")
 	expectedDPUMetricsNames := map[string][]string{
 		"servicechainset":     {"created", "info", "status_conditions", "status_condition_last_transition_time", "status_number_applied", "status_number_ready"},
 		"serviceinterfaceset": {"created", "info", "status_conditions", "status_condition_last_transition_time", "status_number_applied", "status_number_ready"},
@@ -109,7 +109,7 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *systemTestInput)
 
 	Eventually(func(g Gomega) {
 		g.Expect(input.dpuClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
-		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.client, input.dpuClusters[0], dpfOperatorSystemNamespace, 8080, "/metrics")
+		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.client, input.dpuClusters[0], dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
 		g.Expect(err).NotTo(HaveOccurred(), "Failed to get KSM metrics URI for DPUCluster")
 		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
 
@@ -128,10 +128,10 @@ func ValidateDPUServiceChainDeletion(ctx context.Context, input *systemTestInput
 	dpuServiceInterfaceNamespace := "test-delete"
 	dpuServiceChainName := "svc-chain-test-delete"
 
-	By("create test namespaces")
+	By("Create test namespaces")
 	createTestNamespace(ctx, input.client, dpuServiceInterfaceNamespace)
 
-	By("create DPUServiceInterface and DPUServiceChain")
+	By("Create DPUServiceInterface and DPUServiceChain")
 	dpuServiceInterface := utils.GenerateDPUObj(dpuServiceInterfaceName, dpuServiceInterfaceNamespace, input.dpuServiceInterface.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
 	dpuServiceChain := utils.GenerateDPUObj(dpuServiceChainName, dpuServiceInterfaceNamespace, input.dpuServiceChain.DeepCopy())

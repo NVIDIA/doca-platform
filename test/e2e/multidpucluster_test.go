@@ -53,10 +53,10 @@ var _ = Describe("DPF System tests - Multi DPUCluster", Labels{Domain.MultiDPUCl
 			By("Waiting for DPFOperatorConfig to be ready")
 			VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
 		})
-		It("Create DPUServiceIPAM in L2 mode and validate workload", func() {
+		It("create DPUServiceIPAM in L2 mode and validate workload", func() {
 			ValidateDPUServiceIPAMInL2ModeForMultiDPUCluster(ctx, input)
 		})
-		It("Create DPUServiceIPAM in L3 mode and validate workload", func() {
+		It("create DPUServiceIPAM in L3 mode and validate workload", func() {
 			ValidateDPUServiceIPAMInL3ModeForMultiDPUCluster(ctx, input)
 		})
 	})

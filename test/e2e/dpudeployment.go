@@ -52,28 +52,28 @@ const (
 )
 
 func ValidateDPUDeploymentCreation(ctx context.Context, input *systemTestInput) {
-	By("creating the dependencies")
+	By("Creating the dependencies")
 	createDeploymentDependencies(ctx, input, "")
 
-	By("creating the dpudeployment")
+	By("Creating the dpudeployment")
 	dpuDeployment := generateDPUDeployment(input, "")
 	dpuDeployment.SetLabels(CleanupScope.It)
 	Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
 
-	By("checking that the underlying objects are created")
+	By("Checking that the underlying objects are created")
 	Eventually(func(g Gomega) {
 		g.Expect(VerifyDeploymentUnderlyingObjectsCreated(ctx, g, input.client, dpuDeployment)).To(BeTrue())
 	}).WithTimeout(15 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 func ValidateDPUDeploymentMetrics(ctx context.Context, input *systemTestInput) {
-	By("create DPUDeployment for metrics")
+	By("Create DPUDeployment for metrics")
 	createDeploymentDependencies(ctx, input, "metrics")
 	dpuDeployment := generateDPUDeployment(input, "metrics")
 	dpuDeployment.SetLabels(CleanupScope.It)
 	Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
 
-	By("verify DPUDeployment and DPUServiceInterface metrics are in KSM")
+	By("Verify DPUDeployment and DPUServiceInterface metrics are in KSM")
 	expectedMetricsNames := map[string][]string{
 		"dpudeployment": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
 	}
@@ -89,7 +89,7 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 	// This part is needed so that we can test that the deletion logic is able to delete all the DPUServices, even
 	// stale paused ones.
 
-	By("create DPUDeployment until deletion while disruptive upgrade is in progress")
+	By("Create DPUDeployment until deletion while disruptive upgrade is in progress")
 	dpuServiceTemplate := generateDPUServiceTemplate(input, "disruptive")
 	Expect(input.client.Create(ctx, dpuServiceTemplate)).To(Succeed())
 	dpuServiceConfiguration := generateServiceConfiguration(input, "disruptive")
@@ -97,7 +97,7 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 	dpuDeployment := generateDPUDeployment(input, "disruptive")
 	Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
 
-	By("checking that the underlying objects are created")
+	By("Checking that the underlying objects are created")
 	Eventually(func(g Gomega) {
 		g.Expect(VerifyDeploymentUnderlyingObjectsCreated(ctx, g, input.client, dpuDeployment)).To(BeTrue())
 
@@ -117,14 +117,16 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 		g.Expect(dpuServiceNameToApplication).To(HaveLen(1))
 	}).WithTimeout(15 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
-	By("triggering the disruptive upgrade with bad parameters")
+	const expectedDPUServicesOnDisruptiveUpgrade = 2
+
+	By("Triggering the disruptive upgrade with bad parameters")
 	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuServiceConfiguration), dpuServiceConfiguration)).To(Succeed())
 	originalDPUServiceConfiguration := dpuServiceConfiguration.DeepCopy()
 
 	dpuServiceConfiguration.Spec.ServiceConfiguration.HelmChart.Values = &machineryruntime.RawExtension{Raw: []byte(`{"image":{"pullPolicy":"malformedPullPolicy"}}`)}
 	Expect(input.client.Patch(ctx, dpuServiceConfiguration, client.MergeFrom(originalDPUServiceConfiguration))).To(Succeed())
 
-	By("checking that 2 DPUServices and Applications exist and one of them is paused")
+	By(fmt.Sprintf("Checking that %d DPUServices and Applications exist and one of them is paused", expectedDPUServicesOnDisruptiveUpgrade))
 	Eventually(func(g Gomega) {
 		gotDPUServiceList := &dpuservicev1.DPUServiceList{}
 		g.Expect(input.client.List(ctx,
@@ -133,13 +135,13 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 			client.MatchingLabels{
 				"svc.dpu.nvidia.com/owned-by-dpudeployment": fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName()),
 			})).To(Succeed())
-		g.Expect(gotDPUServiceList.Items).To(HaveLen(2))
+		g.Expect(gotDPUServiceList.Items).To(HaveLen(expectedDPUServicesOnDisruptiveUpgrade))
 
-		// Checking that applications exist for the both the DPUServices. This is needed so that the HACK step is stable.
+		// Checking that applications exist for both the DPUServices. This is needed so that the HACK step is stable.
 		gotApplicationList := &argov1.ApplicationList{}
 		g.Expect(input.client.List(ctx, gotApplicationList, client.InNamespace(dpuDeployment.GetNamespace()))).To(Succeed())
 		dpuServiceNameToApplication := getDPUServiceNameToApplication(gotDPUServiceList.Items, gotApplicationList.Items)
-		g.Expect(dpuServiceNameToApplication).To(HaveLen(2))
+		g.Expect(dpuServiceNameToApplication).To(HaveLen(expectedDPUServicesOnDisruptiveUpgrade))
 
 		var isAnyServicePaused bool
 		for _, dpuService := range gotDPUServiceList.Items {
@@ -153,7 +155,7 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 		// We run this test repeatedly to ensure that no service is removed
 	}).WithTimeout(30 * time.Second).MustPassRepeatedly(5).Should(Succeed())
 
-	By("deleting the dpudeployment")
+	By("Deleting the dpudeployment")
 	Expect(input.client.Delete(ctx, dpuDeployment)).To(Succeed())
 
 	// Failed to apply ArgoCD Application deletion can take up to 5 mins based on the current configuration,
@@ -261,7 +263,7 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 		}
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 
-	By("checking that the underlying objects are deleted")
+	By("Checking that the underlying objects are deleted")
 	Eventually(func(g Gomega) {
 		gotDPUSetList := &provisioningv1.DPUSetList{}
 		g.Expect(input.client.List(ctx,
@@ -304,7 +306,7 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 		g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	}).WithTimeout(180 * time.Second).Should(Succeed())
 
-	By("cleanup DPUServiceConfiguration and DPUServiceTemplate")
+	By("Cleanup DPUServiceConfiguration and DPUServiceTemplate")
 	Expect(input.client.Delete(ctx, dpuServiceTemplate)).To(Succeed())
 	Expect(input.client.Delete(ctx, dpuServiceConfiguration)).To(Succeed())
 }
@@ -358,7 +360,7 @@ func VerifyDeploymentUnderlyingObjectsCreated(ctx context.Context, g Gomega, tes
 
 func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInput) {
 	// TODO: Delete DPUSet not owned by DPUDeployment
-	By("delete DPUs and DPUSets and ensure they are deleted for a clean test condition")
+	By("Delete DPUs and DPUSets and ensure they are deleted for a clean test condition")
 
 	Eventually(func(g Gomega) {
 		dpuSetList := &provisioningv1.DPUSetList{}
@@ -379,7 +381,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		// The timeout is so long here because for Zero Trust provisioning takes longer
 	}).WithTimeout(45 * time.Minute).Should(Succeed())
 
-	By("create DPUServiceIPAM to be used by dpuDeployment")
+	By("Create DPUServiceIPAM to be used by dpuDeployment")
 	dpuServiceIPAM := input.ipPoolDPUServiceIPAM.DeepCopy()
 	dpuServiceIPAM.SetLabels(CleanupScope.Suite)
 	dpuServiceIPAM.SetName("dpudeployment-ipam-pool1")
@@ -388,7 +390,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 	dpuServiceIPAM.Spec.NodeSelector = nil
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
-	By("create a DPUDeployment with its dependencies and ensure that the underlying objects are created")
+	By("Create a DPUDeployment with its dependencies and ensure that the underlying objects are created")
 	dpuServiceTemplate := generateDPUServiceTemplate(input, "")
 	useDummyDPUServiceChart(dpuServiceTemplate)
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceTemplate))).To(Succeed())
@@ -473,9 +475,9 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 	}).WithTimeout(180 * time.Second).Should(Succeed())
 
 	serviceInterfaceLabels := map[string]string{}
-	By("verify ServiceInterfaceSet is created in DPF clusters")
+	By("Verify ServiceInterfaceSet is created in DPF clusters")
 	Eventually(func(g Gomega) {
-		//get the DPUServiceInterface owned by DPUDeployment
+		// Get the DPUServiceInterface owned by DPUDeployment
 		dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
 		g.Expect(input.client.List(ctx, dpuServiceInterfaceList,
 			client.MatchingLabels{
@@ -504,7 +506,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		HostRebootScript:    input.HostRebootScript,
 	})
 
-	By(fmt.Sprintf("verify ServiceInterface is created in %d nodes", input.totalDPUs()))
+	By(fmt.Sprintf("Verify ServiceInterface is created in %d nodes", input.totalDPUs()))
 	Eventually(func(g Gomega) {
 		serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
 		g.Expect(dpuClusterClient[0].List(ctx, serviceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
@@ -645,7 +647,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx context.Context, 
 		Expect(gotHostNodeList.Items).To(HaveLen(input.numberOfDPUNodes))
 
 		for _, node := range gotHostNodeList.Items {
-			// Check if node has the unschedulable tain (drain)
+			// Check if node has the unschedulable taint (drain)
 			for _, taint := range node.Spec.Taints {
 				if taint.Key == NodeUnschedulableTaintKey && taint.Effect == corev1.TaintEffectNoSchedule {
 					drainedHostNode = &node
@@ -1034,7 +1036,7 @@ func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Conte
 		Skip("Skip test as there are not exactly 2 nodes")
 	}
 
-	By("getting the existing DPUDeployment")
+	By("Getting the existing DPUDeployment")
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
 	dpuDeployment.SetName("dpf-dpudeployment")
 	dpuDeployment.SetNamespace(dpfOperatorSystemNamespace)
@@ -1042,7 +1044,7 @@ func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Conte
 
 	parentLabel := fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name)
 
-	By("getting the dpuServiceConfiguration for in-cluster service")
+	By("Getting the dpuServiceConfiguration for in-cluster service")
 	dpuServiceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
 	dpuServiceConfiguration.SetName("dpudeployment-example-in-cluster-serviceconfiguration")
 	dpuServiceConfiguration.SetNamespace(dpfOperatorSystemNamespace)
@@ -1051,7 +1053,7 @@ func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Conte
 	dpuDeploymentKey := client.ObjectKeyFromObject(dpuDeployment)
 	expectedVersionKey := fmt.Sprintf("%s-%s", "svc.dpu.nvidia.com/dpuservice-in-cluster-version", digest.Short(digest.FromObjects(dpuDeploymentKey, "example-in-cluster"), 10))
 
-	By("getting the in-cluster DPUService")
+	By("Getting the in-cluster DPUService")
 	dpuServiceList := &dpuservicev1.DPUServiceList{}
 	Expect(input.client.List(ctx, dpuServiceList,
 		client.InNamespace(dpuDeployment.Namespace),
@@ -1063,10 +1065,10 @@ func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Conte
 
 	originalInClusterService := inClusterServices[0].DeepCopy()
 
-	By("getting the target nodes")
+	By("Getting the target nodes")
 	nodesInfo := getTargetNodesAndDPUNodeNames(ctx, input.client, dpuDeployment)
 
-	By("verifying that the in-cluster services is deployed")
+	By("Verifying that the in-cluster service is deployed")
 	Eventually(func(g Gomega) {
 		allNodes := &corev1.NodeList{}
 		g.Expect(input.client.List(ctx, allNodes)).To(Succeed())
@@ -1085,13 +1087,13 @@ func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Conte
 		g.Expect(nodesWithLabel).To(HaveLen(len(nodesInfo.targetNodes)), "expected number of nodes with label to match targeted nodes")
 	}).WithTimeout(15 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 
-	By("capturing old pod UIDs before update")
+	By("Capturing old pod UIDs before update")
 	oldPodUIDs := captureOldPodUIDs(ctx, input.client, dpuDeployment.Namespace, originalInClusterService.Name)
 
-	By("capturing initial NodeEffect condition times from DPUs before update")
+	By("Capturing initial NodeEffect condition times from DPUs before update")
 	initialNodeEffectStates := captureInitialNodeEffectStates(ctx, input.client, nodesInfo.dpuNodeNames)
 
-	By("updating the dpuServiceConfiguration by adding an extra label to trigger disruptive upgrade")
+	By("Updating the dpuServiceConfiguration by adding an extra label to trigger disruptive upgrade")
 	originalDPUServiceConfiguration := dpuServiceConfiguration.DeepCopy()
 	if dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels == nil {
 		dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = make(map[string]string)
@@ -1099,13 +1101,13 @@ func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Conte
 	dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels["test-disruptive-upgrade"] = "true"
 	Expect(input.client.Patch(ctx, dpuServiceConfiguration, client.MergeFrom(originalDPUServiceConfiguration))).To(Succeed())
 
-	By("verifying that a new DPUService is created")
+	By("Verifying that a new DPUService is created")
 	newInClusterService := waitForNewInClusterDPUService(ctx, input.client, dpuDeployment.Namespace, parentLabel, originalInClusterService.Name)
 
-	By("verifying that all target DPUs went through dpuNodeMaintenance (NodeEffectReady completed and NodeEffectRemoved)")
+	By("Verifying that all target DPUs went through dpuNodeMaintenance (NodeEffectReady completed and NodeEffectRemoved)")
 	verifyDPUsCompletedMaintenance(ctx, input.client, nodesInfo.dpuNodeNames, initialNodeEffectStates)
 
-	By("verifying that pods were recreated")
+	By("Verifying that pods were recreated")
 	verifyPodsRecreated(ctx, input.client, dpuDeployment.Namespace, newInClusterService.Name, oldPodUIDs)
 
 	By("Verifying that the DPUDeployment becomes ready")
@@ -1201,8 +1203,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx context.Cont
 	By("Modifying the DPUDeployment ServiceChains by changing ServiceMTU")
 	originalDPUDeployment := dpuDeployment.DeepCopy()
 	// Change the ServiceMTU to trigger a disruptive upgrade
-	newMTU := 1300
-	dpuDeployment.Spec.ServiceChains.Switches[0].ServiceMTU = &newMTU
+	dpuDeployment.Spec.ServiceChains.Switches[0].ServiceMTU = ptr.To(testMTUValue)
 	Expect(input.client.Patch(ctx, dpuDeployment, client.MergeFrom(originalDPUDeployment))).To(Succeed())
 
 	By("Checking that one of the nodes is drained")
@@ -1336,7 +1337,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx context.Cont
 		for _, serviceChain := range serviceChainList.Items {
 			g.Expect(serviceChain.Spec.Switches).To(HaveLen(1))
 			g.Expect(serviceChain.Spec.Switches[0].ServiceMTU).ToNot(BeNil())
-			g.Expect(*serviceChain.Spec.Switches[0].ServiceMTU).To(Equal(1300))
+			g.Expect(*serviceChain.Spec.Switches[0].ServiceMTU).To(Equal(testMTUValue))
 		}
 	}).WithTimeout(5 * time.Minute).Should(Succeed())
 
@@ -1396,8 +1397,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 
 	By("Modifying the DPUDeployment ServiceChains by changing ServiceMTU")
 	originalDPUDeployment := dpuDeployment.DeepCopy()
-	newMTU := 1300
-	dpuDeployment.Spec.ServiceChains.Switches[0].ServiceMTU = &newMTU
+	dpuDeployment.Spec.ServiceChains.Switches[0].ServiceMTU = ptr.To(testMTUValue)
 	Expect(input.client.Patch(ctx, dpuDeployment, client.MergeFrom(originalDPUDeployment))).To(Succeed())
 
 	By("Checking that DPUNodeMaintenance is created with hold annotation set to true")
@@ -1436,7 +1436,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 		// Verify no ServiceChains have the new MTU yet (update hasn't started)
 		for _, serviceChain := range serviceChainList.Items {
 			if serviceChain.Spec.Switches[0].ServiceMTU != nil {
-				g.Expect(*serviceChain.Spec.Switches[0].ServiceMTU).ToNot(Equal(1300), "ServiceChains should not be updated while hold annotation is true")
+				g.Expect(*serviceChain.Spec.Switches[0].ServiceMTU).ToNot(Equal(testMTUValue), "ServiceChains should not be updated while hold annotation is true")
 			}
 		}
 	}).WithTimeout(30 * time.Second).WithPolling(5 * time.Second).Should(Succeed())
@@ -1463,7 +1463,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 			g.Expect(dpuNodeExists).To(BeTrue())
 
 			// Check if this is a new ServiceChain (has the new MTU)
-			hasNewMTU := serviceChain.Spec.Switches[0].ServiceMTU != nil && *serviceChain.Spec.Switches[0].ServiceMTU == 1300
+			hasNewMTU := serviceChain.Spec.Switches[0].ServiceMTU != nil && *serviceChain.Spec.Switches[0].ServiceMTU == testMTUValue
 			serviceChainIsOnDPUUnderNodeEffect := serviceChainDPUNodeName == dpuNodeUnderNodeEffect
 
 			switch {
@@ -1543,7 +1543,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 		for _, serviceChain := range serviceChainList.Items {
 			g.Expect(serviceChain.Spec.Switches).To(HaveLen(1))
 			g.Expect(serviceChain.Spec.Switches[0].ServiceMTU).ToNot(BeNil())
-			g.Expect(*serviceChain.Spec.Switches[0].ServiceMTU).To(Equal(1300))
+			g.Expect(*serviceChain.Spec.Switches[0].ServiceMTU).To(Equal(testMTUValue))
 		}
 	}).WithTimeout(5 * time.Minute).Should(Succeed())
 
@@ -1772,9 +1772,7 @@ func waitForNewInClusterDPUService(ctx context.Context, c client.Client, namespa
 		)).To(Succeed())
 
 		inClusterServices := getInClusterDPUServices(dpuServiceList.Items)
-
-		// During disruptive upgrade, we should have 2 services (old, new)
-		g.Expect(inClusterServices).To(HaveLen(2), "expected 2 in-cluster services during disruptive upgrade")
+		g.Expect(inClusterServices).To(HaveLen(2), "expected old and new in-cluster services during disruptive upgrade")
 
 		// Find the new service (different name from original)
 		for i := range inClusterServices {

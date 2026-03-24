@@ -381,7 +381,7 @@ func (t *Tracker) HandleScopeLifecycle(specReport *ginkgoTypes.SpecReport, hook 
 	// Clean stale resources if flag is set (bypasses all skip checks)
 	// Must run before shouldSkip check to ensure it executes even if suite cleanup is skipped
 	if hook == GinkgoHook.BeforeSuite && t.cleanupFlags.CleanupStale {
-		ginkgo.By("Cleanup: Stale resources (all e2e resources from previous runs)...")
+		ginkgo.By("Cleanup: Stale resources (all e2e resources from previous runs)")
 		t.executeCleanup(globalE2ETestCleanupLabel)
 	}
 
