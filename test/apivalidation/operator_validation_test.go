@@ -45,7 +45,7 @@ var _ = Describe("Operator API Validation", func() {
 	})
 
 	Context("DPFOperatorConfig", func() {
-		Context("validate image configuration mutual exclusivity", func() {
+		Context("Validate image configuration mutual exclusivity", func() {
 			DescribeTable("ProvisioningControllerConfiguration validation",
 				func(legacyImage string, controllerImage string, expectError bool, errorMessage string) {
 					config := getMinimalDPFOperatorConfig(testNs.Name)
@@ -179,7 +179,7 @@ var _ = Describe("Operator API Validation", func() {
 			)
 		})
 
-		Context("validate bfCFGTemplateConfigMap and  mutual exclusivity", func() {
+		Context("Validate bfCFGTemplateConfigMap and mutual exclusivity", func() {
 			DescribeTable("ProvisioningControllerConfiguration bfcfg template validation",
 				func(bfCFGTemplateConfigMap *string, enableDynamic bool, expectError bool, errorMessage string) {
 					config := getMinimalDPFOperatorConfig(testNs.Name)
@@ -194,7 +194,7 @@ var _ = Describe("Operator API Validation", func() {
 			)
 		})
 
-		Context("validate replicas configuration", func() {
+		Context("Validate replicas configuration", func() {
 			DescribeTable("ProvisioningControllerConfiguration replicas validation",
 				func(replicas *int32, expectError bool, errorMessage string) {
 					config := getMinimalDPFOperatorConfig(testNs.Name)

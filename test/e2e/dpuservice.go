@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -36,58 +37,56 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var (
+const (
 	dpuServiceName          = "dpu-01"
 	hostDPUServiceName      = "host-dpu-service"
 	dpuServiceNamespace     = "dpu-test-ns"
-	testNSImagePullSecret   = &corev1.Secret{}
 	dpuServiceInterfaceName = "net1-service"
 )
 
+var testNSImagePullSecret = &corev1.Secret{}
+
 // ValidateDPUServiceCreationAndMirroring creates the DPUService in DPU cluster and host cluster.
 // It verifies all triggered objects are created and ready.
-// Can be used as s test precondition(ex: DPUServiceDeletion test) and as a separate test.
+// Can be used as a test precondition (ex: DPUServiceDeletion test) and as a separate test.
 func ValidateDPUServiceCreationAndMirroring(ctx context.Context, input *systemTestInput) {
-	By("create namespace")
+	By("Create namespace")
 	createTestNamespace(ctx, input.client, dpuServiceNamespace)
 
-	By("create ImagePullSecret for DPUService in user namespace")
+	By("Create ImagePullSecret for DPUService in user namespace")
 	testNSImagePullSecret = generateImagePullSecret(input, dpuServiceNamespace)
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, testNSImagePullSecret))).ToNot(HaveOccurred())
 
-	By("create a DPUServiceInterface")
+	By("Create a DPUServiceInterface")
 	dpuServiceInterface := utils.GenerateDPUObj(dpuServiceInterfaceName, dpuServiceNamespace, input.dpuServiceInterface.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
 
-	By("create a DPUService to be deployed on the DPUCluster")
-	// Create DPUCluster DPUService and check it's correctly reconciled.
+	By("Create a DPUService to be deployed on the DPUCluster")
 	dpuService := utils.GenerateDPUObj(dpuServiceName, dpuServiceNamespace, input.dpuService.DeepCopy())
 	dpuService.Spec.Interfaces = []string{dpuServiceInterfaceName}
 	dpuService.Spec.ServiceID = ptr.To("my-service")
 	Expect(input.client.Create(ctx, dpuService)).To(Succeed())
 
-	By("create a DPUService to be deployed on the host cluster")
-	// Create a host DPUService and check it's correctly reconciled
-	// Read the DPUService from file and create it.
+	By("Create a DPUService to be deployed on the host cluster")
 	hostDPUService := utils.GenerateDPUObj(hostDPUServiceName, dpuServiceNamespace, input.dpuService.DeepCopy())
 	hostDPUService.Spec.DeployInCluster = ptr.To(true)
 	Expect(input.client.Create(ctx, hostDPUService)).To(Succeed())
 
-	By("verify DPUServices and deployments are created in DPUCluster")
+	By("Verify DPUServices and deployments are created in DPUCluster")
 	verifyKubernetesDeploymentCreated(ctx, dpuClusterClient[0], dpuServiceNamespace)
 	verifyImagePullSecretsInCluster(ctx, dpuService.Namespace, testNSImagePullSecret.Name)
 
-	By("verify DPUService is created in the host cluster")
+	By("Verify DPUService is created in the host cluster")
 	verifyKubernetesDeploymentCreated(ctx, input.client, dpuServiceNamespace)
 }
 
 func ValidateDPUServiceMetrics(ctx context.Context, input *systemTestInput) {
-	By("create namespace and  DPUService")
+	By("Create namespace and DPUService")
 	createTestNamespace(ctx, input.client, dpuServiceNamespace)
 	dpuService := utils.GenerateDPUObj("dpu-01-metrics", dpuServiceNamespace, input.dpuService.DeepCopy())
 	Expect(input.client.Create(ctx, dpuService)).To(Succeed())
 
-	By("verify DPUService metrics in KSM")
+	By("Verify DPUService metrics in KSM")
 	expectedMetricsNames := map[string][]string{
 		"dpuservice": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
 	}
@@ -102,12 +101,10 @@ func ValidateDPUServiceDeletion(ctx context.Context, input *systemTestInput) {
 	if input.cleanupFlags.SkipCleanup {
 		Skip("Skip cleanup resources")
 	}
-	dpuServiceNamespace = "dpu-test-ns-delete"
-
-	By("precondition")
+	By("Precondition")
 	ValidateDPUServiceCreationAndMirroring(ctx, input)
 
-	By("pause dpuservice reconciliation")
+	By("Pause dpuservice reconciliation")
 	svc := &dpuservicev1.DPUService{}
 	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpuServiceNamespace, Name: hostDPUServiceName}, svc)).To(Succeed())
 	origSvc := svc.DeepCopy()
@@ -118,10 +115,10 @@ func ValidateDPUServiceDeletion(ctx context.Context, input *systemTestInput) {
 	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpuServiceNamespace, Name: hostDPUServiceName}, svcHost)).To(Succeed())
 	Expect(svcHost.Spec.Paused).NotTo(BeNil())
 
-	By("delete the DPUServices")
+	By("Delete the DPUServices")
 	svc = &dpuservicev1.DPUService{}
 	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpuServiceNamespace, Name: dpuServiceName}, svc)).To(Succeed())
-	//Delete the DPUCluster DPUService.
+	// Delete the DPUCluster DPUService.
 	Expect(input.client.Delete(ctx, svc)).To(Succeed())
 
 	// Delete the host cluster DPUService.
@@ -130,24 +127,24 @@ func ValidateDPUServiceDeletion(ctx context.Context, input *systemTestInput) {
 	Expect(input.client.Delete(ctx, svcHost)).To(Succeed())
 
 	// Verify that the DPUServices are deleted
-	By("verify DPUServices is deleted in the DPU cluster")
+	By("Verify DPUServices is deleted in the DPU cluster")
 	Eventually(func(g Gomega) {
 		g.Expect(input.client.Get(ctx, client.ObjectKey{Namespace: svc.Namespace, Name: svc.Name}, svc)).ToNot(Succeed())
 	}).WithTimeout(600 * time.Second).Should(Succeed())
 
-	By("verify DPUService is not deleted in the host cluster")
+	By("Verify DPUService is not deleted in the host cluster")
 	Eventually(func(g Gomega) {
 		svc = &dpuservicev1.DPUService{}
 		g.Expect(input.client.Get(ctx, client.ObjectKey{Namespace: svcHost.Namespace, Name: svcHost.Name}, svc)).To(Succeed())
 	}).WithTimeout(600 * time.Second).Should(Succeed())
 
-	By("resume dpuservice reconciliation")
+	By("Resume dpuservice reconciliation")
 	origSvc = svc.DeepCopy()
 	svc.Spec.Paused = ptr.To(false)
 	Eventually(input.client.Patch).WithArguments(ctx, svc, client.MergeFrom(origSvc)).Should(Succeed())
 
 	// Verify that the DPUServices are deleted
-	By("verify DPUServices is deleted in the host cluster")
+	By("Verify DPUServices is deleted in the host cluster")
 	Eventually(func(g Gomega) {
 		g.Expect(input.client.Get(ctx, client.ObjectKey{Namespace: svcHost.Namespace, Name: svcHost.Name}, svc)).ToNot(Succeed())
 	}).WithTimeout(600 * time.Second).Should(Succeed())
@@ -172,12 +169,12 @@ func ValidateDPUServiceDeletion(ctx context.Context, input *systemTestInput) {
 }
 
 func ValidateImagePullSecretsSync(ctx context.Context, input *systemTestInput) {
-	dpuServiceNamespace = "dpu-test-ns-image-pull-secrets"
-	By("create namespace, DPUServiceInterface and DPUService ")
-	createTestNamespace(ctx, input.client, dpuServiceNamespace)
+	imagePullSecretsSyncTestNamespace := "dpu-test-ns-image-pull-secrets"
+	By("Create namespace, DPUServiceInterface and DPUService")
+	createTestNamespace(ctx, input.client, imagePullSecretsSyncTestNamespace)
 
-	By("create ImagePullSecret for DPUService in user namespace")
-	testNSImagePullSecret = generateImagePullSecret(input, dpuServiceNamespace)
+	By("Create ImagePullSecret for DPUService in user namespace")
+	testNSImagePullSecret = generateImagePullSecret(input, imagePullSecretsSyncTestNamespace)
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, testNSImagePullSecret))).ToNot(HaveOccurred())
 
 	// Verify that we have the precreated secrets + the new secret in the DPU Cluster.
@@ -209,14 +206,14 @@ func ValidateImagePullSecretsSync(ctx context.Context, input *systemTestInput) {
 }
 
 func ValidateDPUServiceTemplateCreationNoAnnotations(ctx context.Context, input *systemTestInput) {
-	By("creating the DPUServiceTemplate")
+	By("Creating the DPUServiceTemplate")
 	dpuServiceTemplate := utils.GenerateDPUObj(
 		"dpuservice-without-annotations-metrics",
 		input.dpuServiceTemplate.DeepCopy().Namespace,
 		input.dpuServiceTemplate.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceTemplate)).To(Succeed())
 
-	By("checking that status is ready and no versions")
+	By("Checking that status is ready and no versions")
 	Eventually(func(g Gomega) {
 		gotDPUServiceTemplate := &dpuservicev1.DPUServiceTemplate{}
 		g.Expect(input.client.Get(ctx,
@@ -230,12 +227,12 @@ func ValidateDPUServiceTemplateCreationNoAnnotations(ctx context.Context, input 
 
 func VerifyDPUServiceTemplateCreationWithAnnotations(ctx context.Context, input *systemTestInput) {
 
-	By("creating the DPUServiceTemplate")
+	By("Creating the DPUServiceTemplate")
 	dpuServiceTemplate := generateDPUServiceTemplate(input, "with-annotations")
 	useDummyDPUServiceChart(dpuServiceTemplate)
 	Expect(input.client.Create(ctx, dpuServiceTemplate)).To(Succeed())
 
-	By("checking that status is ready and versions are set")
+	By("Checking that status is ready and versions are set")
 	Eventually(func(g Gomega) {
 		gotDPUServiceTemplate := &dpuservicev1.DPUServiceTemplate{}
 		g.Expect(input.client.Get(ctx,
@@ -248,11 +245,11 @@ func VerifyDPUServiceTemplateCreationWithAnnotations(ctx context.Context, input 
 }
 
 func VerifyDPUServiceTemplateMetrics(ctx context.Context, input *systemTestInput) {
-	By("create namespace and DPUServiceTemplate")
+	By("Create namespace and DPUServiceTemplate")
 	dpuServiceTemplate := generateDPUServiceTemplate(input, "-metrics")
 	Expect(input.client.Create(ctx, dpuServiceTemplate)).To(Succeed())
 
-	By("verify DPUServiceTemplate metrics in KSM")
+	By("Verify DPUServiceTemplate metrics in KSM")
 	expectedMetricsNames := map[string][]string{
 		"dpuservicetemplate": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
 	}
@@ -281,13 +278,13 @@ func verifyImagePullSecretsCount(ctx context.Context, c client.Client, namespace
 }
 
 func generateImagePullSecret(input *systemTestInput, dpuServiceNamespace string) *corev1.Secret {
+	labels := maps.Clone(CleanupScope.Suite)
+	labels[dpuservicev1.DPFImagePullSecretLabelKey] = ""
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      input.pullSecretNames[0],
 			Namespace: dpuServiceNamespace,
-			Labels: map[string]string{
-				dpuservicev1.DPFImagePullSecretLabelKey: "",
-			},
+			Labels:    labels,
 		},
 	}
 }

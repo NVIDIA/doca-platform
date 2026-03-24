@@ -127,7 +127,7 @@ func createVtepDPUServiceIPAM(ctx context.Context, input *systemTestInput) {
 	}
 	vtepDpuServiceIPAM := generateVPCDPUObj(vpcutils.VtepIPPoolName, dpfOperatorSystemNamespace, input.dpuServiceIPAMTemplate.DeepCopy(), cleanup.MergeMaps(vpcPrerequisiteScope.CleanupLabels, vpcVtepIPAMLabels))
 	vpcutils.SetVPCDPUServiceIPAM(vtepDpuServiceIPAM, vpcutils.VtepIPPoolSubnet, vpcutils.VtepIPPoolGateway, vpcutils.IPPoolPerNodeCount)
-	By("creating vtep dpu service ipam")
+	By("Creating VTEP DPU service IPAM")
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, vtepDpuServiceIPAM))).ToNot(HaveOccurred())
 }
 
@@ -137,7 +137,7 @@ func createGatewayDPUServiceIPAM(ctx context.Context, input *systemTestInput) {
 	}
 	gatewayDpuServiceIPAM := generateVPCDPUObj(vpcutils.GatewayIPPoolName, dpfOperatorSystemNamespace, input.dpuServiceIPAMTemplate.DeepCopy(), cleanup.MergeMaps(vpcPrerequisiteScope.CleanupLabels, vpcGatewayIPAMLabels))
 	vpcutils.SetVPCDPUServiceIPAM(gatewayDpuServiceIPAM, vpcutils.GatewayIPPoolSubnet, vpcutils.GatewayIPPoolGateway, vpcutils.IPPoolPerNodeCount)
-	By("creating gateway dpu service ipam")
+	By("Creating gateway DPU service IPAM")
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, gatewayDpuServiceIPAM))).ToNot(HaveOccurred())
 }
 
@@ -155,7 +155,7 @@ func createOVNCentralDPUService(ctx context.Context, testClient client.Client, n
 		Version: tag,
 		RepoURL: helmRegistry,
 	}
-	By("creating ovn central service")
+	By("Creating OVN central service")
 	createDPUService(ctx, testClient, vpcutils.OvnCentralService, namespace, dpuService, vpcPrerequisiteScope.CleanupLabels)
 }
 
@@ -167,7 +167,7 @@ func createOVNControllerDPUService(ctx context.Context, testClient client.Client
 		Version: tag,
 		RepoURL: helmRegistry,
 	}
-	By("creating ovn controller service")
+	By("Creating OVN controller service")
 	createDPUService(ctx, testClient, vpcutils.OvnControllerService, namespace, dpuService, vpcPrerequisiteScope.CleanupLabels)
 }
 
@@ -179,7 +179,7 @@ func createVPCOVNControllerDPUService(ctx context.Context, testClient client.Cli
 		Version: tag,
 		RepoURL: helmRegistry,
 	}
-	By("creating vpc ovn controller service")
+	By("Creating VPC OVN controller service")
 	createDPUService(ctx, testClient, vpcutils.VpcOVNControllerService, namespace, dpuService, vpcPrerequisiteScope.CleanupLabels)
 }
 
@@ -219,7 +219,7 @@ func createVPCOVNNodeDPUService(ctx context.Context, testClient client.Client, n
 	Expect(err).NotTo(HaveOccurred())
 	dpuService.Spec.HelmChart.Values.Raw = mergedRaw
 
-	By("creating vpc ovn node service")
+	By("Creating VPC OVN node service")
 	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, dpuService))).To(Succeed())
 }
 
@@ -249,12 +249,12 @@ func createVPCDPUServiceInterface(ctx context.Context, input *systemTestInput, c
 	default:
 		Fail(fmt.Sprintf("invalid interface type: %s", config.Type))
 	}
-	By(fmt.Sprintf("creating %s/%s DPUServiceInterface with interface name %s", config.Name, config.Namespace, config.InterfaceName))
+	By(fmt.Sprintf("Creating %s/%s DPUServiceInterface with interface name %s", config.Name, config.Namespace, config.InterfaceName))
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceInterface))).To(Succeed())
 }
 
 func createVPCPrerequisiteDPUServiceInterfaces(ctx context.Context, input *systemTestInput) {
-	By("creating physical service interface")
+	By("Creating physical service interface")
 	createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 		Name:          vpcutils.PhysicalInterface0,
 		InterfaceName: vpcutils.PhysicalInterface0,
@@ -268,7 +268,7 @@ func createVPCPrerequisiteDPUServiceInterfaces(ctx context.Context, input *syste
 		VirtualNetwork: nil,
 	})
 
-	By("creating ovn ext service interface")
+	By("Creating OVN ext service interface")
 	createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 		Name:          vpcutils.OvnExtPatchName,
 		InterfaceName: vpcutils.OvnExtPatchName,
@@ -310,7 +310,7 @@ func createOrUpdateVPCDPUServiceChain(ctx context.Context, input *systemTestInpu
 		},
 	}
 
-	By("creating or updating vpc ovn service chain")
+	By("Creating or updating VPC OVN service chain")
 	existing := &dpuservicev1.DPUServiceChain{}
 	err := input.client.Get(ctx, client.ObjectKey{Namespace: input.namespace, Name: vpcutils.VpcOVNServiceChain}, existing)
 	if apierrors.IsNotFound(err) {
@@ -353,12 +353,12 @@ func createDPUServiceChainP0ToInterfaceMatchingLabels(ctx context.Context, input
 			},
 		},
 	}
-	By("creating vpc ovn service chain")
+	By("Creating VPC OVN service chain")
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceChain))).To(Succeed())
 }
 
 func getDPUNodesInOrder(ctx context.Context, input *systemTestInput) (corev1.Node, corev1.Node) {
-	By("getting DPU cluster nodes in order")
+	By("Getting DPU cluster nodes in order")
 	worker1, _ := getTwoWorkerNodeNames(ctx, input.client)
 	dpuNodes := getDPUClusterNodes(ctx, dpuClusterClient[0])
 	Expect(dpuNodes).To(HaveLen(2))
@@ -535,7 +535,7 @@ func createDummyDPUService(ctx context.Context, testClient client.Client, namesp
 }
 
 func validateVPCMetrics(ctx context.Context) {
-	By("verify DPUVPC and DPUVirtualNetwork metrics in KSM")
+	By("Verify DPUVPC and DPUVirtualNetwork metrics in KSM")
 	expectedMetricsNames := map[string][]string{
 		"dpuvpc":            {"created", "info", "inter_network_access", "status_conditions", "status_condition_last_transition_time"},
 		"dpuvirtualnetwork": {"created", "info", "externally_routed", "masquerade", "status_conditions", "status_condition_last_transition_time"},

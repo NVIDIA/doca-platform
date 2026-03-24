@@ -59,12 +59,12 @@ func VerifyPlainServiceFunctionChain(ctx context.Context, input *systemTestInput
 	vfIndex := 5
 	setupPlainChainTest(ctx, input, vfIndex)
 
-	By("creating test pods")
+	By("Creating test pods")
 	pod1Config, pod2Config := getPlainChainTestPodConfigs(ctx, input, hostNamespace, vfIndex)
 	netshoot.CreateNadsFromConfig(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 	netshoot.CreateAndWaitForPods(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
-	By("running traffic test between pods")
+	By("Running traffic test between pods")
 	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
 }
 
@@ -80,12 +80,12 @@ func VerifyHBNOnlyServiceFunctionChain(ctx context.Context, input *systemTestInp
 	vfIndex := 3
 	setupHBNOnlyTest(ctx, input, vfIndex)
 
-	By("creating test pods")
+	By("Creating test pods")
 	pod1Config, pod2Config := getHBNOnlyTestPodConfigs(ctx, input, hostNamespace, vfIndex)
 	netshoot.CreateNadsFromConfig(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 	netshoot.CreateAndWaitForPods(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
-	By("running traffic test between pods")
+	By("Running traffic test between pods")
 	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
 }
 
@@ -101,21 +101,21 @@ func VerifyHBNOnlyBadFlowRecovery(ctx context.Context, input *systemTestInput) {
 	vfIndex := 3
 	setupHBNOnlyTest(ctx, input, vfIndex)
 
-	By("creating test pods")
+	By("Creating test pods")
 	pod1Config, pod2Config := getHBNOnlyTestPodConfigs(ctx, input, hostNamespace, vfIndex)
 	netshoot.CreateNadsFromConfig(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 	netshoot.CreateAndWaitForPods(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
-	By("running initial traffic test")
+	By("Running initial traffic test")
 	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
 
-	By("killing hbn pod to test recovery")
-	deleteFirstFoundPodOnDpuCluser(ctx, "doca-hbn", input.namespace)
+	By("Killing HBN pod to test recovery")
+	deleteFirstFoundPodOnDpuCluster(ctx, "doca-hbn", input.namespace)
 
-	By("waiting for hbn service to recover")
+	By("Waiting for HBN service to recover")
 	dpuservice.WaitForDPUServices(ctx, input.client, input.namespace, []string{"doca-hbn"})
 
-	By("running traffic test after recovery")
+	By("Running traffic test after recovery")
 	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
 }
 
@@ -125,7 +125,9 @@ func VerifyServiceMTUOnDPUPods(ctx context.Context, input *systemTestInput) {
 		Skip("Skip test as there are not exactly 2 nodes")
 	}
 
-	mtuTestLowerMTU := 1300
+	const tunnelStabilizationWait = 15 * time.Second
+
+	mtuTestLowerMTU := testMTUValue
 	mtuTestDefaultMTU := 1500
 
 	cfg := &mtuTestConfig{
@@ -141,7 +143,7 @@ func VerifyServiceMTUOnDPUPods(ctx context.Context, input *systemTestInput) {
 
 	setupMTUServiceFunctionChain(ctx, input, mtuTestDefaultMTU, cfg)
 
-	By("waiting for pods to be ready and capturing initial pod names")
+	By("Waiting for pods to be ready and capturing initial pod names")
 	var initialPod1Names, initialPod2Names []string
 	Eventually(func(g Gomega) {
 		serviceConfigs := []struct {
@@ -162,31 +164,32 @@ func VerifyServiceMTUOnDPUPods(ctx context.Context, input *systemTestInput) {
 		}
 	}).WithTimeout(10 * time.Minute).Should(Succeed())
 
-	By(fmt.Sprintf("testing inter-node (pod1->pod2) and intra-node (pod1->pod1) ping connectivity with MTU %d", mtuTestDefaultMTU))
+	By(fmt.Sprintf("Testing inter-node (pod1->pod2) and intra-node (pod1->pod1) ping connectivity with MTU %d", mtuTestDefaultMTU))
 	testPingBetweenPods(ctx, input.namespace, mtuTestDefaultMTU, cfg)
 
-	By("testing serviceMTU change triggers pod recreation")
+	By("Testing serviceMTU change triggers pod recreation")
 	updatedPod1Names, updatedPod2Names := updateServiceMTUAndValidatePodRestart(ctx, input, input.namespace, initialPod1Names, initialPod2Names, mtuTestLowerMTU, cfg)
 
-	By("waiting for tunnel connection to stabilize after pod recreation")
-	time.Sleep(15 * time.Second)
+	By("Waiting for tunnel connection to stabilize after pod recreation")
+	// TODO: replace fixed delay with proper tunnel re-establishment validation
+	time.Sleep(tunnelStabilizationWait)
 
-	By(fmt.Sprintf("testing inter-node (pod1->pod2) and intra-node (pod1->pod1) ping connectivity with MTU %d", mtuTestLowerMTU))
+	By(fmt.Sprintf("Testing inter-node (pod1->pod2) and intra-node (pod1->pod1) ping connectivity with MTU %d", mtuTestLowerMTU))
 	testPingBetweenPods(ctx, input.namespace, mtuTestLowerMTU, cfg)
 
 	By("Reverting the serviceMTU to the original value, and validating ping connectivity")
 	updateServiceMTUAndValidatePodRestart(ctx, input, input.namespace, updatedPod1Names, updatedPod2Names, mtuTestDefaultMTU, cfg)
 
-	By("waiting for tunnel connection to stabilize after pod recreation")
-	time.Sleep(15 * time.Second)
+	By("Waiting for tunnel connection to stabilize after pod recreation")
+	time.Sleep(tunnelStabilizationWait)
 
-	By(fmt.Sprintf("testing inter-node (pod1->pod2) and intra-node (pod1->pod1) ping connectivity with MTU %d", mtuTestDefaultMTU))
+	By(fmt.Sprintf("Testing inter-node (pod1->pod2) and intra-node (pod1->pod1) ping connectivity with MTU %d", mtuTestDefaultMTU))
 	testPingBetweenPods(ctx, input.namespace, mtuTestDefaultMTU, cfg)
 }
 
 // updateServiceMTUAndValidatePodRestart tests that changing the serviceMTU triggers pod recreation
 func updateServiceMTUAndValidatePodRestart(ctx context.Context, input *systemTestInput, namespace string, initialPod1Names, initialPod2Names []string, newMTU int, cfg *mtuTestConfig) ([]string, []string) {
-	By("updating serviceMTU in DPUServiceChain")
+	By("Updating serviceMTU in DPUServiceChain")
 	// Use Patch instead of Update to avoid conflicts with concurrent controller updates
 	dpuServiceChain := &dpuservicev1.DPUServiceChain{}
 	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: cfg.chainName}, dpuServiceChain)).To(Succeed())
@@ -194,7 +197,7 @@ func updateServiceMTUAndValidatePodRestart(ctx context.Context, input *systemTes
 	dpuServiceChain.Spec.Template.Spec.Template.Spec.Switches[0].ServiceMTU = ptr.To(newMTU)
 	Expect(input.client.Patch(ctx, dpuServiceChain, client.MergeFrom(originalDpuServiceChain))).To(Succeed())
 
-	By("waiting for pods to be recreated with new names and be running")
+	By("Waiting for pods to be recreated with new names and be running")
 	var newPod1Names, newPod2Names []string
 	Eventually(func(g Gomega) {
 		serviceConfigs := []struct {
@@ -357,17 +360,17 @@ func setupPlainChainTest(ctx context.Context, input *systemTestInput, vfIndex in
 		},
 	}
 
-	By("wait for prerequisite services")
+	By("Wait for prerequisite services")
 	dpuservice.WaitForDPUServices(ctx, input.client, input.namespace, []string{"sfc-controller"})
 
-	By("create and wait for dpu service interfaces")
+	By("Create and wait for DPU service interfaces")
 	createAndWaitForInterfaces(ctx, input.client, input.dpuServiceInterfaceTemplate, interfaceConfigs)
 
-	By("create plain dpu service chain")
+	By("Create plain DPU service chain")
 	dpuServiceChain := utils.GenerateDPUObj("netshoot-to-p0", input.namespace, input.dpuServiceChainTemplate.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceChain)).To(Succeed())
 
-	By("verify underlying DPU objects are ready")
+	By("Verify underlying DPU objects are ready")
 	dpuservice.VerifyUnderlyingDPUObjectsReady(ctx, dpuClusterClient[0], input.namespace, interfaceConfigs, []string{"netshoot-to-p0"})
 }
 
@@ -496,24 +499,24 @@ func setupHBNOnlyTest(ctx context.Context, input *systemTestInput, vfIndex int) 
 		},
 	}
 
-	By("wait for prerequisite services")
+	By("Wait for prerequisite services")
 	dpuservice.WaitForDPUServices(ctx, input.client, input.namespace, []string{"sfc-controller"})
 
-	By("create and wait for dpu service interfaces")
+	By("Create and wait for DPU service interfaces")
 	createAndWaitForInterfaces(ctx, input.client, input.dpuServiceInterfaceTemplate, interfaceConfigs)
 
-	By("create hbn only service chains")
+	By("Create HBN only service chains")
 	createHBNServiceChains(ctx, input.client, input.namespace, vfIndex, input.dpuServiceChainTemplate)
 
-	By("create hbn ipams")
+	By("Create HBN IPAMs")
 	createHBNIPAMs(ctx, input.client, input.namespace, input.dpuServiceIPAMTemplate, ipamConfigs)
 
-	By("create and wait for hbn service")
+	By("Create and wait for HBN service")
 	node1InDPUCluster, node2InDPUCluster := getDPUClusterNodesInOrder(ctx, input.client, dpuClusterClient[0])
 	createHBNService(ctx, input.client, node1InDPUCluster, node2InDPUCluster, input.namespace, input.dpuServiceHBN)
 	dpuservice.WaitForDPUServices(ctx, input.client, input.namespace, []string{"doca-hbn"})
 
-	By("verify underlying ServiceChain and ServiceInterface objects are ready")
+	By("Verify underlying ServiceChain and ServiceInterface objects are ready")
 	dpuservice.VerifyUnderlyingDPUObjectsReady(ctx, dpuClusterClient[0], input.namespace, interfaceConfigs, []string{"hbn-to-fabric", "host-to-hbn"})
 }
 
@@ -558,8 +561,8 @@ func getDPUClusterNodesInOrder(ctx context.Context, client client.Client, dpuClu
 	}
 }
 
-// deleteFirstFoundPodOnDpuCluser deletes the first pod that matches the substring from the DPU cluster
-func deleteFirstFoundPodOnDpuCluser(ctx context.Context, podSubstrNameToDelete string, namespace string) {
+// deleteFirstFoundPodOnDpuCluster deletes the first pod matching the substring from the DPU cluster
+func deleteFirstFoundPodOnDpuCluster(ctx context.Context, podSubstrNameToDelete string, namespace string) {
 	pods := &corev1.PodList{}
 	deletedPodName := ""
 	Expect(dpuClusterClient[0].List(ctx, pods, client.InNamespace(namespace))).To(Succeed())
@@ -629,10 +632,10 @@ func createHBNIPAMs(ctx context.Context, client client.Client, namespace string,
 }
 
 func setupMTUServiceFunctionChain(ctx context.Context, input *systemTestInput, mtu int, cfg *mtuTestConfig) {
-	By("wait for prerequisite services")
+	By("Wait for prerequisite services")
 	dpuservice.WaitForDPUServices(ctx, input.client, input.namespace, []string{"sfc-controller"})
 
-	By("create dpu service interfaces for service function")
+	By("Create DPU service interfaces for service function")
 	interfaceConfigs := []dpuservice.TestDPUServiceInterfaceConfig{
 		{
 			Name:          cfg.physicalInterfacePrefix,
@@ -660,10 +663,10 @@ func setupMTUServiceFunctionChain(ctx context.Context, input *systemTestInput, m
 		})
 	}
 
-	By("create and wait for dpu service interfaces")
+	By("Create and wait for DPU service interfaces")
 	createAndWaitForInterfaces(ctx, input.client, input.dpuServiceInterfaceTemplate, interfaceConfigs)
 
-	By("create ipam for service function")
+	By("Create IPAM for service function")
 	dpuServiceIPAM := utils.GenerateDPUObj(cfg.subnetPoolName, input.namespace, input.dpuServiceIPAMTemplate.DeepCopy())
 	dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
 		Subnet:         "10.44.44.0/24",
@@ -675,19 +678,19 @@ func setupMTUServiceFunctionChain(ctx context.Context, input *systemTestInput, m
 	}
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
-	By("create DPUServiceNAD for automatic resource injection")
+	By("Create DPUServiceNAD for automatic resource injection")
 	dpuServiceNAD := utils.GenerateDPUObj(cfg.nadName, input.namespace, input.dpuServiceNAD.DeepCopy())
 	dpuServiceNAD.Spec.ServiceMTU = mtu
 	Expect(input.client.Create(ctx, dpuServiceNAD)).To(Succeed())
 
-	By("create netshoot DPU services")
+	By("Create netshoot DPU services")
 	for _, serviceID := range []string{cfg.service1ID, cfg.service2ID} {
 		dpuService := utils.GenerateDPUObj(serviceID, input.namespace, input.dpuService.DeepCopy())
 		configureNetshootDPUService(dpuService, serviceID)
 		Expect(input.client.Create(ctx, dpuService)).To(Succeed())
 	}
 
-	By("create dpu service chain for service function")
+	By("Create DPU service chain for service function")
 	dpuServiceChain := utils.GenerateDPUObj(cfg.chainName, input.namespace, input.dpuServiceChainTemplate.DeepCopy())
 	dpuServiceChain.Spec.Template.Spec.Template.Spec.Switches = []dpuservicev1.Switch{
 		{
@@ -731,7 +734,7 @@ func setupMTUServiceFunctionChain(ctx context.Context, input *systemTestInput, m
 	}
 	Expect(input.client.Create(ctx, dpuServiceChain)).To(Succeed())
 
-	By("verify underlying DPU objects are ready")
+	By("Verify underlying DPU objects are ready")
 	dpuservice.VerifyUnderlyingDPUObjectsReady(ctx, dpuClusterClient[0], input.namespace, interfaceConfigs, []string{cfg.chainName})
 }
 

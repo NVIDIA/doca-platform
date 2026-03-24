@@ -87,55 +87,56 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 	// This is the default interface name for the VFs
 	vfDefaultInterfaceName := "net1"
 
-	Context("pre-requisite services and objects", Labels{Domain.RequiresNodes}, Ordered, func() {
-		It("create dpu vpc ovn vtep DPUServiceIPAM", func() {
+	Context("Pre-requisite services and objects", Labels{Domain.RequiresNodes}, Ordered, func() {
+		It("create DPU VPC OVN VTEP DPUServiceIPAM", func() {
 			createVtepDPUServiceIPAM(ctx, input)
 		})
 
-		It("create dpu vpc ovn gateway DPUServiceIPAM", func() {
+		It("create DPU VPC OVN gateway DPUServiceIPAM", func() {
 			createGatewayDPUServiceIPAM(ctx, input)
 		})
 
-		It("create dpu vpc ovn central DPUService", func() {
+		It("create DPU VPC OVN central DPUService", func() {
 			createOVNCentralDPUService(ctx, input.client, dpfOperatorSystemNamespace, vpcOvnInput.dpuServiceOVNCentral)
 		})
 
-		It("create dpu ovn controller service", func() {
+		It("create DPU OVN controller service", func() {
 			createOVNControllerDPUService(ctx, input.client, dpfOperatorSystemNamespace, vpcOvnInput.dpuServiceOVNController)
 		})
 
-		It("create dpu vpc ovn controller service", func() {
+		It("create DPU VPC OVN controller service", func() {
 			createVPCOVNControllerDPUService(ctx, input.client, dpfOperatorSystemNamespace, vpcOvnInput.dpuServiceVPCOVNController)
 		})
 
-		It("create dpu vpc ovn node service", func() {
+		It("create DPU VPC OVN node service", func() {
 			createVPCOVNNodeDPUService(ctx, input.client, dpfOperatorSystemNamespace, vpcOvnInput.dpuServiceVPCOVNNode)
 		})
 
-		It("wait for pre-requisite dpu services to be ready", func() {
+		It("wait for pre-requisite DPU services to be ready", func() {
 			dpuservice.WaitForDPUServices(ctx, input.client, dpfOperatorSystemNamespace, []string{"ovn-central", "ovn-controller", "vpc-ovn-controller", "vpc-ovn-node"})
 		})
 
-		It("create dpu service interfaces", func() {
+		It("create DPU service interfaces", func() {
 			createVPCPrerequisiteDPUServiceInterfaces(ctx, input)
 		})
 
-		It("wait for dpu service interfaces to be ready", func() {
+		It("wait for DPU service interfaces to be ready", func() {
 			dpuServiceInterfaceNames := []string{vpcutils.PhysicalInterface0, vpcutils.OvnExtPatchName}
 			dpuservice.WaitForDPUServiceInterfacesReady(ctx, input.client, dpuClusterClient[0], dpuServiceInterfaceNames, dpfOperatorSystemNamespace)
 		})
 
-		It("create dpu service chain", func() {
+		It("create DPU service chain", func() {
 			createOrUpdateVPCDPUServiceChain(ctx, input, nil)
 		})
 
-		It("wait for dpu service chain to be ready", func() {
+		It("wait for DPU service chain to be ready", func() {
 			dpuservice.WaitForDPUServiceChainsReady(ctx, input.client, dpuClusterClient[0], []string{vpcutils.VpcOVNServiceChain}, dpfOperatorSystemNamespace, vpcutils.DefaultTimeout)
 		})
 
 		It("create dhcp daemon", func() {
 			// This is mainly for testing VPC VFs with pods on the Management cluster
 			// where we need a dhcp client request to OVN overlay network
+			vpcOvnInput.dhcpDaemonSet.SetLabels(cleanup.MergeMaps(vpcOvnInput.dhcpDaemonSet.GetLabels(), vpcPrerequisiteScope.CleanupLabels))
 			Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, vpcOvnInput.dhcpDaemonSet))).To(Succeed())
 		})
 
@@ -143,7 +144,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			waitForDHCPDaemonPodsReady(ctx, input.client, vpcOvnInput)
 		})
 
-		It("get dpu nodes", func() {
+		It("get DPU nodes", func() {
 			dpuNode1, dpuNode2 = getDPUNodesInOrder(ctx, input)
 			Expect(dpuNode1.Name).ToNot(BeEmpty())
 			Expect(dpuNode2.Name).ToNot(BeEmpty())
@@ -174,7 +175,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 	hostPf0Vf2 := "enp8s0f0v2"
 	hostPf0Vf3 := "enp8s0f0v3"
 
-	Context("single virtual network, same and cross node traffic", Labels{Domain.RequiresNodes}, Ordered, func() {
+	Context("Single virtual network, same and cross node traffic", Labels{Domain.RequiresNodes}, Ordered, func() {
 
 		var (
 			pf0vf2Worker1MacAddress string
@@ -202,7 +203,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			cleanupDPUClusterNodeLabels(ctx)
 		})
 
-		It("label dpu nodes with tenant and tenant-node labels", func() {
+		It("label DPU nodes with tenant and tenant-node labels", func() {
 			labelDPUNodesWithTenantAndTenantNode(ctx, dpuClusterClient[0], dpuNode1, dpuNode2, defaultTenant, defaultTenant)
 		})
 
@@ -304,7 +305,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			pf0vf3Worker1MacAddress = pf0vf3Worker1MacAddressesMap[dpuNode1.Name]
 		})
 
-		//Note: This is a workaround for testing to avoid rebooting the hosts.
+		// Note: This is a workaround for testing to avoid rebooting the hosts.
 		//  	MAC addresses will be set as part of the BFB, then when the host boots up, the mac address will be set.
 		It("set host VF MAC addresses", func() {
 			workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.client)
@@ -384,7 +385,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 		})
 	})
 
-	Context("two virtual networks, same and cross node traffic", Labels{Domain.RequiresNodes}, Ordered, func() {
+	Context("Two virtual networks, same and cross node traffic", Labels{Domain.RequiresNodes}, Ordered, func() {
 
 		var (
 			pf0vf2Worker1MacAddress string
@@ -412,7 +413,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			cleanupDPUClusterNodeLabels(ctx)
 		})
 
-		It("label dpu nodes with tenant and tenant-node labels", func() {
+		It("label DPU nodes with tenant and tenant-node labels", func() {
 			labelDPUNodesWithTenantAndTenantNode(ctx, dpuClusterClient[0], dpuNode1, dpuNode2, defaultTenant, defaultTenant)
 		})
 
@@ -517,7 +518,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			pf0vf3Worker1MacAddress = pf0vf3Worker1MacAddressesMap[dpuNode1.Name]
 		})
 
-		//Note: This is a workaround for testing to avoid rebooting the hosts.
+		// Note: This is a workaround for testing to avoid rebooting the hosts.
 		//  	MAC addresses will be set as part of the BFB, then when the host boots up, the mac address will be set.
 		It("set host VF MAC addresses", func() {
 			workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.client)
@@ -597,7 +598,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 		})
 	})
 
-	Context("different VPCs", Labels{Domain.RequiresNodes}, Ordered, func() {
+	Context("Different VPCs", Labels{Domain.RequiresNodes}, Ordered, func() {
 
 		var (
 			pf0vf2Worker1MacAddress string
@@ -627,7 +628,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			cleanupDPUClusterNodeLabels(ctx)
 		})
 
-		It("label dpu nodes with tenant and tenant-node labels", func() {
+		It("label DPU nodes with tenant and tenant-node labels", func() {
 			labelDPUNodesWithTenantAndTenantNode(ctx, dpuClusterClient[0], dpuNode1, dpuNode2, defaultTenant, alternateTenant)
 		})
 
@@ -736,7 +737,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			Expect(pf0vf3Worker2MacAddress).ToNot(BeEmpty())
 		})
 
-		//Note: This is a workaround for testing to avoid rebooting the hosts.
+		// Note: This is a workaround for testing to avoid rebooting the hosts.
 		//  	MAC addresses will be set as part of the BFB, then when the host boots up, the mac address will be set.
 		It("set host VF MAC addresses", func() {
 			workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.client)
@@ -795,7 +796,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			Expect(pod3IP).ToNot(BeEmpty())
 		})
 
-		It("verify netshoot pods within the same vpc can ping each other", func() {
+		It("verify netshoot pods within the same VPC can ping each other", func() {
 			netshoot.AssertPingSuccess(&hostClusterRESTClient, &input.restConfig, vpcTrafficTestNS, podName2, pod3IP)
 			netshoot.AssertPingSuccess(&hostClusterRESTClient, &input.restConfig, vpcTrafficTestNS, podName3, pod2IP)
 		})
@@ -850,7 +851,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			cleanupDPUClusterNodeLabels(ctx)
 		})
 
-		It("label dpu nodes with tenant and tenant-node labels", func() {
+		It("label DPU nodes with tenant and tenant-node labels", func() {
 			labelDPUNodesWithTenantAndTenantNode(ctx, dpuClusterClient[0], dpuNode1, dpuNode2, defaultTenant, defaultTenant)
 		})
 
@@ -944,7 +945,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			Expect(pf0vf2Worker2MacAddress).ToNot(BeEmpty())
 		})
 
-		//Note: This is a workaround for testing to avoid rebooting the hosts.
+		// Note: This is a workaround for testing to avoid rebooting the hosts.
 		//  	MAC addresses will be set as part of the BFB, then when the host boots up, the mac address will be set.
 		It("set host VF MAC addresses", func() {
 			hostWorkerNode1IP := GetNodeInternalIP(ctx, input.client, hostWorkerNode1)
@@ -1020,22 +1021,22 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 		It("verify netshoot vfs can ping sf pods on same and cross nodes", func() {
 
-			By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName1, hostWorkerNode1, sfPods[0].Name, sfPods[0].Spec.NodeName))
+			By(fmt.Sprintf("Pinging from pod %s on %s node to Service pod %s on node %s", podName1, hostWorkerNode1, sfPods[0].Name, sfPods[0].Spec.NodeName))
 			netshoot.AssertPingSuccess(&hostClusterRESTClient, &input.restConfig, vpcTrafficTestNS, podName1, pod1SFIP)
 
-			By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName1, hostWorkerNode1, sfPods[1].Name, sfPods[1].Spec.NodeName))
+			By(fmt.Sprintf("Pinging from pod %s on %s node to Service pod %s on node %s", podName1, hostWorkerNode1, sfPods[1].Name, sfPods[1].Spec.NodeName))
 			netshoot.AssertPingSuccess(&hostClusterRESTClient, &input.restConfig, vpcTrafficTestNS, podName1, pod2SFIP)
 
-			By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName2, hostWorkerNode2, sfPods[0].Name, sfPods[0].Spec.NodeName))
+			By(fmt.Sprintf("Pinging from pod %s on %s node to Service pod %s on node %s", podName2, hostWorkerNode2, sfPods[0].Name, sfPods[0].Spec.NodeName))
 			netshoot.AssertPingSuccess(&hostClusterRESTClient, &input.restConfig, vpcTrafficTestNS, podName2, pod1SFIP)
 
-			By(fmt.Sprintf("pinging from pod %s on %s node to Service pod %s on node %s", podName2, hostWorkerNode2, sfPods[1].Name, sfPods[1].Spec.NodeName))
+			By(fmt.Sprintf("Pinging from pod %s on %s node to Service pod %s on node %s", podName2, hostWorkerNode2, sfPods[1].Name, sfPods[1].Spec.NodeName))
 			netshoot.AssertPingSuccess(&hostClusterRESTClient, &input.restConfig, vpcTrafficTestNS, podName2, pod2SFIP)
 		})
 	})
 
-	// Note: this Context should always run last as it modifies VPC prerequiesites DPUServiceChain
-	Context("virtual network to external network traffic ", Labels{Domain.RequiresNodes}, Ordered, func() {
+	// Note: this Context should always run last as it modifies VPC prerequisites DPUServiceChain
+	Context("Virtual network to external network traffic", Labels{Domain.RequiresNodes}, Ordered, func() {
 
 		var (
 			pf0vf2Worker1MacAddress string
@@ -1064,7 +1065,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			cleanupDPUClusterNodeLabels(ctx)
 		})
 
-		It("label dpu nodes with tenant and tenant-node labels", func() {
+		It("label DPU nodes with tenant and tenant-node labels", func() {
 			labelDPUNodesWithTenantAndTenantNode(ctx, dpuClusterClient[0], dpuNode1, dpuNode2, defaultTenant, "")
 		})
 
@@ -1125,15 +1126,15 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			dpuservice.WaitForDPUServiceInterfacesReady(ctx, input.client, dpuClusterClient[0], dpuServiceInterfaceNames, dpfOperatorSystemNamespace)
 		})
 
-		It("create dpu service chain on second worker node for external network traffic", func() {
+		It("create DPU service chain on second worker node for external network traffic", func() {
 			createDPUServiceChainP0ToInterfaceMatchingLabels(ctx, input, p0ToPf0Vf7Gw, pf0vf7Worker2Labels, &dpuNode2.Name, vpcOvnContextScope.CleanupLabels)
 		})
 
-		It("reconfigure p0 to ovn vtep external patch port dpu service chain to only exist on first node", func() {
+		It("reconfigure p0 to OVN VTEP external patch port DPU service chain to only exist on first node", func() {
 			createOrUpdateVPCDPUServiceChain(ctx, input, &dpuNode1.Name)
 		})
 
-		It("wait for dpu service chains to be ready", func() {
+		It("wait for DPU service chains to be ready", func() {
 			dpuservice.WaitForDPUServiceChainsReady(ctx, input.client, dpuClusterClient[0], []string{p0ToPf0Vf7Gw, vpcutils.VpcOVNServiceChain}, dpfOperatorSystemNamespace, vpcutils.LongTimeout)
 		})
 
@@ -1147,7 +1148,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			pf0vf2Worker1MacAddress = pf0vf2Worker1MacAddressesMap[dpuNode1.Name]
 		})
 
-		//Note: This is a workaround for testing to avoid rebooting the hosts.
+		// Note: This is a workaround for testing to avoid rebooting the hosts.
 		//  	MAC addresses will be set as part of the BFB, then when the host boots up, the mac address will be set.
 		It("set host VF MAC addresses", func() {
 			workerNode1, _ := getTwoWorkerNodeNames(ctx, input.client)
@@ -1201,7 +1202,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, vpcTrafficTestNS, podName1, podName2, pod2IP)
 		})
 
-		It("revert p0 to ovn vtep external patch port dpu service chain to its original configuration", func() {
+		It("revert p0 to OVN VTEP external patch port DPU service chain to its original configuration", func() {
 			createOrUpdateVPCDPUServiceChain(ctx, input, nil)
 			dpuservice.WaitForDPUServiceChainsReady(ctx, input.client, dpuClusterClient[0], []string{vpcutils.VpcOVNServiceChain}, dpfOperatorSystemNamespace, vpcutils.LongTimeout)
 		})

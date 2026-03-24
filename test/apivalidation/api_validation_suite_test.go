@@ -53,7 +53,7 @@ func TestAPIs(t *testing.T) {
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
-	By("bootstrapping test environment")
+	By("Bootstrapping test environment")
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "..", "deploy", "charts", "dpf-operator", "templates", "crds"),
@@ -61,7 +61,7 @@ var _ = BeforeSuite(func() {
 		ErrorIfCRDPathMissing: true,
 
 		// The BinaryAssetsDirectory is only required if you want to run the tests directly
-		// without call the makefile target test. If not informed it will look for the
+		// without calling the makefile target test. If not informed it will look for the
 		// default path defined in controller-runtime which is /usr/local/kubebuilder/.
 		// Note that you must have the required binaries setup under the bin directory to perform
 		// the tests directly. When we run make test it will be setup and used automatically.
@@ -96,7 +96,7 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
-	By("tearing down the test environment")
+	By("Tearing down the test environment")
 	if testCancelFunc != nil {
 		testCancelFunc()
 	}

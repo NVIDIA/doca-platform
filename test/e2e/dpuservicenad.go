@@ -105,7 +105,7 @@ func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *systemTestIn
 }
 
 func ValidateDPUServiceNADMetrics(ctx context.Context) {
-	By("verify DPUServiceNAD metrics in KSM")
+	By("Verify DPUServiceNAD metrics in KSM")
 	expectedMetricsNames := map[string][]string{
 		"dpuservicenad": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
 	}
@@ -218,7 +218,7 @@ func VerifyDPUPodToPodRDMATraffic(ctx context.Context, input *systemTestInput) {
 	By("Creating the objects in the host cluster")
 	setupDPUPodToPodRDMATrafficTest(ctx, input)
 
-	By("Getting the pods in the dpu cluster")
+	By("Getting the pods in the DPU cluster")
 	pod1, pod2 := get2DPUServicePods(ctx, input.namespace, "dummydpuservice-rdma")
 	// Validate that IPs are available for both pods
 	podIP1 := getPodIPForInterface(Default, pod1, "app_rdma_if")
@@ -261,7 +261,7 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 	}
 	poolLabels := map[string]string{"svc.dpu.nvidia.com/pool": "dummydpuservice-rdma"}
 
-	By("Create and wait for dpu service interfaces")
+	By("Create and wait for DPU service interfaces")
 	createAndWaitForInterfaces(ctx, input.client, input.dpuServiceInterfaceTemplate, interfaceConfigs)
 
 	By("Create the chain between the workload pod and p0")
