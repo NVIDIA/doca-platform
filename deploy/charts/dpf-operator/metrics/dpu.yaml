@@ -28,18 +28,51 @@
         type: Info
         info:
           labelsFromPath:
+            dpunode_name:
+              - spec
+              - dpuNodeName
+            dpudevice_name:
+              - spec
+              - dpuDeviceName
+            dpf_version:
+              - status
+              - dpfVersion
             bfb_version:
               - status
               - bfbVersion
             pci_device:
               - status
               - pciDevice
-            firmware:
+            firmware_bmc:
               - status
               - firmware
+              - bmc
+            firmware_nic:
+              - status
+              - firmware
+              - nic
+            firmware_uefi:
+              - status
+              - firmware
+              - uefi
+            dpu_type:
+              - status
+              - dpuType
+            dpu_mode:
+              - status
+              - dpuMode
             node_name:
               - spec
               - nodeName
+    - name: required_reset
+      help: Whether the DPU requires a reset.
+      each:
+        type: Gauge
+        gauge:
+          nilIsZero: true
+          path:
+            - status
+            - requiredReset
     - name: status_phase
       help: The DPUs current phase.
       each:
@@ -47,11 +80,21 @@
           labelName: phase
           list:
             - Initializing
-            - Node Effect
             - Pending
-            - DMSDeployment
+            - Config FW Parameters
+            - Prepare BFB
+            - Node Effect
+            - Initialize Interface
             - OS Installing
+            - DPU Config
             - DPU Cluster Config
+            - Host Network Configuration
+            - Node Effect Removal
+            - Ready
+            - Error
+            - Deleting
+            - Rebooting
+            - Perform ARM Force Restart
           path:
             - status
             - phase
@@ -121,6 +164,42 @@
           path:
             - status
             - operationalConditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge
+    - name: agent_conditions
+      help: The agent condition of a DPU.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - agentStatus
+            - conditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: agent_condition_last_transition_time
+      help: The agent condition last transition time of a DPU.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - agentStatus
+            - conditions
           valueFrom:
             - lastTransitionTime
         type: Gauge
