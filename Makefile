@@ -72,9 +72,6 @@ GO_TEST_ARGS ?= -race -ldflags=-linkmode=internal
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-# Contains all image references we expect to push.
-ALL_CONTAINER_IMAGES ?= $(shell awk '/Image:/{print $$2}' < $(RELEASE_FILE))
-
 ##@ General
 
 # The help target prints out all targets with their descriptions organized
@@ -1000,11 +997,6 @@ verify-manifest-storage-dpu-doca-snap: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) 
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-doca-snap-$(TAG).yaml" \
 	  MANIFEST_NAME="storage-dpu-doca-snap" \
 	  hack/scripts/validate-manifest-checkov.sh
-
-.PHONY: verify-container-images
-verify-container-images: generate-manifests-release-defaults $(TRIVY) ## Verify container images
-	$Q TRIVY=$(TRIVY) hack/scripts/verify-container-images.sh \
-	 $(ALL_CONTAINER_IMAGES)
 
 .PHONY: lint-helm
 lint-helm: lint-helm-dpu-networking lint-helm-dummydpuservice lint-helm-storage
