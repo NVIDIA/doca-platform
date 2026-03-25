@@ -35,6 +35,9 @@
               - spec
               - provisioningConfiguration
               - dmsTimeout
+            version:
+              - status
+              - version
     - name: paused
       help: Whether the DPU is paused and any of its resources will not be processed by the controllers.
       each:
