@@ -24,33 +24,15 @@ spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
       affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchExpressions:
-                    - key: name
-                      operator: In
-                      values:
-                        - controller
-                topologyKey: "kubernetes.io/hostname"
         nodeAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 1
-              preference:
-                matchExpressions:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
                   - key: node-role.kubernetes.io/master
-                    operator: In
-                    values:
-                      - ""
-            - weight: 1
-              preference:
-                matchExpressions:
+                    operator: Exists
+              - matchExpressions:
                   - key: node-role.kubernetes.io/control-plane
-                    operator: In
-                    values:
-                      - ""
+                    operator: Exists
       tolerations:
         - key: node-role.kubernetes.io/master
           operator: Exists
