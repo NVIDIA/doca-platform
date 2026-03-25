@@ -58,19 +58,17 @@ describe_all() {
 }
 
 wait_for_dpus() {
-	echo "Waiting for DPUs to be ready..."
-	kubectl wait \
-		--for=condition=ready \
-		--namespace "${NAMESPACE}" \
-		dpu --all \
-		--timeout=30m
+	echo "Waiting for DPUs to be installed..."
+	kubectl wait --namespace "${NAMESPACE}" --timeout=30m dpu --all \
+		--for=condition=OSInstalled
+
+	echo "Waiting for DPUs to join the cluster..."
+	kubectl wait --namespace "${NAMESPACE}" --timeout=20m dpu --all \
+		--for=condition=DPUClusterReady
 
 	echo "Waiting for DPUs to be operationally ready..."
-	kubectl wait \
-		--for='jsonpath={.status.operationalConditions[?(@.type=="OperationalReady")].status}=True' \
-		--namespace "${NAMESPACE}" \
-		dpu --all \
-		--timeout=30m
+	kubectl wait --namespace "${NAMESPACE}" --timeout=20m dpu --all \
+		--for='jsonpath={.status.operationalConditions[?(@.type=="OperationalReady")].status}=True'
 }
 
 main() {
