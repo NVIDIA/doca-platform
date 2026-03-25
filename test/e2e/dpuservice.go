@@ -92,7 +92,7 @@ func ValidateDPUServiceMetrics(ctx context.Context, input *systemTestInput) {
 		"dpuservice": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
 	}
 	Eventually(func(g Gomega) {
-		actualMetricsNames := metrics.GetKSMMetrics(ctx, hostClusterRESTClient, metricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
@@ -257,7 +257,7 @@ func VerifyDPUServiceTemplateMetrics(ctx context.Context, input *systemTestInput
 		"dpuservicetemplate": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
 	}
 	Eventually(func(g Gomega) {
-		actualMetricsNames := metrics.GetKSMMetrics(ctx, hostClusterRESTClient, metricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())

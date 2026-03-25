@@ -25,6 +25,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/test/utils/tunnel"
 
+	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -79,8 +80,8 @@ func GetClusterCollectors(ctx context.Context, cc ClusterCollector, artifactsDir
 		return nil, err
 	}
 	for _, conf := range clusterConfigs {
-		dpuClusterClient, _ := tunnel.NewTunneledClient(ctx, cc.Client, cc.RestConfig, conf.Cluster)
-		dpuClusterClientset, _ := tunnel.NewTunneledClientset(ctx, cc.Client, cc.RestConfig, conf.Cluster)
+		dpuClusterClient, _ := tunnel.NewTunneledClient(gomega.Default, ctx, cc.Client, cc.RestConfig, conf.Cluster)
+		dpuClusterClientset, _ := tunnel.NewTunneledClientset(gomega.Default, ctx, cc.Client, cc.RestConfig, conf.Cluster)
 		directory = filepath.Join(artifactsDirectory, conf.Cluster.Name)
 		c, err := NewCluster(dpuClusterClient, directory, dpuClusterClientset, conf.Cluster.Name)
 		if err != nil {
