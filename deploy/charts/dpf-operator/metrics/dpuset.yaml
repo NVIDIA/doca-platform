@@ -35,6 +35,19 @@
               - spec
               - strategy
               - type
+    - name: status_dpu_statistics
+      help: Count of DPUs per phase in the DPUSet.
+      each:
+        type: Gauge
+        gauge:
+          labelsFromPath:
+            phase:
+              - ""
+          path:
+            - status
+            - dpuStatistics
+          valueFrom:
+            - ""
     - name: status_conditions
       help: The condition of a DPUSet.
       each:

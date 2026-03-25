@@ -23,7 +23,7 @@
             - creationTimestamp
         type: Gauge
     - name: info
-      help: Information about a BFB. This is a placeholder to get at least one info metric per BFB.
+      help: Information about a BFB.
       each:
         type: Info
         info:
@@ -31,6 +31,25 @@
             name:
               - metadata
               - name
+            version_bsp:
+              - status
+              - versions
+              - bsp
+            version_doca:
+              - status
+              - versions
+              - doca
+            version_uefi:
+              - status
+              - versions
+              - uefi
+            version_atf:
+              - status
+              - versions
+              - atf
+            file_name:
+              - status
+              - fileName
     - name: status_phase
       help: The BFBs current phase.
       each:

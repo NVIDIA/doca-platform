@@ -60,6 +60,14 @@
             - status
             - phase
         type: StateSet
+    - name: status_nodes_count
+      help: The number of DPUs assigned to the cluster.
+      each:
+        type: Gauge
+        gauge:
+          path:
+            - status
+            - nodesCount
     - name: status_conditions
       help: The condition of a DPUCluster.
       each:
