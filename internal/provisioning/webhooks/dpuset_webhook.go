@@ -39,7 +39,11 @@ import (
 // +kubebuilder:webhook:path=/validate-provisioning-dpu-nvidia-com-v1alpha1-dpuset,mutating=false,failurePolicy=fail,sideEffects=None,groups=provisioning.dpu.nvidia.com,resources=dpusets,verbs=create;update,versions=v1alpha1,name=vdpuset.kb.io,admissionReviewVersions=v1
 
 // DPUSet implements the webhooks for the DPUSet type.
-type DPUSet struct{}
+type DPUSet struct {
+	// Pointer to a cluster-level install interface/mode configuration.
+	// When nil, Astra + interface validation treats it as non-zero-trust.
+	DPUInstallInterface *string
+}
 
 var _ webhook.CustomDefaulter = &DPUSet{}
 var _ webhook.CustomValidator = &DPUSet{}
@@ -108,6 +112,10 @@ func (r *DPUSet) ValidateCreate(ctx context.Context, obj runtime.Object) (admiss
 	if err := reboot.ValidateHostPowerCycleRequire(dpuSet.Spec.DPUTemplate.Annotations); err != nil {
 		errs = append(errs, field.Invalid(newPath.Child("dpu_template.annotations", reboot.HostPowerCycleRequireKey), dpuSet.Annotations[reboot.HostPowerCycleRequireKey], err.Error()))
 	}
+
+	if err := r.validateAstraEnabledInstallInterface(newPath, dpuSet.Spec); err != nil {
+		errs = append(errs, err)
+	}
 	if len(errs) != 0 {
 		return nil, apierrors.NewInvalid(schema.GroupKind{Group: "provisioning.dpu.nvidia.com", Kind: "DPUSet"},
 			dpuSet.Name,
@@ -141,6 +149,10 @@ func (r *DPUSet) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Obje
 		errs = append(errs, field.Required(dpuTemplatePath.Child("bfb", "name"), "bfb.name must be non-empty"))
 	}
 
+	if err := r.validateAstraEnabledInstallInterface(newPath, dpuSet.Spec); err != nil {
+		errs = append(errs, err)
+	}
+
 	if len(errs) != 0 {
 		return nil, apierrors.NewInvalid(schema.GroupKind{Group: "provisioning.dpu.nvidia.com", Kind: "DPUSet"},
 			dpuSet.Name,
@@ -153,6 +165,20 @@ func (r *DPUSet) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Obje
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (r *DPUSet) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	return nil, nil
+}
+
+func (r *DPUSet) validateAstraEnabledInstallInterface(path *field.Path, spec provisioningv1.DPUSetSpec) *field.Error {
+	if spec.DPUTemplate.Spec.AstraEnabled == nil || !*spec.DPUTemplate.Spec.AstraEnabled {
+		return nil
+	}
+	if r.DPUInstallInterface == nil || *r.DPUInstallInterface != string(provisioningv1.InstallViaRedFish) {
+		return field.Invalid(
+			path.Child("dpuTemplate", "spec", "astraEnabled"),
+			true,
+			"astraEnabled=true requires zero-trust deployment mode",
+		)
+	}
+	return nil
 }
 
 func validateStrategy(strategy provisioningv1.DPUSetStrategy) error {
