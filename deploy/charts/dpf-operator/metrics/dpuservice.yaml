@@ -36,6 +36,10 @@
             deploy_in_cluster:
               - spec
               - deployInCluster
+            parent_dpudeployment:
+              - metadata
+              - labels
+              - svc.dpu.nvidia.com/owned-by-dpudeployment
     - name: status_conditions
       help: The condition of a DPUService.
       each:
