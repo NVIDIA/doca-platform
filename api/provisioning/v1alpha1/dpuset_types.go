@@ -315,6 +315,14 @@ type DPUSet struct {
 	Status DPUSetStatus `json:"status,omitempty"`
 }
 
+// IsAstraEnabledForNonBlueField4 returns true if Astra is enabled on this DPUSet
+// and the target DPUDevice is not a BlueField4.
+func (c *DPUSet) IsAstraEnabledForNonBlueField4(dpuDevice DPUDevice) bool {
+	return c.Spec.DPUTemplate.Spec.AstraEnabled != nil &&
+		*c.Spec.DPUTemplate.Spec.AstraEnabled &&
+		dpuDevice.Status.DPUType != DPUTypeBlueField4
+}
+
 // +kubebuilder:object:root=true
 
 // DPUSetList contains a list of DPUSet
