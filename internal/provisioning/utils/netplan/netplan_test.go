@@ -51,7 +51,10 @@ var _ = Describe("NetplanHelper", func() {
 							MTU:   ptr.To(int32(9000)),
 							DHCP4: ptr.To(true),
 							DHCP6: ptr.To(false),
-							DHCP4Overrides: &DHCP4Overrides{
+							DHCP4Overrides: &DHCPOverrides{
+								UseMTU: ptr.To(false),
+							},
+							DHCP6Overrides: &DHCPOverrides{
 								UseMTU: ptr.To(false),
 							},
 						},
@@ -78,7 +81,10 @@ var _ = Describe("NetplanHelper", func() {
 							Ethernet: Ethernet{
 								MTU:   ptr.To(int32(9216)),
 								DHCP4: ptr.To(true),
-								DHCP4Overrides: &DHCP4Overrides{
+								DHCP4Overrides: &DHCPOverrides{
+									UseMTU: ptr.To(false),
+								},
+								DHCP6Overrides: &DHCPOverrides{
 									UseMTU: ptr.To(false),
 								},
 							},
@@ -96,6 +102,8 @@ network:
       dhcp4: true
       dhcp6: false
       dhcp4-overrides:
+        use-mtu: false
+      dhcp6-overrides:
         use-mtu: false
     eth1:
       mtu: 1500
@@ -120,6 +128,8 @@ network:
       mtu: 9216
       dhcp4: true
       dhcp4-overrides:
+        use-mtu: false
+      dhcp6-overrides:
         use-mtu: false
 `
 			err := config.WriteToFile(filePath)
