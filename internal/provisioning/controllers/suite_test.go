@@ -194,7 +194,9 @@ var _ = BeforeSuite(func() {
 	err = dpuReconciler.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
-	err = (&provisioningwebhooks.DPUSet{}).SetupWebhookWithManager(k8sManager)
+	err = (&provisioningwebhooks.DPUSet{
+		DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaGNOI)),
+	}).SetupWebhookWithManager(k8sManager)
 	Expect(err).NotTo(HaveOccurred())
 	dpusetReconciler := &dpuset.DPUSetReconciler{
 		Client:   k8sManager.GetClient(),
