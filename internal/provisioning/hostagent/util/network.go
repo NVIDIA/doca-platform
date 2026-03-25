@@ -361,7 +361,8 @@ func buildPFEthernetConfig(pciHelper *PCIHelper, portConfig PortConfig) (string,
 
 	if portConfig.MTU != nil {
 		ethernet.MTU = portConfig.MTU
-		ethernet.DHCP4Overrides = &netplan.DHCP4Overrides{UseMTU: ptr.To(false)}
+		ethernet.DHCP4Overrides = &netplan.DHCPOverrides{UseMTU: ptr.To(false)}
+		ethernet.DHCP6Overrides = &netplan.DHCPOverrides{UseMTU: ptr.To(false)}
 		currentMTU, err := GetCurrentMTU(interfaceName)
 		if err != nil {
 			return "", netplan.Ethernet{}, false, fmt.Errorf("failed to get current MTU for %s: %w", interfaceName, err)

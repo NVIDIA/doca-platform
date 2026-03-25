@@ -34,11 +34,12 @@ type Network struct {
 }
 
 type Ethernet struct {
-	DHCP4          *bool           `yaml:"dhcp4,omitempty"`
-	DHCP6          *bool           `yaml:"dhcp6,omitempty"`
-	MTU            *int32          `yaml:"mtu,omitempty"`
-	Addresses      []string        `yaml:"addresses,omitempty"`
-	DHCP4Overrides *DHCP4Overrides `yaml:"dhcp4-overrides,omitempty"`
+	DHCP4          *bool          `yaml:"dhcp4,omitempty"`
+	DHCP6          *bool          `yaml:"dhcp6,omitempty"`
+	MTU            *int32         `yaml:"mtu,omitempty"`
+	Addresses      []string       `yaml:"addresses,omitempty"`
+	DHCP4Overrides *DHCPOverrides `yaml:"dhcp4-overrides,omitempty"`
+	DHCP6Overrides *DHCPOverrides `yaml:"dhcp6-overrides,omitempty"`
 	// LinkLocal configures the link-local addresses to bring up.
 	// A pointer is used to distinguish between nil (not specified) and empty slice
 	// Quote from netplan documentation:
@@ -53,7 +54,7 @@ type Bridge struct {
 	Interfaces []string `yaml:"interfaces,omitempty"`
 }
 
-type DHCP4Overrides struct {
+type DHCPOverrides struct {
 	UseMTU *bool `yaml:"use-mtu,omitempty"`
 }
 
