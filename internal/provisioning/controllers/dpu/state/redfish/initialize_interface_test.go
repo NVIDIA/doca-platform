@@ -211,6 +211,8 @@ var _ = Describe("InitializeInterface", func() {
 
 		By("Step 2: Update DPU status to Rebooting and set InterfaceInitialized condition")
 		dpu.Status = status
+		// Mirror dpu_controller.UpdateDPUStatus: when phase changes, PreviousPhase records the prior phase.
+		dpu.Status.PreviousPhase = provisioningv1.DPUInitializeInterface
 		cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 
 		By("Step 3: Run Rebooting phase handler")
