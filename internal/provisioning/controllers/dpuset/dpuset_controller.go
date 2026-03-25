@@ -636,11 +636,19 @@ func (r *DPUSetReconciler) UpdateDPUSetStatus(ctx context.Context, dpuSet *provi
 
 func (r *DPUSetReconciler) createMissingDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuDeviceMap map[string]provisioningv1.DPUDevice, dpuMap map[string]provisioningv1.DPU) (bool, error) {
 	dpusCreated := false
+	logger := log.FromContext(ctx)
 	for dpuDeviceName, dpuDevice := range dpuDeviceMap {
 		var err error
 		if dpu, exists := dpuMap[dpuDeviceName]; exists {
 			err = r.updatePCIAddress(ctx, &dpu, &dpuDevice)
 		} else {
+			if dpuSet.IsAstraEnabledForNonBlueField4(dpuDevice) {
+				msg := fmt.Sprintf("Skipping DPU creation for DPUDevice (%s/%s): astraEnabled requires DPUType=BlueField4, current DPUType=%s",
+					dpuDevice.Namespace, dpuDevice.Name, dpuDevice.Status.DPUType)
+				logger.Info(msg)
+				r.Recorder.Eventf(dpuSet, corev1.EventTypeWarning, events.EventFailedCreateDPUReason, msg)
+				continue
+			}
 			err = r.createDPU(ctx, dpuSet, &dpuDevice)
 			if err == nil {
 				dpusCreated = true
