@@ -317,6 +317,16 @@ func reconcileCurrentDPUServiceRevision(ctx context.Context, c client.Client,
 			client.ObjectKeyFromObject(dpuDeployment),
 			serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster())})
 
+	// If the current revision doesn't have the label yet, remove it from newRevision to avoid triggering pod recreation.
+	// TODO: Remove this check after 26.4 is released
+	var hasLabel bool
+	if currentRev.Spec.ServiceDaemonSet != nil {
+		_, hasLabel = currentRev.Spec.ServiceDaemonSet.Labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey]
+	}
+	if !hasLabel {
+		delete(newRevision.Spec.ServiceDaemonSet.Labels, dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey)
+	}
+
 	// We delete the current revision so that it doesn't get cleaned up
 	delete(existingDPUServicesMap, newRevision.GetName())
 
@@ -501,10 +511,9 @@ func generateDPUService(dpuDeploymentNamespacedName types.NamespacedName,
 }
 
 func generateDPUServiceDaemonSetValues(name string, serviceDaemonSet dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues) *dpuservicev1.ServiceDaemonSetValues {
-	labels := map[string]string{
-		dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: name,
-	}
+	labels := map[string]string{}
 	maps.Copy(labels, serviceDaemonSet.Labels)
+	labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey] = name
 	serviceDaemonSetValues := &dpuservicev1.ServiceDaemonSetValues{
 		Labels:         labels,
 		Annotations:    serviceDaemonSet.Annotations,
