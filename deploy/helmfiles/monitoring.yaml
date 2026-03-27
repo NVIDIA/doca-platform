@@ -61,3 +61,4 @@ releases:
       - values/opentelemetry-collector.yaml
     needs:
       - dpf-operator-system/kube-prometheus-stack
+      - dpf-operator-system/loki
