@@ -59,6 +59,10 @@ releases:
       type: logging
     values:
       - values/opentelemetry-collector.yaml
+    # Worker nodes using OVNK CNI have it deployed later (e.g., alongside DPU rollout).
+    # In these cases, Otel pods on workers cannot become ready during monitoring
+    # deployment, causing Helm to time out while waiting for the DaemonSet.
+    wait: false
     needs:
       - dpf-operator-system/kube-prometheus-stack
       - dpf-operator-system/loki
