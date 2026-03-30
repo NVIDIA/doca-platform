@@ -19,8 +19,11 @@ limitations under the License.
 package main
 
 import (
+	"context"
+	"crypto/tls"
 	"fmt"
 	"os"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
@@ -29,11 +32,23 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client/trustedhost"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client/zerotrust"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	provcertificate "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/bootstrap"
 
 	"github.com/spf13/pflag"
+	"k8s.io/apimachinery/pkg/util/wait"
+	clientset "k8s.io/client-go/kubernetes"
+	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/yaml"
+)
+
+const (
+	tlsBootstrapTimeout  = 5 * time.Minute
+	dpuAgentPairName     = "dpu-agent-client"
+	dpuAgentOrganization = "dpu-agents"
 )
 
 func main() {
@@ -42,7 +57,9 @@ func main() {
 	options := opts.Options{}
 	pflag.BoolVar(&options.ZeroTrustMode, "zero-trust-mode", false, "Enable zero trust mode")
 	pflag.Int32Var(&options.ControlPlaneMTU, "control-plane-mtu", 1500, "Control plane MTU")
-	pflag.StringVar(&options.Kubeconfig, "kubeconfig", "", "Path to the kubeconfig file")
+	pflag.StringVar(&options.Kubeconfig, "kubeconfig", opts.DefaultKubeconfig, "Path to the kubeconfig file")
+	pflag.StringVar(&options.BootstrapKubeconfig, "bootstrap-kubeconfig", "", "Path to the bootstrap kubeconfig file (contains bootstrap token for TLS bootstrapping)")
+	pflag.StringVar(&options.CertDir, "cert-dir", opts.DefaultCertDir, "Directory to store client certificates")
 	pflag.StringVar(&options.DPUName, "dpu-name", "", "Name of the DPU")
 	pflag.StringVar(&options.DPUNamespace, "dpu-namespace", "", "Namespace of the DPU")
 	pflag.StringVar(&options.DPUUID, "dpu-uid", "", "UID of the DPU object, used to reject stale agent status updates")
@@ -71,14 +88,22 @@ func main() {
 	dpuFlavor := &provisioningv1.DPUFlavor{}
 	parseFileOrDie(options.DPUFlavor, YamlParserFunc, dpuFlavor)
 
-	var client client.Client
+	var dpuClient client.Client
 	if options.ZeroTrustMode {
-		client = zerotrust.NewZerotrustClient(options.Kubeconfig, options.DPUName, options.DPUNamespace, options.DPUUID)
+		cfg, err := buildZeroTrustClientConfig(&options)
+		if err != nil {
+			klog.Fatalf("failed to build zero trust client config: %v", err)
+		}
+		ztClient, err := zerotrust.NewZerotrustClient(cfg, options.DPUName, options.DPUNamespace, options.DPUUID)
+		if err != nil {
+			klog.Fatalf("failed to create zero trust client: %v", err)
+		}
+		dpuClient = ztClient
 	} else {
-		client = trustedhost.NewTrustedhostClient(options.DPUName, options.DPUNamespace, options.DPUUID)
+		dpuClient = trustedhost.NewTrustedhostClient(options.DPUName, options.DPUNamespace, options.DPUUID)
 	}
 	optCtx := &operations.Context{
-		Client:    client,
+		Client:    dpuClient,
 		DPUFlavor: *dpuFlavor,
 		Options:   options,
 	}
@@ -88,6 +113,64 @@ func main() {
 		klog.Fatalf("failed to run DPU agent: %v", err)
 	}
 	klog.Info("Successfully ran DPU agent")
+}
+
+func buildZeroTrustClientConfig(options *opts.Options) (*restclient.Config, error) {
+	if options.BootstrapKubeconfig == "" {
+		return clientcmd.BuildConfigFromFlags("", options.Kubeconfig)
+	}
+
+	certConfig, clientConfig, err := bootstrap.LoadClientConfig(
+		options.Kubeconfig, options.BootstrapKubeconfig, options.CertDir, dpuAgentPairName,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load client config: %w", err)
+	}
+
+	commonName := provisioningv1.DPUAgentUsername(options.DPUName)
+	newClientsetFn := func(current *tls.Certificate) (clientset.Interface, error) {
+		config := certConfig
+		if current != nil {
+			config = clientConfig
+		}
+		return clientset.NewForConfig(config)
+	}
+	clientCertificateManager, err := provcertificate.NewCertificateManager(
+		options.CertDir,
+		"",
+		clientConfig.CertFile,
+		clientConfig.KeyFile,
+		newClientsetFn,
+		dpuAgentPairName,
+		commonName,
+		[]string{dpuAgentOrganization},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create certificate manager: %w", err)
+	}
+
+	transportConfig := restclient.AnonymousClientConfig(clientConfig)
+	_, err = provcertificate.UpdateTransport(wait.NeverStop, transportConfig, clientCertificateManager, tlsBootstrapTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update transport: %w", err)
+	}
+
+	klog.V(2).InfoS("Starting client certificate rotation")
+	clientCertificateManager.Start()
+
+	err = wait.PollUntilContextCancel(context.TODO(), 10*time.Second, true, func(ctx context.Context) (bool, error) {
+		if clientCertificateManager.Current() != nil {
+			return true, nil
+		}
+		klog.Info("Client certificate is not available yet, waiting...")
+		return false, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to wait for client certificate: %w", err)
+	}
+	klog.InfoS("TLS bootstrapping completed", "cn", commonName)
+
+	return transportConfig, nil
 }
 
 type ParseFunc func(data []byte, obj interface{}) error

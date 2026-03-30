@@ -37,7 +37,7 @@ import (
 // kubeconfigPath on disk is populated based on bootstrapPath but pointing to the location of the client cert
 // in certDir. This preserves the historical behavior of bootstrapping where on subsequent restarts the
 // most recent client cert is used to request new client certs instead of the initial token.
-func LoadClientConfig(kubeconfigPath, bootstrapPath, certDir string) (certConfig, userConfig *restclient.Config, err error) {
+func LoadClientConfig(kubeconfigPath, bootstrapPath, certDir, pairNamePrefix string) (certConfig, userConfig *restclient.Config, err error) {
 	if len(bootstrapPath) == 0 {
 		clientConfig, err := loadRESTClientConfig(kubeconfigPath)
 		if err != nil {
@@ -47,7 +47,7 @@ func LoadClientConfig(kubeconfigPath, bootstrapPath, certDir string) (certConfig
 		return clientConfig, restclient.CopyConfig(clientConfig), nil
 	}
 
-	store, err := certificate.NewFileStore("host-agent-client", certDir, certDir, "", "")
+	store, err := certificate.NewFileStore(pairNamePrefix, certDir, certDir, "", "")
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to build bootstrap cert store: %v", err)
 	}

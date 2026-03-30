@@ -39,7 +39,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -87,35 +86,13 @@ func getTemplateData(ctx context.Context, controllerCtx *util.ControllerContext,
 }
 
 type BFCFGData struct {
-	KubeadmSecretName      string
-	KubeadmSecretNamespace string
-	Kubeconfig             string
-	DPUFlavorYAML          string
-	DPUHostName            string
-	BFGCFGParams           []string
-	UbuntuPassword         string
-	ConfigFiles            []BFCFGWriteFile
-	OVSRawScript           string
-	// OOBNetwork is a flag to indicate if the DPU accesses DPU cluster via the OOB interface.
-	OOBNetwork       bool
-	RedfishInterface bool
-	ControlPlaneMTU  int
-	DPUName          string
-	DPUNamespace     string
-	DPUUID           string
-	DPUAgentRepoURL  string
+	cloudinit.Params
+	BFGCFGParams []string
 }
 
-type BFCFGWriteFile struct {
-	Path        string
-	IsAppend    bool
-	Content     string
-	Permissions string
-}
-
-func GenerateBFConfig(ctx context.Context, controllerContext *util.ControllerContext, dpu *provisioningv1.DPU, dpuNode *provisioningv1.DPUNode, dpuDevice *provisioningv1.DPUDevice, flavor *provisioningv1.DPUFlavor, kubeadmSecret *corev1.Secret) ([]byte, error) {
+func GenerateBFConfig(ctx context.Context, controllerContext *util.ControllerContext, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor) ([]byte, error) {
 	logger := log.FromContext(ctx)
-	params, dpfOperatorConfig, err := cloudinit.ResolveParams(ctx, controllerContext, dpu, kubeadmSecret)
+	params, dpfOperatorConfig, err := cloudinit.ResolveParams(ctx, controllerContext, dpu, flavor)
 	if err != nil {
 		return nil, err
 	}
@@ -152,39 +129,13 @@ func GenerateBFConfig(ctx context.Context, controllerContext *util.ControllerCon
 	return buf, nil
 }
 
-// Generate renders a bf.cfg from a custom template
+// Generate renders a bf.cfg from a custom template. The caller must ensure
+// flavor fields have already been applied to params (e.g. via ResolveParams).
 func Generate(flavor *provisioningv1.DPUFlavor, params cloudinit.Params, templateData []byte) ([]byte, error) {
-	flavorBytes, err := yaml.Marshal(flavor)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling DPUFlavor: %w", err)
-	}
-
 	config := &BFCFGData{
-		KubeadmSecretName:      params.KubeadmSecretName,
-		KubeadmSecretNamespace: params.KubeadmSecretNamespace,
-		Kubeconfig:             params.Kubeconfig,
-		DPUFlavorYAML:          string(flavorBytes),
-		DPUHostName:            params.DPUHostName,
-		ControlPlaneMTU:        params.ControlPlaneMTU,
-		RedfishInterface:       params.IsRedfish,
-		OOBNetwork:             params.IsRedfish,
-		DPUName:                params.DPUName,
-		DPUNamespace:           params.DPUNamespace,
-		DPUUID:                 params.DPUUID,
-		DPUAgentRepoURL:        params.DPUAgentRepoURL,
+		Params:       params,
+		BFGCFGParams: bfcfgParams(flavor),
 	}
-
-	config.BFGCFGParams = bfcfgParams(flavor)
-	config.UbuntuPassword = cloudinit.ExtractUbuntuPassword(flavor)
-	for _, f := range flavor.Spec.ConfigFiles {
-		config.ConfigFiles = append(config.ConfigFiles, BFCFGWriteFile{
-			Path:        f.Path,
-			Permissions: f.Permissions,
-			IsAppend:    f.Operation == provisioningv1.FileAppend,
-			Content:     f.Raw,
-		})
-	}
-	config.OVSRawScript = flavor.Spec.OVS.RawConfigScript
 
 	bfbCFGTemplate, err := template.New("").Funcs(sprig.FuncMap()).Parse(string(templateData))
 	if err != nil {
@@ -210,7 +161,7 @@ type defaultBFCFGData struct {
 // the cloudinit package, then embedding them into the default bf.cfg template.
 func generateDefault(flavor *provisioningv1.DPUFlavor, params cloudinit.Params) ([]byte, error) {
 	networkCfg := cloudinit.GenerateNetworkCfg()
-	userData, err := cloudinit.GenerateUserData(flavor, params)
+	userData, err := cloudinit.GenerateUserData(params)
 	if err != nil {
 		return nil, fmt.Errorf("generating cloud-init user-data: %w", err)
 	}
@@ -222,7 +173,7 @@ func generateDefault(flavor *provisioningv1.DPUFlavor, params cloudinit.Params) 
 
 	data := &defaultBFCFGData{
 		BFGCFGParams:     bfcfgParams(flavor),
-		RedfishInterface: params.IsRedfish,
+		RedfishInterface: params.RedfishInterface,
 		CloudInitFiles:   []cloudinit.File{networkCfg, userData},
 	}
 
