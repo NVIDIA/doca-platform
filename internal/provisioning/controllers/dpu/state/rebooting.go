@@ -23,7 +23,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -48,8 +47,6 @@ const (
 // DPUInitializeInterface, DPUConfig (when agent reports reboot-method discovery after DPUConfig), DPUClusterConfig,
 // or DPUHostNetworkConfiguration as appropriate.
 func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
-	logger := log.FromContext(ctx)
-
 	state := dpu.Status.DeepCopy()
 	if !dpu.DeletionTimestamp.IsZero() {
 		state.Phase = provisioningv1.DPUDeleting
@@ -73,22 +70,6 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 		return *state, err
 	}
 
-	rebootCommand, _, err := reboot.GenerateCmd(dpuNode.Annotations, dpu.Annotations)
-	if err != nil {
-		err = fmt.Errorf("failed to generate ipmitool command: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "GenerateIPMIToolCommandError", err.Error()))
-		return *state, err
-	}
-
-	// Return early and set node to ready if we should skip the powercycle/reboot command.
-	// Note: skipping the powercycle/reboot may cause issues with the firmware installation and configuration.
-	if rebootCommand == reboot.Skip {
-		logger.Info("Warning not rebooting: this may cause issues with DPU firmware installation and configuration")
-		state.Phase = provisioningv1.DPUHostNetworkConfiguration
-		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", ""))
-		return *state, nil
-	}
-
 	switch {
 	case dpuNode.Spec.NodeRebootMethod.GNOI != nil || dpuNode.Spec.NodeRebootMethod.HostAgent != nil: //nolint:staticcheck // GNOI is deprecated but still honored for compatibility.
 		return reconcileHostRebootPhase(ctx, dpu, state, false), nil
@@ -100,7 +81,7 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 	}
 }
 
-// reconcileHostRebootPhase runs when the DPU is in DPURebooting and the reboot command is not Skip.
+// reconcileHostRebootPhase runs when the DPU is in DPURebooting and host reboot is complete.
 func reconcileHostRebootPhase(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, zeroTrustMode bool) provisioningv1.DPUStatus {
 	_, rebootCondition := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondRebooted))
 	if rebootCondition == nil || rebootCondition.Status != metav1.ConditionTrue {
