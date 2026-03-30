@@ -46,7 +46,7 @@ const (
 )
 
 type BootIDStore interface {
-	PersistBootID(dpu *provisioningv1.DPU, skip bool) error
+	PersistBootID(dpu *provisioningv1.DPU) error
 	IsRebootFinished(dpu *provisioningv1.DPU) (bool, error)
 }
 
@@ -74,17 +74,12 @@ func (s *fileSystemStore) StartHousekeeping() {
 	})
 }
 
-func (s *fileSystemStore) PersistBootID(dpu *provisioningv1.DPU, skip bool) error {
-	bootID := ""
-	if skip {
-		bootID = "skip"
-	} else {
-		systemBootID, err := os.ReadFile(SystemdBootIDFile)
-		if err != nil {
-			return err
-		}
-		bootID = string(systemBootID)
+func (s *fileSystemStore) PersistBootID(dpu *provisioningv1.DPU) error {
+	systemBootID, err := os.ReadFile(SystemdBootIDFile)
+	if err != nil {
+		return err
 	}
+	bootID := string(systemBootID)
 	request := &RebootRequest{
 		DPUName:      dpu.Name,
 		DPUNamespace: dpu.Namespace,

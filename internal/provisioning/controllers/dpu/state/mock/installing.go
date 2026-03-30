@@ -25,7 +25,6 @@ import (
 	dpustate "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -108,18 +107,9 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, nil
 	}
 
-	node := &corev1.Node{}
-	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: "", Name: dpu.Spec.DPUNodeName}, node); err != nil {
-		err = fmt.Errorf("DPUNode %s not found", dpu.Spec.DPUNodeName)
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondOSInstalled.String(), err, "DPUNodeNotFound", err.Error()))
-		state.Phase = provisioningv1.DPUError
-		return *state, nil
-	}
-
-	annotations := node.GetAnnotations()
-	if value, ok := annotations[reboot.RebootCmdKey]; !ok || value != reboot.Skip {
-		err := fmt.Errorf("DPUNode should have '%s = %s'", reboot.RebootCmdKey, reboot.Skip)
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondOSInstalled.String(), err, "DPUNodeInvalid", err.Error()))
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: "", Name: dpu.Spec.DPUNodeName}, &corev1.Node{}); err != nil {
+		err = fmt.Errorf("node %s not found", dpu.Spec.DPUNodeName)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondOSInstalled.String(), err, "NodeNotFound", err.Error()))
 		state.Phase = provisioningv1.DPUError
 		return *state, nil
 	}

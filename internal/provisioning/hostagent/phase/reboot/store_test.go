@@ -142,7 +142,7 @@ var _ = Describe("FileSystemStore", func() {
 				},
 			}
 			for _, tc := range testCases {
-				err := store.PersistBootID(tc.dpu, false)
+				err := store.PersistBootID(tc.dpu)
 				Expect(err).To(Succeed())
 				_, err = os.Stat(store.rebootRequestFileName(tc.dpu))
 				Expect(err).To(Succeed())

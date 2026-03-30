@@ -105,16 +105,6 @@ func (r *Handler) reboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, d
 		klog.Info("No DPUs to reboot")
 		return nil, nil
 	}
-	// If the node is set to skip reboot, write a boot ID file with boot ID = "skip",
-	// which is always different from the system boot ID.
-	// This makes the reconcile loop believe that the DPUs are already rebooted.
-	if reboot.SkipReboot(dpuNode) {
-		klog.Info("Skipping reboot")
-		if err := r.persistDPUBootID(rebootNow, true); err != nil {
-			return rebootNow, fmt.Errorf("failed to persist DPU boot ID. err: %w", err)
-		}
-		return nil, nil
-	}
 	if len(blockers) > 0 {
 		return rebootNow, fmt.Errorf("waiting for the following DPUs to reach Rebooting phase: %v", blockers)
 	}
@@ -150,7 +140,7 @@ func (r *Handler) runPowerCycle(dpuNode *provisioningv1.DPUNode, dpus []provisio
 	if err != nil {
 		return fmt.Errorf("failed to get power cycle command: %w", err)
 	}
-	if err := r.persistDPUBootID(dpus, false); err != nil {
+	if err := r.persistDPUBootID(dpus); err != nil {
 		return fmt.Errorf("failed to persist DPU boot ID. err: %w", err)
 	}
 	klog.Infof("run powercycle with command %q", powerCycleCommand)
@@ -195,7 +185,7 @@ func (r *Handler) runSLR(ctx context.Context, toBeRebooted []provisioningv1.DPU)
 		return fmt.Errorf("failed to shutdown ARM(s). failures: %w", errors.Join(failures...))
 	}
 
-	if err := r.persistDPUBootID(toBeRebooted, false); err != nil {
+	if err := r.persistDPUBootID(toBeRebooted); err != nil {
 		return fmt.Errorf("failed to persist DPU boot ID. err: %w", err)
 	}
 	// run reboot host against ANY DPU
@@ -294,9 +284,9 @@ func (r *Handler) listDPUWithClient(ctx context.Context) ([]provisioningv1.DPU, 
 	return dpus.Items, nil
 }
 
-func (r *Handler) persistDPUBootID(dpus []provisioningv1.DPU, skip bool) error {
+func (r *Handler) persistDPUBootID(dpus []provisioningv1.DPU) error {
 	for _, dpu := range dpus {
-		if err := r.bootIDStore.PersistBootID(&dpu, skip); err != nil {
+		if err := r.bootIDStore.PersistBootID(&dpu); err != nil {
 			return fmt.Errorf("failed to write DPU boot ID file. dpu: %s, err: %w", dpu.Name, err)
 		}
 	}
