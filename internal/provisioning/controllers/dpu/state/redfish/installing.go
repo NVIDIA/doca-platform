@@ -131,6 +131,9 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 			// If an error is returned, the next Reconcile may be triggered as a retry, leading to installing BFB again.
 			// todo: other phases trasitioning to ERROR phase should also follow this pattern
 			return *state, nil
+		} else if resp.StatusCode() == http.StatusBadRequest && strings.Contains(resp.String(), "Another update is in progress") {
+			logger.Info("another update is in progress, waiting for it to finish", "dpuName", dpu.Name)
+			return *state, nil
 		} else if resp.StatusCode() != http.StatusAccepted {
 			err = fmt.Errorf("get status: %s", resp.Status())
 			logger.Error(err, "Failed to install BFB", "status", resp.Status(), "body", resp.String())
