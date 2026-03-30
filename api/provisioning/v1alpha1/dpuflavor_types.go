@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	nicconfigv1alpha1 "github.com/Mellanox/nic-configuration-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -83,6 +84,27 @@ type DPUFlavorSpec struct {
 	// HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces.
 	// +optional
 	HostNetworkInterfaceConfigs []NetworkInterfaceConfig `json:"hostNetworkInterfaceConfigs,omitempty"`
+
+	// EWNicConfigurations contains the configuration for the E/W NICs.
+	// +optional
+	EWNicConfigurations *NicConfiguration `json:"ewNicConfigurations,omitempty"`
+}
+
+// NicConfiguration is a set of configurations for the NICs
+// +kubebuilder:validation:XValidation:rule="!(has(self.spectrumXOptimized) && self.spectrumXOptimized.enabled) || (self.linkType == 'Ethernet' && self.numVfs == 1)",message="spectrumXOptimized can be enabled only when linkType=='Ethernet' and numVfs==1"
+// +kubebuilder:validation:XValidation:rule="!(has(self.spectrumXOptimized) && self.spectrumXOptimized.enabled) || !has(self.rawNvConfig) || size(self.rawNvConfig) == 0",message="when spectrumXOptimized is enabled, rawNvConfig must be empty"
+type NicConfiguration struct {
+	// Number of VFs to be configured
+	// +required
+	NumVfs int `json:"numVfs"`
+	// LinkType to be configured, Ethernet|Infiniband
+	// +kubebuilder:validation:Enum=Ethernet;Infiniband
+	// +required
+	LinkType nicconfigv1alpha1.LinkTypeEnum `json:"linkType"`
+	// Spectrum-X optimization settings. Works only with linkType==Ethernet && numVfs==0. Other optimizations must be skipped or disabled. RawNvConfig must be empty.
+	SpectrumXOptimized *nicconfigv1alpha1.SpectrumXOptimizedSpec `json:"spectrumXOptimized,omitempty"`
+	// List of arbitrary nv config parameters
+	RawNvConfig []nicconfigv1alpha1.NvConfigParam `json:"rawNvConfig,omitempty"`
 }
 
 type DPUFlavorGrub struct {

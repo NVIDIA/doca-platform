@@ -1964,6 +1964,7 @@ _Appears in:_
 | `systemReservedResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are<br />not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and<br />SystemReservedResources. This field must not be specified if dpuResources are not specified. |  | Optional: \{\} <br /> |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | Specifies the DPU Mode type: one of dpu,zero-trust.<br />When not specified, defaults to "zero-trust" if the DPF deployment uses Redfish install interface,<br />otherwise defaults to "dpu". |  | Enum: [dpu zero-trust nic] <br />Optional: \{\} <br /> |
 | `hostNetworkInterfaceConfigs` _[NetworkInterfaceConfig](#networkinterfaceconfig) array_ | HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces. |  | Optional: \{\} <br /> |
+| `ewNicConfigurations` _[NicConfiguration](#nicconfiguration)_ | EWNicConfigurations contains the configuration for the E/W NICs. |  | Optional: \{\} <br /> |
 
 
 
@@ -2618,6 +2619,25 @@ _Appears in:_
 | `dhcp` _boolean_ | DHCP is the DHCP configuration for the network interface. |  | Optional: \{\} <br /> |
 | `portNumber` _integer_ | PortNumber identifies which port this configuration applies to. |  | Maximum: 1 <br />Minimum: 0 <br />Required: \{\} <br /> |
 | `nvconfig` _[NVConfig](#nvconfig)_ | NVConfig contains port-specific configuration for this network interface.<br />This configuration is applied in addition to the global NVConfig settings in DPUFlavorSpec.<br />Both global and per-interface NVConfig settings can coexist without collision. |  | Optional: \{\} <br /> |
+
+
+#### NicConfiguration
+
+
+
+NicConfiguration is a set of configurations for the NICs
+
+
+
+_Appears in:_
+- [DPUFlavorSpec](#dpuflavorspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `numVfs` _integer_ | Number of VFs to be configured |  | Required: \{\} <br /> |
+| `linkType` _[LinkTypeEnum](#linktypeenum)_ | LinkType to be configured, Ethernet\|Infiniband |  | Enum: [Ethernet Infiniband] <br />Required: \{\} <br /> |
+| `spectrumXOptimized` _[SpectrumXOptimizedSpec](#spectrumxoptimizedspec)_ | Spectrum-X optimization settings. Works only with linkType==Ethernet && numVfs==0. Other optimizations must be skipped or disabled. RawNvConfig must be empty. |  |  |
+| `rawNvConfig` _NvConfigParam array_ | List of arbitrary nv config parameters |  |  |
 
 
 #### NodeEffect
