@@ -31,7 +31,6 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	"github.com/Masterminds/sprig/v3"
-	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 )
 
@@ -62,8 +61,7 @@ type Params struct {
 	DPUHostName            string
 	KubeadmSecretName      string
 	KubeadmSecretNamespace string
-	Kubeconfig             string
-	IsRedfish              bool
+	BootstrapKubeconfig    string
 	ControlPlaneMTU        int
 	DPUName                string
 	DPUNamespace           string
@@ -71,14 +69,14 @@ type Params struct {
 	DPUAgentRepoURL        string
 	DPUFlavorYAML          string
 	UbuntuPassword         string
-	ConfigFiles            []writeFile
+	ConfigFiles            []WriteFile
 	OVSRawScript           string
 	OOBNetwork             bool
 	RedfishInterface       bool
 }
 
-// applyFlavor populates the flavor-derived fields from the given DPUFlavor.
-func (p *Params) applyFlavor(flavor *provisioningv1.DPUFlavor) error {
+// ApplyFlavor populates the flavor-derived fields from the given DPUFlavor.
+func (p *Params) ApplyFlavor(flavor *provisioningv1.DPUFlavor) error {
 	flavorBytes, err := yaml.Marshal(flavor)
 	if err != nil {
 		return fmt.Errorf("marshaling DPUFlavor: %w", err)
@@ -86,10 +84,8 @@ func (p *Params) applyFlavor(flavor *provisioningv1.DPUFlavor) error {
 	p.DPUFlavorYAML = string(flavorBytes)
 	p.UbuntuPassword = ExtractUbuntuPassword(flavor)
 	p.OVSRawScript = flavor.Spec.OVS.RawConfigScript
-	p.OOBNetwork = p.IsRedfish
-	p.RedfishInterface = p.IsRedfish
 	for _, f := range flavor.Spec.ConfigFiles {
-		p.ConfigFiles = append(p.ConfigFiles, writeFile{
+		p.ConfigFiles = append(p.ConfigFiles, WriteFile{
 			Path:        f.Path,
 			Permissions: f.Permissions,
 			IsAppend:    f.Operation == provisioningv1.FileAppend,
@@ -99,7 +95,7 @@ func (p *Params) applyFlavor(flavor *provisioningv1.DPUFlavor) error {
 	return nil
 }
 
-type writeFile struct {
+type WriteFile struct {
 	Path        string
 	IsAppend    bool
 	Content     string
@@ -112,13 +108,13 @@ type writeFile struct {
 //     (ref: https://docs.cloud-init.io/en/latest/reference/network-config.html).
 //   - userData: cloud-init user-data executed during boot to configure the DPU
 //     (ref: https://docs.cloud-init.io/en/latest/explanation/boot.html).
-func GenerateFiles(ctx context.Context, controllerCtx *util.ControllerContext, dpu *provisioningv1.DPU, kubeadmSecret *corev1.Secret, flavor *provisioningv1.DPUFlavor) (networkCfg File, userData File, err error) {
-	params, _, err := ResolveParams(ctx, controllerCtx, dpu, kubeadmSecret)
+func GenerateFiles(ctx context.Context, controllerCtx *util.ControllerContext, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor) (networkCfg File, userData File, err error) {
+	params, _, err := ResolveParams(ctx, controllerCtx, dpu, flavor)
 	if err != nil {
 		return File{}, File{}, err
 	}
 	networkCfg = GenerateNetworkCfg()
-	userData, err = GenerateUserData(flavor, params)
+	userData, err = GenerateUserData(params)
 	if err != nil {
 		return File{}, File{}, err
 	}
@@ -126,9 +122,10 @@ func GenerateFiles(ctx context.Context, controllerCtx *util.ControllerContext, d
 }
 
 // ResolveParams builds the Params needed to provision a DPU by reading the
-// DPFOperatorConfig and the DPU/Secret objects. It also returns the
-// DPFOperatorConfig for callers that need it (e.g. bf.cfg template resolution).
-func ResolveParams(ctx context.Context, controllerCtx *util.ControllerContext, dpu *provisioningv1.DPU, kubeadmSecret *corev1.Secret) (Params, operatorv1.DPFOperatorConfig, error) {
+// DPFOperatorConfig and the DPU/Secret objects, and applying flavor-derived
+// fields. It also returns the DPFOperatorConfig for callers that need it
+// (e.g. bf.cfg template resolution).
+func ResolveParams(ctx context.Context, controllerCtx *util.ControllerContext, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor) (Params, operatorv1.DPFOperatorConfig, error) {
 	var configList operatorv1.DPFOperatorConfigList
 	if err := controllerCtx.List(ctx, &configList); err != nil {
 		return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("list DPFOperatorConfigs: %w", err)
@@ -144,39 +141,43 @@ func ResolveParams(ctx context.Context, controllerCtx *util.ControllerContext, d
 
 	isRedfish := controllerCtx.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish)
 
-	var dpuAgentRepoURL string
-	var kubeconfig string
+	params := Params{
+		DPUHostName:            cutil.GenerateNodeName(dpu),
+		KubeadmSecretName:      cutil.KubeadmJoinSecretName(dpu.Name),
+		KubeadmSecretNamespace: dpu.Namespace,
+		RedfishInterface:       isRedfish,
+		OOBNetwork:             isRedfish,
+		ControlPlaneMTU:        controlPlaneMTU,
+		DPUName:                dpu.Name,
+		DPUNamespace:           dpu.Namespace,
+		DPUUID:                 string(dpu.UID),
+	}
 	if isRedfish {
 		if dpfOperatorConfig.Spec.Overrides == nil || dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerVIP == nil || dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort == nil {
 			return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("KubernetesAPIServerVIP and KubernetesAPIServerPort must be set in DPFOperatorConfig for zero-trust mode")
 		}
 		apiServerAddress := fmt.Sprintf("https://%s:%d", *dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerVIP, *dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort)
-		// TODO: each DPU agent should use its own kubeconfig instead of sharing one.
-		kubeconfigData, err := cutil.GenerateKubeconfig(ctx, controllerCtx.Client, apiServerAddress, dpu.Namespace)
-		if err != nil {
-			return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("generating dpu-agent kubeconfig: %w", err)
+		if err := cutil.CreateDPUAgentRole(ctx, controllerCtx.Client, controllerCtx.Client.Scheme(), dpu); err != nil {
+			return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("creating DPU agent role: %w", err)
 		}
-		kubeconfig = string(kubeconfigData)
+		if err := cutil.CreateDPUAgentRoleBinding(ctx, controllerCtx.Client, controllerCtx.Client.Scheme(), dpu); err != nil {
+			return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("creating DPU agent role binding: %w", err)
+		}
+		kubeconfigData, err := cutil.CreateDPUAgentBootstrapKubeconfig(ctx, controllerCtx.Client, dpu, apiServerAddress, cutil.ServiceAccountCAPath)
+		if err != nil {
+			return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("creating DPU agent bootstrap kubeconfig: %w", err)
+		}
+		params.BootstrapKubeconfig = string(kubeconfigData)
 		bfbRegistryAddr, err := cutil.GetBFBRegistryAddressWithPort(ctx, controllerCtx.Client, os.Getenv("POD_NAMESPACE"), controllerCtx.Options.BFBRegistry)
 		if err != nil {
 			return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("bfb-registry address with port: %w", err)
 		}
-		dpuAgentRepoURL = strings.TrimRight(bfbRegistryAddr, "/") + "/deb"
+		params.DPUAgentRepoURL = strings.TrimRight(bfbRegistryAddr, "/") + "/deb"
 	} else {
-		dpuAgentRepoURL = "http://[fe80::1%25tmfifo_net0]:11029/deb"
+		params.DPUAgentRepoURL = "http://[fe80::1%25tmfifo_net0]:11029/deb"
 	}
-
-	params := Params{
-		DPUHostName:            cutil.GenerateNodeName(dpu),
-		KubeadmSecretName:      kubeadmSecret.Name,
-		KubeadmSecretNamespace: kubeadmSecret.Namespace,
-		Kubeconfig:             kubeconfig,
-		IsRedfish:              isRedfish,
-		ControlPlaneMTU:        controlPlaneMTU,
-		DPUName:                dpu.Name,
-		DPUNamespace:           dpu.Namespace,
-		DPUUID:                 string(dpu.UID),
-		DPUAgentRepoURL:        dpuAgentRepoURL,
+	if err := params.ApplyFlavor(flavor); err != nil {
+		return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("applying flavor: %w", err)
 	}
 	return params, dpfOperatorConfig, nil
 }
@@ -191,13 +192,10 @@ func GenerateNetworkCfg() File {
 	}
 }
 
-// GenerateUserData renders the cloud-init user-data file using the provided
-// DPUFlavor and Params.
-func GenerateUserData(flavor *provisioningv1.DPUFlavor, params Params) (File, error) {
-	if err := params.applyFlavor(flavor); err != nil {
-		return File{}, err
-	}
-
+// GenerateUserData renders the cloud-init user-data file from the given Params.
+// The caller must ensure ApplyFlavor has already been called (e.g. via
+// ResolveParams).
+func GenerateUserData(params Params) (File, error) {
 	tmpl, err := template.New("user-data").Funcs(sprig.FuncMap()).Parse(string(userDataTemplate))
 	if err != nil {
 		return File{}, fmt.Errorf("parsing user-data template: %w", err)

@@ -20,10 +20,18 @@ import (
 	"fmt"
 )
 
+const (
+	DPUAgentDir       = "/var/lib/dpf/dpuagent"
+	DefaultCertDir    = DPUAgentDir + "/pki"
+	DefaultKubeconfig = DPUAgentDir + "/kubeconfig"
+)
+
 type Options struct {
 	ZeroTrustMode              bool
 	ControlPlaneMTU            int32
 	Kubeconfig                 string
+	BootstrapKubeconfig        string
+	CertDir                    string
 	DPUName                    string
 	DPUNamespace               string
 	DPUUID                     string
@@ -46,8 +54,11 @@ type Options struct {
 
 func (o Options) Validate() error {
 	if o.ZeroTrustMode {
-		if o.Kubeconfig == "" {
-			return fmt.Errorf("kubeconfig is required for zero trust mode")
+		if o.Kubeconfig == "" && o.BootstrapKubeconfig == "" {
+			return fmt.Errorf("kubeconfig or bootstrap-kubeconfig is required for zero trust mode")
+		}
+		if o.BootstrapKubeconfig != "" && o.CertDir == "" {
+			return fmt.Errorf("cert-dir is required when bootstrap-kubeconfig is set")
 		}
 	}
 	if o.ControlPlaneMTU < 0 {

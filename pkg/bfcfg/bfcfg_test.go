@@ -148,7 +148,7 @@ var (
 			It("error if custom bf.cfg template is invalid", func() {
 				for _, redfish := range redfishModes {
 					flavor := &provisioningv1.DPUFlavor{}
-					_, err := Generate(flavor, cloudinit.Params{DPUHostName: "name", KubeadmSecretName: "test-secret", KubeadmSecretNamespace: "default", IsRedfish: redfish, ControlPlaneMTU: 1500}, []byte("{{.Invalid"))
+					_, err := Generate(flavor, cloudinit.Params{DPUHostName: "name", KubeadmSecretName: "test-secret", KubeadmSecretNamespace: "default", RedfishInterface: redfish, OOBNetwork: redfish, ControlPlaneMTU: 1500}, []byte("{{.Invalid"))
 					Expect(err).To(HaveOccurred())
 				}
 			})
@@ -157,10 +157,223 @@ var (
 					flavor := &provisioningv1.DPUFlavor{}
 					templateData, err := os.ReadFile(filepath.Join(dir, fileName))
 					Expect(err).NotTo(HaveOccurred())
-					got, err := Generate(flavor, cloudinit.Params{DPUHostName: "name", KubeadmSecretName: "test-secret", KubeadmSecretNamespace: "default", IsRedfish: redfish, ControlPlaneMTU: 1500}, templateData)
+					got, err := Generate(flavor, cloudinit.Params{DPUHostName: "name", KubeadmSecretName: "test-secret", KubeadmSecretNamespace: "default", RedfishInterface: redfish, OOBNetwork: redfish, ControlPlaneMTU: 1500}, templateData)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(got).To(Equal([]byte("test-secret")))
 				}
+			})
+		})
+
+		Describe("default vs custom template equivalence", func() {
+			// customTemplate is based on the bf.cfg.template after dpu-agent was
+			// merged but before the cloud-init refactoring, with the kubeconfig
+			// path updated to use bootstrap-kubeconfig. It inlines cloud-init
+			// content directly using the same Go template directives.
+			const customTemplate = `{{range .BFGCFGParams}}{{.}}
+{{end}}
+
+{{- if .RedfishInterface}}
+BMC_PASSWORD="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 4)-$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 4)_$(tr -dc '0-9' </dev/urandom | head -c 2)$(tr -dc 'a-z' </dev/urandom | head -c 1)$(tr -dc 'A-Z' </dev/urandom | head -c 1)"
+BMC_USER="fw_updater"
+BMC_REBOOT="yes"
+CEC_REBOOT="yes"
+USER_ID=8
+
+pre_bmc_components_update() {
+    ipmitool user set name $USER_ID $BMC_USER
+    ipmitool user set password $USER_ID $BMC_PASSWORD
+    ipmitool user enable $USER_ID
+    ipmitool channel setaccess 1 $USER_ID ipmi=on
+    ipmitool user priv $USER_ID 0x4 1
+}
+
+post_bmc_components_update() {
+    ipmitool user set name $USER_ID ""
+}
+{{end}}
+
+bfb_modify_os()
+{
+cat << \EOF > /mnt/etc/cloud/cloud.cfg.d/dpf.cfg
+network:
+  config: disabled
+EOF
+
+cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
+#cloud-config
+debug:
+  verbose: true
+users:
+  - name: ubuntu
+    lock_passwd: False
+    groups: adm, audio, cdrom, dialout, dip, floppy, lxd, netdev, plugdev, sudo, video
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+{{- if .UbuntuPassword}}
+    passwd: {{.UbuntuPassword}}
+{{else}}
+chpasswd:
+  list: |
+    ubuntu:ubuntu
+  expire: True
+{{end}}
+
+write_files:
+  - path: /etc/netplan/50-dpf-bootstrap.yaml
+    permissions: '0600'
+    content: |
+      network:
+        renderer: networkd
+        version: 2
+        ethernets:
+{{- if .OOBNetwork}}
+          oob_net0:
+            dhcp4: true
+{{- else}}
+          oob_net0:
+            dhcp4: false
+            dhcp6: false
+            link-local: []
+            optional: true
+          tmfifo_net0:
+            addresses:
+            - fe80::2/64
+            dhcp4: false
+{{- end}}
+
+{{- range .ConfigFiles}}
+  - path: {{.Path}}
+    {{if .IsAppend}}append: true
+    {{end -}}
+    permissions: {{.Permissions}}
+    content: |
+{{indent 6 .Content}}
+{{end}}
+
+{{- if .OVSRawScript}}
+  - path: /opt/dpf/ovs.sh
+    permissions: '0755'
+    content: |
+      #! /bin/bash
+      set -e
+{{indent 6 .OVSRawScript}}
+{{end}}
+
+  - path: /opt/dpf/dpuflavor.yaml
+    permissions: '0400'
+    content: |
+{{indent 6 .DPUFlavorYAML}}
+
+  - path: /opt/dpf/dpuagent.conf
+    permissions: '0600'
+    content: |
+      --dpu-name={{.DPUName}}
+      --dpu-namespace={{.DPUNamespace}}
+      --dpu-uid={{.DPUUID}}
+      --dpuflavor=/opt/dpf/dpuflavor.yaml
+      --control-plane-mtu={{.ControlPlaneMTU}}
+      --zero-trust-mode={{.RedfishInterface}}
+      --kubeadm-secret-name={{.KubeadmSecretName}}
+      --kubeadm-secret-namespace={{.KubeadmSecretNamespace}}
+{{- if .RedfishInterface}}
+      --bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig
+{{- end}}
+
+{{- if .BootstrapKubeconfig}}
+  - path: /var/lib/dpf/dpuagent/bootstrap-kubeconfig
+    permissions: '0600'
+    content: |
+{{indent 6 .BootstrapKubeconfig}}
+{{- end}}
+
+  - path: /etc/apt/sources.list.d/dpf.list
+    permissions: '0644'
+    content: |
+      deb [trusted=yes] {{.DPUAgentRepoURL}} ./
+
+  - path: /opt/dpf/install-dpu-agent.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      netplan apply
+
+      # Install dpu-agent with retry.
+      # Using "if" so that apt-get failures don't trigger "set -e" exit;
+      # bash ignores -e for commands evaluated as part of a condition.
+      for i in $(seq 1 60); do
+        if apt-get update -o Dir::Etc::sourcelist="sources.list.d/dpf.list" -o Dir::Etc::sourceparts="-" && apt-get install -y --no-install-recommends dpu-agent; then
+          break
+        fi
+        echo "apt-get failed, retrying ($i/60)..."
+        sleep 10
+      done
+
+      # Enable and start dpu-agent
+      # The systemd service file is included in the dpu-agent package.
+      # It reads startup parameters from /opt/dpf/dpuagent.conf (written by cloud-init above).
+      systemctl daemon-reload
+      systemctl enable --now dpu-agent.service
+
+runcmd:
+  - [ hostnamectl, set-hostname, {{.DPUHostName}} ]
+  - [ /opt/dpf/install-dpu-agent.sh ]
+EOF
+}
+`
+
+			It("should produce identical bf.cfg via default and custom template paths (Zero Trust)", func() {
+				flavor := &provisioningv1.DPUFlavor{}
+				Expect(yaml.Unmarshal([]byte(testDPUFlavorYAML), flavor)).To(Succeed())
+
+				params := cloudinit.Params{
+					DPUHostName:            "test-dpu",
+					KubeadmSecretName:      "test-secret",
+					KubeadmSecretNamespace: "default",
+					BootstrapKubeconfig:    sampleKubeconfig,
+					RedfishInterface:       true,
+					OOBNetwork:             true,
+					ControlPlaneMTU:        1500,
+					DPUName:                "dpu-1",
+					DPUNamespace:           "ns-1",
+					DPUUID:                 "uid-123",
+					DPUAgentRepoURL:        "http://bfb-registry:8080/deb",
+				}
+				Expect(params.ApplyFlavor(flavor)).To(Succeed())
+
+				defaultOut, err := generateDefault(flavor, params)
+				Expect(err).NotTo(HaveOccurred())
+
+				customOut, err := Generate(flavor, params, []byte(customTemplate))
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(string(customOut)).To(Equal(string(defaultOut)))
+			})
+
+			It("should produce identical bf.cfg via default and custom template paths (Trusted Host)", func() {
+				flavor := &provisioningv1.DPUFlavor{}
+				Expect(yaml.Unmarshal([]byte(testDPUFlavorYAML), flavor)).To(Succeed())
+
+				params := cloudinit.Params{
+					DPUHostName:            "test-dpu",
+					KubeadmSecretName:      "test-secret",
+					KubeadmSecretNamespace: "default",
+					ControlPlaneMTU:        1500,
+					DPUName:                "dpu-1",
+					DPUNamespace:           "ns-1",
+					DPUUID:                 "uid-123",
+					DPUAgentRepoURL:        "http://[fe80::1%25tmfifo_net0]:11029/deb",
+				}
+				Expect(params.ApplyFlavor(flavor)).To(Succeed())
+
+				defaultOut, err := generateDefault(flavor, params)
+				Expect(err).NotTo(HaveOccurred())
+
+				customOut, err := Generate(flavor, params, []byte(customTemplate))
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(string(customOut)).To(Equal(string(defaultOut)))
 			})
 		})
 
@@ -189,6 +402,7 @@ var (
 			}
 
 			generateAndParse := func(opts cloudinit.Params) ([]byte, *CloudConfig) {
+				Expect(opts.ApplyFlavor(flavor)).To(Succeed())
 				got, err := generateDefault(flavor, opts)
 				Expect(err).NotTo(HaveOccurred())
 				parsed := &CloudConfig{}
@@ -209,8 +423,9 @@ var (
 					DPUHostName:            "test-dpu",
 					KubeadmSecretName:      "test-secret",
 					KubeadmSecretNamespace: "default",
-					Kubeconfig:             sampleKubeconfig,
-					IsRedfish:              true,
+					BootstrapKubeconfig:    sampleKubeconfig,
+					RedfishInterface:       true,
+					OOBNetwork:             true,
 					ControlPlaneMTU:        1500,
 					DPUName:                "dpu-1",
 					DPUNamespace:           "ns-1",
@@ -256,11 +471,11 @@ ovs-vsctl add-br br-test
 --zero-trust-mode=true
 --kubeadm-secret-name=test-secret
 --kubeadm-secret-namespace=default
---kubeconfig=/opt/dpf/kubeconfig
+--bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig
 `)
 				Expect(agentConf.Content).To(Equal(expectedAgentConf))
 
-				kubeconfigFile := getWriteFile(parsed, "/opt/dpf/kubeconfig")
+				kubeconfigFile := getWriteFile(parsed, "/var/lib/dpf/dpuagent/bootstrap-kubeconfig")
 				Expect(kubeconfigFile.Permissions).To(Equal("0600"))
 				Expect(kubeconfigFile.Content).To(Equal(sampleKubeconfig))
 
@@ -282,8 +497,9 @@ ovs-vsctl add-br br-test
 					DPUHostName:            "test-dpu",
 					KubeadmSecretName:      "test-secret",
 					KubeadmSecretNamespace: "default",
-					Kubeconfig:             sampleKubeconfig,
-					IsRedfish:              true,
+					BootstrapKubeconfig:    sampleKubeconfig,
+					RedfishInterface:       true,
+					OOBNetwork:             true,
 					ControlPlaneMTU:        1500,
 					DPUName:                "dpu-1",
 					DPUNamespace:           "ns-1",
@@ -314,11 +530,11 @@ network:
 --zero-trust-mode=true
 --kubeadm-secret-name=test-secret
 --kubeadm-secret-namespace=default
---kubeconfig=/opt/dpf/kubeconfig
+--bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig
 `)
 				Expect(agentConf.Content).To(Equal(expectedAgentConf))
 
-				kubeconfigFile := getWriteFile(parsed, "/opt/dpf/kubeconfig")
+				kubeconfigFile := getWriteFile(parsed, "/var/lib/dpf/dpuagent/bootstrap-kubeconfig")
 				Expect(kubeconfigFile.Content).To(Equal(sampleKubeconfig))
 			})
 
@@ -384,7 +600,8 @@ EOF
 					DPUHostName:            "test-dpu",
 					KubeadmSecretName:      "test-secret",
 					KubeadmSecretNamespace: "default",
-					IsRedfish:              false,
+					RedfishInterface:       false,
+					OOBNetwork:             false,
 					ControlPlaneMTU:        1500,
 					DPUName:                "dpu-1",
 					DPUNamespace:           "ns-1",
@@ -425,7 +642,7 @@ network:
 				Expect(agentConf.Content).To(Equal(expectedAgentConf))
 
 				for _, f := range parsed.WriteFiles {
-					Expect(f.Path).NotTo(Equal("/opt/dpf/kubeconfig"))
+					Expect(f.Path).NotTo(Equal("/var/lib/dpf/dpuagent/bootstrap-kubeconfig"))
 				}
 			})
 
