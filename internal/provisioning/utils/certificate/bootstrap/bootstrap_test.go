@@ -290,7 +290,7 @@ var _ = Describe("Bootstrap", func() {
 		It("should return error when kubeconfig does not exist and no bootstrap path", func() {
 			kubeconfigPath := filepath.Join(tempDir, "nonexistent-kubeconfig")
 
-			_, _, err := LoadClientConfig(kubeconfigPath, "", tempDir)
+			_, _, err := LoadClientConfig(kubeconfigPath, "", tempDir, "test-client")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("unable to load kubeconfig"))
 		})
@@ -317,7 +317,7 @@ var _ = Describe("Bootstrap", func() {
 			}
 			Expect(clientcmd.WriteToFile(kubeconfig, kubeconfigPath)).To(Succeed())
 
-			certConfig, userConfig, err := LoadClientConfig(kubeconfigPath, "", tempDir)
+			certConfig, userConfig, err := LoadClientConfig(kubeconfigPath, "", tempDir, "test-client")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(certConfig).NotTo(BeNil())
 			Expect(userConfig).NotTo(BeNil())
@@ -333,7 +333,7 @@ var _ = Describe("Bootstrap", func() {
 			// Create an invalid kubeconfig that will trigger bootstrap
 			Expect(os.WriteFile(kubeconfigPath, []byte("invalid: ["), 0644)).To(Succeed())
 
-			_, _, err := LoadClientConfig(kubeconfigPath, bootstrapPath, tempDir)
+			_, _, err := LoadClientConfig(kubeconfigPath, bootstrapPath, tempDir, "test-client")
 			Expect(err).To(HaveOccurred())
 		})
 	})

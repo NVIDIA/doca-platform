@@ -126,7 +126,8 @@ var _ = Describe("Generate", func() {
 	}
 
 	generateAndParse := func(params Params) (userData File, parsed *cloudConfig) {
-		userData, err := GenerateUserData(flavor, params)
+		Expect(params.ApplyFlavor(flavor)).To(Succeed())
+		userData, err := GenerateUserData(params)
 		Expect(err).NotTo(HaveOccurred())
 
 		parsed = &cloudConfig{}
@@ -157,7 +158,6 @@ network:
 			DPUHostName:            "test-dpu",
 			KubeadmSecretName:      "test-secret",
 			KubeadmSecretNamespace: "default",
-			IsRedfish:              false,
 			ControlPlaneMTU:        1500,
 			DPUName:                "dpu-1",
 			DPUNamespace:           "ns-1",
@@ -173,8 +173,9 @@ network:
 			DPUHostName:            "test-dpu",
 			KubeadmSecretName:      "test-secret",
 			KubeadmSecretNamespace: "default",
-			Kubeconfig:             sampleKubeconfig,
-			IsRedfish:              true,
+			BootstrapKubeconfig:    sampleKubeconfig,
+			RedfishInterface:       true,
+			OOBNetwork:             true,
 			ControlPlaneMTU:        1500,
 			DPUName:                "dpu-1",
 			DPUNamespace:           "ns-1",
@@ -220,11 +221,11 @@ ovs-vsctl add-br br-test
 --zero-trust-mode=true
 --kubeadm-secret-name=test-secret
 --kubeadm-secret-namespace=default
---kubeconfig=/opt/dpf/kubeconfig
+--bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig
 `)
 		Expect(agentConf.Content).To(Equal(expectedAgentConf))
 
-		kubeconfigFile := getWriteFile(parsed, "/opt/dpf/kubeconfig")
+		kubeconfigFile := getWriteFile(parsed, "/var/lib/dpf/dpuagent/bootstrap-kubeconfig")
 		Expect(kubeconfigFile.Permissions).To(Equal("0600"))
 		Expect(kubeconfigFile.Content).To(Equal(sampleKubeconfig))
 
@@ -246,8 +247,9 @@ ovs-vsctl add-br br-test
 			DPUHostName:            "test-dpu",
 			KubeadmSecretName:      "test-secret",
 			KubeadmSecretNamespace: "default",
-			Kubeconfig:             sampleKubeconfig,
-			IsRedfish:              true,
+			BootstrapKubeconfig:    sampleKubeconfig,
+			RedfishInterface:       true,
+			OOBNetwork:             true,
 			ControlPlaneMTU:        1500,
 			DPUName:                "dpu-1",
 			DPUNamespace:           "ns-1",
@@ -267,9 +269,9 @@ network:
 
 		agentConf := getWriteFile(parsed, "/opt/dpf/dpuagent.conf")
 		Expect(agentConf.Content).To(ContainSubstring("--zero-trust-mode=true"))
-		Expect(agentConf.Content).To(ContainSubstring("--kubeconfig=/opt/dpf/kubeconfig"))
+		Expect(agentConf.Content).To(ContainSubstring("--bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig"))
 
-		kubeconfigFile := getWriteFile(parsed, "/opt/dpf/kubeconfig")
+		kubeconfigFile := getWriteFile(parsed, "/var/lib/dpf/dpuagent/bootstrap-kubeconfig")
 		Expect(kubeconfigFile.Content).To(Equal(sampleKubeconfig))
 	})
 
@@ -278,7 +280,6 @@ network:
 			DPUHostName:            "test-dpu",
 			KubeadmSecretName:      "test-secret",
 			KubeadmSecretNamespace: "default",
-			IsRedfish:              false,
 			ControlPlaneMTU:        1500,
 			DPUName:                "dpu-1",
 			DPUNamespace:           "ns-1",
@@ -305,15 +306,15 @@ network:
 
 		agentConf := getWriteFile(parsed, "/opt/dpf/dpuagent.conf")
 		Expect(agentConf.Content).To(ContainSubstring("--zero-trust-mode=false"))
-		Expect(agentConf.Content).NotTo(ContainSubstring("--kubeconfig="))
+		Expect(agentConf.Content).NotTo(ContainSubstring("--bootstrap-kubeconfig="))
 
 		for _, f := range parsed.WriteFiles {
-			Expect(f.Path).NotTo(Equal("/opt/dpf/kubeconfig"))
+			Expect(f.Path).NotTo(Equal("/var/lib/dpf/dpuagent/bootstrap-kubeconfig"))
 		}
 	})
 
 	It("no password: should use chpasswd with default credentials", func() {
-		userData, err := GenerateUserData(flavor, Params{
+		params := Params{
 			DPUHostName:            "test-dpu",
 			KubeadmSecretName:      "s",
 			KubeadmSecretNamespace: "ns",
@@ -321,7 +322,9 @@ network:
 			DPUName:                "dpu-1",
 			DPUNamespace:           "ns-1",
 			DPUAgentRepoURL:        "http://example/deb",
-		})
+		}
+		Expect(params.ApplyFlavor(flavor)).To(Succeed())
+		userData, err := GenerateUserData(params)
 		Expect(err).NotTo(HaveOccurred())
 		content := userData.Content
 		Expect(content).To(ContainSubstring(skipFirstEmptyLine(`
@@ -341,7 +344,7 @@ chpasswd:
 
 	It("with password: should set passwd on user and omit chpasswd", func() {
 		flavor.Spec.BFCfgParameters = append(flavor.Spec.BFCfgParameters, "ubuntu_PASSWORD=secret123")
-		userData, err := GenerateUserData(flavor, Params{
+		params := Params{
 			DPUHostName:            "test-dpu",
 			KubeadmSecretName:      "s",
 			KubeadmSecretNamespace: "ns",
@@ -349,7 +352,9 @@ chpasswd:
 			DPUName:                "dpu-1",
 			DPUNamespace:           "ns-1",
 			DPUAgentRepoURL:        "http://example/deb",
-		})
+		}
+		Expect(params.ApplyFlavor(flavor)).To(Succeed())
+		userData, err := GenerateUserData(params)
 		Expect(err).NotTo(HaveOccurred())
 		content := userData.Content
 		Expect(content).To(ContainSubstring(skipFirstEmptyLine(`

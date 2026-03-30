@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	corev1 "k8s.io/api/core/v1"
@@ -27,6 +29,13 @@ const (
 	// DPUKind is the kind of the DPU object
 	DPUKind = "DPU"
 )
+
+// DPUAgentUsername returns the Kubernetes username derived from a DPU agent's
+// client certificate CN. This name is used as the RBAC identity for per-DPU
+// Role/RoleBinding and must match the CN in the DPU agent's CSR.
+func DPUAgentUsername(dpuName string) string {
+	return fmt.Sprintf("da-%s", dpuName)
+}
 
 // DPUGroupVersionKind is the GroupVersionKind of the DPU object
 var DPUGroupVersionKind = GroupVersion.WithKind(DPUKind)

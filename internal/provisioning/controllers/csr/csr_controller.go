@@ -19,6 +19,8 @@ package csr
 import (
 	"context"
 
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+
 	certmanager "k8s.io/api/certificates/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -87,7 +89,7 @@ func (r *CSRReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return false
 			}
 			for _, group := range csr.Spec.Groups {
-				if group == hostAgentGroup {
+				if group == hostAgentGroup || group == cutil.DPUAgentBootstrapGroup {
 					return true
 				}
 			}
