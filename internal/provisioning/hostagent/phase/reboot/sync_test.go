@@ -57,9 +57,9 @@ var _ = Describe("Reboot Sync", func() {
 			}
 		}
 
-		var mockPersistDPUBootIDFunc = func(store map[types.NamespacedName]bool) func(*provisioningv1.DPU, bool) error {
-			return func(dpu *provisioningv1.DPU, skip bool) error {
-				store[types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Name}] = skip
+		var mockPersistDPUBootIDFunc = func(store map[types.NamespacedName]bool) func(*provisioningv1.DPU) error {
+			return func(dpu *provisioningv1.DPU) error {
+				store[types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Name}] = true
 				return nil
 			}
 		}
@@ -193,66 +193,6 @@ var _ = Describe("Reboot Sync", func() {
 			result := handler.run()
 			Expect(result).To(BeEmpty())
 			Expect(store).To(BeEmpty())
-		})
-
-		It("should skip rebooting if the power cycle command on DPUNode is set to skip", func() {
-			dpuNode := dpuNodeWithHostAgentRebootMethod()
-			dpuNode.Annotations = map[string]string{
-				reboot.PowercycleCmdKey: reboot.Skip,
-			}
-			rebootingDPU := rebootingDPU("rebooting-dpu")
-			nonRebootingDPU := nonRebootingDPU(provisioningv1.DPUPrepareBFB)
-			dpus := []provisioningv1.DPU{
-				rebootingDPU,
-				nonRebootingDPU,
-			}
-			store := map[types.NamespacedName]bool{}
-			handler := &Handler{
-				listDPUFunc:    mockListDPUFunc(dpus),
-				getDPUNodeFunc: mockGetDPUNodeFunc(dpuNode),
-				bootIDStore: &mockBootIDStore{
-					persistBootIDFunc: mockPersistDPUBootIDFunc(store),
-					isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
-						return false, nil
-					},
-				},
-			}
-			result := handler.run()
-			Expect(result).To(BeEmpty())
-			Expect(store).To(HaveLen(1))
-			Expect(store).To(HaveKey(types.NamespacedName{Namespace: rebootingDPU.Namespace, Name: rebootingDPU.Name}))
-			Expect(store).NotTo(HaveKey(types.NamespacedName{Namespace: nonRebootingDPU.Namespace, Name: nonRebootingDPU.Name}))
-			Expect(store[types.NamespacedName{Namespace: rebootingDPU.Namespace, Name: rebootingDPU.Name}]).To(BeTrue())
-		})
-
-		It("should skip rebooting if the reboot command on DPUNode is set to skip", func() {
-			dpuNode := dpuNodeWithHostAgentRebootMethod()
-			dpuNode.Annotations = map[string]string{
-				reboot.RebootCmdKey: reboot.Skip,
-			}
-			rebootingDPU := rebootingDPU("rebooting-dpu")
-			nonRebootingDPU := nonRebootingDPU(provisioningv1.DPUOSInstalling)
-			dpus := []provisioningv1.DPU{
-				rebootingDPU,
-				nonRebootingDPU,
-			}
-			store := map[types.NamespacedName]bool{}
-			handler := &Handler{
-				listDPUFunc:    mockListDPUFunc(dpus),
-				getDPUNodeFunc: mockGetDPUNodeFunc(dpuNode),
-				bootIDStore: &mockBootIDStore{
-					persistBootIDFunc: mockPersistDPUBootIDFunc(store),
-					isRebootFinishedFunc: func(dpu *provisioningv1.DPU) (bool, error) {
-						return false, nil
-					},
-				},
-			}
-			result := handler.run()
-			Expect(result).To(BeEmpty())
-			Expect(store).To(HaveLen(1))
-			Expect(store).To(HaveKey(types.NamespacedName{Namespace: rebootingDPU.Namespace, Name: rebootingDPU.Name}))
-			Expect(store).NotTo(HaveKey(types.NamespacedName{Namespace: nonRebootingDPU.Namespace, Name: nonRebootingDPU.Name}))
-			Expect(store[types.NamespacedName{Namespace: rebootingDPU.Namespace, Name: rebootingDPU.Name}]).To(BeTrue())
 		})
 
 		It("should block if any DPU is being provisioned (not reaching DPURebooting phase)", func() {
@@ -644,12 +584,12 @@ var _ = Describe("Reboot Sync", func() {
 })
 
 type mockBootIDStore struct {
-	persistBootIDFunc    func(*provisioningv1.DPU, bool) error
+	persistBootIDFunc    func(*provisioningv1.DPU) error
 	isRebootFinishedFunc func(*provisioningv1.DPU) (bool, error)
 }
 
-func (s *mockBootIDStore) PersistBootID(dpu *provisioningv1.DPU, skip bool) error {
-	return s.persistBootIDFunc(dpu, skip)
+func (s *mockBootIDStore) PersistBootID(dpu *provisioningv1.DPU) error {
+	return s.persistBootIDFunc(dpu)
 }
 
 func (s *mockBootIDStore) IsRebootFinished(dpu *provisioningv1.DPU) (bool, error) {

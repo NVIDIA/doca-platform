@@ -300,7 +300,6 @@ annotation on such kind of worker nodes:
 
 ```yaml
 provisioning.dpu.nvidia.com/powercycle-command: reset
-provisioning.dpu.nvidia.com/reboot-command: cycle
 ```
 
 ## Node effect
