@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -28,6 +29,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -356,4 +358,80 @@ func ValidateDPUServiceIPAMInL3ModeForMultiDPUCluster(ctx context.Context, input
 		g.Expect(ipStr).To(Equal("192.168.20.10"),
 			fmt.Sprintf("Pod %s in cluster 2 should have IP 192.168.20.10", pod.Name))
 	}).WithTimeout(30 * time.Second).Should(Succeed())
+}
+
+// ValidateDPUClusterDeletion validates the system when first DPUCluster is deleted.
+// It uses the existing DPUDeployment (with each DPU joining a different cluster) and verifies
+// that after cluster 1 is deleted the system remains healthy: DPFOperatorConfig, all DPUServices,
+// DPUServiceChains, DPUServiceInterfaces, DPUServiceIPAMs, and the DPUDeployment are ready.
+func ValidateDPUClusterDeletion(ctx context.Context, input *systemTestInput) {
+	firstDPUCluster := input.dpuClusters[0]
+
+	By("Deleting first DPUCluster")
+	Expect(input.client.Delete(ctx, firstDPUCluster)).To(Succeed())
+
+	By("Patching DPUDeployment to remove the DPUSet referencing first DPUCluster")
+	dpuDeployment := generateDPUDeployment(input, "")
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+	dpuDeploymentOriginal := dpuDeployment.DeepCopy()
+	dpuDeployment.Spec.DPUs.DPUSets = slices.DeleteFunc(dpuDeployment.Spec.DPUs.DPUSets, func(s dpuservicev1.DPUSet) bool {
+		return s.DPUClusterSelector["svc.dpu.nvidia.com/cluster"] == firstDPUCluster.Name
+	})
+	Expect(input.client.Patch(ctx, dpuDeployment, client.MergeFrom(dpuDeploymentOriginal))).To(Succeed())
+
+	By("Waiting for first DPUCluster to be completely deleted")
+	Eventually(func(g Gomega) {
+		err := input.client.Get(ctx, client.ObjectKeyFromObject(firstDPUCluster), &provisioningv1.DPUCluster{})
+		g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "DPUCluster %s should be completely deleted", client.ObjectKeyFromObject(firstDPUCluster))
+	}).WithTimeout(15 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+
+	By("Verifying DPFOperatorConfig is ready")
+	VerifyDPFOperatorConfigReady(ctx, input.client, 10*time.Minute)
+
+	By("Verifying all DPUServices are ready")
+	Eventually(func(g Gomega) {
+		dpuServiceList := &dpuservicev1.DPUServiceList{}
+		g.Expect(input.client.List(ctx, dpuServiceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		for _, dpuService := range dpuServiceList.Items {
+			g.Expect(conditions.IsTrue(&dpuService, conditions.TypeReady)).To(BeTrue(),
+				fmt.Sprintf("DPUService %s should be ready", dpuService.Name))
+		}
+	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+	By("Verifying all DPUServiceChains are ready")
+	Eventually(func(g Gomega) {
+		dpuServiceChainList := &dpuservicev1.DPUServiceChainList{}
+		g.Expect(input.client.List(ctx, dpuServiceChainList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		for _, dpuServiceChain := range dpuServiceChainList.Items {
+			g.Expect(conditions.IsTrue(&dpuServiceChain, conditions.TypeReady)).To(BeTrue(),
+				fmt.Sprintf("DPUServiceChain %s should be ready", dpuServiceChain.Name))
+		}
+	}).WithTimeout(10 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+
+	By("Verifying all DPUServiceInterfaces are ready")
+	Eventually(func(g Gomega) {
+		dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
+		g.Expect(input.client.List(ctx, dpuServiceInterfaceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		for _, dpuServiceInterface := range dpuServiceInterfaceList.Items {
+			g.Expect(conditions.IsTrue(&dpuServiceInterface, conditions.TypeReady)).To(BeTrue(),
+				fmt.Sprintf("DPUServiceInterface %s should be ready", dpuServiceInterface.Name))
+		}
+	}).WithTimeout(10 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+
+	By("Verifying all DPUServiceIPAMs are ready")
+	Eventually(func(g Gomega) {
+		dpuServiceIPAMList := &dpuservicev1.DPUServiceIPAMList{}
+		g.Expect(input.client.List(ctx, dpuServiceIPAMList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		for _, dpuServiceIPAM := range dpuServiceIPAMList.Items {
+			g.Expect(conditions.IsTrue(&dpuServiceIPAM, conditions.TypeReady)).To(BeTrue(),
+				fmt.Sprintf("DPUServiceIPAM %s should be ready", dpuServiceIPAM.Name))
+		}
+	}).WithTimeout(10 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+
+	By("Verifying DPUDeployment is ready")
+	Eventually(func(g Gomega) {
+		got := &dpuservicev1.DPUDeployment{}
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), got)).To(Succeed())
+		g.Expect(conditions.IsTrue(got, conditions.TypeReady)).To(BeTrue())
+	}).WithTimeout(10 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 }
