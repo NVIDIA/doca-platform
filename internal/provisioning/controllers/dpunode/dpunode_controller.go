@@ -312,7 +312,6 @@ func (r *DPUNodeReconciler) updateDPUCondition(ctx context.Context, dpus []*prov
 func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisioningv1.DPUNode) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("DPUNode conditions", "DPUNode", dpuNode.Status.Conditions)
-	// TODO: handle the rebootCommand == reboot.Skip
 	dpus, err := cutil.GetDPUsWithPhase(ctx, r.Client, dpuNode, provisioningv1.DPURebooting)
 	if err != nil {
 		return ctrl.Result{}, err

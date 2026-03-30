@@ -30,20 +30,9 @@ import (
 
 const (
 	PowercycleCmdKey         = "provisioning.dpu.nvidia.com/powercycle-command"
-	RebootCmdKey             = "provisioning.dpu.nvidia.com/reboot-command"
 	HostPowerCycleRequireKey = "provisioning.dpu.nvidia.com/host-power-cycle-required"
 	Cycle                    = "cycle"
 	Reset                    = "reset"
-	// Skip ensures no power cycle is done on the host.
-	// Note: This may cause issues with the BFB firmware installation and configuration.
-	Skip = "skip"
-)
-
-type RebootType string
-
-const (
-	PowerCycle RebootType = "power-cycle"
-	WarmReboot RebootType = "warm-reboot"
 )
 
 type HostUptimeChecker interface {
@@ -71,24 +60,6 @@ func (d *DMSPodExecUptimeChecker) HostUptime(ctx context.Context, conn *grpc.Cli
 	return int(uptime), nil
 }
 
-func getHostRebootCmd(annotations map[string]string, key string) (string, error) {
-	cmd, ok := annotations[key]
-	if !ok {
-		if PowercycleCmdKey == key {
-			return Cycle, nil
-		} else if RebootCmdKey == key {
-			return Reset, nil
-		}
-	}
-	supported := []string{Cycle, Reset, Skip}
-	for _, s := range supported {
-		if cmd == s {
-			return cmd, nil
-		}
-	}
-	return "", fmt.Errorf("invalid value %q, supported values: %q", cmd, supported)
-}
-
 func PowerCycleRequired(annotations map[string]string) bool {
 	if annotations != nil {
 		if v, ok := annotations[HostPowerCycleRequireKey]; ok {
@@ -113,43 +84,6 @@ func ValidateHostPowerCycleRequire(m map[string]string) error {
 	return nil
 }
 
-func GenerateCmd(nodeAnnotations map[string]string, dpuAnnotations map[string]string) (generateCmd string, rebootType RebootType, err error) {
-	var cmd string
-	if PowerCycleRequired(dpuAnnotations) {
-		rebootType = PowerCycle
-		if cmd, err = getHostRebootCmd(nodeAnnotations, PowercycleCmdKey); err != nil {
-			return generateCmd, rebootType, err
-		}
-	} else {
-		rebootType = WarmReboot
-		if cmd, err = getHostRebootCmd(nodeAnnotations, RebootCmdKey); err != nil {
-			return generateCmd, rebootType, err
-		}
-	}
-
-	if rebootType == PowerCycle {
-		impicmd := []string{"ipmitool", "chassis", "power"}
-
-		switch cmd {
-		case Cycle:
-			impicmd = append(impicmd, Cycle)
-		case Reset:
-			impicmd = append(impicmd, Reset)
-		case Skip:
-			impicmd = []string{Skip}
-		}
-		generateCmd = strings.Join(impicmd, " ")
-	} else {
-		generateCmd = cmd
-	}
-
-	return generateCmd, rebootType, nil
-}
-
-func SkipReboot(dpuNode *provisioningv1.DPUNode) bool {
-	return dpuNode.Annotations[PowercycleCmdKey] == Skip || dpuNode.Annotations[RebootCmdKey] == Skip
-}
-
 func PowerCycleCommand(dpuNode *provisioningv1.DPUNode) (string, error) {
 	ipmiCmd := []string{"ipmitool", "chassis", "power"}
 	cmd, ok := dpuNode.Annotations[PowercycleCmdKey]
@@ -159,9 +93,7 @@ func PowerCycleCommand(dpuNode *provisioningv1.DPUNode) (string, error) {
 	switch cmd {
 	case Cycle, Reset:
 		return strings.Join(append(ipmiCmd, cmd), " "), nil
-	case Skip:
-		return Skip, nil
 	default:
-		return "", fmt.Errorf("invalid value %q, supported values: %q", cmd, []string{Cycle, Reset, Skip})
+		return "", fmt.Errorf("invalid value %q, supported values: %q", cmd, []string{Cycle, Reset})
 	}
 }
