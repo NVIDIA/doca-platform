@@ -28,8 +28,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/klog/v2"
+	restclient "k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -41,15 +40,26 @@ type ZerotrustClient struct {
 	dpuUID       string
 }
 
-func NewZerotrustClient(kubeconfig string, dpuName string, dpuNamespace string, dpuUID string) *ZerotrustClient {
-	dpfClient, k8sClient := buildClientOrDie(kubeconfig)
+func NewZerotrustClient(config *restclient.Config, dpuName string, dpuNamespace string, dpuUID string) (*ZerotrustClient, error) {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(provisioningv1.AddToScheme(scheme))
+
+	dpfClient, err := client.New(config, client.Options{Scheme: scheme})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dpf client: %w", err)
+	}
+	k8sClient, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create k8s client: %w", err)
+	}
 	return &ZerotrustClient{
 		dpfClient:    dpfClient,
 		k8sClient:    k8sClient,
 		dpuName:      dpuName,
 		dpuNamespace: dpuNamespace,
 		dpuUID:       dpuUID,
-	}
+	}, nil
 }
 
 func (c *ZerotrustClient) HealthCheck() error {
@@ -91,23 +101,4 @@ func (c *ZerotrustClient) UpdateStatus(ctx context.Context, agentStatus provisio
 
 func (c *ZerotrustClient) GetObject(ctx context.Context, namespace string, name string, obj client.Object) error {
 	return c.dpfClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, obj)
-}
-
-func buildClientOrDie(kubeconfig string) (dpfClient client.Client, k8sClient kubernetes.Interface) {
-	scheme := runtime.NewScheme()
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(provisioningv1.AddToScheme(scheme))
-	clientCfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-	if err != nil {
-		klog.Fatalf("failed to build client config: %v", err)
-	}
-	dpfClient, err = client.New(clientCfg, client.Options{Scheme: scheme})
-	if err != nil {
-		klog.Fatalf("failed to create un-cached client: %v", err)
-	}
-	k8sClient, err = kubernetes.NewForConfig(clientCfg)
-	if err != nil {
-		klog.Fatalf("failed to create k8s client: %v", err)
-	}
-	return dpfClient, k8sClient
 }

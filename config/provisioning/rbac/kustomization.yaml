@@ -16,3 +16,4 @@ resources:
 - dpuagent_role.yaml
 - dpuagent_role_binding.yaml
 - dpuagent_token_secret.yaml
+- dpuagent_bootstrap.yaml

@@ -26,6 +26,7 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -98,6 +99,18 @@ func Deleting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contr
 			},
 		},
 		certificateRequest,
+		&rbacv1.Role{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      provisioningv1.DPUAgentUsername(dpu.Name),
+				Namespace: dpu.Namespace,
+			},
+		},
+		&rbacv1.RoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      provisioningv1.DPUAgentUsername(dpu.Name),
+				Namespace: dpu.Namespace,
+			},
+		},
 	}
 
 	objects, err := cutil.GetObjects(ctx, ctrlCtx.Client, deleteObjects)
@@ -113,6 +126,12 @@ func Deleting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contr
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDeleting.String(), err, "DeleteObjectsError", err.Error()))
 			return *state, err
 		}
+	}
+
+	if err := cutil.DeleteDPUAgentBootstrapTokens(ctx, ctrlCtx.Client, dpu.Name, dpu.Namespace); err != nil {
+		err = fmt.Errorf("failed to delete bootstrap tokens: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDeleting.String(), err, "DeleteBootstrapTokensError", err.Error()))
+		return *state, err
 	}
 
 	if err := deleteNode(ctx, ctrlCtx.Client, dpu); err != nil {

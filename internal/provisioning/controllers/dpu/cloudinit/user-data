@@ -74,14 +74,14 @@ write_files:
       --kubeadm-secret-name={{.KubeadmSecretName}}
       --kubeadm-secret-namespace={{.KubeadmSecretNamespace}}
 {{- if .RedfishInterface}}
-      --kubeconfig=/opt/dpf/kubeconfig
+      --bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig
 {{- end}}
 
-{{- if .Kubeconfig}}
-  - path: /opt/dpf/kubeconfig
+{{- if .BootstrapKubeconfig}}
+  - path: /var/lib/dpf/dpuagent/bootstrap-kubeconfig
     permissions: '0600'
     content: |
-{{indent 6 .Kubeconfig}}
+{{indent 6 .BootstrapKubeconfig}}
 {{- end}}
 
   - path: /etc/apt/sources.list.d/dpf.list
