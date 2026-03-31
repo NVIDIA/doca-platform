@@ -46,60 +46,26 @@ metadata:
   labels:
     app.kubernetes.io/part-of: dpf-provisioning-controller-manager
     dpu.nvidia.com/component: dpf-provisioning-controller-manager
-  name: dpf-provisioning-hostagent-role
-  namespace: system
+  name: dpf-provisioning-dpu-agent-csr-creator
 rules:
 - apiGroups:
-  - provisioning.dpu.nvidia.com
+  - certificates.k8s.io
   resources:
-  - dpunodes
-  - dpudevices
+  - certificatesigningrequests
   verbs:
   - create
-  - delete
   - get
   - list
   - watch
-  - patch
-  - update
-- apiGroups:
-  - provisioning.dpu.nvidia.com
-  resources:
-  - bfbs
-  - dpuclusters
-  - dpudiscoveries
-  - dpus
-  - dpusets
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - provisioning.dpu.nvidia.com
-  resources:
-  - dpus/status
-  - dpunodes/status
-  - dpudevices/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - provisioning.dpu.nvidia.com
-  resources:
-  - dpuflavors
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/part-of: dpf-provisioning-controller-manager
+    dpu.nvidia.com/component: dpf-provisioning-controller-manager
+  name: dpf-provisioning-hostagent-role
+rules:
 - apiGroups:
   - ""
   resources:
@@ -110,6 +76,12 @@ rules:
   - list
   - patch
   - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
 - apiGroups:
   - certificates.k8s.io
   resources:
@@ -127,21 +99,48 @@ rules:
   - get
   - list
   - watch
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  labels:
-    app.kubernetes.io/part-of: dpf-provisioning-controller-manager
-    dpu.nvidia.com/component: dpf-provisioning-controller-manager
-  name: dpf-provisioning-dpu-agent-csr-creator
-rules:
 - apiGroups:
-  - certificates.k8s.io
+  - provisioning.dpu.nvidia.com
   resources:
-  - certificatesigningrequests
+  - bfbs
+  - dpuclusters
+  - dpudiscoveries
+  - dpus
+  - dpusets
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - dpudevices
+  - dpunodes
   verbs:
   - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - dpudevices/status
+  - dpunodes/status
+  - dpus/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - dpuflavors
+  verbs:
   - get
   - list
   - watch
@@ -463,36 +462,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   labels:
-    app.kubernetes.io/part-of: dpf-provisioning-controller-manager
-    dpu.nvidia.com/component: dpf-provisioning-controller-manager
-  name: dpf-provisioning-dpuagent-zerotrust-role
-  namespace: dpf-provisioning
-rules:
-- apiGroups:
-  - provisioning.dpu.nvidia.com
-  resources:
-  - dpus
-  verbs:
-  - get
-- apiGroups:
-  - provisioning.dpu.nvidia.com
-  resources:
-  - dpus/status
-  verbs:
-  - get
-  - update
-  - patch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/part-of: dpf-provisioning-controller-manager
     dpu.nvidia.com/component: dpf-provisioning-controller-manager
@@ -530,23 +499,6 @@ rules:
   verbs:
   - create
   - patch
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  labels:
-    app.kubernetes.io/part-of: dpf-provisioning-controller-manager
-    dpu.nvidia.com/component: dpf-provisioning-controller-manager
-  name: dpf-provisioning-dpuagent-zerotrust-rolebinding
-  namespace: dpf-provisioning
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: dpf-provisioning-dpuagent-zerotrust-role
-subjects:
-- kind: ServiceAccount
-  name: dpf-provisioning-dpuagent-zerotrust
-  namespace: dpf-provisioning
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
