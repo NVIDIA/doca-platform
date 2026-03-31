@@ -448,6 +448,10 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 		},
 	}
 
+	if dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware != nil && dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name != "" {
+		dpu.Spec.BlueFieldSoftware = dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name
+	}
+
 	if dpuSet.Spec.DPUTemplate.Spec.Cluster != nil && dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector != nil {
 		dpu.Spec.Cluster.Selector = dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector.DeepCopy()
 	}
@@ -561,6 +565,11 @@ func (r *DPUSetReconciler) needDisruptDPU(dpuSet provisioningv1.DPUSet, dpu prov
 		!reflect.DeepEqual(dpu.Spec.SecureBoot, dpuSet.Spec.DPUTemplate.Spec.SecureBoot) {
 		return true
 	}
+
+	if dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware != nil && dpu.Spec.BlueFieldSoftware != dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name {
+		return true
+	}
+
 	if dpuSet.Spec.DPUTemplate.Spec.Cluster != nil && !matchDPUClusterSelector(dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector, dpu.Spec.Cluster, dpuClusters) {
 		return true
 	}
