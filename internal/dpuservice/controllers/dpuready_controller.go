@@ -948,7 +948,7 @@ func (r *DPUReadyReconciler) WatchNodes(ctx context.Context, c client.Client, cl
 	return dpucluster.NewWatcher(dpucluster.WatcherOptions{
 		Name:         "dpuready-node-watcher",
 		Kind:         &corev1.Node{},
-		EventHandler: &nodeInDPUClusterEventHandler{client: c, dpuNodeDefaultNamespace: dpfOperatorConfig.Namespace},
+		EventHandler: &nodeInDPUClusterEventHandler{dpuNodeDefaultNamespace: dpfOperatorConfig.Namespace},
 		Predicates: []predicate.Predicate{
 			// Only trigger on node condition changes and deletion
 			newNodeConditionPredicate(),
@@ -1144,17 +1144,27 @@ func (s *serviceInterfaceEventHandler) Generic(ctx context.Context, e event.Gene
 
 // nodeInDPUClusterEventHandler is a handler for Node events in DPU clusters
 type nodeInDPUClusterEventHandler struct {
-	client client.Client
 	// dpuNodeDefaultNamespace is the default namespace where to look for the DPUNode.
 	dpuNodeDefaultNamespace string
 }
 
 func (n *nodeInDPUClusterEventHandler) handleEvent(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
-	if node, ok := obj.(*corev1.Node); ok {
-		enqueueDPUNodeFromNodeInDPUCluster(ctx, n.client, node.Name, n.dpuNodeDefaultNamespace, q)
-	} else {
-		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a Node but got a %T", obj), "Failed to convert object")
+	log := ctrllog.FromContext(ctx)
+	node, ok := obj.(*corev1.Node)
+	if !ok {
+		log.Error(fmt.Errorf("event expected a Node but got a %T", obj), "Failed to convert object")
+		return
 	}
+
+	// Use the node object from the event directly instead of re-fetching from the cache.
+	// For delete events the node is already removed from the informer cache by the time
+	// the handler fires, so a cache lookup would return NotFound and silently drop the event.
+	nn, found := extractDPUNodeFromNodeLabels(node, n.dpuNodeDefaultNamespace)
+	if !found {
+		return
+	}
+
+	enqueueRequests([]reconcile.Request{{NamespacedName: nn}}, q)
 }
 
 func (n *nodeInDPUClusterEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
