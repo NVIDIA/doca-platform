@@ -26,9 +26,8 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/cloudinit"
-	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
-	sprig "github.com/Masterminds/sprig/v3"
+	"github.com/Masterminds/sprig/v3"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -684,15 +683,15 @@ var _ = Describe("getTemplateDataFromConfigMap", func() {
 				Name:      name,
 				Namespace: namespace,
 				Labels: map[string]string{
-					cutil.BFCFGTemplateLabel: "true",
+					TemplateLabel: "true",
 				},
 				Annotations: map[string]string{
-					cutil.BFCFGTemplateBFBNameAnnotation:            bfbName,
-					cutil.BFCFGTemplateBFBNamespaceAnnotation:       bfbNamespace,
-					cutil.BFCFGTemplateClusterNameAnnotation:        clusterName,
-					cutil.BFCFGTemplateClusterNamespaceAnnotation:   clusterNamespace,
-					cutil.BFCFGTemplateDPUFlavorNameAnnotation:      dpuFlavorName,
-					cutil.BFCFGTemplateDPUFlavorNamespaceAnnotation: dpuFlavorNamespace,
+					TemplateBFBNameAnnotation:            bfbName,
+					TemplateBFBNamespaceAnnotation:       bfbNamespace,
+					TemplateClusterNameAnnotation:        clusterName,
+					TemplateClusterNamespaceAnnotation:   clusterNamespace,
+					TemplateDPUFlavorNameAnnotation:      dpuFlavorName,
+					TemplateDPUFlavorNamespaceAnnotation: dpuFlavorNamespace,
 				},
 			},
 			Data: map[string]string{
@@ -734,15 +733,15 @@ var _ = Describe("getTemplateDataFromConfigMap", func() {
 				Name:      "bfcfg-template-no-key",
 				Namespace: namespace,
 				Labels: map[string]string{
-					cutil.BFCFGTemplateLabel: "true",
+					TemplateLabel: "true",
 				},
 				Annotations: map[string]string{
-					cutil.BFCFGTemplateBFBNameAnnotation:            bfbName,
-					cutil.BFCFGTemplateBFBNamespaceAnnotation:       bfbNamespace,
-					cutil.BFCFGTemplateClusterNameAnnotation:        clusterName,
-					cutil.BFCFGTemplateClusterNamespaceAnnotation:   clusterNamespace,
-					cutil.BFCFGTemplateDPUFlavorNameAnnotation:      dpuFlavorName,
-					cutil.BFCFGTemplateDPUFlavorNamespaceAnnotation: dpuFlavorNamespace,
+					TemplateBFBNameAnnotation:            bfbName,
+					TemplateBFBNamespaceAnnotation:       bfbNamespace,
+					TemplateClusterNameAnnotation:        clusterName,
+					TemplateClusterNamespaceAnnotation:   clusterNamespace,
+					TemplateDPUFlavorNameAnnotation:      dpuFlavorName,
+					TemplateDPUFlavorNamespaceAnnotation: dpuFlavorNamespace,
 				},
 			},
 			Data: map[string]string{
@@ -764,15 +763,15 @@ var _ = Describe("getTemplateDataFromConfigMap", func() {
 				Name:      "bfcfg-template-different",
 				Namespace: namespace,
 				Labels: map[string]string{
-					cutil.BFCFGTemplateLabel: "true",
+					TemplateLabel: "true",
 				},
 				Annotations: map[string]string{
-					cutil.BFCFGTemplateBFBNameAnnotation:            "different-bfb",
-					cutil.BFCFGTemplateBFBNamespaceAnnotation:       bfbNamespace,
-					cutil.BFCFGTemplateClusterNameAnnotation:        clusterName,
-					cutil.BFCFGTemplateClusterNamespaceAnnotation:   clusterNamespace,
-					cutil.BFCFGTemplateDPUFlavorNameAnnotation:      dpuFlavorName,
-					cutil.BFCFGTemplateDPUFlavorNamespaceAnnotation: dpuFlavorNamespace,
+					TemplateBFBNameAnnotation:            "different-bfb",
+					TemplateBFBNamespaceAnnotation:       bfbNamespace,
+					TemplateClusterNameAnnotation:        clusterName,
+					TemplateClusterNamespaceAnnotation:   clusterNamespace,
+					TemplateDPUFlavorNameAnnotation:      dpuFlavorName,
+					TemplateDPUFlavorNamespaceAnnotation: dpuFlavorNamespace,
 				},
 			},
 			Data: map[string]string{
@@ -791,15 +790,15 @@ var _ = Describe("getTemplateDataFromConfigMap", func() {
 				Name:      "bfcfg-template-different-flavor",
 				Namespace: namespace,
 				Labels: map[string]string{
-					cutil.BFCFGTemplateLabel: "true",
+					TemplateLabel: "true",
 				},
 				Annotations: map[string]string{
-					cutil.BFCFGTemplateBFBNameAnnotation:            bfbName,
-					cutil.BFCFGTemplateBFBNamespaceAnnotation:       bfbNamespace,
-					cutil.BFCFGTemplateClusterNameAnnotation:        clusterName,
-					cutil.BFCFGTemplateClusterNamespaceAnnotation:   clusterNamespace,
-					cutil.BFCFGTemplateDPUFlavorNameAnnotation:      "different-flavor",
-					cutil.BFCFGTemplateDPUFlavorNamespaceAnnotation: dpuFlavorNamespace,
+					TemplateBFBNameAnnotation:            bfbName,
+					TemplateBFBNamespaceAnnotation:       bfbNamespace,
+					TemplateClusterNameAnnotation:        clusterName,
+					TemplateClusterNamespaceAnnotation:   clusterNamespace,
+					TemplateDPUFlavorNameAnnotation:      "different-flavor",
+					TemplateDPUFlavorNamespaceAnnotation: dpuFlavorNamespace,
 				},
 			},
 			Data: map[string]string{
