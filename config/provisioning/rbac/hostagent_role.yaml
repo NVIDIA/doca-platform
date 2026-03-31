@@ -1,22 +1,42 @@
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: hostagent-role
-  namespace: system
 rules:
 - apiGroups:
-  - provisioning.dpu.nvidia.com
+  - ""
   resources:
-  - dpunodes
-  - dpudevices
+  - nodes
+  - services
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+- apiGroups:
+  - certificates.k8s.io
+  resources:
+  - certificatesigningrequests
   verbs:
   - create
-  - delete
   - get
   - list
   - watch
-  - patch
-  - update
+- apiGroups:
+  - operator.dpu.nvidia.com
+  resources:
+  - dpfoperatorconfigs
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - provisioning.dpu.nvidia.com
   resources:
@@ -34,9 +54,22 @@ rules:
 - apiGroups:
   - provisioning.dpu.nvidia.com
   resources:
-  - dpus/status
-  - dpunodes/status
+  - dpudevices
+  - dpunodes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
   - dpudevices/status
+  - dpunodes/status
+  - dpus/status
   verbs:
   - get
   - patch
@@ -45,39 +78,6 @@ rules:
   - provisioning.dpu.nvidia.com
   resources:
   - dpuflavors
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-- apiGroups:
-  - ""
-  resources:
-  - nodes
-  - services
-  verbs:
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - certificates.k8s.io
-  resources:
-  - certificatesigningrequests
-  verbs:
-  - create
-  - get
-  - list
-  - watch
-- apiGroups:
-  - operator.dpu.nvidia.com
-  resources:
-  - dpfoperatorconfigs
   verbs:
   - get
   - list
