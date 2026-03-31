@@ -47,6 +47,13 @@ func TypedResourceIsChanged[T client.Object]() predicate.TypedFuncs[T] {
 func ReadyConditionChanged() predicate.Funcs {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
+			// Trigger when an object is marked for deletion (DeletionTimestamp set).
+			// With finalizers the object is not removed immediately, so this arrives
+			// as an Update, not a Delete.
+			if e.ObjectOld.GetDeletionTimestamp().IsZero() && !e.ObjectNew.GetDeletionTimestamp().IsZero() {
+				return true
+			}
+
 			oldObj, oldOk := e.ObjectOld.(conditions.GetSet)
 			newObj, newOk := e.ObjectNew.(conditions.GetSet)
 			if !oldOk || !newOk {

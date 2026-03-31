@@ -180,6 +180,41 @@ var _ = Describe("ReadyConditionChanged", func() {
 			}
 			Expect(predicateFuncs.Update(e)).To(BeFalse())
 		})
+
+		It("should trigger when object with finalizer is deleted (DeletionTimestamp set)", func() {
+			now := metav1.Now()
+			oldObj := &mockConditionsObject{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test",
+					Finalizers: []string{"test/finalizer"},
+				},
+				conditions: []metav1.Condition{
+					{
+						Type:   string(conditions.TypeReady),
+						Status: metav1.ConditionTrue,
+					},
+				},
+			}
+			newObj := &mockConditionsObject{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "test",
+					Finalizers:        []string{"test/finalizer"},
+					DeletionTimestamp: &now,
+				},
+				conditions: []metav1.Condition{
+					{
+						Type:   string(conditions.TypeReady),
+						Status: metav1.ConditionTrue,
+					},
+				},
+			}
+
+			e := event.UpdateEvent{
+				ObjectOld: oldObj,
+				ObjectNew: newObj,
+			}
+			Expect(predicateFuncs.Update(e)).To(BeTrue())
+		})
 	})
 
 	Context("When handling Delete events", func() {
