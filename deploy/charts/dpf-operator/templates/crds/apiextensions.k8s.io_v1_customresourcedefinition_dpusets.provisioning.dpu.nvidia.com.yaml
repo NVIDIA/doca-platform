@@ -176,6 +176,15 @@ spec:
                             minLength: 1
                             type: string
                         type: object
+                      blueFieldSoftware:
+                        description: Specifies a BlueFieldSoftware CR
+                        properties:
+                          name:
+                            description: Specifies name of the BlueFieldSoftware CR
+                              to use for this DPU
+                            minLength: 1
+                            type: string
+                        type: object
                       cluster:
                         description: Specifies details on the K8S cluster to join
                         properties:
