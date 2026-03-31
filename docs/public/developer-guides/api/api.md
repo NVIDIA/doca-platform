@@ -1408,6 +1408,22 @@ _Appears in:_
 | `Error` | Error happens during BlueFieldSoftware downloading<br /> |
 
 
+#### BlueFieldSoftwareReference
+
+
+
+BlueFieldSoftwareReference is a reference to a specific BlueFieldSoftware
+
+
+
+_Appears in:_
+- [DPUTemplateSpec](#dputemplatespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Specifies name of the BlueFieldSoftware CR to use for this DPU |  | MinLength: 1 <br /> |
+
+
 #### BlueFieldSoftwareStatus
 
 
@@ -2384,6 +2400,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `bfb` _[BFBReference](#bfbreference)_ | Specifies a BFB CR |  |  |
+| `blueFieldSoftware` _[BlueFieldSoftwareReference](#bluefieldsoftwarereference)_ | Specifies a BlueFieldSoftware CR |  | Optional: \{\} <br /> |
 | `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} | Optional: \{\} <br /> |
 | `cluster` _[ClusterSpec](#clusterspec)_ | Specifies details on the K8S cluster to join |  | Optional: \{\} <br /> |
 | `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br />Required: \{\} <br /> |

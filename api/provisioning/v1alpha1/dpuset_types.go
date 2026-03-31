@@ -102,6 +102,13 @@ type RollingUpdateDPU struct {
 	MaxUnavailable *intstr.IntOrString `json:"maxUnavailable,omitempty"`
 }
 
+// BlueFieldSoftwareReference is a reference to a specific BlueFieldSoftware
+type BlueFieldSoftwareReference struct {
+	// Specifies name of the BlueFieldSoftware CR to use for this DPU
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name,omitempty"`
+}
+
 // BFBReference is a reference to a specific BFB
 type BFBReference struct {
 	// Specifies name of the bfb CR to use for this DPU
@@ -121,6 +128,9 @@ type ClusterSpec struct {
 type DPUTemplateSpec struct {
 	// Specifies a BFB CR
 	BFB BFBReference `json:"bfb,omitempty"`
+	// Specifies a BlueFieldSoftware CR
+	// +optional
+	BlueFieldSoftware *BlueFieldSoftwareReference `json:"blueFieldSoftware,omitempty"`
 	// Specifies how changes to the DPU should affect the Node
 	// +kubebuilder:default={drain: true}
 	// +optional
