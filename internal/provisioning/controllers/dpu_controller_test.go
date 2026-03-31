@@ -28,7 +28,6 @@ import (
 	dpuctrl "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	"github.com/nvidia/doca-platform/internal/release"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/informer"
@@ -181,9 +180,6 @@ var _ = Describe("DPU", func() {
 				Labels: map[string]string{
 					cutil.NodeFeatureDiscoveryLabelPrefix + cutil.DPUOOBBridgeConfiguredLabel: "true",
 				},
-				Annotations: map[string]string{
-					reboot.RebootCmdKey: reboot.Skip,
-				},
 			},
 		}
 
@@ -230,9 +226,6 @@ var _ = Describe("DPU", func() {
 				Namespace: testNS.Name,
 				Labels: map[string]string{
 					cutil.NodeFeatureDiscoveryLabelPrefix + cutil.DPUOOBBridgeConfiguredLabel: "true",
-				},
-				Annotations: map[string]string{
-					reboot.RebootCmdKey: reboot.Skip,
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{

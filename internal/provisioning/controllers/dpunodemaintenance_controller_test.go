@@ -25,7 +25,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
 	nvidiaNodeMaintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
@@ -85,9 +84,6 @@ var _ = Describe("DPUNodeMaintenance", func() {
 				Namespace: testNS.Name,
 				Labels: map[string]string{
 					cutil.NodeFeatureDiscoveryLabelPrefix + cutil.DPUOOBBridgeConfiguredLabel: "true",
-				},
-				Annotations: map[string]string{
-					reboot.RebootCmdKey: reboot.Skip,
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{

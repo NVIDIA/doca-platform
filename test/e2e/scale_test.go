@@ -54,9 +54,8 @@ func CreateDPUWorkerNodes(ctx context.Context, n int) {
 		"e2e.test.io/fake-node":                                "true",
 	}
 	annotations := map[string]string{
-		"provisioning.dpu.nvidia.com/reboot-command":        "skip",
 		"provisioning.dpu.nvidia.com/override-dms-pod-name": mockDMSPodName,
-		"kwok.x-k8s.io/node":                                "fake",
+		"kwok.x-k8s.io/node": "fake",
 	}
 
 	// Get the IP address of the kind control plane node
