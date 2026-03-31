@@ -45,6 +45,28 @@ const (
 	// MaxBFSize is the maximum size of the bf.cfg file is expanded to 128k since DOCA 2.8
 	MaxBFSize     = 1024 * 128
 	MaxTrustedSfs = 10
+
+	// TemplateLabel is the label that identifies a ConfigMap as a dynamic bf.cfg template.
+	// ConfigMaps with this label set to "true" are candidates for dynamic template resolution.
+	TemplateLabel = cutil.DPUProvisioningPrefix + "bfcfg-template"
+
+	// TemplateBFBNameAnnotation is the annotation on a bf.cfg template ConfigMap specifying the target BFB name.
+	TemplateBFBNameAnnotation = cutil.DPUProvisioningPrefix + "bfcfg-template-bfb-name"
+
+	// TemplateBFBNamespaceAnnotation is the annotation on a bf.cfg template ConfigMap specifying the target BFB namespace.
+	TemplateBFBNamespaceAnnotation = cutil.DPUProvisioningPrefix + "bfcfg-template-bfb-namespace"
+
+	// TemplateClusterNameAnnotation is the annotation on a bf.cfg template ConfigMap specifying the target DPUCluster name.
+	TemplateClusterNameAnnotation = cutil.DPUProvisioningPrefix + "bfcfg-template-cluster-name"
+
+	// TemplateClusterNamespaceAnnotation is the annotation on a bf.cfg template ConfigMap specifying the target DPUCluster namespace.
+	TemplateClusterNamespaceAnnotation = cutil.DPUProvisioningPrefix + "bfcfg-template-cluster-namespace"
+
+	// TemplateDPUFlavorNameAnnotation is the annotation on a bf.cfg template ConfigMap specifying the target DPUFlavor name.
+	TemplateDPUFlavorNameAnnotation = cutil.DPUProvisioningPrefix + "bfcfg-template-dpuflavor-name"
+
+	// TemplateDPUFlavorNamespaceAnnotation is the annotation on a bf.cfg template ConfigMap specifying the target DPUFlavor namespace.
+	TemplateDPUFlavorNamespaceAnnotation = cutil.DPUProvisioningPrefix + "bfcfg-template-dpuflavor-namespace"
 )
 
 var (
@@ -209,7 +231,7 @@ func bfcfgParams(flavor *provisioningv1.DPUFlavor) []string {
 // It returns an error if there is not exactly one matching ConfigMap for the given parameters.
 func getTemplateDataFromConfigMap(ctx context.Context, c client.Client, namespace, bfbName, bfbNamespace, clusterName, clusterNamespace, dpuFlavorName, dpuFlavorNamespace string) ([]byte, error) {
 	selector := labels.SelectorFromSet(labels.Set{
-		cutil.BFCFGTemplateLabel: "true",
+		TemplateLabel: "true",
 	})
 
 	// Use PartialObjectMetadataList to fetch only metadata (efficient label-based discovery).
@@ -232,12 +254,12 @@ func getTemplateDataFromConfigMap(ctx context.Context, c client.Client, namespac
 	for i := range metadataList.Items {
 		item := &metadataList.Items[i]
 		annotations := item.GetAnnotations()
-		if annotations[cutil.BFCFGTemplateBFBNameAnnotation] == bfbName &&
-			annotations[cutil.BFCFGTemplateBFBNamespaceAnnotation] == bfbNamespace &&
-			annotations[cutil.BFCFGTemplateClusterNameAnnotation] == clusterName &&
-			annotations[cutil.BFCFGTemplateClusterNamespaceAnnotation] == clusterNamespace &&
-			annotations[cutil.BFCFGTemplateDPUFlavorNameAnnotation] == dpuFlavorName &&
-			annotations[cutil.BFCFGTemplateDPUFlavorNamespaceAnnotation] == dpuFlavorNamespace {
+		if annotations[TemplateBFBNameAnnotation] == bfbName &&
+			annotations[TemplateBFBNamespaceAnnotation] == bfbNamespace &&
+			annotations[TemplateClusterNameAnnotation] == clusterName &&
+			annotations[TemplateClusterNamespaceAnnotation] == clusterNamespace &&
+			annotations[TemplateDPUFlavorNameAnnotation] == dpuFlavorName &&
+			annotations[TemplateDPUFlavorNamespaceAnnotation] == dpuFlavorNamespace {
 			matches = append(matches, *item)
 		}
 	}
