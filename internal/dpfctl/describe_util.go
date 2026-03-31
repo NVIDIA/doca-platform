@@ -206,6 +206,10 @@ func addConditions(prefix string, tbl *tablewriter.Table, objectTree *ObjectTree
 		// Otherwise only show Ready and failed conditions
 		for _, c := range otherConditions {
 			if c.Type == string(conditions.TypeReady) || c.Status != metav1.ConditionTrue {
+				// Skip pending conditions unless --show-pending is set
+				if !objectTree.options.ShowPending && conditions.IsPending(c) {
+					continue
+				}
 				filteredConditions = append(filteredConditions, c)
 			}
 		}
@@ -390,7 +394,7 @@ func addObjectRow(prefix string, tbl *tablewriter.Table, objectTree *ObjectTree,
 
 	// If the object should show conditions or has failed conditions, we remove the Ready condition and set the message to empty.
 	// The Ready condition will be printed in the conditions section.
-	if IsShowConditionsObject(obj) || hasFailedConditions(obj) {
+	if IsShowConditionsObject(obj) || hasFailedConditions(obj, objectTree.options.ShowPending) {
 		readyDescriptor.message = ""
 		readyDescriptor.reason = ""
 		readyDescriptor.status = ""
@@ -435,7 +439,7 @@ func addObjectRow(prefix string, tbl *tablewriter.Table, objectTree *ObjectTree,
 	}
 
 	// If it is required to show all the conditions for the object or has failed conditions, add a row for each object's conditions.
-	if IsShowConditionsObject(obj) || hasFailedConditions(obj) {
+	if IsShowConditionsObject(obj) || hasFailedConditions(obj, objectTree.options.ShowPending) {
 		addConditions(prefix, tbl, objectTree, obj)
 	}
 
@@ -617,8 +621,9 @@ func VirtualObjectForVisualization(obj client.Object, kind string) *unstructured
 	return virtObj
 }
 
-// hasFailedConditions returns true if the object has any conditions that are not True
-func hasFailedConditions(obj client.Object) bool {
+// hasFailedConditions returns true if the object has any conditions that are not True.
+// When showPending is false, conditions with Reason=Pending and Status=Unknown are not considered failed.
+func hasFailedConditions(obj client.Object, showPending bool) bool {
 	getter := objToGetSet(obj)
 	if getter == nil {
 		return false
@@ -626,6 +631,9 @@ func hasFailedConditions(obj client.Object) bool {
 
 	for _, c := range getter.GetConditions() {
 		if c.Status != metav1.ConditionTrue {
+			if !showPending && conditions.IsPending(&c) {
+				continue
+			}
 			return true
 		}
 	}

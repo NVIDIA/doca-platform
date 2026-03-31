@@ -49,6 +49,7 @@ type describeOptions struct {
 	grouping            bool
 	color               bool
 	showStorage         bool
+	showPending         bool
 }
 
 var opts describeOptions
@@ -103,6 +104,9 @@ func init() {
 	describeCmd.Flags().StringVarP(&opts.output, "output", "o", "table",
 		"Output format. One of: table, json, yaml.")
 
+	describeCmd.Flags().BoolVar(&opts.showPending, "show-pending", false,
+		"Show conditions with Reason=Pending and Status=Unknown. These are hidden by default as they represent transient states.")
+
 	// TODO: decide if we want to use Kubernetes cli-runtime here instead of the controller-runtime flags.
 	// The cli-runtime has alot dependencies, but brings several generic flags that can be useful.
 	//
@@ -128,6 +132,7 @@ func runDescribe(subCmd string) error {
 		Colors:              opts.color,
 		Output:              opts.output,
 		ShowStorage:         opts.showStorage,
+		ShowPending:         opts.showPending,
 	}
 
 	tree, err := dpfctl.Discover(ctx, c, options, subCmd)
