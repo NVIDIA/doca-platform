@@ -180,19 +180,23 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 		}
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 
+	// Modify Application to have no malformedPullPolicy in their values
+	malformedApplications := map[client.ObjectKey]any{}
 	Eventually(func(g Gomega) {
 		gotApplicationList := &argov1.ApplicationList{}
 		g.Expect(input.client.List(ctx, gotApplicationList, client.InNamespace(dpuDeployment.GetNamespace()))).To(Succeed())
 		dpuServiceNameToApplication := getDPUServiceNameToApplication(gotDPUServiceList.Items, gotApplicationList.Items)
 
-		// modify Application to have no malformedPullPolicy in their values
 		for _, application := range dpuServiceNameToApplication {
-			if bytes.Contains(application.Spec.Source.Helm.ValuesObject.Raw, []byte("malformedPullPolicy")) {
+			if application.Spec.Source.Helm != nil &&
+				application.Spec.Source.Helm.ValuesObject != nil &&
+				bytes.Contains(application.Spec.Source.Helm.ValuesObject.Raw, []byte("malformedPullPolicy")) {
 				origApp := application.DeepCopy()
+				malformedApplications[client.ObjectKeyFromObject(origApp)] = nil
+
 				// Set valid helm values.
-				application.Spec.Source.Helm.ValuesObject = &machineryruntime.RawExtension{Raw: []byte(`{}`)}
+				application.Spec.Source.Helm.ValuesObject = &machineryruntime.RawExtension{Raw: []byte(`{"notMalformedAnymore":"true"}`)}
 				// Set maximum backoff duration to 1s for the case if it was not yet reconciled or we re-create the application.
-				// Set limit to 0 to ensure that operation is retried.
 				if application.Spec.SyncPolicy == nil {
 					application.Spec.SyncPolicy = &argov1.SyncPolicy{}
 				}
@@ -202,8 +206,11 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 				if application.Spec.SyncPolicy.Retry.Backoff == nil {
 					application.Spec.SyncPolicy.Retry.Backoff = &argov1.Backoff{}
 				}
-				application.Spec.SyncPolicy.Retry.Limit = 0
+				// Set maximum backoff duration to 1s for the existing operation to ensure it is not waiting for a long backoff duration.
 				application.Spec.SyncPolicy.Retry.Backoff.MaxDuration = "1s"
+				// Refresh ensures we use the updated values.
+				application.Spec.SyncPolicy.Retry.Refresh = true
+
 				// Force a new operation
 				application.Operation = &argov1.Operation{
 					InitiatedBy: argov1.OperationInitiator{
@@ -214,21 +221,10 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 							Hook: &argov1.SyncStrategyHook{},
 						},
 					},
-				}
-				// Only patch status if there is an actual ongoing change.
-				// Note: status is not a subresource.
-				if application.Status.OperationState != nil {
-					// Set valid helm values
-					if application.Status.OperationState.SyncResult != nil && application.Status.OperationState.SyncResult.Source.Helm != nil {
-						application.Status.OperationState.SyncResult.Source.Helm.ValuesObject = &machineryruntime.RawExtension{Raw: []byte(`{}`)}
-					}
-					if application.Status.OperationState.Operation.Retry.Backoff == nil {
-						application.Status.OperationState.Operation.Retry.Backoff = &argov1.Backoff{}
-					}
-					// Set maximum backoff duration to 1s for the existing operation to ensure it is not waiting for a long backoff duration.
-					application.Status.OperationState.Operation.Retry.Backoff.MaxDuration = "1s"
-					// Set limit to 0 to ensure that operation is retried.
-					application.Status.OperationState.Operation.Retry.Limit = 0
+					Retry: argov1.RetryStrategy{
+						// Refresh ensures we use the updated values.
+						Refresh: true,
+					},
 				}
 
 				// Use optimistic locking to ensure that we patch the latest version of the application to not forget a operation which was just triggered.
@@ -238,14 +234,53 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 				g.Expect(input.client.Delete(ctx, &application)).To(Succeed())
 			}
 		}
+	}).WithTimeout(30 * time.Second).Should(Succeed())
 
-		// ensure Applications don't have malformedPullPolicy in their values
-		gotApplicationList = &argov1.ApplicationList{}
-		g.Expect(input.client.List(ctx, gotApplicationList, client.InNamespace(dpuDeployment.GetNamespace()))).To(Succeed())
-		dpuServiceNameToApplication = getDPUServiceNameToApplication(gotDPUServiceList.Items, gotApplicationList.Items)
+	// Ensure the malformed Application doesn't have malformedPullPolicy in their on-going operation or is gone.
+	Eventually(func(g Gomega) {
+		for key := range malformedApplications {
+			application := &argov1.Application{}
+			err := input.client.Get(ctx, key, application)
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			g.Expect(err).ToNot(HaveOccurred())
 
-		for _, application := range dpuServiceNameToApplication {
-			g.Expect(bytes.Contains(application.Spec.Source.Helm.ValuesObject.Raw, []byte("malformedPullPolicy"))).To(BeFalse())
+			g.Expect(application.Status.OperationState).ToNot(BeNil())
+			// Cancel a currently running operation that is using malformedPullPolicy so that ArgoCD picks up the new spec.
+			if application.Status.OperationState.Phase == "Running" &&
+				application.Status.OperationState.SyncResult != nil &&
+				application.Status.OperationState.SyncResult.Source.Helm != nil &&
+				application.Status.OperationState.SyncResult.Source.Helm.ValuesObject != nil &&
+				bytes.Contains(application.Status.OperationState.SyncResult.Source.Helm.ValuesObject.Raw, []byte("malformedPullPolicy")) {
+				// Ensure to cancel an on-going malformed operation.
+				origApp := application.DeepCopy()
+				application.Status.OperationState.Phase = "Succeeded"
+				application.Status.OperationState.FinishedAt = ptr.To(metav1.Now())
+				application.Status.OperationState.Message = "canceled by ginkgo: operation was using malformedPullPolicy"
+				// Force a new operation
+				application.Operation = &argov1.Operation{
+					InitiatedBy: argov1.OperationInitiator{
+						Username: "ginkgo",
+					},
+					Sync: &argov1.SyncOperation{
+						SyncStrategy: &argov1.SyncStrategy{
+							Hook: &argov1.SyncStrategyHook{},
+						},
+					},
+					Retry: argov1.RetryStrategy{
+						// Refresh ensures we use the updated values.
+						Refresh: true,
+					},
+				}
+				g.Expect(input.client.Patch(ctx, application, client.MergeFromWithOptions(origApp, client.MergeFromWithOptimisticLock{}))).To(Succeed())
+			}
+
+			g.Expect(application.Status.OperationState.Phase).To(BeEquivalentTo("Running"))
+			g.Expect(application.Status.OperationState.SyncResult).ToNot(BeNil())
+			g.Expect(application.Status.OperationState.SyncResult.Source.Helm).ToNot(BeNil())
+			g.Expect(application.Status.OperationState.SyncResult.Source.Helm.ValuesObject).ToNot(BeNil())
+			g.Expect(application.Status.OperationState.SyncResult.Source.Helm.ValuesObject.Raw).To(ContainSubstring("notMalformedAnymore"))
 		}
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 
