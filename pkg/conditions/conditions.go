@@ -237,6 +237,12 @@ func IsTrue(obj GetSet, conditionType ConditionType) bool {
 	return condition != nil && condition.Status == metav1.ConditionTrue && condition.ObservedGeneration == obj.GetGeneration()
 }
 
+// IsPending returns true if the condition has Reason=Pending and Status=Unknown,
+// indicating a transient state that is expected to resolve on its own.
+func IsPending(c *metav1.Condition) bool {
+	return c.Reason == string(ReasonPending) && c.Status == metav1.ConditionUnknown
+}
+
 func JoinErrors(err error, indent int) error {
 	if err == nil {
 		return nil
