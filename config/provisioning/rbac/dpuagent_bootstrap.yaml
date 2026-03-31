@@ -3,15 +3,15 @@ kind: ClusterRole
 metadata:
   name: dpu-agent-csr-creator
 rules:
-- apiGroups:
-  - certificates.k8s.io
-  resources:
-  - certificatesigningrequests
-  verbs:
-  - create
-  - get
-  - list
-  - watch
+  - apiGroups:
+      - certificates.k8s.io
+    resources:
+      - certificatesigningrequests
+    verbs:
+      - create
+      - get
+      - list
+      - watch
 
 ---
 
