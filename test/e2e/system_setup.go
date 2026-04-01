@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -878,6 +879,29 @@ func VerifyDPFOperatorConfigReady(ctx context.Context, kclient client.Client, ti
 		dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
 		g.Expect(kclient.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, dpfOperatorConfig)).To(Succeed())
 		g.Expect(conditions.IsTrue(dpfOperatorConfig, conditions.TypeReady)).To(BeTrue())
+	}).WithTimeout(timeout).WithPolling(1 * time.Second).Should(Succeed())
+}
+
+// VerifyProvisioningControllerPodsArg waits and verifies that all provisioning controller pods have the given argument
+// in their manager container args.
+func VerifyProvisioningControllerPodsArg(ctx context.Context, kclient client.Client, arg string, timeout time.Duration) {
+	Eventually(func(g Gomega) {
+		pods := &corev1.PodList{}
+		g.Expect(kclient.List(ctx, pods,
+			client.InNamespace(dpfOperatorSystemNamespace),
+			client.MatchingLabels{operatorv1.DPFComponentLabelKey: "dpf-provisioning-controller-manager"},
+		)).To(Succeed())
+		g.Expect(pods.Items).ToNot(BeEmpty())
+		for _, pod := range pods.Items {
+			argFound := false
+			for _, c := range pod.Spec.Containers {
+				if c.Name == "manager" && slices.Contains(c.Args, arg) {
+					argFound = true
+					break
+				}
+			}
+			g.Expect(argFound).To(BeTrue(), "pod %s manager container does not have arg %q", pod.Name, arg)
+		}
 	}).WithTimeout(timeout).WithPolling(1 * time.Second).Should(Succeed())
 }
 
