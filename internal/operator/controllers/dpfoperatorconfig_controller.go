@@ -149,6 +149,7 @@ func (r *DPFOperatorConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&provisioningv1.DPU{}, handler.EnqueueRequestsFromMapFunc(r.ResourceToDPFOperatorConfig)).
 		Watches(&dpuservicev1.DPUService{}, handler.EnqueueRequestsFromMapFunc(r.DPUServiceToDPFOperatorConfig)).
 		Watches(&appsv1.Deployment{}, handler.EnqueueRequestsFromMapFunc(r.DeploymentToDPFOperatorConfig)).
+		Watches(&appsv1.DaemonSet{}, handler.EnqueueRequestsFromMapFunc(r.DaemonSetToDPFOperatorConfig)).
 		Complete(r)
 }
 
@@ -646,6 +647,23 @@ func (r *DPFOperatorConfigReconciler) DPUServiceToDPFOperatorConfig(_ context.Co
 		return result
 	}
 	if _, ok = dpuService.GetLabels()[operatorv1.DPFComponentLabelKey]; ok {
+		result = append(result, ctrl.Request{NamespacedName: *r.Settings.ConfigSingletonNamespaceName})
+	}
+	return result
+}
+
+// DaemonSetToDPFOperatorConfig enqueues a reconcile when an event occurs for system DaemonSets.
+func (r *DPFOperatorConfigReconciler) DaemonSetToDPFOperatorConfig(_ context.Context, o client.Object) []ctrl.Request {
+	result := []ctrl.Request{}
+	daemonSet, ok := o.(*appsv1.DaemonSet)
+	if !ok {
+		return result
+	}
+	// Ignore this enqueue function if the singletonNamespaceName is not set. This is done to enable easier testing.
+	if r.Settings.ConfigSingletonNamespaceName == nil {
+		return result
+	}
+	if _, ok = daemonSet.GetLabels()[operatorv1.DPFComponentLabelKey]; ok {
 		result = append(result, ctrl.Request{NamespacedName: *r.Settings.ConfigSingletonNamespaceName})
 	}
 	return result
