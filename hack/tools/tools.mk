@@ -437,7 +437,7 @@ define go-install-tool
 set -e; \
 package=$(2)@$(3) ;\
 echo "Downloading $${package}" ;\
-GOTOOLCHAIN=go$(GO_VERSION)+auto GOBIN=$(TOOLSDIR_GO) go install $${package} ;\
+GOTOOLCHAIN=$(GOTOOLCHAIN) GOBIN=$(TOOLSDIR_GO) go install $${package} ;\
 mv "$$(echo "$(1)" | sed "s/-$(3)$$//")" $(1) ;\
 }
 endef
