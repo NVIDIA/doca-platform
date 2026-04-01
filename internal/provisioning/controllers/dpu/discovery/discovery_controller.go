@@ -97,10 +97,10 @@ func (r *DPUDiscoveryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	crawler := NewCrawlerService(r.Client, dpuDiscovery.Namespace, workers, skipDpuNodeDiscovery)
 
-	// Check if it's time to scan
-	if dpuDiscovery.Status.LastScanTime != nil {
+	// Run scan immediately when spec changed (e.g. IP range), otherwise respect scan interval
+	specChanged := dpuDiscovery.Generation != dpuDiscovery.Status.ObservedGeneration
+	if !specChanged && dpuDiscovery.Status.LastScanTime != nil {
 		nextScan := dpuDiscovery.Status.LastScanTime.Add(dpuDiscovery.Spec.ScanInterval.Duration)
-
 		if time.Now().Before(nextScan) {
 			return ctrl.Result{
 				RequeueAfter: time.Until(nextScan),
@@ -119,6 +119,7 @@ func (r *DPUDiscoveryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Update status
 	now := metav1.Now()
 	dpuDiscovery.Status.LastScanTime = &now
+	dpuDiscovery.Status.ObservedGeneration = dpuDiscovery.Generation
 	if err := r.Status().Update(ctx, &dpuDiscovery); err != nil {
 		logger.Error(err, "Failed to update crawler status")
 		return ctrl.Result{}, err
