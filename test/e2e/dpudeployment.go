@@ -598,6 +598,11 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx context.Context, 
 	By("Validating that the DPFOperatorConfig is ready for the current generation")
 	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
 
+	// TODO: This check can be dropped if DPFOperatorConfig updates its status readiness to reflect
+	// the correct generation of the underlying objects it creates (e.g. the provisioning controller deployment).
+	By("Validating that all provisioning controller pods have --max-unavailable-dpu-nodes=1")
+	VerifyProvisioningControllerPodsArg(ctx, input.client, "--max-unavailable-dpu-nodes=1", 2*time.Minute)
+
 	By("Getting the existing DPUDeployment")
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
@@ -822,6 +827,11 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 
 	By("Validating that the DPFOperatorConfig is ready for the current generation")
 	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
+
+	// TODO: This check can be dropped if DPFOperatorConfig updates its status readiness to reflect
+	// the correct generation of the underlying objects it creates (e.g. the provisioning controller deployment).
+	By("Validating that all provisioning controller pods have --max-unavailable-dpu-nodes=1")
+	VerifyProvisioningControllerPodsArg(ctx, input.client, "--max-unavailable-dpu-nodes=1", 2*time.Minute)
 
 	By("Getting the existing DPUDeployment")
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
@@ -1161,10 +1171,12 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx context.Cont
 	Expect(input.client.Patch(ctx, dpfOperatorConfig, client.MergeFrom(originalDPFOperatorConfig))).To(Succeed())
 
 	By("Validating that the DPFOperatorConfig is ready for the current generation")
-	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
-		g.Expect(conditions.IsTrue(dpfOperatorConfig, conditions.TypeReady)).To(BeTrue())
-	}).WithTimeout(2 * time.Minute).Should(Succeed())
+	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
+
+	// TODO: This check can be dropped if DPFOperatorConfig updates its status readiness to reflect
+	// the correct generation of the underlying objects it creates (e.g. the provisioning controller deployment).
+	By("Validating that all provisioning controller pods have --max-unavailable-dpu-nodes=1")
+	VerifyProvisioningControllerPodsArg(ctx, input.client, "--max-unavailable-dpu-nodes=1", 2*time.Minute)
 
 	By("Getting the existing DPUDeployment")
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
@@ -1373,10 +1385,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx context.Cont
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 
 	By("Validating that the DPFOperatorConfig is ready for the current generation")
-	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
-		g.Expect(conditions.IsTrue(dpfOperatorConfig, conditions.TypeReady)).To(BeTrue())
-	}).WithTimeout(2 * time.Minute).Should(Succeed())
+	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
 }
 
 // ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold validates that DPUDeployment disruptive upgrade flow for
@@ -1401,6 +1410,11 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 
 	By("Validating that the DPFOperatorConfig is ready for the current generation")
 	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
+
+	// TODO: This check can be dropped if DPFOperatorConfig updates its status readiness to reflect
+	// the correct generation of the underlying objects it creates (e.g. the provisioning controller deployment).
+	By("Validating that all provisioning controller pods have --max-unavailable-dpu-nodes=1")
+	VerifyProvisioningControllerPodsArg(ctx, input.client, "--max-unavailable-dpu-nodes=1", 2*time.Minute)
 
 	By("Getting the existing DPUDeployment")
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
