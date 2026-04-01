@@ -31,6 +31,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -42,6 +45,7 @@ const (
 	defaultKubleteCA           = "/etc/kubernetes/pki/ca.crt"
 	defaultKubeletBootstrap    = "/etc/kubernetes/bootstrap-kubelet.conf"
 	defaultKubeletConf         = "/etc/kubernetes/kubelet.conf"
+	defaultKubeletDataConfig   = "/var/lib/kubelet/config.yaml"
 	kubeletSystemdDropInDir    = "/etc/systemd/system/kubelet.service.d"
 	kubeletSystemdDropInFile   = "10-bf.conf"
 	kubeletSystemdDropInConfig = `[Service]
@@ -152,12 +156,13 @@ func (s *StartKubelet) Execute(_ context.Context, _ *operations.Context) error {
 }
 
 type ConfigureKubelet struct {
-	caPath           string
-	bootstrapPath    string
-	kubeletConfPath  string
-	systemdDropInDir string
-	stopKubelet      func() error
-	runBash          func(cmd string) (bytes.Buffer, bytes.Buffer, error)
+	caPath            string
+	bootstrapPath     string
+	kubeletConfPath   string
+	kubeletDataConfig string
+	systemdDropInDir  string
+	stopKubelet       func() error
+	runBash           func(cmd string) (bytes.Buffer, bytes.Buffer, error)
 }
 
 func (c *ConfigureKubelet) Name() string {
@@ -228,6 +233,9 @@ func (c *ConfigureKubelet) Execute(execCtx context.Context, optCtx *operations.C
 	if err != nil {
 		return fmt.Errorf("failed to run join command: %w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
 	}
+	if err := c.addKubeletCustomizedConfig(); err != nil {
+		return fmt.Errorf("failed to add kubelet customized config: %w", err)
+	}
 	return nil
 }
 
@@ -245,5 +253,39 @@ func (c *ConfigureKubelet) createKubeletSystemdDropIn() error {
 		return fmt.Errorf("failed to write file %s: %w", dropInPath, err)
 	}
 	klog.Infof("Created kubelet systemd drop-in file: %s", dropInPath)
+	return nil
+}
+
+func (c *ConfigureKubelet) addKubeletCustomizedConfig() error {
+	path := c.kubeletDataConfig
+	if path == "" {
+		path = defaultKubeletDataConfig
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("kubelet config file %s not found: %w", path, err)
+		}
+		return fmt.Errorf("read kubelet config %s: %w", path, err)
+	}
+
+	cfg := &kubeletconfigv1beta1.KubeletConfiguration{}
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return fmt.Errorf("parse kubelet config %s: %w", path, err)
+	}
+
+	cfg.ProtectKernelDefaults = true
+	cfg.SeccompDefault = ptr.To(true)
+	cfg.StreamingConnectionIdleTimeout = metav1.Duration{Duration: 5 * time.Minute}
+	cfg.EventRecordQPS = ptr.To(int32(50))
+
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal kubelet config: %w", err)
+	}
+	if err := os.WriteFile(path, out, 0644); err != nil {
+		return fmt.Errorf("write kubelet config %s: %w", path, err)
+	}
+	klog.Infof("Added kubelet customized config to %s", path)
 	return nil
 }

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
@@ -31,7 +32,9 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 )
 
 type mockClient struct {
@@ -60,6 +63,11 @@ func (m *mockClient) HealthCheck() error {
 	}
 	return nil
 }
+
+// minimalKubeletConfigYAML is a valid KubeletConfiguration stub for tests.
+const minimalKubeletConfigYAML = `apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+`
 
 var _ = Describe("Kubelet", func() {
 	var tempDir string
@@ -308,10 +316,14 @@ var _ = Describe("Kubelet", func() {
 		It("should successfully execute join command", func() {
 			joinCmdExecuted := ""
 			systemdDropInDir := filepath.Join(tempDir, "systemd")
+			kubeletDataConfig := filepath.Join(tempDir, "config.yaml")
+			Expect(os.WriteFile(kubeletDataConfig, []byte(minimalKubeletConfigYAML), 0644)).To(Succeed())
+
 			operation := &ConfigureKubelet{
-				caPath:           filepath.Join(tempDir, "ca.crt"),
-				bootstrapPath:    filepath.Join(tempDir, "bootstrap.conf"),
-				systemdDropInDir: systemdDropInDir,
+				caPath:            filepath.Join(tempDir, "ca.crt"),
+				bootstrapPath:     filepath.Join(tempDir, "bootstrap.conf"),
+				kubeletDataConfig: kubeletDataConfig,
+				systemdDropInDir:  systemdDropInDir,
 				stopKubelet: func() error {
 					return nil
 				},
@@ -356,6 +368,44 @@ var _ = Describe("Kubelet", func() {
 			Expect(string(content)).To(Equal(kubeletSystemdDropInConfig))
 		})
 
+		It("should set all hardening fields and keep existing settings in kubelet config", func() {
+			kubeletDataConfig := filepath.Join(tempDir, "config.yaml")
+			initial := minimalKubeletConfigYAML + "clusterDNS:\n- 10.96.0.10\n"
+			Expect(os.WriteFile(kubeletDataConfig, []byte(initial), 0644)).To(Succeed())
+
+			operation := &ConfigureKubelet{kubeletDataConfig: kubeletDataConfig}
+			Expect(operation.addKubeletCustomizedConfig()).To(Succeed())
+
+			merged, err := os.ReadFile(kubeletDataConfig)
+			Expect(err).NotTo(HaveOccurred())
+			cfg := &kubeletconfigv1beta1.KubeletConfiguration{}
+			Expect(yaml.Unmarshal(merged, cfg)).To(Succeed())
+			Expect(cfg.ProtectKernelDefaults).To(BeTrue())
+			Expect(cfg.SeccompDefault).NotTo(BeNil())
+			Expect(*cfg.SeccompDefault).To(BeTrue())
+			Expect(cfg.StreamingConnectionIdleTimeout.Duration).To(Equal(5 * time.Minute))
+			Expect(cfg.EventRecordQPS).NotTo(BeNil())
+			Expect(*cfg.EventRecordQPS).To(Equal(int32(50)))
+			Expect(cfg.ClusterDNS).To(Equal([]string{"10.96.0.10"}))
+		})
+
+		It("should return an error if the kubelet config file does not exist", func() {
+			missing := filepath.Join(tempDir, "nonexistent-config.yaml")
+			operation := &ConfigureKubelet{kubeletDataConfig: missing}
+			err := operation.addKubeletCustomizedConfig()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("not found"))
+		})
+
+		It("should return an error if the kubelet config file is not valid YAML", func() {
+			kubeletDataConfig := filepath.Join(tempDir, "bad.yaml")
+			Expect(os.WriteFile(kubeletDataConfig, []byte("{invalid"), 0644)).To(Succeed())
+			operation := &ConfigureKubelet{kubeletDataConfig: kubeletDataConfig}
+			err := operation.addKubeletCustomizedConfig()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("parse kubelet config"))
+		})
+
 		It("should clean up before joining", func() {
 			caPath := filepath.Join(tempDir, "ca.crt")
 			bootstrapPath := filepath.Join(tempDir, "bootstrap.conf")
@@ -366,12 +416,16 @@ var _ = Describe("Kubelet", func() {
 			Expect(os.WriteFile(bootstrapPath, []byte("old-bootstrap"), 0644)).To(Succeed())
 			Expect(os.WriteFile(kubeletConfPath, []byte("old-kubelet-config"), 0644)).To(Succeed())
 
+			kubeletDataConfig := filepath.Join(tempDir, "config.yaml")
+			Expect(os.WriteFile(kubeletDataConfig, []byte(minimalKubeletConfigYAML), 0644)).To(Succeed())
+
 			stopKubeletCalled := false
 			operation := &ConfigureKubelet{
-				caPath:           caPath,
-				bootstrapPath:    bootstrapPath,
-				kubeletConfPath:  kubeletConfPath,
-				systemdDropInDir: filepath.Join(tempDir, "systemd"),
+				caPath:            caPath,
+				bootstrapPath:     bootstrapPath,
+				kubeletConfPath:   kubeletConfPath,
+				kubeletDataConfig: kubeletDataConfig,
+				systemdDropInDir:  filepath.Join(tempDir, "systemd"),
 				stopKubelet: func() error {
 					stopKubeletCalled = true
 					return nil
