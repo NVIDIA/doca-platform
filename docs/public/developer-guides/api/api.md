@@ -1849,6 +1849,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `observedGeneration` _integer_ | ObservedGeneration is the generation of the spec that was last applied by a successful scan.<br />When spec (e.g. IP range) changes, reconciliation runs a scan immediately instead of waiting for the next interval. |  | Optional: \{\} <br /> |
 | `lastScanTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastScanTime is the timestamp of the last successful scan |  |  |
 | `foundDPUs` _integer_ | FoundDPUs is the list of discovered DPU BMC IPs |  |  |
 

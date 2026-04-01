@@ -17,6 +17,9 @@ limitations under the License.
 package controller
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -34,12 +37,11 @@ import (
 
 var _ = Describe("Redfish Mock Server Tests", func() {
 	const (
-		RedfishTestNS                 = "dpf-redfish-test"
-		RedfishTestBMCPassword        = "TestPassword123"
-		RedfishTestBMCVersion         = "BF-24.10"
-		RedfishTestSerialNumberPrefix = "MT25066004C"
-		timeout                       = time.Second * 30
-		interval                      = time.Millisecond * 250
+		RedfishTestNS          = "dpf-redfish-test"
+		RedfishTestBMCPassword = "TestPassword123"
+		RedfishTestBMCVersion  = "BF-24.10"
+		timeout                = time.Second * 30
+		interval               = time.Millisecond * 250
 	)
 
 	var (
@@ -246,7 +248,7 @@ var _ = Describe("Redfish Mock Server Tests", func() {
 							Port:    &bmcPort,
 						},
 					},
-					ScanInterval: metav1.Duration{Duration: time.Second * 5},
+					ScanInterval: metav1.Duration{Duration: time.Hour * 1},
 				},
 			}
 			Expect(k8sClient.Create(ctx, discovery)).To(Succeed())
@@ -268,6 +270,25 @@ var _ = Describe("Redfish Mock Server Tests", func() {
 			Expect(dpuDevice.Spec.BMCIP).NotTo(BeNil())
 			Expect(*dpuDevice.Spec.BMCIP).To(Equal(bmcIP))
 
+			Expect(k8sClient.Delete(ctx, &dpuDevice)).To(Succeed())
+
+			By("trigger reconsile DpuDiscovery by modifying the spec")
+			parts := strings.Split(bmcIP, ".")
+			Expect(parts).To(HaveLen(4))
+			lastOctet, err := strconv.Atoi(parts[3])
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(discovery), discovery)).To(Succeed())
+			discovery.Spec.IPRangeSpec.IPRange.EndIP = fmt.Sprintf("%s.%s.%s.%d", parts[0], parts[1], parts[2], lastOctet+1)
+			Expect(k8sClient.Update(ctx, discovery)).To(Succeed())
+
+			By("waiting for DPU discovery to complete and create DPU devices")
+			Eventually(func() int {
+				err := k8sClient.List(ctx, dpuDeviceList, client.InNamespace(testNS.Name))
+				Expect(err).NotTo(HaveOccurred())
+				return len(dpuDeviceList.Items)
+			}, timeout, interval).Should(Equal(1))
+
+			dpuDevice = dpuDeviceList.Items[0]
 			Expect(k8sClient.Delete(ctx, &dpuDevice)).To(Succeed())
 
 		})
