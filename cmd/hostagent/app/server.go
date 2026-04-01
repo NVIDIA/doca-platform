@@ -21,12 +21,13 @@ package app
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/nvidia/doca-platform/cmd/hostagent/options"
-	hostagentcertificate "github.com/nvidia/doca-platform/internal/provisioning/hostagent/certificate"
-	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/certificate/bootstrap"
+	provcertificate "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/bootstrap"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -73,7 +74,7 @@ func GetConfigOrDie(opt *options.HostAgentFlags) *restclient.Config {
 }
 
 func BuildHostAgentClientConfig(ctx context.Context, opt *options.HostAgentFlags) (*restclient.Config, certificate.Manager, error) {
-	certConfig, clientConfig, err := bootstrap.LoadClientConfig(opt.KubeconfigPath, opt.BootstrapPath, opt.CertDir)
+	certConfig, clientConfig, err := bootstrap.LoadClientConfig(opt.KubeconfigPath, opt.BootstrapPath, opt.CertDir, "host-agent-client")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -94,7 +95,7 @@ func BuildHostAgentClientConfig(ctx context.Context, opt *options.HostAgentFlags
 	}
 	// the rotating transport will use the cert from the cert manager instead of these files
 	transportConfig := restclient.AnonymousClientConfig(clientConfig)
-	_, err = hostagentcertificate.UpdateTransport(wait.NeverStop, transportConfig, clientCertificateManager, TLSTimeOut)
+	_, err = provcertificate.UpdateTransport(wait.NeverStop, transportConfig, clientCertificateManager, TLSTimeOut)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -142,11 +143,14 @@ func buildClientCertificateManager(certConfig, clientConfig *restclient.Config, 
 		}
 		return clientset.NewForConfig(config)
 	}
-	return hostagentcertificate.NewHostAgentClientCertificateManager(
+	return provcertificate.NewCertificateManager(
 		certDir,
 		nodeName,
 		clientConfig.CertFile,
 		clientConfig.KeyFile,
 		newClientsetFn,
+		"host-agent-client",
+		fmt.Sprintf("dpf:host-agent:%s", nodeName),
+		[]string{"dpf:host-agent"},
 	)
 }

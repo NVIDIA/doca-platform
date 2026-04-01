@@ -73,13 +73,15 @@ var _ = Describe("ZerotrustClient", func() {
 	})
 
 	It("should be able to health check", func() {
-		client := NewZerotrustClient(kubeconfigPath, dpu.Name, dpu.Namespace, string(dpu.UID))
-		Expect(client.HealthCheck()).To(Succeed())
+		ztClient, err := NewZerotrustClient(testCfg, dpu.Name, dpu.Namespace, string(dpu.UID))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ztClient.HealthCheck()).To(Succeed())
 	})
 
 	Context("update status", func() {
 		It("should be able to update status", func() {
-			agentClient := NewZerotrustClient(kubeconfigPath, dpu.Name, dpu.Namespace, string(dpu.UID))
+			agentClient, err := NewZerotrustClient(testCfg, dpu.Name, dpu.Namespace, string(dpu.UID))
+			Expect(err).NotTo(HaveOccurred())
 			lastStartupTime := metav1.NewTime(time.Now().Truncate(time.Second))
 			agentStatus := provisioningv1.AgentStatus{
 				LastStartupTime: &lastStartupTime,
@@ -127,17 +129,19 @@ var _ = Describe("ZerotrustClient", func() {
 		})
 
 		It("should reject status update with mismatched DPU UID", func() {
-			agentClient := NewZerotrustClient(kubeconfigPath, dpu.Name, dpu.Namespace, "stale-uid")
+			agentClient, err := NewZerotrustClient(testCfg, dpu.Name, dpu.Namespace, "stale-uid")
+			Expect(err).NotTo(HaveOccurred())
 			agentStatus := provisioningv1.AgentStatus{
 				InitialBootID: ptr.To("test-boot-id"),
 			}
-			err := agentClient.UpdateStatus(ctx, agentStatus)
+			err = agentClient.UpdateStatus(ctx, agentStatus)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("stale DPU object"))
 		})
 
 		It("non-specified fields should not be updated", func() {
-			agentClient := NewZerotrustClient(kubeconfigPath, dpu.Name, dpu.Namespace, string(dpu.UID))
+			agentClient, err := NewZerotrustClient(testCfg, dpu.Name, dpu.Namespace, string(dpu.UID))
+			Expect(err).NotTo(HaveOccurred())
 			latestDPU := &provisioningv1.DPU{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, latestDPU)).To(Succeed())
 			initialBootID := "test-initial-boot-id"
@@ -201,7 +205,8 @@ var _ = Describe("ZerotrustClient", func() {
 	})
 
 	It("should be able to get cluster scoped object", func() {
-		agentClient := NewZerotrustClient(kubeconfigPath, dpu.Name, dpu.Namespace, string(dpu.UID))
+		agentClient, err := NewZerotrustClient(testCfg, dpu.Name, dpu.Namespace, string(dpu.UID))
+		Expect(err).NotTo(HaveOccurred())
 		object := &corev1.Namespace{}
 		Expect(agentClient.GetObject(ctx, testNS.Name, testNS.Name, object)).To(Succeed())
 		Expect(object.Name).To(Equal(testNS.Name))
@@ -210,7 +215,8 @@ var _ = Describe("ZerotrustClient", func() {
 	})
 
 	It("should be able to get namespaced object", func() {
-		agentClient := NewZerotrustClient(kubeconfigPath, dpu.Name, dpu.Namespace, string(dpu.UID))
+		agentClient, err := NewZerotrustClient(testCfg, dpu.Name, dpu.Namespace, string(dpu.UID))
+		Expect(err).NotTo(HaveOccurred())
 		object := &provisioningv1.DPU{}
 		Expect(agentClient.GetObject(ctx, testNS.Name, dpu.Name, object)).To(Succeed())
 		Expect(object.Name).To(Equal(dpu.Name))
@@ -220,7 +226,8 @@ var _ = Describe("ZerotrustClient", func() {
 	})
 
 	It("health check should return true if k8s server is reachable", func() {
-		agentClient := NewZerotrustClient(kubeconfigPath, dpu.Name, dpu.Namespace, string(dpu.UID))
+		agentClient, err := NewZerotrustClient(testCfg, dpu.Name, dpu.Namespace, string(dpu.UID))
+		Expect(err).NotTo(HaveOccurred())
 		Expect(agentClient.HealthCheck()).To(Succeed())
 	})
 })

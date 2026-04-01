@@ -26,18 +26,21 @@ import (
 	"k8s.io/client-go/util/certificate"
 )
 
-// NewHostAgentClientCertificateManager sets up a certificate manager without a
+// NewCertificateManager sets up a certificate manager without a
 // client that can be used to sign new certificates (or rotate). If a CSR
 // client is set later, it may begin rotating/renewing the client cert.
-func NewHostAgentClientCertificateManager(
+func NewCertificateManager(
 	certDirectory string,
 	nodeName types.NodeName,
 	certFile string,
 	keyFile string,
 	clientsetFn certificate.ClientsetFunc,
+	pairNamePrefix string,
+	commonName string,
+	organization []string,
 ) (certificate.Manager, error) {
 	certificateStore, err := certificate.NewFileStore(
-		"host-agent-client",
+		pairNamePrefix,
 		certDirectory,
 		certDirectory,
 		certFile,
@@ -49,8 +52,8 @@ func NewHostAgentClientCertificateManager(
 		ClientsetFn: clientsetFn,
 		Template: &x509.CertificateRequest{
 			Subject: pkix.Name{
-				CommonName:   fmt.Sprintf("dpf:host-agent:%s", nodeName),
-				Organization: []string{"dpf:host-agent"},
+				CommonName:   commonName,
+				Organization: organization,
 			},
 		},
 		SignerName:       certificates.KubeAPIServerClientSignerName,

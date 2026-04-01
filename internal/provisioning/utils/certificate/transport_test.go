@@ -402,7 +402,7 @@ var _ = Describe("Certificate", func() {
 		})
 	})
 
-	Context("NewHostAgentClientCertificateManager", Label("NewHostAgentClientCertificateManager"), func() {
+	Context("NewCertificateManager", Label("NewCertificateManager"), func() {
 		var tempDir string
 
 		BeforeEach(func() {
@@ -418,12 +418,15 @@ var _ = Describe("Certificate", func() {
 		})
 
 		It("should create certificate manager with valid directory", func() {
-			manager, err := NewHostAgentClientCertificateManager(
+			manager, err := NewCertificateManager(
 				tempDir,
 				"test-node",
 				"client.crt",
 				"client.key",
 				nil, // clientsetFn can be nil for initial creation
+				"client",
+				"dpf:test:test-node",
+				[]string{"dpf:test"},
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(manager).NotTo(BeNil())
@@ -433,12 +436,15 @@ var _ = Describe("Certificate", func() {
 			// Note: certificate.NewFileStore doesn't validate directory existence upfront
 			// It will only fail when trying to read/write certificates
 			// This matches upstream k8s.io/client-go behavior
-			manager, err := NewHostAgentClientCertificateManager(
+			manager, err := NewCertificateManager(
 				"/nonexistent/path/to/certs",
 				"test-node",
 				"client.crt",
 				"client.key",
 				nil,
+				"client",
+				"dpf:test:test-node",
+				[]string{"dpf:test"},
 			)
 			// Manager creation succeeds - validation is deferred to actual file operations
 			Expect(err).NotTo(HaveOccurred())
@@ -446,12 +452,15 @@ var _ = Describe("Certificate", func() {
 		})
 
 		It("should accept different node names", func() {
-			manager1, err := NewHostAgentClientCertificateManager(
+			manager1, err := NewCertificateManager(
 				tempDir,
 				"node-1",
 				"client1.crt",
 				"client1.key",
 				nil,
+				"client",
+				"dpf:test:node-1",
+				[]string{"dpf:test"},
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(manager1).NotTo(BeNil())
@@ -461,24 +470,30 @@ var _ = Describe("Certificate", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer func() { _ = os.RemoveAll(tempDir2) }()
 
-			manager2, err := NewHostAgentClientCertificateManager(
+			manager2, err := NewCertificateManager(
 				tempDir2,
 				"node-2",
 				"client2.crt",
 				"client2.key",
 				nil,
+				"client",
+				"dpf:test:node-2",
+				[]string{"dpf:test"},
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(manager2).NotTo(BeNil())
 		})
 
 		It("should work with empty node name", func() {
-			manager, err := NewHostAgentClientCertificateManager(
+			manager, err := NewCertificateManager(
 				tempDir,
 				"",
 				"client.crt",
 				"client.key",
 				nil,
+				"client",
+				"dpf:test:",
+				[]string{"dpf:test"},
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(manager).NotTo(BeNil())

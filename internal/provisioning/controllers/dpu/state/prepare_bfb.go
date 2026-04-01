@@ -117,7 +117,7 @@ func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, err
 	}
 
-	cfg, err := bfcfg.GenerateBFConfig(ctx, ctrlCtx, dpu, dpuNode, dpuDevice, flavor, kubeadmSecret)
+	cfg, err := bfcfg.GenerateBFConfig(ctx, ctrlCtx, dpu, flavor)
 	if err != nil {
 		err = fmt.Errorf("failed to generate bf.cfg: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToGenerateBFConfig", err.Error()))
