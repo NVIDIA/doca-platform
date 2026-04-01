@@ -58,6 +58,10 @@ type ObjectTreeOptions struct {
 	// ShowStorage enables showing storage resources (DPUVolume, DPUVolumeAttachment, DPUStoragePolicy, DPUStorageVendor)
 	// Default is false
 	ShowStorage bool
+
+	// ShowPending enables showing conditions with Reason=Pending and Status=Unknown
+	// Default is false
+	ShowPending bool
 }
 
 // ObjectTree defines an object tree representing the status of DPF resources.
@@ -113,13 +117,13 @@ func (od ObjectTree) hasNotReadyChildren(obj client.Object) bool {
 		// (e.g., DPUNodeMaintenance with requestor conditions showing False)
 		if childReady == nil {
 			// Check if the child has any failed conditions
-			if hasFailedConditions(child) {
+			if hasFailedConditions(child, od.options.ShowPending) {
 				return true
 			}
 
 			// If it has no failed conditions, it might be a virtual/organizational object
 			// Recursively check its children instead
-			if !hasFailedConditions(child) && len(GetConditions(child)) == 0 {
+			if !hasFailedConditions(child, od.options.ShowPending) && len(GetConditions(child)) == 0 {
 				if od.hasNotReadyChildren(child) {
 					return true
 				}
