@@ -168,16 +168,16 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		}
 	}
 
-	err = r.discoverDPUDevice(ctx, dpuDevice)
-	if err != nil {
-		log.Error(err, "Failed to discover DPUDevice")
-		conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered,
-			conditions.ReasonError,
-			conditions.ConditionMessage(err.Error()))
-		return ctrl.Result{}, err
-	} else {
-		conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
-		log.Info("DPUDevice discovered successfully", "dpuDevice", dpuDevice.Name)
+	condition = conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
+	if condition == nil || condition.Status == metav1.ConditionFalse {
+		err = r.discoverDPUDevice(ctx, dpuDevice)
+		if err != nil {
+			log.Error(err, "Failed to discover DPUDevice")
+			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered,
+				conditions.ReasonError,
+				conditions.ConditionMessage(err.Error()))
+			return ctrl.Result{}, err
+		}
 	}
 
 	conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceReady)
@@ -490,6 +490,9 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 	dpuDevice.Labels[cutil.DPUDeviceBMCIPLabel] = *dpuDevice.Status.BMCIP
 
 	// Labels and status will be updated by the deferred patch call in the reconcile function
+
+	conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
+	log.Info("DPUDevice discovered successfully", "dpuDevice", dpuDevice.Name)
 	return nil
 }
 
