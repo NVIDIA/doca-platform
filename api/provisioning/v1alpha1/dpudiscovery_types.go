@@ -58,6 +58,10 @@ type DPUDiscoverySpec struct {
 
 // DPUDiscoveryStatus defines the observed state of DPUDiscovery
 type DPUDiscoveryStatus struct {
+	// ObservedGeneration is the generation of the spec that was last applied by a successful scan.
+	// When spec (e.g. IP range) changes, reconciliation runs a scan immediately instead of waiting for the next interval.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// LastScanTime is the timestamp of the last successful scan
 	LastScanTime *metav1.Time `json:"lastScanTime,omitempty"`
 	// FoundDPUs is the list of discovered DPU BMC IPs
