@@ -356,7 +356,7 @@ metadata:
   namespace: dpu-cplane-tenant1
 spec:
   type: kamaji
-  maxNodes: 10
+  maxNodes: 1000
   clusterEndpoint:
     # deploy keepalived instances on the nodes that match the given nodeSelector.
     keepalived:
