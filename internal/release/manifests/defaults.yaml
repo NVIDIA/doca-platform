@@ -12,4 +12,4 @@ keepalivedImage: example.com/dpf-keepalived:v0.1.0
 dpuNetworkingHelmChart: oci://example.com/dpu-networking:v0.1.0
 
 ## Extra dependencies that are directly refered by the DPF binaries, but not built as part of the DPF release.
-nodeSRIOVDevicePluginImage: nvcr.io/nvidia/mellanox/sriov-network-device-plugin:network-operator-v25.10.0
+nodeSRIOVDevicePluginImage: nvcr.io/nvidia/mellanox/sriov-network-device-plugin:network-operator-v26.1.0

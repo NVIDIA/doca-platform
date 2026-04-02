@@ -8,5 +8,5 @@ spec:
     multus:
       image: multus-cni
       imagePullSecrets: []
-      repository: ghcr.io/k8snetworkplumbingwg
-      version: v3.9.3
+      repository: nvcr.io/nvidia/mellanox
+      version: network-operator-v26.1.0

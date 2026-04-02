@@ -133,7 +133,7 @@ NVIDIA_EXTERNAL_ATTACHER_DIR=third_party/forked/nvidia-external-attacher
 
 # Image for the SR-IOV device plugin, deployed by the NodeSRIOVDevicePlugin controller in the host cluster
 export NODE_SRIOV_DEVICE_PLUGIN_IMAGE=nvcr.io/nvidia/mellanox/sriov-network-device-plugin
-export NODE_SRIOV_DEVICE_PLUGIN_TAG=network-operator-v25.10.0
+export NODE_SRIOV_DEVICE_PLUGIN_TAG=network-operator-v26.1.0
 
 # VPC dependencies to be able to build/push images and charts
 VPC_REF=6952d0d082c349293b5c945f5c1a1b5c0634c66e
