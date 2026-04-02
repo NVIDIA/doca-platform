@@ -46,6 +46,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 )
 
 const defaultRetryInterval = 30 * time.Second
@@ -102,7 +103,8 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 	d.optCtx.UpdateStatusUntilSuccess = d.updateStatusUntilSuccess
 	d.optCtx.RebootMethodDiscovery = d.resolveRebootMethodDiscovery(ctx)
 	d.optCtx.Status = provisioningv1.AgentStatus{
-		Conditions: []metav1.Condition{},
+		Conditions:   []metav1.Condition{},
+		RebootMethod: ptr.To(provisioningv1.RebootMethodUnknown),
 	}
 	var err error
 	for _, op := range d.operations {
