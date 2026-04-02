@@ -86,6 +86,30 @@ var _ = Describe("DPUAgent", func() {
 			Expect(executionOrder).To(Equal([]string{"op1", "op2", "op3"}))
 		})
 
+		It("initializes RebootMethod to Unknown so stale values from a previous session are overwritten", func() {
+			var captured *provisioningv1.RebootMethodType
+			mockOps := []operations.Operation{
+				&mockOperation{
+					name:          "op1",
+					conditionType: "Op1Condition",
+					executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+						captured = optCtx.Status.RebootMethod
+						return nil
+					},
+				},
+			}
+			agent := &DPUAgent{
+				retryInterval: testRetryInterval,
+				optCtx: &operations.Context{
+					Client: &mockClient{},
+				},
+				operations: mockOps,
+			}
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(captured).NotTo(BeNil())
+			Expect(*captured).To(Equal(provisioningv1.RebootMethodUnknown))
+		})
+
 		It("sets RebootMethodDiscovery on the operation context before operations run", func() {
 			var discovery bool
 			mockOps := []operations.Operation{
