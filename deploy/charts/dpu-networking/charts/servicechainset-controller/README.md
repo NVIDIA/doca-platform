@@ -27,6 +27,7 @@ A Helm chart for Kubernetes
 | imagePullSecrets | list | `[]` |  |
 | rbac.serviceAccounts | list | `[]` |  |
 | serviceAccount.annotations | object | `{}` |  |
+| serviceAccount.labels | object | `{}` |  |
 | serviceAccount.name | string | `nil` |  |
 | volumeMounts | list | `[]` |  |
 | volumes | list | `[]` |  |

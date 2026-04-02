@@ -247,8 +247,17 @@ func (p *dpuServicePerDPUClusterObjects) generatePerClusterDPUService(vars Varia
 	// Adjust the name of the DPUService to include the hashed DPUCluster name and namespace.
 	dpuServicePerClusterCopy.SetName(fmt.Sprintf("%s-%s", dpuServicePerClusterCopy.GetName(), hashedClusterNameNamespace))
 
+	saLabels := map[string]string{}
+	if p.dpuServiceCredentialsRequest != nil {
+		saLabels = map[string]string{
+			dpuservicev1.CredentialRequestNameLabelKey:                fmt.Sprintf("%s-%s", p.dpuServiceCredentialsRequest.GetName(), hashedClusterNameNamespace),
+			dpuservicev1.CredentialRequestNamespaceLabelKey:           vars.Namespace,
+			dpuservicev1.DPUServiceCredentialRequestManagedByLabelKey: dpuservicev1.DPUServiceCredentialRequestManagedByLabelValue,
+		}
+	}
+
 	dpuServiceEdits := NewEdits()
-	edits := perClusterEdits(p.componentName.String(), secretName, serviceAccountName)
+	edits := perClusterEdits(p.componentName.String(), secretName, serviceAccountName, saLabels)
 
 	for _, edit := range edits {
 		dpuServiceEdits.AddForKindS(DPUServiceKind, edit)
