@@ -17,18 +17,29 @@ limitations under the License.
 package inventory
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/argocd"
 	"github.com/nvidia/doca-platform/internal/release"
+	"github.com/nvidia/doca-platform/pkg/dpucluster"
+	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
 	. "github.com/onsi/gomega"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestDPUServiceControllerManifestsParse(t *testing.T) {
@@ -85,7 +96,7 @@ func TestDPUServiceControllerManifestSetFlag(t *testing.T) {
 	t.Run("test toggling DPUReady taints in DPUService controller", func(t *testing.T) {
 		vars := newDefaultVariables(defaults)
 
-		generatedObjs, err := dpuserviceCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err := dpuserviceCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		deployment := getDeploymentFromGeneratedObjs(g, generatedObjs)
@@ -96,7 +107,7 @@ func TestDPUServiceControllerManifestSetFlag(t *testing.T) {
 
 		// Disable DPUReady taints and check the flag is set in the deployment.
 		vars.DisableDPUReadyTaints = true
-		generatedObjs, err = dpuserviceCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err = dpuserviceCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		deployment = getDeploymentFromGeneratedObjs(g, generatedObjs)
@@ -118,4 +129,203 @@ func getDeploymentFromGeneratedObjs(g Gomega, generatedObjs []client.Object) *ap
 		}
 	}
 	return deployment
+}
+
+// makeFakeKamajiSecret creates a Secret containing a syntactically-valid kubeconfig (with placeholder
+// TLS data) in the format that the Kamaji controller produces and that dpucluster.Config.Kubeconfig
+// expects.
+func makeFakeKamajiSecret(cluster provisioningv1.DPUCluster) (*corev1.Secret, error) {
+	config := &clientcmdapi.Config{
+		Clusters: map[string]*clientcmdapi.Cluster{
+			cluster.Name: {
+				Server:                   "https://fake-server:6443",
+				CertificateAuthorityData: []byte("fake-ca"),
+			},
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			"user": {
+				ClientKeyData:         []byte("fake-key"),
+				ClientCertificateData: []byte("fake-cert"),
+			},
+		},
+	}
+	confData, err := clientcmd.Write(*config)
+	if err != nil {
+		return nil, err
+	}
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-admin-kubeconfig", cluster.Name),
+			Namespace: cluster.Namespace,
+		},
+		Data: map[string][]byte{
+			"super-admin.conf": confData,
+		},
+	}, nil
+}
+
+func TestGenerateArgoCDClusterSecrets(t *testing.T) {
+	const argoCDNamespace = "argocd"
+
+	tests := []struct {
+		name           string
+		clusterNames   []string
+		missingSecret  string // cluster name for which no kamaji secret is created
+		corruptSecret  string // cluster name whose kubeconfig is replaced with invalid data
+		wantErr        bool
+		wantCount      int
+		wantArgoLabels bool
+	}{
+		{
+			name:           "all clusters have valid secrets",
+			clusterNames:   []string{"cluster-one", "cluster-two", "cluster-three"},
+			wantErr:        false,
+			wantCount:      3,
+			wantArgoLabels: true,
+		},
+		{
+			name:          "one cluster missing its kamaji secret",
+			clusterNames:  []string{"cluster-four", "cluster-five", "cluster-six"},
+			missingSecret: "cluster-six",
+			wantErr:       false,
+			wantCount:     2,
+		},
+		{
+			name:          "one cluster has a malformed kubeconfig",
+			clusterNames:  []string{"cluster-seven", "cluster-eight", "cluster-nine"},
+			corruptSecret: "cluster-nine",
+			wantErr:       true,
+			wantCount:     2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			ctx := context.Background()
+			ns := fmt.Sprintf("test-ns-%s", tt.name)
+
+			clusters := make([]provisioningv1.DPUCluster, 0, len(tt.clusterNames))
+			for _, name := range tt.clusterNames {
+				clusters = append(clusters, provisioningv1.DPUCluster{
+					ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+					Spec: provisioningv1.DPUClusterSpec{
+						Type:       "kamaji",
+						Kubeconfig: fmt.Sprintf("%s-admin-kubeconfig", name),
+					}})
+			}
+
+			secrets := make([]client.Object, 0, len(clusters))
+			for _, cluster := range clusters {
+				if cluster.Name == tt.missingSecret {
+					continue
+				}
+				s, err := makeFakeKamajiSecret(cluster)
+				g.Expect(err).ToNot(HaveOccurred())
+				if cluster.Name == tt.corruptSecret {
+					s.Data["super-admin.conf"] = []byte("just-a-field")
+				}
+				secrets = append(secrets, s)
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(secrets...).Build()
+			configs := make([]*dpucluster.Config, 0, len(clusters))
+			for i := range clusters {
+				configs = append(configs, dpucluster.NewConfig(fakeClient, &clusters[i]))
+			}
+
+			d := &dpuServiceControllerObjects{}
+			objs, err := d.generateArgoCDClusterSecrets(ctx, argoCDNamespace, nil, configs)
+			if tt.wantErr {
+				g.Expect(err).To(HaveOccurred())
+			} else {
+				g.Expect(err).ToNot(HaveOccurred())
+			}
+			g.Expect(objs).To(HaveLen(tt.wantCount))
+			for _, obj := range objs {
+				s, ok := obj.(*corev1.Secret)
+				g.Expect(ok).To(BeTrue())
+				g.Expect(s.Data).To(HaveKey("config"))
+				g.Expect(s.Data).To(HaveKey("name"))
+				g.Expect(s.Data).To(HaveKey("server"))
+				if tt.wantArgoLabels {
+					g.Expect(s.Labels).To(HaveKey(argocd.ArgoCDSecretLabelKey))
+				}
+			}
+		})
+	}
+}
+
+func TestGenerateArgoCDProjects(t *testing.T) {
+	const argoCDNamespace = "argocd"
+	const appNS = "dpf-operator-system"
+	labelsToAdd := map[string]string{"test-label": "test-value"}
+
+	makeDPUClusterConfig := func(ns, name string) *dpucluster.Config {
+		cluster := provisioningv1.DPUCluster{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		}
+		return dpucluster.NewConfig(nil, &cluster)
+	}
+
+	t.Run("two clusters produce DPU and host AppProjects with correct destinations", func(t *testing.T) {
+		g := NewWithT(t)
+		configs := []*dpucluster.Config{
+			makeDPUClusterConfig("ns-a", "cluster-a"),
+			makeDPUClusterConfig("ns-b", "cluster-b"),
+		}
+		d := &dpuServiceControllerObjects{}
+		objs := d.generateArgoCDProjects(argoCDNamespace, labelsToAdd, configs, appNS)
+
+		g.Expect(objs).To(HaveLen(2))
+
+		dpuProject, ok := objs[0].(*argov1.AppProject)
+		g.Expect(ok).To(BeTrue())
+		g.Expect(dpuProject.Name).To(Equal(argocd.AppProjectNameDPU))
+		g.Expect(dpuProject.Namespace).To(Equal(argoCDNamespace))
+		g.Expect(dpuProject.Spec.Destinations).To(HaveLen(2))
+		destinationNames := []string{dpuProject.Spec.Destinations[0].Name, dpuProject.Spec.Destinations[1].Name}
+		g.Expect(destinationNames).To(ConsistOf("cluster-a", "cluster-b"))
+
+		hostProject, ok := objs[1].(*argov1.AppProject)
+		g.Expect(ok).To(BeTrue())
+		g.Expect(hostProject.Name).To(Equal(argocd.AppProjectNameHost))
+		g.Expect(hostProject.Spec.Destinations).To(HaveLen(1))
+		g.Expect(hostProject.Spec.Destinations[0].Name).To(Equal("in-cluster"))
+	})
+
+	t.Run("sourceNamespaces are propagated to both AppProjects", func(t *testing.T) {
+		g := NewWithT(t)
+		d := &dpuServiceControllerObjects{}
+		objs := d.generateArgoCDProjects(argoCDNamespace, nil, nil, appNS)
+
+		g.Expect(objs).To(HaveLen(2))
+		for _, obj := range objs {
+			proj, ok := obj.(*argov1.AppProject)
+			g.Expect(ok).To(BeTrue())
+			g.Expect(proj.Spec.SourceNamespaces).To(ConsistOf(appNS))
+		}
+	})
+
+	t.Run("labels are applied to both AppProjects", func(t *testing.T) {
+		g := NewWithT(t)
+		d := &dpuServiceControllerObjects{}
+		objs := d.generateArgoCDProjects(argoCDNamespace, labelsToAdd, nil, argoCDNamespace)
+
+		g.Expect(objs).To(HaveLen(2))
+		for _, obj := range objs {
+			g.Expect(obj.GetLabels()).To(HaveKeyWithValue("test-label", "test-value"))
+		}
+	})
+
+	t.Run("empty cluster list produces DPU AppProject with no destinations", func(t *testing.T) {
+		g := NewWithT(t)
+		d := &dpuServiceControllerObjects{}
+		objs := d.generateArgoCDProjects(argoCDNamespace, nil, nil, argoCDNamespace)
+
+		g.Expect(objs).To(HaveLen(2))
+		dpuProject, ok := objs[0].(*argov1.AppProject)
+		g.Expect(ok).To(BeTrue())
+		g.Expect(dpuProject.Spec.Destinations).To(BeEmpty())
+	})
 }

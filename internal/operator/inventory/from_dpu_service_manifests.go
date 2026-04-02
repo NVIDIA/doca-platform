@@ -91,7 +91,7 @@ func (f *fromDPUService) Parse() error {
 	return nil
 }
 
-func (f *fromDPUService) GenerateManifests(vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
+func (f *fromDPUService) GenerateManifests(_ context.Context, vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
 	ret := []client.Object{}
 	opts := &GenerateManifestOptions{}
 	for _, option := range options {
@@ -116,10 +116,6 @@ func (f *fromDPUService) GenerateManifests(vars Variables, options ...GenerateMa
 		return nil, fmt.Errorf("failed to apply DPUService edits: %w", err)
 	}
 
-	// Add the ApplySet to the manifests if this hasn't been disabled.
-	if !opts.skipApplySet {
-		ret = append(ret, applySetParentForComponent(f, applySetID, vars, applySetInventoryString(dpuServiceCopy)))
-	}
 	return append(ret, dpuServiceCopy), nil
 }
 
