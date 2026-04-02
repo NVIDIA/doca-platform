@@ -396,10 +396,14 @@ type Firmware struct {
 
 // RebootMethodType is the type of reset/reboot required after NVConfig or firmware changes.
 // Set by the DPU agent. Values align with NVIDIA BlueField Reset and Reboot Procedures (mlxfwreset levels).
-// +kubebuilder:validation:Enum=NoAction;PowerCycle;SystemReboot;SystemLevelReset;FirmwareReset
+// +kubebuilder:validation:Enum=Unknown;NoAction;PowerCycle;SystemReboot;SystemLevelReset;FirmwareReset
 type RebootMethodType string
 
 const (
+	// RebootMethodUnknown is the initial value set by the DPU agent on startup before
+	// HandleReboot determines the actual method. It prevents the controller from acting
+	// on a stale RebootMethod left over from a previous agent session.
+	RebootMethodUnknown RebootMethodType = "Unknown"
 	// RebootMethodNoAction indicates no reset or reboot is required.
 	RebootMethodNoAction RebootMethodType = "NoAction"
 	// RebootMethodPowerCycle indicates a full server power cycle (cold boot) is required.

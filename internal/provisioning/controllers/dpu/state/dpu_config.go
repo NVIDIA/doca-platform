@@ -34,7 +34,7 @@ func DPUConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 		return *state, nil
 	}
 
-	if dpu.Status.AgentStatus == nil || dpu.Status.AgentStatus.RebootMethod == nil {
+	if dpu.Status.AgentStatus == nil || dpu.Status.AgentStatus.RebootMethod == nil || *dpu.Status.AgentStatus.RebootMethod == provisioningv1.RebootMethodUnknown {
 		logger.Info("Waiting for DPU agent to report reboot method")
 		return *state, nil
 	}

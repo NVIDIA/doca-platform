@@ -376,6 +376,7 @@ spec:
                       (e.g. legacy flow, or agent has not run the check yet);
                       a non-nil value means the check ran and this is the result.
                     enum:
+                    - Unknown
                     - NoAction
                     - PowerCycle
                     - SystemReboot
