@@ -39,7 +39,7 @@ type Component interface {
 	// The manifests are generated based on the provided variables and options.
 	// Returns a slice of client.Object which can be applied to the cluster.
 	// If the component is not ready for upgrade, it returns an error.
-	GenerateManifests(variables Variables, options ...GenerateManifestOption) ([]client.Object, error)
+	GenerateManifests(ctx context.Context, variables Variables, options ...GenerateManifestOption) ([]client.Object, error)
 
 	// IsReadyForUpgrade reports an object and a field in that object which is used to check the ready status of a Component.
 	// The version contains the version of the DPF Operator that is being upgraded from.
@@ -260,11 +260,11 @@ func (skipApplySetCreationOption) Apply(o *GenerateManifestOptions) {
 }
 
 // generateAllManifests returns all Kubernetes objects.
-func (s *SystemComponents) generateAllManifests(variables Variables, opts ...GenerateManifestOption) ([]client.Object, error) {
+func (s *SystemComponents) generateAllManifests(ctx context.Context, variables Variables, opts ...GenerateManifestOption) ([]client.Object, error) {
 	out := []client.Object{}
 	var errs []error
 	for _, component := range s.AllComponents() {
-		manifests, err := component.GenerateManifests(variables, opts...)
+		manifests, err := component.GenerateManifests(ctx, variables, opts...)
 		if err != nil {
 			errs = append(errs, err)
 		}

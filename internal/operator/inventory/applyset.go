@@ -23,10 +23,7 @@ import (
 	"sort"
 	"strings"
 
-	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
-
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Apply set implements the Kubernetes ApplySet spec to handle deletion of objects in the Kubernetes API.
@@ -91,29 +88,8 @@ func ApplySetID(namespace string, component Component) string {
 	return fmt.Sprintf(v1ApplySetIDFormat, b64)
 }
 
-// applySetParentForComponent returns a Secret object which is the parent for a given component.
-func applySetParentForComponent(component Component, id string, vars Variables, inventory string) *unstructured.Unstructured {
-	parent := &unstructured.Unstructured{}
-	parent.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "",
-		Kind:    "Secret",
-		Version: "v1",
-	})
-	parent.SetName(ApplySetName(component))
-	parent.SetNamespace(vars.Namespace)
-	parent.SetLabels(map[string]string{
-		ApplySetParentIDLabel:           id,
-		operatorv1.DPFComponentLabelKey: component.Name().String(),
-	})
-	parent.SetAnnotations(map[string]string{
-		ApplySetInventoryAnnotationKey: inventory,
-		ApplySetToolingAnnotation:      ApplySetToolingAnnotationValue,
-	})
-	return parent
-}
-
-// applySetInventoryString returns a string to be used as the value for ApplySetInventoryAnnotationKey.
-func applySetInventoryString(objs ...*unstructured.Unstructured) string {
+// InventoryStringFromObjects computes the applyset inventory annotation value from a slice of client.Object.
+func InventoryStringFromObjects(objs ...client.Object) string {
 	gknnStrings := []string{}
 	for _, obj := range objs {
 		gknnStrings = append(gknnStrings, GroupKindNamespaceName{

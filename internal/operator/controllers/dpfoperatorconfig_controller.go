@@ -20,6 +20,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"sort"
 	"strings"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -414,6 +415,7 @@ func (r *DPFOperatorConfigReconciler) reconcileSystemComponents(ctx context.Cont
 			errs = append(errs, err)
 		}
 	}
+
 	return kerrors.NewAggregate(errs)
 }
 
@@ -459,55 +461,75 @@ func (r *DPFOperatorConfigReconciler) validateSystemComponentsReadiness(ctx cont
 	return kerrors.NewAggregate(errs)
 }
 
+// generateAndPatchObjects generates a component's manifests, creates or patches the objects, deletes stale objects
+// and handles the ApplySet for the component in a re-entrant way.
 func (r *DPFOperatorConfigReconciler) generateAndPatchObjects(ctx context.Context, component inventory.Component, vars inventory.Variables) error {
-	objs, err := component.GenerateManifests(vars)
+	desiredObjects, err := component.GenerateManifests(ctx, vars)
 	if err != nil {
 		return fmt.Errorf("error while generating manifests for object, err: %v", err)
 	}
 
-	var desiredApplySet client.Object
-	for _, obj := range objs {
-		// If the ApplySetParentIDLabel is present and has the correct value this is the ApplySet parent for the component.
-		// Hold back on updating this object until all operations are complete.
-		if id, ok := obj.GetLabels()[inventory.ApplySetParentIDLabel]; ok && (id == inventory.ApplySetID(vars.Namespace, component)) {
-			desiredApplySet = obj
-			continue
-		}
-
-		kind := obj.GetObjectKind().GroupVersionKind().Kind
-		if r.Settings.SkipWebhook && (kind == "ValidatingWebhookConfiguration" || kind == "MutatingWebhookConfiguration") {
-			continue
-		}
-
-		if err = r.Client.Patch(ctx, obj, client.Apply, applyPatchOptions...); err != nil {
-			return fmt.Errorf("error patching %v %v: %w", obj.GetObjectKind().GroupVersionKind().Kind, klog.KObj(obj), err)
-		}
+	// Compute desired inventory directly from the filtered objects.
+	var desiredInventory []string
+	if len(desiredObjects) > 0 {
+		desiredInventory = strings.Split(inventory.InventoryStringFromObjects(desiredObjects...), ",")
 	}
 
-	// Delete objects that were previously part of the component but have been removed.
-	if err = r.deleteStaleObjects(ctx, vars.Namespace, component, objs); err != nil {
-		return err
-	}
-
-	// Update the apply set with the current state of the component.
-	if err = r.updateApplySet(ctx, vars.Namespace, desiredApplySet, component); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// deleteStaleObjects compares the current ApplySet to the desired list of objects. It deletes all objects which are in the inventory but not in the desiredObjects.
-func (r *DPFOperatorConfigReconciler) deleteStaleObjects(ctx context.Context, namespace string, component inventory.Component, desiredObjects []client.Object) error {
-	currentInventory, err := r.currentInventoryForComponent(ctx, namespace, component)
+	currentInventory, err := r.currentInventoryForComponent(ctx, vars.Namespace, component)
 	if err != nil {
 		return err
 	}
 
-	desiredInventory := gknnSetForObjects(desiredObjects)
+	// 1. Update ApplySet to contain existing + desired.
+	// Note: if the desiredInventory is nil, then no update is required. The ApplySet will be deleted in step 4.
+	if desiredInventory != nil {
+		if err = r.updateApplySet(ctx, vars.Namespace, component, joinInventory(currentInventory, desiredInventory)); err != nil {
+			return err
+		}
+	}
+
+	// 2. Create and update desired objects.
+	for _, obj := range desiredObjects {
+		kind := obj.GetObjectKind().GroupVersionKind().Kind
+		if r.Settings.SkipWebhook && (kind == "ValidatingWebhookConfiguration" || kind == "MutatingWebhookConfiguration") {
+			continue
+		}
+		if err = r.Client.Patch(ctx, obj, client.Apply, applyPatchOptions...); err != nil {
+			return fmt.Errorf("error patching %v %v: %w", kind, klog.KObj(obj), err)
+		}
+	}
+
+	// 3. Delete objects that were previously part of the component but have been removed.
+	if err = r.deleteStaleObjects(ctx, currentInventory, desiredInventory); err != nil {
+		return err
+	}
+
+	// 4. Update ApplySet to contain only desired objects, or delete it if there are none.
+	return r.updateApplySet(ctx, vars.Namespace, component, desiredInventory)
+}
+
+func joinInventory(currentInventory, desiredInventory []string) []string {
+	joinedInventory := []string{}
+	gotObjs := map[string]bool{}
+	for _, obj := range append(currentInventory, desiredInventory...) {
+		if _, got := gotObjs[obj]; !got {
+			joinedInventory = append(joinedInventory, obj)
+			gotObjs[obj] = true
+		}
+	}
+	sort.Strings(joinedInventory)
+	return joinedInventory
+}
+
+// deleteStaleObjects compares the current ApplySet to the desired list of objects. It deletes all objects which are in the inventory but not in the desiredObjects.
+func (r *DPFOperatorConfigReconciler) deleteStaleObjects(ctx context.Context, currentInventory, desiredInventory []string) error {
+	desiredMap := map[string]bool{}
+	for _, obj := range desiredInventory {
+		desiredMap[obj] = true
+	}
 	for _, obj := range currentInventory {
 		// If the object doesn't exist in the desired inventory delete it.
-		if _, ok := desiredInventory[obj]; !ok {
+		if _, ok := desiredMap[obj]; !ok {
 			gknn, err := inventory.ParseGroupKindNamespaceName(obj)
 			if err != nil {
 				return err
@@ -520,25 +542,27 @@ func (r *DPFOperatorConfigReconciler) deleteStaleObjects(ctx context.Context, na
 	return nil
 }
 
-// updateApplySet patches the ApplySet parent with an up to date inventory annotation.
-// If desiredApplySet is nil it ensures the ApplySet parent object is deleted.
-func (r *DPFOperatorConfigReconciler) updateApplySet(ctx context.Context, namespace string, desiredApplySet client.Object, component inventory.Component) error {
-	log := ctrllog.FromContext(ctx)
-	// Delete the ApplySet if it is not part of the inventory.
-	if desiredApplySet == nil {
+// updateApplySet patches the ApplySet parent with an up-to-date inventory annotation.
+// If inv is nil it ensures the existing ApplySet is deleted.
+func (r *DPFOperatorConfigReconciler) updateApplySet(ctx context.Context, namespace string, component inventory.Component, inv []string) error {
+	if inv == nil {
 		currentApplySet, err := r.getApplySetForComponent(ctx, namespace, component)
 		if err != nil {
 			return client.IgnoreNotFound(err)
 		}
+		log := ctrllog.FromContext(ctx)
 		log.Info("Deleting empty ApplySet parent", "object", klog.KObj(currentApplySet))
 		return client.IgnoreNotFound(r.Client.Delete(ctx, currentApplySet))
 	}
-
-	// Update the applySet to reflect the new inventory.
-	if err := r.Client.Patch(ctx, desiredApplySet, client.Apply, applyPatchOptions...); err != nil {
-		return err
-	}
-	return nil
+	applySet := buildApplySetParent(
+		component,
+		inventory.ApplySetID(namespace, component),
+		namespace,
+		strings.Join(inv, ","),
+	)
+	// managedFields must be nil for server-side apply.
+	applySet.SetManagedFields(nil)
+	return r.Client.Patch(ctx, applySet, client.Apply, applyPatchOptions...)
 }
 
 // currentInventoryForComponent returns a list of all GKNNs which are currently in the ApplySet inventory for the component.
@@ -552,6 +576,10 @@ func (r *DPFOperatorConfigReconciler) currentInventoryForComponent(ctx context.C
 			return []string{}, nil
 		}
 		return nil, err
+	}
+
+	if applySet == nil {
+		return []string{}, nil
 	}
 	gknnList, ok := applySet.GetAnnotations()[inventory.ApplySetInventoryAnnotationKey]
 	if !ok {
@@ -590,19 +618,25 @@ func (r *DPFOperatorConfigReconciler) getApplySetForComponent(ctx context.Contex
 	return &secrets.Items[0], nil
 }
 
-// gknnSetForObjects returns a set containing each object in the inventory.
-func gknnSetForObjects(objs []client.Object) map[string]bool {
-	out := map[string]bool{}
-	for _, obj := range objs {
-		s := inventory.GroupKindNamespaceName{
-			Group:     obj.GetObjectKind().GroupVersionKind().Group,
-			Kind:      obj.GetObjectKind().GroupVersionKind().Kind,
-			Namespace: obj.GetNamespace(),
-			Name:      obj.GetName(),
-		}.String()
-		out[s] = true
-	}
-	return out
+// buildApplySetParent returns a Secret object which is the parent for a given component.
+func buildApplySetParent(component inventory.Component, id string, namespace string, inv string) *unstructured.Unstructured {
+	parent := &unstructured.Unstructured{}
+	parent.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "",
+		Kind:    "Secret",
+		Version: "v1",
+	})
+	parent.SetName(inventory.ApplySetName(component))
+	parent.SetNamespace(namespace)
+	parent.SetLabels(map[string]string{
+		inventory.ApplySetParentIDLabel: id,
+		operatorv1.DPFComponentLabelKey: component.Name().String(),
+	})
+	parent.SetAnnotations(map[string]string{
+		inventory.ApplySetInventoryAnnotationKey: inv,
+		inventory.ApplySetToolingAnnotation:      inventory.ApplySetToolingAnnotationValue,
+	})
+	return parent
 }
 
 // deleteByGKNN deletes the object represented by its GKNN. It ignores NotFound errors.

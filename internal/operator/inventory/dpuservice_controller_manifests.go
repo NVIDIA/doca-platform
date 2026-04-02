@@ -19,13 +19,20 @@ package inventory
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	argocd "github.com/nvidia/doca-platform/internal/argocd"
 	"github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/release"
+	"github.com/nvidia/doca-platform/pkg/dpucluster"
+	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
 	appsv1 "k8s.io/api/apps/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -73,8 +80,7 @@ func (d *dpuServiceControllerObjects) Parse() error {
 }
 
 // GenerateManifests returns all objects as a list.
-func (d *dpuServiceControllerObjects) GenerateManifests(vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
-	ret := []client.Object{}
+func (d *dpuServiceControllerObjects) GenerateManifests(ctx context.Context, vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
 	if ok := vars.DisableSystemComponents[d.Name()]; ok {
 		return []client.Object{}, nil
 	}
@@ -128,16 +134,84 @@ func (d *dpuServiceControllerObjects) GenerateManifests(vars Variables, options 
 		return nil, err
 	}
 
-	// Add the ApplySet to the manifests if this hasn't been disabled.
-	if !opts.skipApplySet {
-		ret = append(ret, applySetParentForComponent(d, applySetID, vars, applySetInventoryString(objsCopy...)))
+	ret := []client.Object{}
+	for _, obj := range objsCopy {
+		ret = append(ret, obj)
 	}
 
-	for i := range objsCopy {
-		ret = append(ret, objsCopy[i])
+	// Add ArgoCD AppProject manifests (one for the host cluster and one for all DPU clusters).
+	argoCDProjects := d.generateArgoCDProjects(vars.ArgoCDNamespace, labelsToAdd, vars.DPUClusters, vars.Namespace)
+	ret = append(ret, argoCDProjects...)
+
+	// Add ArgoCD cluster secrets for all DPU clusters.
+	argoCDSecrets, err := d.generateArgoCDClusterSecrets(ctx, vars.ArgoCDNamespace, labelsToAdd, vars.DPUClusters)
+	if err != nil {
+		return nil, fmt.Errorf("generating ArgoCD cluster secrets: %w", err)
 	}
+	ret = append(ret, argoCDSecrets...)
 
 	return ret, nil
+}
+
+func (d *dpuServiceControllerObjects) generateArgoCDProjects(argoCDNamespace string, labelsToAdd map[string]string, dpuClusters []*dpucluster.Config, applicationNamespace string) []client.Object {
+	appProjects := []client.Object{}
+	// Generate AppProject manifests for DPU and host clusters.
+	clusterKeys := make([]types.NamespacedName, 0, len(dpuClusters))
+	for _, dpuClusterConfig := range dpuClusters {
+		clusterKeys = append(clusterKeys, types.NamespacedName{
+			Namespace: dpuClusterConfig.Cluster.Namespace,
+			Name:      dpuClusterConfig.Cluster.Name,
+		})
+	}
+
+	for _, appProject := range []*argov1.AppProject{
+		argocd.NewAppProject(argoCDNamespace, argocd.AppProjectNameDPU, clusterKeys, applicationNamespace),
+		argocd.NewAppProject(argoCDNamespace, argocd.AppProjectNameHost, []types.NamespacedName{{Namespace: "*", Name: "in-cluster"}}, applicationNamespace),
+	} {
+		labels := appProject.GetLabels()
+		maps.Copy(labels, labelsToAdd)
+		appProject.SetLabels(labelsToAdd)
+		appProjects = append(appProjects, appProject)
+	}
+
+	return appProjects
+}
+
+func (d *dpuServiceControllerObjects) generateArgoCDClusterSecrets(ctx context.Context, argoCDNamespace string, labelsToAdd map[string]string, dpuClusters []*dpucluster.Config) ([]client.Object, error) {
+	var errs []error
+	argoCDClusterSecrets := []client.Object{}
+	for _, dpuClusterConfig := range dpuClusters {
+		// Get the control plane kubeconfig
+		adminConfig, err := dpuClusterConfig.Kubeconfig(ctx)
+		if err != nil {
+			// Skip in case the kubeconfig does not exist yet.
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+
+			errs = append(errs, err)
+			continue
+		}
+
+		// Template an argoCDClusterSecret using information from the control plane secret.
+		argoCDClusterSecret, err := argocd.NewArgoCDClusterSecret(adminConfig, argoCDNamespace, dpuClusterConfig)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
+		// Add labels to the secret.
+		if argoCDClusterSecret.Labels == nil {
+			argoCDClusterSecret.Labels = map[string]string{}
+		}
+		for k, v := range labelsToAdd {
+			argoCDClusterSecret.Labels[k] = v
+		}
+
+		argoCDClusterSecrets = append(argoCDClusterSecrets, argoCDClusterSecret)
+	}
+
+	return argoCDClusterSecrets, kerrors.NewAggregate(errs)
 }
 
 func (d *dpuServiceControllerObjects) deploymentEdit(vars Variables) StructuredEdit {

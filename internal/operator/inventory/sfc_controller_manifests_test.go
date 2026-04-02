@@ -280,7 +280,7 @@ spec:
 			err := sfc.Parse()
 			g.Expect(err).NotTo(HaveOccurred())
 
-			got, err := sfc.GenerateManifests(tt.vars, skipApplySetCreationOption{})
+			got, err := sfc.GenerateManifests(context.Background(), tt.vars, skipApplySetCreationOption{})
 			g.Expect(err).NotTo(HaveOccurred())
 
 			// Find DPUService in results

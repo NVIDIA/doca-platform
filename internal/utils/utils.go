@@ -223,3 +223,11 @@ copyLoop:
 	}
 	return nil
 }
+
+func GetRandomKVPair[T any](m map[string]T) (string, T) {
+	var result T
+	for k, v := range m {
+		return k, v
+	}
+	return "", result
+}

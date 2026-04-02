@@ -59,7 +59,23 @@ func (r *DPFOperatorConfigReconciler) reconcileDelete(ctx context.Context, dpfOp
 
 	log.Info("Ensuring DPF system components are deleted")
 	var errs []error
+	// Delete objects via the inventory.
+	for _, component := range r.Inventory.AllComponents() {
+		err := r.deleteSystemComponentViaInventory(ctx, component, inventory.VariablesFromDPFOperatorConfig(r.Defaults, dpfOperatorConfig, dpuclusters))
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		log.Error(kerrors.NewAggregate(errs), "Waiting for system components to be deleted")
+		conditions.AddFalse(dpfOperatorConfig, operatorv1.SystemComponentsReconciledCondition, conditions.ReasonAwaitingDeletion,
+			conditions.ConditionMessage(fmt.Sprintf("System components awaiting deletion: %s", kerrors.NewAggregate(errs).Error())))
+		return ctrl.Result{}, kerrors.NewAggregate(errs)
+	}
+
 	// Delete objects for components deployed to the management cluster.
+	// Note: This includes the inventory itself.
+	// Note: This also does a fallback cleanup in case the inventory was messed up. We expect this to normally only delete the inventory itself.
 	for _, component := range r.Inventory.AllComponents() {
 		err := r.deleteSystemComponent(ctx, component, inventory.VariablesFromDPFOperatorConfig(r.Defaults, dpfOperatorConfig, dpuclusters))
 		if err != nil {
@@ -199,15 +215,29 @@ func (r *DPFOperatorConfigReconciler) deleteDPFResources(ctx context.Context) er
 	return nil
 }
 
+func (r *DPFOperatorConfigReconciler) deleteSystemComponentViaInventory(ctx context.Context, component inventory.Component, vars inventory.Variables) error {
+	objs, err := r.getCurrentInventoryObjects(ctx, vars.Namespace, component)
+	if err != nil {
+		return err
+	}
+
+	return r.deleteObjsAndWait(ctx, component.Name(), objs)
+}
+
 func (r *DPFOperatorConfigReconciler) deleteSystemComponent(ctx context.Context, component inventory.Component, vars inventory.Variables) error {
-	objs, err := component.GenerateManifests(vars)
+	objs, err := component.GenerateManifests(ctx, vars)
 	if err != nil {
 		return fmt.Errorf("%s error generating manifest while attempting deletion: %v", component.Name(), err)
 	}
+
+	return r.deleteObjsAndWait(ctx, component.Name(), objs)
+}
+
+func (r *DPFOperatorConfigReconciler) deleteObjsAndWait(ctx context.Context, componentName operatorv1.ComponentName, objs []client.Object) error {
 	var errs []error
 	for _, obj := range objs {
 		if err := r.Client.Delete(ctx, obj); client.IgnoreNotFound(err) != nil {
-			errs = append(errs, fmt.Errorf("%s: error deleting %s %s: %w", component.Name(), obj.GetObjectKind().GroupVersionKind().Kind, klog.KObj(obj), err))
+			errs = append(errs, fmt.Errorf("%s: error deleting %s %s: %w", componentName, obj.GetObjectKind().GroupVersionKind().Kind, klog.KObj(obj), err))
 			continue
 		}
 		uns := &unstructured.Unstructured{}
@@ -217,10 +247,40 @@ func (r *DPFOperatorConfigReconciler) deleteSystemComponent(ctx context.Context,
 
 		// If result is anything other than StatusReasonNotFound return an error even if the error is nil.
 		if !apierrors.IsNotFound(err) {
-			errs = append(errs, fmt.Errorf("%s: %s/%s pending deletion", component.Name(), obj.GetObjectKind().GroupVersionKind().Kind, klog.KObj(obj)))
+			errs = append(errs, fmt.Errorf("%s: %s/%s pending deletion", componentName, obj.GetObjectKind().GroupVersionKind().Kind, klog.KObj(obj)))
 		}
 	}
 	return kerrors.NewAggregate(errs)
+}
+
+// deleteInventoryObjects deletes all objects which are in the inventory.
+func (r *DPFOperatorConfigReconciler) getCurrentInventoryObjects(ctx context.Context, namespace string, component inventory.Component) ([]client.Object, error) {
+	currentInventory, err := r.currentInventoryForComponent(ctx, namespace, component)
+	if err != nil {
+		return nil, err
+	}
+
+	objs := []client.Object{}
+
+	for _, obj := range currentInventory {
+		gknn, err := inventory.ParseGroupKindNamespaceName(obj)
+		if err != nil {
+			return nil, err
+		}
+
+		mapping, err := r.Client.RESTMapper().RESTMapping(schema.GroupKind{Group: gknn.Group, Kind: gknn.Kind})
+		if err != nil {
+			return nil, fmt.Errorf("could not find kind for resource from inventory in schema: %w", err)
+		}
+
+		obj := &unstructured.Unstructured{}
+		obj.SetGroupVersionKind(mapping.GroupVersionKind)
+		obj.SetNamespace(gknn.Namespace)
+		obj.SetName(gknn.Name)
+
+		objs = append(objs, obj)
+	}
+	return objs, nil
 }
 
 // matchLabelExclusionList returns true if any of the labels in the exclusion list are present in the object.

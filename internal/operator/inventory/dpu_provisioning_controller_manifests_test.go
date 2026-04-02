@@ -17,6 +17,7 @@ limitations under the License.
 package inventory
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -130,7 +131,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		vars.DisableSystemComponents = map[operatorv1.ComponentName]bool{
 			provCtrl.Name(): true,
 		}
-		objs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		objs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		if err != nil {
 			t.Fatalf("failed to generate manifests: %v", err)
 		}
@@ -147,7 +148,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			BFBPersistentVolumeClaimName: &emptyStr,
 		}
 		// This test may need to be updated - empty string is now valid (uses hostPath)
-		_, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		_, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		NewGomegaWithT(t).Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -161,7 +162,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: &pvcName,
 		}
-		objs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		objs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 		for _, obj := range objs {
 			// Check the cert manager annotation is updated
@@ -252,7 +253,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		vars.ImagePullSecrets = []string{expectedImagePullSecret1, expectedImagePullSecret2}
 		vars.KubernetesAPIServerVIP = &expectedKubernetesAPIServerVIP
 		vars.KubernetesAPIServerPort = &expectedKubernetesAPIServerPort
-		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		g.Expect(generatedObjs).To(HaveLen(len(originalObjs) + len(originalBFBRegistryObjs)))
@@ -328,7 +329,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: nil, // no PVC: use hostPath
 		}
-		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 		var gotDeployment *appsv1.Deployment
 		for i, obj := range generatedObjs {
@@ -393,7 +394,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			BFBPersistentVolumeClaimName: &expectedPVC,
 			BFCFGTemplateConfig:          ptr.To("configmap"),
 		}
-		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 		gotDeployment := &appsv1.Deployment{}
 		for i, obj := range generatedObjs {
@@ -452,7 +453,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			},
 		}
 
-		objs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		objs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		for _, obj := range objs {
@@ -489,7 +490,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			HostAgentDNSPolicy:           &dnsPolicy,
 		}
 
-		objs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		objs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		for _, obj := range objs {
@@ -515,7 +516,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			BFBPersistentVolumeClaimName: ptr.To("pvc"),
 		}
 
-		objs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		objs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		for _, obj := range objs {
@@ -569,7 +570,7 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 		}
 		vars.Images[operatorv1.BFBRegistryName.String()] = "registry-image:latest"
 
-		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		// BFB registry runs as sidecar in the Deployment (no DaemonSet)
@@ -611,7 +612,7 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 		}
 		vars.Images[operatorv1.BFBRegistryName.String()] = "registry-image:latest"
 
-		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		var deployment *appsv1.Deployment
@@ -658,7 +659,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 			MaxDPUParallelInstallations:  ptr.To(int32(10)),
 		}
 
-		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		// Verify deployment has the correct flags
@@ -689,7 +690,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 			BFBPersistentVolumeClaimName: &expectedPVC,
 		}
 
-		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		var deployment *appsv1.Deployment
@@ -722,7 +723,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 			MaxDPUParallelInstallations:  ptr.To(int32(1)),
 		}
 
-		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		// Verify deployment has the correct flags
@@ -754,7 +755,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 			MaxDPUParallelInstallations:  ptr.To(int32(-1)),
 		}
 
-		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		// Verify deployment has the correct flags
@@ -786,7 +787,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 			MaxDPUParallelInstallations:  ptr.To(int32(1000)),
 		}
 
-		generatedObjs, err := provCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		// Verify deployment has the correct flags

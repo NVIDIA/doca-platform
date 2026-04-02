@@ -79,7 +79,7 @@ func (p *dpuDetectorObjects) Parse() (err error) {
 }
 
 // GenerateManifests applies edits and returns objects
-func (p *dpuDetectorObjects) GenerateManifests(vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
+func (p *dpuDetectorObjects) GenerateManifests(_ context.Context, vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
 	if ok := vars.DisableSystemComponents[p.Name()]; ok {
 		return []client.Object{}, nil
 	}
@@ -132,9 +132,6 @@ func (p *dpuDetectorObjects) GenerateManifests(vars Variables, options ...Genera
 
 	// return as Objects
 	ret := []client.Object{}
-	if !opts.skipApplySet {
-		ret = append(ret, applySetParentForComponent(p, applySetID, vars, applySetInventoryString(objsCopy...)))
-	}
 	for i := range objsCopy {
 		ret = append(ret, objsCopy[i])
 	}

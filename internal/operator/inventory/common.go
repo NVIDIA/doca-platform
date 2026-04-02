@@ -211,7 +211,7 @@ func (p *simpleDeploymentObjects) Parse() (err error) {
 	return nil
 }
 
-func (p *simpleDeploymentObjects) GenerateManifests(vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
+func (p *simpleDeploymentObjects) GenerateManifests(_ context.Context, vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
 	if p.isDisabled != nil && p.isDisabled(vars.DisableSystemComponents) {
 		return []client.Object{}, nil
 	}
@@ -246,10 +246,6 @@ func (p *simpleDeploymentObjects) GenerateManifests(vars Variables, options ...G
 
 	// return as Objects
 	ret := []client.Object{}
-	if !opts.skipApplySet {
-		ret = append(ret, applySetParentForComponent(p, applySetID, vars, applySetInventoryString(objsCopy...)))
-	}
-
 	for i := range objsCopy {
 		ret = append(ret, objsCopy[i])
 	}

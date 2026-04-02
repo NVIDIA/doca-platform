@@ -1077,7 +1077,7 @@ spec:
 			err := scs.Parse()
 			g.Expect(err).NotTo(HaveOccurred())
 
-			got, err := scs.GenerateManifests(tt.vars, skipApplySetCreationOption{})
+			got, err := scs.GenerateManifests(context.Background(), tt.vars, skipApplySetCreationOption{})
 			g.Expect(err).NotTo(HaveOccurred())
 
 			// Find DPUServices and DPUServiceCredentialsRequests in results

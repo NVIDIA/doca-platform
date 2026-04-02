@@ -89,7 +89,7 @@ func (p *sfcControllerObjects) Parse() (err error) {
 }
 
 // GenerateManifests applies edits and returns objects
-func (p *sfcControllerObjects) GenerateManifests(vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
+func (p *sfcControllerObjects) GenerateManifests(_ context.Context, vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
 	if ok := vars.DisableSystemComponents[p.Name()]; ok {
 		return []client.Object{}, nil
 	}
@@ -135,10 +135,6 @@ func (p *sfcControllerObjects) GenerateManifests(vars Variables, options ...Gene
 
 	// return as Objects
 	ret := []client.Object{}
-	if !opts.skipApplySet {
-		ret = append(ret, applySetParentForComponent(p, applySetID, vars, applySetInventoryString(objs...)))
-	}
-
 	for i := range objs {
 		ret = append(ret, objs[i])
 	}
