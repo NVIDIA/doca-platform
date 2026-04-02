@@ -63,7 +63,7 @@ spec:
   ## type signals which controller implementation should take responsibility for the DPUCluster.
   type: static
   ## Max nodes is the maximum number of nodes supported by the DPUCluster implementation.
-  maxNodes: 10
+  maxNodes: 1000
   ## Kubeconfig is the name of a secret in the same namespace as the DPUCluster object.
   ## Note: This field is supplied by the user in the static cluster manager - but this may not be the case for other implementations.
   kubeconfig: dpu-cluster-1-admin-kubeconfig
@@ -82,7 +82,7 @@ spec:
   ## type signals which controller implementation should take responsibility for the DPUCluster.
   type: kamaji
   ## Max nodes is the maximum number of nodes supported by the DPUCluster implementation.
-  maxNodes: 10
+  maxNodes: 1000
   ## Cluster endpoint is supplied by the user and provides and IP and other details to make the APIServer available.
   clusterEndpoint:
     # deploy keepalived instances on the nodes that match the given nodeSelector.
