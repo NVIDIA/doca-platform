@@ -227,6 +227,11 @@ spec:
 										},
 										"serviceAccount": map[string]interface{}{
 											"name": "servicechainset-controller-73923044a5",
+											"labels": map[string]interface{}{
+												dpuservicev1.CredentialRequestNameLabelKey:                "servicesetcontroller-73923044a5",
+												dpuservicev1.CredentialRequestNamespaceLabelKey:           "test-namespace",
+												dpuservicev1.DPUServiceCredentialRequestManagedByLabelKey: dpuservicev1.DPUServiceCredentialRequestManagedByLabelValue,
+											},
 										},
 										"deployHostManifests": true,
 										"enabled":             true,
@@ -479,6 +484,11 @@ spec:
 										},
 										"serviceAccount": map[string]interface{}{
 											"name": "servicechainset-controller-73923044a5",
+											"labels": map[string]interface{}{
+												dpuservicev1.CredentialRequestNameLabelKey:                "servicesetcontroller-73923044a5",
+												dpuservicev1.CredentialRequestNamespaceLabelKey:           "test-namespace",
+												dpuservicev1.DPUServiceCredentialRequestManagedByLabelKey: dpuservicev1.DPUServiceCredentialRequestManagedByLabelValue,
+											},
 										},
 										"deployHostManifests": true,
 										"enabled":             true,
@@ -585,6 +595,11 @@ spec:
 										},
 										"serviceAccount": map[string]interface{}{
 											"name": "servicechainset-controller-1bdc412401",
+											"labels": map[string]interface{}{
+												dpuservicev1.CredentialRequestNameLabelKey:                "servicesetcontroller-1bdc412401",
+												dpuservicev1.CredentialRequestNamespaceLabelKey:           "test-namespace",
+												dpuservicev1.DPUServiceCredentialRequestManagedByLabelKey: dpuservicev1.DPUServiceCredentialRequestManagedByLabelValue,
+											},
 										},
 										"deployHostManifests": true,
 										"enabled":             true,
@@ -865,6 +880,11 @@ spec:
 										},
 										"serviceAccount": map[string]interface{}{
 											"name": "servicechainset-controller-73923044a5",
+											"labels": map[string]interface{}{
+												dpuservicev1.CredentialRequestNameLabelKey:                "servicesetcontroller-73923044a5",
+												dpuservicev1.CredentialRequestNamespaceLabelKey:           "test-namespace",
+												dpuservicev1.DPUServiceCredentialRequestManagedByLabelKey: dpuservicev1.DPUServiceCredentialRequestManagedByLabelValue,
+											},
 										},
 										"deployHostManifests": true,
 										"enabled":             true,

@@ -292,7 +292,7 @@ func multusEdits(vars Variables) ([]StructuredEdit, error) {
 	}, nil
 }
 
-func perClusterEdits(chartName string, secretName string, serviceAccountName string) []StructuredEdit {
+func perClusterEdits(chartName string, secretName string, serviceAccountName string, labels map[string]string) []StructuredEdit {
 	edits := []StructuredEdit{}
 
 	// Create the projected volume configuration for the tokenfile
@@ -377,6 +377,10 @@ func perClusterEdits(chartName string, secretName string, serviceAccountName str
 		dpuServiceAddValueEdit(envVars, chartName, "env"),
 		dpuServiceAddValueEdit(volumeMounts, chartName, "volumeMounts"),
 	)
+
+	if len(labels) > 0 {
+		edits = append(edits, dpuServiceAddValueEdit(labels, chartName, "serviceAccount", "labels"))
+	}
 	return edits
 }
 

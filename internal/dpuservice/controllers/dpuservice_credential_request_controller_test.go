@@ -25,6 +25,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -49,12 +50,12 @@ contexts:
 - context:
     cluster: %s
     namespace: default
-    user: test-service-account
-  name: test-service-account
-current-context: test-service-account
+    user: %s
+  name: %s
+current-context: %s
 kind: Config
 users:
-- name: test-service-account
+- name: %s
   user:
     token: %s
 `
@@ -67,6 +68,7 @@ var _ = Describe("DPUServiceCredentialRequest Controller", func() {
 			testDPU2NS  *corev1.Namespace
 			testDPU3NS  *corev1.Namespace
 			cleanupObjs []client.Object
+			name        string
 		)
 		BeforeEach(func() {
 			By("creating the namespaces")
@@ -96,6 +98,9 @@ var _ = Describe("DPUServiceCredentialRequest Controller", func() {
 				Expect(testClient.Create(ctx, &cl)).To(Succeed())
 				cleanupObjs = append(cleanupObjs, &cl)
 			}
+
+			// Generate a random name for testing
+			name = fmt.Sprintf("test-service-account-%s", utilrand.String(10))
 		})
 		AfterEach(func() {
 			By("Cleanup the Namespace and Secrets")
@@ -107,7 +112,7 @@ var _ = Describe("DPUServiceCredentialRequest Controller", func() {
 		})
 
 		It("should successfully reconcile the DPUServiceCredentialRequest on a DPUCluster", func() {
-			dsr := getMinimalDPUServiceCredentialRequest(testNS.Name, dpuservicev1.SecretTypeKubeconfig, &dpuservicev1.NamespacedName{Name: testDPU1NS.Name, Namespace: &testNS.Name})
+			dsr := getMinimalDPUServiceCredentialRequest(name, testNS.Name, dpuservicev1.SecretTypeKubeconfig, &dpuservicev1.NamespacedName{Name: testDPU1NS.Name, Namespace: &testNS.Name})
 
 			By("Creating the DPUServiceCredentialRequest")
 			Expect(testClient.Create(ctx, dsr)).To(Succeed())
@@ -125,8 +130,8 @@ var _ = Describe("DPUServiceCredentialRequest Controller", func() {
 		})
 
 		It("should successfully reconcile the DPUServiceCredentialRequest with maximum length name on a DPUCluster", func() {
-			dsr := getMinimalDPUServiceCredentialRequest(testNS.Name, dpuservicev1.SecretTypeKubeconfig, &dpuservicev1.NamespacedName{Name: testDPU1NS.Name, Namespace: &testNS.Name})
-			dsr.Name = utilrand.String(253)
+			dsr := getMinimalDPUServiceCredentialRequest(name, testNS.Name, dpuservicev1.SecretTypeKubeconfig, &dpuservicev1.NamespacedName{Name: testDPU1NS.Name, Namespace: &testNS.Name})
+			dsr.Name = utilrand.String(63)
 
 			By("Creating the DPUServiceCredentialRequest")
 			Expect(testClient.Create(ctx, dsr)).To(Succeed())
@@ -144,7 +149,7 @@ var _ = Describe("DPUServiceCredentialRequest Controller", func() {
 		})
 
 		It("should successfully reconcile the DPUServiceCredentialRequest on a Host", func() {
-			dsr := getMinimalDPUServiceCredentialRequest(testNS.Name, dpuservicev1.SecretTypeKubeconfig, nil)
+			dsr := getMinimalDPUServiceCredentialRequest(name, testNS.Name, dpuservicev1.SecretTypeKubeconfig, nil)
 
 			By("Creating the DPUServiceCredentialRequest")
 			Expect(testClient.Create(ctx, dsr)).To(Succeed())
@@ -160,7 +165,7 @@ var _ = Describe("DPUServiceCredentialRequest Controller", func() {
 		})
 
 		It("should successfully reconcile the DPUServiceCredentialRequest on a DPUCluster with TokenFile type", func() {
-			dsr := getMinimalDPUServiceCredentialRequest(testNS.Name, dpuservicev1.SecretTypeTokenFile, &dpuservicev1.NamespacedName{Name: testDPU1NS.Name, Namespace: &testNS.Name})
+			dsr := getMinimalDPUServiceCredentialRequest(name, testNS.Name, dpuservicev1.SecretTypeTokenFile, &dpuservicev1.NamespacedName{Name: testDPU1NS.Name, Namespace: &testNS.Name})
 
 			By("Creating the DPUServiceCredentialRequest")
 			Expect(testClient.Create(ctx, dsr)).To(Succeed())
@@ -178,7 +183,7 @@ var _ = Describe("DPUServiceCredentialRequest Controller", func() {
 		})
 
 		It("should successfully delete the DPUServiceCredentialRequest", func() {
-			dsr := getMinimalDPUServiceCredentialRequest(testNS.Name, dpuservicev1.SecretTypeKubeconfig, &dpuservicev1.NamespacedName{Name: testDPU2NS.Name, Namespace: &testNS.Name})
+			dsr := getMinimalDPUServiceCredentialRequest(name, testNS.Name, dpuservicev1.SecretTypeKubeconfig, &dpuservicev1.NamespacedName{Name: testDPU2NS.Name, Namespace: &testNS.Name})
 
 			By("Creating DPUServiceCredentialRequest")
 			Expect(testClient.Create(ctx, dsr)).To(Succeed())
@@ -199,7 +204,7 @@ var _ = Describe("DPUServiceCredentialRequest Controller", func() {
 		})
 
 		It("should successfully delete the DPUServiceCredentialRequest for deleted DPUCluster", func() {
-			dsr := getMinimalDPUServiceCredentialRequest(testNS.Name, dpuservicev1.SecretTypeKubeconfig, &dpuservicev1.NamespacedName{Name: testDPU2NS.Name, Namespace: &testNS.Name})
+			dsr := getMinimalDPUServiceCredentialRequest(name, testNS.Name, dpuservicev1.SecretTypeKubeconfig, &dpuservicev1.NamespacedName{Name: testDPU2NS.Name, Namespace: &testNS.Name})
 
 			By("Creating DPUServiceCredentialRequest")
 			Expect(testClient.Create(ctx, dsr)).To(Succeed())
@@ -223,7 +228,7 @@ var _ = Describe("DPUServiceCredentialRequest Controller", func() {
 		})
 
 		It("should successfully update expired or soon expiring token for the DPUServiceCredentialRequest", func() {
-			dsr := getMinimalDPUServiceCredentialRequest(testNS.Name, dpuservicev1.SecretTypeKubeconfig, &dpuservicev1.NamespacedName{Name: testDPU1NS.Name, Namespace: &testNS.Name})
+			dsr := getMinimalDPUServiceCredentialRequest(name, testNS.Name, dpuservicev1.SecretTypeKubeconfig, &dpuservicev1.NamespacedName{Name: testDPU1NS.Name, Namespace: &testNS.Name})
 
 			// Set status with expiry in 5 minutes
 			dsr.Status = dpuservicev1.DPUServiceCredentialRequestStatus{
@@ -242,6 +247,92 @@ var _ = Describe("DPUServiceCredentialRequest Controller", func() {
 			Eventually(func(g Gomega) {
 				assertDPUServiceCredentialRequestCondition(g, testClient, dsr)
 			}).WithTimeout(30 * time.Second).Should(BeNil())
+		})
+
+		It("should fail to reconcile when ServiceAccount already exists in target cluster", func() {
+			dsr := getMinimalDPUServiceCredentialRequest(name, testNS.Name, dpuservicev1.SecretTypeKubeconfig, &dpuservicev1.NamespacedName{Name: testDPU1NS.Name, Namespace: &testNS.Name})
+
+			// Get the target cluster client to create a ServiceAccount in advance
+			dpc := &provisioningv1.DPUCluster{}
+			err := testClient.Get(ctx, types.NamespacedName{Name: testDPU1NS.Name, Namespace: testNS.Name}, dpc)
+			Expect(err).NotTo(HaveOccurred())
+
+			targetClient, err := dpucluster.NewConfig(testClient, dpc).Client(ctx)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating a ServiceAccount in the target cluster with the same name")
+			existingSA := &corev1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      dsr.Spec.ServiceAccount.Name,
+					Namespace: *dsr.Spec.ServiceAccount.Namespace,
+				},
+			}
+			Expect(targetClient.Create(ctx, existingSA)).To(Succeed())
+			DeferCleanup(targetClient.Delete, ctx, existingSA)
+
+			By("Creating the DPUServiceCredentialRequest")
+			Expect(testClient.Create(ctx, dsr)).To(Succeed())
+
+			By("Verifying the DPUServiceCredentialRequest fails with ServiceAccount already exists error")
+			Eventually(func(g Gomega) {
+				gotDsr := &dpuservicev1.DPUServiceCredentialRequest{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dsr), gotDsr)).To(Succeed())
+				g.Expect(gotDsr.Status.Conditions).NotTo(BeEmpty())
+
+				// Check for the ServiceAccountReconciled condition with error
+				foundCondition := false
+				for _, cond := range gotDsr.Status.Conditions {
+					if cond.Type == string(dpuservicev1.ConditionServiceAccountReconciled) {
+						foundCondition = true
+						g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+						g.Expect(cond.Message).To(ContainSubstring("service account"))
+						g.Expect(cond.Message).To(ContainSubstring("is already in use"))
+						break
+					}
+				}
+				g.Expect(foundCondition).To(BeTrue(), "ServiceAccountReconciled condition not found")
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Cleaning up the ServiceAccount in the target cluster")
+			Expect(targetClient.Delete(ctx, existingSA)).To(Succeed())
+		})
+
+		It("should fail to reconcile when Secret already exists", func() {
+			dsr := getMinimalDPUServiceCredentialRequest(name, testNS.Name, dpuservicev1.SecretTypeKubeconfig, &dpuservicev1.NamespacedName{Name: testDPU1NS.Name, Namespace: &testNS.Name})
+
+			By("Creating a Secret with the same name")
+			existingSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      dsr.Spec.Secret.Name,
+					Namespace: *dsr.Spec.Secret.Namespace,
+				},
+				Type: corev1.SecretTypeOpaque,
+			}
+			Expect(testClient.Create(ctx, existingSecret)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, existingSecret)
+
+			By("Creating the DPUServiceCredentialRequest")
+			Expect(testClient.Create(ctx, dsr)).To(Succeed())
+
+			By("Verifying the DPUServiceCredentialRequest fails with Secret already exists error")
+			Eventually(func(g Gomega) {
+				gotDsr := &dpuservicev1.DPUServiceCredentialRequest{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dsr), gotDsr)).To(Succeed())
+				g.Expect(gotDsr.Status.Conditions).NotTo(BeEmpty())
+
+				// Check for the SecretReconciled condition with error
+				foundCondition := false
+				for _, cond := range gotDsr.Status.Conditions {
+					if cond.Type == string(dpuservicev1.ConditionSecretReconciled) {
+						foundCondition = true
+						g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+						g.Expect(cond.Message).To(ContainSubstring("secret"))
+						g.Expect(cond.Message).To(ContainSubstring("is already in use"))
+						break
+					}
+				}
+				g.Expect(foundCondition).To(BeTrue(), "SecretReconciled condition not found")
+			}).WithTimeout(30 * time.Second).Should(Succeed())
 		})
 	})
 })
@@ -267,8 +358,9 @@ func assertDPUServiceCredentialRequestSecret(testClient client.Client, dsr *dpus
 		Expect(secret.Data["kubeconfig"]).NotTo(BeEmpty())
 		config, err := clientcmd.Load(secret.Data["kubeconfig"])
 		Expect(err).NotTo(HaveOccurred())
-		token := config.AuthInfos["test-service-account"].Token
-		Expect(string(secret.Data["kubeconfig"])).To(BeComparableTo(fmt.Sprintf(testKubeconfig, base64EncodeCA, cfg.Host, clusterName, clusterName, token)))
+		saName := dsr.Spec.ServiceAccount.Name
+		token := config.AuthInfos[saName].Token
+		Expect(string(secret.Data["kubeconfig"])).To(BeComparableTo(fmt.Sprintf(testKubeconfig, base64EncodeCA, cfg.Host, clusterName, clusterName, saName, saName, saName, saName, token)))
 	} else {
 		Expect(secret.Data).To(HaveKey("KUBERNETES_SERVICE_HOST"))
 		Expect(secret.Data).To(HaveKey("KUBERNETES_SERVICE_PORT"))
@@ -306,10 +398,10 @@ func assertDPUServiceCredentialRequestCondition(g Gomega, testClient client.Clie
 	))
 }
 
-func getMinimalDPUServiceCredentialRequest(testNamespace, secretType string, targetCluster *dpuservicev1.NamespacedName) *dpuservicev1.DPUServiceCredentialRequest {
+func getMinimalDPUServiceCredentialRequest(name, testNamespace, secretType string, targetCluster *dpuservicev1.NamespacedName) *dpuservicev1.DPUServiceCredentialRequest {
 	spec := dpuservicev1.DPUServiceCredentialRequestSpec{
 		ServiceAccount: dpuservicev1.NamespacedName{
-			Name:      "test-service-account",
+			Name:      fmt.Sprintf("test-service-account-%s", name),
 			Namespace: ptr.To("default"),
 		},
 		Duration: &metav1.Duration{
@@ -317,7 +409,7 @@ func getMinimalDPUServiceCredentialRequest(testNamespace, secretType string, tar
 		},
 		Type: secretType,
 		Secret: dpuservicev1.NamespacedName{
-			Name:      "test-secret",
+			Name:      fmt.Sprintf("test-secret-%s", name),
 			Namespace: ptr.To("default"),
 		},
 	}
@@ -328,7 +420,7 @@ func getMinimalDPUServiceCredentialRequest(testNamespace, secretType string, tar
 
 	return &dpuservicev1.DPUServiceCredentialRequest{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-dpuservice-credential-request",
+			Name:      name,
 			Namespace: testNamespace,
 		},
 		Spec: spec,

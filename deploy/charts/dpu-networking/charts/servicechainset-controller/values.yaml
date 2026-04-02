@@ -28,6 +28,7 @@ controllerManager:
   replicas: 1
 serviceAccount:
   annotations: {}
+  labels: {}
   name: null
 imagePullSecrets: []
 volumes: []
