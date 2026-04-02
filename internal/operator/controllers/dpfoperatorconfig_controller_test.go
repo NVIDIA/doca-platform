@@ -26,12 +26,14 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	argocdpkg "github.com/nvidia/doca-platform/internal/argocd"
 	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	testutils "github.com/nvidia/doca-platform/test/utils"
+	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	. "github.com/onsi/gomega"
@@ -794,6 +796,62 @@ func TestDPFOperatorConfigReconciler_ReconcileWithTwoDPUClusters(t *testing.T) {
 		waitForDPUService(g, config.Namespace, operatorv1.FlannelName, operatorv1.FlannelName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, operatorv1.OVSCNIName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, operatorv1.SFCControllerName.String(), initialImagePullSecrets)
+	})
+
+	t.Run("Reconcile ArgoCD AppProjects and cluster secrets", func(t *testing.T) {
+		// Since no ArgoCDNamespace override is set, ArgoCD objects land in config.Namespace.
+		argoCDNamespace := testNS.Name
+
+		// --- AppProjects ---
+		// DPU AppProject must exist with destinations for both clusters.
+		dpuProject := &argov1.AppProject{}
+		g.Eventually(func(g Gomega) {
+			g.Expect(testClient.Get(ctx, client.ObjectKey{
+				Namespace: argoCDNamespace,
+				Name:      argocdpkg.AppProjectNameDPU,
+			}, dpuProject)).To(Succeed())
+			destinationNames := make([]string, len(dpuProject.Spec.Destinations))
+			for i, d := range dpuProject.Spec.Destinations {
+				destinationNames[i] = d.Name
+			}
+			g.Expect(destinationNames).To(ConsistOf(dpuCluster1.Name, dpuCluster2.Name))
+		}).WithTimeout(30 * time.Second).Should(Succeed())
+
+		// Host AppProject must exist with the in-cluster destination.
+		hostProject := &argov1.AppProject{}
+		g.Eventually(func(g Gomega) {
+			g.Expect(testClient.Get(ctx, client.ObjectKey{
+				Namespace: argoCDNamespace,
+				Name:      argocdpkg.AppProjectNameHost,
+			}, hostProject)).To(Succeed())
+			g.Expect(hostProject.Spec.Destinations).To(HaveLen(1))
+			g.Expect(hostProject.Spec.Destinations[0].Name).To(Equal("in-cluster"))
+		}).WithTimeout(30 * time.Second).Should(Succeed())
+
+		// --- ArgoCD cluster secrets ---
+		// One secret per ready DPUCluster, identified by the argocd secret-type label.
+		secretList := &corev1.SecretList{}
+		g.Eventually(func(g Gomega) {
+			g.Expect(testClient.List(ctx, secretList,
+				client.InNamespace(argoCDNamespace),
+				client.MatchingLabels{argocdpkg.ArgoCDSecretLabelKey: argocdpkg.ArgoCDSecretLabelValue},
+			)).To(Succeed())
+			g.Expect(secretList.Items).To(HaveLen(2))
+			secretNames := make([]string, len(secretList.Items))
+			for i, s := range secretList.Items {
+				secretNames[i] = s.Name
+			}
+			// Secrets are named "<namespace>-<clustername>"
+			g.Expect(secretNames).To(ConsistOf(
+				fmt.Sprintf("%s-%s", dpuCluster1.Namespace, dpuCluster1.Name),
+				fmt.Sprintf("%s-%s", dpuCluster2.Namespace, dpuCluster2.Name),
+			))
+			for _, s := range secretList.Items {
+				g.Expect(s.Data).To(HaveKey("name"))
+				g.Expect(s.Data).To(HaveKey("server"))
+				g.Expect(s.Data).To(HaveKey("config"))
+			}
+		}).WithTimeout(30 * time.Second).Should(Succeed())
 	})
 
 	t.Run("Delete Operator config", func(t *testing.T) {

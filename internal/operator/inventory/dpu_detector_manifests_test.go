@@ -17,6 +17,7 @@ limitations under the License.
 package inventory
 
 import (
+	"context"
 	"testing"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -99,7 +100,7 @@ func TestDPUDetectorObjects_GenerateManifests(t *testing.T) {
 		vars.DisableSystemComponents = map[operatorv1.ComponentName]bool{
 			dpuDetectorCtrl.Name(): true,
 		}
-		objs, err := dpuDetectorCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		objs, err := dpuDetectorCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		if err != nil {
 			t.Fatalf("failed to generate manifests: %v", err)
 		}
@@ -114,7 +115,7 @@ func TestDPUDetectorObjects_GenerateManifests(t *testing.T) {
 		vars := newDefaultVariables(defaults)
 
 		vars.Namespace = testNS
-		objs, err := dpuDetectorCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		objs, err := dpuDetectorCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 		for _, obj := range objs {
 			g.Expect(obj.GetNamespace()).To(Equal(testNS))
@@ -128,7 +129,7 @@ func TestDPUDetectorObjects_GenerateManifests(t *testing.T) {
 		vars := newDefaultVariables(defaults)
 		vars.Namespace = ns
 		vars.ImagePullSecrets = []string{expectedImagePullSecret1}
-		generatedObjs, err := dpuDetectorCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err := dpuDetectorCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 		gotDaemonSet := &appsv1.DaemonSet{}
 		for i, obj := range generatedObjs {
@@ -147,7 +148,7 @@ func TestDPUDetectorObjects_GenerateManifests(t *testing.T) {
 	t.Run("test setting tolerations", func(t *testing.T) {
 		g := NewGomegaWithT(t)
 		vars := newDefaultVariables(defaults)
-		generatedObjs, err := dpuDetectorCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err := dpuDetectorCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 		gotDaemonSet := &appsv1.DaemonSet{}
 		for i, obj := range generatedObjs {
@@ -174,7 +175,7 @@ func TestDPUDetectorObjects_GenerateManifests(t *testing.T) {
 		setImage := "image-name"
 		vars.Images[operatorv1.DPUDetectorName.WithContainer(operatorv1.DPUDetectorContainer)] = setImage
 
-		generatedObjs, err := dpuDetectorCtrl.GenerateManifests(vars, skipApplySetCreationOption{})
+		generatedObjs, err := dpuDetectorCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 		gotDaemonSet := &appsv1.DaemonSet{}
 		for i, obj := range generatedObjs {

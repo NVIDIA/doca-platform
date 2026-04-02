@@ -165,6 +165,11 @@ global:
 redis:
   image:
     repository: mirror.gcr.io/redis
+configs:
+  params:
+    # Argo CD can be deployed to a different namespace.
+    # Setting namespaces to dpf-operator-system ensures Argo CD reconciles applications in that namespace.
+    application.namespaces: dpf-operator-system
 ```
 
 </details>

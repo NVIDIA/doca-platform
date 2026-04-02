@@ -109,6 +109,14 @@ type Overrides struct {
 	// ClusterIP Kubernetes Service is not functional.
 	// +optional
 	KubernetesAPIServerPort *int `json:"kubernetesAPIServerPort,omitempty"`
+
+	// ArgoCDNamespace is the namespace where ArgoCD is deployed.
+	// AppProjects and cluster secrets required by DPF will be created in this namespace.
+	// Defaults to the namespace of the DPFOperatorConfig.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	ArgoCDNamespace *string `json:"argoCDNamespace,omitempty"`
 }
 
 // Networking defines the networking configuration for the system components.
@@ -272,6 +280,15 @@ func (c *DPFOperatorConfig) UpgradeInProgress() bool {
 
 func (c *DPFOperatorConfig) IsNewConfig() bool {
 	return c.Status.ObservedGeneration == 0
+}
+
+// GetArgoCDNamespace returns the namespace where ArgoCD is deployed.
+// Falls back to the DPFOperatorConfig's own namespace if not explicitly configured.
+func (c *DPFOperatorConfig) GetArgoCDNamespace() string {
+	if c.Spec.Overrides != nil && c.Spec.Overrides.ArgoCDNamespace != nil && *c.Spec.Overrides.ArgoCDNamespace != "" {
+		return *c.Spec.Overrides.ArgoCDNamespace
+	}
+	return c.GetNamespace()
 }
 
 func (c *DPFOperatorConfig) MonitoringEnabled() bool {

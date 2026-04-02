@@ -17,6 +17,7 @@ limitations under the License.
 package inventory
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -72,7 +73,7 @@ func TestClusterManagerObjects_ComparisonTable(t *testing.T) {
 			}
 			vars.Namespace = testNS
 
-			objs, err := tc.clusterManager.GenerateManifests(vars, skipApplySetCreationOption{})
+			objs, err := tc.clusterManager.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 			g.Expect(err).NotTo(HaveOccurred())
 
 			// Find the Deployment
@@ -136,7 +137,7 @@ func TestClusterManagerObjects_ResourcesAndReplicas(t *testing.T) {
 			},
 		}
 
-		objs, err := kamajiCM.GenerateManifests(vars, skipApplySetCreationOption{})
+		objs, err := kamajiCM.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		var deployment *appsv1.Deployment
@@ -179,7 +180,7 @@ func TestClusterManagerObjects_ResourcesAndReplicas(t *testing.T) {
 			},
 		}
 
-		objs, err := staticCM.GenerateManifests(vars, skipApplySetCreationOption{})
+		objs, err := staticCM.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
 		g.Expect(err).NotTo(HaveOccurred())
 
 		var deployment *appsv1.Deployment

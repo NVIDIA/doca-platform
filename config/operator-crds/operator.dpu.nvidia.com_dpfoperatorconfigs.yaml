@@ -1098,6 +1098,14 @@ spec:
                   Overrides exposes a set of fields which impact the recommended behavior of the DPF Operator.
                   These fields should only be set for advanced use cases. The fields here have no stability guarantees.
                 properties:
+                  argoCDNamespace:
+                    description: |-
+                      ArgoCDNamespace is the namespace where ArgoCD is deployed.
+                      AppProjects and cluster secrets required by DPF will be created in this namespace.
+                      Defaults to the namespace of the DPFOperatorConfig.
+                    maxLength: 63
+                    minLength: 1
+                    type: string
                   dpuCNIBinPath:
                     description: |-
                       DPUCNIBinPath is the path at which the CNI binaries will be installed to on the DPU.
