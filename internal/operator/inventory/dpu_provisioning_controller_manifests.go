@@ -138,7 +138,7 @@ func (p *provisioningControllerObjects) Parse() (err error) {
 }
 
 // GenerateManifests applies edits and returns objects
-func (p *provisioningControllerObjects) GenerateManifests(vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
+func (p *provisioningControllerObjects) GenerateManifests(_ context.Context, vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
 	ret := []client.Object{}
 	if ok := vars.DisableSystemComponents[p.Name()]; ok {
 		return []client.Object{}, nil
@@ -197,10 +197,6 @@ func (p *provisioningControllerObjects) GenerateManifests(vars Variables, option
 		ret = append(ret, objsCopy[i])
 	}
 
-	// Add the ApplySet to the manifests if this hasn't been disabled.
-	if !opts.skipApplySet {
-		ret = append(ret, applySetParentForComponent(p, applySetID, vars, applySetInventoryString(objsCopy...)))
-	}
 	return ret, nil
 }
 

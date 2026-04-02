@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,10 +30,13 @@ import (
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
+	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -55,6 +59,7 @@ func TestDPFOperatorConfigReconciler_reconcileDelete(t *testing.T) {
 	g.Expect(dpuservicev1.AddToScheme(scheme)).To(Succeed())
 	g.Expect(noderesourcesv1.AddToScheme(scheme)).To(Succeed())
 	g.Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+	g.Expect(argov1.AddToScheme(scheme)).To(Succeed())
 
 	tests := []struct {
 		name string
@@ -302,6 +307,153 @@ func TestMatchLabels(t *testing.T) {
 					res = append(res, obj)
 				}
 				g.Expect(res).To(Equal(tt.expected))
+			}
+		})
+	}
+}
+
+func TestDPFOperatorConfigReconciler_deleteSystemComponentViaInventory(t *testing.T) {
+	const testNamespace = "test-ns"
+	testComponentName := operatorv1.ComponentName("test-component")
+	testComponent := inventory.StubComponentWithObjs(testComponentName, nil)
+
+	newScheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(newScheme)
+
+	// restMapper provides the GVK → REST mapping needed by getCurrentInventoryObjects.
+	// The fake client defaults to an empty mapper so we must supply ConfigMap explicitly.
+	restMapper := apimeta.NewDefaultRESTMapper([]schema.GroupVersion{{Group: "", Version: "v1"}})
+	restMapper.Add(schema.GroupVersionKind{Group: "", Version: "v1", Kind: "ConfigMap"}, apimeta.RESTScopeNamespace)
+
+	// makeApplySet creates an ApplySet Secret for testComponent in testNamespace with the given inventory annotation value.
+	makeApplySet := func(inventoryAnnotation string) *corev1.Secret {
+		return &corev1.Secret{
+			TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      inventory.ApplySetName(testComponent),
+				Namespace: testNamespace,
+				Labels: map[string]string{
+					inventory.ApplySetParentIDLabel: inventory.ApplySetID(testNamespace, testComponent),
+				},
+				Annotations: map[string]string{
+					inventory.ApplySetToolingAnnotation:      inventory.ApplySetToolingAnnotationValue,
+					inventory.ApplySetInventoryAnnotationKey: inventoryAnnotation,
+				},
+			},
+		}
+	}
+
+	// configMapGKNN returns the ApplySet GKNN string for a ConfigMap.
+	configMapGKNN := func(ns, name string) string {
+		return inventory.GroupKindNamespaceName{Kind: "ConfigMap", Group: "", Namespace: ns, Name: name}.String()
+	}
+
+	tests := []struct {
+		name            string
+		objectsToCreate []client.Object
+		wantErr         bool
+		// checkDeleted verifies the named ConfigMaps were removed from the cluster.
+		checkDeleted []types.NamespacedName
+		// checkRemaining verifies the named ConfigMaps still exist in the cluster.
+		checkRemaining []types.NamespacedName
+	}{
+		{
+			name:    "no applyset exists - no-op, returns nil",
+			wantErr: false,
+		},
+		{
+			name: "applyset with multiple objects - all deleted",
+			objectsToCreate: []client.Object{
+				makeApplySet(strings.Join([]string{
+					configMapGKNN(testNamespace, "obj-1"),
+					configMapGKNN(testNamespace, "obj-2"),
+				}, ",")),
+				&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "obj-1", Namespace: testNamespace}},
+				&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "obj-2", Namespace: testNamespace}},
+			},
+			wantErr: false,
+			checkDeleted: []types.NamespacedName{
+				{Namespace: testNamespace, Name: "obj-1"},
+				{Namespace: testNamespace, Name: "obj-2"},
+			},
+		},
+		{
+			name: "applyset references objects already absent - returns nil",
+			objectsToCreate: []client.Object{
+				makeApplySet(configMapGKNN(testNamespace, "obj-1")),
+				// obj-1 intentionally not created
+			},
+			wantErr: false,
+		},
+		{
+			name: "applyset references object with finalizer - returns pending deletion error",
+			objectsToCreate: []client.Object{
+				makeApplySet(configMapGKNN(testNamespace, "obj-1")),
+				&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+					Name:       "obj-1",
+					Namespace:  testNamespace,
+					Finalizers: []string{"test-finalizer"},
+				}},
+			},
+			wantErr:        true,
+			checkRemaining: []types.NamespacedName{{Namespace: testNamespace, Name: "obj-1"}},
+		},
+		{
+			name: "applyset missing inventory annotation - returns error",
+			objectsToCreate: []client.Object{
+				&corev1.Secret{
+					TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      inventory.ApplySetName(testComponent),
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							inventory.ApplySetParentIDLabel: inventory.ApplySetID(testNamespace, testComponent),
+						},
+						Annotations: map[string]string{
+							inventory.ApplySetToolingAnnotation: inventory.ApplySetToolingAnnotationValue,
+							// ApplySetInventoryAnnotationKey deliberately omitted
+						},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "applyset references unregistered resource kind - returns error",
+			objectsToCreate: []client.Object{
+				makeApplySet(inventory.GroupKindNamespaceName{
+					Kind:      "UnknownKind",
+					Group:     "unknown.group.io",
+					Namespace: testNamespace,
+					Name:      "obj-1",
+				}.String()),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			c := fake.NewClientBuilder().WithScheme(newScheme).WithRESTMapper(restMapper).WithObjects(tt.objectsToCreate...).Build()
+			r := &DPFOperatorConfigReconciler{Client: c}
+
+			vars := inventory.Variables{Namespace: testNamespace}
+			err := r.deleteSystemComponentViaInventory(context.Background(), testComponent, vars)
+
+			if tt.wantErr {
+				g.Expect(err).To(HaveOccurred())
+			} else {
+				g.Expect(err).NotTo(HaveOccurred())
+			}
+
+			for _, nn := range tt.checkDeleted {
+				g.Expect(apierrors.IsNotFound(c.Get(context.Background(), nn, &corev1.ConfigMap{}))).To(BeTrue(),
+					"expected %s to be deleted", nn)
+			}
+			for _, nn := range tt.checkRemaining {
+				g.Expect(c.Get(context.Background(), nn, &corev1.ConfigMap{})).To(Succeed(),
+					"expected %s to still exist", nn)
 			}
 		})
 	}

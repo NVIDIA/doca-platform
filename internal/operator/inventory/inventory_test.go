@@ -17,6 +17,7 @@ limitations under the License.
 package inventory
 
 import (
+	"context"
 	"testing"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -254,7 +255,7 @@ func TestManifests_Parse_Generate_All(t *testing.T) {
 				return
 			}
 			g.Expect(err).ToNot(HaveOccurred())
-			_, err = tt.inventory.generateAllManifests(vars)
+			_, err = tt.inventory.generateAllManifests(context.Background(), vars)
 			if tt.wantErr {
 				g.Expect(err).To(HaveOccurred())
 				return
@@ -360,7 +361,7 @@ func TestManifests_generateAllManifests(t *testing.T) {
 			vars.DisableSystemComponents = map[operatorv1.ComponentName]bool{
 				tt.componentToDisable: true,
 			}
-			got, err := i.generateAllManifests(vars)
+			got, err := i.generateAllManifests(context.Background(), vars)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("generateAllManifests() error = %v, wantErr %v", err, tt.wantErr)
 				return

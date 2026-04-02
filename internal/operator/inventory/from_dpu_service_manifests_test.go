@@ -474,7 +474,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			}
 			tt.vars.HelmCharts[componentName] = "helmchart.com/chart:v1"
 
-			got, err := f.GenerateManifests(tt.vars, skipApplySetCreationOption{})
+			got, err := f.GenerateManifests(context.Background(), tt.vars, skipApplySetCreationOption{})
 			if tt.wantErr {
 				g.Expect(err).To(HaveOccurred())
 			}

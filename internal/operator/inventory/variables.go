@@ -131,6 +131,7 @@ type Variables struct {
 	KubernetesAPIServerPort          *int
 	Resources                        map[string]corev1.ResourceRequirements
 	Replicas                         map[operatorv1.ComponentName]*int32
+	ArgoCDNamespace                  string
 }
 
 type DPFProvisioningVariables struct {
@@ -273,6 +274,7 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		variables.DPFProvisioningController.MultiDPUOperationsSyncWaitTime = config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime.Duration
 	}
 	variables.ImagePullSecrets = config.Spec.ImagePullSecrets
+	variables.ArgoCDNamespace = config.Namespace
 	return variables
 }
 
@@ -324,6 +326,8 @@ func setOverrideConfigs(variables Variables, config *operatorv1.DPFOperatorConfi
 	if config.Spec.Overrides.KubernetesAPIServerPort != nil {
 		variables.KubernetesAPIServerPort = config.Spec.Overrides.KubernetesAPIServerPort
 	}
+	variables.ArgoCDNamespace = config.GetArgoCDNamespace()
+
 	return variables
 }
 

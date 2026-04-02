@@ -28,6 +28,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
@@ -391,7 +392,7 @@ func (r *DPUServiceCredentialRequestReconciler) getClusterAccessData(ctx context
 			return "", "", nil, fmt.Errorf("error while getting kubeconfig for cluster %v: %w", dpuClusterConfig.Cluster.Name, err)
 		}
 
-		name, cl := getRandomKVPair(kubeConfig.Clusters)
+		name, cl := utils.GetRandomKVPair(kubeConfig.Clusters)
 		if name == "" {
 			return "", "", nil, fmt.Errorf("no cluster found in kubeconfig for cluster %v", dpuClusterConfig.Cluster.Name)
 		}
