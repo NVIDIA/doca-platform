@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"os"
@@ -49,14 +50,10 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const (
-	DPUServiceCredentialRequestControllerName = "dpuservicecredentialrequestcontroller"
-)
-
 // applyDPUServiceCredentialRequestPatchOptions contains options which are passed to every `client.Apply` patch.
 var applyDPUServiceCredentialRequestPatchOptions = []client.PatchOption{
 	client.ForceOwnership,
-	client.FieldOwner(DPUServiceCredentialRequestControllerName),
+	client.FieldOwner(dpuservicev1.DPUServiceCredentialRequestControllerName),
 }
 
 // DPUServiceCredentialRequestReconciler reconciles a DPUServiceCredentialRequest object
@@ -99,7 +96,7 @@ func (r *DPUServiceCredentialRequestReconciler) Reconcile(ctx context.Context, r
 		// Set the summary condition for the DPUServiceCredentialRequest.
 		conditions.SetSummary(obj)
 		if err := patcher.Patch(ctx, obj,
-			patch.WithFieldOwner(DPUServiceCredentialRequestControllerName),
+			patch.WithFieldOwner(dpuservicev1.DPUServiceCredentialRequestControllerName),
 			patch.WithStatusObservedGeneration{},
 			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(dpuservicev1.DPUCredentialRequestConditions)},
 		); err != nil {
@@ -196,6 +193,7 @@ func (r *DPUServiceCredentialRequestReconciler) reconcile(ctx context.Context, o
 
 // reconcileServiceAccount reconciles the ServiceAccount for the DPUServiceCredentialRequest.
 // It returns the TokenRequest if the reconciliation was successful.
+// Labels are used to identify the ServiceAccount since it may be in a remote cluster where ownerReferences don't work.
 func reconcileServiceAccount(ctx context.Context, obj *dpuservicev1.DPUServiceCredentialRequest, targetClient client.Client) (*authenticationv1.TokenRequest, error) {
 	log := ctrllog.FromContext(ctx)
 
@@ -229,6 +227,20 @@ func reconcileServiceAccount(ctx context.Context, obj *dpuservicev1.DPUServiceCr
 		}
 	}
 
+	// validate that the service account name is not already in use in the target cluster
+	var (
+		existingSA *corev1.ServiceAccount
+		err        error
+	)
+	if obj.Status.ServiceAccount == nil {
+		// see if the service account is already in use by this controller
+		// if conflict we get an error, otherwise we get the service account if we own it
+		existingSA, err = getServiceAccount(ctx, targetClient, obj)
+		if err != nil {
+			return nil, fmt.Errorf("error while retrieving ServiceAccount: %w", err)
+		}
+	}
+
 	sa := &corev1.ServiceAccount{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: corev1.SchemeGroupVersion.String(),
@@ -243,6 +255,13 @@ func reconcileServiceAccount(ctx context.Context, obj *dpuservicev1.DPUServiceCr
 		AutomountServiceAccountToken: ptr.To(false),
 	}
 
+	labels := make(map[string]string)
+	if existingSA != nil {
+		labels = existingSA.GetLabels()
+	}
+	maps.Copy(labels, getManagedLabels(obj))
+	sa.SetLabels(labels)
+
 	tr := &authenticationv1.TokenRequest{}
 	if obj.Spec.Duration != nil {
 		tr.Spec.ExpirationSeconds = ptr.To(int64(obj.Spec.Duration.Duration / time.Second))
@@ -252,7 +271,7 @@ func reconcileServiceAccount(ctx context.Context, obj *dpuservicev1.DPUServiceCr
 		return nil, fmt.Errorf("error while patching ServiceAccount on target: %w", err)
 	}
 
-	err := targetClient.SubResource("token").Create(ctx, sa, tr, &client.SubResourceCreateOptions{CreateOptions: client.CreateOptions{FieldManager: DPUServiceCredentialRequestControllerName}})
+	err = targetClient.SubResource("token").Create(ctx, sa, tr, &client.SubResourceCreateOptions{CreateOptions: client.CreateOptions{FieldManager: dpuservicev1.DPUServiceCredentialRequestControllerName}})
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +446,26 @@ func (r *DPUServiceCredentialRequestReconciler) patchSecret(ctx context.Context,
 		if secret.Data != nil {
 			previousData = secret.Data
 		}
+	} else {
+		// see if the secret is already in use by this controller
+		// if conflict we get an error, otherwise we get the secret if we own it
+		existingSecret, err := getSecret(ctx, r.Client, obj)
+		if err != nil {
+			return fmt.Errorf("error while validating Secret not exists: %w", err)
+		}
+		if existingSecret != nil && existingSecret.Data != nil {
+			previousData = existingSecret.Data
+		}
 	}
+
+	// Merge user-provided labels with management labels (management labels take precedence)
+	labels := make(map[string]string)
+	annotations := make(map[string]string)
+	if obj.Spec.ObjectMeta != nil {
+		maps.Copy(labels, obj.Spec.ObjectMeta.Labels)
+		maps.Copy(annotations, obj.Spec.ObjectMeta.Annotations)
+	}
+	maps.Copy(labels, getManagedLabels(obj))
 
 	secret := corev1.Secret{
 		TypeMeta: metav1.TypeMeta{
@@ -435,8 +473,10 @@ func (r *DPUServiceCredentialRequestReconciler) patchSecret(ctx context.Context,
 			Kind:       "Secret",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      obj.Spec.Secret.Name,
-			Namespace: obj.Spec.Secret.GetNamespace(),
+			Name:        obj.Spec.Secret.Name,
+			Namespace:   obj.Spec.Secret.GetNamespace(),
+			Labels:      labels,
+			Annotations: annotations,
 		},
 		Type: corev1.SecretTypeOpaque,
 		Data: previousData,
@@ -444,11 +484,6 @@ func (r *DPUServiceCredentialRequestReconciler) patchSecret(ctx context.Context,
 
 	if config != nil {
 		secret.Data = config
-	}
-
-	if obj.Spec.ObjectMeta != nil {
-		secret.ObjectMeta.Labels = obj.Spec.ObjectMeta.Labels
-		secret.ObjectMeta.Annotations = obj.Spec.ObjectMeta.Annotations
 	}
 
 	if err := r.Client.Patch(ctx, &secret, client.Apply, applyDPUServiceCredentialRequestPatchOptions...); err != nil {
@@ -585,4 +620,82 @@ func equalName(a *string, namespacedName *dpuservicev1.NamespacedName) bool {
 	}
 
 	return *a == *b
+}
+
+// getServiceAccount attempts to get a SA with the credentialRequest name and namespace
+// It return no error if:
+// - no SA is found
+// - A managed SA is found
+// It returns an error if a non managed SA is found
+func getServiceAccount(ctx context.Context, targetClient client.Client, credentialRequest *dpuservicev1.DPUServiceCredentialRequest) (*corev1.ServiceAccount, error) {
+	sa := &corev1.ServiceAccount{}
+	err := targetClient.Get(ctx, types.NamespacedName{Name: credentialRequest.Spec.ServiceAccount.Name, Namespace: credentialRequest.Spec.ServiceAccount.GetNamespace()}, sa)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("error while getting service account %s: %w", credentialRequest.Spec.ServiceAccount.String(), err)
+		}
+		// NotFound is expected - resource doesn't exist yet, we can create it
+		return nil, nil
+	}
+
+	// ServiceAccount exists - check if it's managed by this controller for this credential request
+	if err := validateManagedLabels(sa.GetLabels(), credentialRequest, "service account "+credentialRequest.Spec.ServiceAccount.String()); err != nil {
+		return nil, err
+	}
+
+	return sa, nil
+}
+
+// validateManagedLabels validates that the labels indicate the resource is managed by this controller
+// for the given credential request. Returns an error if the resource is in use by someone else.
+func validateManagedLabels(labels map[string]string, credentialRequest *dpuservicev1.DPUServiceCredentialRequest, resourceName string) error {
+	if labels == nil {
+		return fmt.Errorf("%s is already in use", resourceName)
+	}
+
+	if labels[dpuservicev1.DPUServiceCredentialRequestManagedByLabelKey] != dpuservicev1.DPUServiceCredentialRequestManagedByLabelValue {
+		return fmt.Errorf("%s is already in use", resourceName)
+	}
+
+	// Check if it belongs to the same credential request by comparing the hashed name
+	if labels[dpuservicev1.CredentialRequestNameLabelKey] != credentialRequest.Name ||
+		labels[dpuservicev1.CredentialRequestNamespaceLabelKey] != credentialRequest.Namespace {
+		return fmt.Errorf("%s is already in use by another credential request", resourceName)
+	}
+
+	return nil
+}
+
+// getSecret attempts to get a Secret with the credentialRequest name and namespace
+// It return no error if:
+// - no Secret is found
+// - A managed Secret is found
+// It returns an error if a non managed Secret is found
+func getSecret(ctx context.Context, c client.Client, credentialRequest *dpuservicev1.DPUServiceCredentialRequest) (*corev1.Secret, error) {
+	secret := &corev1.Secret{}
+	err := c.Get(ctx, types.NamespacedName{Name: credentialRequest.Spec.Secret.Name, Namespace: credentialRequest.Spec.Secret.GetNamespace()}, secret)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("error while getting secret %s: %w", credentialRequest.Spec.Secret.String(), err)
+		}
+		// NotFound is expected - resource doesn't exist yet, we can create it
+		return nil, nil
+	}
+
+	// Secret exists - check if it's managed by this controller for this credential request
+	if err := validateManagedLabels(secret.GetLabels(), credentialRequest, "secret "+credentialRequest.Spec.Secret.String()); err != nil {
+		return nil, err
+	}
+
+	return secret, nil
+}
+
+// getManagedLabels returns labels that identify resources (ServiceAccounts and Secrets) managed by this controller.
+// Labels are used because resources may be in remote clusters or different namespaces where ownerReferences don't work.
+func getManagedLabels(obj *dpuservicev1.DPUServiceCredentialRequest) map[string]string {
+	return map[string]string{
+		dpuservicev1.DPUServiceCredentialRequestManagedByLabelKey: dpuservicev1.DPUServiceCredentialRequestManagedByLabelValue,
+		dpuservicev1.CredentialRequestNameLabelKey:                obj.Name,
+		dpuservicev1.CredentialRequestNamespaceLabelKey:           obj.Namespace,
+	}
 }
