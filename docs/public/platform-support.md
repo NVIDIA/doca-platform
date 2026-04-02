@@ -23,7 +23,7 @@ DPF uses the following components:
 | Multus                      | Community (OSS) | ghcr.io/k8snetworkplumbingwg                                       | multus-cni                                    | v3.9.3  |          |
 | NVIDIA K8s IPAM             | Community (OSS) | ghcr.io/mellanox                                                   | nvidia-k8s-ipam                               | v0.3.5  |          |
 | NVIDIA Maintenance Operator | Community (OSS) | ghcr.io/mellanox                                                   | maintenance-operator                          | v0.2.3  |          |
-| NVIDIA Network Operator     | Community (OSS) | nvcr.io/nvidia/cloud-native                                        | network-operator                              | v25.7.0 |          |
+| NVIDIA Network Operator     | Community (OSS) | nvcr.io/nvidia/cloud-native                                        | network-operator                              | v26.1.0 |          |
 | Node Feature Discovery      | Community (OSS) | registry.k8s.io/nfd                                                | node-feature-discovery                        | v0.18.3 |          |
 | SR-IOV Device Plugin        | Community (OSS) | ghcr.io/k8snetworkplumbingwg                                       | sriov-network-device-plugin                   | v3.11.0 |          |
 | Etcd Defrag                 | Community (OSS) | ghcr.io/ahrtr                                                      | etcd-defrag                                   | v0.22.0 | Optional |

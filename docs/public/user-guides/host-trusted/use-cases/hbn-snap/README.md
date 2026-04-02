@@ -295,7 +295,7 @@ kubectl wait --for=condition=ready --namespace dpu-cplane-tenant1 dpucluster --a
 
 ```shell
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia --force-update
-helm upgrade --no-hooks --install --create-namespace --namespace nvidia-network-operator network-operator nvidia/network-operator --version 25.7.0 -f ./manifests/03-enable-accelerated-interfaces/helm-values/network-operator.yml
+helm upgrade --no-hooks --install --create-namespace --namespace nvidia-network-operator network-operator nvidia/network-operator --version 26.1.0 -f ./manifests/03-enable-accelerated-interfaces/helm-values/network-operator.yml
 ```
 
 <details markdown="1"><summary>NVIDIA Network Operator Helm values</summary>
@@ -341,8 +341,8 @@ spec:
     multus:
       image: multus-cni
       imagePullSecrets: []
-      repository: ghcr.io/k8snetworkplumbingwg
-      version: v3.9.3
+      repository: nvcr.io/nvidia/mellanox
+      version: network-operator-v26.1.0
 ```
 </details>
 
