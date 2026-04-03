@@ -382,6 +382,7 @@ spec:
                     - SystemReboot
                     - SystemLevelReset
                     - FirmwareReset
+                    - DPUWarmReboot
                     type: string
                   rebootSequenceCount:
                     description: |-

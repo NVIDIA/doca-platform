@@ -88,6 +88,23 @@ var _ = Describe("Phase DPUConfig", func() {
 		})
 	})
 
+	Context("DPUWarmReboot", func() {
+		It("should stay in DPUConfig phase when RebootMethod is DPUWarmReboot", func() {
+			oldTime := metav1.NewTime(metav1.Now().Add(-time.Hour))
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.AgentLastStartupTime = &oldTime
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				LastStartupTime: ptr.To(metav1.Now()),
+				RebootMethod:    ptr.To(provisioningv1.RebootMethodDPUWarmReboot),
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+		})
+	})
+
 	Context("deletion", func() {
 		It("should transition to DPUDeleting when DPU is being deleted", func() {
 			dpu := dpuObj(defaultDPUName)
