@@ -1207,7 +1207,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `lastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastStartupTime is the time when the DPU was last started |  | Optional: \{\} <br /> |
 | `initialBootID` _string_ | InitialBootID is the boot ID of the DPU OS during the first boot |  |  |
-| `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the type of reset/reboot set by the DPU agent<br />See enum values in RebootMethodType.<br />No default is set intentionally: nil means "check not run or not applicable"<br />(e.g. legacy flow, or agent has not run the check yet);<br />a non-nil value means the check ran and this is the result. |  | Enum: [NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset] <br />Optional: \{\} <br /> |
+| `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the type of reset/reboot set by the DPU agent<br />See enum values in RebootMethodType.<br />No default is set intentionally: nil means "check not run or not applicable"<br />(e.g. legacy flow, or agent has not run the check yet);<br />a non-nil value means the check ran and this is the result. |  | Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset] <br />Optional: \{\} <br /> |
 | `rebootSequenceCount` _integer_ | RebootSequenceCount is the length of the current non-NoAction RebootMethod sequence:<br />it increments on each agent run that reports a RebootMethod other than NoAction and<br />resets to 0 when the agent reports NoAction. Used with RebootMethod to bound host reboot loops. |  | Minimum: 0 <br />Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  | Optional: \{\} <br /> |
 
@@ -2672,13 +2672,14 @@ RebootMethodType is the type of reset/reboot required after NVConfig or firmware
 Set by the DPU agent. Values align with NVIDIA BlueField Reset and Reboot Procedures (mlxfwreset levels).
 
 _Validation:_
-- Enum: [NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset]
+- Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset]
 
 _Appears in:_
 - [AgentStatus](#agentstatus)
 
 | Field | Description |
 | --- | --- |
+| `Unknown` | RebootMethodUnknown is the initial value set by the DPU agent on startup before<br />HandleReboot determines the actual method. It prevents the controller from acting<br />on a stale RebootMethod left over from a previous agent session.<br /> |
 | `NoAction` | RebootMethodNoAction indicates no reset or reboot is required.<br /> |
 | `PowerCycle` | RebootMethodPowerCycle indicates a full server power cycle (cold boot) is required.<br /> |
 | `SystemReboot` | RebootMethodSystemReboot firmware update without full server power cycle.<br /> |
