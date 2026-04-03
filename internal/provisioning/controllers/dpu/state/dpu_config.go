@@ -55,6 +55,8 @@ func DPUConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 		} else {
 			state.Phase = provisioningv1.DPUHostNetworkConfiguration
 		}
+	case provisioningv1.RebootMethodDPUWarmReboot:
+		logger.Info("DPU OS is rebooting to apply configuration changes (e.g. grub), staying in DPUConfig phase")
 	default:
 		state.Phase = provisioningv1.DPURebooting
 	}

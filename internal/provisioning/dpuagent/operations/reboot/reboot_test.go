@@ -136,6 +136,79 @@ var _ = Describe("Reboot", func() {
 			})
 		})
 
+		Context("DPUWarmReboot when GrubConfigChanged", func() {
+			It("should trigger DPUWarmReboot via boot-ID path when GrubConfigChanged is true", func() {
+				bootID, err := os.ReadFile(bootIDFile)
+				Expect(err).NotTo(HaveOccurred())
+				currentBootIDStr := strings.TrimSpace(string(bootID))
+				aDifferentBootID := currentBootIDStr + "-other"
+
+				dpu := &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						AgentStatus: &provisioningv1.AgentStatus{
+							InitialBootID: ptr.To(aDifferentBootID),
+						},
+					},
+				}
+
+				var rebootCmd string
+				statusPushed := false
+				optCtx := &operations.Context{
+					LatestDPU:                dpu,
+					RebootMethodDiscovery:    false,
+					GrubConfigChanged:        true,
+					UpdateStatusUntilSuccess: func(context.Context) { statusPushed = true },
+				}
+				h := &HandleReboot{
+					skipBlock: true,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						rebootCmd = cmd
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					},
+				}
+				Expect(h.Execute(context.Background(), optCtx)).To(Succeed())
+				Expect(rebootCmd).To(Equal(fmt.Sprintf("sleep %d && reboot", shutdownDelayInSeconds)))
+				Expect(statusPushed).To(BeTrue())
+				Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
+				Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodDPUWarmReboot))
+			})
+
+			It("should trigger DPUWarmReboot via device-query path when GrubConfigChanged is true", func() {
+				dir, err := os.MkdirTemp("", "reboot-grub-changed-")
+				Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = os.RemoveAll(dir) }()
+				devicePath := filepath.Join(dir, "mt4125_pciconf0")
+				Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
+
+				var rebootCmd string
+				statusPushed := false
+				optCtx := &operations.Context{
+					RebootMethodDiscovery:    true,
+					GrubConfigChanged:        true,
+					UpdateStatusUntilSuccess: func(context.Context) { statusPushed = true },
+				}
+				h := &HandleReboot{
+					skipBlock:      true,
+					mstDevicesPath: dir,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						if strings.Contains(cmd, "mlxfwreset") {
+							var b bytes.Buffer
+							_, _ = b.WriteString(`{"reset_needed":false}`)
+							return b, bytes.Buffer{}, nil
+						}
+						rebootCmd = cmd
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					},
+				}
+				Expect(h.Execute(context.Background(), optCtx)).To(Succeed())
+				Expect(rebootCmd).To(Equal(fmt.Sprintf("sleep %d && reboot", shutdownDelayInSeconds)))
+				Expect(statusPushed).To(BeTrue(), "status should be pushed before reboot")
+				Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
+				Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodDPUWarmReboot))
+			})
+
+		})
+
 		Context("getRebootMethod", func() {
 			It("returns RebootMethodSystemLevelReset or RebootMethodNoAction", func() {
 				currentBootID, err := os.ReadFile(bootIDFile)
