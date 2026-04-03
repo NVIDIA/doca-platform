@@ -134,6 +134,9 @@ var _ = Describe("Grub Operation", func() {
 			By("verify update-grub and sync were called")
 			Expect(updateGrubCalled).To(BeTrue())
 			Expect(syncCalled).To(BeTrue())
+
+			By("verify GrubConfigChanged flag is set")
+			Expect(optCtx.GrubConfigChanged).To(BeTrue())
 		})
 
 		It("should skip if grub config exists and all parameters are already in cmdline", func() {
@@ -166,6 +169,7 @@ var _ = Describe("Grub Operation", func() {
 
 			err := operation.Execute(context.Background(), optCtx)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(optCtx.GrubConfigChanged).To(BeFalse())
 		})
 
 		It("should proceed if params are in cmdline but grub config does not exist", func() {
@@ -201,6 +205,7 @@ var _ = Describe("Grub Operation", func() {
 			content, err := os.ReadFile(configPath)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(content)).To(Equal("GRUB_CMDLINE_LINUX=\"iommu=pt intel_iommu=on\"\n"))
+			Expect(optCtx.GrubConfigChanged).To(BeTrue())
 		})
 
 		It("should proceed if only some parameters are present in cmdline", func() {
@@ -230,6 +235,7 @@ var _ = Describe("Grub Operation", func() {
 			err := operation.Execute(context.Background(), optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(updateGrubCalled).To(BeTrue())
+			Expect(optCtx.GrubConfigChanged).To(BeTrue())
 		})
 
 		It("should handle single kernel parameter", func() {
@@ -261,6 +267,7 @@ var _ = Describe("Grub Operation", func() {
 			content, err := os.ReadFile(configPath)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(content)).To(Equal("GRUB_CMDLINE_LINUX=\"quiet\"\n"))
+			Expect(optCtx.GrubConfigChanged).To(BeTrue())
 		})
 
 		It("should return error if update-grub fails", func() {
@@ -291,6 +298,7 @@ var _ = Describe("Grub Operation", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to update grub"))
 			Expect(err.Error()).To(ContainSubstring("update-grub: command not found"))
+			Expect(optCtx.GrubConfigChanged).To(BeFalse())
 		})
 
 		It("should create grub config directory if it does not exist", func() {
@@ -322,6 +330,7 @@ var _ = Describe("Grub Operation", func() {
 			info, err := os.Stat(grubConfigDir)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(info.IsDir()).To(BeTrue())
+			Expect(optCtx.GrubConfigChanged).To(BeTrue())
 		})
 
 		It("should proceed with grub update if proc cmdline file does not exist", func() {
@@ -350,6 +359,7 @@ var _ = Describe("Grub Operation", func() {
 			err := operation.Execute(context.Background(), optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(updateGrubCalled).To(BeTrue())
+			Expect(optCtx.GrubConfigChanged).To(BeTrue())
 		})
 	})
 })

@@ -104,6 +104,7 @@ func (g *ConfigureKernelCmdLine) Execute(execCtx context.Context, optCtx *operat
 	if stdout, stderr, err := g.runBash("sync"); err != nil {
 		return fmt.Errorf("failed to sync filesystem after grub update: %w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
 	}
+	optCtx.GrubConfigChanged = true
 	return nil
 }
 
@@ -149,7 +150,10 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// allParamsPresent reads /proc/cmdline and checks if all desired parameters are already present.
+// allParamsPresent reads /proc/cmdline and checks if all desired parameters are already present
+// using exact token matching. DPUFlavor declares the full desired parameter (e.g.
+// "cgroup_no_v1=net_prio,net_cls"), so we require the exact same token in /proc/cmdline;
+// a superset like "cgroup_no_v1=net_prio,net_cls,memory" is treated as a mismatch.
 func allParamsPresent(procCmdlinePath string, desiredParams []string) bool {
 	data, err := os.ReadFile(procCmdlinePath)
 	if err != nil {

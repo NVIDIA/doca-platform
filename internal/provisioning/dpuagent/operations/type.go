@@ -63,6 +63,11 @@ type Context struct {
 	// the agent pushes it to the API via Client.UpdateStatus.
 	Status provisioningv1.AgentStatus
 
+	// GrubConfigChanged is set by ConfigureKernelCmdLine when it writes a new grub config
+	// and runs update-grub. HandleReboot uses this to force a reboot even when the reboot
+	// method is NoAction, so that the new kernel parameters take effect.
+	GrubConfigChanged bool
+
 	// UpdateStatusUntilSuccess, when set, pushes Status to the API until success (e.g. agent's updateStatusUntilSuccess).
 	// Used by operations that must ensure status is persisted before continuing (e.g. before shutdown).
 	//
