@@ -396,7 +396,7 @@ type Firmware struct {
 
 // RebootMethodType is the type of reset/reboot required after NVConfig or firmware changes.
 // Set by the DPU agent. Values align with NVIDIA BlueField Reset and Reboot Procedures (mlxfwreset levels).
-// +kubebuilder:validation:Enum=Unknown;NoAction;PowerCycle;SystemReboot;SystemLevelReset;FirmwareReset
+// +kubebuilder:validation:Enum=Unknown;NoAction;PowerCycle;SystemReboot;SystemLevelReset;FirmwareReset;DPUWarmReboot
 type RebootMethodType string
 
 const (
@@ -414,6 +414,11 @@ const (
 	RebootMethodSystemLevelReset RebootMethodType = "SystemLevelReset"
 	// RebootMethodFirmwareReset driver restart and PCI reset.
 	RebootMethodFirmwareReset RebootMethodType = "FirmwareReset"
+	// RebootMethodDPUWarmReboot indicates the DPU OS is rebooting itself to apply
+	// configuration changes (e.g. grub kernel parameters) that do not originate
+	// from firmware or NVConfig. The provisioning controller should stay in the
+	// current phase and wait for the agent to come back.
+	RebootMethodDPUWarmReboot RebootMethodType = "DPUWarmReboot"
 )
 
 type AgentStatus struct {
