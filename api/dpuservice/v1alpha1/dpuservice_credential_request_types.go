@@ -27,8 +27,14 @@ import (
 
 const (
 	// DPUServiceCredentialRequestFinalizer is the finalizer that will be added to the
-	DPUServiceCredentialRequestFinalizer = "dpu.nvidia.com/dpuservicecredentialrequest"
-	DPUServiceCredentialRequestKind      = "DPUServiceCredentialRequest"
+	DPUServiceCredentialRequestFinalizer      = "dpu.nvidia.com/dpuservicecredentialrequest"
+	DPUServiceCredentialRequestKind           = "DPUServiceCredentialRequest"
+	DPUServiceCredentialRequestControllerName = "dpuservicecredentialrequestcontroller"
+	// Label keys for identifying ServiceAccounts and Secrets managed by this controller.
+	DPUServiceCredentialRequestManagedByLabelKey   = "svc.dpu.nvidia.com/managed-by-controller"
+	DPUServiceCredentialRequestManagedByLabelValue = DPUServiceCredentialRequestControllerName
+	CredentialRequestNameLabelKey                  = "svc.dpu.nvidia.com/credential-request-name"
+	CredentialRequestNamespaceLabelKey             = "svc.dpu.nvidia.com/credential-request-namespace"
 )
 
 var DPUServiceCredentialRequestGroupVersionKind = GroupVersion.WithKind(DPUServiceCredentialRequestKind)
@@ -203,6 +209,7 @@ func (n *DPUServiceCredentialRequestStatus) GetTargetCluster() (string, string) 
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].status`
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].reason`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:validation:XValidation:rule="self.metadata.name.size() <= 63", message="name length can't be bigger than 63 chars"
 
 // DPUServiceCredentialRequest is the Schema for the dpuserviceCredentialRequests API
 type DPUServiceCredentialRequest struct {
