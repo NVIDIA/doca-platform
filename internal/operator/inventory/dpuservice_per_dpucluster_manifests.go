@@ -130,7 +130,7 @@ func (p *dpuServicePerDPUClusterObjects) Parse() (err error) {
 }
 
 // GenerateManifests applies edits and returns objects
-func (p *dpuServicePerDPUClusterObjects) GenerateManifests(vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
+func (p *dpuServicePerDPUClusterObjects) GenerateManifests(_ context.Context, vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
 	if ok := vars.DisableSystemComponents[p.Name()]; ok {
 		return []client.Object{}, nil
 	}
@@ -202,10 +202,6 @@ func (p *dpuServicePerDPUClusterObjects) GenerateManifests(vars Variables, optio
 
 	// return as Objects
 	ret := []client.Object{}
-	if !opts.skipApplySet {
-		ret = append(ret, applySetParentForComponent(p, applySetID, vars, applySetInventoryString(objs...)))
-	}
-
 	for i := range objs {
 		ret = append(ret, objs[i])
 	}

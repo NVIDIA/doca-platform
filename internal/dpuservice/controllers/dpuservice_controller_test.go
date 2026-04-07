@@ -42,9 +42,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/json"
@@ -207,16 +205,6 @@ var _ = Describe("DPUService Controller", func() {
 
 			Eventually(func(g Gomega) {
 				assertDPUService(g, testClient, dpuServices)
-			}).WithTimeout(30 * time.Second).Should(BeNil())
-
-			// Check that argo secrets have been created correctly.
-			Eventually(func(g Gomega) {
-				assertArgoCDSecrets(g, testClient, clusters, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
-			}).WithTimeout(30 * time.Second).Should(BeNil())
-
-			// Check that the argo AppProject has been created correctly
-			Eventually(func(g Gomega) {
-				assertAppProject(g, testClient, clusters)
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			// Check that the argo Application has been created correctly
@@ -385,17 +373,6 @@ var _ = Describe("DPUService Controller", func() {
 			Expect(testClient.Create(ctx, dpuServices[0])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[0])
 
-			By("Validating that ArgoCD AppProject is configured for all DPUClusters")
-			Eventually(func(g Gomega) {
-				assertAppProject(g, testClient, clusters)
-			}).WithTimeout(30 * time.Second).Should(Succeed())
-
-			By("Validating that ArgoCD Secrets are created for all DPUClusters")
-			Eventually(func(g Gomega) {
-				testNamespaces := []string{testDPU1NS.Name, testDPU2NS.Name}
-				assertArgoCDSecrets(g, testClient, clusters, testNamespaces)
-			}).WithTimeout(30 * time.Second).Should(Succeed())
-
 			By("Validating that image pull secrets are created in each DPUCluster")
 			Eventually(func(g Gomega) {
 				dpuClusterConfigs, err := dpucluster.GetConfigs(ctx, testClient)
@@ -501,17 +478,6 @@ var _ = Describe("DPUService Controller", func() {
 			Expect(testClient.Create(ctx, dpuServices[0])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[0])
 
-			By("Validating that ArgoCD AppProject is configured for all DPUClusters")
-			Eventually(func(g Gomega) {
-				assertAppProject(g, testClient, clusters)
-			}).WithTimeout(30 * time.Second).Should(Succeed())
-
-			By("Validating that ArgoCD Secrets are created for all DPUClusters")
-			Eventually(func(g Gomega) {
-				testNamespaces := []string{testDPU1NS.Name, testDPU2NS.Name}
-				assertArgoCDSecrets(g, testClient, clusters, testNamespaces)
-			}).WithTimeout(30 * time.Second).Should(Succeed())
-
 			By("Validating that image pull secrets are created in all DPUClusters")
 			Eventually(func(g Gomega) {
 				dpuClusterConfigs, err := dpucluster.GetConfigs(ctx, testClient)
@@ -607,17 +573,6 @@ var _ = Describe("DPUService Controller", func() {
 			dpuServices[0].Spec.DPUClusterSelector = nil
 			Expect(testClient.Create(ctx, dpuServices[0])).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServices[0])
-
-			By("Validating that ArgoCD AppProject is configured for all DPUClusters")
-			Eventually(func(g Gomega) {
-				assertAppProject(g, testClient, clusters)
-			}).WithTimeout(30 * time.Second).Should(Succeed())
-
-			By("Validating that ArgoCD Secrets are created for all DPUClusters")
-			Eventually(func(g Gomega) {
-				testNamespaces := []string{testDPU1NS.Name, testDPU2NS.Name}
-				assertArgoCDSecrets(g, testClient, clusters, testNamespaces)
-			}).WithTimeout(30 * time.Second).Should(Succeed())
 
 			By("Validating that image pull secrets are created in all DPUClusters initially")
 			Eventually(func(g Gomega) {
@@ -898,14 +853,6 @@ var _ = Describe("DPUService Controller", func() {
 				g.Expect(gotDPUService.Status.ServiceID).To(MatchRegexp(`^[a-z-0-9]{10}$`))
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
-			Eventually(func(g Gomega) {
-				assertArgoCDSecrets(g, testClient, clusters, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
-			}).WithTimeout(30 * time.Second).Should(BeNil())
-
-			Eventually(func(g Gomega) {
-				assertAppProject(g, testClient, clusters)
-			}).WithTimeout(30 * time.Second).Should(BeNil())
-
 			// Check that the argo Application has been created correctly with generated serviceID
 			Eventually(func(g Gomega) {
 				applications := &argov1.ApplicationList{}
@@ -961,16 +908,6 @@ var _ = Describe("DPUService Controller", func() {
 
 			Eventually(func(g Gomega) {
 				assertDPUService(g, testClient, []*dpuservicev1.DPUService{dpuService[0]})
-			}).WithTimeout(30 * time.Second).Should(BeNil())
-
-			// Check that argo secrets have been created correctly.
-			Eventually(func(g Gomega) {
-				assertArgoCDSecrets(g, testClient, clusters, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
-			}).WithTimeout(30 * time.Second).Should(BeNil())
-
-			// Check that the argo AppProject has been created correctly
-			Eventually(func(g Gomega) {
-				assertAppProject(g, testClient, clusters)
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			Eventually(func(g Gomega) {
@@ -1037,16 +974,6 @@ var _ = Describe("DPUService Controller", func() {
 				assertDPUService(g, testClient, []*dpuservicev1.DPUService{dpuService[0]})
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
-			// Check that argo secrets have been created correctly.
-			Eventually(func(g Gomega) {
-				assertArgoCDSecrets(g, testClient, clusters, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
-			}).WithTimeout(30 * time.Second).Should(BeNil())
-
-			// Check that the argo AppProject has been created correctly
-			Eventually(func(g Gomega) {
-				assertAppProject(g, testClient, clusters)
-			}).WithTimeout(30 * time.Second).Should(BeNil())
-
 			Eventually(func(g Gomega) {
 				// Ensure Resources is not nil
 				values := getApplicationServiceDaemonSetValues(g, dpuService[0])
@@ -1109,16 +1036,6 @@ var _ = Describe("DPUService Controller", func() {
 
 			Eventually(func(g Gomega) {
 				assertDPUService(g, testClient, []*dpuservicev1.DPUService{dpuService[0]})
-			}).WithTimeout(30 * time.Second).Should(BeNil())
-
-			// Check that argo secrets have been created correctly.
-			Eventually(func(g Gomega) {
-				assertArgoCDSecrets(g, testClient, clusters, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
-			}).WithTimeout(30 * time.Second).Should(BeNil())
-
-			// Check that the argo AppProject has been created correctly
-			Eventually(func(g Gomega) {
-				assertAppProject(g, testClient, clusters)
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			Eventually(func(g Gomega) {
@@ -1212,16 +1129,6 @@ var _ = Describe("DPUService Controller", func() {
 				assertDPUService(g, testClient, []*dpuservicev1.DPUService{dpuService[0]})
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
-			// Check that argo secrets have been created correctly.
-			Eventually(func(g Gomega) {
-				assertArgoCDSecrets(g, testClient, clusters, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
-			}).WithTimeout(30 * time.Second).Should(BeNil())
-
-			// Check that the argo AppProject has been created correctly
-			Eventually(func(g Gomega) {
-				assertAppProject(g, testClient, clusters)
-			}).WithTimeout(30 * time.Second).Should(BeNil())
-
 			Eventually(func(g Gomega) {
 				// Ensure Resources is not nil
 				values := getApplicationServiceDaemonSetValues(g, dpuService[0])
@@ -1282,16 +1189,6 @@ var _ = Describe("DPUService Controller", func() {
 
 			Eventually(func(g Gomega) {
 				assertDPUService(g, testClient, []*dpuservicev1.DPUService{dpuService[0]})
-			}).WithTimeout(30 * time.Second).Should(BeNil())
-
-			// Check that argo secrets have been created correctly.
-			Eventually(func(g Gomega) {
-				assertArgoCDSecrets(g, testClient, clusters, []string{testDPU1NS.Name, testDPU2NS.Name, testDPU3NS.Name})
-			}).WithTimeout(30 * time.Second).Should(BeNil())
-
-			// Check that the argo AppProject has been created correctly
-			Eventually(func(g Gomega) {
-				assertAppProject(g, testClient, clusters)
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 
 			// verify resources merged correctly
@@ -1782,68 +1679,6 @@ func assertDPUServiceCondition(g Gomega, testClient client.Client, dpuServices [
 	}
 }
 
-func assertArgoCDSecrets(g Gomega, testClient client.Client, clusters []provisioningv1.DPUCluster, testNamespaces []string) {
-	selector := labels.NewSelector()
-	req1, _ := labels.NewRequirement(argoCDSecretLabelKey, selection.Equals, []string{"cluster"})
-	selector = selector.Add(*req1)
-	req2, _ := labels.NewRequirement(operatorv1.DPFComponentLabelKey, selection.Equals, []string{"dpuservice-manager"})
-	selector = selector.Add(*req2)
-	req3, _ := labels.NewRequirement(provisioningv1.DPUClusterNamespaceLabelKey, selection.In, testNamespaces)
-	selector = selector.Add(*req3)
-
-	argoSecrets := &corev1.SecretList{}
-	err := testClient.List(ctx, argoSecrets,
-		client.InNamespace("dpf-operator-system"),
-		client.MatchingLabelsSelector{Selector: selector},
-	)
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(argoSecrets.Items).To(HaveLen(len(clusters)))
-	for _, s := range argoSecrets.Items {
-		// Assert each secret contains the required keys in Data.
-		for _, key := range []string{"config", "name", "server"} {
-			if _, ok := s.Data[key]; !ok {
-				g.Expect(s.Data).To(HaveKey(key))
-			}
-		}
-		g.Expect(s.OwnerReferences).To(HaveLen(1))
-		g.Expect(s.OwnerReferences[0].Name).To(Equal(operatorcontroller.DefaultDPFOperatorConfigSingletonName))
-		g.Expect(s.OwnerReferences[0].Kind).To(Equal(operatorv1.DPFOperatorConfigKind))
-		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, s.DeepCopy())
-	}
-
-}
-
-func assertAppProject(g Gomega, testClient client.Client, clusters []provisioningv1.DPUCluster) {
-	// Check that the DPU cluster argo project has been created.
-	appProject := &argov1.AppProject{}
-	g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace, Name: dpuAppProjectName}, appProject)).To(Succeed())
-	g.Expect(appProject.OwnerReferences).To(HaveLen(1))
-	g.Expect(appProject.OwnerReferences[0].Name).To(Equal(operatorcontroller.DefaultDPFOperatorConfigSingletonName))
-	g.Expect(appProject.OwnerReferences[0].Kind).To(Equal(operatorv1.DPFOperatorConfigKind))
-
-	gotDestinations := appProject.Spec.Destinations
-	g.Expect(gotDestinations).To(HaveLen(len(clusters)))
-	expectedDestinations := []argov1.ApplicationDestination{}
-	for _, c := range clusters {
-		expectedDestinations = append(expectedDestinations, argov1.ApplicationDestination{
-			Name:      c.Name,
-			Namespace: "*",
-		})
-	}
-	g.Expect(gotDestinations).To(ConsistOf(expectedDestinations))
-	g.Expect(appProject.GetOwnerReferences()[0].Name).To(Equal(operatorcontroller.DefaultDPFOperatorConfigSingletonName))
-
-	// Check that the host argo project has been created.
-	g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace, Name: hostAppProjectName}, appProject)).To(Succeed())
-	gotDestinations = appProject.Spec.Destinations
-	expectedDestinations = []argov1.ApplicationDestination{
-		{
-			Name:      "in-cluster",
-			Namespace: "*",
-		}}
-	g.Expect(gotDestinations).To(ConsistOf(expectedDestinations))
-}
-
 func assertDPUServiceAnnotationsClean(g Gomega, testClient client.Client, dpuServices []*dpuservicev1.DPUService) {
 	for _, dpuService := range dpuServices {
 		interfaces := dpuService.Spec.Interfaces
@@ -2105,10 +1940,7 @@ func getMinimalDPUServices(testNamespace string) []*dpuservicev1.DPUService {
 
 var _ = Describe("test DPUService reconciler step-by-step", func() {
 	Context("When reconciling", func() {
-		var (
-			testConfig *operatorv1.DPFOperatorConfig
-			testNS     *corev1.Namespace
-		)
+		var testNS *corev1.Namespace
 		BeforeEach(func() {
 			By("creating the namespaces")
 			testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "testns-"}}
@@ -2118,13 +1950,6 @@ var _ = Describe("test DPUService reconciler step-by-step", func() {
 			if !apierrors.IsAlreadyExists(err) {
 				Expect(err).ToNot(HaveOccurred())
 			}
-			// Apply and get the DPFOperatorConfig. There is a race condition between the separate test runs why we have to fetch the config.
-			// A real config is necessary to run our reconcileArgoSecrets tests.
-			if testConfig == nil {
-				testConfig = getMinimalDPFOperatorConfig()
-				Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, testConfig))).To(Succeed())
-			}
-			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(testConfig), testConfig)).To(Succeed())
 
 			By("Cleanup the control plane and argoCD secrets")
 			secretList := &corev1.SecretList{}
@@ -2152,109 +1977,6 @@ var _ = Describe("test DPUService reconciler step-by-step", func() {
 			Expect(testutils.CleanupAndWait(ctx, testClient, objs...)).To(Succeed())
 		})
 
-		// reconcileArgoSecrets
-		It("should create an Argo secret based on the admin-kubeconfig for each cluster", func() {
-			clusters := []provisioningv1.DPUCluster{
-				testutils.GetTestDPUCluster(testNS.Name, "cluster-one"),
-				testutils.GetTestDPUCluster(testNS.Name, "cluster-two"),
-				testutils.GetTestDPUCluster(testNS.Name, "cluster-three"),
-			}
-
-			secrets := []*corev1.Secret{}
-			for _, cluster := range clusters {
-				kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(cluster, cfg)
-				Expect(err).ToNot(HaveOccurred())
-				secrets = append(secrets, kamajiSecret)
-			}
-			for _, s := range secrets {
-				Expect(testClient.Create(ctx, s)).To(Succeed())
-			}
-
-			dpuClusterConfigs := clusterConfigs(testClient, clusters)
-			r := &DPUServiceReconciler{Client: testClient, Scheme: testClient.Scheme()}
-			err := r.reconcileArgoSecrets(ctx, dpuClusterConfigs, testConfig)
-			Expect(err).NotTo(HaveOccurred())
-			secretList := &corev1.SecretList{}
-			Expect(testClient.List(ctx, secretList, client.HasLabels{argoCDSecretLabelKey, provisioningv1.DPUClusterNameLabelKey, provisioningv1.DPUClusterNamespaceLabelKey})).To(Succeed())
-			Expect(secretList.Items).To(HaveLen(3))
-			for _, s := range secretList.Items {
-				Expect(s.Data).To(HaveKey("config"))
-				Expect(s.Data).To(HaveKey("name"))
-				Expect(s.Data).To(HaveKey("server"))
-			}
-		})
-		It("should create secrets for existing clusters when one cluster does not exist", func() {
-			clusters := []provisioningv1.DPUCluster{
-				testutils.GetTestDPUCluster(testNS.Name, "cluster-four"),
-				testutils.GetTestDPUCluster(testNS.Name, "cluster-five"),
-				testutils.GetTestDPUCluster(testNS.Name, "cluster-six"),
-			}
-			secrets := []*corev1.Secret{}
-			for _, cluster := range clusters {
-				// Not creating a kamaji secret for this cluster.
-				if cluster.Name == "cluster-six" {
-					continue
-				}
-				kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(cluster, cfg)
-				Expect(err).ToNot(HaveOccurred())
-				secrets = append(secrets, kamajiSecret)
-			}
-			for _, s := range secrets {
-				Expect(testClient.Create(ctx, s)).To(Succeed())
-			}
-
-			dpuClusterConfigs := clusterConfigs(testClient, clusters)
-			r := &DPUServiceReconciler{Client: testClient, Scheme: testClient.Scheme()}
-			err := r.reconcileArgoSecrets(ctx, dpuClusterConfigs, testConfig)
-			// Expect an error to be reported.
-			Expect(err).To(HaveOccurred())
-
-			// Expect reconciliation to have continued and created the other secrets.
-			secretList := &corev1.SecretList{}
-			Expect(testClient.List(ctx, secretList, client.HasLabels{argoCDSecretLabelKey, provisioningv1.DPUClusterNameLabelKey, provisioningv1.DPUClusterNamespaceLabelKey})).To(Succeed())
-			Expect(secretList.Items).To(HaveLen(2))
-			for _, s := range secretList.Items {
-				Expect(s.Data).To(HaveKey("config"))
-				Expect(s.Data).To(HaveKey("name"))
-				Expect(s.Data).To(HaveKey("server"))
-			}
-		})
-		It("should create secrets for existing clusters when one cluster secret is malformed", func() {
-			clusters := []provisioningv1.DPUCluster{
-				testutils.GetTestDPUCluster(testNS.Name, "cluster-seven"),
-				testutils.GetTestDPUCluster(testNS.Name, "cluster-eight"),
-				testutils.GetTestDPUCluster(testNS.Name, "cluster-nine"),
-			}
-			secrets := []*corev1.Secret{}
-			for _, cluster := range clusters {
-				kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(cluster, cfg)
-				Expect(err).ToNot(HaveOccurred())
-				// the third secret is malformed.
-				if cluster.Name == "cluster-nine" {
-					kamajiSecret.Data["super-admin.conf"] = []byte("just-a-field")
-				}
-				secrets = append(secrets, kamajiSecret)
-			}
-			for _, s := range secrets {
-				Expect(testClient.Create(ctx, s)).To(Succeed())
-			}
-
-			dpuClusterConfigs := clusterConfigs(testClient, clusters)
-			r := &DPUServiceReconciler{Client: testClient, Scheme: testClient.Scheme()}
-			err := r.reconcileArgoSecrets(ctx, dpuClusterConfigs, testConfig)
-			// Expect an error to be reported.
-			Expect(err).To(HaveOccurred())
-
-			// Expect reconciliation to have continued and created the other secrets.
-			secretList := &corev1.SecretList{}
-			Expect(testClient.List(ctx, secretList, client.HasLabels{argoCDSecretLabelKey, provisioningv1.DPUClusterNameLabelKey, provisioningv1.DPUClusterNamespaceLabelKey})).To(Succeed())
-			Expect(secretList.Items).To(HaveLen(2))
-			for _, s := range secretList.Items {
-				Expect(s.Data).To(HaveKey("config"))
-				Expect(s.Data).To(HaveKey("name"))
-				Expect(s.Data).To(HaveKey("server"))
-			}
-		})
 		It("should reconcile image pull secrets created with the correct labels", func() {
 			// Create a fake Kamaji cluster using the envtest cluster
 			dpuCluster := testutils.GetTestDPUCluster(testNS.Name, "cluster-seven")
@@ -2484,15 +2206,6 @@ func getExposedService(labels map[string]string) *corev1.Service {
 			Type: corev1.ServiceTypeNodePort,
 		},
 	}
-}
-
-func clusterConfigs(c client.Client, clusters []provisioningv1.DPUCluster) []*dpucluster.Config {
-	clusterConfigs := make([]*dpucluster.Config, 0, len(clusters))
-	for _, cluster := range clusters {
-		clusterConfig := dpucluster.NewConfig(c, &cluster)
-		clusterConfigs = append(clusterConfigs, clusterConfig)
-	}
-	return clusterConfigs
 }
 
 func Test_dpuNodePortsToMap(t *testing.T) {

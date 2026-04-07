@@ -18,26 +18,37 @@ limitations under the License.
 package argocd
 
 import (
+	"encoding/json"
 	"fmt"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/clientcmd/api"
 )
 
-const ArgoApplicationFinalizer = "resources-finalizer.argocd.argoproj.io"
+const (
+	ArgoApplicationFinalizer = "resources-finalizer.argocd.argoproj.io"
+	AppProjectNameDPU        = "doca-platform-project-dpu"
+	AppProjectNameHost       = "doca-platform-project-host"
+	ArgoCDSecretLabelKey     = "argocd.argoproj.io/secret-type"
+	ArgoCDSecretLabelValue   = "cluster"
+)
 
 // GetApplicationName returns the name of an ArgoCD Application for a given cluster and DPUService.
 func GetApplicationName(clusterName, dpuServiceName string) string {
 	return fmt.Sprintf("%v-%v", clusterName, dpuServiceName)
 }
 
-func NewAppProject(namespace, name string, clusters []types.NamespacedName) *argov1.AppProject {
+func NewAppProject(namespace, name string, clusters []types.NamespacedName, sourceNamespace string) *argov1.AppProject {
 	project := argov1.AppProject{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       argov1.AppProjectSchemaGroupVersionKind.Kind,
@@ -71,7 +82,7 @@ func NewAppProject(namespace, name string, clusters []types.NamespacedName) *arg
 			NamespaceResourceWhitelist:      nil,
 			SignatureKeys:                   nil,
 			ClusterResourceBlacklist:        nil,
-			SourceNamespaces:                nil,
+			SourceNamespaces:                []string{sourceNamespace},
 			PermitOnlyProjectScopedClusters: false,
 		},
 	}
@@ -136,4 +147,54 @@ func NewApplication(namespace, projectName string, dpuService *dpuservicev1.DPUS
 			Project: projectName,
 		},
 	}
+}
+
+// NewArgoCDClusterSecret generates an ArgoCD cluster secret from the given kubeconfig.
+func NewArgoCDClusterSecret(kubeconfig *api.Config, argoCDNamespace string, dpuClusterConfig *dpucluster.Config) (*corev1.Secret, error) {
+	name, cluster := utils.GetRandomKVPair(kubeconfig.Clusters)
+	if name == "" {
+		return nil, fmt.Errorf("no clusters found in kubeconfig")
+	}
+	userName, user := utils.GetRandomKVPair(kubeconfig.AuthInfos)
+	if userName == "" {
+		return nil, fmt.Errorf("no users found in kubeconfig")
+	}
+
+	secretConfig, err := json.Marshal(
+		// This is the format expected and defined by argov1.ClusterConfig, but we only want to marshal a subset.
+		map[string]interface{}{
+			"tlsClientConfig": map[string]interface{}{
+				"caData":   cluster.CertificateAuthorityData,
+				"keyData":  user.ClientKeyData,
+				"certData": user.ClientCertificateData,
+			},
+		})
+	if err != nil {
+		return nil, fmt.Errorf("marshaling DPUCluster secret config for Argo CD: %w", err)
+	}
+
+	return &corev1.Secret{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Secret",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			// The secret name is the dpuCluster name. DPUClusters must have unique names.
+			Name:      dpuClusterConfig.ClusterNamespaceName(),
+			Namespace: argoCDNamespace,
+			Labels: map[string]string{
+				ArgoCDSecretLabelKey:                       ArgoCDSecretLabelValue,
+				provisioningv1.DPUClusterNameLabelKey:      dpuClusterConfig.Cluster.Name,
+				provisioningv1.DPUClusterNamespaceLabelKey: dpuClusterConfig.Cluster.Namespace,
+			},
+			OwnerReferences: nil,
+			Annotations:     nil,
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"name":   []byte(dpuClusterConfig.Cluster.Name),
+			"server": []byte(cluster.Server),
+			"config": secretConfig,
+		},
+	}, nil
 }
