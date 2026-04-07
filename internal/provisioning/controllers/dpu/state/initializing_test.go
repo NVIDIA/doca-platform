@@ -444,6 +444,85 @@ var _ = Describe("Phase Initializing", func() {
 			runForEachInterface(run)
 
 		})
+		It("should fail with DPUClusterDeleting when DPUCluster is terminating", func() {
+			By("prepare DPUDevice CR")
+			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+			createObject(dpuDevice)
+
+			By("prepare DPUNode CR")
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Finalizers = []string{provisioningv1.DPUNodeFinalizer}
+			dpuNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = strTrue
+			dpuNode.Spec.DPUs = []provisioningv1.DPURef{
+				{Name: dpuDevice.Name},
+			}
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status = provisioningv1.DPUNodeStatus{
+				DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaHostAgent)),
+				Conditions: []metav1.Condition{
+					{
+						Type:               string(provisioningv1.DPUNodeConditionBridgeConfigured),
+						Status:             metav1.ConditionTrue,
+						Reason:             "BridgeConfigured",
+						Message:            "Bridge configured",
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+			}
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
+			By("prepare DPUCluster CR that is deleting")
+			const blockDeletionFinalizer = "state.test.dpu.nvidia.com/block-deletion"
+			dpuCluster := dpuClusterObj(defaultDPUClusterName, "static")
+			dpuCluster.Finalizers = []string{blockDeletionFinalizer}
+			Expect(k8sClient.Create(ctx, dpuCluster)).To(Succeed())
+
+			DeferCleanup(func() {
+				fetched := &provisioningv1.DPUCluster{}
+				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuCluster), fetched); err != nil {
+					return
+				}
+				fetched.Finalizers = nil
+				_ = k8sClient.Update(ctx, fetched)
+				_ = client.IgnoreNotFound(k8sClient.Delete(ctx, fetched))
+			})
+			Expect(k8sClient.Delete(ctx, dpuCluster)).To(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuCluster), dpuCluster)).To(Succeed())
+			Expect(dpuCluster.DeletionTimestamp).NotTo(BeNil())
+
+			By("prepare DPU CR referencing the deleting cluster")
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.PCIAddress = ptr.To("0000-00-00")
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.Cluster.Namespace = dpuCluster.Namespace
+			dpu.Spec.Cluster.Name = dpuCluster.Name
+			dpu.Status.Phase = provisioningv1.DPUInitializing
+			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaGNOI))
+
+			run := func(installInterface provisioningv1.DPUInstallInterfaceType) {
+				status, err := state.Initializing(ctx, dpu,
+					&dutil.ControllerContext{
+						Client:           k8sClient,
+						ClusterAllocator: &allocateFail{},
+						Options: dutil.DPUOptions{
+							DPUInstallInterface: string(installInterface),
+						},
+					},
+				)
+				Expect(err).To(HaveOccurred())
+				Expect(status.Phase).To(Equal(provisioningv1.DPUInitializing))
+				Expect(status.Conditions).Should(ContainElements(
+					And(
+						HaveField("Type", provisioningv1.DPUCondInitialized.String()),
+						HaveField("Status", metav1.ConditionFalse),
+						HaveField("Reason", "DPUClusterDeleting"),
+					),
+				))
+			}
+			runForEachInterface(run)
+		})
 		It("should transition to the next phase if SkipDpuProvisioningLabel is set", func() {
 			By("prepare DPUDevice CR")
 			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)

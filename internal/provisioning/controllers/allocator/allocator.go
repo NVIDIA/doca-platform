@@ -188,6 +188,9 @@ func (c *ClusterCache) getFeasibleClusterBinPacking(labelSelector *metav1.LabelS
 	var bestCluster *ClusterInfo
 	var maxRatio = -1.0
 	for _, ci := range clusterInfoMap {
+		if ci.cluster.DeletionTimestamp != nil {
+			continue
+		}
 		if ci.cluster.Status.Phase != provisioningv1.PhaseReady {
 			continue
 		}

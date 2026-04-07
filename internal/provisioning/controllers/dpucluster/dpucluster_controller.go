@@ -166,6 +166,7 @@ func (r *DPUClusterReconciler) dpuToDPUClusterReq(ctx context.Context, obj clien
 }
 
 func (r *DPUClusterReconciler) reconcileDelete(ctx context.Context, dc *provisioningv1.DPUCluster) error {
+	r.Allocator.SaveCluster(dc)
 
 	dpuList := &provisioningv1.DPUList{}
 	if err := r.Client.List(ctx, dpuList); err != nil {
