@@ -113,6 +113,8 @@ func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Conte
 		optCtx.Status.InitialBootID = nil
 		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
 		return nil
+	case provisioningv1.RebootMethodDPUWarmReboot:
+		return h.execWarmReboot(execCtx, optCtx)
 	}
 	return fmt.Errorf("unsupported reboot method: %s", *m)
 }
@@ -187,6 +189,23 @@ func (h *HandleReboot) execFirmwareReset(execCtx context.Context, optCtx *operat
 	return h.blockUntilReset()
 }
 
+// execWarmReboot reboots the DPU OS.
+func (h *HandleReboot) execWarmReboot(execCtx context.Context, optCtx *operations.Context) error {
+	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodDPUWarmReboot)
+	optCtx.UpdateStatusUntilSuccess(execCtx)
+
+	if h.runBash == nil {
+		h.runBash = bash.Run
+	}
+	klog.Infof("Rebooting DPU OS in %d seconds", shutdownDelayInSeconds)
+	cmd := fmt.Sprintf("sleep %d && reboot", shutdownDelayInSeconds)
+	_, stderr, err := h.runBash(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to reboot host for grub changes: %w, stderr: %s", err, stderr.String())
+	}
+	return h.blockUntilReset()
+}
+
 // blockUntilReset blocks until the system resets or the timeout expires.
 // The reset/shutdown command returns immediately; without this block the
 // agent would continue to the next operation before the machine goes down.
@@ -215,6 +234,9 @@ func getRebootMethodBootID(optCtx *operations.Context) (*provisioningv1.RebootMe
 	}
 
 	if hasBeenBooted(optCtx.LatestDPU, currentRebootID) {
+		if optCtx.GrubConfigChanged {
+			return ptr.To(provisioningv1.RebootMethodDPUWarmReboot), nil
+		}
 		klog.Infof("Host has already been booted, no reboot action")
 		return ptr.To(provisioningv1.RebootMethodNoAction), nil
 	}
@@ -259,6 +281,10 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 			klog.Infof("MST device %s requires reset, using SystemLevelReset", device)
 			return ptr.To(provisioningv1.RebootMethodSystemLevelReset), nil
 		}
+	}
+	if optCtx.GrubConfigChanged {
+		klog.Infof("No MST device requires reset but grub config changed, using DPUWarmReboot")
+		return ptr.To(provisioningv1.RebootMethodDPUWarmReboot), nil
 	}
 	klog.Infof("No MST device requires reset, using NoAction")
 	return ptr.To(provisioningv1.RebootMethodNoAction), nil
