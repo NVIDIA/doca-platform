@@ -210,6 +210,60 @@ In the above example, traffic will flow from uplink port p0 to example DPU servi
 will go to eth2 iface(eth1->eth2 is handled by the service itself and not by the chain) and then to uplink port pf0hpf
 on the host.
 
+# Constraints
+## DPUServiceInterface and ServiceInterface uniqueness
+Each physical uplink port (e.g., `p0`) must be owned by exactly one
+`DPUServiceInterface`, and each `matchLabels` selector used in a
+`DPUServiceChain` must resolve to exactly one `ServiceInterface` per node.
+These constraints are **not enforced at admission time** — there are no
+validating webhooks that reject conflicting objects. Instead, violations are
+detected at runtime by the SFC controller and surface as persistent errors on
+the `ServiceChain` (and therefore the `ServiceChainSet`).
+### Why this matters
+A physical OVS port can only be associated with a single `ServiceInterface`
+via its `dpf-id` external ID. If two `DPUServiceInterface` objects target the
+same physical port, only one will own the OVS port at any given time. The
+other's `ServiceChain` will fail to find its OVS interface, causing errors and
+flapping readiness.
+The SFC controller also requires that the `matchLabels` selector in each
+`DPUServiceChain` port resolves to exactly one `ServiceInterface` on each
+node. If the selector matches zero or more than one, reconciliation fails.
+### Error messages
+When the `matchLabels` selector matches **no** `ServiceInterface` on a node:
+```
+no serviceInterface in namespace(<ns>) matching labels(map[<key>:<value>]) on node(<node>) found
+```
+When the selector matches **more than one** `ServiceInterface` on a node:
+```
+expected only one serviceInterface in namespace(<ns>) to match labels(map[<key>:<value>]) on node(<node>). found <N>
+```
+When the Kubernetes lookup succeeds but the OVS port belongs to a different
+`ServiceInterface`:
+```
+failed to find matching interface with external_ids: map[dpf-id:<namespace>/<serviceinterface-name>]
+```
+In all cases, the `ServiceChain` (and therefore the `ServiceChainSet`) will
+remain `Ready=False` or flip between `Ready` and `Pending`.
+### Common causes
+* **Conflict with another service** — if a DOCA service such as HBN already
+  installs a `DPUServiceInterface` for a physical port (e.g., `p0` with label
+  `uplink: p0`), creating another `DPUServiceInterface` for the same physical
+  port will cause a conflict. Even if the labels differ, both produce
+  `ServiceInterface` objects on each node, but the OVS port can only carry one
+  `dpf-id`. The chain referencing the non-owning `ServiceInterface` will fail
+  with `failed to find matching interface`. If the labels are identical, the
+  `matchLabels` selector will match multiple `ServiceInterface` objects and
+  fail with `expected only one serviceInterface`.
+* **Stale objects** — leftover `ServiceInterface` objects from a previous
+  `DPUServiceInterface` deployment can satisfy the same selector, producing
+  multiple matches on a node. Delete stale objects before re-deploying.
+### How to avoid these issues
+* Ensure each physical port is targeted by at most one `DPUServiceInterface`.
+* Verify that your `matchLabels` selector resolves to exactly one
+  `ServiceInterface` on each target node.
+* Check for stale `ServiceInterface` objects from previous deployments before
+  applying a new `DPUServiceChain`.
+
 # Additional fields
 
 ## DPUClusterSelector
