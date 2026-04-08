@@ -26,6 +26,11 @@ Generate comprehensive system reports for deeper analysis and support requests.
 * Investigating complex infrastructure issues
 * Preparing diagnostic data for NVIDIA support
 
+## Common Issues
+
+### Service Function Chaining (SFC)
+If a `ServiceChain` or `ServiceChainSet` is stuck at `Ready=False` or flapping between `Ready` and `Pending`, the most common cause is a `ServiceInterface` uniqueness conflict. See the [DPUServiceChain Constraints](../developer-guides/api/dpuservicechain.md#constraints) section for detailed error messages, root causes, and resolution steps.
+
 ## Escalation Path
 
 If you cannot resolve the issue using the guides above:
