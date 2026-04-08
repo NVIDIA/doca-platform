@@ -463,14 +463,9 @@ generate-docs-embedmd: embedmd ## Embed additional files into markdown docs.
 
 .PHONY: init-external-attacher-submodule
 init-external-attacher-submodule: ## Initialize external-attacher submodule if needed
-	## Initialize git repo as we don't copy .git into our docker build context.
 	@if ! git rev-parse --git-dir >/dev/null 2>&1; then \
-		echo "Not a functional git repo, initializing for submodule..."; \
-		git init; \
-		git config user.email "docker@build.local" && git config user.name "Docker Build"; \
-		git add .; \
-		git commit -m "Initial commit for submodule" &>/dev/null || true; \
-		git submodule update --init --recursive 2>/dev/null || echo "Submodule initialization skipped"; \
+		echo "Not a functional git repo, initializing an empty git repo for the external-attacher submodule..."; \
+		git -C $(NVIDIA_EXTERNAL_ATTACHER_DIR)/external-attacher init; \
 	else \
 		echo "Git repo present, updating submodules..."; \
 		git submodule update --init --recursive; \
@@ -1262,11 +1257,9 @@ binary-storage-snap-csi-plugin: ## Build the snap-csi-plugin binary.
 .PHONY: binary-storage-nvidia-external-attacher
 binary-storage-nvidia-external-attacher: generate-client-for-storage-nvidia-external-attacher ## Build the nvidia external attacher binary.
 	./$(NVIDIA_EXTERNAL_ATTACHER_DIR)/hack/client.sh $(PROJECT_DIR) $(EXTERNAL_ATTACHER_BRANCH)
-	# Needed so that we can capture the source code in the Dockerfile
-	go mod vendor
-
 	# Build nvidia-external-attacher binary
 	cd $(NVIDIA_EXTERNAL_ATTACHER_DIR)/external-attacher && \
+	go mod tidy && go mod vendor && \
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/nvidia-external-attacher github.com/kubernetes-csi/external-attacher/v4/cmd/csi-attacher
 
 .PHONY: binary-dpfctl
