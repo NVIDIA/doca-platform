@@ -1769,12 +1769,26 @@ func assertApplication(g Gomega, testClient client.Client, testNS string,
 			g.Expect(json.Unmarshal(app.Spec.Source.Helm.ValuesObject.Raw, &appValuesMap)).To(Succeed())
 
 			// Expect values to be correctly transposed from the DPUService serviceDaemonSet values.
-			Expect(appValuesMap).To(HaveKey("serviceDaemonSet"))
-			var appServiceDaemonSet = struct {
-				ServiceDaemonSet dpuservicev1.ServiceDaemonSetValues `json:"serviceDaemonSet"`
-			}{}
-			Expect(json.Unmarshal(app.Spec.Source.Helm.ValuesObject.Raw, &appServiceDaemonSet)).To(Succeed())
-			appService := appServiceDaemonSet.ServiceDaemonSet
+			// System components have serviceDaemonSet nested under global.
+			_, isSystemComponent := service.GetLabels()[operatorv1.DPFComponentLabelKey]
+			var appService dpuservicev1.ServiceDaemonSetValues
+			if isSystemComponent {
+				Expect(appValuesMap).To(HaveKey("global"))
+				var appGlobalServiceDaemonSet = struct {
+					Global struct {
+						ServiceDaemonSet dpuservicev1.ServiceDaemonSetValues `json:"serviceDaemonSet"`
+					} `json:"global"`
+				}{}
+				Expect(json.Unmarshal(app.Spec.Source.Helm.ValuesObject.Raw, &appGlobalServiceDaemonSet)).To(Succeed())
+				appService = appGlobalServiceDaemonSet.Global.ServiceDaemonSet
+			} else {
+				Expect(appValuesMap).To(HaveKey("serviceDaemonSet"))
+				var appServiceDaemonSet = struct {
+					ServiceDaemonSet dpuservicev1.ServiceDaemonSetValues `json:"serviceDaemonSet"`
+				}{}
+				Expect(json.Unmarshal(app.Spec.Source.Helm.ValuesObject.Raw, &appServiceDaemonSet)).To(Succeed())
+				appService = appServiceDaemonSet.ServiceDaemonSet
+			}
 			for k, v := range service.Spec.ServiceDaemonSet.Labels {
 				Expect(appService.Labels).To(HaveKeyWithValue(k, v))
 			}
@@ -1787,8 +1801,10 @@ func assertApplication(g Gomega, testClient client.Client, testNS string,
 			annotations, err := updateAnnotationsWithNetworks(service, m)
 			Expect(err).ToNot(HaveOccurred())
 			annotations[networkAnnotationKey] = mergeWithInvalidNetwork(annotations[networkAnnotationKey])
-			annotations[provisioningv1.DPUClusterNameLabelKey] = "cluster-one"
-			annotations[provisioningv1.DPUClusterNamespaceLabelKey] = testNS
+			if isSystemComponent {
+				annotations[provisioningv1.DPUClusterNameLabelKey] = "cluster-one"
+				annotations[provisioningv1.DPUClusterNamespaceLabelKey] = testNS
+			}
 
 			Expect(appService.Annotations).To(Equal(annotations))
 
@@ -2054,14 +2070,14 @@ var _ = Describe("unit test DPUService functions", func() {
 				`{}`,
 				false,
 				nil,
-				`{"serviceDaemonSet":{"annotations":{"dpu.nvidia.com/cluster":"test-cluster","dpu.nvidia.com/cluster-namespace":"test-namespace"},"labels":{"svc.dpu.nvidia.com/service":"someservice"}}}`,
+				`{"serviceDaemonSet":{"labels":{"svc.dpu.nvidia.com/service":"someservice"}}}`,
 			),
 			Entry("values but no serviceDaemonSet specified",
 				ptr.To("someservice"),
 				`{"key":"value"}`,
 				false,
 				nil,
-				`{"key":"value","serviceDaemonSet":{"annotations":{"dpu.nvidia.com/cluster":"test-cluster","dpu.nvidia.com/cluster-namespace":"test-namespace"},"labels":{"svc.dpu.nvidia.com/service":"someservice"}}}`,
+				`{"key":"value","serviceDaemonSet":{"labels":{"svc.dpu.nvidia.com/service":"someservice"}}}`,
 			),
 			Entry("values with serviceDaemonSet specified",
 				ptr.To("someservice"),
@@ -2072,7 +2088,7 @@ var _ = Describe("unit test DPUService functions", func() {
 						"some": "annotation",
 					},
 				},
-				`{"key":"value","serviceDaemonSet":{"annotations":{"dpu.nvidia.com/cluster":"test-cluster","dpu.nvidia.com/cluster-namespace":"test-namespace","some":"annotation"},"labels":{"svc.dpu.nvidia.com/service":"someservice"}}}`,
+				`{"key":"value","serviceDaemonSet":{"annotations":{"some":"annotation"},"labels":{"svc.dpu.nvidia.com/service":"someservice"}}}`,
 			),
 			Entry("values that have serviceDaemonSet overrides with serviceDaemonSet specified",
 				ptr.To("someservice"),
@@ -2086,7 +2102,7 @@ var _ = Describe("unit test DPUService functions", func() {
 						Type: appsv1.OnDeleteDaemonSetStrategyType,
 					},
 				},
-				`{"serviceDaemonSet":{"annotations":{"diff":"annotation","dpu.nvidia.com/cluster":"test-cluster","dpu.nvidia.com/cluster-namespace":"test-namespace","some":"annotation"},"labels":{"some":"label","svc.dpu.nvidia.com/service":"someservice"},"updateStrategy":{"type":"OnDelete"}}}`,
+				`{"serviceDaemonSet":{"annotations":{"diff":"annotation","some":"annotation"},"labels":{"some":"label","svc.dpu.nvidia.com/service":"someservice"},"updateStrategy":{"type":"OnDelete"}}}`,
 			),
 			Entry("values that have serviceDaemonSet overrides with serviceDaemonSet specified and are for a system component",
 				ptr.To("someservice"),
@@ -2100,9 +2116,121 @@ var _ = Describe("unit test DPUService functions", func() {
 						Type: appsv1.OnDeleteDaemonSetStrategyType,
 					},
 				},
-				`{"global":{"serviceDaemonSet":{"annotations":{"diff":"annotation","dpu.nvidia.com/cluster":"test-cluster","dpu.nvidia.com/cluster-namespace":"test-namespace","some":"annotation"},"labels":{"some":"label","svc.dpu.nvidia.com/service":"someservice"},"updateStrategy":{"type":"OnDelete"}}},"serviceDaemonSet":{"annotations":{"diff":"annotation","dpu.nvidia.com/cluster":"test-cluster","dpu.nvidia.com/cluster-namespace":"test-namespace","some":"annotation"},"labels":{"some":"label","svc.dpu.nvidia.com/service":"someservice"},"updateStrategy":{"type":"OnDelete"}}}`,
+				`{"global":{"serviceDaemonSet":{"annotations":{"dpu.nvidia.com/cluster":"test-cluster","dpu.nvidia.com/cluster-namespace":"test-namespace","some":"annotation"},"labels":{"svc.dpu.nvidia.com/service":"someservice"},"updateStrategy":{"type":"OnDelete"}}},"serviceDaemonSet":{"annotations":{"diff":"annotation"},"labels":{"some":"label"},"updateStrategy":{"type":"RollingUpdate"}}}`,
+			),
+			Entry("system component with nil serviceDaemonSet and no helm values",
+				ptr.To("someservice"),
+				`{}`,
+				true,
+				nil,
+				`{"global":{"serviceDaemonSet":{"annotations":{"dpu.nvidia.com/cluster":"test-cluster","dpu.nvidia.com/cluster-namespace":"test-namespace"},"labels":{"svc.dpu.nvidia.com/service":"someservice"}}}}`,
+			),
+			Entry("system component with serviceDaemonSet but no helm values overrides",
+				ptr.To("someservice"),
+				`{}`,
+				true,
+				&dpuservicev1.ServiceDaemonSetValues{
+					Annotations: map[string]string{
+						"some": "annotation",
+					},
+				},
+				`{"global":{"serviceDaemonSet":{"annotations":{"dpu.nvidia.com/cluster":"test-cluster","dpu.nvidia.com/cluster-namespace":"test-namespace","some":"annotation"},"labels":{"svc.dpu.nvidia.com/service":"someservice"}}}}`,
+			),
+			Entry("system component with global key in DPUService helm values",
+				ptr.To("someservice"),
+				`{"global":{"otherKey":"otherValue"}}`,
+				true,
+				nil,
+				`{"global":{"otherKey":"otherValue","serviceDaemonSet":{"annotations":{"dpu.nvidia.com/cluster":"test-cluster","dpu.nvidia.com/cluster-namespace":"test-namespace"},"labels":{"svc.dpu.nvidia.com/service":"someservice"}}}}`,
+			),
+			Entry("non-system component with labels in serviceDaemonSet",
+				ptr.To("someservice"),
+				`{}`,
+				false,
+				&dpuservicev1.ServiceDaemonSetValues{
+					Labels: map[string]string{
+						"custom": "label",
+					},
+				},
+				`{"serviceDaemonSet":{"labels":{"custom":"label","svc.dpu.nvidia.com/service":"someservice"}}}`,
+			),
+			Entry("system component with only labels in serviceDaemonSet",
+				ptr.To("someservice"),
+				`{}`,
+				true,
+				&dpuservicev1.ServiceDaemonSetValues{
+					Labels: map[string]string{
+						"custom": "label",
+					},
+				},
+				`{"global":{"serviceDaemonSet":{"annotations":{"dpu.nvidia.com/cluster":"test-cluster","dpu.nvidia.com/cluster-namespace":"test-namespace"},"labels":{"custom":"label","svc.dpu.nvidia.com/service":"someservice"}}}}`,
+			),
+			Entry("system component with nodeSelector and updateStrategy",
+				ptr.To("someservice"),
+				`{}`,
+				true,
+				&dpuservicev1.ServiceDaemonSetValues{
+					NodeSelector: &corev1.NodeSelector{
+						NodeSelectorTerms: []corev1.NodeSelectorTerm{
+							{
+								MatchExpressions: []corev1.NodeSelectorRequirement{
+									{
+										Key:      "node-role",
+										Operator: corev1.NodeSelectorOpExists,
+									},
+								},
+							},
+						},
+					},
+					UpdateStrategy: &appsv1.DaemonSetUpdateStrategy{
+						Type: appsv1.OnDeleteDaemonSetStrategyType,
+					},
+				},
+				`{"global":{"serviceDaemonSet":{"annotations":{"dpu.nvidia.com/cluster":"test-cluster","dpu.nvidia.com/cluster-namespace":"test-namespace"},"labels":{"svc.dpu.nvidia.com/service":"someservice"},"nodeSelector":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"node-role","operator":"Exists"}]}]},"updateStrategy":{"type":"OnDelete"}}}}`,
 			),
 		)
+
+		It("includes exposedPorts when configPorts is set", func() {
+			dpuService := &dpuservicev1.DPUService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "test-namespace",
+				},
+				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceID: ptr.To("someservice"),
+					HelmChart: dpuservicev1.HelmChart{
+						Values: &runtime.RawExtension{Raw: []byte(`{"key":"value"}`)},
+					},
+					ConfigPorts: &dpuservicev1.ConfigPorts{
+						ServiceType: corev1.ServiceTypeNodePort,
+						Ports: []dpuservicev1.ConfigPort{
+							{
+								Name: "port-one",
+								Port: 8080,
+							},
+						},
+					},
+				},
+			}
+
+			o, err := argoCDValuesFromDPUService(nil, dpuService, "test-cluster", "someservice")
+			Expect(err).ToNot(HaveOccurred())
+
+			var result map[string]interface{}
+			Expect(json.Unmarshal(o.Raw, &result)).To(Succeed())
+
+			// Verify exposedPorts key is present with correct structure
+			Expect(result).To(HaveKey("exposedPorts"))
+			exposedPorts := result["exposedPorts"].(map[string]interface{})
+			Expect(exposedPorts).To(HaveKey("ports"))
+			Expect(exposedPorts).To(HaveKey("labels"))
+			ports := exposedPorts["ports"].(map[string]interface{})
+			Expect(ports).To(HaveKeyWithValue("port-one", true))
+
+			// Verify other values are also present
+			Expect(result).To(HaveKeyWithValue("key", "value"))
+			Expect(result).To(HaveKey("serviceDaemonSet"))
+		})
 	})
 })
 

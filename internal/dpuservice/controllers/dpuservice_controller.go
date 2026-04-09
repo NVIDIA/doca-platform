@@ -46,6 +46,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -1485,55 +1486,73 @@ func getProjectName(dpuService *dpuservicev1.DPUService) string {
 	return argocd.AppProjectNameDPU
 }
 
-func argoCDValuesFromDPUService(serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpuService *dpuservicev1.DPUService, clusterName, serviceID string) (*runtime.RawExtension, error) {
-	if serviceDaemonSet == nil {
-		serviceDaemonSet = &dpuservicev1.ServiceDaemonSetValues{}
+func argoCDValuesFromDPUService(serviceDaemonSetValues *dpuservicev1.ServiceDaemonSetValues, dpuService *dpuservicev1.DPUService, clusterName, serviceID string) (*runtime.RawExtension, error) {
+	if serviceDaemonSetValues == nil {
+		serviceDaemonSetValues = &dpuservicev1.ServiceDaemonSetValues{}
 	}
-	if serviceDaemonSet.Labels == nil {
-		serviceDaemonSet.Labels = map[string]string{}
+	if serviceDaemonSetValues.Labels == nil {
+		serviceDaemonSetValues.Labels = map[string]string{}
 	}
-	serviceDaemonSet.Labels[dpuservicev1.DPFServiceIDLabelKey] = serviceID
+	serviceDaemonSetValues.Labels[dpuservicev1.DPFServiceIDLabelKey] = serviceID
 
-	if serviceDaemonSet.Annotations == nil {
-		serviceDaemonSet.Annotations = map[string]string{}
-	}
-	serviceDaemonSet.Annotations[provisioningv1.DPUClusterNameLabelKey] = clusterName
-	serviceDaemonSet.Annotations[provisioningv1.DPUClusterNamespaceLabelKey] = dpuService.GetNamespace()
+	// Convert the typedServiceDaemonSetValues to untyped map[string]interface,
+	// so it can be merged with the additional values we want to set.
 
-	// Marshal the ServiceDaemonSet and other values to map[string]interface to combine them.
-	var otherValues, serviceDaemonSetValues map[string]interface{}
-	if dpuService.Spec.HelmChart.Values != nil {
-		if err := json.Unmarshal(dpuService.Spec.HelmChart.Values.Raw, &otherValues); err != nil {
-			return nil, err
-		}
-	}
-
-	// Unmarshal the ServiceDaemonSet to get the byte representation.
-	dsValuesData, err := json.Marshal(serviceDaemonSet)
+	rawServiceDaemonSetValues, err := json.Marshal(serviceDaemonSetValues)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := json.Unmarshal(dsValuesData, &serviceDaemonSetValues); err != nil {
+	var untypedServiceDaemonSetValues map[string]interface{}
+	if err := json.Unmarshal(rawServiceDaemonSetValues, &untypedServiceDaemonSetValues); err != nil {
 		return nil, err
 	}
 
-	serviceDaemonSetValuesWithKey := map[string]interface{}{
-		"serviceDaemonSet": serviceDaemonSetValues,
+	var serviceDaemonSetHelmValues map[string]interface{}
+
+	// System components are implemented as Helm subcharts and can only access
+	// values within their own scope or under .Values.global. Parent chart values
+	// are not directly accessible, so expose serviceDaemonSet under .global only.
+	// Additionally, only system components need the cluster annotations.
+	if _, exists := dpuService.GetLabels()[operatorv1.DPFComponentLabelKey]; exists {
+		// For System components, we annotate the DPUCluster name and namespace so it can be used as information in pods.
+		// E.g. for annotating logs and metrics with the DPUCluster name and Namespace via open-telemetry-collector.
+		annotations, _, _ := unstructured.NestedStringMap(untypedServiceDaemonSetValues, "annotations")
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+		annotations[provisioningv1.DPUClusterNameLabelKey] = clusterName
+		annotations[provisioningv1.DPUClusterNamespaceLabelKey] = dpuService.GetNamespace()
+		if err := unstructured.SetNestedStringMap(untypedServiceDaemonSetValues, annotations, "annotations"); err != nil {
+			return nil, err
+		}
+
+		// Move the additional values to the global level.
+		// System components are implemented as a single chart with subcharts.
+		// Values across the components must be exposed at `.Values.global`, otherwise
+		// they can only access values within their own scope. Other parent chart values
+		// are not directly accessible.
+		serviceDaemonSetHelmValues = map[string]interface{}{
+			"global": map[string]interface{}{
+				"serviceDaemonSet": untypedServiceDaemonSetValues,
+			},
+		}
+	} else {
+		serviceDaemonSetHelmValues = map[string]interface{}{
+			"serviceDaemonSet": untypedServiceDaemonSetValues,
+		}
 	}
 
-	// The serviceDaemonSets must be exposed at the global level for system components.
-	// Since these components are implemented as Helm subcharts, they can only access
-	// values within their own scope or under .Values.global. Parent chart values
-	// are not directly accessible.
-	if _, exists := dpuService.GetLabels()[operatorv1.DPFComponentLabelKey]; exists {
-		serviceDaemonSetValuesWithKey["global"] = map[string]interface{}{
-			"serviceDaemonSet": serviceDaemonSetValues,
+	// Unmarshal the values from the DPUService.
+	var dpuServiceHelmValues map[string]interface{}
+	if dpuService.Spec.HelmChart.Values != nil {
+		if err := json.Unmarshal(dpuService.Spec.HelmChart.Values.Raw, &dpuServiceHelmValues); err != nil {
+			return nil, err
 		}
 	}
 
 	// Combine values
-	combinedValues := dpuserviceutils.MergeMaps(serviceDaemonSetValuesWithKey, otherValues)
+	combinedValues := dpuserviceutils.MergeMaps(serviceDaemonSetHelmValues, dpuServiceHelmValues)
 
 	// Override with values to expose config ports.
 	if dpuService.Spec.ConfigPorts != nil {
