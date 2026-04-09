@@ -97,6 +97,39 @@ func hashToOFPort(s string) uint {
 	return minOFPort + uint(h.Sum32()%uint32(oFPortCount))
 }
 
+// resolveOFPort picks a collision-free ofport_request for intfName on a bridge.
+// It starts from the hash-derived candidate and linear-probes within
+// [minOFPort, maxOFPort] until an unused slot is found.
+//
+// Basic steps are:
+// a) check if the candidate is used, if not used, return as a valid candidate
+// b) if it is in use, probe = minOFPort + (candidate - minOFPort + i) % oFPortCount
+// c) if the probe is used, increment i and repeat
+// i is a step offset (1, 2, 3, …),
+//
+// Example (minOFPort=10, oFPortCount=5 → range [10,14]):
+//
+//	candidate = 12, ports 12 and 13 already used
+//	  i=1 → 10 + (2+1)%5 = 13  (used, skip)
+//	  i=2 → 10 + (2+2)%5 = 14  (free, return 14)
+
+func resolveOFPort(intfName string, usedPorts map[uint]bool) uint {
+	candidate := hashToOFPort(intfName)
+	if !usedPorts[candidate] {
+		return candidate
+	}
+	for i := uint(1); i < oFPortCount; i++ { // i is uint to match oFPortCount and the arithmetic below
+		probe := minOFPort + (candidate-minOFPort+i)%oFPortCount
+		if !usedPorts[probe] {
+			return probe
+		}
+	}
+	// All slots (ofPortCount) are occupied; return 0 so that createInterfaceOperation
+	// omits ofport_request entirely and lets OVS assign a port number itself.
+	// This should not happen in practice.
+	return 0
+}
+
 // ConnectToOvsDb connect to ovsdb
 func ConnectToOvsDb(ovsSocket string) (client.Client, error) {
 	dbmodel, err := model.NewClientDBModel("Open_vSwitch",
@@ -185,6 +218,72 @@ func (ovsd *OvsDriver) ovsdbTransact(ops []ovsdb.Operation) ([]ovsdb.OperationRe
 	return reply, nil
 }
 
+// getUsedOFPorts returns the set of OpenFlow port numbers currently in use
+// across ALL bridges. It selects every Interface row in a single atomic
+// OVSDB read (1 round-trip). The result is a superset when there are
+// multiple bridges, but this is safer, resolveOFPort better skips a few extra
+// slots rather than risking a collision. Also most of the other ports will be
+// in the lower range i.e below 32768.
+func (ovsd *OvsBridgeDriver) getUsedOFPorts() (map[uint]bool, error) {
+	selectAll := ovsdb.Operation{
+		Op:      "select",
+		Table:   "Interface",
+		Where:   []ovsdb.Condition{},
+		Columns: []string{"ofport", "ofport_request"},
+	}
+	results, err := ovsd.ovsdbTransact([]ovsdb.Operation{selectAll})
+	if err != nil {
+		return nil, fmt.Errorf("select all interfaces: %w", err)
+	}
+
+	used := make(map[uint]bool)
+	for _, row := range results[0].Rows {
+		// Prefer the actual ofport assigned by OVS. If it is -1 the
+		// interface is still being configured, so fall back to
+		// ofport_request to reserve the slot it has already claimed.
+		if v, ok := row["ofport"]; ok {
+			if p, ok := v.(float64); ok && p > 0 {
+				used[uint(p)] = true
+				continue
+			}
+		}
+		if v, ok := row["ofport_request"]; ok {
+			if p, ok := v.(float64); ok && p > 0 {
+				used[uint(p)] = true
+			}
+		}
+	}
+	log.Printf("getUsedOFPorts: %d ports in use", len(used))
+	return used, nil
+}
+
+// ofportWaitOp returns an OVSDB "wait" operation that asserts no Interface
+// row currently has the given ofport_request value (RFC 7047 §5.2.7).
+//
+// Ideally we would use Until:"==" with empty Rows (assert result is the
+// empty set), but libovsdb tags the Rows field with omitempty, so the JSON
+// encoder drops it — ovsdb-server then rejects the op with "Required
+// 'rows' member is missing."
+//
+// Instead we use Until:"!=" with a single row matching the query. When no
+// row has ofport_request == N the result is empty, which differs from the
+// provided row, so the wait succeeds. When exactly one row has the value
+// the result equals Rows, so "!=" is false and the transaction aborts with
+// "timed out", signalling the caller (k8s CNI) to retry.
+// Timeout 0 makes it an instant assertion.
+func ofportWaitOp(ofportRequest uint) ovsdb.Operation {
+	timeout := 0
+	return ovsdb.Operation{
+		Op:      "wait",
+		Table:   "Interface",
+		Where:   []ovsdb.Condition{ovsdb.NewCondition("ofport_request", ovsdb.ConditionEqual, ofportRequest)},
+		Columns: []string{"ofport_request"},
+		Until:   "!=",
+		Rows:    []ovsdb.Row{{"ofport_request": ofportRequest}},
+		Timeout: &timeout,
+	}
+}
+
 // **************** OVS driver API ********************
 
 // CreatePort Create an internal port in OVS
@@ -195,21 +294,32 @@ func (ovsd *OvsBridgeDriver) CreatePort(intfName, contNetnsPath, contIfaceName, 
 		// TODO check if it is on the right bridge and create by the CNI
 		return nil
 	}
+
+	if ofportRequest == 0 {
+		usedPorts, err := ovsd.getUsedOFPorts()
+		if err != nil {
+			return fmt.Errorf("query used ofports: %w", err)
+		}
+		ofportRequest = resolveOFPort(intfName, usedPorts)
+	}
+	log.Printf("CreatePort: ofportRequest=%d", ofportRequest)
+
 	intfUUID, intfOp, err := createInterfaceOperation(intfName, ofportRequest, ovnPortName, dpfId, contIface.Mac, intfType, mtu, "")
 	if err != nil {
 		return err
 	}
-
 	portUUID, portOp, err := createPortOperation(intfName, contNetnsPath, contIface.Name, vlanTag, trunks, portType, intfUUID, contPodUid)
 	if err != nil {
 		return err
 	}
-
 	mutateOp := attachPortOperation(portUUID, ovsd.OvsBridgeName)
 
-	// Perform OVS transaction
-	operations := []ovsdb.Operation{*intfOp, *portOp, *mutateOp}
-
+	var operations []ovsdb.Operation
+	if ofportRequest != 0 {
+		operations = []ovsdb.Operation{ofportWaitOp(ofportRequest), *intfOp, *portOp, *mutateOp}
+	} else {
+		operations = []ovsdb.Operation{*intfOp, *portOp, *mutateOp}
+	}
 	_, err = ovsd.ovsdbTransact(operations)
 	return err
 }
@@ -310,28 +420,31 @@ func (ovsd *OvsBridgeDriver) createPeer(portOnBrA, portOnBrB, intfName, contIfac
 		}
 	}
 
-	intfUUID, intfOp, err := createInterfaceOperation(portOnBrA, 0, intfName, contIfaceName, "", "patch", 0, portOnBrB)
+	usedPorts, err := ovsd.getUsedOFPorts()
+	if err != nil {
+		return fmt.Errorf("query used ofports: %w", err)
+	}
+	ofportRequest := resolveOFPort(portOnBrA, usedPorts)
+	log.Printf("createPeer: ofportRequest=%d", ofportRequest)
+
+	intfUUID, intfOp, err := createInterfaceOperation(portOnBrA, ofportRequest, intfName, contIfaceName, "", "patch", 0, portOnBrB)
 	if err != nil {
 		return err
 	}
-
-	//portUUID, portOp, err := createPortOperation(portOnBrA, "", "", 0, make([]uint, 0), "trunk", intfUUID)
 	portUUID, portOp, err := createPortOperation(portOnBrA, "", "", 0, make([]uint, 0), "trunk", intfUUID, "")
 	if err != nil {
 		return err
 	}
-
 	mutateOp := attachPortOperation(portUUID, bridge)
 
-	// Perform OVS transaction
-	operations := []ovsdb.Operation{*intfOp, *portOp, *mutateOp}
-
-	_, err = ovsd.ovsdbTransact(operations)
-	if err != nil {
-		return err
+	var operations []ovsdb.Operation
+	if ofportRequest != 0 {
+		operations = []ovsdb.Operation{ofportWaitOp(ofportRequest), *intfOp, *portOp, *mutateOp}
+	} else {
+		operations = []ovsdb.Operation{*intfOp, *portOp, *mutateOp}
 	}
-
-	return nil
+	_, err = ovsd.ovsdbTransact(operations)
+	return err
 }
 
 // CreatePatch Create an patch between two bridges based on port name port in OVS
@@ -1149,20 +1262,11 @@ func createInterfaceOperation(intfName string, ofportRequest uint, ovnPortName s
 		intf["options"] = oMap
 	}
 
-	// Requested OpenFlow port number for this interface
+	// Callers are expected to always supply a resolved, collision-free
+	// ofport_request (via resolveOFPort). In case we run out of all slots,
+	// ofPortRequest is 0, so that createInterfaceOperation omits ofport_request entirely.
 	if ofportRequest != 0 {
 		intf["ofport_request"] = ofportRequest
-	} else {
-		// Some interfaces are added in the br-sfc without ofport_request. In particular, this is the case for p0 and p1.
-		// When ofport_request is specified, then this interface might temporarily evict another interface that has this
-		// ofport, if the latter doesn't specify ofport_request. In particular, this is the case for p0 and p1. Evicting
-		// those interface leads to downtime in traffic. The hash function returns a ofport_request in [minOFPort, maxOFPort]
-		// to decrease the chance of hitting that issue, but it's not guaranteed that we won't hit that issue.
-		// TODO: Consider adding ofport_request when adding DPUServiceInterface of type physical to ensure those ports
-		// are not evicted. This may lead to issues with collisions and errors when trying to bring up HBN, but it's not
-		// worse than what we have today, as it's going to be visible why this issue occurs. Additional logic in the hash
-		// function can be added to ensure no collisions.
-		intf["ofport_request"] = hashToOFPort(intfName)
 	}
 
 	// Add an entry in Interface table
