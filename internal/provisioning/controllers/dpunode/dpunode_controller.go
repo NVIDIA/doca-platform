@@ -593,6 +593,12 @@ func (r *DPUNodeReconciler) proccessExternalReboot(ctx context.Context, dpuNode 
 	logger := log.FromContext(ctx)
 	c := cutil.DPUCondition(provisioningv1.DPUCondRebooted, "WaitingForManualPowerCycleOrReboot", "")
 
+	// Check if every rebooting DPU has DPUCondRebooted
+	// First call of this function DPUCondRebooted should be nil and annotation should be set as Step 1.
+	// Second call of this function DPUCondRebooted should be set in addition to annotation as Step 2.
+	// Third call of this function should update DPUNodeConditionRebootInProgress condition as 'WaitingForExternalReboot'.
+	// After the rebooting done and Annotation is removed,
+	// DPUCondRebooted should be set to True and DPUNodeConditionRebootInProgress condition should be updated to 'Rebooted'.
 	condExists := true
 	for _, dpu := range dpus {
 		if dpu.Status.Phase != provisioningv1.DPURebooting {
@@ -603,12 +609,17 @@ func (r *DPUNodeReconciler) proccessExternalReboot(ctx context.Context, dpuNode 
 		}
 	}
 	if condExists {
+		// Primary path for External Reboot Method to wait manual power cycle or reboot
+		// Check if the external reboot required annotation is present
+		// If present, update the DPUNode status condition to true and wait for user reboot
 		if _, ok := dpuNode.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation]; ok {
 			r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "WaitForExternalReboot", "")
 			logger.Info("Waiting for user reboot and remove the dpunode-external-reboot-required annotation")
 			return nil
 		}
 
+		// Fallback path: annotation was removed after reboot while DPUCondRebooted still exists on DPUs.
+		// Treat reboot as completed: set DPUCondRebooted True on rebooting DPUs and clear RebootInProgress on DPUNode.
 		for _, dpu := range dpus {
 			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				// Re-read the DPU to get the latest version
@@ -627,13 +638,25 @@ func (r *DPUNodeReconciler) proccessExternalReboot(ctx context.Context, dpuNode 
 		return nil
 	}
 
-	// Update the DPUNode status condition to true
-	r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "", "")
-	if dpuNode.Annotations == nil {
-		dpuNode.Annotations = make(map[string]string)
+	// condExists is false:
+	// Step 1 — First time only (no dpunode-external-reboot-required on DPUNode): record that the host must
+	// reboot before we touch DPU status.
+	// Mutate dpuNode in memory; Reconcile's deferred Patch persists metadata + status at exit.
+	// It guarantees DPUCondRebooted is not set on DPUs until the annotation is set.
+	if _, ok := dpuNode.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation]; !ok {
+		if dpuNode.Annotations == nil {
+			dpuNode.Annotations = make(map[string]string)
+		}
+		dpuNode.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation] = "true"
+		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "", "")
+		logger.Info("Recorded dpunode-external-reboot-required", "DPUNode", dpuNode.Name)
+		return nil
 	}
-	dpuNode.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation] = "true"
 
+	// condExists is false:
+	// Step 2 — Annotation is already stored (this reconcile or a prior one).
+	// Safe to initialize DPUCondRebooted to False on each DPU in DPURebooting phase
+	// so the operator waits for the host reboot cycle.
 	c.Status = metav1.ConditionFalse
 	for _, dpu := range dpus {
 		if dpu.Status.Phase != provisioningv1.DPURebooting {
