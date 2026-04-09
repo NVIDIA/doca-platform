@@ -46,7 +46,7 @@ Selector labels
 {{- define "node-problem-detector.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "node-problem-detector.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-{{- with .Values.serviceDaemonSet.labels }}
+{{- with (.Values.global.serviceDaemonSet).labels }}
 {{ toYaml . }}
 {{- end }}
 {{- end }}
