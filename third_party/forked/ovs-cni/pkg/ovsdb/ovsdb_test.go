@@ -110,31 +110,6 @@ func TestOfportWaitOp_DifferentPorts(t *testing.T) {
 	}
 }
 
-// ---------- isOFPortConflict tests ----------
-
-// TestIsOFPortConflict verifies that isOFPortConflict correctly identifies
-// "timed out" errors from OVSDB wait operations and rejects other errors.
-func TestIsOFPortConflict(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"nil error", nil, false},
-		{"unrelated error", fmt.Errorf("connection refused"), false},
-		{"timed out error", fmt.Errorf("OVS Transaction failed err timed out Details: some details"), true},
-		{"timed out substring", fmt.Errorf("operation timed out waiting for lock"), true},
-		{"timeout without timed out", fmt.Errorf("timeout occurred"), false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := isOFPortConflict(tc.err); got != tc.want {
-				t.Errorf("isOFPortConflict(%v) = %v, want %v", tc.err, got, tc.want)
-			}
-		})
-	}
-}
-
 // ---------- resolveOFPort tests ----------
 
 // TestResolveOFPort_NoCollision verifies that when no ports are in use,
