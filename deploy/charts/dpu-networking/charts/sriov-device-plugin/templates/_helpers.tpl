@@ -36,6 +36,9 @@ Common labels
 {{- define "sriov-device-plugin.labels" -}}
 helm.sh/chart: {{ include "sriov-device-plugin.chart" . }}
 {{ include "sriov-device-plugin.selectorLabels" . }}
+{{- with (.Values.global.serviceDaemonSet).labels }}
+{{ toYaml . }}
+{{- end }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -48,6 +51,15 @@ Selector labels
 {{- define "sriov-device-plugin.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "sriov-device-plugin.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+annotations
+*/}}
+{{- define "sriov-device-plugin.annotations" -}}
+{{- with (.Values.global.serviceDaemonSet).annotations }}
+{{- toYaml . }}
+{{- end }}
 {{- end }}
 
 {{/*

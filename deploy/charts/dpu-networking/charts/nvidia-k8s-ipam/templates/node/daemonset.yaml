@@ -8,6 +8,9 @@ metadata:
     tier: node
     app: nv-ipam-node
     name: nv-ipam-node
+    {{- include "nvidia-k8s-ipam.labels" . | nindent 4 }}
+  annotations:
+    {{- include "nvidia-k8s-ipam.annotations" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
@@ -20,6 +23,9 @@ spec:
         tier: node
         app: nv-ipam-node
         name: nv-ipam-node
+        {{- include "nvidia-k8s-ipam.labels" . | nindent 8 }}
+      annotations:
+        {{- include "nvidia-k8s-ipam.annotations" . | nindent 8 }}
     spec:
       automountServiceAccountToken: false
       tolerations:

@@ -17,7 +17,7 @@ spec:
       labels:
         app: ovs-cni
         tier: node
-      {{- include "ovs-cni.selectorLabels" . | nindent 8 }}
+      {{- include "ovs-cni.labels" . | nindent 8 }}
       annotations:
         description: OVS CNI allows users to attach their Pods/VMs to Open vSwitch bridges
           available on nodes

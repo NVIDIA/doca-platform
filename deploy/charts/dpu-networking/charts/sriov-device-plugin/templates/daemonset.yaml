@@ -7,6 +7,8 @@ metadata:
     app: sriovdp
     tier: node
   {{- include "sriov-device-plugin.labels" . | nindent 4 }}
+  annotations:
+    {{- include "sriov-device-plugin.annotations" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
@@ -18,7 +20,9 @@ spec:
         app: sriovdp
         name: sriov-device-plugin
         tier: node
-      {{- include "sriov-device-plugin.selectorLabels" . | nindent 8 }}
+      {{- include "sriov-device-plugin.labels" . | nindent 8 }}
+      annotations:
+        {{- include "sriov-device-plugin.annotations" . | nindent 8 }}
     spec:
       automountServiceAccountToken: false
       containers:

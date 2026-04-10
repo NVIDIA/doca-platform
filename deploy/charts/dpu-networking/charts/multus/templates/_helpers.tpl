@@ -36,6 +36,9 @@ Common labels
 {{- define "multus.labels" -}}
 helm.sh/chart: {{ include "multus.chart" . }}
 {{ include "multus.selectorLabels" . }}
+{{- with (.Values.global.serviceDaemonSet).labels }}
+{{ toYaml . }}
+{{- end }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -48,6 +51,15 @@ Selector labels
 {{- define "multus.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "multus.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+annotations
+*/}}
+{{- define "multus.annotations" -}}
+{{- with (.Values.global.serviceDaemonSet).annotations }}
+{{- toYaml . }}
+{{- end }}
 {{- end }}
 
 {{/*

@@ -8,6 +8,8 @@ metadata:
     app.kubernetes.io/created-by: dpf-operator
     app.kubernetes.io/part-of: dpf-operator
   {{- include "sfc-controller.labels" . | nindent 4 }}
+  annotations:
+    {{- include "sfc-controller.annotations" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
@@ -20,6 +22,9 @@ spec:
         tier: node
         app: sfc-controller-node
         name: sfc-controller-node
+        {{- include "sfc-controller.labels" . | nindent 8 }}
+      annotations:
+        {{- include "sfc-controller.annotations" . | nindent 8 }}
     spec:
       automountServiceAccountToken: false
       tolerations:
