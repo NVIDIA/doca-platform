@@ -16,7 +16,7 @@ spec:
         enabled: true
       dpuManifests:
         enabled: true
-        ovnMultiNetworkEnable: true # enables secondary network support (default)
-        nodeMgmtPortNetdev: $DPU_P0_VF1
+      global:
+        enableMultiNetwork: "true" # enables secondary network support
       leaseNamespace: "ovn-kubernetes"
       gatewayOpts: "--gateway-interface=br-dpu"
