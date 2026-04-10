@@ -36,6 +36,9 @@ Common labels
 {{- define "ovs-cni.labels" -}}
 helm.sh/chart: {{ include "ovs-cni.chart" . }}
 {{ include "ovs-cni.selectorLabels" . }}
+{{- with (.Values.global.serviceDaemonSet).labels }}
+{{ toYaml . }}
+{{- end }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -48,6 +51,15 @@ Selector labels
 {{- define "ovs-cni.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "ovs-cni.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+annotations
+*/}}
+{{- define "ovs-cni.annotations" -}}
+{{- with (.Values.global.serviceDaemonSet).annotations }}
+{{- toYaml . }}
+{{- end }}
 {{- end }}
 
 {{/*

@@ -8,6 +8,8 @@ metadata:
     name: multus
     tier: node
   {{- include "multus.labels" . | nindent 4 }}
+  annotations:
+    {{- include "multus.annotations" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
@@ -19,7 +21,9 @@ spec:
         app: multus
         name: multus
         tier: node
-      {{- include "multus.selectorLabels" . | nindent 8 }}
+      {{- include "multus.labels" . | nindent 8 }}
+      annotations:
+        {{- include "multus.annotations" . | nindent 8 }}
     spec:
       containers:
       - command: ["/entrypoint.sh"]
