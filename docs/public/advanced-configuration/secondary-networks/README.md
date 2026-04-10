@@ -37,12 +37,13 @@ nodeWithoutDPUManifests:
   enabled: true
 controlPlaneManifests:
   enabled: true
-  ovnMultiNetworkEnable: true # enables secondary network support (default)
 nodeWithDPUManifests:
   enabled: true
-  nodeMgmtPortNetdev: $DPU_P0_VF1
+  nodeMgmtPortDpResourceName: nvidia.com/ovnk-mgmt-vf
   dpuServiceAccountNamespace: dpf-operator-system
-gatewayOpts: --gateway-interface=$DPU_P0
+global:
+  enableMultiNetwork: "true" # enables secondary network support
+gatewayOpts: --gateway-interface=derive-from-mgmt-port
 ## Note this CIDR is followed by a trailing /24 which informs OVN Kubernetes on how to split the CIDR per node.
 podNetwork: $POD_CIDR/24
 serviceNetwork: $SERVICE_CIDR
@@ -92,8 +93,8 @@ spec:
         enabled: true
       dpuManifests:
         enabled: true
-        ovnMultiNetworkEnable: true # enables secondary network support (default)
-        nodeMgmtPortNetdev: $DPU_P0_VF1
+      global:
+        enableMultiNetwork: "true" # enables secondary network support
       leaseNamespace: "ovn-kubernetes"
       gatewayOpts: "--gateway-interface=br-dpu"
 ```
