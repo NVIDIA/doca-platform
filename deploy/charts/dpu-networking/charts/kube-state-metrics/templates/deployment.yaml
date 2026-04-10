@@ -6,6 +6,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "kube-state-metrics.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kube-state-metrics.annotations" . | nindent 4 }}
 spec:
   replicas: 1
   strategy:
@@ -17,7 +19,9 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "kube-state-metrics.selectorLabels" . | nindent 8 }}
+        {{- include "kube-state-metrics.labels" . | nindent 8 }}
+      annotations:
+        {{- include "kube-state-metrics.annotations" . | nindent 8 }}
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}

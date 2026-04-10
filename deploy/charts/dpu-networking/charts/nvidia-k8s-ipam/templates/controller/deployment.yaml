@@ -4,9 +4,12 @@ apiVersion: apps/v1
 metadata:
   name: {{ include "nvidia-k8s-ipam.fullname" . }}
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nvidia-k8s-ipam.labels" . | nindent 4 }}
   annotations:
     kubernetes.io/description: |
       This deployment launches the nv-ipam controller for nv-ipam.
+    {{- include "nvidia-k8s-ipam.annotations" . | nindent 4 }}
 spec:
   strategy:
     type: RollingUpdate
@@ -18,6 +21,9 @@ spec:
     metadata:
       labels:
         name: controller
+        {{- include "nvidia-k8s-ipam.labels" . | nindent 8 }}
+      annotations:
+        {{- include "nvidia-k8s-ipam.annotations" . | nindent 8 }}
     spec:
       automountServiceAccountToken: false
       priorityClassName: system-cluster-critical

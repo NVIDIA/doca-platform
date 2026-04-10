@@ -36,6 +36,9 @@ Common labels
 {{- define "servicechain.labels" -}}
 helm.sh/chart: {{ include "servicechain.chart" . }}
 {{ include "servicechain.selectorLabels" . }}
+{{- with (.Values.global.serviceDaemonSet).labels }}
+{{ toYaml . }}
+{{- end }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 dpu.nvidia.com/component: servicechainset-controller-manager
@@ -49,4 +52,13 @@ Selector labels
 {{- define "servicechain.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "servicechain.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+annotations
+*/}}
+{{- define "servicechain.annotations" -}}
+{{- with (.Values.global.serviceDaemonSet).annotations }}
+{{- toYaml . }}
+{{- end }}
 {{- end }}

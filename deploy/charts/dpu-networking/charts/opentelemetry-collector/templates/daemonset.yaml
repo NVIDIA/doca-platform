@@ -14,7 +14,7 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "opentelemetry-collector.selectorLabels" . | nindent 8 }}
+        {{- include "opentelemetry-collector.labels" . | nindent 8 }}
       annotations:
         # Restart pods on config changes
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
