@@ -34,6 +34,9 @@ Common labels
 {{- define "opentelemetry-collector.labels" -}}
 helm.sh/chart: {{ include "opentelemetry-collector.chart" . }}
 {{ include "opentelemetry-collector.selectorLabels" . }}
+{{- with (.Values.global.serviceDaemonSet).labels }}
+{{ toYaml . }}
+{{- end }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -44,9 +47,6 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 Selector labels
 */}}
 {{- define "opentelemetry-collector.selectorLabels" -}}
-{{- with (.Values.global.serviceDaemonSet).labels }}
-{{- toYaml . }}
-{{- end }}
 app.kubernetes.io/name: {{ include "opentelemetry-collector.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}

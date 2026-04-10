@@ -36,6 +36,9 @@ Common labels
 {{- define "cni-installer.labels" -}}
 helm.sh/chart: {{ include "cni-installer.chart" . }}
 {{ include "cni-installer.selectorLabels" . }}
+{{- with (.Values.global.serviceDaemonSet).labels }}
+{{ toYaml . }}
+{{- end }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -48,6 +51,15 @@ Selector labels
 {{- define "cni-installer.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "cni-installer.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+annotations
+*/}}
+{{- define "cni-installer.annotations" -}}
+{{- with (.Values.global.serviceDaemonSet).annotations }}
+{{- toYaml . }}
+{{- end }}
 {{- end }}
 
 {{/*

@@ -23,3 +23,42 @@ If release name contains chart name it will be used as a full name.
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{/*
+Create chart name and version as used by the chart label.
+*/}}
+{{- define "nvidia-k8s-ipam.chart" -}}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Common labels
+*/}}
+{{- define "nvidia-k8s-ipam.labels" -}}
+helm.sh/chart: {{ include "nvidia-k8s-ipam.chart" . }}
+{{ include "nvidia-k8s-ipam.selectorLabels" . }}
+{{- with (.Values.global.serviceDaemonSet).labels }}
+{{ toYaml . }}
+{{- end }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Selector labels
+*/}}
+{{- define "nvidia-k8s-ipam.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "nvidia-k8s-ipam.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+annotations
+*/}}
+{{- define "nvidia-k8s-ipam.annotations" -}}
+{{- with (.Values.global.serviceDaemonSet).annotations }}
+{{- toYaml . }}
+{{- end }}
+{{- end }}

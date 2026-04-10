@@ -34,6 +34,9 @@ Common labels
 {{- define "node-problem-detector.labels" -}}
 helm.sh/chart: {{ include "node-problem-detector.chart" . }}
 {{ include "node-problem-detector.selectorLabels" . }}
+{{- with (.Values.global.serviceDaemonSet).labels }}
+{{ toYaml . }}
+{{- end }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -46,8 +49,14 @@ Selector labels
 {{- define "node-problem-detector.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "node-problem-detector.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-{{- with (.Values.global.serviceDaemonSet).labels }}
-{{ toYaml . }}
+{{- end }}
+
+{{/*
+annotations
+*/}}
+{{- define "node-problem-detector.annotations" -}}
+{{- with (.Values.global.serviceDaemonSet).annotations }}
+{{- toYaml . }}
 {{- end }}
 {{- end }}
 

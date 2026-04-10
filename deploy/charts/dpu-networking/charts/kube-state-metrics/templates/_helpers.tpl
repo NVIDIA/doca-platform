@@ -34,6 +34,9 @@ Common labels
 {{- define "kube-state-metrics.labels" -}}
 helm.sh/chart: {{ include "kube-state-metrics.chart" . }}
 {{ include "kube-state-metrics.selectorLabels" . }}
+{{- with (.Values.global.serviceDaemonSet).labels }}
+{{ toYaml . }}
+{{- end }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -46,4 +49,13 @@ Selector labels
 {{- define "kube-state-metrics.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "kube-state-metrics.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+annotations
+*/}}
+{{- define "kube-state-metrics.annotations" -}}
+{{- with (.Values.global.serviceDaemonSet).annotations }}
+{{- toYaml . }}
+{{- end }}
 {{- end }}
