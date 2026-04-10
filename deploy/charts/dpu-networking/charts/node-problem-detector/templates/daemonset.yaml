@@ -5,6 +5,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "node-problem-detector.labels" . | nindent 4 }}
+  annotations:
+    {{- include "node-problem-detector.annotations" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
@@ -12,7 +14,9 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "node-problem-detector.selectorLabels" . | nindent 8 }}
+        {{- include "node-problem-detector.labels" . | nindent 8 }}
+      annotations:
+        {{- include "node-problem-detector.annotations" . | nindent 8 }}
     spec:
       automountServiceAccountToken: false
       serviceAccountName: {{ include "node-problem-detector.serviceAccountName" . }}

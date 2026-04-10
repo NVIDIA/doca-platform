@@ -36,6 +36,9 @@ Common labels
 {{- define "sfc-controller.labels" -}}
 helm.sh/chart: {{ include "sfc-controller.chart" . }}
 {{ include "sfc-controller.selectorLabels" . }}
+{{- with (.Values.global.serviceDaemonSet).labels }}
+{{ toYaml . }}
+{{- end }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -48,6 +51,15 @@ Selector labels
 {{- define "sfc-controller.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "sfc-controller.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+annotations
+*/}}
+{{- define "sfc-controller.annotations" -}}
+{{- with (.Values.global.serviceDaemonSet).annotations }}
+{{- toYaml . }}
+{{- end }}
 {{- end }}
 
 {{/*
