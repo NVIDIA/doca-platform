@@ -18,6 +18,8 @@ package networkhelper
 
 import (
 	"net"
+
+	"github.com/vishvananda/netlink"
 )
 
 // NetworkHelper is a helper that can be used to configure networking related settings on the system.
@@ -70,4 +72,6 @@ type NetworkHelper interface {
 	// GetUplinkRepresentor gets a VF or PF PCI address (e.g '0000:03:00.4') and
 	// returns the uplink representor netdev name for that VF or PF.
 	GetUplinkRepresentor(pciAddress string) (string, error)
+	// DevlinkPortList returns the list of devlink ports in the system
+	DevlinkPortList() ([]*netlink.DevlinkPort, error)
 }

@@ -16,7 +16,7 @@ limitations under the License.
 
 // Manage virtual function (VF) MAC addresses.
 // It maintains persistent MAC address mappings in a TOML config file (/etc/mellanox/dpf-vf-mac-mapping.toml)
-// and handles MAC address assignment for VFs on physical interfaces p0 and p1.
+// and handles MAC address assignment for VFs for discovered ECPFs (e.g p0/p1).
 
 // The module provides functions to:
 // - Query maximum VF count from /sys/class/net/<uplink>/smart_nic
