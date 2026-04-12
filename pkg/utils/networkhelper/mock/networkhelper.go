@@ -30,6 +30,7 @@ import (
 	net "net"
 	reflect "reflect"
 
+	netlink "github.com/vishvananda/netlink"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -139,6 +140,21 @@ func (m *MockNetworkHelper) DeleteRoute(network *net.IPNet, gateway net.IP, devi
 func (mr *MockNetworkHelperMockRecorder) DeleteRoute(network, gateway, device any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRoute", reflect.TypeOf((*MockNetworkHelper)(nil).DeleteRoute), network, gateway, device)
+}
+
+// DevlinkPortList mocks base method.
+func (m *MockNetworkHelper) DevlinkPortList() ([]*netlink.DevlinkPort, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DevlinkPortList")
+	ret0, _ := ret[0].([]*netlink.DevlinkPort)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DevlinkPortList indicates an expected call of DevlinkPortList.
+func (mr *MockNetworkHelperMockRecorder) DevlinkPortList() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DevlinkPortList", reflect.TypeOf((*MockNetworkHelper)(nil).DevlinkPortList))
 }
 
 // DummyLinkExists mocks base method.

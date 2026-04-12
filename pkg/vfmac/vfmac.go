@@ -16,7 +16,7 @@ limitations under the License.
 
 // Manage virtual function (VF) MAC addresses.
 // It maintains persistent MAC address mappings in a TOML config file (/etc/mellanox/dpf-vf-mac-mapping.toml)
-// and handles MAC address assignment for VFs on physical interfaces p0 and p1.
+// and handles MAC address assignment for VFs for discovered ECPFs (e.g p0/p1).
 
 // The module provides functions to:
 // - Query maximum VF count from /sys/class/net/<uplink>/smart_nic
@@ -34,6 +34,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -42,15 +43,11 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/go-logr/logr"
+	"github.com/vishvananda/netlink/nl"
 )
 
 const (
 	sysfsNetPath = "/sys/class/net"
-
-	// p0PCIAddress is the PCI address of the first PF of the DPU
-	p0PCIAddress = "0000:03:00.0"
-	// p1PCIAddress is the PCI address of the second PF of the DPU
-	p1PCIAddress = "0000:03:00.1"
 )
 
 // FileSystem abstracts file and OS operations for testability.
@@ -88,8 +85,7 @@ type VFMAC struct {
 	fs         FileSystem
 	configDir  string
 	configFile string
-	uplinks    []string
-	maxVFs     int
+	ecpfs      []string
 	log        logr.Logger
 }
 
@@ -105,33 +101,54 @@ func NewVFMAC(fs FileSystem, networkhelper networkhelper.NetworkHelper, log logr
 		configFile = getEnv("VFMAC_CONFIG_FILE", "dpf-vf-mac-mapping.toml")
 	}
 
-	// get uplinks
-	uplinks := []string{}
-	p0uplink, err := networkhelper.GetUplinkRepresentor(p0PCIAddress)
+	// get ecpfs
+	ecpfs, err := discoverECPFs(networkhelper, fs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get uplink representor for p0: %w", err)
-	}
-	uplinks = append(uplinks, p0uplink)
-
-	p1uplink, err := networkhelper.GetUplinkRepresentor(p1PCIAddress)
-	if err == nil {
-		// p1 might not exist for single port DPUs.
-		uplinks = append(uplinks, p1uplink)
+		return nil, fmt.Errorf("failed to discover ECPFs: %w", err)
 	}
 
 	return &VFMAC{
 		fs:         fs,
 		configDir:  configDir,
 		configFile: configFile,
-		uplinks:    uplinks,
+		ecpfs:      ecpfs,
 		log:        log,
 	}, nil
 }
 
+// discoverECPFs discovers all ECPFs in the system. returns a list of netdevs of those ECPFs.
+func discoverECPFs(networkhelper networkhelper.NetworkHelper, fs FileSystem) ([]string, error) {
+	ports, err := networkhelper.DevlinkPortList()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list devlink ports: %w", err)
+	}
+
+	//nolint:prealloc
+	var ecpfs []string
+	for _, port := range ports {
+		if port.PortFlavour != nl.DEVLINK_PORT_FLAVOUR_PHYSICAL {
+			continue
+		}
+
+		// check if smart_nic dir exists. ATM we don't have a better way to check if this device is an ECPF.
+		smartNicPath := filepath.Join(sysfsNetPath, port.NetdeviceName, "smart_nic")
+		if _, err := fs.Stat(smartNicPath); err != nil {
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("failed to stat smart_nic directory (%s): %w", smartNicPath, err)
+			}
+			continue
+		}
+
+		ecpfs = append(ecpfs, port.NetdeviceName)
+	}
+
+	return ecpfs, nil
+}
+
 // getMaxVFs queries the maximum number of VFs from /sys/class/net/<uplink>/smart_nic.
-func (v *VFMAC) getMaxVFs(pf string) (int, error) {
-	v.log.Info("Getting max number of VFs from", "path", fmt.Sprintf("%s/%s/smart_nic", sysfsNetPath, pf))
-	count, err := v.countVFFolders(pf)
+func (v *VFMAC) getMaxVFs(ecpf string) (int, error) {
+	v.log.Info("Getting max number of VFs from", "path", fmt.Sprintf("%s/%s/smart_nic", sysfsNetPath, ecpf))
+	count, err := v.countVFFolders(ecpf)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count VF folders: %w", err)
 	}
@@ -144,19 +161,19 @@ type VFConfig struct {
 	MAC string `toml:"mac"`
 }
 
-// VFMapping holds the mapping of VFs to MAC addresses for both uplinks.
-type VFMapping struct {
-	P0 map[string]VFConfig `toml:"p0"`
-	P1 map[string]VFConfig `toml:"p1"`
-}
+// ECPFConfig holds VFConfig for VFs and PF of a specific ECPF keyed by VF+index/PF e.g "vf0", "vf1", "pf".
+type ECPFConfig map[string]VFConfig
 
-// getVFConfig reads the VF config from sysfs for a given PF and VF.
-func (v *VFMAC) getVFConfig(pf, vf string) (VFConfig, error) {
-	macAddr, err := v.getIfaceMACConfig(pf, vf)
+// VFMapping holds ECPFConfigs keyed by ECPF netdev name.
+type VFMapping map[string]ECPFConfig
+
+// getVFConfig reads the VF config from sysfs for a given ECPF and VF.
+func (v *VFMAC) getVFConfig(ecpf, vf string) (VFConfig, error) {
+	macAddr, err := v.getIfaceMACConfig(ecpf, vf)
 	if err != nil {
-		return VFConfig{}, fmt.Errorf("failed to get MAC address for %s/%s: %w", pf, vf, err)
+		return VFConfig{}, fmt.Errorf("failed to get MAC address for %s/%s: %w", ecpf, vf, err)
 	}
-	v.log.Info("MAC address for", "pf", pf, "vf", vf, "mac", macAddr)
+	v.log.Info("MAC address for", "ecpf", ecpf, "vf", vf, "mac", macAddr)
 	return VFConfig{MAC: macAddr}, nil
 }
 
@@ -167,8 +184,8 @@ func isValidMAC(mac string) bool {
 }
 
 // setVFMAC sets the MAC address for a VF in sysfs.
-func (v *VFMAC) setVFMAC(pf, vf, mac string) error {
-	v.log.Info("Setting MAC for", "pf", pf, "vf", vf, "mac", mac)
+func (v *VFMAC) setVFMAC(ecpf, vf, mac string) error {
+	v.log.Info("Setting MAC for", "ecpf", ecpf, "vf", vf, "mac", mac)
 
 	// Validate VF name format
 	if !strings.HasPrefix(vf, "vf") {
@@ -183,7 +200,7 @@ func (v *VFMAC) setVFMAC(pf, vf, mac string) error {
 	}
 
 	// Check if VF directory exists
-	vfPath := filepath.Join(sysfsNetPath, pf, "smart_nic", vf)
+	vfPath := filepath.Join(sysfsNetPath, ecpf, "smart_nic", vf)
 	if _, err := v.fs.Stat(vfPath); err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("sysfs directory for VF %s not found: %s", vf, vfPath)
@@ -200,16 +217,13 @@ func (v *VFMAC) setVFMAC(pf, vf, mac string) error {
 }
 
 // loadConfig loads the VF MAC mapping from the config file.
-func (v *VFMAC) loadConfig() (*VFMapping, error) {
+func (v *VFMAC) loadConfig() (VFMapping, error) {
 	v.log.Info("Loading config from", "path", filepath.Join(v.configDir, v.configFile))
 	data, err := v.fs.ReadFile(filepath.Join(v.configDir, v.configFile))
 	if err != nil {
 		if os.IsNotExist(err) {
 			v.log.Info("Config file does not exist, creating new mapping")
-			mapping := &VFMapping{
-				P0: make(map[string]VFConfig),
-				P1: make(map[string]VFConfig),
-			}
+			mapping := make(VFMapping)
 			// Create the config file with empty mappings
 			if err := v.saveConfig(mapping); err != nil {
 				return nil, fmt.Errorf("failed to create initial config file: %w", err)
@@ -224,30 +238,25 @@ func (v *VFMAC) loadConfig() (*VFMapping, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// Initialize maps if they are nil
-	if mapping.P0 == nil {
-		mapping.P0 = make(map[string]VFConfig)
-	}
-	if mapping.P1 == nil {
-		mapping.P1 = make(map[string]VFConfig)
-	}
-
 	// Validate MAC addresses in the loaded config
-	for pf, vfs := range map[string]map[string]VFConfig{"P0": mapping.P0, "P1": mapping.P1} {
-		for vf, config := range vfs {
-			if config.MAC != "" && !isValidMAC(config.MAC) {
-				return nil, fmt.Errorf("invalid MAC address in config for %s/%s: %s", pf, vf, config.MAC)
+	for ecpf, ecpfConfig := range mapping {
+		for vf, vfConfig := range ecpfConfig {
+			if vfConfig.MAC != "" && !isValidMAC(vfConfig.MAC) {
+				return nil, fmt.Errorf("invalid MAC address in config for %s/%s: %s", ecpf, vf, vfConfig.MAC)
 			}
 		}
 	}
 
-	v.log.Info("Loaded config VF count", "p0", len(mapping.P0), "p1", len(mapping.P1))
-	return &mapping, nil
+	v.log.Info("Loaded config")
+	for ecpf, ecpfConfig := range mapping {
+		v.log.Info("Loaded config for ECPF", "ecpf", ecpf, "VF count", len(ecpfConfig))
+	}
+	return mapping, nil
 }
 
-// getIfaceMACConfig reads the interface config from sysfs for a given vf of pf.
-func (v *VFMAC) getIfaceMACConfig(pf, iface string) (string, error) {
-	configPath := filepath.Join(sysfsNetPath, pf, "smart_nic", iface, "config")
+// getIfaceMACConfig reads the interface config from sysfs for a given vf or pf of an ECPF.
+func (v *VFMAC) getIfaceMACConfig(ecpf, iface string) (string, error) {
+	configPath := filepath.Join(sysfsNetPath, ecpf, "smart_nic", iface, "config")
 	data, err := v.fs.ReadFile(configPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read config file %s: %w", configPath, err)
@@ -271,90 +280,74 @@ func (v *VFMAC) getIfaceMACConfig(pf, iface string) (string, error) {
 		if key == "MAC" {
 			macFound = true
 			if value == "" {
-				return "", fmt.Errorf("empty MAC found for %s/%s", pf, iface)
+				return "", fmt.Errorf("empty MAC found for %s/%s", ecpf, iface)
 			}
 			if !isValidMAC(value) {
-				return "", fmt.Errorf("invalid MAC format for %s/%s: %s", pf, iface, value)
+				return "", fmt.Errorf("invalid MAC format for %s/%s: %s", ecpf, iface, value)
 			}
 			macAddr = value
-			v.log.Info("Found MAC for", "pf", pf, "iface", iface, "mac", value)
+			v.log.Info("Found MAC for", "ecpf", ecpf, "iface", iface, "mac", value)
 			break // We only need the MAC address
 		}
 	}
 
 	if !macFound {
-		return "", fmt.Errorf("no MAC found for %s/%s", pf, iface)
+		return "", fmt.Errorf("no MAC found for %s/%s", ecpf, iface)
 	}
 
 	return macAddr, nil
 }
 
-// LoadIfaceMACAddressMapping walks sysfs to build a PF/VF → MAC mapping.
-func (v *VFMAC) LoadIfaceMACAddressMapping() (*VFMapping, error) {
+// LoadIfaceMACAddressMapping walks sysfs to build a ECPF/VF → MAC mapping.
+func (v *VFMAC) LoadIfaceMACAddressMapping() (VFMapping, error) {
 	v.log.Info("Loading mac address mapping from", "path", filepath.Join(sysfsNetPath))
 
-	mapping := VFMapping{
-		P0: make(map[string]VFConfig),
-		P1: make(map[string]VFConfig),
-	}
+	mapping := make(VFMapping)
 
-	for _, pf := range v.uplinks {
+	for _, ecpf := range v.ecpfs {
+		mapping[ecpf] = make(ECPFConfig)
 		// Process PF MAC address
-		if _, err := v.fs.Stat(filepath.Join(sysfsNetPath, pf, "smart_nic", "pf", "config")); err == nil {
-			if err := v.processMACAddress(&mapping, pf, "pf"); err != nil {
+		if _, err := v.fs.Stat(filepath.Join(sysfsNetPath, ecpf, "smart_nic", "pf", "config")); err == nil {
+			if err := v.processMACAddress(mapping, ecpf, "pf"); err != nil {
 				return nil, err
 			}
 		}
 
 		// Process VF MAC addresses
-		maxVFs, err := v.getMaxVFs(pf)
+		maxVFs, err := v.getMaxVFs(ecpf)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get max VFs: %w", err)
 		}
 
 		for i := range maxVFs {
 			vf := fmt.Sprintf("vf%d", i)
-			if err := v.processMACAddress(&mapping, pf, vf); err != nil {
+			if err := v.processMACAddress(mapping, ecpf, vf); err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	v.log.Info("Loaded mac address mapping VF count", "p0", len(mapping.P0), "p1", len(mapping.P1))
-	return &mapping, nil
+	for _, ecpf := range v.ecpfs {
+		v.log.Info("Loaded mac address mapping for ECPF", "ecpf", ecpf, "VF count", len(mapping[ecpf]))
+	}
+	return mapping, nil
 }
 
 // processMACAddress handles MAC address retrieval and assignment for both PF and VF interfaces
-func (v *VFMAC) processMACAddress(mapping *VFMapping, pf, iface string) error {
-	macAddr, err := v.getIfaceMACConfig(pf, iface)
+func (v *VFMAC) processMACAddress(mapping VFMapping, ecpf, iface string) error {
+	macAddr, err := v.getIfaceMACConfig(ecpf, iface)
 	if err != nil {
-		return fmt.Errorf("failed to get MAC address for %s/%s: %w", pf, iface, err)
+		return fmt.Errorf("failed to get MAC address for %s/%s: %w", ecpf, iface, err)
 	}
 
-	v.log.Info("MAC address for", "pf", pf, "iface", iface, "mac", macAddr)
-	if err := v.assignMACToMapping(mapping, pf, iface, macAddr); err != nil {
-		return fmt.Errorf("failed to assign MAC address to mapping: %w", err)
-	}
-	return nil
-}
+	v.log.Info("MAC address for", "ecpf", ecpf, "iface", iface, "mac", macAddr)
+	mapping[ecpf][iface] = VFConfig{MAC: macAddr}
 
-// assignMACToMapping assigns a MAC address to the appropriate PF mapping. returns an error if the pf is not supported.
-func (v *VFMAC) assignMACToMapping(mapping *VFMapping, pf, iface, macAddr string) error {
-	config := VFConfig{MAC: macAddr}
-	idx := v.pfToIndex(pf)
-	switch idx {
-	case 0:
-		mapping.P0[iface] = config
-	case 1:
-		mapping.P1[iface] = config
-	default:
-		return fmt.Errorf("unsupported PF(%s): got index %d", pf, idx)
-	}
 	return nil
 }
 
 // saveConfig saves the VF MAC mapping to the config file.
-func (v *VFMAC) saveConfig(mapping *VFMapping) error {
+func (v *VFMAC) saveConfig(mapping VFMapping) error {
 	v.log.Info("Saving config to", "path", filepath.Join(v.configDir, v.configFile))
 	// Ensure directory exists
 	if err := v.fs.MkdirAll(v.configDir, 0755); err != nil {
@@ -373,72 +366,75 @@ func (v *VFMAC) saveConfig(mapping *VFMapping) error {
 }
 
 // ProcessVFs processes all virtual functions (VFs) for configured physical interfaces.
-
 func (v *VFMAC) ProcessVFs() error {
-	vfs, err := v.getMaxVFs(v.uplinks[0])
-	if err != nil {
-		return fmt.Errorf("failed to get max VFs: %w", err)
-	}
-	v.maxVFs = vfs
-
-	v.log.Info("Starting VF processing")
+	v.log.Info("Starting VF processing for ECPFS", "ecpfs", v.ecpfs)
 
 	mapping, err := v.loadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	for idx, pf := range v.uplinks {
-		v.log.Info("Processing physical interface", "pf", pf)
-		var vfMap map[string]VFConfig
-		switch idx {
-		case 0:
-			vfMap = mapping.P0
-		case 1:
-			vfMap = mapping.P1
-		default:
-			continue
+	for _, ecpf := range v.ecpfs {
+		v.log.Info("Processing ecpf interface", "ecpf", ecpf)
+
+		if mapping[ecpf] == nil {
+			mapping[ecpf] = make(ECPFConfig)
 		}
 
-		for i := range v.maxVFs {
+		maxVFs, err := v.getMaxVFs(ecpf)
+		if err != nil {
+			return fmt.Errorf("failed to get max VFs for ecpf %s: %w", ecpf, err)
+		}
+
+		vfMap := mapping[ecpf]
+		for i := range maxVFs {
 			vf := fmt.Sprintf("vf%d", i)
-			vfPath := filepath.Join(sysfsNetPath, pf, "smart_nic", vf)
+			vfPath := filepath.Join(sysfsNetPath, ecpf, "smart_nic", vf)
 
 			// Check if VF exists
 			if _, err := v.fs.Stat(vfPath); err != nil {
 				if os.IsNotExist(err) {
-					v.log.Info("VF does not exist, skipping", "pf", pf, "vf", vf)
+					v.log.Info("VF does not exist, skipping", "ecpf", ecpf, "vf", vf)
 					continue
 				}
 				return fmt.Errorf("failed to stat %s: %w", vfPath, err)
 			}
 
-			v.log.Info("Processing VF", "pf", pf, "vf", vf)
+			v.log.Info("Processing VF", "ecpf", ecpf, "vf", vf)
 			vfConfig, exists := vfMap[vf]
 
 			if !exists {
-				v.log.Info("No existing MAC found, generating random MAC", "pf", pf, "vf", vf)
+				v.log.Info("No existing MAC found, generating random MAC", "ecpf", ecpf, "vf", vf)
 				// Generate random MAC
-				if err := v.setVFMAC(pf, vf, "Random"); err != nil {
-					return fmt.Errorf("failed to set random MAC for %s/%s: %w", pf, vf, err)
+				if err := v.setVFMAC(ecpf, vf, "Random"); err != nil {
+					return fmt.Errorf("failed to set random MAC for %s/%s: %w", ecpf, vf, err)
 				}
 
 				// Read the assigned MAC
 				time.Sleep(1 * time.Second)
-				vfConfig, err = v.getVFConfig(pf, vf)
+				vfConfig, err = v.getVFConfig(ecpf, vf)
 				if err != nil {
-					return fmt.Errorf("failed to get VF config for %s/%s: %w", pf, vf, err)
+					return fmt.Errorf("failed to get VF config for %s/%s: %w", ecpf, vf, err)
 				}
 
 				vfMap[vf] = vfConfig
-				v.log.Info("Stored new MAC", "pf", pf, "vf", vf, "mac", vfConfig.MAC)
+				v.log.Info("Stored new MAC", "ecpf", ecpf, "vf", vf, "mac", vfConfig.MAC)
 			} else {
-				v.log.Info("Setting existing MAC", "pf", pf, "vf", vf, "mac", vfConfig.MAC)
+				v.log.Info("Setting existing MAC", "ecpf", ecpf, "vf", vf, "mac", vfConfig.MAC)
 				// Set the stored MAC
-				if err := v.setVFMAC(pf, vf, vfConfig.MAC); err != nil {
-					return fmt.Errorf("failed to set MAC for %s/%s: %w", pf, vf, err)
+				if err := v.setVFMAC(ecpf, vf, vfConfig.MAC); err != nil {
+					return fmt.Errorf("failed to set MAC for %s/%s: %w", ecpf, vf, err)
 				}
 			}
+		}
+	}
+
+	// remove ecpfs from mapping that no longer exist. this can happen if a NIC/DPU changed firmware configuration
+	// and now exposes less ECPFs.
+	for ecpf := range mapping {
+		if !slices.Contains(v.ecpfs, ecpf) {
+			v.log.Info("ECPF no longer exists, removing stale entry from mapping", "ecpf", ecpf)
+			delete(mapping, ecpf)
 		}
 	}
 
@@ -451,8 +447,8 @@ func (v *VFMAC) ProcessVFs() error {
 }
 
 // countVFFolders counts the number of VF folders in the specified smart_nic path.
-func (v *VFMAC) countVFFolders(pf string) (int, error) {
-	smartNicPath := filepath.Join(sysfsNetPath, pf, "smart_nic")
+func (v *VFMAC) countVFFolders(ecpf string) (int, error) {
+	smartNicPath := filepath.Join(sysfsNetPath, ecpf, "smart_nic")
 
 	// Read directory entries
 	entries, err := v.fs.ReadDir(smartNicPath)
@@ -469,54 +465,4 @@ func (v *VFMAC) countVFFolders(pf string) (int, error) {
 	}
 
 	return count, nil
-}
-
-// pfToIndex returns the index of the provided pf in VFMAC uplink slice
-// if not found, -1 is returned.
-func (v *VFMAC) pfToIndex(pf string) int {
-	for idx, u := range v.uplinks {
-		if u == pf {
-			return idx
-		}
-	}
-	return -1
-}
-
-// GetVFMacAddressFromVFMapping retrieves the MAC address for a VF interface from the VF MAC mapping.
-func (vfmapping *VFMapping) GetVFMacAddressFromVFMapping(pfID, vfID int) (string, error) {
-	var macAddrMapping map[string]VFConfig
-	switch pfID {
-	case 0:
-		macAddrMapping = vfmapping.P0
-	case 1:
-		macAddrMapping = vfmapping.P1
-	default:
-		return "", fmt.Errorf("unsupported PF ID: %d", pfID)
-	}
-
-	vfIDStr := fmt.Sprintf("vf%d", vfID)
-	if macAddr, ok := macAddrMapping[vfIDStr]; ok {
-		return macAddr.MAC, nil
-	} else {
-		return "", fmt.Errorf("PF ID %d, VF ID %d not found in VF MAC address mapping", pfID, vfID)
-	}
-}
-
-// GetPFMacAddressFromVFMapping retrieves the MAC address for a PF interface from the MAC address mapping.
-func (vfmapping *VFMapping) GetPFMacAddressFromVFMapping(pfID int) (string, error) {
-	var macAddrMapping map[string]VFConfig
-	switch pfID {
-	case 0:
-		macAddrMapping = vfmapping.P0
-	case 1:
-		macAddrMapping = vfmapping.P1
-	default:
-		return "", fmt.Errorf("unsupported PF ID: %d", pfID)
-	}
-
-	if macAddr, ok := macAddrMapping["pf"]; ok {
-		return macAddr.MAC, nil
-	} else {
-		return "", fmt.Errorf("PF ID %d not found in VF MAC address mapping", pfID)
-	}
 }

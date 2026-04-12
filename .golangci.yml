@@ -76,6 +76,8 @@ linters:
       no-unaliased: true
     misspell:
       locale: US
+      ignore-rules:
+        - flavour
     staticcheck:
       checks:
         - all
