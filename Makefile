@@ -137,7 +137,7 @@ export NODE_SRIOV_DEVICE_PLUGIN_IMAGE=nvcr.io/nvidia/mellanox/sriov-network-devi
 export NODE_SRIOV_DEVICE_PLUGIN_TAG=network-operator-v26.1.0
 
 # VPC dependencies to be able to build/push images and charts
-VPC_REF=6952d0d082c349293b5c945f5c1a1b5c0634c66e
+VPC_REF=3e5221711b9ff552698cdc3c09064af59ecb72f4
 VPC_DIR=$(REPOSDIR)/ovn-vpc/ovn-vpc-$(VPC_REF)
 # Token used for gitlab reporistory access, usually needed for CI/CD pipelines.
 # dev envs usually have those set in git credentials.
