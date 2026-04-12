@@ -421,3 +421,12 @@ func (n *networkHelper) GetUplinkRepresentor(pciAddress string) (string, error) 
 	}
 	return rep, nil
 }
+
+// DevlinkPortList returns the list of devlink ports in the system
+func (n *networkHelper) DevlinkPortList() ([]*netlink.DevlinkPort, error) {
+	ports, err := netlink.DevLinkGetAllPortList()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list devlink ports: %w", err)
+	}
+	return ports, nil
+}

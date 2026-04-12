@@ -29,6 +29,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/go-logr/logr"
+	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netlink/nl"
 	"go.uber.org/mock/gomock"
 )
 
@@ -165,56 +167,57 @@ const (
 	testMAC = "fa:b0:b2:04:9f:b1"
 )
 
-// setupMockNetworkHelper creates a mock NetworkHelper with default expectations
-func setupMockNetworkHelper(t *testing.T) *networkhelper_mock.MockNetworkHelper {
-	ctrl := gomock.NewController(t)
-	mockNetworkHelper := networkhelper_mock.NewMockNetworkHelper(ctrl)
-
-	// Set up default expectations for NewVFMAC calls
-	mockNetworkHelper.EXPECT().GetUplinkRepresentor("0000:03:00.0").Return("p0", nil).AnyTimes()
-	mockNetworkHelper.EXPECT().GetUplinkRepresentor("0000:03:00.1").Return("p1", nil).AnyTimes()
-
-	return mockNetworkHelper
-}
-
-// setupMockNetworkHelperError creates a mock NetworkHelper which errors out
-func setupMockNetworkHelperError(t *testing.T) *networkhelper_mock.MockNetworkHelper {
-	ctrl := gomock.NewController(t)
-	mockNetworkHelper := networkhelper_mock.NewMockNetworkHelper(ctrl)
-	mockNetworkHelper.EXPECT().GetUplinkRepresentor(gomock.Any()).Return("", fmt.Errorf("mock error")).AnyTimes()
-
-	return mockNetworkHelper
+// newTestVFMAC creates a VFMAC instance directly with the given ECPFs, bypassing
+// discoverECPFs which requires real sysfs access.
+func newTestVFMAC(fs FileSystem, ecpfs []string, configDir, configFile string) *VFMAC {
+	if configDir == "" {
+		configDir = "/etc/mellanox"
+	}
+	if configFile == "" {
+		configFile = "dpf-vf-mac-mapping.toml"
+	}
+	return &VFMAC{
+		fs:         fs,
+		configDir:  configDir,
+		configFile: configFile,
+		ecpfs:      ecpfs,
+		log:        logr.Discard(),
+	}
 }
 
 func TestNewVFMAC(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockNetworkHelper := networkhelper_mock.NewMockNetworkHelper(ctrl)
-	mockNetworkHelper.EXPECT().GetUplinkRepresentor("0000:03:00.0").Return("p0", nil).AnyTimes()
-	mockNetworkHelper.EXPECT().GetUplinkRepresentor("0000:03:00.1").Return("p1", nil).AnyTimes()
-
 	tests := []struct {
-		name              string
-		mockFS            *mockFS
-		mockNetworkHelper *networkhelper_mock.MockNetworkHelper
-		wantErr           bool
+		name    string
+		setup   func(t *testing.T) *networkhelper_mock.MockNetworkHelper
+		wantErr bool
 	}{
 		{
-			name:              "success",
-			mockFS:            &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)},
-			mockNetworkHelper: setupMockNetworkHelper(t),
-			wantErr:           false,
+			name: "success - no ECPFs discovered",
+			setup: func(t *testing.T) *networkhelper_mock.MockNetworkHelper {
+				ctrl := gomock.NewController(t)
+				mock := networkhelper_mock.NewMockNetworkHelper(ctrl)
+				mock.EXPECT().DevlinkPortList().Return(nil, nil).AnyTimes()
+				return mock
+			},
+			wantErr: false,
 		},
 		{
-			name:              "error",
-			mockFS:            &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)},
-			mockNetworkHelper: setupMockNetworkHelperError(t),
-			wantErr:           true,
+			name: "error - DevlinkPortList fails",
+			setup: func(t *testing.T) *networkhelper_mock.MockNetworkHelper {
+				ctrl := gomock.NewController(t)
+				mock := networkhelper_mock.NewMockNetworkHelper(ctrl)
+				mock.EXPECT().DevlinkPortList().Return(nil, fmt.Errorf("mock error")).AnyTimes()
+				return mock
+			},
+			wantErr: true,
 		},
 	}
 
 	for _, tcase := range tests {
 		t.Run(tcase.name, func(t *testing.T) {
-			_, err := NewVFMAC(tcase.mockFS, tcase.mockNetworkHelper, logr.Discard(), "", "")
+			mockNetworkHelper := tcase.setup(t)
+			mfs := &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)}
+			_, err := NewVFMAC(mfs, mockNetworkHelper, logr.Discard(), "", "")
 			if (err != nil) != tcase.wantErr {
 				t.Errorf("NewVFMAC() error = %v, wantErr %v", err, tcase.wantErr)
 			}
@@ -272,16 +275,16 @@ func TestIsValidMAC(t *testing.T) {
 func TestLoadAndSaveConfig(t *testing.T) {
 	tests := []struct {
 		name           string
-		mapping        *VFMapping
+		mapping        VFMapping
 		mockFS         *mockFS
 		wantErr        bool
 		verifyContents bool
 	}{
 		{
 			name: "basic config save and load",
-			mapping: &VFMapping{
-				P0: map[string]VFConfig{"vf0": {MAC: testMAC}},
-				P1: map[string]VFConfig{"vf0": {MAC: "da:f2:ea:53:cf:40"}},
+			mapping: VFMapping{
+				"p0": ECPFConfig{"vf0": VFConfig{MAC: testMAC}},
+				"p1": ECPFConfig{"vf0": VFConfig{MAC: "da:f2:ea:53:cf:40"}},
 			},
 			mockFS: &mockFS{
 				files: make(map[string][]byte),
@@ -292,9 +295,9 @@ func TestLoadAndSaveConfig(t *testing.T) {
 		},
 		{
 			name: "empty config",
-			mapping: &VFMapping{
-				P0: map[string]VFConfig{},
-				P1: map[string]VFConfig{},
+			mapping: VFMapping{
+				"p0": ECPFConfig{},
+				"p1": ECPFConfig{},
 			},
 			mockFS: &mockFS{
 				files: make(map[string][]byte),
@@ -304,15 +307,15 @@ func TestLoadAndSaveConfig(t *testing.T) {
 			verifyContents: true,
 		},
 		{
-			name: "multiple VFs per PF",
-			mapping: &VFMapping{
-				P0: map[string]VFConfig{
-					"vf0": {MAC: testMAC},
-					"vf1": {MAC: "da:f2:ea:53:cf:40"},
+			name: "multiple VFs per ECPF",
+			mapping: VFMapping{
+				"p0": ECPFConfig{
+					"vf0": VFConfig{MAC: testMAC},
+					"vf1": VFConfig{MAC: "da:f2:ea:53:cf:40"},
 				},
-				P1: map[string]VFConfig{
-					"vf0": {MAC: "aa:bb:cc:dd:ee:ff"},
-					"vf1": {MAC: "11:22:33:44:55:66"},
+				"p1": ECPFConfig{
+					"vf0": VFConfig{MAC: "aa:bb:cc:dd:ee:ff"},
+					"vf1": VFConfig{MAC: "11:22:33:44:55:66"},
 				},
 			},
 			mockFS: &mockFS{
@@ -324,9 +327,9 @@ func TestLoadAndSaveConfig(t *testing.T) {
 		},
 		{
 			name: "save error - permission denied",
-			mapping: &VFMapping{
-				P0: map[string]VFConfig{"vf0": {MAC: testMAC}},
-				P1: map[string]VFConfig{"vf0": {MAC: "da:f2:ea:53:cf:40"}},
+			mapping: VFMapping{
+				"p0": ECPFConfig{"vf0": VFConfig{MAC: testMAC}},
+				"p1": ECPFConfig{"vf0": VFConfig{MAC: "da:f2:ea:53:cf:40"}},
 			},
 			mockFS: &mockFS{
 				files:    make(map[string][]byte),
@@ -340,21 +343,17 @@ func TestLoadAndSaveConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
-			if err != nil {
-				t.Fatalf("NewVFMAC() error = %v", err)
-			}
+			vfmac := newTestVFMAC(tt.mockFS, []string{"p0", "p1"}, "/test/config/dir", "test-config.toml")
 
 			// Test save
-			err = vfmac.saveConfig(tt.mapping)
+			err := vfmac.saveConfig(tt.mapping)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("saveConfig() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
 			if tt.wantErr {
-				return // Skip load test if save failed
+				return
 			}
 
 			// Test load
@@ -365,17 +364,11 @@ func TestLoadAndSaveConfig(t *testing.T) {
 			}
 
 			if tt.verifyContents {
-				// Verify P0 contents
-				for vf, config := range tt.mapping.P0 {
-					if loaded.P0[vf].MAC != config.MAC {
-						t.Errorf("P0[%s].MAC = %v, want %v", vf, loaded.P0[vf].MAC, config.MAC)
-					}
-				}
-
-				// Verify P1 contents
-				for vf, config := range tt.mapping.P1 {
-					if loaded.P1[vf].MAC != config.MAC {
-						t.Errorf("P1[%s].MAC = %v, want %v", vf, loaded.P1[vf].MAC, config.MAC)
+				for ecpf, ecpfConfig := range tt.mapping {
+					for vf, config := range ecpfConfig {
+						if loaded[ecpf][vf].MAC != config.MAC {
+							t.Errorf("%s[%s].MAC = %v, want %v", ecpf, vf, loaded[ecpf][vf].MAC, config.MAC)
+						}
 					}
 				}
 			}
@@ -386,12 +379,14 @@ func TestLoadAndSaveConfig(t *testing.T) {
 func TestLoadIfaceMACAddressMapping(t *testing.T) {
 	tests := []struct {
 		name           string
+		ecpfs          []string
 		mockFS         *mockFS
 		wantErr        bool
 		verifyContents bool
 	}{
 		{
-			name: "basic config load from smart_nic",
+			name:  "basic config load from smart_nic",
+			ecpfs: []string{"p0", "p1"},
 			mockFS: &mockFS{
 				files: map[string][]byte{
 					"/sys/class/net/p0/smart_nic/vf0/config": []byte("MAC: fa:b0:b2:04:9f:b1\n"),
@@ -416,7 +411,8 @@ func TestLoadIfaceMACAddressMapping(t *testing.T) {
 			verifyContents: true,
 		},
 		{
-			name: "empty config",
+			name:  "empty config",
+			ecpfs: []string{"p0", "p1"},
 			mockFS: &mockFS{
 				files: map[string][]byte{},
 				dirs: map[string]bool{
@@ -428,7 +424,8 @@ func TestLoadIfaceMACAddressMapping(t *testing.T) {
 			verifyContents: true,
 		},
 		{
-			name: "invalid MAC ",
+			name:  "invalid MAC",
+			ecpfs: []string{"p0"},
 			mockFS: &mockFS{
 				files: map[string][]byte{
 					"/sys/class/net/p0/smart_nic/pf/config": []byte("MAC: invalid:mac:format\n"),
@@ -444,13 +441,8 @@ func TestLoadIfaceMACAddressMapping(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
-			if err != nil {
-				t.Fatalf("NewVFMAC() error = %v", err)
-			}
+			vfmac := newTestVFMAC(tt.mockFS, tt.ecpfs, "/test/config/dir", "test-config.toml")
 
-			// Test load
 			vfmapping, err := vfmac.LoadIfaceMACAddressMapping()
 			if err != nil && !tt.wantErr {
 				t.Errorf("LoadIfaceMACAddressMapping() error = %v", err)
@@ -458,17 +450,11 @@ func TestLoadIfaceMACAddressMapping(t *testing.T) {
 			}
 
 			if tt.verifyContents {
-				// Verify P0 contents
-				for iface, config := range vfmapping.P0 {
-					if vfmapping.P0[iface].MAC != config.MAC {
-						t.Errorf("P0[%s].MAC = %v, want %v", iface, vfmapping.P0[iface].MAC, config.MAC)
-					}
-				}
-
-				// Verify P1 contents
-				for iface, config := range vfmapping.P1 {
-					if vfmapping.P1[iface].MAC != config.MAC {
-						t.Errorf("P1[%s].MAC = %v, want %v", iface, vfmapping.P1[iface].MAC, config.MAC)
+				for ecpf, ecpfConfig := range vfmapping {
+					for iface, config := range ecpfConfig {
+						if vfmapping[ecpf][iface].MAC != config.MAC {
+							t.Errorf("%s[%s].MAC = %v, want %v", ecpf, iface, vfmapping[ecpf][iface].MAC, config.MAC)
+						}
 					}
 				}
 			}
@@ -477,104 +463,9 @@ func TestLoadIfaceMACAddressMapping(t *testing.T) {
 }
 
 func TestSetVFMAC_InvalidMAC(t *testing.T) {
-	mockNetworkHelper := setupMockNetworkHelper(t)
-	vfmac, err := NewVFMAC(&mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)}, mockNetworkHelper, logr.Discard(), "", "")
-	if err != nil {
-		t.Fatalf("NewVFMAC() error = %v", err)
-	}
+	vfmac := newTestVFMAC(&mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)}, []string{"p0"}, "", "")
 	if err := vfmac.setVFMAC("p0", "vf0", "notamac"); err == nil {
 		t.Errorf("expected error for invalid MAC, got nil")
-	}
-}
-
-func TestGetVFMacAddressFromVFMapping(t *testing.T) {
-	mapping := &VFMapping{
-		P0: map[string]VFConfig{
-			"vf0": {MAC: testMAC},
-			"vf1": {MAC: "da:f2:ea:53:cf:40"},
-		},
-		P1: map[string]VFConfig{
-			"vf0": {MAC: "aa:bb:cc:dd:ee:ff"},
-			"vf1": {MAC: testMAC},
-		},
-	}
-
-	tests := []struct {
-		name    string
-		pf      int
-		vf      int
-		want    string
-		wantErr bool
-	}{
-		{
-			name:    "valid P0/VF0 lookup",
-			pf:      0,
-			vf:      0,
-			want:    testMAC,
-			wantErr: false,
-		},
-		{
-			name:    "valid P0/VF1 lookup",
-			pf:      0,
-			vf:      1,
-			want:    "da:f2:ea:53:cf:40",
-			wantErr: false,
-		},
-		{
-			name:    "valid P1/VF0 lookup",
-			pf:      1,
-			vf:      0,
-			want:    "aa:bb:cc:dd:ee:ff",
-			wantErr: false,
-		},
-		{
-			name:    "valid P1/VF1 lookup",
-			pf:      1,
-			vf:      1,
-			want:    testMAC,
-			wantErr: false,
-		},
-		{
-			name:    "invalid PF (too high)",
-			pf:      2,
-			vf:      0,
-			want:    "",
-			wantErr: true,
-		},
-		{
-			name:    "invalid PF (negative)",
-			pf:      -1,
-			vf:      0,
-			want:    "",
-			wantErr: true,
-		},
-		{
-			name:    "invalid VF (too high)",
-			pf:      0,
-			vf:      2,
-			want:    "",
-			wantErr: true,
-		},
-		{
-			name:    "invalid VF (negative)",
-			pf:      0,
-			vf:      -1,
-			want:    "",
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := mapping.GetVFMacAddressFromVFMapping(tt.pf, tt.vf)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetVFMacAddressFromVFMapping() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !tt.wantErr && got != tt.want {
-				t.Errorf("GetVFMacAddressFromVFMapping() = %v, want %v", got, tt.want)
-			}
-		})
 	}
 }
 
@@ -632,33 +523,25 @@ func TestGetEnv(t *testing.T) {
 }
 
 func TestLoadConfig_FileNotFound(t *testing.T) {
-	mockNetworkHelper := setupMockNetworkHelper(t)
 	mfs := &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)}
-	vfmac, err := NewVFMAC(mfs, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
-	if err != nil {
-		t.Fatalf("NewVFMAC() error = %v", err)
-	}
+	vfmac := newTestVFMAC(mfs, []string{"p0"}, "/test/config/dir", "test-config.toml")
 
 	mapping, err := vfmac.loadConfig()
 	if err != nil {
 		t.Errorf("LoadConfig() unexpected error: %v", err)
 	}
-	if len(mapping.P0) != 0 || len(mapping.P1) != 0 {
+	if len(mapping) != 0 {
 		t.Error("LoadConfig() returned non-empty mapping for missing file")
 	}
 }
 
 func TestLoadConfig_InvalidTOML(t *testing.T) {
-	mockNetworkHelper := setupMockNetworkHelper(t)
 	mfs := &mockFS{
 		files: map[string][]byte{"/test/config/dir/test-config.toml": []byte("not toml")},
 		dirs:  make(map[string]bool),
 	}
-	vfmac, err := NewVFMAC(mfs, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
-	if err != nil {
-		t.Fatalf("NewVFMAC() error = %v", err)
-	}
-	_, err = vfmac.loadConfig()
+	vfmac := newTestVFMAC(mfs, []string{"p0"}, "/test/config/dir", "test-config.toml")
+	_, err := vfmac.loadConfig()
 	if err == nil {
 		t.Errorf("expected error for invalid TOML")
 	}
@@ -669,13 +552,9 @@ type failFS struct{ mockFS }
 func (f *failFS) MkdirAll(path string, perm os.FileMode) error { return errors.New("fail mkdir") }
 
 func TestSaveConfig_MkdirFail(t *testing.T) {
-	mockNetworkHelper := setupMockNetworkHelper(t)
 	mfs := &failFS{mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)}}
-	vfmac, err := NewVFMAC(mfs, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
-	if err != nil {
-		t.Fatalf("NewVFMAC() error = %v", err)
-	}
-	mapping := &VFMapping{P0: map[string]VFConfig{}, P1: map[string]VFConfig{}}
+	vfmac := newTestVFMAC(mfs, []string{"p0"}, "/test/config/dir", "test-config.toml")
+	mapping := VFMapping{"p0": ECPFConfig{}, "p1": ECPFConfig{}}
 	if err := vfmac.saveConfig(mapping); err == nil {
 		t.Errorf("expected error for mkdir failure")
 	}
@@ -709,11 +588,7 @@ func TestGetMaxVFs(t *testing.T) {
 				},
 			}
 
-			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(mockedFs, mockNetworkHelper, logr.Discard(), "", "")
-			if err != nil {
-				t.Fatalf("NewVFMAC() error = %v", err)
-			}
+			vfmac := newTestVFMAC(mockedFs, []string{"p0"}, "", "")
 
 			got, err := vfmac.getMaxVFs("p0")
 			if (err != nil) != tt.wantErr {
@@ -794,11 +669,7 @@ func TestGetVFConfig(t *testing.T) {
 				},
 				dirs: make(map[string]bool),
 			}
-			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(mfs, mockNetworkHelper, logr.Discard(), "", "")
-			if err != nil {
-				t.Fatalf("NewVFMAC() error = %v", err)
-			}
+			vfmac := newTestVFMAC(mfs, []string{"p0"}, "", "")
 
 			got, err := vfmac.getVFConfig(tt.pf, tt.vf)
 			if (err != nil) != tt.wantErr {
@@ -864,14 +735,6 @@ func TestSetVFMAC(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "invalid PF name",
-			pf:      "invalid",
-			vf:      "vf0",
-			mac:     testMAC,
-			mockFS:  &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)},
-			wantErr: true,
-		},
-		{
 			name:    "invalid VF name format",
 			pf:      "p0",
 			vf:      "invalid",
@@ -909,13 +772,9 @@ func TestSetVFMAC(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, logr.Discard(), "", "")
-			if err != nil {
-				t.Fatalf("NewVFMAC() error = %v", err)
-			}
+			vfmac := newTestVFMAC(tt.mockFS, []string{"p0"}, "", "")
 
-			err = vfmac.setVFMAC(tt.pf, tt.vf, tt.mac)
+			err := vfmac.setVFMAC(tt.pf, tt.vf, tt.mac)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("setVFMAC() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -950,7 +809,7 @@ func TestLoadConfig_FileErrors(t *testing.T) {
 			name: "invalid TOML",
 			mockFS: &mockFS{
 				files: map[string][]byte{
-					"/test/config/dir/test-config.toml": []byte("not toml\n[P0]\nvf0 = { MAC = \"invalid-mac\" }"),
+					"/test/config/dir/test-config.toml": []byte("not toml\n[p0]\nvf0 = { mac = \"invalid-mac\" }"),
 				},
 				dirs: make(map[string]bool),
 			},
@@ -966,10 +825,10 @@ func TestLoadConfig_FileErrors(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "invalid file format",
+			name: "invalid MAC in config",
 			mockFS: &mockFS{
 				files: map[string][]byte{
-					"/test/config/dir/test-config.toml": []byte("[P0]\nvf0 = { MAC = \"invalid-mac\" }\n[P1]\nvf0 = { MAC = \"invalid-mac\" }"),
+					"/test/config/dir/test-config.toml": []byte("[p0]\n[p0.vf0]\nmac = \"invalid-mac\"\n"),
 				},
 				dirs: make(map[string]bool),
 			},
@@ -979,13 +838,9 @@ func TestLoadConfig_FileErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
-			if err != nil {
-				t.Fatalf("NewVFMAC() error = %v", err)
-			}
+			vfmac := newTestVFMAC(tt.mockFS, []string{"p0"}, "/test/config/dir", "test-config.toml")
 
-			_, err = vfmac.loadConfig()
+			_, err := vfmac.loadConfig()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("LoadConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1030,18 +885,13 @@ func TestSaveConfig_FileErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
-			if err != nil {
-				t.Fatalf("NewVFMAC() error = %v", err)
+			vfmac := newTestVFMAC(tt.mockFS, []string{"p0"}, "/test/config/dir", "test-config.toml")
+
+			mapping := VFMapping{
+				"p0": ECPFConfig{"vf0": VFConfig{MAC: testMAC}},
 			}
 
-			mapping := &VFMapping{
-				P0: map[string]VFConfig{"vf0": {MAC: testMAC}},
-				P1: map[string]VFConfig{"vf0": {MAC: testMAC}},
-			}
-
-			err = vfmac.saveConfig(mapping)
+			err := vfmac.saveConfig(mapping)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("saveConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1053,7 +903,7 @@ func TestProcessVFs(t *testing.T) {
 	tests := []struct {
 		name           string
 		maxVFs         int
-		existingConfig *VFMapping
+		existingConfig VFMapping
 		mockFS         TestFileSystem
 		wantErr        bool
 	}{
@@ -1071,14 +921,13 @@ func TestProcessVFs(t *testing.T) {
 					"/sys/class/net/p0/smart_nic/vf1": true,
 				},
 			},
-			wantErr: false, // Should succeed - ProcessVFs creates a fresh config
+			wantErr: false,
 		},
 		{
 			name:   "existing config with MACs",
 			maxVFs: 2,
-			existingConfig: &VFMapping{
-				P0: map[string]VFConfig{"vf0": {MAC: testMAC}},
-				P1: map[string]VFConfig{"vf0": {MAC: testMAC}},
+			existingConfig: VFMapping{
+				"p0": ECPFConfig{"vf0": VFConfig{MAC: testMAC}},
 			},
 			mockFS: &mockFS{
 				files: map[string][]byte{
@@ -1105,9 +954,8 @@ func TestProcessVFs(t *testing.T) {
 		{
 			name:   "invalid existing config",
 			maxVFs: 2,
-			existingConfig: &VFMapping{
-				P0: map[string]VFConfig{"vf0": {MAC: "invalid"}},
-				P1: map[string]VFConfig{"vf0": {MAC: "invalid"}},
+			existingConfig: VFMapping{
+				"p0": ECPFConfig{"vf0": VFConfig{MAC: "invalid"}},
 			},
 			mockFS: &mockFS{
 				files: map[string][]byte{
@@ -1128,15 +976,29 @@ func TestProcessVFs(t *testing.T) {
 			mockFS:  &failFS{mockFS: mockFS{files: map[string][]byte{}, dirs: make(map[string]bool)}},
 			wantErr: true,
 		},
+		{
+			name:   "stale ECPF entries are removed from config",
+			maxVFs: 1,
+			existingConfig: VFMapping{
+				"p0": ECPFConfig{"vf0": VFConfig{MAC: testMAC}},
+				"p1": ECPFConfig{"vf0": VFConfig{MAC: "da:f2:ea:53:cf:40"}},
+			},
+			mockFS: &mockFS{
+				files: map[string][]byte{
+					"/sys/class/net/p0/smart_nic/vf0/config": []byte("MAC: fa:b0:b2:04:9f:b1\n"),
+				},
+				dirs: map[string]bool{
+					"/sys/class/net/p0/smart_nic":     true,
+					"/sys/class/net/p0/smart_nic/vf0": true,
+				},
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockNetworkHelper := setupMockNetworkHelper(t)
-			vfmac, err := NewVFMAC(tt.mockFS, mockNetworkHelper, logr.Discard(), "/test/config/dir", "test-config.toml")
-			if err != nil {
-				t.Fatalf("NewVFMAC() error = %v", err)
-			}
+			vfmac := newTestVFMAC(tt.mockFS, []string{"p0"}, "/test/config/dir", "test-config.toml")
 
 			// Set up existing config if provided
 			if tt.existingConfig != nil {
@@ -1150,7 +1012,7 @@ func TestProcessVFs(t *testing.T) {
 				}
 			}
 
-			err = vfmac.ProcessVFs()
+			err := vfmac.ProcessVFs()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ProcessVFs() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -1159,9 +1021,165 @@ func TestProcessVFs(t *testing.T) {
 			if !tt.wantErr {
 				// Verify config was saved
 				if mfs, ok := tt.mockFS.(*mockFS); ok {
-					if _, ok := mfs.files[filepath.Join("/test/config/dir", "test-config.toml")]; !ok {
+					configData, ok := mfs.files[filepath.Join("/test/config/dir", "test-config.toml")]
+					if !ok {
 						t.Error("ProcessVFs() did not save config file")
 					}
+
+					if tt.name == "stale ECPF entries are removed from config" {
+						var savedMapping VFMapping
+						if err := toml.Unmarshal(configData, &savedMapping); err != nil {
+							t.Fatalf("failed to parse saved config: %v", err)
+						}
+						if _, exists := savedMapping["p1"]; exists {
+							t.Error("stale ECPF 'p1' was not removed from saved config")
+						}
+						if _, exists := savedMapping["p0"]; !exists {
+							t.Error("active ECPF 'p0' is missing from saved config")
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestDiscoverECPFs(t *testing.T) {
+	tests := []struct {
+		name      string
+		mockFS    *mockFS
+		setup     func(t *testing.T) *networkhelper_mock.MockNetworkHelper
+		wantECPFs []string
+		wantErr   bool
+	}{
+		{
+			name:   "DevlinkPortList error",
+			mockFS: &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)},
+			setup: func(t *testing.T) *networkhelper_mock.MockNetworkHelper {
+				ctrl := gomock.NewController(t)
+				mock := networkhelper_mock.NewMockNetworkHelper(ctrl)
+				mock.EXPECT().DevlinkPortList().Return(nil, fmt.Errorf("devlink error"))
+				return mock
+			},
+			wantErr: true,
+		},
+		{
+			name:   "empty port list",
+			mockFS: &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)},
+			setup: func(t *testing.T) *networkhelper_mock.MockNetworkHelper {
+				ctrl := gomock.NewController(t)
+				mock := networkhelper_mock.NewMockNetworkHelper(ctrl)
+				mock.EXPECT().DevlinkPortList().Return(nil, nil)
+				return mock
+			},
+			wantECPFs: nil,
+			wantErr:   false,
+		},
+		{
+			name:   "no physical ports - all filtered",
+			mockFS: &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)},
+			setup: func(t *testing.T) *networkhelper_mock.MockNetworkHelper {
+				ctrl := gomock.NewController(t)
+				mock := networkhelper_mock.NewMockNetworkHelper(ctrl)
+				mock.EXPECT().DevlinkPortList().Return([]*netlink.DevlinkPort{
+					{NetdeviceName: "cpu0", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_CPU},
+					{NetdeviceName: "pcisf0", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_PCI_SF},
+					{NetdeviceName: "enp3s0vf0", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_VIRTUAL},
+				}, nil)
+				return mock
+			},
+			wantECPFs: nil,
+			wantErr:   false,
+		},
+		{
+			name:   "physical ports without smart_nic dir are filtered",
+			mockFS: &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)},
+			setup: func(t *testing.T) *networkhelper_mock.MockNetworkHelper {
+				ctrl := gomock.NewController(t)
+				mock := networkhelper_mock.NewMockNetworkHelper(ctrl)
+				mock.EXPECT().DevlinkPortList().Return([]*netlink.DevlinkPort{
+					{NetdeviceName: "en3f0s0np0", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_PHYSICAL},
+					{NetdeviceName: "en3f1s0np1", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_PHYSICAL},
+				}, nil)
+				return mock
+			},
+			wantECPFs: nil,
+			wantErr:   false,
+		},
+		{
+			name: "physical ports with smart_nic dir are discovered",
+			mockFS: &mockFS{
+				files: make(map[string][]byte),
+				dirs: map[string]bool{
+					"/sys/class/net/p0/smart_nic":        true,
+					"/sys/class/net/p1/smart_nic":        true,
+					"/sys/class/net/enp1s0np0/smart_nic": true,
+				},
+			},
+			setup: func(t *testing.T) *networkhelper_mock.MockNetworkHelper {
+				ctrl := gomock.NewController(t)
+				mock := networkhelper_mock.NewMockNetworkHelper(ctrl)
+				mock.EXPECT().DevlinkPortList().Return([]*netlink.DevlinkPort{
+					{NetdeviceName: "p0", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_PHYSICAL},
+					{NetdeviceName: "p1", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_PHYSICAL},
+					{NetdeviceName: "enp1s0np0", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_PHYSICAL},
+				}, nil)
+				return mock
+			},
+			wantECPFs: []string{"p0", "p1", "enp1s0np0"},
+			wantErr:   false,
+		},
+		{
+			name: "mixed ports - only physical with smart_nic survive",
+			mockFS: &mockFS{
+				files: make(map[string][]byte),
+				dirs: map[string]bool{
+					"/sys/class/net/p0/smart_nic": true,
+				},
+			},
+			setup: func(t *testing.T) *networkhelper_mock.MockNetworkHelper {
+				ctrl := gomock.NewController(t)
+				mock := networkhelper_mock.NewMockNetworkHelper(ctrl)
+				mock.EXPECT().DevlinkPortList().Return([]*netlink.DevlinkPort{
+					{NetdeviceName: "p0", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_PHYSICAL},
+					{NetdeviceName: "enp1s0np0", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_PHYSICAL},
+					{NetdeviceName: "cpu0", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_CPU},
+				}, nil)
+				return mock
+			},
+			wantECPFs: []string{"p0"},
+			wantErr:   false,
+		},
+		{
+			name:   "stat error (non-NotExist) returns error",
+			mockFS: &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool), statErr: os.ErrPermission},
+			setup: func(t *testing.T) *networkhelper_mock.MockNetworkHelper {
+				ctrl := gomock.NewController(t)
+				mock := networkhelper_mock.NewMockNetworkHelper(ctrl)
+				mock.EXPECT().DevlinkPortList().Return([]*netlink.DevlinkPort{
+					{NetdeviceName: "p0", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_PHYSICAL},
+				}, nil)
+				return mock
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockNH := tt.setup(t)
+			got, err := discoverECPFs(mockNH, tt.mockFS)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("discoverECPFs() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if len(got) != len(tt.wantECPFs) {
+				t.Errorf("discoverECPFs() got %v (len %d), want %v (len %d)", got, len(got), tt.wantECPFs, len(tt.wantECPFs))
+				return
+			}
+			for i, ecpf := range got {
+				if ecpf != tt.wantECPFs[i] {
+					t.Errorf("discoverECPFs()[%d] = %v, want %v", i, ecpf, tt.wantECPFs[i])
 				}
 			}
 		})
