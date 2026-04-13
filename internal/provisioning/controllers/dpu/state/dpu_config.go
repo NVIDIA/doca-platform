@@ -48,15 +48,17 @@ func DPUConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 	}
 
 	state.AgentLastStartupTime = dpu.Status.AgentStatus.LastStartupTime
-	switch *dpu.Status.AgentStatus.RebootMethod {
+	rm := *dpu.Status.AgentStatus.RebootMethod
+	logger.Info("DPUConfig: agent reboot method", "dpu", dpu.Name, "namespace", dpu.Namespace, "rebootMethod", rm)
+	switch rm {
 	case provisioningv1.RebootMethodNoAction:
 		if ctrlCtx.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
 			state.Phase = provisioningv1.DPUClusterConfig
 		} else {
 			state.Phase = provisioningv1.DPUHostNetworkConfiguration
 		}
-	case provisioningv1.RebootMethodDPUWarmReboot:
-		logger.Info("DPU OS is rebooting to apply configuration changes (e.g. grub), staying in DPUConfig phase")
+	case provisioningv1.RebootMethodFirmwareReset, provisioningv1.RebootMethodDPUWarmReboot:
+		logger.Info("DPU OS is rebooting, staying in DPUConfig phase")
 	default:
 		state.Phase = provisioningv1.DPURebooting
 	}
