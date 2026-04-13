@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,12 +56,44 @@ const (
 	// MinRebootDiscoveryMFTVersion is the minimum MFT (mlxconfig / mlxfwreset) version
 	// required to use device-query path (RebootMethodDiscovery=true).
 	MinRebootDiscoveryMFTVersion = "4.36.0-95"
+
+	// systemLevelResetCommandRequiredText is the canonical mlxfwreset `command_required` value that
+	// maps to RebootMethodSystemLevelReset (trim + case-insensitive match on the JSON field).
+	systemLevelResetCommandRequiredText = "Reboot external host is required"
+
+	// powerCycleCommandRequiredText is the canonical mlxfwreset `command_required` text pattern that
+	// maps to RebootMethodPowerCycle when present in the field (trim + case-insensitive substring match).
+	powerCycleCommandRequiredText = "power cycle"
 )
+
+// powerCyclePendingNvconfigNames lists pending NVCONFIG parameter names that require
+// RebootMethodPowerCycle (highest merge priority among MST discovery methods).
+var powerCyclePendingNvconfigNames = map[string]struct{}{
+	"DELAY_HOST_OS_INIT":           {},
+	"INT_CPU_AUTO_SHUTDOWN":        {},
+	"INTERNAL_CPU_OFFLOAD_ENGINE":  {},
+	"INTERNAL_CPU_IB_VPORT0":       {},
+	"INTERNAL_CPU_ESWITCH_MANAGER": {},
+	"INTERNAL_CPU_PAGE_SUPPLIER":   {},
+	"INTERNAL_CPU_MODEL":           {},
+}
+
+// firmwareResetPerDevice is one command line for execFirmwareReset, in MST glob sort order.
+type firmwareResetPerDevice struct {
+	DevicePath string
+	Cmd        string
+}
 
 type HandleReboot struct {
 	runBash        func(string) (bytes.Buffer, bytes.Buffer, error)
 	mstDevicesPath string
 	skipBlock      bool
+	// allowFirmwareReset is set for the duration of getRebootMethodDeviceQuery from LatestDPU annotations
+	// (AgentAnnotationAllowFirmwareResetReboot). When false or h is nil, rebootMethodFromMlxfwresetStatus does not select FirmwareReset.
+	allowFirmwareReset bool
+	// perDeviceFirmwareResetCmds is the ordered mlxfwreset command line per MST device from discovery
+	// when the final reboot method is FirmwareReset. Cleared when consumed by execFirmwareReset.
+	perDeviceFirmwareResetCmds []firmwareResetPerDevice
 }
 
 func (h *HandleReboot) Name() string {
@@ -109,12 +142,12 @@ func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Conte
 		return h.execSystemLevelReset(execCtx, optCtx)
 	case provisioningv1.RebootMethodFirmwareReset:
 		return h.execFirmwareReset(execCtx, optCtx)
+	case provisioningv1.RebootMethodDPUWarmReboot:
+		return h.execWarmReboot(execCtx, optCtx)
 	case provisioningv1.RebootMethodNoAction:
 		optCtx.Status.InitialBootID = nil
 		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
 		return nil
-	case provisioningv1.RebootMethodDPUWarmReboot:
-		return h.execWarmReboot(execCtx, optCtx)
 	}
 	return fmt.Errorf("unsupported reboot method: %s", *m)
 }
@@ -166,24 +199,22 @@ func (h *HandleReboot) getMSTDevices() ([]string, error) {
 }
 
 func (h *HandleReboot) execFirmwareReset(execCtx context.Context, optCtx *operations.Context) error {
-	devices, err := h.getMSTDevices()
-	if err != nil {
-		return err
-	}
-
-	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodFirmwareReset)
-
-	// Update status until success.
-	optCtx.UpdateStatusUntilSuccess(execCtx)
-
 	if h.runBash == nil {
 		h.runBash = bash.Run
 	}
-	for _, device := range devices {
-		cmd := fmt.Sprintf("mlxfwreset -d %s -y reset", device)
-		_, stderr, err := h.runBash(cmd)
+	perDeviceCmds := h.perDeviceFirmwareResetCmds
+	h.perDeviceFirmwareResetCmds = nil
+	if len(perDeviceCmds) == 0 {
+		return fmt.Errorf("per-device firmware reset commands are empty; expected device-query discovery to populate them")
+	}
+
+	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodFirmwareReset)
+	optCtx.UpdateStatusUntilSuccess(execCtx)
+
+	for _, e := range perDeviceCmds {
+		_, stderr, err := h.runBash(e.Cmd)
 		if err != nil {
-			return fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
+			return fmt.Errorf("%s: %w (stderr: %s)", e.Cmd, err, stderr.String())
 		}
 	}
 	return h.blockUntilReset()
@@ -244,16 +275,129 @@ func getRebootMethodBootID(optCtx *operations.Context) (*provisioningv1.RebootMe
 }
 
 // mlxfwresetStatusJSON is the subset of `mlxfwreset -d <mst_device> s --json` output we need for reboot decisions.
-// Other fields (e.g. reasons) remain in the raw JSON string passed to the discovery condition Message.
+// pending_nvconfig_parameters may be an array of objects or a string (e.g. "N/A"); RawMessage preserves both.
+// Other fields remain in the raw JSON string passed to the discovery condition Message.
 type mlxfwresetStatusJSON struct {
-	ResetNeeded *bool `json:"reset_needed"`
+	ResetNeeded               *bool           `json:"reset_needed"`
+	PendingNvconfigParameters json.RawMessage `json:"pending_nvconfig_parameters"`
+	CommandRequired           string          `json:"command_required"`
+}
+
+// checkRebootMethodPowerCycle reports whether a power-cycle reboot is indicated by command_required
+// or, as a fallback, by pending_nvconfig_parameters listing any name in powerCyclePendingNvconfigNames.
+func checkRebootMethodPowerCycle(_ *HandleReboot, out *mlxfwresetStatusJSON) bool {
+	cmd := strings.TrimSpace(out.CommandRequired)
+	if cmd != "" && strings.Contains(strings.ToLower(cmd), powerCycleCommandRequiredText) {
+		return true
+	}
+	// Workaround should be removed once [1] is fixed.
+	// [1] Feature Request #4846233: [DPF][BF4] Server Reboot Reduction - Mark specific TLVs for blocking FW reset
+	raw := out.PendingNvconfigParameters
+	if len(raw) == 0 {
+		return false
+	}
+	var entries []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return false
+	}
+	// Detect Power Cycle reboot request using pending_nvconfig_parameters predefined names.
+	for _, e := range entries {
+		if _, ok := powerCyclePendingNvconfigNames[e.Name]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// checkRebootMethodSystemLevelReset reports whether command_required has
+// predefined text for SystemLevelReset.
+func checkRebootMethodSystemLevelReset(_ *HandleReboot, out *mlxfwresetStatusJSON) bool {
+	cmd := strings.TrimSpace(out.CommandRequired)
+	return cmd != "" && strings.EqualFold(cmd, systemLevelResetCommandRequiredText)
+}
+
+// checkRebootMethodFirmwareReset reports non-empty command_required as the firmware-reset path.
+// When h is non-nil, appends CommandRequired to h.perDeviceFirmwareResetCmds.
+func checkRebootMethodFirmwareReset(h *HandleReboot, devicePath string, out *mlxfwresetStatusJSON) bool {
+	if out.CommandRequired == "" {
+		return false
+	}
+	if h != nil {
+		h.perDeviceFirmwareResetCmds = append(h.perDeviceFirmwareResetCmds, firmwareResetPerDevice{
+			DevicePath: devicePath,
+			Cmd:        out.CommandRequired,
+		})
+	}
+	return true
+}
+
+// rebootMethodMergePriority orders RebootMethodType for MST merge (lower = wins over more devices).
+// PowerCycle > SystemLevelReset > FirmwareReset > NoAction.
+func rebootMethodMergePriority(m provisioningv1.RebootMethodType) int {
+	switch m {
+	case provisioningv1.RebootMethodPowerCycle:
+		return 0
+	case provisioningv1.RebootMethodSystemLevelReset:
+		return 1
+	case provisioningv1.RebootMethodFirmwareReset:
+		return 2
+	case provisioningv1.RebootMethodNoAction:
+		return 3
+	default:
+		return 3
+	}
+}
+
+// rebootMethodTakesPrecedenceOver reports whether a should replace the merged method b when both come from MST discovery.
+func rebootMethodTakesPrecedenceOver(a, b provisioningv1.RebootMethodType) bool {
+	return rebootMethodMergePriority(a) < rebootMethodMergePriority(b)
+}
+
+// rebootMethodFromMlxfwresetStatus maps one device's JSON to a reboot method.
+// Use checking reboot method according to the priority in rebootMethodMergePriority.
+func rebootMethodFromMlxfwresetStatus(h *HandleReboot, device string, out *mlxfwresetStatusJSON) provisioningv1.RebootMethodType {
+	if checkRebootMethodPowerCycle(nil, out) {
+		return provisioningv1.RebootMethodPowerCycle
+	}
+	if checkRebootMethodSystemLevelReset(nil, out) {
+		return provisioningv1.RebootMethodSystemLevelReset
+	}
+	if h != nil && h.allowFirmwareReset && checkRebootMethodFirmwareReset(h, device, out) {
+		return provisioningv1.RebootMethodFirmwareReset
+	}
+	// Fallback to SystemLevelReset in case 'reset_needed' is true but no other reboot method is detected.
+	// Full tool output is available on the AgentCondRebootMethodDiscovery condition Message.
+	klog.Infof("MST device %s: no reboot method matched from tool output; falling back to SystemLevelReset. See AgentCondRebootMethodDiscovery condition Message for full tool output.", device)
+	return provisioningv1.RebootMethodSystemLevelReset
+}
+
+// agentAnnotationAllowsFirmwareResetReboot reports whether AgentAnnotationAllowFirmwareResetReboot is true on LatestDPU.
+// Default off when omitted or not "true".
+func agentAnnotationAllowsFirmwareResetReboot(optCtx *operations.Context) bool {
+	if optCtx == nil || optCtx.LatestDPU == nil {
+		return false
+	}
+	v, ok := optCtx.LatestDPU.Annotations[cutil.AgentAnnotationAllowFirmwareResetReboot]
+	if !ok {
+		return false
+	}
+	allowed, err := strconv.ParseBool(strings.TrimSpace(v))
+	if err != nil {
+		return false
+	}
+	return allowed
 }
 
 // getRebootMethodDeviceQuery is used when RebootMethodDiscovery is true (Device Query based).
 func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*provisioningv1.RebootMethodType, error) {
 	// Mark device-query mode early so status reflects it even if listing devices or mlxfwreset fails later.
-	// Reason stays NoAction with empty Message until a device reports reset_needed, then we update to SystemLevelReset + JSON.
+	// Reason stays NoAction with empty Message until a device reports reset_needed, then we update to the derived method + JSON.
 	setRebootMethodDiscoveryCondition(optCtx, provisioningv1.RebootMethodNoAction, "")
+	h.perDeviceFirmwareResetCmds = nil
+	h.allowFirmwareReset = agentAnnotationAllowsFirmwareResetReboot(optCtx)
+	defer func() { h.allowFirmwareReset = false }()
 
 	devices, err := h.getMSTDevices()
 	if err != nil {
@@ -262,6 +406,9 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 	if h.runBash == nil {
 		h.runBash = bash.Run
 	}
+
+	finalRebootMethod := provisioningv1.RebootMethodNoAction
+	rawParts := make([]string, 0, len(devices))
 	for _, device := range devices {
 		cmd := fmt.Sprintf("mlxfwreset -d %s s --json", device)
 		stdout, stderr, err := h.runBash(cmd)
@@ -276,14 +423,31 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 		if err := json.Unmarshal([]byte(raw), &out); err != nil {
 			return nil, fmt.Errorf("mlxfwreset status for %s: parse JSON: %w", device, err)
 		}
-		if ptr.Deref(out.ResetNeeded, false) {
-			setRebootMethodDiscoveryCondition(optCtx, provisioningv1.RebootMethodSystemLevelReset, raw)
-			klog.Infof("MST device %s requires reset, using SystemLevelReset", device)
-			return ptr.To(provisioningv1.RebootMethodSystemLevelReset), nil
+		if !ptr.Deref(out.ResetNeeded, false) {
+			continue
 		}
+		rawParts = append(rawParts, raw)
+		m := rebootMethodFromMlxfwresetStatus(h, device, &out)
+		if rebootMethodTakesPrecedenceOver(m, finalRebootMethod) {
+			finalRebootMethod = m
+		}
+		klog.Infof("MST device %s requires reboot method %s, (current selected method: %s)", device, m, finalRebootMethod)
 	}
+
+	// If a higher-priority method wins (e.g. PowerCycle), drop those cmds—they only apply when finalRebootMethod is FirmwareReset.
+	if finalRebootMethod != provisioningv1.RebootMethodFirmwareReset {
+		h.perDeviceFirmwareResetCmds = nil
+	}
+
+	if finalRebootMethod != provisioningv1.RebootMethodNoAction {
+		klog.Infof("MST device-query final reboot method: %s across %d device(s)", finalRebootMethod, len(rawParts))
+		setRebootMethodDiscoveryCondition(optCtx, finalRebootMethod, strings.Join(rawParts, "\n---\n"))
+		return ptr.To(finalRebootMethod), nil
+	}
+
 	if optCtx.GrubConfigChanged {
 		klog.Infof("No MST device requires reset but grub config changed, using DPUWarmReboot")
+		setRebootMethodDiscoveryCondition(optCtx, provisioningv1.RebootMethodDPUWarmReboot, "No MST device requires reset but grub config changed, using DPUWarmReboot")
 		return ptr.To(provisioningv1.RebootMethodDPUWarmReboot), nil
 	}
 	klog.Infof("No MST device requires reset, using NoAction")

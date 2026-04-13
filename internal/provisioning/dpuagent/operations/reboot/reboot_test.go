@@ -19,6 +19,7 @@ package reboot
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -474,7 +475,16 @@ var _ = Describe("Reboot", func() {
 }
 `)
 
-			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			optCtx := &operations.Context{
+				RebootMethodDiscovery: true,
+				LatestDPU: &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							cutil.AgentAnnotationAllowFirmwareResetReboot: "true",
+						},
+					},
+				},
+			}
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -486,11 +496,297 @@ var _ = Describe("Reboot", func() {
 			}
 			m, err := h.getRebootMethod(optCtx)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodFirmwareReset))
+			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodFirmwareReset)))
+			Expect(cond.Message).To(Equal(mlxfwresetFullJSON))
+		})
+
+		It("getRebootMethod maps firmware-style command_required to SystemLevelReset when allow-firmware-reset-reboot annotation is absent", func() {
+			dir, err := os.MkdirTemp("", "reboot-dq-full-json-no-dev-")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.RemoveAll(dir) }()
+			devicePath := filepath.Join(dir, "mt4125_pciconf0")
+			Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
+
+			mlxfwresetFullJSON := strings.TrimSpace(`
+{
+  "reset_needed": true,
+  "command_required": "mlxfwreset -d /dev/mst/mt4125_pciconf0 reset --level 3 --type 0 --sync 0 --method 0"
+}
+`)
+			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			h := &HandleReboot{
+				mstDevicesPath: dir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var b bytes.Buffer
+					_, _ = b.WriteString(mlxfwresetFullJSON)
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+		})
+
+		It("getRebootMethod returns PowerCycle when pending_nvconfig includes a power-cycle-only parameter", func() {
+			dir, err := os.MkdirTemp("", "reboot-dq-pwr-cycle-")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.RemoveAll(dir) }()
+			devicePath := filepath.Join(dir, "mt41692_pciconf0")
+			Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
+
+			mlxfwresetJSON := strings.TrimSpace(`
+{
+  "reset_needed": true,
+  "pending_nvconfig_parameters": [
+    {"name": "INTERNAL_CPU_MODEL", "current": "x", "next_boot": "y"}
+  ],
+  "command_required": "mlxfwreset -d /dev/mst/mt41692_pciconf0 reset --level 3"
+}
+`)
+			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			h := &HandleReboot{
+				mstDevicesPath: dir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var b bytes.Buffer
+					_, _ = b.WriteString(mlxfwresetJSON)
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodPowerCycle)))
+		})
+
+		It("getRebootMethod returns PowerCycle when command_required contains power cycle (case-insensitive substring)", func() {
+			dir, err := os.MkdirTemp("", "reboot-dq-pwr-cycle-cmd-")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.RemoveAll(dir) }()
+			devicePath := filepath.Join(dir, "mt41692_pciconf0")
+			Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
+
+			mlxfwresetJSON := strings.TrimSpace(`
+{
+  "reset_needed": true,
+  "pending_nvconfig_parameters": "N/A (No pending NVCONFIG parameters)",
+  "command_required": "Host POWER CYCLE is required before applying configuration"
+}
+`)
+			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			h := &HandleReboot{
+				mstDevicesPath: dir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var b bytes.Buffer
+					_, _ = b.WriteString(mlxfwresetJSON)
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodPowerCycle)))
+		})
+
+		It("getRebootMethod returns SystemLevelReset when command_required is external host reboot message", func() {
+			dir, err := os.MkdirTemp("", "reboot-dq-ext-host-")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.RemoveAll(dir) }()
+			devicePath := filepath.Join(dir, "mt41692_pciconf0")
+			Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
+
+			mlxfwresetJSON := strings.TrimSpace(`
+{
+  "reset_needed": true,
+  "pending_nvconfig_parameters": "N/A (No pending NVCONFIG parameters)",
+  "command_required": "Reboot external host is required"
+}
+`)
+			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			h := &HandleReboot{
+				mstDevicesPath: dir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var b bytes.Buffer
+					_, _ = b.WriteString(mlxfwresetJSON)
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodSystemLevelReset)))
-			Expect(cond.Message).To(Equal(mlxfwresetFullJSON))
+		})
+
+		It("getRebootMethod matches external host message with trim and case-insensitive command_required", func() {
+			dir, err := os.MkdirTemp("", "reboot-dq-ext-host-case-")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.RemoveAll(dir) }()
+			devicePath := filepath.Join(dir, "mt41692_pciconf0")
+			Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
+
+			mlxfwresetJSON := `{"reset_needed":true,"command_required":"  reboot EXTERNAL host is required  "}`
+			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			h := &HandleReboot{
+				mstDevicesPath: dir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var b bytes.Buffer
+					_, _ = b.WriteString(mlxfwresetJSON)
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+		})
+
+		It("merges multiple MST devices: PowerCycle wins over FirmwareReset", func() {
+			dir, err := os.MkdirTemp("", "reboot-dq-merge-pc-")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.RemoveAll(dir) }()
+			devA := filepath.Join(dir, "mt_a")
+			devB := filepath.Join(dir, "mt_b")
+			Expect(os.WriteFile(devA, nil, 0600)).To(Succeed())
+			Expect(os.WriteFile(devB, nil, 0600)).To(Succeed())
+
+			jsonFR := `{"reset_needed":true,"command_required":"mlxfwreset -d /dev/mst/mt_a reset --level 3"}`
+			jsonPC := `{"reset_needed":true,"pending_nvconfig_parameters":[{"name":"INTERNAL_CPU_MODEL"}]}`
+			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			h := &HandleReboot{
+				mstDevicesPath: dir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var b bytes.Buffer
+					switch {
+					case strings.Contains(cmd, "mt_a"):
+						_, _ = b.WriteString(jsonFR)
+					case strings.Contains(cmd, "mt_b"):
+						_, _ = b.WriteString(jsonPC)
+					default:
+						Fail("unexpected cmd: " + cmd)
+					}
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			Expect(h.perDeviceFirmwareResetCmds).To(BeNil())
+			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
+			Expect(cond.Message).To(Equal(jsonFR + "\n---\n" + jsonPC))
+		})
+
+		It("merges multiple MST devices: SystemLevelReset wins over FirmwareReset", func() {
+			dir, err := os.MkdirTemp("", "reboot-dq-merge-slr-")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.RemoveAll(dir) }()
+			devA := filepath.Join(dir, "mt_a")
+			devB := filepath.Join(dir, "mt_b")
+			Expect(os.WriteFile(devA, nil, 0600)).To(Succeed())
+			Expect(os.WriteFile(devB, nil, 0600)).To(Succeed())
+
+			jsonFR := `{"reset_needed":true,"command_required":"mlxfwreset -d /dev/mst/mt_a reset --level 3"}`
+			jsonSLR := `{"reset_needed":true,"command_required":"Reboot external host is required"}`
+			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			h := &HandleReboot{
+				mstDevicesPath: dir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var b bytes.Buffer
+					switch {
+					case strings.Contains(cmd, "mt_a"):
+						_, _ = b.WriteString(jsonFR)
+					case strings.Contains(cmd, "mt_b"):
+						_, _ = b.WriteString(jsonSLR)
+					default:
+						Fail("unexpected cmd: " + cmd)
+					}
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+			Expect(h.perDeviceFirmwareResetCmds).To(BeNil())
+			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
+			Expect(cond.Message).To(Equal(jsonFR + "\n---\n" + jsonSLR))
+		})
+
+		It("joins mlxfwreset JSON from each reset-needed device in discovery condition Message", func() {
+			dir, err := os.MkdirTemp("", "reboot-dq-join-msg-")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.RemoveAll(dir) }()
+			devA := filepath.Join(dir, "mt_a")
+			devB := filepath.Join(dir, "mt_b")
+			Expect(os.WriteFile(devA, nil, 0600)).To(Succeed())
+			Expect(os.WriteFile(devB, nil, 0600)).To(Succeed())
+			jsonA := `{"reset_needed":true,"tag":"a"}`
+			jsonB := `{"reset_needed":true,"tag":"b"}`
+			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			h := &HandleReboot{
+				mstDevicesPath: dir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var b bytes.Buffer
+					if strings.Contains(cmd, "mt_a") {
+						_, _ = b.WriteString(jsonA)
+					} else {
+						_, _ = b.WriteString(jsonB)
+					}
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			_, err = h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
+			Expect(cond.Message).To(Equal(jsonA + "\n---\n" + jsonB))
+		})
+
+		It("populates per-device firmware reset commands when merged method is FirmwareReset", func() {
+			dir, err := os.MkdirTemp("", "reboot-dq-fw-plan-")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.RemoveAll(dir) }()
+			devA := filepath.Join(dir, "mt_a")
+			devB := filepath.Join(dir, "mt_b")
+			Expect(os.WriteFile(devA, nil, 0600)).To(Succeed())
+			Expect(os.WriteFile(devB, nil, 0600)).To(Succeed())
+			cmdA := "mlxfwreset -d /dev/mst/mt_a reset --level 3 --type 0"
+			cmdB := "mlxfwreset -d /dev/mst/mt_b reset --level 1"
+			jsonA := `{"reset_needed":true,"command_required":"` + cmdA + `"}`
+			jsonB := `{"reset_needed":true,"command_required":"` + cmdB + `"}`
+			optCtx := &operations.Context{
+				RebootMethodDiscovery: true,
+				LatestDPU: &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							cutil.AgentAnnotationAllowFirmwareResetReboot: "true",
+						},
+					},
+				},
+			}
+			h := &HandleReboot{
+				mstDevicesPath: dir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var b bytes.Buffer
+					if strings.Contains(cmd, "mt_a") {
+						_, _ = b.WriteString(jsonA)
+					} else {
+						_, _ = b.WriteString(jsonB)
+					}
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodFirmwareReset))
+			Expect(h.perDeviceFirmwareResetCmds).To(Equal([]firmwareResetPerDevice{
+				{DevicePath: devA, Cmd: cmdA},
+				{DevicePath: devB, Cmd: cmdB},
+			}))
 		})
 
 		It("getRebootMethod returns error when mlxfwreset JSON is invalid", func() {
@@ -512,6 +808,67 @@ var _ = Describe("Reboot", func() {
 			_, err = h.getRebootMethod(optCtx)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("parse JSON:"))
+		})
+	})
+
+	Describe("MST reboot method helpers", func() {
+		DescribeTable("rebootMethodMergePriority",
+			func(m provisioningv1.RebootMethodType, want int) {
+				Expect(rebootMethodMergePriority(m)).To(Equal(want))
+			},
+			Entry("PowerCycle", provisioningv1.RebootMethodPowerCycle, 0),
+			Entry("SystemLevelReset", provisioningv1.RebootMethodSystemLevelReset, 1),
+			Entry("FirmwareReset", provisioningv1.RebootMethodFirmwareReset, 2),
+			Entry("NoAction", provisioningv1.RebootMethodNoAction, 3),
+			Entry("unhandled type falls through to default bucket (same priority as NoAction)",
+				provisioningv1.RebootMethodType("NotAnMSTMergeMethod"), 3),
+		)
+
+		DescribeTable("rebootMethodTakesPrecedenceOver",
+			func(a, b provisioningv1.RebootMethodType, want bool) {
+				Expect(rebootMethodTakesPrecedenceOver(a, b)).To(Equal(want))
+			},
+			Entry("PowerCycle beats FirmwareReset",
+				provisioningv1.RebootMethodPowerCycle, provisioningv1.RebootMethodFirmwareReset, true),
+			Entry("FirmwareReset does not beat PowerCycle",
+				provisioningv1.RebootMethodFirmwareReset, provisioningv1.RebootMethodPowerCycle, false),
+			Entry("PowerCycle beats SystemLevelReset",
+				provisioningv1.RebootMethodPowerCycle, provisioningv1.RebootMethodSystemLevelReset, true),
+			Entry("SystemLevelReset beats FirmwareReset",
+				provisioningv1.RebootMethodSystemLevelReset, provisioningv1.RebootMethodFirmwareReset, true),
+			Entry("FirmwareReset does not beat SystemLevelReset",
+				provisioningv1.RebootMethodFirmwareReset, provisioningv1.RebootMethodSystemLevelReset, false),
+			Entry("same method — no replacement",
+				provisioningv1.RebootMethodFirmwareReset, provisioningv1.RebootMethodFirmwareReset, false),
+			Entry("FirmwareReset beats NoAction",
+				provisioningv1.RebootMethodFirmwareReset, provisioningv1.RebootMethodNoAction, true),
+		)
+
+		It("rebootMethodFromMlxfwresetStatus follows PowerCycle > SystemLevelReset > FirmwareReset > SystemLevelReset fallback", func() {
+			dev := "/dev/mst/x"
+			h := &HandleReboot{}
+
+			var outPC mlxfwresetStatusJSON
+			Expect(json.Unmarshal([]byte(`{"reset_needed":true,"pending_nvconfig_parameters":[{"name":"INTERNAL_CPU_MODEL"}],"command_required":"mlxfwreset -d x reset"}`), &outPC)).To(Succeed())
+			Expect(rebootMethodFromMlxfwresetStatus(h, dev, &outPC)).To(Equal(provisioningv1.RebootMethodPowerCycle))
+
+			var outPCCmd mlxfwresetStatusJSON
+			Expect(json.Unmarshal([]byte(`{"reset_needed":true,"command_required":"Please perform a power cycle on the host"}`), &outPCCmd)).To(Succeed())
+			Expect(rebootMethodFromMlxfwresetStatus(h, dev, &outPCCmd)).To(Equal(provisioningv1.RebootMethodPowerCycle))
+
+			var outSLR mlxfwresetStatusJSON
+			Expect(json.Unmarshal([]byte(`{"reset_needed":true,"command_required":"Reboot external host is required"}`), &outSLR)).To(Succeed())
+			Expect(rebootMethodFromMlxfwresetStatus(h, dev, &outSLR)).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+
+			var outFR mlxfwresetStatusJSON
+			Expect(json.Unmarshal([]byte(`{"reset_needed":true,"command_required":"mlxfwreset -d x reset --level 3"}`), &outFR)).To(Succeed())
+			Expect(rebootMethodFromMlxfwresetStatus(h, dev, &outFR)).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+			h.allowFirmwareReset = true
+			Expect(rebootMethodFromMlxfwresetStatus(h, dev, &outFR)).To(Equal(provisioningv1.RebootMethodFirmwareReset))
+
+			var outFallback mlxfwresetStatusJSON
+			Expect(json.Unmarshal([]byte(`{"reset_needed":true}`), &outFallback)).To(Succeed())
+			Expect(rebootMethodFromMlxfwresetStatus(nil, dev, &outFallback)).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 		})
 	})
 
@@ -565,22 +922,46 @@ var _ = Describe("Reboot", func() {
 				defer func() { _ = os.RemoveAll(dir) }()
 				devicePath := filepath.Join(dir, "mt4119_pciconf0")
 				Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
+				cmd := fmt.Sprintf("mlxfwreset -d %s -y reset", devicePath)
 				optCtx := &operations.Context{
 					UpdateStatusUntilSuccess: func(context.Context) {}, // no-op for unit test
 				}
 				var fwResetCmds []string
 				h := &HandleReboot{
-					skipBlock:      true,
-					mstDevicesPath: dir,
-					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-						fwResetCmds = append(fwResetCmds, cmd)
+					skipBlock: true,
+					perDeviceFirmwareResetCmds: []firmwareResetPerDevice{
+						{DevicePath: devicePath, Cmd: cmd},
+					},
+					runBash: func(c string) (bytes.Buffer, bytes.Buffer, error) {
+						fwResetCmds = append(fwResetCmds, c)
 						return bytes.Buffer{}, bytes.Buffer{}, nil
 					},
 				}
 				Expect(h.execFirmwareReset(context.Background(), optCtx)).To(Succeed())
 				Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
 				Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodFirmwareReset))
-				Expect(fwResetCmds).To(Equal([]string{fmt.Sprintf("mlxfwreset -d %s -y reset", devicePath)}))
+				Expect(fwResetCmds).To(Equal([]string{cmd}))
+			})
+
+			It("runs discovered per-device firmware reset commands without listing MST devices", func() {
+				optCtx := &operations.Context{
+					UpdateStatusUntilSuccess: func(context.Context) {},
+				}
+				var ran []string
+				h := &HandleReboot{
+					skipBlock: true,
+					perDeviceFirmwareResetCmds: []firmwareResetPerDevice{
+						{DevicePath: "/dev/mst/a", Cmd: "custom-a"},
+						{DevicePath: "/dev/mst/b", Cmd: "custom-b"},
+					},
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						ran = append(ran, cmd)
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					},
+				}
+				Expect(h.execFirmwareReset(context.Background(), optCtx)).To(Succeed())
+				Expect(ran).To(Equal([]string{"custom-a", "custom-b"}))
+				Expect(h.perDeviceFirmwareResetCmds).To(BeNil())
 			})
 
 			It("runs mlxfwreset reset for every device under mst path", func() {
@@ -596,32 +977,32 @@ var _ = Describe("Reboot", func() {
 				optCtx := &operations.Context{
 					UpdateStatusUntilSuccess: func(context.Context) {},
 				}
-				var cmds []string
+				var ran []string
 				h := &HandleReboot{
-					skipBlock:      true,
-					mstDevicesPath: dir,
+					skipBlock: true,
+					perDeviceFirmwareResetCmds: []firmwareResetPerDevice{
+						{DevicePath: paths[0], Cmd: fmt.Sprintf("mlxfwreset -d %s -y reset", paths[0])},
+						{DevicePath: paths[1], Cmd: fmt.Sprintf("mlxfwreset -d %s -y reset", paths[1])},
+					},
 					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-						cmds = append(cmds, cmd)
+						ran = append(ran, cmd)
 						return bytes.Buffer{}, bytes.Buffer{}, nil
 					},
 				}
 				Expect(h.execFirmwareReset(context.Background(), optCtx)).To(Succeed())
-				Expect(cmds).To(HaveLen(2))
-				Expect(cmds).To(Equal([]string{
+				Expect(ran).To(HaveLen(2))
+				Expect(ran).To(Equal([]string{
 					fmt.Sprintf("mlxfwreset -d %s -y reset", paths[0]),
 					fmt.Sprintf("mlxfwreset -d %s -y reset", paths[1]),
 				}))
 			})
 
-			It("fails when no MST devices found", func() {
-				dir, err := os.MkdirTemp("", "reboot-mst-empty-")
-				Expect(err).NotTo(HaveOccurred())
-				defer func() { _ = os.RemoveAll(dir) }()
+			It("fails when per-device firmware reset commands are empty", func() {
 				optCtx := &operations.Context{}
-				h := &HandleReboot{mstDevicesPath: dir}
+				h := &HandleReboot{skipBlock: true}
 				execErr := h.execFirmwareReset(context.Background(), optCtx)
 				Expect(execErr).To(HaveOccurred())
-				Expect(execErr.Error()).To(ContainSubstring("no MST devices found"))
+				Expect(execErr.Error()).To(ContainSubstring("per-device firmware reset commands are empty"))
 			})
 		})
 	})
