@@ -40,6 +40,9 @@
               - metadata
               - labels
               - svc.dpu.nvidia.com/owned-by-dpudeployment
+            service_id:
+              - status
+              - serviceID
     - name: status_conditions
       help: The condition of a DPUService.
       each:
