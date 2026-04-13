@@ -1004,6 +1004,7 @@ verify-manifest-storage-dpu-doca-snap: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) 
 	 --set dpu.docaSnap.podSecurityContext.runAsNonRoot=false \
 	 --set serviceDaemonSet.resources.cpu=1m \
 	 --set serviceDaemonSet.resources.memory=1Mi \
+	 --set dpu.docaSnap.image.tag=c@sha256:d \
 	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-doca-snap-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-doca-snap-$(TAG).yaml" \
 	  MANIFEST_NAME="storage-dpu-doca-snap" \
