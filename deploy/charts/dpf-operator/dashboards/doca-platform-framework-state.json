@@ -954,7 +954,7 @@
       },
       "id": 10,
       "panels": [],
-      "title": "Service & Storage",
+      "title": "Service",
       "type": "row"
     },
     {
@@ -1136,119 +1136,6 @@
         "x": 2,
         "y": 6
       },
-      "id": 26,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "vertical",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "12.3.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum(max(dpuservicecredentialrequest_status_conditions{type=\"Ready\",status=\"True\"}) by (uid)) * 100 / sum(max(dpuservicecredentialrequest_status_conditions{type=\"Ready\"}) by (uid)) OR vector(0)",
-          "instant": false,
-          "legendFormat": "Ready",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "sum(max(dpuservicecredentialrequest_status_conditions{type=\"Ready\"}) by (uid)) OR vector(0)",
-          "hide": false,
-          "instant": true,
-          "legendFormat": "Total",
-          "range": false,
-          "refId": "B"
-        }
-      ],
-      "title": "DPUServiceCredentialRequest",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "max": 100,
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": 0
-              },
-              {
-                "color": "green",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "A"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "B"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "text",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 2,
-        "x": 4,
-        "y": 6
-      },
       "id": 28,
       "options": {
         "colorMode": "value",
@@ -1359,7 +1246,7 @@
       "gridPos": {
         "h": 4,
         "w": 2,
-        "x": 6,
+        "x": 4,
         "y": 6
       },
       "id": 146,
@@ -1472,7 +1359,7 @@
       "gridPos": {
         "h": 4,
         "w": 2,
-        "x": 8,
+        "x": 6,
         "y": 6
       },
       "id": 27,
@@ -1585,7 +1472,7 @@
       "gridPos": {
         "h": 4,
         "w": 2,
-        "x": 10,
+        "x": 8,
         "y": 6
       },
       "id": 205,
@@ -1713,8 +1600,8 @@
       "gridPos": {
         "h": 4,
         "w": 2,
-        "x": 16,
-        "y": 6
+        "x": 18,
+        "y": 11
       },
       "id": 206,
       "options": {
@@ -1841,8 +1728,8 @@
       "gridPos": {
         "h": 4,
         "w": 2,
-        "x": 18,
-        "y": 6
+        "x": 20,
+        "y": 11
       },
       "id": 207,
       "options": {
@@ -1969,8 +1856,8 @@
       "gridPos": {
         "h": 4,
         "w": 2,
-        "x": 20,
-        "y": 6
+        "x": 22,
+        "y": 11
       },
       "id": 208,
       "options": {
@@ -2097,8 +1984,8 @@
       "gridPos": {
         "h": 4,
         "w": 2,
-        "x": 22,
-        "y": 6
+        "x": 0,
+        "y": 15
       },
       "id": 209,
       "options": {
@@ -2160,7 +2047,7 @@
       },
       "id": 17,
       "panels": [],
-      "title": "Networking & VPC",
+      "title": "Networking & Storage",
       "type": "row"
     },
     {
@@ -2225,7 +2112,7 @@
         "h": 4,
         "w": 2,
         "x": 12,
-        "y": 6
+        "y": 11
       },
       "id": 221,
       "options": {
@@ -2981,7 +2868,7 @@
       "gridPos": {
         "h": 4,
         "w": 2,
-        "x": 20,
+        "x": 14,
         "y": 11
       },
       "id": 211,
@@ -3109,7 +2996,7 @@
       "gridPos": {
         "h": 4,
         "w": 2,
-        "x": 22,
+        "x": 16,
         "y": 11
       },
       "id": 210,
@@ -3168,7 +3055,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 15
+        "y": 19
       },
       "id": 30,
       "panels": [],
@@ -3259,9 +3146,9 @@
       },
       "gridPos": {
         "h": 12,
-        "w": 12,
+        "w": 8,
         "x": 0,
-        "y": 16
+        "y": 20
       },
       "id": 20,
       "options": {
@@ -3452,7 +3339,8 @@
               "deploy_in_cluster": "Host Cluster Service",
               "name 1": "Name",
               "namespace 1": "Namespace",
-              "status": "Status"
+              "status": "Status",
+              "parent_dpudeployment": "DPUDeployment"
             }
           }
         },
@@ -3516,634 +3404,9 @@
       },
       "gridPos": {
         "h": 12,
-        "w": 12,
-        "x": 12,
-        "y": 16
-      },
-      "id": 150,
-      "options": {
-        "cellHeight": "sm",
-        "frameIndex": 0,
-        "showHeader": true,
-        "sortBy": []
-      },
-      "pluginVersion": "12.3.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "disableTextWrap": false,
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "dpucluster_info{}",
-          "format": "table",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "instant": true,
-          "interval": "",
-          "legendFormat": "Auto",
-          "range": false,
-          "refId": "A",
-          "useBackend": false
-        }
-      ],
-      "title": "DPUClusters",
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "Value": true,
-              "__name__": true,
-              "app_kubernetes_io_component": true,
-              "app_kubernetes_io_instance": true,
-              "app_kubernetes_io_managed_by": true,
-              "app_kubernetes_io_name": true,
-              "app_kubernetes_io_part_of": true,
-              "app_kubernetes_io_version": true,
-              "container": true,
-              "customresource_group": true,
-              "customresource_kind": true,
-              "customresource_version": true,
-              "endpoint": true,
-              "exported_namespace": true,
-              "helm_sh_chart": true,
-              "instance": true,
-              "job": true,
-              "max_nodes": true,
-              "node": true,
-              "pod": true,
-              "service": true,
-              "type": true,
-              "uid": true
-            },
-            "includeByName": {},
-            "indexByName": {
-              "Time": 4,
-              "Value": 20,
-              "__name__": 5,
-              "app_kubernetes_io_component": 7,
-              "app_kubernetes_io_instance": 8,
-              "app_kubernetes_io_managed_by": 9,
-              "app_kubernetes_io_name": 10,
-              "app_kubernetes_io_part_of": 11,
-              "app_kubernetes_io_version": 12,
-              "customresource_group": 13,
-              "customresource_kind": 14,
-              "customresource_version": 15,
-              "firmware": 2,
-              "helm_sh_chart": 6,
-              "instance": 16,
-              "job": 17,
-              "name": 1,
-              "namespace": 0,
-              "node": 3,
-              "service": 18,
-              "uid": 19
-            },
-            "renameByName": {
-              "firmware": "Firmware",
-              "name": "Name",
-              "namespace": "Namespace",
-              "node": "",
-              "node_name": "Node Name"
-            }
-          }
-        }
-      ],
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "applyToRow": true,
-              "mode": "gradient",
-              "type": "color-background"
-            },
-            "filterable": true,
-            "footer": {
-              "reducers": []
-            },
-            "inspect": false,
-            "minWidth": 50,
-            "wrapText": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "transparent",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Issued At"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "dateTimeAsLocalNoDateIfToday"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Expiration"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "dateTimeAsLocalNoDateIfToday"
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 12,
-        "w": 12,
-        "x": 0,
-        "y": 28
-      },
-      "id": 149,
-      "options": {
-        "cellHeight": "sm",
-        "enablePagination": false,
-        "frameIndex": 0,
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": false,
-            "displayName": "Status"
-          }
-        ]
-      },
-      "pluginVersion": "12.3.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "disableTextWrap": false,
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "dpuservicecredentialrequest_info",
-          "format": "table",
-          "fullMetaSearch": false,
-          "hide": false,
-          "includeNullMetadata": true,
-          "instant": true,
-          "interval": "",
-          "legendFormat": "Auto",
-          "range": false,
-          "refId": "info",
-          "useBackend": false
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "dpuservicecredentialrequest_expiration * 1000",
-          "format": "table",
-          "hide": false,
-          "instant": true,
-          "legendFormat": "__auto",
-          "range": false,
-          "refId": "expiration"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "dpuservicecredentialrequest_issued_at * 1000",
-          "format": "table",
-          "hide": false,
-          "instant": true,
-          "legendFormat": "__auto",
-          "range": false,
-          "refId": "issued_at"
-        }
-      ],
-      "title": "DPUServiceCredentialRequests",
-      "transformations": [
-        {
-          "id": "joinByField",
-          "options": {
-            "byField": "uid",
-            "mode": "inner"
-          }
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "Time 1": true,
-              "Time 2": true,
-              "Time 3": true,
-              "Time 4": true,
-              "Value": true,
-              "Value #A": true,
-              "Value #B": false,
-              "Value #info": true,
-              "__name__": true,
-              "__name__ 1": true,
-              "__name__ 2": true,
-              "__name__ 3": true,
-              "__name__ 4": true,
-              "app_kubernetes_io_component": true,
-              "app_kubernetes_io_component 1": true,
-              "app_kubernetes_io_component 2": true,
-              "app_kubernetes_io_component 3": true,
-              "app_kubernetes_io_component 4": true,
-              "app_kubernetes_io_instance": true,
-              "app_kubernetes_io_instance 1": true,
-              "app_kubernetes_io_instance 2": true,
-              "app_kubernetes_io_instance 3": true,
-              "app_kubernetes_io_instance 4": true,
-              "app_kubernetes_io_managed_by": true,
-              "app_kubernetes_io_managed_by 1": true,
-              "app_kubernetes_io_managed_by 2": true,
-              "app_kubernetes_io_managed_by 3": true,
-              "app_kubernetes_io_managed_by 4": true,
-              "app_kubernetes_io_name": true,
-              "app_kubernetes_io_name 1": true,
-              "app_kubernetes_io_name 2": true,
-              "app_kubernetes_io_name 3": true,
-              "app_kubernetes_io_name 4": true,
-              "app_kubernetes_io_part_of": true,
-              "app_kubernetes_io_part_of 1": true,
-              "app_kubernetes_io_part_of 2": true,
-              "app_kubernetes_io_part_of 3": true,
-              "app_kubernetes_io_part_of 4": true,
-              "app_kubernetes_io_version": true,
-              "app_kubernetes_io_version 1": true,
-              "app_kubernetes_io_version 2": true,
-              "app_kubernetes_io_version 3": true,
-              "app_kubernetes_io_version 4": true,
-              "container 1": true,
-              "container 2": true,
-              "container 3": true,
-              "creation_timestamp": true,
-              "creation_timestamp 1": true,
-              "creation_timestamp 2": true,
-              "customresource_group": true,
-              "customresource_group 1": true,
-              "customresource_group 2": true,
-              "customresource_group 3": true,
-              "customresource_group 4": true,
-              "customresource_kind": true,
-              "customresource_kind 1": true,
-              "customresource_kind 2": true,
-              "customresource_kind 3": true,
-              "customresource_kind 4": true,
-              "customresource_version": true,
-              "customresource_version 1": true,
-              "customresource_version 2": true,
-              "customresource_version 3": true,
-              "customresource_version 4": true,
-              "deploy_in_cluster": true,
-              "endpoint 1": true,
-              "endpoint 2": true,
-              "endpoint 3": true,
-              "exported_namespace 1": true,
-              "exported_namespace 2": true,
-              "exported_namespace 3": true,
-              "helm_sh_chart": true,
-              "helm_sh_chart 1": true,
-              "helm_sh_chart 2": true,
-              "helm_sh_chart 3": true,
-              "helm_sh_chart 4": true,
-              "instance": true,
-              "instance 1": true,
-              "instance 2": true,
-              "instance 3": true,
-              "instance 4": true,
-              "job": true,
-              "job 1": true,
-              "job 2": true,
-              "job 3": true,
-              "job 4": true,
-              "name 1": false,
-              "name 2": true,
-              "name 3": true,
-              "name 4": true,
-              "namespace 1": false,
-              "namespace 2": true,
-              "namespace 3": true,
-              "namespace 4": true,
-              "node": true,
-              "node 1": true,
-              "node 2": true,
-              "node 3": true,
-              "node 4": true,
-              "pod 1": true,
-              "pod 2": true,
-              "pod 3": true,
-              "service": true,
-              "service 1": true,
-              "service 2": true,
-              "service 3": true,
-              "service 4": true,
-              "status": false,
-              "type": true,
-              "uid": true,
-              "{__name__=\"dpuservice_status_conditions\", app_kubernetes_io_component=\"metrics\", app_kubernetes_io_instance=\"dpf-operator\", app_kubernetes_io_managed_by=\"Helm\", app_kubernetes_io_name=\"kube-state-metrics\", app_kubernetes_io_part_of=\"kube-state-metrics\", app_kubernetes_io_version=\"2.13.0\", creation_timestamp=\"2024-09-02T13:54:06Z\", customresource_group=\"svc.dpf.nvidia.com\", customresource_kind=\"DPUService\", customresource_version=\"v1alpha1\", helm_sh_chart=\"kube-state-metrics-5.25.1\", instance=\"10.244.0.35:8080\", job=\"kubernetes-service-endpoints\", name=\"flannel\", namespace=\"dpf-operator-system\", node=\"dpf-test\", service=\"dpf-operator-kube-state-metrics\", status=\"False\", type=\"Ready\", uid=\"31cb2ccc-175b-4983-8b12-bb27708a5155\"}": false
-            },
-            "includeByName": {},
-            "indexByName": {
-              "Time 1": 8,
-              "Time 2": 24,
-              "Time 3": 43,
-              "Value #expiration": 6,
-              "Value #info": 61,
-              "Value #issued_at": 5,
-              "__name__ 1": 9,
-              "__name__ 2": 25,
-              "__name__ 3": 44,
-              "app_kubernetes_io_component 1": 10,
-              "app_kubernetes_io_component 2": 26,
-              "app_kubernetes_io_component 3": 45,
-              "app_kubernetes_io_instance 1": 11,
-              "app_kubernetes_io_instance 2": 27,
-              "app_kubernetes_io_instance 3": 46,
-              "app_kubernetes_io_managed_by 1": 12,
-              "app_kubernetes_io_managed_by 2": 28,
-              "app_kubernetes_io_managed_by 3": 47,
-              "app_kubernetes_io_name 1": 13,
-              "app_kubernetes_io_name 2": 29,
-              "app_kubernetes_io_name 3": 48,
-              "app_kubernetes_io_part_of 1": 14,
-              "app_kubernetes_io_part_of 2": 30,
-              "app_kubernetes_io_part_of 3": 49,
-              "app_kubernetes_io_version 1": 15,
-              "app_kubernetes_io_version 2": 31,
-              "app_kubernetes_io_version 3": 50,
-              "customresource_group 1": 16,
-              "customresource_group 2": 32,
-              "customresource_group 3": 51,
-              "customresource_kind 1": 17,
-              "customresource_kind 2": 33,
-              "customresource_kind 3": 52,
-              "customresource_version 1": 18,
-              "customresource_version 2": 34,
-              "customresource_version 3": 53,
-              "helm_sh_chart 1": 19,
-              "helm_sh_chart 2": 35,
-              "helm_sh_chart 3": 54,
-              "instance 1": 20,
-              "instance 2": 36,
-              "instance 3": 55,
-              "job 1": 21,
-              "job 2": 37,
-              "job 3": 56,
-              "name 1": 1,
-              "name 2": 38,
-              "name 3": 57,
-              "namespace 1": 0,
-              "namespace 2": 39,
-              "namespace 3": 58,
-              "node 1": 22,
-              "node 2": 40,
-              "node 3": 59,
-              "secret": 2,
-              "service 1": 23,
-              "service 2": 41,
-              "service 3": 60,
-              "service_account": 3,
-              "target_cluster_name": 4,
-              "type": 42,
-              "uid": 7
-            },
-            "renameByName": {
-              "Value #A": "",
-              "Value #B": "Duration",
-              "Value #C": "Expiration",
-              "Value #D": "Issued At",
-              "Value #expiration": "Expiration",
-              "Value #issued_at": "Issued At",
-              "chart_version": "Chart Version",
-              "deploy_in_cluster": "Host Cluster Service",
-              "name 1": "Name",
-              "namespace 1": "Namespace",
-              "secret": "Secret",
-              "service_account": "Service Account",
-              "status": "Status",
-              "target_cluster_name": "Target Cluster"
-            }
-          }
-        }
-      ],
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "filterable": true,
-            "footer": {
-              "reducers": []
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 12,
-        "w": 12,
-        "x": 12,
-        "y": 28
-      },
-      "id": 21,
-      "options": {
-        "cellHeight": "sm",
-        "frameIndex": 0,
-        "showHeader": true,
-        "sortBy": []
-      },
-      "pluginVersion": "12.3.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "disableTextWrap": false,
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "dpu_info{}",
-          "format": "table",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "instant": true,
-          "interval": "",
-          "legendFormat": "Auto",
-          "range": false,
-          "refId": "A",
-          "useBackend": false
-        }
-      ],
-      "title": "DPUs",
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "Value": true,
-              "__name__": true,
-              "app_kubernetes_io_component": true,
-              "app_kubernetes_io_instance": true,
-              "app_kubernetes_io_managed_by": true,
-              "app_kubernetes_io_name": true,
-              "app_kubernetes_io_part_of": true,
-              "app_kubernetes_io_version": true,
-              "container": true,
-              "customresource_group": true,
-              "customresource_kind": true,
-              "customresource_version": true,
-              "endpoint": true,
-              "exported_namespace": true,
-              "helm_sh_chart": true,
-              "instance": true,
-              "job": true,
-              "node": true,
-              "pod": true,
-              "service": true,
-              "uid": true
-            },
-            "includeByName": {},
-            "indexByName": {
-              "Time": 4,
-              "Value": 20,
-              "__name__": 5,
-              "app_kubernetes_io_component": 7,
-              "app_kubernetes_io_instance": 8,
-              "app_kubernetes_io_managed_by": 9,
-              "app_kubernetes_io_name": 10,
-              "app_kubernetes_io_part_of": 11,
-              "app_kubernetes_io_version": 12,
-              "customresource_group": 13,
-              "customresource_kind": 14,
-              "customresource_version": 15,
-              "firmware": 2,
-              "helm_sh_chart": 6,
-              "instance": 16,
-              "job": 17,
-              "name": 1,
-              "namespace": 0,
-              "node": 3,
-              "service": 18,
-              "uid": 19
-            },
-            "renameByName": {
-              "firmware": "Firmware",
-              "name": "Name",
-              "namespace": "Namespace",
-              "node": "",
-              "node_name": "Node Name"
-            }
-          }
-        }
-      ],
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "filterable": true,
-            "footer": {
-              "reducers": []
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 12,
-        "w": 12,
-        "x": 0,
-        "y": 40
+        "w": 8,
+        "x": 8,
+        "y": 20
       },
       "id": 212,
       "options": {
@@ -4227,13 +3490,17 @@
           "custom": {
             "align": "auto",
             "cellOptions": {
-              "type": "auto"
+              "applyToRow": true,
+              "mode": "gradient",
+              "type": "color-background"
             },
             "filterable": true,
             "footer": {
               "reducers": []
             },
-            "inspect": false
+            "inspect": false,
+            "minWidth": 50,
+            "wrapText": false
           },
           "mappings": [],
           "thresholds": {
@@ -4250,133 +3517,59 @@
             ]
           }
         },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 12,
-        "w": 12,
-        "x": 12,
-        "y": 40
-      },
-      "id": 213,
-      "options": {
-        "cellHeight": "sm",
-        "frameIndex": 0,
-        "showHeader": true,
-        "sortBy": []
-      },
-      "pluginVersion": "12.3.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "disableTextWrap": false,
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "dpunode_info{}",
-          "format": "table",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "instant": true,
-          "interval": "",
-          "legendFormat": "Auto",
-          "range": false,
-          "refId": "A",
-          "useBackend": false
-        }
-      ],
-      "title": "DPUNodes",
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "Value": true,
-              "__name__": true,
-              "app_kubernetes_io_component": true,
-              "app_kubernetes_io_instance": true,
-              "app_kubernetes_io_managed_by": true,
-              "app_kubernetes_io_name": true,
-              "app_kubernetes_io_part_of": true,
-              "app_kubernetes_io_version": true,
-              "container": true,
-              "customresource_group": true,
-              "customresource_kind": true,
-              "customresource_version": true,
-              "endpoint": true,
-              "exported_namespace": true,
-              "helm_sh_chart": true,
-              "instance": true,
-              "job": true,
-              "node": true,
-              "pod": true,
-              "service": true,
-              "uid": true
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status"
             },
-            "includeByName": {},
-            "indexByName": {},
-            "renameByName": {
-              "name": "Name",
-              "namespace": "Namespace"
-            }
-          }
-        }
-      ],
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "filterable": true,
-            "footer": {
-              "reducers": []
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
+            "properties": [
               {
-                "color": "green",
-                "value": 0
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "False": {
+                        "color": "red",
+                        "index": 0,
+                        "text": "false"
+                      },
+                      "True": {
+                        "color": "green",
+                        "index": 1,
+                        "text": "true"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
               },
               {
-                "color": "red",
-                "value": 80
+                "id": "custom.width",
+                "value": 114
               }
             ]
           }
-        },
-        "overrides": []
+        ]
       },
       "gridPos": {
         "h": 12,
-        "w": 12,
-        "x": 0,
-        "y": 52
+        "w": 8,
+        "x": 16,
+        "y": 20
       },
-      "id": 214,
+      "id": 300,
       "options": {
         "cellHeight": "sm",
+        "enablePagination": false,
         "frameIndex": 0,
         "showHeader": true,
-        "sortBy": []
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Status"
+          }
+        ]
       },
       "pluginVersion": "12.3.0",
       "targets": [
@@ -4385,168 +3578,122 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "disableTextWrap": false,
           "editorMode": "code",
           "exemplar": false,
-          "expr": "dpuvolume_info{}",
+          "expr": "dpudeployment_info{}",
           "format": "table",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
           "instant": true,
-          "interval": "",
           "legendFormat": "Auto",
           "range": false,
-          "refId": "A",
-          "useBackend": false
-        }
-      ],
-      "title": "DPUVolumes",
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "Value": true,
-              "__name__": true,
-              "app_kubernetes_io_component": true,
-              "app_kubernetes_io_instance": true,
-              "app_kubernetes_io_managed_by": true,
-              "app_kubernetes_io_name": true,
-              "app_kubernetes_io_part_of": true,
-              "app_kubernetes_io_version": true,
-              "container": true,
-              "customresource_group": true,
-              "customresource_kind": true,
-              "customresource_version": true,
-              "endpoint": true,
-              "exported_namespace": true,
-              "helm_sh_chart": true,
-              "instance": true,
-              "job": true,
-              "node": true,
-              "pod": true,
-              "service": true,
-              "uid": true
-            },
-            "includeByName": {},
-            "indexByName": {},
-            "renameByName": {
-              "name": "Name",
-              "namespace": "Namespace"
-            }
-          }
-        }
-      ],
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "filterable": true,
-            "footer": {
-              "reducers": []
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
+          "refId": "A"
         },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 12,
-        "w": 12,
-        "x": 12,
-        "y": 52
-      },
-      "id": 215,
-      "options": {
-        "cellHeight": "sm",
-        "frameIndex": 0,
-        "showHeader": true,
-        "sortBy": []
-      },
-      "pluginVersion": "12.3.0",
-      "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "disableTextWrap": false,
           "editorMode": "code",
           "exemplar": false,
-          "expr": "dpuvpc_info{}",
+          "expr": "dpudeployment_status_conditions{type=\"Ready\"} == 1",
           "format": "table",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
+          "hide": false,
           "instant": true,
-          "interval": "",
-          "legendFormat": "Auto",
+          "legendFormat": "__auto",
           "range": false,
-          "refId": "A",
-          "useBackend": false
+          "refId": "B"
         }
       ],
-      "title": "DPUVPCs",
+      "title": "DPUDeployments",
       "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "uid",
+            "mode": "inner"
+          }
+        },
         {
           "id": "organize",
           "options": {
             "excludeByName": {
               "Time": true,
+              "Time 1": true,
+              "Time 2": true,
               "Value": true,
+              "Value #A": true,
+              "Value #B": true,
               "__name__": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
               "app_kubernetes_io_component": true,
+              "app_kubernetes_io_component 1": true,
+              "app_kubernetes_io_component 2": true,
               "app_kubernetes_io_instance": true,
+              "app_kubernetes_io_instance 1": true,
+              "app_kubernetes_io_instance 2": true,
               "app_kubernetes_io_managed_by": true,
+              "app_kubernetes_io_managed_by 1": true,
+              "app_kubernetes_io_managed_by 2": true,
               "app_kubernetes_io_name": true,
+              "app_kubernetes_io_name 1": true,
+              "app_kubernetes_io_name 2": true,
               "app_kubernetes_io_part_of": true,
+              "app_kubernetes_io_part_of 1": true,
+              "app_kubernetes_io_part_of 2": true,
               "app_kubernetes_io_version": true,
+              "app_kubernetes_io_version 1": true,
+              "app_kubernetes_io_version 2": true,
               "container": true,
+              "container 1": true,
+              "container 2": true,
+              "creation_timestamp": true,
+              "creation_timestamp 1": true,
+              "creation_timestamp 2": true,
               "customresource_group": true,
+              "customresource_group 1": true,
+              "customresource_group 2": true,
               "customresource_kind": true,
+              "customresource_kind 1": true,
+              "customresource_kind 2": true,
               "customresource_version": true,
+              "customresource_version 1": true,
+              "customresource_version 2": true,
               "endpoint": true,
+              "endpoint 1": true,
+              "endpoint 2": true,
               "exported_namespace": true,
+              "exported_namespace 1": true,
+              "exported_namespace 2": true,
               "helm_sh_chart": true,
+              "helm_sh_chart 1": true,
+              "helm_sh_chart 2": true,
               "instance": true,
+              "instance 1": true,
+              "instance 2": true,
               "job": true,
+              "job 1": true,
+              "job 2": true,
+              "name 2": true,
+              "namespace 2": true,
               "node": true,
+              "node 1": true,
+              "node 2": true,
               "pod": true,
+              "pod 1": true,
+              "pod 2": true,
               "service": true,
+              "service 1": true,
+              "service 2": true,
+              "type": true,
               "uid": true
             },
             "includeByName": {},
             "indexByName": {},
             "renameByName": {
-              "name": "Name",
-              "namespace": "Namespace"
+              "name 1": "Name",
+              "namespace 1": "Namespace",
+              "flavor": "Flavor",
+              "status": "Status"
             }
           }
         }
@@ -4560,6 +3707,29 @@
   "tags": [],
   "templating": {
     "list": [
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(dpu_status_conditions, namespace)",
+        "includeAll": true,
+        "multi": true,
+        "name": "namespace",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(dpu_status_conditions, namespace)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "type": "query",
+        "hide": 0
+      },
       {
         "current": {
           "text": "All",
@@ -4743,33 +3913,6 @@
         "query": {
           "qryType": 1,
           "query": "label_values(dpudeployment_status_conditions,type)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
-        "refresh": 2,
-        "regex": "",
-        "type": "query"
-      },
-      {
-        "current": {
-          "text": "All",
-          "value": [
-            "$__all"
-          ]
-        },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "definition": "label_values(dpuservicecredentialrequest_status_conditions,type)",
-        "hide": 2,
-        "includeAll": true,
-        "label": "DPUServiceCredentialRequest Conditions",
-        "multi": true,
-        "name": "dpuservicecredentialrequest_conditions",
-        "options": [],
-        "query": {
-          "qryType": 1,
-          "query": "label_values(dpuservicecredentialrequest_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5094,7 +4237,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "DOCA Platform Framework State v3",
+  "title": "DOCA Platform Framework State",
   "uid": "bdwdkx2p9kqgwdasdsd",
   "version": 1
 }

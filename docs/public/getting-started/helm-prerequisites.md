@@ -395,6 +395,7 @@ tolerations:
     effect: NoSchedule
 extraArgs:
   - --custom-resource-state-config-file=/etc/customresourcestate/config.yaml
+  - --metric-labels-allowlist=pods=[svc.dpu.nvidia.com/service],daemonsets=[svc.dpu.nvidia.com/service],deployments=[svc.dpu.nvidia.com/service]
 volumes:
   - configMap:
       defaultMode: 420
