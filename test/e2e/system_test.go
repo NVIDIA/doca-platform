@@ -339,7 +339,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		It("delete the DPUServices and check that the applications are cleaned up", Labels{Domain.ZeroTrust}, func() {
 			ValidateDPUServiceDeletion(ctx, input)
 		})
-		It("verify that the ImagePullSecrets have been synced correctly and cleaned up", Labels{Domain.ZeroTrust}, func() {
+		It("verify that the ImagePullSecrets have been synced correctly and cleaned up", Labels{Domain.ZeroTrust, Domain.ImagePullSecretsSync}, func() {
 			ValidateImagePullSecretsSync(ctx, input)
 		})
 	})
