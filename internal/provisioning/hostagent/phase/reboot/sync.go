@@ -122,6 +122,12 @@ func (r *Handler) reboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, d
 			runPowerCycle = true
 			break
 		}
+		// run power cycle if the DPU agent reports PowerCycle as the reboot method
+		if dpu.Status.AgentStatus != nil && dpu.Status.AgentStatus.RebootMethod != nil &&
+			*dpu.Status.AgentStatus.RebootMethod == provisioningv1.RebootMethodPowerCycle {
+			runPowerCycle = true
+			break
+		}
 	}
 	if runPowerCycle {
 		if err := r.runPowerCycle(dpuNode, rebootNow); err != nil {
