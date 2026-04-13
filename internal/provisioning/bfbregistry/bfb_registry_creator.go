@@ -102,11 +102,17 @@ func (r *BFBRegistryRunnable) ensurePod(ctx context.Context, namespace, nodeName
 	existing := &corev1.Pod{}
 	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, existing)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			desired := r.desiredPod(namespace, nodeName, image, ownerRef)
-			return r.Client.Create(ctx, desired)
+		if !apierrors.IsNotFound(err) {
+			return err
 		}
-		return err
+		desired := r.desiredPod(namespace, nodeName, image, ownerRef)
+		if err := r.Client.Create(ctx, desired); err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				return nil
+			}
+			return err
+		}
+		return nil
 	}
 	return nil
 }
@@ -204,7 +210,12 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 				},
 			},
 		}
-		return r.Client.Create(ctx, desired)
+		if err := r.Client.Create(ctx, desired); err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				return nil
+			}
+			return err
+		}
 	}
 	return nil
 }
