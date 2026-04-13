@@ -291,6 +291,55 @@ func (od ObjectTree) GetParent(id types.UID) client.Object {
 	return od.items[parentID]
 }
 
+// PruneHealthy removes healthy subtrees from the object tree, keeping only
+// resources with non-Ready conditions and their parent chain.
+func (od ObjectTree) PruneHealthy() {
+	od.pruneHealthyChildren(od.root)
+}
+
+// pruneHealthyChildren recursively prunes healthy children of the given object.
+// Returns true if the object itself and all its descendants are healthy (can be pruned).
+func (od ObjectTree) pruneHealthyChildren(obj client.Object) bool {
+	children := od.GetObjectsByParent(obj.GetUID())
+	if len(children) == 0 {
+		// Leaf node: healthy if Ready condition is True or if it's a virtual/group node with no issues.
+		return od.isHealthy(obj)
+	}
+
+	// Process children first (bottom-up).
+	var healthyChildren []client.Object
+	var hasUnhealthyChild bool
+	for _, child := range children {
+		if od.pruneHealthyChildren(child) {
+			healthyChildren = append(healthyChildren, child)
+		} else {
+			hasUnhealthyChild = true
+		}
+	}
+
+	// Remove healthy children silently.
+	for _, child := range healthyChildren {
+		od.remove(obj, child)
+	}
+
+	// If all children were healthy and this node itself is healthy, it can be pruned.
+	if !hasUnhealthyChild && od.isHealthy(obj) {
+		return true
+	}
+
+	return false
+}
+
+// isHealthy returns true if the object has a Ready=True condition or has no conditions (virtual/organizational).
+func (od ObjectTree) isHealthy(obj client.Object) bool {
+	ready := getReadyCondition(obj)
+	if ready == nil {
+		// Virtual/organizational node — healthy if no failed conditions.
+		return !hasFailedConditions(obj, od.options.ShowPending)
+	}
+	return ready.Status == metav1.ConditionTrue
+}
+
 // Copy from: https://github.com/kubernetes-sigs/cluster-api/blob/release-1.9/cmd/clusterctl/client/tree/tree.go#L280
 func hasSameStatusAndReason(a, b *metav1.Condition) bool {
 	if ((a == nil) != (b == nil)) || ((a != nil && b != nil) && (a.Status != b.Status || a.Reason != b.Reason)) {
