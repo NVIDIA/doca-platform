@@ -48,6 +48,7 @@ type describeOptions struct {
 	color               bool
 	showStorage         bool
 	showPending         bool
+	issues              bool
 }
 
 var opts describeOptions
@@ -66,6 +67,9 @@ var exampleCmds = `# Show only DPUService resources
 
 # Expand the resources for a DPUService
 %[1]s describe %[2]s --expand-resources=DPUService
+
+# Show only resources with issues (non-Ready conditions)
+%[1]s describe %[2]s --issues
 
 # Run %[1]s for a different cluster
 %[1]s describe %[2]s --kubeconfig /path/to/your/kubeconfig
@@ -105,6 +109,9 @@ func init() {
 	describeCmd.Flags().BoolVar(&opts.showPending, "show-pending", false,
 		"Show conditions with Reason=Pending and Status=Unknown. These are hidden by default as they represent transient states.")
 
+	describeCmd.Flags().BoolVar(&opts.issues, "issues", false,
+		"Show only resources with issues (non-Ready conditions). Healthy subtrees are hidden.")
+
 	// TODO: decide if we want to use Kubernetes cli-runtime here instead of the controller-runtime flags.
 	// The cli-runtime has alot dependencies, but brings several generic flags that can be useful.
 	//
@@ -134,6 +141,10 @@ func runDescribe(subCmd string) error {
 	tree, err := dpfctl.Discover(ctx, c, options, subCmd)
 	if err != nil {
 		return err
+	}
+
+	if opts.issues {
+		tree.PruneHealthy()
 	}
 
 	// Honor NO_COLOR env var first, then the CLI flag.
