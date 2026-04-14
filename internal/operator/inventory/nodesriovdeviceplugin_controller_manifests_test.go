@@ -101,7 +101,7 @@ func TestNodeSRIOVDevicePluginControllerObjects_GenerateManifests(t *testing.T) 
 
 	t.Run("no objects if disable (by default)", func(t *testing.T) {
 		vars := newDefaultVariables(defaults)
-		objs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
+		objs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars)
 		if err != nil {
 			t.Fatalf("failed to generate manifests: %v", err)
 		}
@@ -114,7 +114,7 @@ func TestNodeSRIOVDevicePluginControllerObjects_GenerateManifests(t *testing.T) 
 		vars := newDefaultVariables(defaults)
 		vars.DisableSystemComponents[nodeSRIOVDevicePluginCtrl.Name()] = false
 		vars.Namespace = testNamespace
-		objs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
+		objs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 		for _, obj := range objs {
 			if !isClusterScoped(obj.GetObjectKind().GroupVersionKind().Kind) {
@@ -128,7 +128,7 @@ func TestNodeSRIOVDevicePluginControllerObjects_GenerateManifests(t *testing.T) 
 		vars.DisableSystemComponents[nodeSRIOVDevicePluginCtrl.Name()] = false
 		vars.Namespace = testNamespace
 		vars.ImagePullSecrets = []string{testImagePullSecret}
-		generatedObjs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
+		generatedObjs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 		gotDeployment := &appsv1.Deployment{}
 		for i, obj := range generatedObjs {
@@ -148,7 +148,7 @@ func TestNodeSRIOVDevicePluginControllerObjects_GenerateManifests(t *testing.T) 
 		g := NewGomegaWithT(t)
 		vars := newDefaultVariables(defaults)
 		vars.DisableSystemComponents[nodeSRIOVDevicePluginCtrl.Name()] = false
-		generatedObjs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
+		generatedObjs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 		gotDeployment := &appsv1.Deployment{}
 		for i, obj := range generatedObjs {
@@ -167,7 +167,7 @@ func TestNodeSRIOVDevicePluginControllerObjects_GenerateManifests(t *testing.T) 
 		g := NewGomegaWithT(t)
 		vars := newDefaultVariables(defaults)
 		vars.DisableSystemComponents[nodeSRIOVDevicePluginCtrl.Name()] = false
-		generatedObjs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
+		generatedObjs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 		gotDeployment := &appsv1.Deployment{}
 		for i, obj := range generatedObjs {
@@ -190,7 +190,7 @@ func TestNodeSRIOVDevicePluginControllerObjects_GenerateManifests(t *testing.T) 
 		setImage := "image-name"
 		vars.Images[operatorv1.NodeSRIOVDevicePluginControllerName.WithContainer(
 			operatorv1.ControllerManagerContainer)] = setImage
-		generatedObjs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
+		generatedObjs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 		gotDeployment := &appsv1.Deployment{}
 		for i, obj := range generatedObjs {
@@ -216,7 +216,7 @@ func TestNodeSRIOVDevicePluginControllerObjects_GenerateManifests(t *testing.T) 
 			DefaultResourcePrefix: "custom.prefix.io",
 		}
 		vars.ImagePullSecrets = []string{"secret1", "secret2"}
-		generatedObjs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
+		generatedObjs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 		gotDeployment := &appsv1.Deployment{}
 		for i, obj := range generatedObjs {
@@ -262,7 +262,7 @@ func TestNodeSRIOVDevicePluginControllerObjects_GenerateManifests(t *testing.T) 
 				corev1.ResourceMemory: resource.MustParse("512Mi"),
 			},
 		}
-		objs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
+		objs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 		for _, obj := range objs {
 			if obj.GetObjectKind().GroupVersionKind().Kind != string(DeploymentKind) {
@@ -291,7 +291,7 @@ func TestNodeSRIOVDevicePluginControllerObjects_GenerateManifests(t *testing.T) 
 		vars := newDefaultVariables(defaults)
 		vars.DisableSystemComponents[nodeSRIOVDevicePluginCtrl.Name()] = false
 		vars.Replicas[operatorv1.NodeSRIOVDevicePluginControllerName] = ptr.To[int32](3)
-		objs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
+		objs, err := nodeSRIOVDevicePluginCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 		for _, obj := range objs {
 			if obj.GetObjectKind().GroupVersionKind().Kind != string(DeploymentKind) {

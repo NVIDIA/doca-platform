@@ -80,13 +80,9 @@ func (d *dpuServiceControllerObjects) Parse() error {
 }
 
 // GenerateManifests returns all objects as a list.
-func (d *dpuServiceControllerObjects) GenerateManifests(ctx context.Context, vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
+func (d *dpuServiceControllerObjects) GenerateManifests(ctx context.Context, vars Variables) ([]client.Object, error) {
 	if ok := vars.DisableSystemComponents[d.Name()]; ok {
 		return []client.Object{}, nil
-	}
-	opts := &GenerateManifestOptions{}
-	for _, option := range options {
-		option.Apply(opts)
 	}
 	// make a copy of the objects
 	objsCopy := make([]*unstructured.Unstructured, 0, len(d.objects))
@@ -94,14 +90,10 @@ func (d *dpuServiceControllerObjects) GenerateManifests(ctx context.Context, var
 		objsCopy = append(objsCopy, d.objects[i].DeepCopy())
 	}
 
-	applySetID := ApplySetID(vars.Namespace, d)
 	labelsToAdd := map[string]string{
 		operatorv1.DPFComponentLabelKey: d.Name().String(),
 		release.DPFVersionLabelKey:      release.DPFVersion(),
-	}
-	// Add the ApplySet label to the manifests unless disabled.
-	if !opts.skipApplySet {
-		labelsToAdd[applysetPartOfLabel] = applySetID
+		applysetPartOfLabel:             ApplySetID(vars.Namespace, d),
 	}
 
 	containerImage, ok := vars.Images[d.ImageName()]

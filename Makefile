@@ -569,11 +569,13 @@ clean-test-env: kind ## Clean Kind test environment (delete Kind cluster)
 
 
 OPERATOR_NAMESPACE ?= dpf-operator-system
+TEST_DEPLOY_PREREQS_NAMESPACE ?= dpf-operator-system
 HELMFILE_ENV ?=
 .PHONY: test-deploy-operator-helm
 test-deploy-operator-helm: helm helm-package-operator ## Deploy the DPF Operator using helm
 	# Deploy the DPF Operator prerequisites.
-	$(MAKE) HELMFILE_FILE=$(CURDIR)/deploy/helmfiles/prereqs.yaml test-deploy-helmfile
+	sed "s/dpf-operator-system/$(TEST_DEPLOY_PREREQS_NAMESPACE)/g" $(CURDIR)/deploy/helmfiles/prereqs.yaml > $(CURDIR)/deploy/helmfiles/prereqs.yaml.tmp
+	$(MAKE) HELMFILE_FILE=$(CURDIR)/deploy/helmfiles/prereqs.yaml.tmp test-deploy-helmfile
 
 	# Deploy the DPF Operator.
 	$(HELM) upgrade --install --create-namespace --namespace $(OPERATOR_NAMESPACE) \
@@ -623,6 +625,7 @@ E2E_TEST_ARGS ?= -ginkgo.label-filter="DPFSystem && !SDN && !DPFVPCOVN" -e2e.con
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e ## Run the e2e tests against a Kind k8s instance that is spun up.
 test-e2e: stern ## Run e2e tests
+	PREREQS_NAMESPACE=$(TEST_DEPLOY_PREREQS_NAMESPACE) \
 	STERN=$(STERN) $(CURDIR)/hack/scripts/log-collector.sh \
 	  go test -timeout 0 ./test/e2e/ $(E2E_TEST_DEFAULTS) $(E2E_TEST_ARGS)
 
