@@ -72,6 +72,9 @@ func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
 	if err := r.removeLegacyDaemonSet(ctx, namespace); err != nil {
 		return err
 	}
+	if err := r.removeLegacyBFBRegistryService(ctx, namespace, pod); err != nil {
+		return err
+	}
 	if err := r.ensurePod(ctx, namespace, nodeName, registryImage, podOwnerRef); err != nil {
 		return err
 	}
@@ -96,6 +99,32 @@ func (r *BFBRegistryRunnable) removeLegacyDaemonSet(ctx context.Context, namespa
 		return err
 	}
 	return nil
+}
+
+func (r *BFBRegistryRunnable) removeLegacyBFBRegistryService(ctx context.Context, namespace string, leaderPod *corev1.Pod) error {
+	svc := &corev1.Service{}
+	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, svc)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if serviceOwnedByLeaderPod(svc, leaderPod) {
+		return nil
+	}
+	return client.IgnoreNotFound(r.Client.Delete(ctx, svc))
+}
+
+func serviceOwnedByLeaderPod(svc *corev1.Service, leaderPod *corev1.Pod) bool {
+	for i := range svc.OwnerReferences {
+		ref := &svc.OwnerReferences[i]
+		if ref.Kind == "Pod" && ref.Name == leaderPod.Name && ref.UID == leaderPod.UID &&
+			ref.Controller != nil && *ref.Controller {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *BFBRegistryRunnable) ensurePod(ctx context.Context, namespace, nodeName, image string, ownerRef *metav1.OwnerReference) error {
