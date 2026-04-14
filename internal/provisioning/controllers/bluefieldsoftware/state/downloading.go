@@ -108,19 +108,20 @@ func (st *blueFieldSoftwareDownloadingState) processComponent(ctx context.Contex
 	componentType := component.ComponentType
 
 	if !isURL(componentURL) {
+		// Non-URL values are opaque identifiers stored as-is in status (no download).
 		st.updateComponentStatus(componentType, componentURL)
 		return true, nil
 	}
 
 	taskName := butil.GenerateComponentTaskName(*st.bfs, componentType)
 	if taskFuture, ok := butil.DownloadingTaskMap.Load(taskName); ok {
-		return st.handleExistingTask(taskFuture, taskName, componentType, componentURL)
+		return st.handleExistingTask(taskFuture, taskName, componentType)
 	}
 
 	return st.handleNewDownload(ctx, componentType, componentURL, taskName)
 }
 
-func (st *blueFieldSoftwareDownloadingState) handleExistingTask(taskFuture interface{}, taskName string, componentType butil.ComponentType, componentURL string) (bool, error) {
+func (st *blueFieldSoftwareDownloadingState) handleExistingTask(taskFuture interface{}, taskName string, componentType butil.ComponentType) (bool, error) {
 	result := taskFuture.(*future.Future)
 	if result.GetState() != future.Ready {
 		return false, nil
@@ -133,7 +134,8 @@ func (st *blueFieldSoftwareDownloadingState) handleExistingTask(taskFuture inter
 		return false, st.handleDownloadError(err, componentType)
 	}
 
-	st.updateComponentStatus(componentType, componentURL)
+	fileName := butil.DefaultComponentFilename(st.bfs, componentType)
+	st.updateComponentStatus(componentType, componentDestinationPath(componentType, fileName))
 	return true, nil
 }
 
@@ -177,7 +179,7 @@ func (st *blueFieldSoftwareDownloadingState) handleDownloadError(err error, comp
 
 func (st *blueFieldSoftwareDownloadingState) handleNewDownload(ctx context.Context, componentType butil.ComponentType, componentURL, taskName string) (bool, error) {
 	fileName := butil.DefaultComponentFilename(st.bfs, componentType)
-	filePath := generateComponentFilePath(fileName)
+	filePath := componentDestinationPath(componentType, fileName)
 
 	exist, err := isFileExist(filePath)
 	if err != nil {
@@ -185,7 +187,7 @@ func (st *blueFieldSoftwareDownloadingState) handleNewDownload(ctx context.Conte
 	}
 
 	if exist {
-		st.updateComponentStatus(componentType, componentURL)
+		st.updateComponentStatus(componentType, filePath)
 		return true, nil
 	}
 
@@ -224,11 +226,17 @@ type componentInfo struct {
 	ComponentType butil.ComponentType
 }
 
+// componentDownloadSatisfied returns true when status reflects a completed download
+func (st *blueFieldSoftwareDownloadingState) componentDownloadSatisfied(componentType butil.ComponentType, downloaded string) bool {
+	expected := componentDestinationPath(componentType, butil.DefaultComponentFilename(st.bfs, componentType))
+	return downloaded == expected
+}
+
 func (st *blueFieldSoftwareDownloadingState) getComponentsToDownload() []componentInfo {
 	var components []componentInfo
 
 	// Check FwBundleURL
-	if st.bfs.Spec.PldmFwBundle != "" && st.bfs.Status.DownloadedComponents.PldmFwBundle != st.bfs.Spec.PldmFwBundle {
+	if st.bfs.Spec.PldmFwBundle != "" && !st.componentDownloadSatisfied(butil.ComponentTypeFwBundle, st.bfs.Status.DownloadedComponents.PldmFwBundle) {
 		components = append(components, componentInfo{
 			URL:           st.bfs.Spec.PldmFwBundle,
 			ComponentType: butil.ComponentTypeFwBundle,
@@ -236,7 +244,7 @@ func (st *blueFieldSoftwareDownloadingState) getComponentsToDownload() []compone
 	}
 
 	// Check OSISO
-	if st.bfs.Spec.OsIso != "" && st.bfs.Status.DownloadedComponents.OsIso != st.bfs.Spec.OsIso {
+	if st.bfs.Spec.OsIso != "" && !st.componentDownloadSatisfied(butil.ComponentTypeOSISO, st.bfs.Status.DownloadedComponents.OsIso) {
 		components = append(components, componentInfo{
 			URL:           st.bfs.Spec.OsIso,
 			ComponentType: butil.ComponentTypeOSISO,
@@ -246,31 +254,31 @@ func (st *blueFieldSoftwareDownloadingState) getComponentsToDownload() []compone
 	// Check TmpFwComponents (optional)
 	if st.bfs.Spec.TmpFwComponents != nil {
 		tc := st.bfs.Spec.TmpFwComponents
-		if tc.BmcErot != "" && st.bfs.Status.DownloadedComponents.BmcErot != tc.BmcErot {
+		if tc.BmcErot != "" && !st.componentDownloadSatisfied(butil.ComponentTypeBMCEROT, st.bfs.Status.DownloadedComponents.BmcErot) {
 			components = append(components, componentInfo{
 				URL:           tc.BmcErot,
 				ComponentType: butil.ComponentTypeBMCEROT,
 			})
 		}
-		if tc.BmcFw != "" && st.bfs.Status.DownloadedComponents.BmcFw != tc.BmcFw {
+		if tc.BmcFw != "" && !st.componentDownloadSatisfied(butil.ComponentTypeBMC, st.bfs.Status.DownloadedComponents.BmcFw) {
 			components = append(components, componentInfo{
 				URL:           tc.BmcFw,
 				ComponentType: butil.ComponentTypeBMC,
 			})
 		}
-		if tc.AstraNicFw != "" && st.bfs.Status.DownloadedComponents.AstraNicFw != tc.AstraNicFw {
+		if tc.AstraNicFw != "" && !st.componentDownloadSatisfied(butil.ComponentTypeNIC, st.bfs.Status.DownloadedComponents.AstraNicFw) {
 			components = append(components, componentInfo{
 				URL:           tc.AstraNicFw,
 				ComponentType: butil.ComponentTypeNIC,
 			})
 		}
-		if tc.GraceErot != "" && st.bfs.Status.DownloadedComponents.GraceErot != tc.GraceErot {
+		if tc.GraceErot != "" && !st.componentDownloadSatisfied(butil.ComponentTypeGRACEEROT, st.bfs.Status.DownloadedComponents.GraceErot) {
 			components = append(components, componentInfo{
 				URL:           tc.GraceErot,
 				ComponentType: butil.ComponentTypeGRACEEROT,
 			})
 		}
-		if tc.GraceFw != "" && st.bfs.Status.DownloadedComponents.GraceFw != tc.GraceFw {
+		if tc.GraceFw != "" && !st.componentDownloadSatisfied(butil.ComponentTypeGRACEFW, st.bfs.Status.DownloadedComponents.GraceFw) {
 			components = append(components, componentInfo{
 				URL:           tc.GraceFw,
 				ComponentType: butil.ComponentTypeGRACEFW,
@@ -281,22 +289,22 @@ func (st *blueFieldSoftwareDownloadingState) getComponentsToDownload() []compone
 	return components
 }
 
-func (st *blueFieldSoftwareDownloadingState) updateComponentStatus(componentType butil.ComponentType, value string) {
+func (st *blueFieldSoftwareDownloadingState) updateComponentStatus(componentType butil.ComponentType, destinationPath string) {
 	switch componentType {
 	case butil.ComponentTypeFwBundle:
-		st.bfs.Status.DownloadedComponents.PldmFwBundle = value
+		st.bfs.Status.DownloadedComponents.PldmFwBundle = destinationPath
 	case butil.ComponentTypeOSISO:
-		st.bfs.Status.DownloadedComponents.OsIso = value
+		st.bfs.Status.DownloadedComponents.OsIso = destinationPath
 	case butil.ComponentTypeBMCEROT:
-		st.bfs.Status.DownloadedComponents.BmcErot = value
+		st.bfs.Status.DownloadedComponents.BmcErot = destinationPath
 	case butil.ComponentTypeBMC:
-		st.bfs.Status.DownloadedComponents.BmcFw = value
+		st.bfs.Status.DownloadedComponents.BmcFw = destinationPath
 	case butil.ComponentTypeNIC:
-		st.bfs.Status.DownloadedComponents.AstraNicFw = value
+		st.bfs.Status.DownloadedComponents.AstraNicFw = destinationPath
 	case butil.ComponentTypeGRACEEROT:
-		st.bfs.Status.DownloadedComponents.GraceErot = value
+		st.bfs.Status.DownloadedComponents.GraceErot = destinationPath
 	case butil.ComponentTypeGRACEFW:
-		st.bfs.Status.DownloadedComponents.GraceFw = value
+		st.bfs.Status.DownloadedComponents.GraceFw = destinationPath
 	}
 	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, fmt.Sprintf("Component %s downloaded successfully", componentType))
 	// Clear retry counter on successful download
@@ -335,7 +343,7 @@ func executeComponentDownload(ctx context.Context, task butil.ComponentDownloadT
 	logger := log.FromContext(ctx)
 	logger.V(3).Info("ComponentDownload", "start downloading", task.ComponentName, "url", task.URL)
 
-	componentFile := generateComponentFilePath(task.FileName)
+	componentFile := componentDestinationPath(butil.ComponentType(task.ComponentName), task.FileName)
 	if err := utils.DownloadFile(ctx, task.URL, componentFile, 0644); err != nil {
 		return nil, err
 	}
@@ -363,6 +371,15 @@ func isURL(str string) bool {
 
 func generateComponentFilePath(fileName string) string {
 	return filepath.Join(string(os.PathSeparator), cutil.BFBBaseDir, "components", fileName)
+}
+
+// componentDestinationPath returns the on-disk path for a downloaded component.
+// OSISO uses the same layout as BFB (GenerateBFBFilePath); other components use bfb/components/.
+func componentDestinationPath(componentType butil.ComponentType, fileName string) string {
+	if componentType == butil.ComponentTypeOSISO {
+		return cutil.GenerateBFBFilePath(fileName)
+	}
+	return generateComponentFilePath(fileName)
 }
 
 // getRetryKey generates a unique key for tracking retry attempts
