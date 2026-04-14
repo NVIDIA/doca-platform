@@ -21,7 +21,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	provisioningv1alpha1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1362,16 +1361,8 @@ func (in *DPUs) DeepCopyInto(out *DPUs) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.NodeEffect != nil {
-		in, out := &in.NodeEffect, &out.NodeEffect
-		*out = new(provisioningv1alpha1.Action)
-		(*in).DeepCopyInto(*out)
-	}
-	if in.DPUSetStrategy != nil {
-		in, out := &in.DPUSetStrategy, &out.DPUSetStrategy
-		*out = new(provisioningv1alpha1.DPUSetStrategy)
-		(*in).DeepCopyInto(*out)
-	}
+	in.NodeEffect.DeepCopyInto(&out.NodeEffect)
+	in.DPUSetStrategy.DeepCopyInto(&out.DPUSetStrategy)
 	if in.SecureBoot != nil {
 		in, out := &in.SecureBoot, &out.SecureBoot
 		*out = new(bool)

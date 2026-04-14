@@ -449,6 +449,8 @@ metadata:
   name: passthrough
   namespace: dpf-operator-system
 spec:
+  strategy:
+    type: OnDelete
   dpuNodeSelector:
     matchLabels:
       feature.node.kubernetes.io/dpu-enabled: "true"
@@ -458,7 +460,7 @@ spec:
       bfb:
         name: bf-bundle-$TAG
       nodeEffect:
-        noEffect: true
+        hold: true
 ```
 </details>
 
@@ -604,6 +606,28 @@ DPFOperatorConfig/dpfoperatorconfig             dpf-operator-system  Ready: True
       └─DPU/dpu-node-mt2404xz0c98-mt2404xz0c98  dpf-operator-system
                     └─Ready                                          False        OS Installing  1s
 ```
+
+#### Releasing the Node Effect Hold
+
+Since the DPUSet is configured with `nodeEffect.hold: true`, the DPUs will pause at the "Node Effect"
+phase and wait for external action before proceeding with provisioning. This gives the administrator control
+over when the node effect is applied.
+
+To check that DPUNodeMaintenance objects have been created and are in the hold state:
+
+```shell
+kubectl get dpunodemaintenances -n dpf-operator-system
+```
+
+Once you are ready for provisioning to proceed, release the hold by setting the annotation on the
+DPUNodeMaintenance objects to `"false"`. You can do this per-node or all at once:
+
+```shell
+kubectl annotate --overwrite dpunodemaintenances -n dpf-operator-system --all provisioning.dpu.nvidia.com/wait-for-external-nodeeffect=false
+```
+
+After releasing the hold, the DPUs will proceed through the remaining provisioning phases (BFB installation,
+OS installation, etc.).
 
 #### Making the DPUs Ready
 

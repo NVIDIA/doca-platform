@@ -378,6 +378,10 @@ spec:
           matchLabels:
             feature.node.kubernetes.io/dpu-enabled: "true"
     flavor: dpf-provisioning-firefly
+    nodeEffect:
+      drain: true
+    dpuSetStrategy:
+      type: RollingUpdate
   serviceChains:
     switches:
       - ports:

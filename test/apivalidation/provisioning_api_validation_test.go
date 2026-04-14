@@ -235,12 +235,16 @@ func getMinimalDPUSet(namespace string) *provisioningv1.DPUSet {
 			Namespace: namespace,
 		},
 		Spec: provisioningv1.DPUSetSpec{
+			Strategy: provisioningv1.DPUSetStrategy{
+				Type: provisioningv1.OnDeleteStrategyType,
+			},
 			DPUTemplate: provisioningv1.DPUTemplate{
 				Spec: provisioningv1.DPUTemplateSpec{
 					BFB: provisioningv1.BFBReference{
 						Name: "somebfb",
 					},
-					DPUFlavor: "someflavor",
+					DPUFlavor:  "someflavor",
+					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			},
 		},

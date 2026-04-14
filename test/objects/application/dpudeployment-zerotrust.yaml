@@ -17,6 +17,8 @@ spec:
             nodeKey: "nodeValue"
         dpuAnnotations:
           doMagic: "true"
+    dpuSetStrategy:
+      type: OnDelete
     nodeEffect:
       hold: true
   services:

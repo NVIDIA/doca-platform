@@ -676,6 +676,8 @@ spec:
   dpus:
     bfb: bf-bundle-$TAG
     flavor: ovnk-$TAG
+    nodeEffect:
+      drain: true
     dpuSets:
     - nameSuffix: "dpuset1"
       dpuNodeSelector:

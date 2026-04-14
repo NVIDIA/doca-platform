@@ -914,12 +914,12 @@ func defaultDPUSet() *provisioningv1.DPUSet {
 	return &provisioningv1.DPUSet{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec: provisioningv1.DPUSetSpec{
+			Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 			DPUTemplate: provisioningv1.DPUTemplate{
 				Spec: provisioningv1.DPUTemplateSpec{
-					DPUFlavor: "test-flavor",
-					BFB: provisioningv1.BFBReference{
-						Name: "test",
-					},
+					DPUFlavor:  "test-flavor",
+					BFB:        provisioningv1.BFBReference{Name: "test"},
+					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			},
 		},
@@ -928,7 +928,14 @@ func defaultDPUSet() *provisioningv1.DPUSet {
 
 func defaultDPU() *provisioningv1.DPU {
 	return &provisioningv1.DPU{
-		ObjectMeta: metav1.ObjectMeta{Name: "orphaned-dpu", Namespace: "default"}, Spec: provisioningv1.DPUSpec{DPUDeviceName: "dpudevice-dpfctl-test", SerialNumber: "MT25066004C7", DPUFlavor: "test-flavor", BFB: "test-bfb"},
+		ObjectMeta: metav1.ObjectMeta{Name: "orphaned-dpu", Namespace: "default"},
+		Spec: provisioningv1.DPUSpec{
+			DPUDeviceName: "dpudevice-dpfctl-test",
+			SerialNumber:  "MT25066004C7",
+			DPUFlavor:     "test-flavor",
+			BFB:           "test-bfb",
+			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+		},
 	}
 }
 
@@ -946,6 +953,7 @@ func defaultDPUFromDPUSet() *provisioningv1.DPU {
 			DPUDeviceName: "dpudevice-dpfctl-test",
 			SerialNumber:  "MT25066004C7",
 			DPUFlavor:     "test-flavor",
+			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 		},
 	}
 }
@@ -1027,6 +1035,12 @@ func defaultDPUDeployment() *dpuservicev1.DPUDeployment {
 	return &dpuservicev1.DPUDeployment{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec: dpuservicev1.DPUDeploymentSpec{
+			DPUs: dpuservicev1.DPUs{
+				BFB:            "test",
+				Flavor:         "test-flavor",
+				NodeEffect:     provisioningv1.Action{NoEffect: ptr.To(true)},
+				DPUSetStrategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
+			},
 			ServiceChains: &dpuservicev1.ServiceChains{
 				Switches: []dpuservicev1.DPUDeploymentSwitch{
 					{
@@ -1123,9 +1137,11 @@ func defaultDPUSetFromDPUDeployment() *provisioningv1.DPUSet {
 			},
 		},
 		Spec: provisioningv1.DPUSetSpec{
+			Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 			DPUTemplate: provisioningv1.DPUTemplate{
 				Spec: provisioningv1.DPUTemplateSpec{
-					DPUFlavor: "test-flavor",
+					DPUFlavor:  "test-flavor",
+					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			},
 		},
@@ -1146,6 +1162,7 @@ func defaultDPUFromDPUSetsFromDPUDeployment() *provisioningv1.DPU {
 			DPUDeviceName: "dpudevice-dpfctl-test",
 			SerialNumber:  "MT25066004C7",
 			DPUFlavor:     "test-flavor",
+			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 		},
 	}
 }
@@ -1600,6 +1617,7 @@ func dpuWithNodeReference() *provisioningv1.DPU {
 			DPUNodeName:   "test-node",
 			DPUDeviceName: "test-device",
 			SerialNumber:  "MT25066004C7",
+			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 		},
 	}
 }

@@ -414,6 +414,7 @@ var _ = Describe("DPUNode Controller", func() {
 						DPUDeviceName: dpuDevice1.Name,
 						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
 						DPUFlavor:     "dpu-flavor",
+						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 					},
 				}
 				dpu2 := &provisioningv1.DPU{
@@ -426,6 +427,7 @@ var _ = Describe("DPUNode Controller", func() {
 						DPUDeviceName: dpuDevice2.Name,
 						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
 						DPUFlavor:     "dpu-flavor",
+						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 					},
 				}
 
@@ -506,6 +508,7 @@ var _ = Describe("DPUNode Controller", func() {
 						DPUDeviceName: dpuDevice7.Name,
 						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
 						DPUFlavor:     "dpu-flavor",
+						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 					},
 				}
 

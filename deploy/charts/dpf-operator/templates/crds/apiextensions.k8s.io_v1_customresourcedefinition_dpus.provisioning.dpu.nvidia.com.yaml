@@ -176,8 +176,6 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
               nodeEffect:
-                default:
-                  drain: true
                 description: Specifies how changes to the DPU should affect the Node
                 properties:
                   applyOnLabelChange:
@@ -279,6 +277,7 @@ spec:
             - dpuDeviceName
             - dpuFlavor
             - dpuNodeName
+            - nodeEffect
             - serialNumber
             type: object
           status:

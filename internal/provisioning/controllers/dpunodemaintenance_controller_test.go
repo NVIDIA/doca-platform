@@ -400,7 +400,7 @@ data:
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
 			By("getting the job obj")
-			jobName, err := cutil.GenerateDPUNodeMaintenanceObjectName(obj.Spec.DPUNodeName, obj.Spec.NodeEffect)
+			jobName, err := cutil.GenerateDPUNodeMaintenanceObjectName(obj.Spec.DPUNodeName, *obj.Spec.NodeEffect)
 			Expect(err).To(Succeed())
 
 			fetchedJob := &batchv1.Job{}

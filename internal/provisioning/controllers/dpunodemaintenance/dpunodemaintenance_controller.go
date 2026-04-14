@@ -363,7 +363,7 @@ func (r *DPUNodeMaintenanceReconciler) reconcileCustomAction(ctx context.Context
 	logger := log.FromContext(ctx)
 	logger.V(3).Info(fmt.Sprintf("NodeEffect is set to \"CustomAction\" for node: %s", dpunodemaintenance.Spec.DPUNodeName))
 
-	jobName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpunodemaintenance.Spec.DPUNodeName, dpunodemaintenance.Spec.NodeEffect)
+	jobName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpunodemaintenance.Spec.DPUNodeName, *dpunodemaintenance.Spec.NodeEffect)
 	if err != nil {
 		return false, err
 	}
@@ -619,7 +619,7 @@ func handleNodeEffectRemoval(ctx context.Context, k8sClient client.Client, dpuno
 	case provisioningv1.NodeEffectCustomLabel:
 		return removeNodeEffectCustomLabel(ctx, k8sClient, node, nodeEffect)
 	case provisioningv1.NodeEffectCustomAction:
-		jobName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpunodemaintenance.Spec.DPUNodeName, nodeEffect)
+		jobName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpunodemaintenance.Spec.DPUNodeName, *nodeEffect)
 		if err != nil {
 			return err
 		}

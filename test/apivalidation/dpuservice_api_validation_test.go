@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -540,8 +541,10 @@ func getMinimalDPUDeployment(namespace string) *dpuservicev1.DPUDeployment {
 		},
 		Spec: dpuservicev1.DPUDeploymentSpec{
 			DPUs: dpuservicev1.DPUs{
-				BFB:    "somebfb",
-				Flavor: "someflavor",
+				BFB:            "somebfb",
+				Flavor:         "someflavor",
+				NodeEffect:     provisioningv1.Action{NoEffect: ptr.To(true)},
+				DPUSetStrategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 			},
 			Services: map[string]dpuservicev1.DPUDeploymentServiceConfiguration{
 				"someservice": {

@@ -221,16 +221,15 @@ var _ = Describe("Util", func() {
 	})
 
 	Context("GenerateDPUNodeMaintenanceObjectName", func() {
-		It("should return error when nodeEffect is nil", func() {
-			name, err := GenerateDPUNodeMaintenanceObjectName("test-node", nil)
+		It("should return error when nodeEffect has no effect type set", func() {
+			name, err := GenerateDPUNodeMaintenanceObjectName("test-node", provisioningv1.NodeEffect{})
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("nodeEffect is nil"))
 			Expect(name).To(BeEmpty())
 		})
 
 		It("should generate name for Drain effect", func() {
 			drain := true
-			nodeEffect := &provisioningv1.NodeEffect{
+			nodeEffect := provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Drain: &drain,
 				},
@@ -242,7 +241,7 @@ var _ = Describe("Util", func() {
 
 		It("should generate name for Hold effect", func() {
 			hold := true
-			nodeEffect := &provisioningv1.NodeEffect{
+			nodeEffect := provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Hold: &hold,
 				},
@@ -254,7 +253,7 @@ var _ = Describe("Util", func() {
 
 		It("should generate name for CustomAction effect", func() {
 			customAction := "my-action"
-			nodeEffect := &provisioningv1.NodeEffect{
+			nodeEffect := provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					CustomAction: &customAction,
 				},
@@ -265,7 +264,7 @@ var _ = Describe("Util", func() {
 		})
 
 		It("should generate name for Taint effect with hash", func() {
-			nodeEffect := &provisioningv1.NodeEffect{
+			nodeEffect := provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Taint: &corev1.Taint{
 						Key:    "test-key",
@@ -282,7 +281,7 @@ var _ = Describe("Util", func() {
 
 		It("should generate name for NoEffect", func() {
 			noEffect := true
-			nodeEffect := &provisioningv1.NodeEffect{
+			nodeEffect := provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: &noEffect,
 				},
@@ -293,7 +292,7 @@ var _ = Describe("Util", func() {
 		})
 
 		It("should generate name for CustomLabel effect with hash", func() {
-			nodeEffect := &provisioningv1.NodeEffect{
+			nodeEffect := provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					CustomLabel: map[string]string{
 						"label-key": "label-value",
