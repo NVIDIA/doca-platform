@@ -137,6 +137,14 @@ spec:
 
 ### Custom Reboot Script ConfigMap
 
+The `pod-template` key must contain a Kubernetes `PodTemplateSpec` in YAML or JSON format.
+Do **not** include `apiVersion` or `kind` -- the controller wraps the template inside a Job automatically.
+The controller injects the `DPUNODE_NAME` environment variable, a `dpf-pod-info` downward-API volume,
+and a control-plane toleration (`node-role.kubernetes.io/control-plane:NoSchedule`).
+The Job is created with `backoffLimit: 3`, so Kubernetes automatically retries the pod up to 3 times
+with exponential backoff before reporting a terminal failure.
+If the Job still fails after those retries, see [Script reboot job failures and recovery](#script-reboot-job-failures-and-recovery).
+
 ```yaml
 ---
 apiVersion: v1
@@ -146,11 +154,6 @@ metadata:
   namespace: dpf-operator-system
 data:
   pod-template: |
-    apiVersion: v1
-    kind: Pod
-    metadata:
-      name: custom-reboot-pod
-      namespace: dpf-operator-system
     spec:
       containers:
       - name: reboot-container
@@ -159,7 +162,7 @@ data:
         args:
         - -c
         - |
-          echo "Performing custom reboot procedure..."
+          echo "Performing custom reboot procedure for DPUNode $DPUNODE_NAME..."
           # Add your custom reboot logic here
           # For example: IPMI commands, SSH to BMC, etc.
           sleep 10
@@ -266,7 +269,32 @@ kubectl get dpunode dpu-node-001 -n dpf-operator-system -o jsonpath='{.status.co
 * **Invalid DMS Address**: Verify IP and port configuration
 * **DPU Not Found**: Ensure referenced DPUDevice resources exist
 * **Reboot Failures**: Check reboot method configuration and permissions
-* **Script Execution Errors**: Verify ConfigMap and script syntax
+* **Script Execution Errors**: Verify ConfigMap and script syntax. See [Script reboot job failures and recovery](#script-reboot-job-failures-and-recovery) below.
+
+### Script reboot job failures and recovery
+
+The controller creates one Job per DPUNode in the **same namespace as the DPUNode**. The Job name is
+`<dpunode-name>-script-job` (for example, DPUNode `dpu-node-003` uses Job `dpu-node-003-script-job`).
+
+Kubernetes applies `backoffLimit` (default 3) before the Job is considered to have failed terminally.
+
+**Observed behavior on failure**
+
+* Affected DPUs stay in phase **`DPURebooting`** until the host reboot completes successfully and the
+  **`Rebooted`** status condition becomes **`True`**.
+* After a terminal Job failure, the **`Rebooted`** condition is set to **`False`** with reason **`RebootScriptFailed`**
+  and a message that includes pod or Job failure details (for example, `BackoffLimitExceeded`).
+
+**Recovery**
+
+1. Inspect the Job and pods: `kubectl describe job <dpunode-name>-script-job -n <namespace>` and
+   `kubectl logs job/<dpunode-name>-script-job -n <namespace>` (or the pod name shown in the Job events).
+2. Fix the ConfigMap pod template or cluster permissions as needed.
+3. Delete the failed Job. The controller recreates it on the next reconcile:
+
+```bash
+kubectl delete job <dpunode-name>-script-job -n <namespace>
+```
 
 ### Status Monitoring
 
