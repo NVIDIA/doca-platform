@@ -46,7 +46,7 @@ func (s StubComponent) Parse() error {
 	return nil
 }
 
-func (s StubComponent) GenerateManifests(_ context.Context, vars Variables, _ ...GenerateManifestOption) ([]client.Object, error) {
+func (s StubComponent) GenerateManifests(_ context.Context, vars Variables) ([]client.Object, error) {
 	ret := []client.Object{}
 	for _, obj := range s.objs {
 		ret = append(ret, obj)

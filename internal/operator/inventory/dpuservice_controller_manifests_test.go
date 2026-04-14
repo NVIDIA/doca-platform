@@ -96,7 +96,7 @@ func TestDPUServiceControllerManifestSetFlag(t *testing.T) {
 	t.Run("test toggling DPUReady taints in DPUService controller", func(t *testing.T) {
 		vars := newDefaultVariables(defaults)
 
-		generatedObjs, err := dpuserviceCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
+		generatedObjs, err := dpuserviceCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 
 		deployment := getDeploymentFromGeneratedObjs(g, generatedObjs)
@@ -107,7 +107,7 @@ func TestDPUServiceControllerManifestSetFlag(t *testing.T) {
 
 		// Disable DPUReady taints and check the flag is set in the deployment.
 		vars.DisableDPUReadyTaints = true
-		generatedObjs, err = dpuserviceCtrl.GenerateManifests(context.Background(), vars, skipApplySetCreationOption{})
+		generatedObjs, err = dpuserviceCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 
 		deployment = getDeploymentFromGeneratedObjs(g, generatedObjs)

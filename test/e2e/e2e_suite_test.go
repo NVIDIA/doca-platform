@@ -161,6 +161,13 @@ func getEnvVariables() {
 	if interfaceName, found := os.LookupEnv("DPUCLUSTER_INTERFACE"); found {
 		dpuClusterInterface = interfaceName
 	}
+
+	if ns, found := os.LookupEnv("PREREQS_NAMESPACE"); found {
+		// Only set the override if it differs from the default namespace.
+		if ns != dpfOperatorSystemNamespace {
+			prereqsNamespace = ns
+		}
+	}
 }
 
 // Run e2e tests using the Ginkgo runner.
