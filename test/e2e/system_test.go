@@ -504,6 +504,9 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 				ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx, input)
 			}
 		})
+		It("should validate DPUDeployment disruptive upgrade of standard DPUServices with bad configuration", func() {
+			ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(ctx, input)
+		})
 		It("should validate DPUDeployment disruptive upgrade of in-cluster DPUServices", func() {
 			ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx, input)
 		})
@@ -513,6 +516,9 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			} else {
 				ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx, input)
 			}
+		})
+		It("should validate DPUDeployment disruptive upgrade of DPUServiceChain with bad configuration", func() {
+			ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeBadConfigurationAndBack(ctx, input)
 		})
 	})
 
