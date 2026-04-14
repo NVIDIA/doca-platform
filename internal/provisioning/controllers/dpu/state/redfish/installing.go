@@ -160,7 +160,9 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 		return *state, err
 	}
 	if prog.TaskState == "Exception" {
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToInstall", fmt.Sprintf("Task %s is in Exception state: %v", *dpu.Status.RedfishTaskID, prog.Messages)))
+		taskErr := fmt.Errorf("task %s is in Exception state: %v", *dpu.Status.RedfishTaskID, resp.String())
+		logger.Error(taskErr, "Failed to install BFB")
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), taskErr, "FailToInstall", fmt.Sprintf("Task %s is in Exception state: %v", *dpu.Status.RedfishTaskID, prog.Messages)))
 		state.Phase = provisioningv1.DPUError
 		return *state, nil
 	}
