@@ -112,8 +112,7 @@ func (r *DPUSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ c
 
 func (r *DPUSetReconciler) validateDPUSet(dpuSet *provisioningv1.DPUSet) error {
 	if r.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
-		if dpuSet.Spec.DPUTemplate.Spec.NodeEffect != nil &&
-			(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.IsCustomLabel() || dpuSet.Spec.DPUTemplate.Spec.NodeEffect.IsTaint() || dpuSet.Spec.DPUTemplate.Spec.NodeEffect.IsDrain()) {
+		if dpuSet.Spec.DPUTemplate.Spec.NodeEffect.IsCustomLabel() || dpuSet.Spec.DPUTemplate.Spec.NodeEffect.IsTaint() || dpuSet.Spec.DPUTemplate.Spec.NodeEffect.IsDrain() {
 			message := fmt.Sprintf("NodeEffect is not allowed to be %s when using RedFish Install Interface", dpuSet.Spec.DPUTemplate.Spec.NodeEffect.String())
 			conditions.AddFalse(dpuSet, provisioningv1.ConditionDPUSetReconciled, conditions.ReasonError, conditions.ConditionMessage(message))
 			return fmt.Errorf("invalid NodeEffect: %s", message)
@@ -224,17 +223,17 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 		return ctrl.Result{}, fmt.Errorf("failed to get DPUs %w", err)
 	}
 
-	if dpuSet.Spec.Strategy != nil {
-		switch dpuSet.Spec.Strategy.Type {
-		case provisioningv1.OnDeleteStrategyType:
-			if err := r.onDelete(ctx, dpuSet, dpuMap, dpuClusterList.Items); err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to on delete DPUs %w", err)
-			}
-		case provisioningv1.RollingUpdateStrategyType:
-			if err := r.rolloutRolling(ctx, dpuSet, dpuMap, len(dpuDeviceMap), dpuClusterList.Items); err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to rollout DPU %w", err)
-			}
+	switch dpuSet.Spec.Strategy.Type {
+	case provisioningv1.OnDeleteStrategyType:
+		if err := r.onDelete(ctx, dpuSet, dpuMap, dpuClusterList.Items); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to on delete DPUs %w", err)
 		}
+	case provisioningv1.RollingUpdateStrategyType:
+		if err := r.rolloutRolling(ctx, dpuSet, dpuMap, len(dpuDeviceMap), dpuClusterList.Items); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to rollout DPU %w", err)
+		}
+	default:
+		return ctrl.Result{}, fmt.Errorf("unsupported strategy type %q", dpuSet.Spec.Strategy.Type)
 	}
 
 	dpusUpdated, err := r.UpdateDPUs(ctx, dpuSet, dpuMap)
@@ -504,9 +503,13 @@ func (r *DPUSetReconciler) onDelete(ctx context.Context, dpuSet *provisioningv1.
 
 func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provisioningv1.DPUSet,
 	dpuMap map[string]provisioningv1.DPU, total int, dpuClusters []provisioningv1.DPUCluster) error {
+	var maxUnavailable *intstr.IntOrString
 	//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
+	if dpuSet.Spec.Strategy.RollingUpdate != nil {
+		maxUnavailable = dpuSet.Spec.Strategy.RollingUpdate.MaxUnavailable
+	}
 	scaledValue, err := intstr.GetScaledValueFromIntOrPercent(intstr.ValueOrDefault(
-		dpuSet.Spec.Strategy.RollingUpdate.MaxUnavailable, intstr.FromInt(0)), total, true)
+		maxUnavailable, intstr.FromInt(0)), total, true)
 	if err != nil {
 		return err
 	}
@@ -759,10 +762,7 @@ func (r *DPUSetReconciler) UpdateDPUs(ctx context.Context, dpuSet *provisioningv
 			update = true
 		}
 		// 4. update the NodeMaintenanceAdditionalRequestors field for DPU
-		expectedRequestors := []string{}
-		if dpuSet.Spec.DPUTemplate.Spec.NodeEffect != nil {
-			expectedRequestors = dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors
-		}
+		expectedRequestors := dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors
 		if updateNodeMaintenanceAdditionalRequestors(ctx, &dpu, expectedRequestors) {
 			update = true
 		}
@@ -784,12 +784,7 @@ func (r *DPUSetReconciler) UpdateDPUs(ctx context.Context, dpuSet *provisioningv
 func updateNodeMaintenanceAdditionalRequestors(ctx context.Context, dpu *provisioningv1.DPU, expectedRequestors []string) bool {
 	logger := log.FromContext(ctx)
 	sort.Strings(expectedRequestors)
-	var currentRequestors []string
-	if dpu.Spec.NodeEffect != nil {
-		currentRequestors = dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors
-	} else {
-		dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{}
-	}
+	currentRequestors := dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors
 
 	sort.Strings(currentRequestors)
 
@@ -825,25 +820,14 @@ func updateNodeEffectAction(ctx context.Context, dpuSet *provisioningv1.DPUSet, 
 	}
 
 	// Get the expected Action from the DPUSet template
-	var expectedAction provisioningv1.Action
-	if dpuSet.Spec.DPUTemplate.Spec.NodeEffect != nil {
-		expectedAction = dpuSet.Spec.DPUTemplate.Spec.NodeEffect.Action
-	}
+	expectedAction := dpuSet.Spec.DPUTemplate.Spec.NodeEffect.Action
 
 	// Get current Action from DPU
-	var currentAction provisioningv1.Action
-	if dpu.Spec.NodeEffect != nil {
-		currentAction = dpu.Spec.NodeEffect.Action
-	}
+	currentAction := dpu.Spec.NodeEffect.Action
 
 	// Check if Action has changed
 	if !reflect.DeepEqual(currentAction, expectedAction) {
 		logger.V(3).Info(fmt.Sprintf("Updating NodeEffect Action for DPU (%s/%s)", dpu.Namespace, dpu.Name))
-		// Ensure NodeEffect struct exists
-		if dpu.Spec.NodeEffect == nil {
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{}
-		}
-		// Update Action fields
 		dpu.Spec.NodeEffect.Action = expectedAction
 		return true
 	}
@@ -857,27 +841,16 @@ func updateNodeEffectApplyOnLabelChange(ctx context.Context, dpuSet *provisionin
 	logger := log.FromContext(ctx)
 
 	// Get the expected ApplyOnLabelChange value from the DPUSet template
-	var expectedApplyOnLabelChange *bool
-	if dpuSet.Spec.DPUTemplate.Spec.NodeEffect != nil {
-		expectedApplyOnLabelChange = dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange
-	}
+	expectedApplyOnLabelChange := dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange
 
 	// Update ApplyOnLabelChange for existing DPUs if it has changed
 
 	// Get current ApplyOnLabelChange value from DPU
-	var currentApplyOnLabelChange *bool
-	if dpu.Spec.NodeEffect != nil {
-		currentApplyOnLabelChange = dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange
-	}
+	currentApplyOnLabelChange := dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange
 
 	// Check if ApplyOnLabelChange has changed
 	if !reflect.DeepEqual(currentApplyOnLabelChange, expectedApplyOnLabelChange) {
 		logger.V(3).Info(fmt.Sprintf("Updating ApplyOnLabelChange for DPU (%s/%s)", dpu.Namespace, dpu.Name))
-		// Ensure NodeEffect struct exists
-		if dpu.Spec.NodeEffect == nil {
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{}
-		}
-		// Update ApplyOnLabelChange field
 		dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = expectedApplyOnLabelChange
 		return true
 	}

@@ -583,11 +583,7 @@ func MarshalJSON(obj interface{}) (string, error) {
 	return string(json), nil
 }
 
-func GenerateDPUNodeMaintenanceObjectName(dpuNodeName string, nodeEffect *provisioningv1.NodeEffect) (string, error) {
-	if nodeEffect == nil {
-		return "", fmt.Errorf("nodeEffect is nil")
-	}
-
+func GenerateDPUNodeMaintenanceObjectName(dpuNodeName string, nodeEffect provisioningv1.NodeEffect) (string, error) {
 	switch {
 	case nodeEffect.IsCustomAction():
 		return fmt.Sprintf("%s-custom-action-%s", dpuNodeName, *nodeEffect.CustomAction), nil

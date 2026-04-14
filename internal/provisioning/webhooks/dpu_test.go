@@ -47,7 +47,8 @@ var _ = Describe("DPU", func() {
 				Name:      name,
 				Namespace: "default",
 			},
-			Spec:   provisioningv1.DPUSpec{DPUDeviceName: "dpudevice-1", SerialNumber: "MT25066004C7", DPUFlavor: "dummy-flavor"},
+			Spec: provisioningv1.DPUSpec{DPUDeviceName: "dpudevice-1", SerialNumber: "MT25066004C7", DPUFlavor: "dummy-flavor",
+				NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}}},
 			Status: provisioningv1.DPUStatus{},
 		}
 	}
@@ -101,8 +102,9 @@ var _ = Describe("DPU", func() {
 			Expect(objFetched).To(Equal(obj))
 		})
 
-		It("spec.nodeEffect default", func() {
+		It("spec.nodeEffect is preserved on create", func() {
 			obj := createObj("obj-4")
+			obj.Spec.NodeEffect = provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}}
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -112,37 +114,9 @@ var _ = Describe("DPU", func() {
 			Expect(objFetched.Spec.NodeEffect.IsDrain()).To(BeTrue())
 		})
 
-		It("spec.nodeEffect assign nil", func() {
-			refValue := provisioningv1.NodeEffect{
-				Action: provisioningv1.Action{
-					CustomLabel: map[string]string{
-						"foo": "bar",
-					},
-					Force: ptr.To(false),
-				},
-				UpgradePolicy: provisioningv1.UpgradePolicy{
-					ApplyOnLabelChange: ptr.To(false),
-				},
-			}
-
-			obj := createObj("obj-node-effect-nil")
-			obj.Spec.NodeEffect = &refValue
-			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
-
-			objFetched := &provisioningv1.DPU{}
-			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-			Expect(*objFetched.Spec.NodeEffect).To(Equal(refValue))
-
-			// Assigning a nil value sets the value to the default value.
-			obj.Spec.NodeEffect = nil
-			Expect(k8sClient.Update(ctx, obj)).To(Succeed())
-			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-			Expect(*objFetched.Spec.NodeEffect).To(Equal(provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: ptr.To(false)}}))
-		})
-
 		It("spec.nodeEffect.applyOnLabelChange defaults to false", func() {
 			obj := createObj("obj-apply-on-label-change-default")
-			obj.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 				},
@@ -157,7 +131,7 @@ var _ = Describe("DPU", func() {
 
 		It("spec.nodeEffect.applyOnLabelChange is mutable", func() {
 			obj := createObj("obj-apply-on-label-change-mutable")
-			obj.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 				},
@@ -179,7 +153,7 @@ var _ = Describe("DPU", func() {
 
 		It("spec.nodeEffect.nodeMaintenanceAdditionalRequestors is mutable", func() {
 			obj := createObj("obj-additional-requestors-mutable")
-			obj.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 				},
@@ -203,7 +177,7 @@ var _ = Describe("DPU", func() {
 		It("only one field may be set in spec.nodeEffect", func() {
 			obj := createObj("checking-node-effect")
 			// Error when creating a DPU with a nodeEffect setting taint and customLabel.
-			obj.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Taint: &corev1.Taint{
 						Key:    "foo",
@@ -217,7 +191,7 @@ var _ = Describe("DPU", func() {
 			Expect(k8sClient.Create(ctx, obj)).NotTo(Succeed())
 
 			// Error when creating a DPU with a nodeEffect setting taint and drain.
-			obj.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Taint: &corev1.Taint{
 						Key:    "foo",
@@ -229,7 +203,7 @@ var _ = Describe("DPU", func() {
 			Expect(k8sClient.Create(ctx, obj)).NotTo(Succeed())
 
 			// Error when creating a DPU with a nodeeffect setting Drain and NoEffect
-			obj.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Drain: ptr.To(true),
 					CustomLabel: map[string]string{
@@ -240,7 +214,7 @@ var _ = Describe("DPU", func() {
 			Expect(k8sClient.Create(ctx, obj)).NotTo(Succeed())
 
 			// Error when creating a DPU with a nodeeffect setting Drain and NoEffect
-			obj.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 					CustomLabel: map[string]string{
@@ -439,6 +413,8 @@ spec:
   dpuDeviceName: "dpudevice-1"
   serialNumber: "MT25066004C7"
   dpuFlavor: "dpu-flavor"
+  nodeEffect:
+    noEffect: true
 `)
 			obj := &provisioningv1.DPU{}
 			err := yaml.UnmarshalStrict(yml, obj)

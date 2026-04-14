@@ -67,18 +67,6 @@ func (r *DPUSet) Default(ctx context.Context, obj runtime.Object) error {
 	}
 	dpusetlog.V(4).Info("default", "name", dpuSet.Name)
 
-	if dpuSet.Spec.Strategy == nil {
-		dpuSet.Spec.Strategy = &provisioningv1.DPUSetStrategy{
-			Type: provisioningv1.OnDeleteStrategyType,
-		}
-	} else if dpuSet.Spec.Strategy.Type == provisioningv1.RollingUpdateStrategyType {
-		if dpuSet.Spec.Strategy.RollingUpdate == nil {
-			defaultValue := intstr.IntOrString{Type: intstr.Int, IntVal: 1}
-			dpuSet.Spec.Strategy.RollingUpdate = &provisioningv1.RollingUpdateDPU{
-				MaxUnavailable: &defaultValue,
-			}
-		}
-	}
 	return nil
 }
 
@@ -92,7 +80,7 @@ func (r *DPUSet) ValidateCreate(ctx context.Context, obj runtime.Object) (admiss
 	dpusetlog.V(4).Info("validate create", "name", dpuSet.Name)
 	errs := field.ErrorList{}
 	newPath := field.NewPath("spec")
-	if err := validateStrategy(*dpuSet.Spec.Strategy); err != nil {
+	if err := validateStrategy(dpuSet.Spec.Strategy); err != nil {
 		errs = append(errs, field.Invalid(newPath.Child("strategy"), dpuSet.Spec.Strategy, err.Error()))
 
 	}
@@ -135,7 +123,7 @@ func (r *DPUSet) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Obje
 	dpusetlog.V(4).Info("validate update", "name", dpuSet.Name)
 	errs := field.ErrorList{}
 	newPath := field.NewPath("spec")
-	if err := validateStrategy(*dpuSet.Spec.Strategy); err != nil {
+	if err := validateStrategy(dpuSet.Spec.Strategy); err != nil {
 		errs = append(errs, field.Invalid(newPath.Child("strategy"), dpuSet.Spec.Strategy, err.Error()))
 
 	}
@@ -183,6 +171,10 @@ func (r *DPUSet) validateAstraEnabledInstallInterface(path *field.Path, spec pro
 
 func validateStrategy(strategy provisioningv1.DPUSetStrategy) error {
 	if strategy.Type == provisioningv1.RollingUpdateStrategyType {
+		//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
+		if strategy.RollingUpdate == nil || strategy.RollingUpdate.MaxUnavailable == nil {
+			return nil
+		}
 		//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
 		switch strategy.RollingUpdate.MaxUnavailable.Type {
 		case intstr.String:

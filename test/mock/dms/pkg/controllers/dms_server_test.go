@@ -66,7 +66,7 @@ func TestDMSServerReconciler(t *testing.T) {
 			Namespace: dpfOperatorSystemNamespace,
 		},
 		Spec: provisioningv1.DPUSetSpec{
-			Strategy: &provisioningv1.DPUSetStrategy{
+			Strategy: provisioningv1.DPUSetStrategy{
 				// TODO: Update to OnDelete when this is implemented
 				Type: provisioningv1.RollingUpdateStrategyType,
 				RollingUpdate: &provisioningv1.RollingUpdateDPU{
@@ -79,7 +79,7 @@ func TestDMSServerReconciler(t *testing.T) {
 						Name: bfbName,
 					},
 					DPUFlavor: dpuFlavorName,
-					NodeEffect: &provisioningv1.NodeEffect{
+					NodeEffect: provisioningv1.NodeEffect{
 						Action: provisioningv1.Action{
 							NoEffect: ptr.To(true),
 						},

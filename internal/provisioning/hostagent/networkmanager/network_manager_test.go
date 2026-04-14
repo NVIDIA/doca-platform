@@ -27,6 +27,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 var _ = Describe("NetworkManager", func() {
@@ -149,6 +150,7 @@ var _ = Describe("NetworkManager", func() {
 				},
 				Spec: provisioningv1.DPUSpec{
 					SerialNumber: "unknown-serial",
+					NodeEffect:   provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			}
 

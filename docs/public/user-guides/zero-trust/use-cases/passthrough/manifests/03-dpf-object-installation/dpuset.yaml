@@ -5,6 +5,8 @@ metadata:
   name: passthrough
   namespace: dpf-operator-system
 spec:
+  strategy:
+    type: OnDelete
   dpuNodeSelector:
     matchLabels:
       feature.node.kubernetes.io/dpu-enabled: "true"
@@ -14,4 +16,4 @@ spec:
       bfb:
         name: bf-bundle-$TAG
       nodeEffect:
-        noEffect: true
+        hold: true

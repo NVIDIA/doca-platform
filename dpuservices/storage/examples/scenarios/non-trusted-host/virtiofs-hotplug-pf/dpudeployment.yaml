@@ -13,6 +13,10 @@ spec:
         nodeSelector:
           matchLabels:
             feature.node.kubernetes.io/dpu-enabled: "true"
+    nodeEffect:
+      hold: true
+    dpuSetStrategy:
+      type: OnDelete
   services:
     snap-node-driver:
       serviceTemplate: snap-node-driver

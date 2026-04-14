@@ -81,6 +81,7 @@ var _ = Describe("Indexers", Ordered, func() {
 				DPUDeviceName: "test-device",
 				BFB:           "test-bfb",
 				DPUFlavor:     "test-flavor",
+				NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			},
 		}
 		Expect(testClient.Create(ctx, dpu)).To(Succeed())

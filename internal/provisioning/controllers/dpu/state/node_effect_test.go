@@ -51,7 +51,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{NoEffect: ptr.To(true)},
 			}
 			createObject(dpu)
@@ -152,7 +152,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
 				UpgradePolicy: provisioningv1.UpgradePolicy{
 					NodeMaintenanceAdditionalRequestors: []string{"test-requestor-1", "test-requestor-2"},
@@ -260,7 +260,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Drain: ptr.To(true),
 				},
@@ -320,7 +320,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					CustomLabel: map[string]string{
 						labelKey: labelValue,
@@ -370,7 +370,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Taint: &corev1.Taint{
 						Key:    taintKey,
@@ -420,7 +420,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					CustomAction: ptr.To("configmap"),
 				},
@@ -466,7 +466,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used"
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Hold: ptr.To(true),
 				},
@@ -514,7 +514,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used"
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 				},
@@ -596,7 +596,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used"
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Taint: &corev1.Taint{
 						Key:    "dpf.nvidia.com/test-taint",
@@ -682,7 +682,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used"
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Drain: ptr.To(true),
 				},
@@ -752,7 +752,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu1 := dpuObj(defaultDPUName + "-1")
 			dpu1.Spec.DPUDeviceName = "not-used"
 			dpu1.Spec.DPUNodeName = dpuNode.Name
-			dpu1.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu1.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
 			}
 			dpu1.Status.Phase = provisioningv1.DPUNodeEffect
@@ -782,7 +782,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu2 := dpuObj(defaultDPUName + "-2")
 			dpu2.Spec.DPUDeviceName = "not-used"
 			dpu2.Spec.DPUNodeName = dpuNode.Name
-			dpu2.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu2.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
 			}
 			dpu2.Status.Phase = provisioningv1.DPUNodeEffect
@@ -820,7 +820,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used"
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
 			}
 			dpu.Status.Phase = provisioningv1.DPUNodeEffect
@@ -880,7 +880,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu1 := dpuObj(defaultDPUName + "-1")
 			dpu1.Spec.DPUDeviceName = "not-used"
 			dpu1.Spec.DPUNodeName = dpuNode.Name
-			dpu1.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu1.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
 			}
 			dpu1.Status.Phase = provisioningv1.DPUNodeEffect
@@ -911,7 +911,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu2 := dpuObj(defaultDPUName + "-2")
 			dpu2.Spec.DPUDeviceName = "not-used"
 			dpu2.Spec.DPUNodeName = dpuNode.Name
-			dpu2.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu2.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(true)},
 			}
 			dpu2.Status.Phase = provisioningv1.DPUNodeEffect
@@ -951,7 +951,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu1 := dpuObj(defaultDPUName + "-1")
 			dpu1.Spec.DPUDeviceName = "not-used"
 			dpu1.Spec.DPUNodeName = dpuNode.Name
-			dpu1.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu1.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
 				UpgradePolicy: provisioningv1.UpgradePolicy{
 					NodeMaintenanceAdditionalRequestors: []string{"service-a"},
@@ -977,7 +977,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu2 := dpuObj(defaultDPUName + "-2")
 			dpu2.Spec.DPUDeviceName = "not-used"
 			dpu2.Spec.DPUNodeName = dpuNode.Name
-			dpu2.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu2.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
 				UpgradePolicy: provisioningv1.UpgradePolicy{
 					NodeMaintenanceAdditionalRequestors: []string{
@@ -1030,7 +1030,7 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used"
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
 				UpgradePolicy: provisioningv1.UpgradePolicy{
 					NodeMaintenanceAdditionalRequestors: []string{

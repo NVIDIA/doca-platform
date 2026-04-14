@@ -9,7 +9,9 @@ spec:
     bfb: bf-bundle-$TAG
     flavor: hbn-snap-virtiofs-$TAG
     nodeEffect:
-      noEffect: true
+      hold: true
+    dpuSetStrategy:
+      type: OnDelete
     dpuSets:
     - nameSuffix: "dpuset1"
       dpuAnnotations:

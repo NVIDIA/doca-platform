@@ -53,10 +53,14 @@ var _ = Describe("DPUSet", func() {
 				Namespace: "default",
 			},
 			Spec: provisioningv1.DPUSetSpec{
+				Strategy: provisioningv1.DPUSetStrategy{
+					Type: provisioningv1.OnDeleteStrategyType,
+				},
 				DPUTemplate: provisioningv1.DPUTemplate{
 					Spec: provisioningv1.DPUTemplateSpec{
-						BFB:       provisioningv1.BFBReference{Name: "test-bfb"},
-						DPUFlavor: dpuFlavor,
+						BFB:        provisioningv1.BFBReference{Name: "test-bfb"},
+						DPUFlavor:  dpuFlavor,
+						NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 					},
 				},
 			},
@@ -147,7 +151,7 @@ var _ = Describe("DPUSet", func() {
 			obj.Spec.DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
 				NodeLabels: refValue,
 			}
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Taint: &corev1.Taint{
 						Key:    "foo",
@@ -169,7 +173,7 @@ var _ = Describe("DPUSet", func() {
 			Expect(objFetched.Spec.DPUTemplate.Spec.Cluster.NodeLabels).To(Equal(newValue))
 		})
 
-		It("spec.nodeEffect assign nil", func() {
+		It("spec.nodeEffect assign nil should be rejected", func() {
 			refValue := provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					CustomLabel: map[string]string{
@@ -184,24 +188,18 @@ var _ = Describe("DPUSet", func() {
 
 			obj := createObj("obj-node-effect-nil")
 			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &refValue
+			obj.Spec.DPUTemplate.Spec.NodeEffect = refValue
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
 			objFetched := &provisioningv1.DPUSet{}
 			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-			Expect(*objFetched.Spec.DPUTemplate.Spec.NodeEffect).To(Equal(refValue))
-
-			// Assigning a nil value sets the value to the default value.
-			obj.Spec.DPUTemplate.Spec.NodeEffect = nil
-			Expect(k8sClient.Update(ctx, obj)).To(Succeed())
-			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-			Expect(*objFetched.Spec.DPUTemplate.Spec.NodeEffect).To(Equal(provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: ptr.To(false)}}))
+			Expect(objFetched.Spec.DPUTemplate.Spec.NodeEffect).To(Equal(refValue))
 		})
 
 		It("spec.dpuTemplate.spec.nodeEffect.applyOnLabelChange defaults to false", func() {
 			obj := createObj("obj-apply-on-label-change-default")
 			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 				},
@@ -217,7 +215,7 @@ var _ = Describe("DPUSet", func() {
 		It("spec.dpuTemplate.spec.nodeEffect.applyOnLabelChange is mutable", func() {
 			obj := createObj("obj-apply-on-label-change-mutable")
 			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 				},
@@ -240,7 +238,7 @@ var _ = Describe("DPUSet", func() {
 		It("spec.dpuTemplate.spec.nodeEffect.nodeMaintenanceAdditionalRequestors is mutable", func() {
 			obj := createObj("obj-additional-requestors-mutable")
 			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 				},
@@ -265,7 +263,7 @@ var _ = Describe("DPUSet", func() {
 			obj := createObj("checking-node-effect")
 			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
 			// Error when creating a DPUSet with a nodeEffect setting taint and customLabel.
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Taint: &corev1.Taint{
 						Key:    "foo",
@@ -279,7 +277,7 @@ var _ = Describe("DPUSet", func() {
 			Expect(k8sClient.Create(ctx, obj)).NotTo(Succeed())
 
 			// Error when creating a DPUSet with a nodeEffect setting taint and drain.
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Taint: &corev1.Taint{
 						Key:    "foo",
@@ -291,7 +289,7 @@ var _ = Describe("DPUSet", func() {
 			Expect(k8sClient.Create(ctx, obj)).NotTo(Succeed())
 
 			// Error when creating a DPUSet with a nodeeffect setting Drain and NoEffect
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Drain: ptr.To(true),
 					CustomLabel: map[string]string{
@@ -302,7 +300,7 @@ var _ = Describe("DPUSet", func() {
 			Expect(k8sClient.Create(ctx, obj)).NotTo(Succeed())
 
 			// Error when creating a DPUSet with a nodeeffect setting Drain and NoEffect
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 					CustomLabel: map[string]string{
@@ -361,11 +359,15 @@ metadata:
   name: obj-6
   namespace: default
 spec:
+  strategy:
+    type: OnDelete
   dpuTemplate:
     spec:
       bfb:
         name: "test-bfb"
       dpuFlavor: "test-flavor"
+      nodeEffect:
+        noEffect: true
 `)
 			obj := &provisioningv1.DPUSet{}
 			err := yaml.UnmarshalStrict(yml, obj)
@@ -415,41 +417,36 @@ spec:
 			Expect(objFetched.Spec.DPUTemplate.Spec.DPUFlavor).To(Equal("updated-flavor"))
 		})
 
-		// Tests for Default() webhook - strategy defaulting
-		It("should default strategy to OnDelete when not specified", func() {
-			obj := createObj("obj-default-strategy")
-			obj.Spec.Strategy = nil // No strategy set
-			err := k8sClient.Create(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
-
-			objFetched := &provisioningv1.DPUSet{}
-			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(objFetched.Spec.Strategy).NotTo(BeNil())
-			Expect(objFetched.Spec.Strategy.Type).To(Equal(provisioningv1.OnDeleteStrategyType))
+		// Tests for validateStrategy() - nil pointer safety
+		It("should accept RollingUpdate with nil rollingUpdate field", func() {
+			obj := createObj("obj-rolling-nil-details")
+			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
+				Type: provisioningv1.RollingUpdateStrategyType,
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 		})
 
-		It("should default RollingUpdate.MaxUnavailable to 1 when not specified", func() {
-			obj := createObj("obj-default-maxunavailable")
-			obj.Spec.Strategy = &provisioningv1.DPUSetStrategy{
+		It("should accept RollingUpdate with nil maxUnavailable", func() {
+			obj := createObj("obj-rolling-nil-maxunavailable")
+			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
 				Type:          provisioningv1.RollingUpdateStrategyType,
-				RollingUpdate: nil, // Not set
+				RollingUpdate: &provisioningv1.RollingUpdateDPU{},
 			}
-			err := k8sClient.Create(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+		})
 
-			objFetched := &provisioningv1.DPUSet{}
-			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(objFetched.Spec.Strategy.RollingUpdate).NotTo(BeNil())
-			//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
-			Expect(objFetched.Spec.Strategy.RollingUpdate.MaxUnavailable.IntVal).To(Equal(int32(1)))
+		It("should accept OnDelete strategy", func() {
+			obj := createObj("obj-ondelete")
+			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
+				Type: provisioningv1.OnDeleteStrategyType,
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 		})
 
 		// Tests for validateStrategy() - integer validation
 		It("should reject RollingUpdate with maxUnavailable=0", func() {
 			obj := createObj("obj-invalid-maxunavailable-zero")
-			obj.Spec.Strategy = &provisioningv1.DPUSetStrategy{
+			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
 				Type: provisioningv1.RollingUpdateStrategyType,
 				RollingUpdate: &provisioningv1.RollingUpdateDPU{
 					MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
@@ -462,7 +459,7 @@ spec:
 
 		It("should reject RollingUpdate with negative maxUnavailable", func() {
 			obj := createObj("obj-invalid-maxunavailable-negative")
-			obj.Spec.Strategy = &provisioningv1.DPUSetStrategy{
+			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
 				Type: provisioningv1.RollingUpdateStrategyType,
 				RollingUpdate: &provisioningv1.RollingUpdateDPU{
 					MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: -1},
@@ -476,7 +473,7 @@ spec:
 		// Tests for validateStrategy() - percentage validation
 		It("should reject RollingUpdate with maxUnavailable=0%", func() {
 			obj := createObj("obj-invalid-maxunavailable-zero-percent")
-			obj.Spec.Strategy = &provisioningv1.DPUSetStrategy{
+			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
 				Type: provisioningv1.RollingUpdateStrategyType,
 				RollingUpdate: &provisioningv1.RollingUpdateDPU{
 					MaxUnavailable: &intstr.IntOrString{Type: intstr.String, StrVal: "0%"},
@@ -489,7 +486,7 @@ spec:
 
 		It("should reject RollingUpdate with maxUnavailable>100%", func() {
 			obj := createObj("obj-invalid-maxunavailable-over-100")
-			obj.Spec.Strategy = &provisioningv1.DPUSetStrategy{
+			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
 				Type: provisioningv1.RollingUpdateStrategyType,
 				RollingUpdate: &provisioningv1.RollingUpdateDPU{
 					MaxUnavailable: &intstr.IntOrString{Type: intstr.String, StrVal: "150%"},
@@ -502,7 +499,7 @@ spec:
 
 		It("should accept RollingUpdate with valid percentage", func() {
 			obj := createObj("obj-valid-maxunavailable-percent")
-			obj.Spec.Strategy = &provisioningv1.DPUSetStrategy{
+			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
 				Type: provisioningv1.RollingUpdateStrategyType,
 				RollingUpdate: &provisioningv1.RollingUpdateDPU{
 					MaxUnavailable: &intstr.IntOrString{Type: intstr.String, StrVal: "50%"},
@@ -514,7 +511,7 @@ spec:
 
 		It("should accept RollingUpdate with maxUnavailable=100%", func() {
 			obj := createObj("obj-valid-maxunavailable-100-percent")
-			obj.Spec.Strategy = &provisioningv1.DPUSetStrategy{
+			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
 				Type: provisioningv1.RollingUpdateStrategyType,
 				RollingUpdate: &provisioningv1.RollingUpdateDPU{
 					MaxUnavailable: &intstr.IntOrString{Type: intstr.String, StrVal: "100%"},
@@ -531,7 +528,7 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 
 			// Update with invalid strategy
-			obj.Spec.Strategy = &provisioningv1.DPUSetStrategy{
+			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
 				Type: provisioningv1.RollingUpdateStrategyType,
 				RollingUpdate: &provisioningv1.RollingUpdateDPU{
 					MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
@@ -610,7 +607,7 @@ spec:
 			webhook := &DPUSet{}
 			obj := &provisioningv1.DPUSet{
 				Spec: provisioningv1.DPUSetSpec{
-					Strategy: &provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
+					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:       provisioningv1.BFBReference{Name: ""},
@@ -628,7 +625,7 @@ spec:
 			webhook := &DPUSet{}
 			obj := &provisioningv1.DPUSet{
 				Spec: provisioningv1.DPUSetSpec{
-					Strategy: &provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
+					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:       provisioningv1.BFBReference{Name: "bfb"},
@@ -697,7 +694,7 @@ spec:
 			webhook := &DPUSet{DPUInstallInterface: &installInterface}
 			obj := &provisioningv1.DPUSet{
 				Spec: provisioningv1.DPUSetSpec{
-					Strategy: &provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
+					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:          provisioningv1.BFBReference{Name: "bfb"},
@@ -717,7 +714,7 @@ spec:
 			webhook := &DPUSet{DPUInstallInterface: &installInterface}
 			obj := &provisioningv1.DPUSet{
 				Spec: provisioningv1.DPUSetSpec{
-					Strategy: &provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
+					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:          provisioningv1.BFBReference{Name: "bfb"},
@@ -736,7 +733,7 @@ spec:
 			webhook := &DPUSet{DPUInstallInterface: &installInterface}
 			oldObj := &provisioningv1.DPUSet{
 				Spec: provisioningv1.DPUSetSpec{
-					Strategy: &provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
+					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:       provisioningv1.BFBReference{Name: "bfb"},
@@ -758,7 +755,7 @@ spec:
 			webhook := &DPUSet{DPUInstallInterface: &installInterface}
 			oldObj := &provisioningv1.DPUSet{
 				Spec: provisioningv1.DPUSetSpec{
-					Strategy: &provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
+					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:       provisioningv1.BFBReference{Name: "bfb"},

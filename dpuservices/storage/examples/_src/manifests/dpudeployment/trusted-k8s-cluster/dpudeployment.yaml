@@ -13,6 +13,10 @@ spec:
         nodeSelector:
           matchLabels:
             feature.node.kubernetes.io/dpu-enabled: "true"
+    nodeEffect:
+      drain: true
+    dpuSetStrategy:
+      type: RollingUpdate
   services:
     snap-csi-plugin:
       serviceTemplate: snap-csi-plugin
