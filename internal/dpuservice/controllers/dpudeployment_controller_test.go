@@ -795,7 +795,9 @@ var _ = Describe("DPUDeployment Controller", func() {
 					dpuDeployment := &dpuservicev1.DPUDeployment{
 						Spec: dpuservicev1.DPUDeploymentSpec{
 							DPUs: dpuservicev1.DPUs{
-								DPUSets: dpuSets,
+								DPUSets:        dpuSets,
+								NodeEffect:     provisioningv1.Action{NoEffect: ptr.To(true)},
+								DPUSetStrategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 							},
 						},
 					}
@@ -1005,6 +1007,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 									},
 								},
 							},
+							NodeEffect:     provisioningv1.Action{NoEffect: ptr.To(true)},
+							DPUSetStrategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 						},
 					},
 				}
@@ -1475,6 +1479,9 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				expectedDPUSetSpecs = []provisioningv1.DPUSetSpec{
 					{
+						Strategy: provisioningv1.DPUSetStrategy{
+							Type: provisioningv1.RollingUpdateStrategyType,
+						},
 						DPUNodeSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
 								"nodekey1": "nodevalue1",
@@ -1494,7 +1501,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Name: "somebfb",
 								},
 								DPUFlavor: "someflavor",
-								NodeEffect: &provisioningv1.NodeEffect{
+								NodeEffect: provisioningv1.NodeEffect{
 									Action: provisioningv1.Action{
 										Drain: ptr.To(true),
 										Force: ptr.To(false),
@@ -1507,6 +1514,9 @@ var _ = Describe("DPUDeployment Controller", func() {
 						},
 					},
 					{
+						Strategy: provisioningv1.DPUSetStrategy{
+							Type: provisioningv1.RollingUpdateStrategyType,
+						},
 						DPUNodeSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
 								"nodekey2": "nodevalue2",
@@ -1526,7 +1536,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Name: "somebfb",
 								},
 								DPUFlavor: "someflavor",
-								NodeEffect: &provisioningv1.NodeEffect{
+								NodeEffect: provisioningv1.NodeEffect{
 									Action: provisioningv1.Action{
 										Drain: ptr.To(true),
 										Force: ptr.To(false),
@@ -1723,7 +1733,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 			})
-			It("should update the DPUSets on setting and unsetting the .spec.dpus.nodeEffect in the DPUDeployment", func() {
+			It("should update the DPUSets on changing the .spec.dpus.nodeEffect in the DPUDeployment", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
@@ -1770,8 +1780,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
-				By("modifying the DPUDeployment object to use a different nodeEffect and checking the outcome")
-				dpuDeployment.Spec.DPUs.NodeEffect = &provisioningv1.Action{
+				By("modifying the DPUDeployment object to use noEffect and checking the outcome")
+				dpuDeployment.Spec.DPUs.NodeEffect = provisioningv1.Action{
 					NoEffect: ptr.To(true),
 					Force:    ptr.To(false),
 				}
@@ -1788,7 +1798,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					for _, dpuSet := range gotDPUSetList.Items {
 						specs = append(specs, dpuSet.Spec)
 					}
-					expectedDPUSetSpecs[0].DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+					expectedDPUSetSpecs[0].DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 						Action: provisioningv1.Action{
 							NoEffect: ptr.To(true),
 							Force:    ptr.To(false),
@@ -1800,7 +1810,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
 							},
 						}}
-					expectedDPUSetSpecs[1].DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+					expectedDPUSetSpecs[1].DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 						Action: provisioningv1.Action{
 							NoEffect: ptr.To(true),
 							Force:    ptr.To(false),
@@ -1815,8 +1825,11 @@ var _ = Describe("DPUDeployment Controller", func() {
 					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
-				By("modifying the DPUDeployment object with no nodeEffect and checking the outcome")
-				dpuDeployment.Spec.DPUs.NodeEffect = nil
+				By("modifying the DPUDeployment object back to drain nodeEffect and checking the outcome")
+				dpuDeployment.Spec.DPUs.NodeEffect = provisioningv1.Action{
+					Drain: ptr.To(true),
+					Force: ptr.To(false),
+				}
 				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
 
 				By("checking that DPUSets are updated")
@@ -1830,7 +1843,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					for _, dpuSet := range gotDPUSetList.Items {
 						specs = append(specs, dpuSet.Spec)
 					}
-					expectedDPUSetSpecs[0].DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+					expectedDPUSetSpecs[0].DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 						Action: provisioningv1.Action{
 							Drain: ptr.To(true),
 							Force: ptr.To(false),
@@ -1843,7 +1856,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							},
 						},
 					}
-					expectedDPUSetSpecs[1].DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+					expectedDPUSetSpecs[1].DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 						Action: provisioningv1.Action{
 							Drain: ptr.To(true),
 							Force: ptr.To(false),
@@ -2946,6 +2959,9 @@ var _ = Describe("DPUDeployment Controller", func() {
 						expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(false)
 					}
 					expectedDPUSetSpecs = append(expectedDPUSetSpecs, provisioningv1.DPUSetSpec{
+						Strategy: provisioningv1.DPUSetStrategy{
+							Type: provisioningv1.RollingUpdateStrategyType,
+						},
 						DPUNodeSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
 								"nodekey3": "nodevalue3",
@@ -2965,7 +2981,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Name: "somebfb",
 								},
 								DPUFlavor: "someflavor",
-								NodeEffect: &provisioningv1.NodeEffect{
+								NodeEffect: provisioningv1.NodeEffect{
 									Action: provisioningv1.Action{
 										Drain: ptr.To(true),
 										Force: ptr.To(false),
@@ -9791,8 +9807,10 @@ func getMinimalDPUDeployment(namespace string) *dpuservicev1.DPUDeployment {
 		},
 		Spec: dpuservicev1.DPUDeploymentSpec{
 			DPUs: dpuservicev1.DPUs{
-				BFB:    "somebfb",
-				Flavor: "someflavor",
+				BFB:            "somebfb",
+				Flavor:         "someflavor",
+				NodeEffect:     provisioningv1.Action{Drain: ptr.To(true)},
+				DPUSetStrategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.RollingUpdateStrategyType},
 			},
 			Services: map[string]dpuservicev1.DPUDeploymentServiceConfiguration{
 				"someservice": {

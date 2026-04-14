@@ -32,6 +32,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 )
 
 var _ = Describe("Reboot Sync", func() {
@@ -123,6 +124,7 @@ var _ = Describe("Reboot Sync", func() {
 				},
 				Spec: provisioningv1.DPUSpec{
 					SerialNumber: fmt.Sprintf("serial-number-%s", name),
+					NodeEffect:   provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 				Status: provisioningv1.DPUStatus{
 					Phase: provisioningv1.DPURebooting,
@@ -140,6 +142,7 @@ var _ = Describe("Reboot Sync", func() {
 				},
 				Spec: provisioningv1.DPUSpec{
 					SerialNumber: fmt.Sprintf("serial-number-%s", name),
+					NodeEffect:   provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 				Status: provisioningv1.DPUStatus{
 					Phase: phase,

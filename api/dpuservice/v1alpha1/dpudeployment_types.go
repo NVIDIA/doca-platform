@@ -189,12 +189,12 @@ type DPUs struct {
 	DPUSets []DPUSet `json:"dpuSets,omitempty"`
 
 	// NodeEffect is the effect the DPU has on Nodes during provisioning.
-	// +optional
-	NodeEffect *provisioningv1.Action `json:"nodeEffect,omitempty"`
+	// +required
+	NodeEffect provisioningv1.Action `json:"nodeEffect"`
 
 	// DPUSetStrategy is the strategy to use for the DPUSets created by the DPUDeployment.
-	// +optional
-	DPUSetStrategy *provisioningv1.DPUSetStrategy `json:"dpuSetStrategy,omitempty"`
+	// +required
+	DPUSetStrategy provisioningv1.DPUSetStrategy `json:"dpuSetStrategy"`
 
 	// SecureBoot specifies whether UEFI Secure Boot should be enabled.
 	// +optional

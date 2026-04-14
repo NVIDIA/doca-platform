@@ -1274,6 +1274,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				DPUDeviceName: "test-device-1",
 				BFB:           "test-bfb",
 				DPUFlavor:     "test-flavor",
+				NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			},
 		}
 
@@ -1288,6 +1289,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				DPUDeviceName: "test-device-2",
 				BFB:           "test-bfb",
 				DPUFlavor:     "test-flavor",
+				NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			},
 		}
 

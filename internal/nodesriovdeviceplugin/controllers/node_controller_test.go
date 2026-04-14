@@ -197,6 +197,7 @@ var _ = Describe("NodeReconciler", Ordered, func() {
 					BFB:           "test-bfb-second",
 					SerialNumber:  "SN654321",
 					DPUFlavor:     "test-flavor",
+					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			}
 			Expect(testClient.Create(ctx, dpu2)).To(Succeed())
@@ -448,6 +449,7 @@ func createNodeWithDPU(ctx context.Context, nodeName, dpuNodeName, dpuName, conf
 			BFB:           "test-bfb",
 			SerialNumber:  "SN123456",
 			DPUFlavor:     "test-flavor",
+			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 		},
 	}
 	ExpectWithOffset(1, testClient.Create(ctx, dpu)).To(Succeed())

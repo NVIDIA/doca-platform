@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -39,6 +40,7 @@ var _ = Describe("Indexers", func() {
 				DPUDeviceName: "test-device",
 				BFB:           "test-bfb",
 				DPUFlavor:     "test-flavor",
+				NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			},
 		}
 		Expect(testClient.Create(ctx, dpu)).To(Succeed())

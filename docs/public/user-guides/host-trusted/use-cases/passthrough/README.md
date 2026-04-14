@@ -390,12 +390,16 @@ metadata:
   name: passthrough
   namespace: dpf-operator-system
 spec:
+  strategy:
+    type: RollingUpdate
   dpuNodeSelector:
     matchLabels:
       feature.node.kubernetes.io/dpu-enabled: "true"
   dpuTemplate:
     spec:
       dpuFlavor: passthrough-$TAG
+      nodeEffect:
+        drain: true
       bfb:
         name: bf-bundle-$TAG
 ```

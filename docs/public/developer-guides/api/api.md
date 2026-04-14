@@ -2265,7 +2265,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `strategy` _[DPUSetStrategy](#dpusetstrategy)_ | The rolling update strategy to use to updating existing DPUs with new ones. |  | Optional: \{\} <br /> |
+| `strategy` _[DPUSetStrategy](#dpusetstrategy)_ | The rolling update strategy to use to updating existing DPUs with new ones. |  | Required: \{\} <br /> |
 | `dpuNodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Select the DPUNodes with specific labels |  | Optional: \{\} <br /> |
 | `dpuSelector` _object (keys:string, values:string)_ | Select the DPU with specific labels<br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUDeviceSelector instead. |  | Optional: \{\} <br /> |
 | `dpuDeviceSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUDeviceSelector defines the selector for DPUDevices that the DPUSet should target and should create a DPU for. |  | Optional: \{\} <br /> |
@@ -2304,7 +2304,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `type` _[StrategyType](#strategytype)_ | Can be "OnDelete" or "RollingUpdate". | OnDelete | Enum: [OnDelete RollingUpdate] <br />Optional: \{\} <br /> |
+| `type` _[StrategyType](#strategytype)_ | Can be "OnDelete" or "RollingUpdate". |  | Enum: [OnDelete RollingUpdate] <br />Required: \{\} <br /> |
 | `rollingUpdate` _[RollingUpdateDPU](#rollingupdatedpu)_ | Rolling update config params. Present only if StrategyType = RollingUpdate. |  | Optional: \{\} <br /> |
 
 
@@ -2327,7 +2327,7 @@ _Appears in:_
 | `blueFieldSoftware` _string_ | Specifies the name of the BlueFieldSoftware CR to use for this DPU |  | Optional: \{\} <br /> |
 | `serialNumber` _string_ | The serial number of the DPU |  | MinLength: 1 <br />Required: \{\} <br /> |
 | `pciAddress` _string_ | The PCI device related DPU<br />Example: "0000-03-00", "03-00" |  | Pattern: `^([0-9a-fA-F]\{4\}[-])?[0-9a-fA-F]\{2\}[-][0-9a-fA-F]\{2\}$` <br />Optional: \{\} <br /> |
-| `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} | Optional: \{\} <br /> |
+| `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node |  | Required: \{\} <br /> |
 | `cluster` _[K8sCluster](#k8scluster)_ | Specifies details on the K8S cluster to join |  | Optional: \{\} <br /> |
 | `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br />Required: \{\} <br /> |
 | `astraEnabled` _boolean_ | AstraEnabled indicates whether E/W NIC configuration (Astra) is enabled |  | Optional: \{\} <br /> |
@@ -2403,7 +2403,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `bfb` _[BFBReference](#bfbreference)_ | Specifies a BFB CR |  |  |
 | `blueFieldSoftware` _[BlueFieldSoftwareReference](#bluefieldsoftwarereference)_ | Specifies a BlueFieldSoftware CR |  | Optional: \{\} <br /> |
-| `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node | \{ drain:true \} | Optional: \{\} <br /> |
+| `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node |  | Required: \{\} <br /> |
 | `cluster` _[ClusterSpec](#clusterspec)_ | Specifies details on the K8S cluster to join |  | Optional: \{\} <br /> |
 | `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br />Required: \{\} <br /> |
 | `astraEnabled` _boolean_ | AstraEnabled indicates whether E/W NIC configuration (Astra) is enabled |  | Optional: \{\} <br /> |
@@ -2783,7 +2783,6 @@ _Appears in:_
 _Underlying type:_ _string_
 
 StrategyType describes strategy to use to reprovision existing DPUs.
-Default is "OnDelete".
 
 _Validation:_
 - Enum: [OnDelete RollingUpdate]
@@ -4678,8 +4677,8 @@ _Appears in:_
 | `flavor` _string_ | Flavor is the name of the DPUFlavor object to be used in this DPUDeployment. It must be in the same namespace as<br />the DPUDeployment. |  | Required: \{\} <br /> |
 | `astraEnabled` _boolean_ | AstraEnabled indicates whether E/W NIC configuration (Astra) is enabled |  | Optional: \{\} <br /> |
 | `dpuSets` _[DPUSet](#dpuset) array_ | DPUSets contains configuration for each DPUSet that is going to be created by the DPUDeployment |  | MaxItems: 50 <br />MinItems: 1 <br />Optional: \{\} <br /> |
-| `nodeEffect` _[Action](#action)_ | NodeEffect is the effect the DPU has on Nodes during provisioning. |  | Optional: \{\} <br /> |
-| `dpuSetStrategy` _[DPUSetStrategy](#dpusetstrategy)_ | DPUSetStrategy is the strategy to use for the DPUSets created by the DPUDeployment. |  | Optional: \{\} <br /> |
+| `nodeEffect` _[Action](#action)_ | NodeEffect is the effect the DPU has on Nodes during provisioning. |  | Required: \{\} <br /> |
+| `dpuSetStrategy` _[DPUSetStrategy](#dpusetstrategy)_ | DPUSetStrategy is the strategy to use for the DPUSets created by the DPUDeployment. |  | Required: \{\} <br /> |
 | `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  | Optional: \{\} <br /> |
 
 
