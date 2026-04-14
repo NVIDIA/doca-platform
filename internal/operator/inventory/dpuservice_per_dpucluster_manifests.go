@@ -130,24 +130,15 @@ func (p *dpuServicePerDPUClusterObjects) Parse() (err error) {
 }
 
 // GenerateManifests applies edits and returns objects
-func (p *dpuServicePerDPUClusterObjects) GenerateManifests(_ context.Context, vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
+func (p *dpuServicePerDPUClusterObjects) GenerateManifests(_ context.Context, vars Variables) ([]client.Object, error) {
 	if ok := vars.DisableSystemComponents[p.Name()]; ok {
 		return []client.Object{}, nil
-	}
-
-	opts := &GenerateManifestOptions{}
-	for _, option := range options {
-		option.Apply(opts)
 	}
 
 	labelsToAdd := map[string]string{
 		operatorv1.DPFComponentLabelKey: p.Name().String(),
 		release.DPFVersionLabelKey:      release.DPFVersion(),
-	}
-	applySetID := ApplySetID(vars.Namespace, p)
-	// Add the ApplySet to the manifests if this hasn't been disabled.
-	if !opts.skipApplySet {
-		labelsToAdd[applysetPartOfLabel] = applySetID
+		applysetPartOfLabel:             ApplySetID(vars.Namespace, p),
 	}
 
 	objs := make([]*unstructured.Unstructured, 0)

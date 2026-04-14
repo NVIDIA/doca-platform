@@ -137,6 +137,9 @@ var (
 	// dpuClusterInterface can be used to override the interface specified in DPUCluster YAML files.
 	// This is useful when running e2e tests on different hardware setups where the interface name differs.
 	dpuClusterInterface = ""
+	// prereqsNamespace can be used to override the namespace where the prerequisites are deployed.
+	// This is useful to test scenarios where the prerequisites are deployed in a different namespace than the known default.
+	prereqsNamespace = ""
 	// Labels and resources targeted for cleanup before running our e2e tests.
 	// This cleanup is typically handled by cleanupObjs, but if an e2e test fails, the standard cleanup may not be executed.
 	// Note: order matters as some object deletion depends on controllers that may be deployed via dpuservices/dpudeployments

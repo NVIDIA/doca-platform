@@ -211,14 +211,9 @@ func (p *simpleDeploymentObjects) Parse() (err error) {
 	return nil
 }
 
-func (p *simpleDeploymentObjects) GenerateManifests(_ context.Context, vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
+func (p *simpleDeploymentObjects) GenerateManifests(_ context.Context, vars Variables) ([]client.Object, error) {
 	if p.isDisabled != nil && p.isDisabled(vars.DisableSystemComponents) {
 		return []client.Object{}, nil
-	}
-
-	opts := &GenerateManifestOptions{}
-	for _, option := range options {
-		option.Apply(opts)
 	}
 
 	// make a copy of the objects
@@ -230,11 +225,7 @@ func (p *simpleDeploymentObjects) GenerateManifests(_ context.Context, vars Vari
 	labelsToAdd := map[string]string{
 		operatorv1.DPFComponentLabelKey: p.Name().String(),
 		release.DPFVersionLabelKey:      release.DPFVersion(),
-	}
-	applySetID := ApplySetID(vars.Namespace, p)
-	// Add the ApplySet to the manifests if this hasn't been disabled.
-	if !opts.skipApplySet {
-		labelsToAdd[applysetPartOfLabel] = applySetID
+		applysetPartOfLabel:             ApplySetID(vars.Namespace, p),
 	}
 
 	// apply edits
