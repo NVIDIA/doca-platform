@@ -144,3 +144,7 @@ CR reaches the `rebooting` phase, manual power-cycling is required by the user. 
 completed within two hours; otherwise, the DPU join cluster's secret will expire, causing DPU CR pending in `DPU Cluster
 Config` phase. After the worker node boots up, the `provisioning.dpu.nvidia.com/dpunode-external-reboot-required`
 annotation on the DPUNode must be manually removed.
+
+If you use **script-based** host reboot (`nodeRebootMethod.script` on the DPUNode) instead of external power cycle, see
+[DPUNode: Script reboot job failures and recovery](../developer-guides/api/dpunode.md#script-reboot-job-failures-and-recovery)
+for how Jobs, DPU phase `DPURebooting`, and recovery interact.

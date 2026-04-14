@@ -139,6 +139,12 @@ const (
 	AgentCondRebootMethodDiscovery = "RebootMethodDiscovery"
 	// AgentAnnotationAllowFirmwareResetReboot is the DPU annotation key used to allow RebootMethodFirmwareReset from mlxfwreset.
 	AgentAnnotationAllowFirmwareResetReboot = DPUProvisioningPrefix + "allow-firmware-reset-reboot"
+
+	// Script-reboot condition reasons set by the DPUNode controller on DPUCondRebooted.
+	// These are used by the DPUNode controller to detect an existing script-reboot lifecycle.
+	ReasonRebootScriptWaiting          = "RebootScriptWaiting"
+	ReasonRebootScriptFailedToFetchJob = "RebootScriptFailedToFetchJob"
+	ReasonRebootScriptFailed           = "RebootScriptFailed"
 )
 
 var (
