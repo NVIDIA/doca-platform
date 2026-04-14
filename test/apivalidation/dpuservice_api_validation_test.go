@@ -285,6 +285,9 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 			Entry("valid config - with deployInCluster=true and without interfaces", ptr.To(true), false, false),
 			Entry("invalid config - with deployInCluster=true and with interfaces", ptr.To(true), true, true),
 		)
+		It("should allow creation of DPUServiceConfiguration with interfaces when serviceConfiguration is absent", func() {
+			Expect(testClient.Create(ctx, getMinimalDPUServiceConfiguration(testNS.Name))).To(Succeed())
+		})
 		DescribeTable("Validates the ConfigPorts and deployInCluster correctly", func(deployInCluster *bool, hasConfigPorts bool, expectError bool) {
 			dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
 			dpuServiceConfiguration.Spec.Interfaces = nil
@@ -312,8 +315,10 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 		)
 		DescribeTable("Validates the restricted label/annotation in serviceDaemonSet", func(labels map[string]string, annotations map[string]string, expectError bool) {
 			dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
-			dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = labels
-			dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Annotations = annotations
+			dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet = &dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues{
+				Labels:      labels,
+				Annotations: annotations,
+			}
 			err := testClient.Create(ctx, dpuServiceConfiguration)
 			if expectError {
 				Expect(err).To(HaveOccurred())

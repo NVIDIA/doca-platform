@@ -5340,17 +5340,17 @@ var _ = Describe("DPUDeployment Controller", func() {
 				dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
 				dpuServiceConfiguration.Name = "service-1"
 				dpuServiceConfiguration.Spec.DeploymentServiceName = "service-1"
-				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Annotations = make(map[string]string)
-				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Annotations["annkey1"] = "annval1"
-				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = make(map[string]string)
-				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels["labelkey1"] = "labelval1"
-				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Resources = corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("100m"),
-					corev1.ResourceMemory: resource.MustParse("100Mi"),
-				}
-				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.UpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
-					RollingUpdate: &appsv1.RollingUpdateDaemonSet{
-						MaxUnavailable: ptr.To(intstr.FromInt(1)),
+				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet = &dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues{
+					Annotations: map[string]string{"annkey1": "annval1"},
+					Labels:      map[string]string{"labelkey1": "labelval1"},
+					Resources: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("100Mi"),
+					},
+					UpdateStrategy: &appsv1.DaemonSetUpdateStrategy{
+						RollingUpdate: &appsv1.RollingUpdateDaemonSet{
+							MaxUnavailable: ptr.To(intstr.FromInt(1)),
+						},
 					},
 				}
 				dpuServiceConfiguration.Spec.ServiceConfiguration.DeployInCluster = ptr.To(true)
@@ -5370,10 +5370,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 				dpuServiceConfiguration = getMinimalDPUServiceConfiguration(testNS.Name)
 				dpuServiceConfiguration.Name = "service-2"
 				dpuServiceConfiguration.Spec.DeploymentServiceName = "service-2"
-				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Annotations = make(map[string]string)
-				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Annotations["annkey2"] = "annval2"
-				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = make(map[string]string)
-				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels["labelkey2"] = "labelval2"
+				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet = &dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues{
+					Annotations: map[string]string{"annkey2": "annval2"},
+					Labels:      map[string]string{"labelkey2": "labelval2"},
+				}
 				dpuServiceConfiguration.Spec.ServiceConfiguration.HelmChart.Values = &runtime.RawExtension{Raw: []byte(`{"key2":"value2"}`)}
 				dpuServiceConfiguration.Spec.Interfaces = []dpuservicev1.ServiceInterfaceTemplate{{Name: "if2", Network: "nad2"}, {Name: "if3", Network: "nad3"}}
 				Expect(testClient.Create(ctx, dpuServiceConfiguration)).To(Succeed())
@@ -5391,10 +5391,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 				dpuServiceConfiguration = getMinimalDPUServiceConfiguration(testNS.Name)
 				dpuServiceConfiguration.Name = "service-3"
 				dpuServiceConfiguration.Spec.DeploymentServiceName = "service-3"
-				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Annotations = make(map[string]string)
-				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Annotations["annkey3"] = "annval3"
-				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = make(map[string]string)
-				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels["labelkey3"] = "labelval3"
+				dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet = &dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues{
+					Annotations: map[string]string{"annkey3": "annval3"},
+					Labels:      map[string]string{"labelkey3": "labelval3"},
+				}
 				dpuServiceConfiguration.Spec.ServiceConfiguration.ConfigPorts = &dpuservicev1.ConfigPorts{
 					ServiceType: corev1.ServiceTypeNodePort,
 					Ports: []dpuservicev1.ConfigPort{
@@ -6076,7 +6076,9 @@ var _ = Describe("DPUDeployment Controller", func() {
 				for _, serviceName := range modifiedServices {
 					dpuServiceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
 					Expect(testClient.Get(ctx, types.NamespacedName{Namespace: testNS.Name, Name: serviceName}, dpuServiceConfiguration)).To(Succeed())
-					dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = map[string]string{"newlabel2": fmt.Sprintf("newvalue-%s", serviceName)}
+					dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet = &dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues{
+						Labels: map[string]string{"newlabel2": fmt.Sprintf("newvalue-%s", serviceName)},
+					}
 					dpuServiceConfiguration.SetManagedFields(nil)
 					dpuServiceConfiguration.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
 					Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName))).To(Succeed())
@@ -6320,7 +6322,9 @@ var _ = Describe("DPUDeployment Controller", func() {
 				for _, serviceName := range modifiedServices {
 					dpuServiceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
 					Expect(testClient.Get(ctx, types.NamespacedName{Namespace: testNS.Name, Name: serviceName}, dpuServiceConfiguration)).To(Succeed())
-					dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = map[string]string{"newlabel2": fmt.Sprintf("newvalue-%s", serviceName)}
+					dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet = &dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues{
+						Labels: map[string]string{"newlabel2": fmt.Sprintf("newvalue-%s", serviceName)},
+					}
 					// make non-disruptive
 					dpuServiceConfiguration.Spec.UpgradePolicy = dpuservicev1.UpgradePolicy{ApplyNodeEffect: ptr.To(false)}
 					dpuServiceConfiguration.SetManagedFields(nil)
@@ -6667,7 +6671,9 @@ var _ = Describe("DPUDeployment Controller", func() {
 					dpuServiceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
 					Expect(testClient.Get(ctx, types.NamespacedName{Namespace: testNS.Name, Name: "service-2"}, dpuServiceConfiguration)).To(Succeed())
 					initialConfig := dpuServiceConfiguration.DeepCopy()
-					dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = map[string]string{fmt.Sprintf("somelabel%d", i): "val"}
+					dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet = &dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues{
+						Labels: map[string]string{fmt.Sprintf("somelabel%d", i): "val"},
+					}
 					dpuServiceConfiguration.SetManagedFields(nil)
 					dpuServiceConfiguration.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
 					Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.MergeFrom(initialConfig))).To(Succeed())
