@@ -67,38 +67,44 @@ func (st *blueFieldSoftwareReadyState) Handle(context.Context, client.Client) er
 func (st *blueFieldSoftwareReadyState) checkMissingComponents() []butil.ComponentType {
 	var missing []butil.ComponentType
 
-	// Define component mappings
-	components := []struct {
-		url           string
-		componentType butil.ComponentType
-	}{
-		{st.bfs.Status.DownloadedComponents.PldmFwBundle, butil.ComponentTypeFwBundle},
-		{st.bfs.Status.DownloadedComponents.OsIso, butil.ComponentTypeOSISO},
-		{st.bfs.Status.DownloadedComponents.BmcErot, butil.ComponentTypeBMCEROT},
-		{st.bfs.Status.DownloadedComponents.BmcFw, butil.ComponentTypeBMC},
-		{st.bfs.Status.DownloadedComponents.AstraNicFw, butil.ComponentTypeNIC},
-		{st.bfs.Status.DownloadedComponents.GraceErot, butil.ComponentTypeGRACEEROT},
-		{st.bfs.Status.DownloadedComponents.GraceFw, butil.ComponentTypeGRACEFW},
+	type row struct {
+		specURL string
+		stored  string
+		ct      butil.ComponentType
+	}
+	var rows []row
+	rows = append(rows,
+		row{st.bfs.Spec.PldmFwBundle, st.bfs.Status.DownloadedComponents.PldmFwBundle, butil.ComponentTypeFwBundle},
+		row{st.bfs.Spec.OsIso, st.bfs.Status.DownloadedComponents.OsIso, butil.ComponentTypeOSISO},
+	)
+	if tc := st.bfs.Spec.TmpFwComponents; tc != nil {
+		rows = append(rows,
+			row{tc.BmcErot, st.bfs.Status.DownloadedComponents.BmcErot, butil.ComponentTypeBMCEROT},
+			row{tc.BmcFw, st.bfs.Status.DownloadedComponents.BmcFw, butil.ComponentTypeBMC},
+			row{tc.AstraNicFw, st.bfs.Status.DownloadedComponents.AstraNicFw, butil.ComponentTypeNIC},
+			row{tc.GraceErot, st.bfs.Status.DownloadedComponents.GraceErot, butil.ComponentTypeGRACEEROT},
+			row{tc.GraceFw, st.bfs.Status.DownloadedComponents.GraceFw, butil.ComponentTypeGRACEFW},
+		)
 	}
 
-	// Check each component
-	for _, comp := range components {
-		if st.isComponentMissing(comp.url, comp.componentType) {
-			missing = append(missing, comp.componentType)
+	for _, r := range rows {
+		if r.specURL == "" {
+			continue
+		}
+		if isURL(r.specURL) {
+			path := componentDestinationPath(r.ct, butil.DefaultComponentFilename(st.bfs, r.ct))
+			ok, err := isFileExist(path)
+			if err != nil || !ok {
+				missing = append(missing, r.ct)
+			}
+			continue
+		}
+		if r.stored != r.specURL {
+			missing = append(missing, r.ct)
 		}
 	}
 
 	return missing
-}
-
-func (st *blueFieldSoftwareReadyState) isComponentMissing(url string, componentType butil.ComponentType) bool {
-	if url == "" || !isURL(url) {
-		return false
-	}
-
-	fileName := butil.DefaultComponentFilename(st.bfs, componentType)
-	exists, _ := isFileExist(generateComponentFilePath(fileName))
-	return !exists
 }
 
 func (st *blueFieldSoftwareReadyState) clearComponentStatus(componentType butil.ComponentType) {
