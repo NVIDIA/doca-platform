@@ -24,7 +24,7 @@ A Helm chart for DPF storage subsystem
 | dpu.docaSnap.env.SNAP_SPDK_SOCK | string | `"/var/lib/nvidia/storage/snap/providers/nvidia/snap.sock"` |  |
 | dpu.docaSnap.hostNetwork | bool | `false` |  |
 | dpu.docaSnap.image.repository | string | `"nvcr.io/nvidia/doca/doca_vfs"` |  |
-| dpu.docaSnap.image.tag | string | `"1.5.0-doca3.2.0@sha256:7053650ea21e77f48f6ef23995e4265c512967059574f9d1906f38315f906cd5"` |  |
+| dpu.docaSnap.image.tag | string | `"1.7.0-doca3.4.0"` |  |
 | dpu.docaSnap.imagePullPolicy | string | `"IfNotPresent"` |  |
 | dpu.docaSnap.imagePullSecrets | list | `[]` |  |
 | dpu.docaSnap.name | string | `"doca-snap"` |  |
