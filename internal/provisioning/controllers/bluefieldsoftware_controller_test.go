@@ -64,6 +64,9 @@ var _ = Describe("BlueFieldSoftware", func() {
 
 	var getComponentFilePath = func(bfs *provisioningv1.BlueFieldSoftware, componentType bfsutil.ComponentType) string {
 		fileName := bfsutil.DefaultComponentFilename(bfs, componentType)
+		if componentType == bfsutil.ComponentTypeOSISO {
+			return cutil.GenerateBFBFilePath(fileName)
+		}
 		return filepath.Join(string(os.PathSeparator), cutil.BFBBaseDir, "components", fileName)
 	}
 
@@ -136,7 +139,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 			Expect(readyCond.Reason).To(Equal(string(conditions.ReasonSuccess)))
 
 			By("verifying downloaded component status")
-			Expect(objFetched.Status.DownloadedComponents.PldmFwBundle).To(Equal(obj.Spec.PldmFwBundle))
+			Expect(objFetched.Status.DownloadedComponents.PldmFwBundle).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeFwBundle)))
 
 			By("verifying file exists")
 			filePath := getComponentFilePath(objFetched, bfsutil.ComponentTypeFwBundle)
@@ -168,10 +171,10 @@ var _ = Describe("BlueFieldSoftware", func() {
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 
 			By("verifying all components are downloaded")
-			Expect(objFetched.Status.DownloadedComponents.PldmFwBundle).To(Equal(obj.Spec.PldmFwBundle))
-			Expect(objFetched.Status.DownloadedComponents.OsIso).To(Equal(obj.Spec.OsIso))
-			Expect(objFetched.Status.DownloadedComponents.BmcFw).To(Equal(obj.Spec.TmpFwComponents.BmcFw))
-			Expect(objFetched.Status.DownloadedComponents.AstraNicFw).To(Equal(obj.Spec.TmpFwComponents.AstraNicFw))
+			Expect(objFetched.Status.DownloadedComponents.PldmFwBundle).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeFwBundle)))
+			Expect(objFetched.Status.DownloadedComponents.OsIso).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeOSISO)))
+			Expect(objFetched.Status.DownloadedComponents.BmcFw).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeBMC)))
+			Expect(objFetched.Status.DownloadedComponents.AstraNicFw).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeNIC)))
 
 			By("verifying all files exist")
 			for _, componentType := range []bfsutil.ComponentType{
@@ -206,7 +209,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 
 			By("verifying URL was downloaded")
-			Expect(objFetched.Status.DownloadedComponents.PldmFwBundle).To(Equal(obj.Spec.PldmFwBundle))
+			Expect(objFetched.Status.DownloadedComponents.PldmFwBundle).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeFwBundle)))
 			filePath := getComponentFilePath(objFetched, bfsutil.ComponentTypeFwBundle)
 			_, err := os.Stat(filePath)
 			Expect(err).NotTo(HaveOccurred())
@@ -429,13 +432,13 @@ var _ = Describe("BlueFieldSoftware", func() {
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 
 			By("verifying all 7 components are downloaded")
-			Expect(objFetched.Status.DownloadedComponents.PldmFwBundle).To(Equal(obj.Spec.PldmFwBundle))
-			Expect(objFetched.Status.DownloadedComponents.OsIso).To(Equal(obj.Spec.OsIso))
-			Expect(objFetched.Status.DownloadedComponents.BmcErot).To(Equal(obj.Spec.TmpFwComponents.BmcErot))
-			Expect(objFetched.Status.DownloadedComponents.BmcFw).To(Equal(obj.Spec.TmpFwComponents.BmcFw))
-			Expect(objFetched.Status.DownloadedComponents.AstraNicFw).To(Equal(obj.Spec.TmpFwComponents.AstraNicFw))
-			Expect(objFetched.Status.DownloadedComponents.GraceErot).To(Equal(obj.Spec.TmpFwComponents.GraceErot))
-			Expect(objFetched.Status.DownloadedComponents.GraceFw).To(Equal(obj.Spec.TmpFwComponents.GraceFw))
+			Expect(objFetched.Status.DownloadedComponents.PldmFwBundle).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeFwBundle)))
+			Expect(objFetched.Status.DownloadedComponents.OsIso).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeOSISO)))
+			Expect(objFetched.Status.DownloadedComponents.BmcErot).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeBMCEROT)))
+			Expect(objFetched.Status.DownloadedComponents.BmcFw).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeBMC)))
+			Expect(objFetched.Status.DownloadedComponents.AstraNicFw).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeNIC)))
+			Expect(objFetched.Status.DownloadedComponents.GraceErot).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeGRACEEROT)))
+			Expect(objFetched.Status.DownloadedComponents.GraceFw).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeGRACEFW)))
 
 			By("verifying all files exist")
 			for _, componentType := range []bfsutil.ComponentType{
@@ -560,8 +563,8 @@ var _ = Describe("BlueFieldSoftware", func() {
 				// ObservedGeneration should match Generation
 				g.Expect(objFetched.Status.ObservedGeneration).To(Equal(objFetched.Generation))
 
-				// Downloaded component should be set
-				g.Expect(objFetched.Status.DownloadedComponents.PldmFwBundle).To(Equal(obj.Spec.PldmFwBundle))
+				// Downloaded component should be set (on-disk path)
+				g.Expect(objFetched.Status.DownloadedComponents.PldmFwBundle).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeFwBundle)))
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 
 			By("verifying the object remains in Ready phase (continuous requeuing)")

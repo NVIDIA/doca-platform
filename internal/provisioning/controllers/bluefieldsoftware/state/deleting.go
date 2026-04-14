@@ -75,7 +75,7 @@ func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.C
 	var errors []error
 	for _, componentType := range componentsToDelete {
 		fileName := butil.DefaultComponentFilename(st.bfs, componentType)
-		filePath := generateComponentFilePath(fileName)
+		filePath := componentDestinationPath(componentType, fileName)
 
 		if exists, err := isFileExist(filePath); err != nil {
 			errors = append(errors, fmt.Errorf("failed to check %s: %w", componentType, err))
