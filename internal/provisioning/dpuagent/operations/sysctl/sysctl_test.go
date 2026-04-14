@@ -96,6 +96,9 @@ var _ = Describe("Sysctl Operation", func() {
 net.ipv4.ip_forward=1
 net.bridge.bridge-nf-call-iptables=1
 net.bridge.bridge-nf-call-ip6tables=1
+kernel.panic_on_oops=1
+kernel.panic=10
+vm.overcommit_memory=1
 `
 			Expect(string(content)).To(Equal(expectedContent))
 
@@ -171,6 +174,9 @@ net.bridge.bridge-nf-call-ip6tables=1
 			expectedContent := `net.ipv4.ip_forward=1
 net.bridge.bridge-nf-call-iptables=1
 net.bridge.bridge-nf-call-ip6tables=1
+kernel.panic_on_oops=1
+kernel.panic=10
+vm.overcommit_memory=1
 `
 			Expect(string(content)).To(Equal(expectedContent))
 
@@ -322,7 +328,7 @@ net.bridge.bridge-nf-call-iptables=1
 				DPUFlavor: *flavor,
 			})
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("sysctl parameters mismatch. Current: kernel.panic=0, kernel.panic_on_oops=0"))
+			Expect(err.Error()).To(ContainSubstring("sysctl parameters mismatch. Current: kernel.panic_on_oops=0, kernel.panic=0"))
 		})
 	})
 })

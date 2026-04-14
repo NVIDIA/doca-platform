@@ -39,6 +39,10 @@ var (
 		"net.ipv4.ip_forward=1",
 		"net.bridge.bridge-nf-call-iptables=1",
 		"net.bridge.bridge-nf-call-ip6tables=1",
+		// Required by kubelet: with ProtectKernelDefaults=true, kubelet validates these sysctl values and may fail to start if they are unexpected.
+		"kernel.panic_on_oops=1",
+		"kernel.panic=10",
+		"vm.overcommit_memory=1",
 	}
 )
 
