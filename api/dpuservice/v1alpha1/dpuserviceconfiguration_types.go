@@ -50,7 +50,7 @@ type DPUServiceConfiguration struct {
 }
 
 // DPUServiceConfigurationSpec defines the desired state of DPUServiceConfiguration
-// +kubebuilder:validation:XValidation:rule="!has(self.interfaces) || (has(self.interfaces) && (self.serviceConfiguration.deployInCluster == false || !has(self.serviceConfiguration.deployInCluster)))", message="interfaces are not supported when deploying in cluster"
+// +kubebuilder:validation:XValidation:rule="!has(self.interfaces) || (has(self.interfaces) && (!has(self.serviceConfiguration) || self.serviceConfiguration.deployInCluster == false || !has(self.serviceConfiguration.deployInCluster)))", message="interfaces are not supported when deploying in cluster"
 type DPUServiceConfigurationSpec struct {
 	// DeploymentServiceName is the name of the DPU service this configuration refers to. It must match
 	// .spec.deploymentServiceName of a DPUServiceTemplate object and one of the keys in .spec.services of a
@@ -103,7 +103,7 @@ type ServiceConfiguration struct {
 	HelmChart ServiceConfigurationHelmChart `json:"helmChart,omitempty"`
 	// ServiceDaemonSet contains settings related to the underlying DaemonSet that is part of the Helm chart
 	// +optional
-	ServiceDaemonSet DPUServiceConfigurationServiceDaemonSetValues `json:"serviceDaemonSet,omitempty"`
+	ServiceDaemonSet *DPUServiceConfigurationServiceDaemonSetValues `json:"serviceDaemonSet,omitempty"`
 	// DeployInCluster indicates if the DPUService Helm Chart will be deployed on the Host cluster. Default to false.
 	// +optional
 	DeployInCluster *bool `json:"deployInCluster,omitempty"`

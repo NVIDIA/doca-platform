@@ -1963,7 +1963,11 @@ func (in *ServiceChains) DeepCopy() *ServiceChains {
 func (in *ServiceConfiguration) DeepCopyInto(out *ServiceConfiguration) {
 	*out = *in
 	in.HelmChart.DeepCopyInto(&out.HelmChart)
-	in.ServiceDaemonSet.DeepCopyInto(&out.ServiceDaemonSet)
+	if in.ServiceDaemonSet != nil {
+		in, out := &in.ServiceDaemonSet, &out.ServiceDaemonSet
+		*out = new(DPUServiceConfigurationServiceDaemonSetValues)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.DeployInCluster != nil {
 		in, out := &in.DeployInCluster, &out.DeployInCluster
 		*out = new(bool)

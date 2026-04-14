@@ -510,15 +510,19 @@ func generateDPUService(dpuDeploymentNamespacedName types.NamespacedName,
 	return dpuService, nil
 }
 
-func generateDPUServiceDaemonSetValues(name string, serviceDaemonSet dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues) *dpuservicev1.ServiceDaemonSetValues {
+func generateDPUServiceDaemonSetValues(name string, serviceDaemonSet *dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues) *dpuservicev1.ServiceDaemonSetValues {
 	labels := map[string]string{}
-	maps.Copy(labels, serviceDaemonSet.Labels)
+	if serviceDaemonSet != nil {
+		maps.Copy(labels, serviceDaemonSet.Labels)
+	}
 	labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey] = name
 	serviceDaemonSetValues := &dpuservicev1.ServiceDaemonSetValues{
-		Labels:         labels,
-		Annotations:    serviceDaemonSet.Annotations,
-		UpdateStrategy: serviceDaemonSet.UpdateStrategy,
-		Resources:      serviceDaemonSet.Resources,
+		Labels: labels,
+	}
+	if serviceDaemonSet != nil {
+		serviceDaemonSetValues.Annotations = serviceDaemonSet.Annotations
+		serviceDaemonSetValues.UpdateStrategy = serviceDaemonSet.UpdateStrategy
+		serviceDaemonSetValues.Resources = serviceDaemonSet.Resources
 	}
 	return serviceDaemonSetValues
 }
