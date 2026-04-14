@@ -25,6 +25,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
@@ -102,6 +103,30 @@ var _ = Describe("Phase DPUConfig", func() {
 			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+		})
+	})
+
+	Context("transitioning to host reboot", func() {
+		It("should clear stale Rebooted condition when entering DPURebooting", func() {
+			oldTime := metav1.NewTime(metav1.Now().Add(-time.Hour))
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.AgentLastStartupTime = &oldTime
+			dpu.Status.Conditions = []metav1.Condition{{
+				Type:    provisioningv1.DPUCondRebooted.String(),
+				Status:  metav1.ConditionTrue,
+				Reason:  "Rebooted",
+				Message: "stale reboot completion from previous cycle",
+			}}
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				LastStartupTime: ptr.To(metav1.Now()),
+				RebootMethod:    ptr.To(provisioningv1.RebootMethodSystemLevelReset),
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
+			Expect(meta.FindStatusCondition(status.Conditions, provisioningv1.DPUCondRebooted.String())).To(BeNil())
 		})
 	})
 

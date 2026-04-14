@@ -649,7 +649,8 @@ var _ = Describe("Phase Rebooting", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface))
 			cond := meta.FindStatusCondition(status.Conditions, provisioningv1.DPUCondRebooted.String())
-			Expect(cond).To(BeNil())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 		})
 
 		It("should move to DPUInitializeInterface when OSInstalled is set and PreviousPhase is DPUInitializeInterface (RedFish external)", func() {
