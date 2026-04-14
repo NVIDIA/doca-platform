@@ -656,6 +656,9 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx context.Context, 
 
 	By("Modifying the DPUServiceConfiguration by adding an extra label")
 	originalDPUServiceConfiguration := dpuServiceConfiguration.DeepCopy()
+	if dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet == nil {
+		dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet = &dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues{}
+	}
 	if dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels == nil {
 		dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = make(map[string]string)
 	}
@@ -861,6 +864,9 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 
 	By("Modifying the DPUServiceConfiguration by adding an extra label")
 	originalDPUServiceConfiguration := dpuServiceConfiguration.DeepCopy()
+	if dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet == nil {
+		dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet = &dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues{}
+	}
 	if dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels == nil {
 		dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = make(map[string]string)
 	}
@@ -1128,6 +1134,9 @@ func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Conte
 
 	By("Updating the dpuServiceConfiguration by adding an extra label to trigger disruptive upgrade")
 	originalDPUServiceConfiguration := dpuServiceConfiguration.DeepCopy()
+	if dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet == nil {
+		dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet = &dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues{}
+	}
 	if dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels == nil {
 		dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = make(map[string]string)
 	}
