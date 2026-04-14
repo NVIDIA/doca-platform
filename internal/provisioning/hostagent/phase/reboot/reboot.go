@@ -43,6 +43,17 @@ type RebootRequest struct {
 	DPUNamespace string `json:"dpuNamespace"`
 	UID          string `json:"uid"`
 	RebootID     string `json:"rebootID"`
+	// Host reboot is currently requested from two provisioning paths:
+	// DPUInitializeInterface and DPUConfig. The InitializeInterface-triggered reboot
+	// happens earlier in the flow, so when DPUConfig later requests another reboot,
+	// hostagent must recognize that the older request file belongs to the earlier
+	// InitializeInterface reboot and is therefore stale.
+	PreviousPhase provisioningv1.DPUPhase `json:"previousPhase,omitempty"`
+	// DPUConfig may loop through DPUConfig -> DPURebooting -> DPUConfig multiple
+	// times. RebootSequenceCount distinguishes those repeated DPUConfig-triggered
+	// reboot requests so hostagent does not mistake a request file from a previous
+	// DPUConfig reboot for evidence that the current reboot already happened.
+	RebootSequenceCount *int32 `json:"rebootSequenceCount,omitempty"`
 }
 
 type Handler struct {
