@@ -70,11 +70,13 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 		return *state, err
 	}
 
+	zeroTrustMode := ctrlCtx.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish)
+
 	switch {
 	case dpuNode.Spec.NodeRebootMethod.GNOI != nil || dpuNode.Spec.NodeRebootMethod.HostAgent != nil: //nolint:staticcheck // GNOI is deprecated but still honored for compatibility.
 		return reconcileHostRebootPhase(ctx, dpu, state, false), nil
 	case dpuNode.Spec.NodeRebootMethod.External != nil || dpuNode.Spec.NodeRebootMethod.Script != nil:
-		zeroTrustMode := ctrlCtx.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish)
+		// External and script reboot both complete on the host side; zero-trust mode selects the next phase after reboot.
 		return reconcileHostRebootPhase(ctx, dpu, state, zeroTrustMode), nil
 	default:
 		panic("should not reach here")
@@ -83,7 +85,9 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 
 // reconcileHostRebootPhase runs when the DPU is in DPURebooting and host reboot is complete.
 func reconcileHostRebootPhase(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, zeroTrustMode bool) provisioningv1.DPUStatus {
+	logger := log.FromContext(ctx)
 	_, rebootCondition := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondRebooted))
+
 	if rebootCondition == nil || rebootCondition.Status != metav1.ConditionTrue {
 		return *state
 	}
@@ -92,7 +96,7 @@ func reconcileHostRebootPhase(ctx context.Context, dpu *provisioningv1.DPU, stat
 	if dpu.Status.AgentStatus != nil {
 		discoveryCond = meta.FindStatusCondition(dpu.Status.AgentStatus.Conditions, cutil.AgentCondRebootMethodDiscovery)
 	}
-	// Next provisioning phase after host reboot completes (cases 1–4 in order; first match wins).
+	// Next provisioning phase after host reboot completes (cases 1-4 in order; first match wins).
 	// 1. DPUInitializeInterface: in case the reboot was forced from DPUInitializeInterface.
 	// 2. DPUConfig: in case the reboot was forced from DPUConfig and the reboot method is based on device query.
 	// 3. DPUClusterConfig: in case the reboot method is based on boot ID and Zero Trusted mode.
@@ -111,7 +115,6 @@ func reconcileHostRebootPhase(ctx context.Context, dpu *provisioningv1.DPU, stat
 		state.Phase = provisioningv1.DPUHostNetworkConfiguration
 	}
 
-	logger := log.FromContext(ctx)
 	logger.Info("host reboot reported complete, advancing provisioning phase",
 		"dpu", dpu.Name,
 		"phase", state.Phase)
