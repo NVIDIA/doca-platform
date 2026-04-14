@@ -20,8 +20,8 @@ package reboot
 
 import (
 	"context"
+	"encoding/json"
 	"os"
-	"path/filepath"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
@@ -31,15 +31,170 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 )
 
 var _ = Describe("FileSystemStore", func() {
+	var tmpDir string
+
+	BeforeEach(func() {
+		var err error
+		tmpDir, err = os.MkdirTemp("", "test-boot-id-")
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	AfterEach(func() {
+		if tmpDir != "" {
+			_ = os.RemoveAll(tmpDir)
+		}
+	})
+
+	Context("Persist BootID Files", func() {
+		It("should persist reboot cycle metadata in the request file", func() {
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "persist-dpu",
+					Namespace: "persist-namespace",
+					UID:       "persist-uid",
+				},
+				Status: provisioningv1.DPUStatus{
+					PreviousPhase: provisioningv1.DPUConfig,
+					AgentStatus: &provisioningv1.AgentStatus{
+						RebootSequenceCount: ptr.To(int32(2)),
+					},
+				},
+			}
+			store := &fileSystemStore{bootIDDir: tmpDir}
+
+			err := store.PersistBootID(dpu)
+			Expect(err).To(Succeed())
+
+			request := readPersistedRequest(store.rebootRequestFileName(dpu))
+			Expect(request.PreviousPhase).To(Equal(provisioningv1.DPUConfig))
+			Expect(request.RebootSequenceCount).NotTo(BeNil())
+			Expect(*request.RebootSequenceCount).To(Equal(int32(2)))
+		})
+	})
+
+	Context("Detecting completed reboot", func() {
+		It("should ignore reboot request files when previous phase is missing", func() {
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "missing-phase-dpu",
+					Namespace: "missing-phase-namespace",
+					UID:       "missing-phase-uid",
+				},
+				Status: provisioningv1.DPUStatus{
+					PreviousPhase: provisioningv1.DPUConfig,
+					AgentStatus: &provisioningv1.AgentStatus{
+						RebootSequenceCount: ptr.To(int32(3)),
+					},
+				},
+			}
+			store := &fileSystemStore{bootIDDir: tmpDir}
+			writeRequestFile(store.rebootRequestFileName(dpu), &RebootRequest{
+				DPUName:             dpu.Name,
+				DPUNamespace:        dpu.Namespace,
+				UID:                 string(dpu.UID),
+				RebootID:            "previous-boot-id",
+				RebootSequenceCount: ptr.To(int32(3)),
+			})
+
+			finished, err := store.IsRebootFinished(dpu)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(finished).To(BeFalse())
+		})
+
+		It("should ignore reboot request files from a different previous phase", func() {
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "phase-dpu",
+					Namespace: "phase-namespace",
+					UID:       "phase-uid",
+				},
+				Status: provisioningv1.DPUStatus{
+					PreviousPhase: provisioningv1.DPUConfig,
+					AgentStatus: &provisioningv1.AgentStatus{
+						RebootSequenceCount: ptr.To(int32(3)),
+					},
+				},
+			}
+			store := &fileSystemStore{bootIDDir: tmpDir}
+			writeRequestFile(store.rebootRequestFileName(dpu), &RebootRequest{
+				DPUName:             dpu.Name,
+				DPUNamespace:        dpu.Namespace,
+				UID:                 string(dpu.UID),
+				RebootID:            "previous-boot-id",
+				PreviousPhase:       provisioningv1.DPUInitializeInterface,
+				RebootSequenceCount: ptr.To(int32(3)),
+			})
+
+			finished, err := store.IsRebootFinished(dpu)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(finished).To(BeFalse())
+		})
+
+		It("should ignore reboot request files from a different reboot sequence count", func() {
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "sequence-dpu",
+					Namespace: "sequence-namespace",
+					UID:       "sequence-uid",
+				},
+				Status: provisioningv1.DPUStatus{
+					PreviousPhase: provisioningv1.DPUConfig,
+					AgentStatus: &provisioningv1.AgentStatus{
+						RebootSequenceCount: ptr.To(int32(4)),
+					},
+				},
+			}
+			store := &fileSystemStore{bootIDDir: tmpDir}
+			writeRequestFile(store.rebootRequestFileName(dpu), &RebootRequest{
+				DPUName:             dpu.Name,
+				DPUNamespace:        dpu.Namespace,
+				UID:                 string(dpu.UID),
+				RebootID:            "previous-boot-id",
+				PreviousPhase:       provisioningv1.DPUConfig,
+				RebootSequenceCount: ptr.To(int32(3)),
+			})
+
+			finished, err := store.IsRebootFinished(dpu)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(finished).To(BeFalse())
+		})
+
+		It("should report reboot finished only when request metadata matches the current cycle", func() {
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "current-cycle-dpu",
+					Namespace: "current-cycle-namespace",
+					UID:       "current-cycle-uid",
+				},
+				Status: provisioningv1.DPUStatus{
+					PreviousPhase: provisioningv1.DPUConfig,
+					AgentStatus: &provisioningv1.AgentStatus{
+						RebootSequenceCount: ptr.To(int32(5)),
+					},
+				},
+			}
+			store := &fileSystemStore{bootIDDir: tmpDir}
+			writeRequestFile(store.rebootRequestFileName(dpu), &RebootRequest{
+				DPUName:             dpu.Name,
+				DPUNamespace:        dpu.Namespace,
+				UID:                 string(dpu.UID),
+				RebootID:            "previous-boot-id",
+				PreviousPhase:       provisioningv1.DPUConfig,
+				RebootSequenceCount: ptr.To(int32(5)),
+			})
+
+			finished, err := store.IsRebootFinished(dpu)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(finished).To(BeTrue())
+		})
+	})
+
 	Context("Delete BootID Files", func() {
 		It("should delete boot ID files", func() {
-			tmpDir := filepath.Join(os.TempDir(), "test-boot-id-deletion")
-			_ = os.RemoveAll(tmpDir)
-			_ = os.MkdirAll(tmpDir, 0755)
-			defer os.RemoveAll(tmpDir) // nolint: errcheck
 			rebootingDPU := &provisioningv1.DPU{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "rebooting-dpu",
@@ -157,3 +312,19 @@ var _ = Describe("FileSystemStore", func() {
 		})
 	})
 })
+
+func readPersistedRequest(path string) *RebootRequest {
+	data, err := os.ReadFile(path)
+	Expect(err).NotTo(HaveOccurred())
+	request := &RebootRequest{}
+	err = json.Unmarshal(data, request)
+	Expect(err).NotTo(HaveOccurred())
+	return request
+}
+
+func writeRequestFile(path string, request *RebootRequest) {
+	data, err := json.Marshal(request)
+	Expect(err).NotTo(HaveOccurred())
+	err = os.WriteFile(path, data, 0644)
+	Expect(err).NotTo(HaveOccurred())
+}

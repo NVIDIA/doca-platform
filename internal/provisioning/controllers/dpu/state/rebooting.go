@@ -99,7 +99,6 @@ func reconcileHostRebootPhase(ctx context.Context, dpu *provisioningv1.DPU, stat
 	// 4. DPUHostNetworkConfiguration: in case the reboot method is based on boot ID and Host Trusted mode.
 	switch {
 	case dpu.Status.PreviousPhase == provisioningv1.DPUInitializeInterface:
-		meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondRebooted.String())
 		meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondInterfaceInitialized.String())
 		state.RequiredReset = nil
 		state.Phase = provisioningv1.DPUInitializeInterface

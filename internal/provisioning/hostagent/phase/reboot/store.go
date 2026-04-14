@@ -28,11 +28,9 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/filesystem"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -81,10 +79,12 @@ func (s *fileSystemStore) PersistBootID(dpu *provisioningv1.DPU) error {
 	}
 	bootID := string(systemBootID)
 	request := &RebootRequest{
-		DPUName:      dpu.Name,
-		DPUNamespace: dpu.Namespace,
-		UID:          string(dpu.UID),
-		RebootID:     bootID,
+		DPUName:             dpu.Name,
+		DPUNamespace:        dpu.Namespace,
+		UID:                 string(dpu.UID),
+		RebootID:            bootID,
+		PreviousPhase:       dpu.Status.PreviousPhase,
+		RebootSequenceCount: rebootSequenceCount(dpu.Status.AgentStatus),
 	}
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
@@ -94,11 +94,14 @@ func (s *fileSystemStore) PersistBootID(dpu *provisioningv1.DPU) error {
 }
 
 func (s *fileSystemStore) IsRebootFinished(dpu *provisioningv1.DPU) (bool, error) {
-	dpuBootID, err := s.readBootID(dpu)
+	request, err := s.readRebootRequest(dpu)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return false, err
 		}
+		return false, nil
+	}
+	if !rebootRequestMatchesDPU(request, dpu) {
 		return false, nil
 	}
 	currentBootID, err := os.ReadFile(SystemdBootIDFile)
@@ -106,29 +109,20 @@ func (s *fileSystemStore) IsRebootFinished(dpu *provisioningv1.DPU) (bool, error
 		return false, fmt.Errorf("failed to read current boot ID, err: %v", err)
 	}
 
-	// check if the DPU finished rebooting for mode transition case(NIC->DPU mode)
-	_, rebootFinishedCondition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondRebooted))
-	if rebootFinishedCondition != nil && rebootFinishedCondition.Status == metav1.ConditionTrue && rebootFinishedCondition.Message == string(provisioningv1.DPUCondMessageRebootFinishedForModeUpdate) {
-		// delete the reboot request file when DPU finished rebooting for mode update
-		// so that the DPU can be rebooted again for normal provisioning process
-		s.deleteFileIgnoreError(s.rebootRequestFileName(dpu))
-		return true, nil
-	}
-
-	return dpuBootID != string(currentBootID), nil
+	return request.RebootID != string(currentBootID), nil
 }
 
-func (s *fileSystemStore) readBootID(dpu *provisioningv1.DPU) (string, error) {
+func (s *fileSystemStore) readRebootRequest(dpu *provisioningv1.DPU) (*RebootRequest, error) {
 	data, err := os.ReadFile(s.rebootRequestFileName(dpu))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	request := &RebootRequest{}
 	err = json.Unmarshal(data, request)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return request.RebootID, nil
+	return request, nil
 }
 
 func (s *fileSystemStore) rebootRequestFileName(dpu *provisioningv1.DPU) string {
@@ -190,4 +184,22 @@ func (s *fileSystemStore) getDPU(ctx context.Context, name types.NamespacedName)
 		return nil, err
 	}
 	return dpu, nil
+}
+
+func rebootRequestMatchesDPU(request *RebootRequest, dpu *provisioningv1.DPU) bool {
+	if request.PreviousPhase != dpu.Status.PreviousPhase {
+		return false
+	}
+	currentSequenceCount := rebootSequenceCount(dpu.Status.AgentStatus)
+	if request.RebootSequenceCount == nil || currentSequenceCount == nil {
+		return request.RebootSequenceCount == currentSequenceCount
+	}
+	return *request.RebootSequenceCount == *currentSequenceCount
+}
+
+func rebootSequenceCount(agentStatus *provisioningv1.AgentStatus) *int32 {
+	if agentStatus == nil || agentStatus.RebootSequenceCount == nil {
+		return nil
+	}
+	return agentStatus.RebootSequenceCount
 }
