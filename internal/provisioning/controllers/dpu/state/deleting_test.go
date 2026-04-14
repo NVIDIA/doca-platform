@@ -49,7 +49,7 @@ var _ = Describe("DPU: deleting", func() {
 		By("prepare DPU CR in OsInstalling state")
 		dpu := dpuObj(dpuName)
 		dpu.Spec.DPUDeviceName = dpuDevice.Name
-		dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}}
+		dpu.Spec.NodeEffect = provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}}
 		dpu.Spec.Cluster.Name = "" // skip deleteNode in Deleting
 		dpu.Status.Phase = provisioningv1.DPUOSInstalling
 		dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaGNOI))

@@ -17,6 +17,8 @@ spec:
           nodeKey: "nodeValue"
       dpuAnnotations:
         doMagic: "true"
+    dpuSetStrategy:
+      type: RollingUpdate
     nodeEffect:
       drain: true
   services:

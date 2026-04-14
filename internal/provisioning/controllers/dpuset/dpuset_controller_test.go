@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -121,8 +122,17 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Namespace: namespace,
 				},
 				Spec: provisioningv1.DPUSetSpec{
+					Strategy: provisioningv1.DPUSetStrategy{
+						Type: provisioningv1.OnDeleteStrategyType,
+					},
 					DPUNodeSelector:   nil, // Select all nodes
 					DPUDeviceSelector: nil, // Select all devices
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							DPUFlavor:  "test-flavor",
+							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+						},
+					},
 				},
 			}
 
@@ -198,8 +208,17 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Namespace: namespace,
 				},
 				Spec: provisioningv1.DPUSetSpec{
+					Strategy: provisioningv1.DPUSetStrategy{
+						Type: provisioningv1.OnDeleteStrategyType,
+					},
 					DPUNodeSelector:   nil,
 					DPUDeviceSelector: nil,
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							DPUFlavor:  "test-flavor",
+							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+						},
+					},
 				},
 			}
 
@@ -270,7 +289,17 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "test-dpuset",
 					Namespace: namespace,
 				},
-				Spec: provisioningv1.DPUSetSpec{},
+				Spec: provisioningv1.DPUSetSpec{
+					Strategy: provisioningv1.DPUSetStrategy{
+						Type: provisioningv1.OnDeleteStrategyType,
+					},
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							DPUFlavor:  "test-flavor",
+							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+						},
+					},
+				},
 			}
 
 			fakeClient := fake.NewClientBuilder().
@@ -346,9 +375,18 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Namespace: namespace,
 				},
 				Spec: provisioningv1.DPUSetSpec{
+					Strategy: provisioningv1.DPUSetStrategy{
+						Type: provisioningv1.OnDeleteStrategyType,
+					},
 					DPUNodeSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"environment": "production",
+						},
+					},
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							DPUFlavor:  "test-flavor",
+							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 						},
 					},
 				},
@@ -433,9 +471,18 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Namespace: namespace,
 				},
 				Spec: provisioningv1.DPUSetSpec{
+					Strategy: provisioningv1.DPUSetStrategy{
+						Type: provisioningv1.OnDeleteStrategyType,
+					},
 					DPUDeviceSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"device-type": "accelerator",
+						},
+					},
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							DPUFlavor:  "test-flavor",
+							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 						},
 					},
 				},
@@ -493,7 +540,17 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					Name:      "test-dpuset",
 					Namespace: namespace,
 				},
-				Spec: provisioningv1.DPUSetSpec{},
+				Spec: provisioningv1.DPUSetSpec{
+					Strategy: provisioningv1.DPUSetStrategy{
+						Type: provisioningv1.OnDeleteStrategyType,
+					},
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							DPUFlavor:  "test-flavor",
+							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+						},
+					},
+				},
 			}
 
 			fakeClient := fake.NewClientBuilder().
@@ -584,5 +641,54 @@ var _ = Describe("DPUSetReconciler needDisruptDPU", func() {
 			dpuBFB: "bfb-v1", dpuFlavor: "flavor-a", dpuSB: ptr.To(true),
 			expectedResult: true,
 		}),
+	)
+})
+
+var _ = Describe("DPUSetReconciler rolloutRolling", func() {
+	var reconciler *DPUSetReconciler
+
+	BeforeEach(func() {
+		reconciler = &DPUSetReconciler{}
+	})
+
+	DescribeTable("should handle nil RollingUpdate and MaxUnavailable fields",
+		func(strategy provisioningv1.DPUSetStrategy, expectErr bool) {
+			dpuSet := &provisioningv1.DPUSet{
+				Spec: provisioningv1.DPUSetSpec{
+					Strategy: strategy,
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							DPUFlavor:  "test-flavor",
+							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+						},
+					},
+				},
+			}
+			err := reconciler.rolloutRolling(context.Background(), dpuSet, map[string]provisioningv1.DPU{}, 0, nil)
+			if expectErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+		Entry("nil RollingUpdate", provisioningv1.DPUSetStrategy{
+			Type: provisioningv1.RollingUpdateStrategyType,
+		}, false),
+		Entry("nil MaxUnavailable", provisioningv1.DPUSetStrategy{
+			Type:          provisioningv1.RollingUpdateStrategyType,
+			RollingUpdate: &provisioningv1.RollingUpdateDPU{},
+		}, false),
+		Entry("explicit MaxUnavailable", provisioningv1.DPUSetStrategy{
+			Type: provisioningv1.RollingUpdateStrategyType,
+			RollingUpdate: &provisioningv1.RollingUpdateDPU{
+				MaxUnavailable: ptr.To(intstr.FromInt(2)),
+			},
+		}, false),
+		Entry("invalid MaxUnavailable string", provisioningv1.DPUSetStrategy{
+			Type: provisioningv1.RollingUpdateStrategyType,
+			RollingUpdate: &provisioningv1.RollingUpdateDPU{
+				MaxUnavailable: ptr.To(intstr.FromString("invalid")),
+			},
+		}, true),
 	)
 })

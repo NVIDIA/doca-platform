@@ -509,10 +509,14 @@ var _ = Describe("BFB", func() {
 					Namespace: testNS.Name,
 				},
 				Spec: provisioningv1.DPUSetSpec{
+					Strategy: provisioningv1.DPUSetStrategy{
+						Type: provisioningv1.OnDeleteStrategyType,
+					},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							BFB:       provisioningv1.BFBReference{Name: obj.Name},
-							DPUFlavor: "dummy-flavor",
+							BFB:        provisioningv1.BFBReference{Name: obj.Name},
+							DPUFlavor:  "dummy-flavor",
+							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 						},
 					},
 				},
@@ -584,6 +588,7 @@ var _ = Describe("BFB", func() {
 					SerialNumber:  "SN-" + utilrand.String(5),
 					DPUDeviceName: "device-" + utilrand.String(5),
 					DPUNodeName:   "node-" + utilrand.String(5),
+					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, otherDPU)).To(Succeed())
@@ -600,6 +605,7 @@ var _ = Describe("BFB", func() {
 					SerialNumber:  "SN-" + utilrand.String(5),
 					DPUDeviceName: "device-" + utilrand.String(5),
 					DPUNodeName:   "node-" + utilrand.String(5),
+					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, dpu)).To(Succeed())

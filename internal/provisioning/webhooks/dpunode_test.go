@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/utils/ptr"
 )
 
 var _ = Describe("DPUNode", func() {
@@ -605,6 +606,7 @@ spec:
 					BFB:           "test-bfb",
 					SerialNumber:  "MT_READY001",
 					DPUFlavor:     "test-flavor",
+					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			}
 			err := k8sClient.Create(ctx, dpuObj)
@@ -657,6 +659,7 @@ spec:
 					BFB:           "test-bfb",
 					SerialNumber:  "MT_NOTREADY001",
 					DPUFlavor:     "test-flavor",
+					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			}
 			err := k8sClient.Create(ctx, dpuObj)
@@ -711,6 +714,7 @@ spec:
 					BFB:           "test-bfb",
 					SerialNumber:  "MT_MULTI001",
 					DPUFlavor:     "test-flavor",
+					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			}
 			err := k8sClient.Create(ctx, dpu1Obj)
@@ -736,6 +740,7 @@ spec:
 					BFB:           "test-bfb",
 					SerialNumber:  "MT_MULTI002",
 					DPUFlavor:     "test-flavor",
+					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			}
 			err = k8sClient.Create(ctx, dpu2Obj)
@@ -792,6 +797,7 @@ spec:
 					BFB:           "test-bfb",
 					SerialNumber:  "MT_MIXED001",
 					DPUFlavor:     "test-flavor",
+					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			}
 			err := k8sClient.Create(ctx, dpu1Obj)
@@ -817,6 +823,7 @@ spec:
 					BFB:           "test-bfb",
 					SerialNumber:  "MT_MIXED002",
 					DPUFlavor:     "test-flavor",
+					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			}
 			err = k8sClient.Create(ctx, dpu2Obj)
@@ -871,6 +878,7 @@ spec:
 					BFB:           "test-bfb",
 					SerialNumber:  "MT_UNCHANGED001",
 					DPUFlavor:     "test-flavor",
+					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			}
 			err := k8sClient.Create(ctx, dpuObj)
@@ -951,6 +959,7 @@ spec:
 					BFB:           "test-bfb",
 					SerialNumber:  "MT_UNCHANGED001",
 					DPUFlavor:     "test-flavor",
+					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			}
 			err := k8sClient.Create(ctx, dpuObj)
@@ -1003,6 +1012,7 @@ spec:
 					BFB:           "test-bfb",
 					SerialNumber:  "MT_READY001",
 					DPUFlavor:     "test-flavor",
+					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			}
 			err := k8sClient.Create(ctx, dpuObj)

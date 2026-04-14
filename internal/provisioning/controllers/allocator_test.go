@@ -60,6 +60,7 @@ var _ = Describe("Allocator", func() {
 				BFB:           "test-bfb",
 				PCIAddress:    ptr.To("0000-4b-00"),
 				DPUFlavor:     "test-flavor",
+				NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				Cluster: provisioningv1.K8sCluster{
 					ClusterSpec: provisioningv1.ClusterSpec{
 						Selector: dpuClusterSelector,

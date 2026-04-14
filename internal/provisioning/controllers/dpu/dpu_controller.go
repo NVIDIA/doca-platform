@@ -350,10 +350,6 @@ func (r *DPUReconciler) reconcileBFBRegistry(ctx context.Context, namespace stri
 
 func (r *DPUReconciler) UpdateDPUNodeMaintenanceRequestors(ctx context.Context, dpu *provisioningv1.DPU, client client.Client) error {
 	logger := log.FromContext(ctx)
-	// if NodeEffect is nil, there's no DPUNodeMaintenance CR to update
-	if dpu.Spec.NodeEffect == nil {
-		return nil
-	}
 	dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
 	if err != nil {
 		return err

@@ -240,6 +240,7 @@ func getDPU() *provisioningv1.DPU {
 			DPUDeviceName: "test-device",
 			BFB:           "test-bfb",
 			DPUFlavor:     "test-flavor",
+			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 		},
 	}
 }

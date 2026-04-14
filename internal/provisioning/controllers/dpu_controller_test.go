@@ -83,6 +83,7 @@ var _ = Describe("DPU", func() {
 			Spec: provisioningv1.DPUSpec{
 				SerialNumber: DefaultSerialNumberPrefix + utilrand.String(5),
 				DPUFlavor:    "dpu-flavor",
+				NodeEffect:   provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			},
 			Status: provisioningv1.DPUStatus{},
 		}
@@ -398,7 +399,7 @@ var _ = Describe("DPU", func() {
 					},
 					Spec: provisioningv1.DPUSpec{
 						DPUNodeName: DefaultNode,
-						NodeEffect: &provisioningv1.NodeEffect{
+						NodeEffect: provisioningv1.NodeEffect{
 							Action: provisioningv1.Action{
 								Hold: ptr.To(true),
 							},

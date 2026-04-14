@@ -326,6 +326,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 					Name:      dpuCluster.Name,
 					Namespace: dpuCluster.Namespace,
 				},
+				NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			},
 		}
 		Expect(testClient.Create(ctx, dpu)).To(Succeed())

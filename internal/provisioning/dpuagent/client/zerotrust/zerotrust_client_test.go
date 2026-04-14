@@ -45,6 +45,7 @@ var _ = Describe("ZerotrustClient", func() {
 				BFB:           "bfb-test",
 				SerialNumber:  "test-dpu-serial-number",
 				DPUFlavor:     "test-dpu-flavor",
+				NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			},
 		}
 		Expect(k8sClient.Create(ctx, dpu)).To(Succeed())

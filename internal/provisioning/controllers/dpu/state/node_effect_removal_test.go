@@ -81,7 +81,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 	})
 
 	// Helper function to create a basic DPU with common configuration
-	createBasicDPU := func(nodeLabels map[string]string, nodeEffect *provisioningv1.NodeEffect) *provisioningv1.DPU {
+	createBasicDPU := func(nodeLabels map[string]string, nodeEffect provisioningv1.NodeEffect) *provisioningv1.DPU {
 		dpu := dpuObj(defaultDPUName)
 		dpu.Name = defaultDPUName
 		dpu.Spec.PCIAddress = ptr.To("0000-00-00")
@@ -122,7 +122,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		It("should transition to DPUReady when NoEffect is set", func() {
 			dpu := createBasicDPU(
 				nil,
-				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+				provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
 			)
 
 			By("creating a Node in the DPUCluster")
@@ -146,7 +146,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		It("should transition to DPUDeleting when DeletionTimestamp is set", func() {
 			dpu := createBasicDPU(
 				nil,
-				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+				provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
 			)
 
 			// Simulate deletion by setting a non-zero deletion timestamp
@@ -168,7 +168,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		It("should transition to DPUReady when DPUNodeMaintenance does not exist", func() {
 			dpu := createBasicDPU(
 				nil,
-				&provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+				provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
 			)
 
 			By("creating a Node in the DPUCluster")
@@ -192,7 +192,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		It("should remove requestor from DPUNodeMaintenance and wait for deletion", func() {
 			dpu := createBasicDPU(
 				nil,
-				&provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+				provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
 			)
 
 			By("creating a Node in the DPUCluster")
@@ -209,7 +209,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: dpu.Spec.DPUNodeName,
-					NodeEffect:  dpu.Spec.NodeEffect,
+					NodeEffect:  &dpu.Spec.NodeEffect,
 					Requestor:   []string{dpu.Name, "other-requestor"},
 				},
 			}
@@ -244,7 +244,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		It("should transition to Ready when DPUNodeMaintenance is deleted after removing last requestor", func() {
 			dpu := createBasicDPU(
 				nil,
-				&provisioningv1.NodeEffect{Action: provisioningv1.Action{CustomLabel: map[string]string{"test-label": "test-value"}}},
+				provisioningv1.NodeEffect{Action: provisioningv1.Action{CustomLabel: map[string]string{"test-label": "test-value"}}},
 			)
 
 			By("creating a Node in the DPUCluster")
@@ -261,7 +261,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: dpu.Spec.DPUNodeName,
-					NodeEffect:  dpu.Spec.NodeEffect,
+					NodeEffect:  &dpu.Spec.NodeEffect,
 					Requestor:   []string{dpu.Name},
 				},
 			}
@@ -289,7 +289,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 	Context("RemoveRequestorFromDPUNodeMaintenance", func() {
 		It("should return nil when NoEffect is set", func() {
 			dpu := dpuObj(defaultDPUName)
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{NoEffect: ptr.To(true)},
 			}
 
@@ -313,7 +313,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{Drain: ptr.To(true)},
 			}
 
@@ -338,7 +338,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Taint: &corev1.Taint{
 						Key:    "test-taint",
@@ -360,7 +360,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: dpu.Spec.DPUNodeName,
-					NodeEffect:  dpu.Spec.NodeEffect,
+					NodeEffect:  &dpu.Spec.NodeEffect,
 					Requestor:   []string{dpu.Name, "requestor-1", "requestor-2"},
 				},
 			}
@@ -397,7 +397,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					CustomLabel: map[string]string{"label-key": "label-value"},
 				},
@@ -415,7 +415,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: dpu.Spec.DPUNodeName,
-					NodeEffect:  dpu.Spec.NodeEffect,
+					NodeEffect:  &dpu.Spec.NodeEffect,
 					Requestor:   []string{"other-requestor-1", "other-requestor-2"},
 				},
 			}
@@ -451,7 +451,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = "not-used" //nolint:goconst
 			dpu.Spec.DPUNodeName = dpuNode.Name
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Hold: ptr.To(true),
 				},
@@ -469,7 +469,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: dpu.Spec.DPUNodeName,
-					NodeEffect:  dpu.Spec.NodeEffect,
+					NodeEffect:  &dpu.Spec.NodeEffect,
 					Requestor:   []string{dpu.Name},
 				},
 			}
@@ -496,7 +496,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		It("should transition to DPUError when timeout expires and DPUNodeMaintenance has requestors", func() {
 			dpu := createBasicDPU(
 				nil,
-				&provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+				provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
 			)
 
 			// Pre-set the condition with a LastTransitionTime in the past to simulate elapsed time
@@ -524,7 +524,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: dpu.Spec.DPUNodeName,
-					NodeEffect:  dpu.Spec.NodeEffect,
+					NodeEffect:  &dpu.Spec.NodeEffect,
 					Requestor:   []string{"other-requestor"},
 				},
 			}
@@ -552,7 +552,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		It("should not timeout when DPUNodeMaintenance is in deletion phase", func() {
 			dpu := createBasicDPU(
 				nil,
-				&provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+				provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
 			)
 
 			// Pre-set the condition with a LastTransitionTime in the past
@@ -581,7 +581,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: dpu.Spec.DPUNodeName,
-					NodeEffect:  dpu.Spec.NodeEffect,
+					NodeEffect:  &dpu.Spec.NodeEffect,
 					Requestor:   []string{"other-requestor"},
 				},
 			}
@@ -612,7 +612,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		It("should not timeout when timeout duration is 0 (disabled)", func() {
 			dpu := createBasicDPU(
 				nil,
-				&provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+				provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
 			)
 
 			// Pre-set the condition with a LastTransitionTime far in the past
@@ -639,7 +639,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: dpu.Spec.DPUNodeName,
-					NodeEffect:  dpu.Spec.NodeEffect,
+					NodeEffect:  &dpu.Spec.NodeEffect,
 					Requestor:   []string{"other-requestor"},
 				},
 			}
@@ -667,7 +667,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		It("should not timeout when within the timeout period", func() {
 			dpu := createBasicDPU(
 				nil,
-				&provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+				provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
 			)
 
 			// Pre-set the condition with a recent LastTransitionTime (within timeout)
@@ -694,7 +694,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: dpu.Spec.DPUNodeName,
-					NodeEffect:  dpu.Spec.NodeEffect,
+					NodeEffect:  &dpu.Spec.NodeEffect,
 					Requestor:   []string{"other-requestor"},
 				},
 			}
@@ -722,7 +722,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		It("should not timeout when entering new cycle with stale True condition from previous cycle", func() {
 			dpu := createBasicDPU(
 				nil,
-				&provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+				provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
 			)
 
 			// Simulate a stale condition from a previous successful removal cycle:
@@ -751,7 +751,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 				},
 				Spec: provisioningv1.DPUNodeMaintenanceSpec{
 					DPUNodeName: dpu.Spec.DPUNodeName,
-					NodeEffect:  dpu.Spec.NodeEffect,
+					NodeEffect:  &dpu.Spec.NodeEffect,
 					Requestor:   []string{"other-requestor"},
 				},
 			}
@@ -782,7 +782,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		It("DPU: Ready: should handle nil ApplyOnLabelChange gracefully", func() {
 			dpu := createBasicDPU(
 				map[string]string{"new": "label"},
-				&provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+				provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
 			)
 
 			By("creating a Node in the DPUCluster")
@@ -808,7 +808,7 @@ var _ = Describe("DPU: Node Effect Removal", func() {
 		It("should remove NodeEffectRemoved condition when bouncing to ClusterConfig for label update", func() {
 			dpu := createBasicDPU(
 				map[string]string{"new": "label"},
-				&provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
+				provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: nil}},
 			)
 
 			// Pre-set the condition as if we were mid-removal with an old timer
