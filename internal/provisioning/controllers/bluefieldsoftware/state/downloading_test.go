@@ -270,7 +270,8 @@ func TestUpdateComponentStatus_ClearsRetryCounter(t *testing.T) {
 	}
 
 	// Update status for FwBundle (should clear its counter)
-	st.updateComponentStatus(butil.ComponentTypeFwBundle, "http://example.com/fw.tar")
+	expectedFw := componentDestinationPath(butil.ComponentTypeFwBundle, butil.DefaultComponentFilename(bfs, butil.ComponentTypeFwBundle))
+	st.updateComponentStatus(butil.ComponentTypeFwBundle, expectedFw)
 
 	// FwBundle counter should be cleared
 	assert.Equal(t, 0, st.getRetryCount(st.getRetryKey(butil.ComponentTypeFwBundle)))
@@ -279,8 +280,8 @@ func TestUpdateComponentStatus_ClearsRetryCounter(t *testing.T) {
 	assert.Equal(t, 2, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
 	assert.Equal(t, 3, st.getRetryCount(st.getRetryKey(butil.ComponentTypeBMCEROT)))
 
-	// Verify status was updated
-	assert.Equal(t, "http://example.com/fw.tar", bfs.Status.DownloadedComponents.PldmFwBundle)
+	// Verify status holds the on-disk destination path (not the spec URL)
+	assert.Equal(t, expectedFw, bfs.Status.DownloadedComponents.PldmFwBundle)
 }
 
 func TestGetRetryKey(t *testing.T) {
@@ -455,8 +456,8 @@ func TestDownloadComponent(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, true, result)
 
-	// Verify file was created
-	filePath := generateComponentFilePath(task.FileName)
+	// Verify file was created at componentDestinationPath (FwBundle uses bfb/components/)
+	filePath := componentDestinationPath(butil.ComponentTypeFwBundle, task.FileName)
 	content, err := os.ReadFile(filePath)
 	require.NoError(t, err)
 	assert.Equal(t, testContent, string(content))
@@ -702,4 +703,49 @@ func TestExecuteComponentDownload_SkipsExistingFile(t *testing.T) {
 	content, err := os.ReadFile(filePath)
 	require.NoError(t, err)
 	assert.Equal(t, existingContent, string(content))
+}
+
+func TestComponentDestinationPath(t *testing.T) {
+	fileName := "ns-bfs-fwbundle"
+	t.Run("OSISO uses BFB root layout", func(t *testing.T) {
+		assert.Equal(t,
+			cutil.GenerateBFBFilePath(fileName),
+			componentDestinationPath(butil.ComponentTypeOSISO, fileName))
+	})
+	t.Run("non-OSISO uses components subdir", func(t *testing.T) {
+		for _, ct := range []butil.ComponentType{
+			butil.ComponentTypeFwBundle,
+			butil.ComponentTypeBMCEROT,
+			butil.ComponentTypeBMC,
+			butil.ComponentTypeNIC,
+			butil.ComponentTypeGRACEEROT,
+			butil.ComponentTypeGRACEFW,
+		} {
+			assert.Equal(t,
+				generateComponentFilePath(fileName),
+				componentDestinationPath(ct, fileName),
+				"type %s", ct)
+		}
+	})
+}
+
+func TestComponentDownloadSatisfied(t *testing.T) {
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{Name: "bfs", Namespace: "ns"},
+	}
+	st := &blueFieldSoftwareDownloadingState{bfs: bfs}
+	ct := butil.ComponentTypeFwBundle
+	expectedPath := componentDestinationPath(ct, butil.DefaultComponentFilename(bfs, ct))
+
+	t.Run("empty or wrong downloaded value is not satisfied", func(t *testing.T) {
+		assert.False(t, st.componentDownloadSatisfied(ct, ""))
+		assert.False(t, st.componentDownloadSatisfied(ct, "anything"))
+	})
+
+	t.Run("status holds destination path", func(t *testing.T) {
+		assert.True(t, st.componentDownloadSatisfied(ct, expectedPath))
+	})
+	t.Run("mismatch", func(t *testing.T) {
+		assert.False(t, st.componentDownloadSatisfied(ct, "/wrong/path"))
+	})
 }
