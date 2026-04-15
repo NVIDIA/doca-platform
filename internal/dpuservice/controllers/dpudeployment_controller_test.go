@@ -169,7 +169,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							{
 								Service: &dpuservicev1.DPUDeploymentService{
 									InterfaceName: serviceInterfaceMaxLength,
-									Name:          serviceInterfaceMaxLength,
+									Name:          deploymentServiceNameMaxLength,
 								},
 							},
 						},
@@ -2059,6 +2059,19 @@ var _ = Describe("DPUDeployment Controller", func() {
 					}
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
+				By("checking that a new DPUServiceChain revision is created because the DPUService is disruptive")
+				var gotNewDPUServiceChain *dpuservicev1.DPUServiceChain
+				Eventually(func(g Gomega) {
+					dpuServiceChainList := getDPUServiceChainList()
+					g.Expect(dpuServiceChainList.Items).To(HaveLen(2))
+					for i, chain := range dpuServiceChainList.Items {
+						if chain.Name != gotDPUServiceChain.Name {
+							gotNewDPUServiceChain = &dpuServiceChainList.Items[i]
+						}
+					}
+					g.Expect(gotNewDPUServiceChain).ToNot(BeNil())
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
 				By("Adding a finalizer to the DPUServices to simulate slow deletion")
 				gotDPUServicesList := &dpuservicev1.DPUServiceList{}
 				Expect(testClient.List(ctx, gotDPUServicesList)).To(Succeed())
@@ -2079,6 +2092,26 @@ var _ = Describe("DPUDeployment Controller", func() {
 					Expect(testClient.Patch(ctx, &dpuService, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
 				}
 
+				By("Adding a finalizer to the DPUServiceChains to simulate slow deletion")
+				gotDPUServiceChainsList := &dpuservicev1.DPUServiceChainList{}
+				Expect(testClient.List(ctx, gotDPUServiceChainsList)).To(Succeed())
+				Expect(gotDPUServiceChainsList.Items).To(HaveLen(2))
+				DeferCleanup(func() {
+					By("Cleaning up the chain finalizers so that objects can be deleted")
+					for _, chain := range gotDPUServiceChainsList.Items {
+						Expect(client.IgnoreNotFound(testClient.Patch(ctx, &chain, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`))))).To(Succeed())
+					}
+				})
+
+				for _, chain := range gotDPUServiceChainsList.Items {
+					finalizers := chain.GetFinalizers()
+					finalizers = append(finalizers, "test.io/some-finalizer")
+					chain.SetFinalizers(finalizers)
+					chain.GetObjectKind().SetGroupVersionKind(dpuservicev1.DPUServiceChainGroupVersionKind)
+					chain.SetManagedFields(nil)
+					Expect(testClient.Patch(ctx, &chain, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+				}
+
 				Expect(gotDPUService).ToNot(Equal(gotInitialDPUService))
 				for i := range expectedDPUSetSpecs {
 					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
@@ -2087,15 +2120,16 @@ var _ = Describe("DPUDeployment Controller", func() {
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
 						"svc.dpu.nvidia.com/dpuservice-someservice-version": gotDPUService.Name,
 						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
-						"svc.dpu.nvidia.com/dpuservicechain-version":        gotDPUServiceChain.Name,
+						"svc.dpu.nvidia.com/dpuservicechain-version":        gotNewDPUServiceChain.Name,
 					}
 
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
-						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUServiceChain.Name),
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotNewDPUServiceChain.Name),
 						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), gotDPUService.Name),
 					}
 
 					// ApplyOnLabelChange should be true because we are modifying a disruptive DPUServiceConfiguration
+					// which forces the DPUServiceChain to also create a new disruptive revision
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(true)
 				}
 
@@ -2166,6 +2200,29 @@ var _ = Describe("DPUDeployment Controller", func() {
 					}
 				}
 
+				By("marking the new DPUServiceChain ready")
+				gotDPUServiceChainList := &dpuservicev1.DPUServiceChainList{}
+				Expect(testClient.List(ctx, gotDPUServiceChainList, &client.ListOptions{
+					Namespace: testNS.Name,
+				})).To(Succeed())
+				Expect(gotDPUServiceChainList.Items).To(HaveLen(2))
+				for _, dpuServiceChain := range gotDPUServiceChainList.Items {
+					if dpuServiceChain.Name == gotNewDPUServiceChain.Name {
+						dpuServiceChain.Status.Conditions = []metav1.Condition{
+							{
+								Type:               string(conditions.TypeReady),
+								Status:             metav1.ConditionTrue,
+								Reason:             string(conditions.ReasonSuccess),
+								LastTransitionTime: metav1.NewTime(time.Now()),
+								ObservedGeneration: dpuServiceChain.Generation,
+							},
+						}
+						dpuServiceChain.SetGroupVersionKind(dpuservicev1.DPUServiceChainGroupVersionKind)
+						dpuServiceChain.SetManagedFields(nil)
+						Expect(testClient.Status().Patch(ctx, &dpuServiceChain, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+					}
+				}
+
 				By("marking the DPUSet ready")
 				gotDPUSetList := &provisioningv1.DPUSetList{}
 				Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
@@ -2203,12 +2260,20 @@ var _ = Describe("DPUDeployment Controller", func() {
 					}
 				}).WithTimeout(5 * time.Second).Should(Succeed())
 
-				By("Removing the fake finalizers")
+				By("Removing the fake service finalizers")
 				gotDPUServicesList = &dpuservicev1.DPUServiceList{}
 				Expect(testClient.List(ctx, gotDPUServicesList)).To(Succeed())
 				Expect(gotDPUServicesList.Items).To(HaveLen(2))
 				for _, dpuService := range gotDPUServicesList.Items {
 					Expect(client.IgnoreNotFound(testClient.Patch(ctx, &dpuService, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`))))).To(Succeed())
+				}
+
+				By("Removing the fake chain finalizers")
+				gotDPUServiceChainsList = &dpuservicev1.DPUServiceChainList{}
+				Expect(testClient.List(ctx, gotDPUServiceChainsList)).To(Succeed())
+				Expect(gotDPUServiceChainsList.Items).To(HaveLen(2))
+				for _, chain := range gotDPUServiceChainsList.Items {
+					Expect(client.IgnoreNotFound(testClient.Patch(ctx, &chain, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`))))).To(Succeed())
 				}
 
 				By("checking that the DPUServices are correctly updated")
@@ -2225,10 +2290,18 @@ var _ = Describe("DPUDeployment Controller", func() {
 					}
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 
+				By("checking that the DPUServiceChains are correctly updated")
+				Eventually(func(g Gomega) {
+					gotDPUServiceChains := &dpuservicev1.DPUServiceChainList{}
+					g.Expect(testClient.List(ctx, gotDPUServiceChains)).To(Succeed())
+					g.Expect(gotDPUServiceChains.Items).To(HaveLen(1))
+					g.Expect(gotDPUServiceChains.Items[0].Name).To(Equal(gotNewDPUServiceChain.Name))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
 				By("checking that the DPUSets are correctly updated")
 				for i := range expectedDPUSetSpecs {
-					// The old DPUService has been deleted and the upgrade is complete, so the ApplyOnLabelChange should
-					// be false
+					// The old DPUService and old DPUServiceChain have been deleted and the upgrade is complete,
+					// so the ApplyOnLabelChange should be false
 					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange = ptr.To(false)
 				}
 				Eventually(func(g Gomega) {
@@ -2281,7 +2354,6 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
-				chainDigest := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
 
 				By("retrieving the DPUServiceChain and DPUService")
 				var gotInitialDPUServiceChain *dpuservicev1.DPUServiceChain
@@ -2299,6 +2371,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 					gotDPUService = &dpuServiceList.Items[0]
 					g.Expect(gotDPUService).ToNot(BeNil())
 				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				chainDigest := resolveAndCalculateChainDigest(dpuDeployment.Spec.ServiceChains.Switches, getDPUServiceList().Items)
 
 				for i := range expectedDPUSetSpecs {
 					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
@@ -2339,13 +2413,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 								{
 									Service: &dpuservicev1.DPUDeploymentService{
 										InterfaceName: "someinterface",
-										Name:          "somedpuservice",
+										Name:          "someservice",
 									},
 								},
 								{
 									Service: &dpuservicev1.DPUDeploymentService{
 										InterfaceName: "someinterface2",
-										Name:          "somedpuservice2",
+										Name:          "someservice",
 										IPAM: &dpuservicev1.IPAM{
 											MatchLabels: map[string]string{
 												"ipamkey1": "ipamvalue1",
@@ -2360,7 +2434,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								{
 									Service: &dpuservicev1.DPUDeploymentService{
 										InterfaceName: "otherinterface",
-										Name:          "someotherservice",
+										Name:          "someservice",
 									},
 								},
 							},
@@ -2388,7 +2462,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				// We need to get the object to calculate the digest taking into account the defaults added by the API server
 				gotDPUDeployment := &dpuservicev1.DPUDeployment{}
 				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), gotDPUDeployment)).To(Succeed())
-				chainDigest2 := calculateDPUServiceChainVersionDigest(gotDPUDeployment.Spec.ServiceChains.Switches)
+				chainDigest2 := resolveAndCalculateChainDigest(gotDPUDeployment.Spec.ServiceChains.Switches, getDPUServiceList().Items)
 				Expect(chainDigest2).NotTo(Equal(chainDigest))
 
 				By("checking that the DPUServiceChain is correctly updated")
@@ -2628,7 +2702,6 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
-				chainDigestOriginal := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
 
 				By("retrieving the DPUServiceChain and DPUService")
 				var gotDPUServiceChain *dpuservicev1.DPUServiceChain
@@ -2646,6 +2719,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 					gotDPUService = &dpuServiceList.Items[0]
 					g.Expect(gotDPUService).ToNot(BeNil())
 				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				chainDigestOriginal := resolveAndCalculateChainDigest(dpuDeployment.Spec.ServiceChains.Switches, getDPUServiceList().Items)
 
 				for i := range expectedDPUSetSpecs {
 					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
@@ -2681,13 +2756,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 							{
 								Service: &dpuservicev1.DPUDeploymentService{
 									InterfaceName: "someinterface",
-									Name:          "somedpuservice",
+									Name:          "someservice",
 								},
 							},
 							{
 								Service: &dpuservicev1.DPUDeploymentService{
 									InterfaceName: "someinterface2",
-									Name:          "somedpuservice2",
+									Name:          "someservice",
 									IPAM: &dpuservicev1.IPAM{
 										MatchLabels: map[string]string{
 											"ipamkey1": "ipamvalue1",
@@ -2702,7 +2777,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							{
 								Service: &dpuservicev1.DPUDeploymentService{
 									InterfaceName: "otherinterface",
-									Name:          "someotherservice",
+									Name:          "someservice",
 								},
 							},
 						},
@@ -2729,7 +2804,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				// We need to get the object to calculate the digest taking into account the defaults added by the API server
 				gotDPUDeployment := &dpuservicev1.DPUDeployment{}
 				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), gotDPUDeployment)).To(Succeed())
-				chainDigestModified := calculateDPUServiceChainVersionDigest(gotDPUDeployment.Spec.ServiceChains.Switches)
+				chainDigestModified := resolveAndCalculateChainDigest(gotDPUDeployment.Spec.ServiceChains.Switches, getDPUServiceList().Items)
 				Expect(chainDigestModified).NotTo(Equal(chainDigestOriginal))
 
 				By("checking that the DPUServiceChain is correctly updated")
@@ -3170,14 +3245,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												ServiceInterfaceInterfaceNameLabel: ifName,
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:      "dpudeployment_dpudeployment_someservice",
+												ServiceID:      getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												Network:        networkName,
 												InterfaceName:  ifName,
 												VirtualNetwork: virtualNetworkName,
@@ -3299,14 +3374,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												ServiceInterfaceInterfaceNameLabel: ifName,
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:      "dpudeployment_dpudeployment_someservice",
+												ServiceID:      getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												Network:        networkName,
 												InterfaceName:  ifName,
 												VirtualNetwork: virtualNetworkName,
@@ -3522,14 +3597,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												ServiceInterfaceInterfaceNameLabel: "some_interface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												Network:       "nad3",
 												InterfaceName: "some_interface",
 											},
@@ -3558,14 +3633,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												ServiceInterfaceInterfaceNameLabel: "otherinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												Network:       "nad4",
 												InterfaceName: "otherinterface",
 											},
@@ -3716,14 +3791,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												ServiceInterfaceInterfaceNameLabel: "someinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												Network:       "nad1",
 												InterfaceName: "someinterface",
 											},
@@ -3753,14 +3828,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												ServiceInterfaceInterfaceNameLabel: "otherinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												Network:       "nad2",
 												InterfaceName: "otherinterface",
 											},
@@ -3790,14 +3865,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												ServiceInterfaceInterfaceNameLabel: "someinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												Network:       "nad3",
 												InterfaceName: "someinterface",
 											},
@@ -3827,14 +3902,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												ServiceInterfaceInterfaceNameLabel: "otherinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												Network:       "nad4",
 												InterfaceName: "otherinterface",
 											},
@@ -3926,14 +4001,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												ServiceInterfaceInterfaceNameLabel: "someinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												Network:       "nad3",
 												InterfaceName: "someinterface",
 											},
@@ -3962,14 +4037,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												ServiceInterfaceInterfaceNameLabel: "otherinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												Network:       "nad4",
 												InterfaceName: "otherinterface",
 											},
@@ -4113,14 +4188,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												ServiceInterfaceInterfaceNameLabel: "someinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												Network:       "nad1",
 												InterfaceName: "someinterface",
 											},
@@ -4150,14 +4225,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												ServiceInterfaceInterfaceNameLabel: "otherinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												Network:       "nad2",
 												InterfaceName: "otherinterface",
 											},
@@ -4187,14 +4262,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												ServiceInterfaceInterfaceNameLabel: "newinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												Network:       "nad3",
 												InterfaceName: "newinterface",
 											},
@@ -4224,14 +4299,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												ServiceInterfaceInterfaceNameLabel: "otherinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												Network:       "nad4",
 												InterfaceName: "otherinterface",
 											},
@@ -4297,14 +4372,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												ServiceInterfaceInterfaceNameLabel: "newinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												Network:       "nad3",
 												InterfaceName: "newinterface",
 											},
@@ -4333,14 +4408,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												ServiceInterfaceInterfaceNameLabel: "otherinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest2),
 												Network:       "nad4",
 												InterfaceName: "otherinterface",
 											},
@@ -4495,8 +4570,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 					for _, dpuServiceInterface := range gotDPUServiceInterfaceList.Items {
 						g.Expect(dpuServiceInterface.Labels).To(HaveLen(2))
 						g.Expect(dpuServiceInterface.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
-						serviceName := strings.SplitN(dpuServiceInterface.Spec.Template.Spec.Template.ObjectMeta.Labels[dpuservicev1.DPFServiceIDLabelKey], "_", 3)[2]
-						g.Expect(dpuServiceInterface.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpudeployment-service", serviceName))
+						serviceName := dpuServiceInterface.Labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey]
+						g.Expect(dpuDeployment.Spec.Services).To(HaveKey(serviceName))
 						g.Expect(dpuServiceInterface.OwnerReferences).To(ContainElement(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
 
 						versionAnnotationKey := "svc.dpu.nvidia.com/dpuservice-version"
@@ -4536,14 +4611,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_service-2",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2),
 												ServiceInterfaceInterfaceNameLabel: "if1",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_service-2",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2),
 												Network:       "nad3",
 												InterfaceName: "if1",
 											},
@@ -4573,14 +4648,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_service-2",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2),
 												ServiceInterfaceInterfaceNameLabel: "if2",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_service-2",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2),
 												Network:       "nad4",
 												InterfaceName: "if2",
 											},
@@ -4610,14 +4685,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_service-1",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1),
 												ServiceInterfaceInterfaceNameLabel: "someinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_service-1",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1),
 												Network:       "nad1",
 												InterfaceName: "someinterface",
 											},
@@ -4647,14 +4722,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_service-1",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1),
 												ServiceInterfaceInterfaceNameLabel: "otherinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_service-1",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1),
 												Network:       "nad2",
 												InterfaceName: "otherinterface",
 											},
@@ -4684,14 +4759,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_service-1",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1b),
 												ServiceInterfaceInterfaceNameLabel: "newnameif1",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_service-1",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1b),
 												Network:       "nad15",
 												InterfaceName: "newnameif1",
 											},
@@ -4721,14 +4796,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_service-1",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1b),
 												ServiceInterfaceInterfaceNameLabel: "newnameif2",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_service-1",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1b),
 												Network:       "nad23",
 												InterfaceName: "newnameif2",
 											},
@@ -4764,8 +4839,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 					for _, dpuServiceInterface := range gotDPUServiceInterfaceList.Items {
 						g.Expect(dpuServiceInterface.Labels).To(HaveLen(2))
 						g.Expect(dpuServiceInterface.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
-						serviceName := strings.SplitN(dpuServiceInterface.Spec.Template.Spec.Template.ObjectMeta.Labels[dpuservicev1.DPFServiceIDLabelKey], "_", 3)[2]
-						g.Expect(dpuServiceInterface.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpudeployment-service", serviceName))
+						serviceName := dpuServiceInterface.Labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey]
+						g.Expect(dpuDeployment.Spec.Services).To(HaveKey(serviceName))
 						g.Expect(dpuServiceInterface.Annotations).To(HaveKey("svc.dpu.nvidia.com/dpuservice-version"))
 						g.Expect(dpuServiceInterface.OwnerReferences).To(ContainElement(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
 					}
@@ -4807,14 +4882,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_service-2",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2),
 												ServiceInterfaceInterfaceNameLabel: "if1",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_service-2",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2),
 												Network:       "nad3",
 												InterfaceName: "if1",
 											},
@@ -4843,14 +4918,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_service-2",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2),
 												ServiceInterfaceInterfaceNameLabel: "if2",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_service-2",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2),
 												Network:       "nad4",
 												InterfaceName: "if2",
 											},
@@ -4879,14 +4954,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_service-1",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1b),
 												ServiceInterfaceInterfaceNameLabel: "newnameif1",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_service-1",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1b),
 												Network:       "nad15",
 												InterfaceName: "newnameif1",
 											},
@@ -4915,14 +4990,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_service-1",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1b),
 												ServiceInterfaceInterfaceNameLabel: "newnameif2",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_service-1",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1b),
 												Network:       "nad23",
 												InterfaceName: "newnameif2",
 											},
@@ -5076,6 +5151,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 				dpuServiceConfiguration.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
 				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName))).To(Succeed())
 
+				versionDigest := calculateDPUServiceVersionDigest(dpuServiceConfiguration, dpuServiceTemplate)
+
 				By("Marking the DPUService ready")
 				patcher := patch.NewSerialPatcher(gotDPUService, testClient)
 				gotDPUService.Status.Conditions = []metav1.Condition{
@@ -5129,14 +5206,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												ServiceInterfaceInterfaceNameLabel: "someinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												Network:       "nad1",
 												InterfaceName: "someinterface",
 											},
@@ -5201,6 +5278,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 				dpuServiceConfiguration.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
 				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName))).To(Succeed())
 
+				versionDigest := calculateDPUServiceVersionDigest(dpuServiceConfiguration, dpuServiceTemplate)
+
 				By("checking that the DPUServiceInterfaces are updated")
 				Eventually(func(g Gomega) {
 					gotDPUServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
@@ -5241,14 +5320,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												ServiceInterfaceInterfaceNameLabel: "someinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												Network:       "nad1",
 												InterfaceName: "someinterface",
 											},
@@ -5277,14 +5356,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 										ObjectMeta: dpuservicev1.ObjectMeta{
 											Labels: map[string]string{
-												dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someservice",
+												dpuservicev1.DPFServiceIDLabelKey:  getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												ServiceInterfaceInterfaceNameLabel: "otherinterface",
 											},
 										},
 										Spec: dpuservicev1.ServiceInterfaceSpec{
 											InterfaceType: dpuservicev1.InterfaceTypeService,
 											Service: &dpuservicev1.ServiceDef{
-												ServiceID:     "dpudeployment_dpudeployment_someservice",
+												ServiceID:     getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest),
 												Network:       "nad2",
 												InterfaceName: "otherinterface",
 											},
@@ -5491,8 +5570,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 					for _, dpuService := range gotDPUServiceList.Items {
 						g.Expect(dpuService.Labels).To(HaveLen(2))
 						g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
-						serviceName := strings.SplitN(*dpuService.Spec.ServiceID, "_", 3)[2]
-						g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpudeployment-service", serviceName))
+						serviceName := dpuService.Labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey]
+						g.Expect(dpuDeployment.Spec.Services).To(HaveKey(serviceName))
 						g.Expect(dpuService.Annotations).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpuservice-version", versions[serviceName]))
 						g.Expect(dpuService.OwnerReferences).To(ConsistOf(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
 					}
@@ -5502,7 +5581,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					specs := make([]dpuservicev1.DPUServiceSpec, 0, 3)
 					for _, dpuService := range gotDPUServiceList.Items {
 						specs = append(specs, dpuService.Spec)
-						serviceName := strings.SplitN(*dpuService.Spec.ServiceID, "_", 3)[2]
+						serviceName := dpuService.Labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey]
 						names[serviceName] = dpuService.Name
 					}
 					g.Expect(specs).To(BeComparableTo([]dpuservicev1.DPUServiceSpec{
@@ -5516,7 +5595,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								},
 								Values: &runtime.RawExtension{Raw: []byte(`{"key1":"value1"}`)},
 							},
-							ServiceID: ptr.To("dpudeployment_dpudeployment_service-1"),
+							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1)),
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels:      map[string]string{"labelkey1": "labelval1", "svc.dpu.nvidia.com/dpudeployment-service": "service-1"},
 								Annotations: map[string]string{"annkey1": "annval1"},
@@ -5555,7 +5634,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								},
 								Values: &runtime.RawExtension{Raw: []byte(`{"key2":"value2","key3":"value3"}`)},
 							},
-							ServiceID: ptr.To("dpudeployment_dpudeployment_service-2"),
+							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2)),
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels:      map[string]string{"labelkey2": "labelval2", "svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 								Annotations: map[string]string{"annkey2": "annval2"},
@@ -5589,7 +5668,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID: ptr.To("dpudeployment_dpudeployment_service-3"),
+							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-3", versionDigest3)),
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels:      map[string]string{"labelkey3": "labelval3", "svc.dpu.nvidia.com/dpudeployment-service": "service-3"},
 								Annotations: map[string]string{"annkey3": "annval3"},
@@ -5717,8 +5796,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 					for _, dpuService := range gotDPUServiceList.Items {
 						g.Expect(dpuService.Labels).To(HaveLen(2))
 						g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
-						serviceName := strings.SplitN(*dpuService.Spec.ServiceID, "_", 3)[2]
-						g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpudeployment-service", serviceName))
+						serviceName := dpuService.Labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey]
+						g.Expect(dpuDeployment.Spec.Services).To(HaveKey(serviceName))
 						g.Expect(dpuService.Annotations).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpuservice-version", versions[serviceName]))
 						g.Expect(dpuService.OwnerReferences).To(ConsistOf(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
 					}
@@ -5728,7 +5807,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					specs := make([]dpuservicev1.DPUServiceSpec, 0, 3)
 					for _, dpuService := range gotDPUServiceList.Items {
 						specs = append(specs, dpuService.Spec)
-						serviceName := strings.SplitN(*dpuService.Spec.ServiceID, "_", 3)[2]
+						serviceName := dpuService.Labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey]
 						names[serviceName] = dpuService.Name
 					}
 					g.Expect(specs).To(BeComparableTo([]dpuservicev1.DPUServiceSpec{
@@ -5741,7 +5820,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID: ptr.To("dpudeployment_dpudeployment_service-1"),
+							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1)),
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-1"},
 								NodeSelector: &corev1.NodeSelector{
@@ -5778,7 +5857,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID: ptr.To("dpudeployment_dpudeployment_service-2"),
+							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2)),
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 								NodeSelector: &corev1.NodeSelector{
@@ -5920,8 +5999,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 							// so we don't know the exact digest
 							g.Expect(dpuService.Labels).To(HaveLen(2))
 							g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
-							serviceName := strings.SplitN(*dpuService.Spec.ServiceID, "_", 3)[2]
-							g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpudeployment-service", serviceName))
+							serviceName := dpuService.Labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey]
+							g.Expect(dpuDeployment.Spec.Services).To(HaveKey(serviceName))
 							g.Expect(dpuService.Annotations).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpuservice-version", versions[serviceName]))
 							g.Expect(dpuService.OwnerReferences).To(ConsistOf(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
 						}
@@ -6143,8 +6222,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 					for _, dpuService := range gotDPUServiceList.Items {
 						g.Expect(dpuService.Labels).To(HaveLen(2))
 						g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
-						serviceName := strings.SplitN(*dpuService.Spec.ServiceID, "_", 3)[2]
-						g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpudeployment-service", serviceName))
+						serviceName := dpuService.Labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey]
+						g.Expect(dpuDeployment.Spec.Services).To(HaveKey(serviceName))
 						g.Expect(dpuService.Annotations).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpuservice-version", versionDigest2ForService[serviceName]))
 						// Validate that the object was not recreated
 						g.Expect(firstDPUServiceUIDs).To(ContainElement(dpuService.UID))
@@ -6167,7 +6246,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID:  ptr.To("dpudeployment_dpudeployment_service-1"),
+							ServiceID:  ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest2ForService["service-1"])),
 							Interfaces: gotDPUServiceInterfaceNames["service-1"],
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-1"},
@@ -6200,7 +6279,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID:  ptr.To("dpudeployment_dpudeployment_service-2"),
+							ServiceID:  ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2ForService["service-2"])),
 							Interfaces: gotDPUServiceInterfaceNames["service-2"],
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"newlabel2": "newvalue-service-2", "svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
@@ -6233,7 +6312,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID: ptr.To("dpudeployment_dpudeployment_service-3"),
+							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-3", versionDigest2ForService["service-3"])),
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-3"},
 								NodeSelector: &corev1.NodeSelector{
@@ -6261,7 +6340,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID: ptr.To("dpudeployment_dpudeployment_service-4"),
+							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-4", versionDigest2ForService["service-4"])),
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"newlabel2": "newvalue-service-4", "svc.dpu.nvidia.com/dpudeployment-service": "service-4"},
 								NodeSelector: &corev1.NodeSelector{
@@ -6390,8 +6469,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 					for _, dpuService := range gotDPUServiceList.Items {
 						g.Expect(dpuService.Labels).To(HaveLen(2))
 						g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
-						serviceName := strings.SplitN(*dpuService.Spec.ServiceID, "_", 3)[2]
-						g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpudeployment-service", serviceName))
+						serviceName := dpuService.Labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey]
+						g.Expect(dpuDeployment.Spec.Services).To(HaveKey(serviceName))
 						g.Expect(dpuService.Annotations).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpuservice-version", versionDigest2ForService[serviceName]))
 						// Validate that the object was not recreated
 						g.Expect(firstDPUServiceUIDs).To(ContainElement(dpuService.UID))
@@ -6414,7 +6493,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID: ptr.To("dpudeployment_dpudeployment_service-1"),
+							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest2ForService["service-1"])),
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-1"},
 								NodeSelector: &corev1.NodeSelector{
@@ -6447,7 +6526,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID: ptr.To("dpudeployment_dpudeployment_service-2"),
+							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2ForService["service-2"])),
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"newlabel2": "newvalue-service-2", "svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 								NodeSelector: &corev1.NodeSelector{
@@ -6480,7 +6559,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID: ptr.To("dpudeployment_dpudeployment_service-3"),
+							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-3", versionDigest2ForService["service-3"])),
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-3"},
 								NodeSelector: &corev1.NodeSelector{
@@ -6508,7 +6587,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID: ptr.To("dpudeployment_dpudeployment_service-4"),
+							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-4", versionDigest2ForService["service-4"])),
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"newlabel2": "newvalue-service-4", "svc.dpu.nvidia.com/dpudeployment-service": "service-4"},
 								NodeSelector: &corev1.NodeSelector{
@@ -6546,7 +6625,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should create new DPUService on update of disruptive DPUServiceConfiguration and respect revision history", func() {
 				revisionHistoryLimit := 5
 				By("Creating the dependencies")
-				versionDigest1, _ := createReconcileDPUServicesDisruptiveDependencies(testNS.Name)
+				versionDigest1, versionDigest2 := createReconcileDPUServicesDisruptiveDependencies(testNS.Name)
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
@@ -6584,7 +6663,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					g.Expect(gotDPUServiceList.Items).To(HaveLen(2))
 					for _, dpuService := range gotDPUServiceList.Items {
 						firstDPUServiceUIDs[dpuService.UID] = struct{}{}
-						serviceName := strings.SplitN(*dpuService.Spec.ServiceID, "_", 3)[2]
+						serviceName := dpuService.Labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey]
 						names[serviceName] = dpuService.Name
 					}
 				}).WithTimeout(30 * time.Second).Should(Succeed())
@@ -6616,7 +6695,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								Chart:   "somechart",
 							},
 						},
-						ServiceID: ptr.To("dpudeployment_dpudeployment_service-1"),
+						ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1)),
 						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 							Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-1"},
 							NodeSelector: &corev1.NodeSelector{
@@ -6649,7 +6728,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								Chart:   "somechart",
 							},
 						},
-						ServiceID: ptr.To("dpudeployment_dpudeployment_service-2"),
+						ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2)),
 						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 							Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 							NodeSelector: &corev1.NodeSelector{
@@ -6733,7 +6812,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								Chart:   "somechart",
 							},
 						},
-						ServiceID: ptr.To("dpudeployment_dpudeployment_service-2"),
+						ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest)),
 						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 							Labels: map[string]string{fmt.Sprintf("somelabel%d", i): "val", "svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 							NodeSelector: &corev1.NodeSelector{
@@ -6875,8 +6954,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 					for _, dpuService := range gotDPUServiceList.Items {
 						g.Expect(dpuService.Labels).To(HaveLen(2))
 						g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
-						serviceName := strings.SplitN(*dpuService.Spec.ServiceID, "_", 3)[2]
-						g.Expect(dpuService.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpudeployment-service", serviceName))
+						serviceName := dpuService.Labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey]
+						g.Expect(dpuDeployment.Spec.Services).To(HaveKey(serviceName))
 						g.Expect(dpuService.Annotations).To(HaveKeyWithValue("svc.dpu.nvidia.com/dpuservice-version", versions[serviceName]))
 						delete(serviceUIDs, dpuService.UID)
 
@@ -6901,7 +6980,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID: ptr.To("dpudeployment_dpudeployment_service-1"),
+							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1)),
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-1"},
 								NodeSelector: &corev1.NodeSelector{
@@ -6934,7 +7013,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID: ptr.To("dpudeployment_dpudeployment_service-2"),
+							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest)),
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"somelabel4": "val", "svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 								NodeSelector: &corev1.NodeSelector{
@@ -7129,7 +7208,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								Chart:   "somechart",
 							},
 						},
-						ServiceID:  ptr.To("dpudeployment_dpudeployment_service-2"),
+						ServiceID:  ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2)),
 						Interfaces: gotDPUServiceInterfaceNames["service-2"],
 						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 							Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
@@ -7157,7 +7236,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should create new DPUServices on update of the .spec.services in the DPUDeployment", func() {
 				By("Creating the dependencies")
-				createReconcileDPUServicesNonDisruptiveDependencies(testNS.Name)
+				versionDigest1, versionDigest2 := createReconcileDPUServicesNonDisruptiveDependencies(testNS.Name)
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
@@ -7234,7 +7313,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID:  ptr.To("dpudeployment_dpudeployment_service-1"),
+							ServiceID:  ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1)),
 							Interfaces: gotDPUServiceInterfaceNames["service-1"],
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-1"},
@@ -7267,7 +7346,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 									Chart:   "somechart",
 								},
 							},
-							ServiceID:  ptr.To("dpudeployment_dpudeployment_service-2"),
+							ServiceID:  ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2)),
 							Interfaces: gotDPUServiceInterfaceNames["service-2"],
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
@@ -7444,7 +7523,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								},
 							},
 						},
-						ServiceID:       ptr.To("dpudeployment_dpudeployment_service-1"),
+						ServiceID:       ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest)),
 						DeployInCluster: ptr.To(true),
 					}))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
@@ -7820,13 +7899,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 								{
 									Service: &dpuservicev1.DPUDeploymentService{
 										InterfaceName: "someinterface",
-										Name:          "somedpuservice",
+										Name:          "someservice",
 									},
 								},
 								{
 									Service: &dpuservicev1.DPUDeploymentService{
 										InterfaceName: "someinterface2",
-										Name:          "somedpuservice2",
+										Name:          "someservice",
 										IPAM: &dpuservicev1.IPAM{
 											MatchLabels: map[string]string{
 												"ipamkey1": "ipamvalue1",
@@ -7841,7 +7920,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								{
 									Service: &dpuservicev1.DPUDeploymentService{
 										InterfaceName: "otherinterface",
-										Name:          "someotherservice",
+										Name:          "someservice",
 									},
 								},
 							},
@@ -7867,7 +7946,16 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
-				chainDigest := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
+
+				By("waiting for DPUService to be created")
+				var serviceID string
+				Eventually(func(g Gomega) {
+					dpuServices := getDPUServiceList()
+					g.Expect(dpuServices.Items).To(HaveLen(1))
+					serviceID = ptr.Deref(dpuServices.Items[0].Spec.ServiceID, "")
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				chainDigest := resolveAndCalculateChainDigest(dpuDeployment.Spec.ServiceChains.Switches, getDPUServiceList().Items)
 
 				By("checking that correct DPUServiceChain is created")
 				Eventually(func(g Gomega) {
@@ -7910,7 +7998,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_somedpuservice",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "someinterface",
 															},
 														},
@@ -7918,7 +8006,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_somedpuservice2",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "someinterface2",
 															},
 															IPAM: &dpuservicev1.IPAM{
@@ -7936,7 +8024,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someotherservice",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "otherinterface",
 															},
 														},
@@ -7993,13 +8081,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 								{
 									Service: &dpuservicev1.DPUDeploymentService{
 										InterfaceName: "someinterface",
-										Name:          "somedpuservice",
+										Name:          "someservice",
 									},
 								},
 								{
 									Service: &dpuservicev1.DPUDeploymentService{
 										InterfaceName: "someinterface2",
-										Name:          "somedpuservice2",
+										Name:          "someservice",
 										IPAM: &dpuservicev1.IPAM{
 											MatchLabels: map[string]string{
 												"ipamkey1": "ipamvalue1",
@@ -8014,7 +8102,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								{
 									Service: &dpuservicev1.DPUDeploymentService{
 										InterfaceName: "otherinterface",
-										Name:          "someotherservice",
+										Name:          "someservice",
 									},
 								},
 							},
@@ -8040,7 +8128,16 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
-				chainDigest := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
+
+				By("waiting for DPUService to be created")
+				var serviceID string
+				Eventually(func(g Gomega) {
+					dpuServices := getDPUServiceList()
+					g.Expect(dpuServices.Items).To(HaveLen(1))
+					serviceID = ptr.Deref(dpuServices.Items[0].Spec.ServiceID, "")
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				chainDigest := resolveAndCalculateChainDigest(dpuDeployment.Spec.ServiceChains.Switches, getDPUServiceList().Items)
 
 				By("checking that correct DPUServiceChain is created")
 				Eventually(func(g Gomega) {
@@ -8092,7 +8189,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_somedpuservice",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "someinterface",
 															},
 														},
@@ -8100,7 +8197,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_somedpuservice2",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "someinterface2",
 															},
 															IPAM: &dpuservicev1.IPAM{
@@ -8118,7 +8215,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someotherservice",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "otherinterface",
 															},
 														},
@@ -8206,14 +8303,23 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
+				dpuServiceConfig := &dpuservicev1.DPUServiceConfiguration{}
+				Expect(testClient.Get(ctx, types.NamespacedName{Name: "someconfiguration", Namespace: testNS.Name}, dpuServiceConfig)).To(Succeed())
+				dpuServiceTemplate := &dpuservicev1.DPUServiceTemplate{}
+				Expect(testClient.Get(ctx, types.NamespacedName{Name: "sometemplate", Namespace: testNS.Name}, dpuServiceTemplate)).To(Succeed())
+				versionDigest := calculateDPUServiceVersionDigest(dpuServiceConfig, dpuServiceTemplate)
+
 				By("checking that the DPUServiceChain is created")
 				var gotDPUServiceChain *dpuservicev1.DPUServiceChain
 				Eventually(func(g Gomega) {
+					dpuServices := getDPUServiceList()
+					g.Expect(dpuServices.Items).ToNot(BeEmpty())
 					gotDPUServiceChainList := &dpuservicev1.DPUServiceChainList{}
 					g.Expect(testClient.List(ctx, gotDPUServiceChainList)).To(Succeed())
 					g.Expect(gotDPUServiceChainList.Items).To(HaveLen(1))
 					gotDPUServiceChain = &gotDPUServiceChainList.Items[0]
 
+					expectedServiceID := getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest)
 					By("checking the original value of the switches")
 					g.Expect(gotDPUServiceChain.Spec.Template.Spec.Template.Spec.Switches).To(BeComparableTo([]dpuservicev1.Switch{
 						{
@@ -8222,8 +8328,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 								{
 									ServiceInterface: dpuservicev1.ServiceIfc{
 										MatchLabels: map[string]string{
-											"svc.dpu.nvidia.com/service":   "dpudeployment_dpudeployment_someservice",
-											"svc.dpu.nvidia.com/interface": "someinterface",
+											dpuservicev1.DPFServiceIDLabelKey:  expectedServiceID,
+											ServiceInterfaceInterfaceNameLabel: "someinterface",
 										},
 									},
 								},
@@ -8273,6 +8379,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					g.Expect(gotDPUServiceChainList.Items).To(HaveLen(1))
 					g.Expect(gotDPUServiceChainList.Items[0].UID).To(Equal(gotDPUServiceChain.UID))
 
+					expectedServiceID := getServiceID(client.ObjectKeyFromObject(dpuDeployment), "someservice", versionDigest)
 					By("checking the value of the switches")
 					g.Expect(gotDPUServiceChainList.Items[0].Spec.Template.Spec.Template.Spec.Switches).To(BeComparableTo([]dpuservicev1.Switch{
 						{
@@ -8281,8 +8388,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 								{
 									ServiceInterface: dpuservicev1.ServiceIfc{
 										MatchLabels: map[string]string{
-											"svc.dpu.nvidia.com/service":   "dpudeployment_dpudeployment_someservice",
-											"svc.dpu.nvidia.com/interface": "someinterface",
+											dpuservicev1.DPFServiceIDLabelKey:  expectedServiceID,
+											ServiceInterfaceInterfaceNameLabel: "someinterface",
 										},
 									},
 								},
@@ -8325,14 +8432,19 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
-				chainDigest := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
 
 				By("waiting for the initial DPUServiceChains to be applied")
+				var serviceID string
 				Eventually(func(g Gomega) {
 					gotDPUServiceChainList := &dpuservicev1.DPUServiceChainList{}
 					g.Expect(testClient.List(ctx, gotDPUServiceChainList)).To(Succeed())
 					g.Expect(gotDPUServiceChainList.Items).To(HaveLen(1))
+					dpuServices := getDPUServiceList()
+					g.Expect(dpuServices.Items).To(HaveLen(1))
+					serviceID = ptr.Deref(dpuServices.Items[0].Spec.ServiceID, "")
 				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				chainDigest := resolveAndCalculateChainDigest(dpuDeployment.Spec.ServiceChains.Switches, getDPUServiceList().Items)
 
 				By("modifying dpuDeployment.Spec.ServiceChains.Switches")
 				dpuDeployment.Spec.ServiceChains.Switches = []dpuservicev1.DPUDeploymentSwitch{
@@ -8341,13 +8453,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 							{
 								Service: &dpuservicev1.DPUDeploymentService{
 									InterfaceName: "someinterface",
-									Name:          "somedpuservice",
+									Name:          "someservice",
 								},
 							},
 							{
 								Service: &dpuservicev1.DPUDeploymentService{
 									InterfaceName: "someinterface2",
-									Name:          "somedpuservice2",
+									Name:          "someservice",
 									IPAM: &dpuservicev1.IPAM{
 										MatchLabels: map[string]string{
 											"ipamkey1": "ipamvalue1",
@@ -8362,7 +8474,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							{
 								Service: &dpuservicev1.DPUDeploymentService{
 									InterfaceName: "otherinterface",
-									Name:          "someotherservice",
+									Name:          "someservice",
 								},
 							},
 						},
@@ -8390,7 +8502,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				// We need to get the object to calculate the digest taking into account the defaults added by the API server
 				gotDPUDeployment := &dpuservicev1.DPUDeployment{}
 				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), gotDPUDeployment)).To(Succeed())
-				chainDigest2 := calculateDPUServiceChainVersionDigest(gotDPUDeployment.Spec.ServiceChains.Switches)
+				chainDigest2 := resolveAndCalculateChainDigest(gotDPUDeployment.Spec.ServiceChains.Switches, getDPUServiceList().Items)
 				Expect(chainDigest2).NotTo(Equal(chainDigest))
 
 				versions := []string{chainDigest, chainDigest2}
@@ -8510,7 +8622,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_somedpuservice",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "someinterface",
 															},
 														},
@@ -8518,7 +8630,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_somedpuservice2",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "someinterface2",
 															},
 															IPAM: &dpuservicev1.IPAM{
@@ -8536,7 +8648,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_someotherservice",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "otherinterface",
 															},
 														},
@@ -8585,11 +8697,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
-				chainDigest := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
-
 				By("waiting for the initial DPUServiceChain to be applied")
 				var initialDPUServiceChainUID types.UID
+				var chainDigest string
 				Eventually(func(g Gomega) {
+					dpuServices := getDPUServiceList()
+					g.Expect(dpuServices.Items).ToNot(BeEmpty())
+					chainDigest = resolveAndCalculateChainDigest(dpuDeployment.Spec.ServiceChains.Switches, dpuServices.Items)
 					gotDPUServiceChainList := getDPUServiceChainList()
 					g.Expect(gotDPUServiceChainList.Items).To(HaveLen(1))
 					initialDPUServiceChainUID = gotDPUServiceChainList.Items[0].UID
@@ -8652,15 +8766,20 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
-				chainDigest := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
 
 				By("waiting for the initial DPUServiceChains to be applied")
 				var firstDPUServiceChain *dpuservicev1.DPUServiceChain
+				var serviceID string
 				Eventually(func(g Gomega) {
 					gotDPUServiceChainList := getDPUServiceChainList()
 					g.Expect(gotDPUServiceChainList.Items).To(HaveLen(1))
 					firstDPUServiceChain = &gotDPUServiceChainList.Items[0]
+					dpuServices := getDPUServiceList()
+					g.Expect(dpuServices.Items).To(HaveLen(1))
+					serviceID = ptr.Deref(dpuServices.Items[0].Spec.ServiceID, "")
 				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				chainDigest := resolveAndCalculateChainDigest(dpuDeployment.Spec.ServiceChains.Switches, getDPUServiceList().Items)
 
 				By("modifying dpuDeployment.Spec.ServiceChains.Switches")
 				dpuDeployment.Spec.ServiceChains = &dpuservicev1.ServiceChains{
@@ -8674,13 +8793,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 								{
 									Service: &dpuservicev1.DPUDeploymentService{
 										InterfaceName: "someinterface",
-										Name:          "somedpuservice",
+										Name:          "someservice",
 									},
 								},
 								{
 									Service: &dpuservicev1.DPUDeploymentService{
 										InterfaceName: "someinterface2",
-										Name:          "somedpuservice2",
+										Name:          "someservice",
 										IPAM: &dpuservicev1.IPAM{
 											MatchLabels: map[string]string{
 												"ipamkey1": "ipamvalue1",
@@ -8695,7 +8814,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								{
 									Service: &dpuservicev1.DPUDeploymentService{
 										InterfaceName: "otherinterface",
-										Name:          "otherservice",
+										Name:          "someservice",
 									},
 								},
 							},
@@ -8723,7 +8842,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				// We need to get the object to calculate the digest taking into account the defaults added by the API server
 				gotDPUDeployment := &dpuservicev1.DPUDeployment{}
 				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), gotDPUDeployment)).To(Succeed())
-				chainDigest2 := calculateDPUServiceChainVersionDigest(gotDPUDeployment.Spec.ServiceChains.Switches)
+				chainDigest2 := resolveAndCalculateChainDigest(gotDPUDeployment.Spec.ServiceChains.Switches, getDPUServiceList().Items)
 				Expect(chainDigest2).NotTo(Equal(chainDigest))
 
 				By("checking that the DPUServiceChain is updated as expected")
@@ -8767,7 +8886,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_somedpuservice",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "someinterface",
 															},
 														},
@@ -8775,7 +8894,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_somedpuservice2",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "someinterface2",
 															},
 															IPAM: &dpuservicev1.IPAM{
@@ -8793,7 +8912,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_otherservice",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "otherinterface",
 															},
 														},
@@ -8832,10 +8951,10 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
-				chainDigest := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
 
 				By("waiting for the initial DPUServiceChains to be applied")
 				var dpuServiceChainUID types.UID
+				var serviceID string
 				Eventually(func(g Gomega) {
 					gotDPUServiceChainList := &dpuservicev1.DPUServiceChainList{}
 					g.Expect(testClient.List(ctx, gotDPUServiceChainList)).To(Succeed())
@@ -8843,7 +8962,12 @@ var _ = Describe("DPUDeployment Controller", func() {
 					for _, dpuServiceChain := range gotDPUServiceChainList.Items {
 						dpuServiceChainUID = dpuServiceChain.UID
 					}
+					dpuServices := getDPUServiceList()
+					g.Expect(dpuServices.Items).To(HaveLen(1))
+					serviceID = ptr.Deref(dpuServices.Items[0].Spec.ServiceID, "")
 				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				chainDigest := resolveAndCalculateChainDigest(dpuDeployment.Spec.ServiceChains.Switches, getDPUServiceList().Items)
 
 				By("modifying dpuDeployment.Spec.ServiceChains.Switches")
 				dpuDeployment.Spec.ServiceChains.Switches = []dpuservicev1.DPUDeploymentSwitch{
@@ -8852,13 +8976,13 @@ var _ = Describe("DPUDeployment Controller", func() {
 							{
 								Service: &dpuservicev1.DPUDeploymentService{
 									InterfaceName: "someinterface",
-									Name:          "somedpuservice",
+									Name:          "someservice",
 								},
 							},
 							{
 								Service: &dpuservicev1.DPUDeploymentService{
 									InterfaceName: "someinterface2",
-									Name:          "somedpuservice2",
+									Name:          "someservice",
 									IPAM: &dpuservicev1.IPAM{
 										MatchLabels: map[string]string{
 											"ipamkey1": "ipamvalue1",
@@ -8873,7 +8997,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							{
 								Service: &dpuservicev1.DPUDeploymentService{
 									InterfaceName: "otherinterface",
-									Name:          "otherservice",
+									Name:          "someservice",
 								},
 							},
 						},
@@ -8901,7 +9025,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				// We need to get the object to calculate the digest taking into account the defaults added by the API server
 				gotDPUDeployment := &dpuservicev1.DPUDeployment{}
 				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), gotDPUDeployment)).To(Succeed())
-				chainDigest2 := calculateDPUServiceChainVersionDigest(gotDPUDeployment.Spec.ServiceChains.Switches)
+				chainDigest2 := resolveAndCalculateChainDigest(gotDPUDeployment.Spec.ServiceChains.Switches, getDPUServiceList().Items)
 				Expect(chainDigest2).NotTo(Equal(chainDigest))
 
 				By("checking that the DPUServiceChain is updated as expected")
@@ -8946,7 +9070,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_somedpuservice",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "someinterface",
 															},
 														},
@@ -8954,7 +9078,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_somedpuservice2",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "someinterface2",
 															},
 															IPAM: &dpuservicev1.IPAM{
@@ -8972,7 +9096,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 													{
 														ServiceInterface: dpuservicev1.ServiceIfc{
 															MatchLabels: map[string]string{
-																dpuservicev1.DPFServiceIDLabelKey:  "dpudeployment_dpudeployment_otherservice",
+																dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 																ServiceInterfaceInterfaceNameLabel: "otherinterface",
 															},
 														},
@@ -10048,4 +10172,30 @@ func getDPUServiceList() *dpuservicev1.DPUServiceList {
 	Expect(testClient.List(ctx, dpuServiceList)).To(Succeed())
 
 	return dpuServiceList
+}
+
+func resolveAndCalculateChainDigest(switches []dpuservicev1.DPUDeploymentSwitch, dpuServices []dpuservicev1.DPUService) string {
+	serviceIDs := make(map[string]string, len(dpuServices))
+	for i := range dpuServices {
+		if name, ok := dpuServices[i].Labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey]; ok {
+			serviceIDs[name] = ptr.Deref(dpuServices[i].Spec.ServiceID, "")
+		}
+	}
+
+	resolvedSwitches := make([]dpuservicev1.DPUDeploymentSwitch, len(switches))
+	for i, sw := range switches {
+		resolvedSwitches[i] = *sw.DeepCopy()
+		for j := range resolvedSwitches[i].Ports {
+			if resolvedSwitches[i].Ports[j].Service == nil {
+				continue
+			}
+
+			serviceName := resolvedSwitches[i].Ports[j].Service.Name
+			resolvedServiceID, ok := serviceIDs[serviceName]
+			Expect(ok).To(BeTrue(), "missing service %q when resolving expected chain digest", serviceName)
+			resolvedSwitches[i].Ports[j].Service.Name = resolvedServiceID
+		}
+	}
+
+	return digest.Short(digest.FromObjects(resolvedSwitches), 10)
 }

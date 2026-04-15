@@ -52,7 +52,7 @@ func reconcileDPUServiceInterfaces(
 	dependencies *dpuDeploymentDependencies,
 	interfaceNameByServiceName map[string]interfaceNameToDPUServiceInterfaceName,
 	dpuNodeLabels map[string]string,
-	patchedDPUServices map[string]*dpuservicev1.DPUService,
+	patchedDPUServices map[string]dpuServiceStatus,
 ) (ctrl.Result, bool, error) {
 	dpuDeploymentOwnerRef := metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)
 	requeue := ctrl.Result{}
@@ -136,7 +136,7 @@ func reconcileDPUServiceInterfaces(
 			switch {
 			case currentRevision != nil:
 				// we found the current revision based on the digest, there might be old revisions to handle
-				isDisruptiveUpgradeOngoing := reconcileCurrentDPUServiceInterfaceRevision(ctx, c, newRevision, currentRevision, currentDPUService, oldRevisions, serviceConfig, existingDPUServiceInterfacesMap, currentDPUServiceNodeSelector, existingDPUSets.Items)
+				isDisruptiveUpgradeOngoing := reconcileCurrentDPUServiceInterfaceRevision(ctx, c, client.ObjectKeyFromObject(dpuDeployment), serviceName, newRevision, currentRevision, currentDPUService, oldRevisions, serviceConfig, existingDPUServiceInterfacesMap, currentDPUServiceNodeSelector, existingDPUSets.Items)
 
 				// If we are in the middle of a disruptive upgrade, we need to enqueue until the upgrade is done
 				if isDisruptiveUpgradeOngoing {
@@ -273,6 +273,8 @@ func reconcileDPUServiceInterfaceWithOldRevisions(newRevision *dpuservicev1.DPUS
 // It cleans the old revisions if the current object is ready
 func reconcileCurrentDPUServiceInterfaceRevision(ctx context.Context,
 	c client.Client,
+	dpuDeploymentNamespacedName types.NamespacedName,
+	serviceName string,
 	newRevision *dpuservicev1.DPUServiceInterface,
 	currentRevision client.Object,
 	currentDPUService *dpuservicev1.DPUService,
@@ -288,6 +290,9 @@ func reconcileCurrentDPUServiceInterfaceRevision(ctx context.Context,
 
 	// We update the name of the newRevision to the currentRevision so that we can patch the existing object
 	newRevision.Name = currentRevision.GetName()
+	// For Backward compatibility, preserve the existing ServiceID in template to avoid unnecessary changes on in-place patches
+	currentInterface := currentRevision.(*dpuservicev1.DPUServiceInterface)
+	preserveServiceInterfaceServiceID(dpuDeploymentNamespacedName, serviceName, currentInterface, newRevision)
 
 	// We update the newRevision nodeSelector to match the currentRevision nodeSelector since it relies on the revision name
 	if !serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster() {
@@ -366,14 +371,14 @@ func generateDPUServiceInterface(name string,
 					Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 						ObjectMeta: dpuservicev1.ObjectMeta{
 							Labels: map[string]string{
-								dpuservicev1.DPFServiceIDLabelKey:  getServiceID(dpuDeploymentNamespacedName, serviceName),
+								dpuservicev1.DPFServiceIDLabelKey:  getServiceID(dpuDeploymentNamespacedName, serviceName, dpuServiceVersionDigest),
 								ServiceInterfaceInterfaceNameLabel: serviceInterface.Name,
 							},
 						},
 						Spec: dpuservicev1.ServiceInterfaceSpec{
 							InterfaceType: dpuservicev1.InterfaceTypeService,
 							Service: &dpuservicev1.ServiceDef{
-								ServiceID:      getServiceID(dpuDeploymentNamespacedName, serviceName),
+								ServiceID:      getServiceID(dpuDeploymentNamespacedName, serviceName, dpuServiceVersionDigest),
 								Network:        serviceInterface.Network,
 								InterfaceName:  serviceInterface.Name,
 								VirtualNetwork: serviceInterface.VirtualNetwork,
@@ -495,25 +500,37 @@ func constructCurrentDPUServiceInterfaceNamesForService(dpuDeployment *dpuservic
 // Patched services always take precedence over cached services.
 func mergePatchedAndListedDPUServices(
 	existingDPUServices *dpuservicev1.DPUServiceList,
-	patchedDPUServices map[string]*dpuservicev1.DPUService,
+	patchedDPUServices map[string]dpuServiceStatus,
 ) *dpuservicev1.DPUServiceList {
 	merged := existingDPUServices.DeepCopy()
 
 	for _, patched := range patchedDPUServices {
 		found := false
 		for i := range merged.Items {
-			if merged.Items[i].Name == patched.Name {
+			if merged.Items[i].Name == patched.service.Name {
 				// Replace the cached version with the patched version
-				merged.Items[i] = *patched
+				merged.Items[i] = *patched.service
 				found = true
 				break
 			}
 		}
 		if !found {
 			// Service doesn't exist in cache yet, add it
-			merged.Items = append(merged.Items, *patched)
+			merged.Items = append(merged.Items, *patched.service)
 		}
 	}
 
 	return merged
+}
+
+// preserveServiceInterfaceServiceID copies the DPFServiceIDLabelKey and ServiceDef.ServiceID
+// from an existing DPUServiceInterface to a new revision being patched in-place.
+func preserveServiceInterfaceServiceID(dpuDeploymentNamespacedName types.NamespacedName, serviceName string, existing, newRevision *dpuservicev1.DPUServiceInterface) {
+	legacyServiceID := getLegacyServiceID(dpuDeploymentNamespacedName, serviceName)
+	if sid, ok := existing.Spec.Template.Spec.Template.ObjectMeta.Labels[dpuservicev1.DPFServiceIDLabelKey]; ok && sid == legacyServiceID {
+		newRevision.Spec.Template.Spec.Template.ObjectMeta.Labels[dpuservicev1.DPFServiceIDLabelKey] = sid
+	}
+	if existing.Spec.Template.Spec.Template.Spec.Service != nil && newRevision.Spec.Template.Spec.Template.Spec.Service != nil && existing.Spec.Template.Spec.Template.Spec.Service.ServiceID == legacyServiceID {
+		newRevision.Spec.Template.Spec.Template.Spec.Service.ServiceID = existing.Spec.Template.Spec.Template.Spec.Service.ServiceID
+	}
 }
