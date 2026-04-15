@@ -14,7 +14,7 @@ spec:
     - IPv4
   ipFamilyPolicy: SingleStack
   ports:
-    - nodePort: 32444
+    - nodePort: 30044
       port: 6443
       protocol: TCP
       targetPort: 6443
