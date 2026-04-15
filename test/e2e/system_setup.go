@@ -33,6 +33,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/dpfctl"
 	operatorutils "github.com/nvidia/doca-platform/internal/operator/utils"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils/collector"
@@ -520,6 +521,7 @@ func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) 
 		for _, dpuCluster := range input.dpuClusters {
 			g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuCluster), dpuCluster)).To(Succeed())
 			g.Expect(dpuCluster.Status.Phase).Should(Equal(provisioningv1.PhaseReady))
+			g.Expect(dpuCluster.Status.Version).Should(Equal(util.KubernetesVersion))
 		}
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 

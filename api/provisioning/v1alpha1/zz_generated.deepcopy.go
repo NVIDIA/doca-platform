@@ -102,6 +102,11 @@ func (in *AgentStatus) DeepCopyInto(out *AgentStatus) {
 		*out = new(int32)
 		**out = **in
 	}
+	if in.KubeletVersion != nil {
+		in, out := &in.KubeletVersion, &out.KubeletVersion
+		*out = new(string)
+		**out = **in
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]v1.Condition, len(*in))
