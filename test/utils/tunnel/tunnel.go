@@ -19,16 +19,17 @@ package tunnel
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
-	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -37,25 +38,28 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Tunnel represents a port forwarding tunnel to a Kamaji cluster
+// Tunnel represents a port forwarding tunnel to a Kamaji cluster.
 type Tunnel struct {
 	pf        *portforward.PortForwarder
 	stopCh    chan struct{}
 	errCh     chan error
 	localPort int
+	closeOnce sync.Once
 }
 
-// Close stops the tunnel
+// Close stops the tunnel. Safe to call multiple times.
+// Only closes stopCh and the port forwarder. The errCh is left open
+// to avoid racing with the goroutine that may still send on it.
 func (t *Tunnel) Close() {
-	t.pf.Close()
-	close(t.stopCh)
-	// Close the error channel to prevent goroutine leaks
-	if t.errCh != nil {
-		close(t.errCh)
-	}
+	t.closeOnce.Do(func() {
+		if t.pf != nil {
+			t.pf.Close()
+		}
+		close(t.stopCh)
+	})
 }
 
-// LocalPort returns the local port being used for the tunnel
+// LocalPort returns the local port being used for the tunnel.
 func (t *Tunnel) LocalPort() int {
 	return t.localPort
 }
@@ -73,128 +77,110 @@ func (t *Tunnel) IsHealthy() bool {
 	}
 }
 
-// NewTunneledRestConfig creates a tunneled REST config for accessing the Kamaji cluster.
-// Returns the REST config and a health check function that returns true if the tunnel is healthy.
-func NewTunneledRestConfig(g Gomega, ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) (*rest.Config, func() bool) {
+// NewTunneledRestConfig creates a tunneled REST config for accessing a DPU cluster.
+// Returns the REST config, the tunnel (caller must close when done), and any error.
+func NewTunneledRestConfig(ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) (*rest.Config, *Tunnel, error) {
 	// Create dpucluster.Config to handle kubeconfig retrieval
 	clusterConfig := dpucluster.NewConfig(hostClient, dpuCluster)
 
 	// Get the Kamaji cluster kubeconfig for authentication
 	kamajiKubeconfig, err := clusterConfig.Kubeconfig(ctx)
-	g.Expect(err).NotTo(HaveOccurred(), "Should get Kamaji kubeconfig")
-
-	// Create REST config from Kamaji kubeconfig using clientcmd
-	kamajiRESTConfig, err := clientcmd.NewDefaultClientConfig(*kamajiKubeconfig, &clientcmd.ConfigOverrides{}).ClientConfig()
-	g.Expect(err).NotTo(HaveOccurred(), "Should create Kamaji REST config")
-
-	// Set up port forwarding to the Kamaji cluster
-	tunnel := setupPortForward(g, ctx, hostClient, hostRESTConfig, dpuCluster)
-
-	// Update the host to use local port
-	kamajiRESTConfig.Host = fmt.Sprintf("https://localhost:%d", tunnel.LocalPort())
-
-	// Return REST config and a health check function
-	healthCheck := func() bool {
-		return tunnel.IsHealthy()
+	if err != nil {
+		return nil, nil, fmt.Errorf("get Kamaji kubeconfig: %w", err)
 	}
 
-	return kamajiRESTConfig, healthCheck
-}
+	// Create REST config from Kamaji kubeconfig
+	kamajiRESTConfig, err := clientcmd.NewDefaultClientConfig(*kamajiKubeconfig, &clientcmd.ConfigOverrides{}).ClientConfig()
+	if err != nil {
+		return nil, nil, fmt.Errorf("create Kamaji REST config: %w", err)
+	}
 
-// NewTunneledClient creates a new client that tunnels through the host cluster to access the Kamaji cluster.
-// This function works in air-gapped environments where only the Kubernetes API is accessible.
-// Returns the client and a health check function that returns true if the tunnel is healthy.
-func NewTunneledClient(g Gomega, ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) (client.Client, func() bool) {
-	kamajiRESTConfig, healthCheck := NewTunneledRestConfig(g, ctx, hostClient, hostRESTConfig, dpuCluster)
+	// Set up port forwarding to the Kamaji cluster
+	tun, err := setupPortForward(ctx, hostClient, hostRESTConfig, dpuCluster)
+	if err != nil {
+		return nil, nil, fmt.Errorf("set up port forward: %w", err)
+	}
 
-	// Create client for Kamaji cluster
-	kamajiClient, err := client.New(kamajiRESTConfig, client.Options{})
-	g.Expect(err).NotTo(HaveOccurred(), "Should create Kamaji client")
+	// Update the host to use local port
+	kamajiRESTConfig.Host = fmt.Sprintf("https://localhost:%d", tun.LocalPort())
 
-	return kamajiClient, healthCheck
-}
-
-// NewTunneledClientset creates a new clientset that tunnels through the host cluster to access the Kamaji cluster.
-// This function works in air-gapped environments where only the Kubernetes API is accessible.
-// Returns the clientset and a health check function that returns true if the tunnel is healthy.
-func NewTunneledClientset(g Gomega, ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) (*kubernetes.Clientset, func() bool) {
-	kamajiRESTConfig, healthCheck := NewTunneledRestConfig(g, ctx, hostClient, hostRESTConfig, dpuCluster)
-
-	// Create clientset for Kamaji cluster
-	kamajiClientset, err := kubernetes.NewForConfig(kamajiRESTConfig)
-	g.Expect(err).NotTo(HaveOccurred(), "Should create Kamaji clientset")
-
-	return kamajiClientset, healthCheck
+	return kamajiRESTConfig, tun, nil
 }
 
 // setupPortForward sets up port forwarding to the Kamaji cluster service
-func setupPortForward(g Gomega, ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) *Tunnel {
-
+func setupPortForward(ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) (*Tunnel, error) {
 	// Find the Kamaji cluster service and get the target port
-	targetPort := getKamajiServicePort(g, ctx, hostClient, dpuCluster)
+	targetPort, err := getKamajiServicePort(ctx, hostClient, dpuCluster)
+	if err != nil {
+		return nil, err
+	}
 
 	// Find the Kamaji control plane pod.
 	// TODO(tgiese): verify why service port-forwarding does not work here.
-	pod := getKamajiControlPlanePod(g, ctx, hostClient, dpuCluster)
+	pod, err := getKamajiControlPlanePod(ctx, hostClient, dpuCluster)
+	if err != nil {
+		return nil, err
+	}
 
 	// Create and start the port forwarder
-	tunnel := createPortForwarder(g, hostRESTConfig, pod, targetPort)
+	tun, err := createPortForwarder(hostRESTConfig, pod, targetPort)
+	if err != nil {
+		return nil, err
+	}
 
 	// Wait for the tunnel to be ready and get the local port
-	tunnel.waitForTunnelReadyWithContext(ctx)
+	if err := tun.waitForReady(ctx); err != nil {
+		tun.Close()
+		return nil, err
+	}
 
-	ports, err := tunnel.pf.GetPorts()
-	g.Expect(err).NotTo(HaveOccurred(), "Should get forwarded ports")
-	g.Expect(ports).NotTo(BeEmpty(), "Should have at least one forwarded port")
-	tunnel.localPort = int(ports[0].Local)
-
-	return tunnel
+	return tun, nil
 }
 
 // getKamajiServicePort finds the Kamaji cluster service and returns the kube-apiserver port
-func getKamajiServicePort(g Gomega, ctx context.Context, hostClient client.Client, dpuCluster *provisioningv1.DPUCluster) int32 {
-	// Find the Kamaji cluster service
+func getKamajiServicePort(ctx context.Context, hostClient client.Client, dpuCluster *provisioningv1.DPUCluster) (int32, error) {
 	service := &corev1.Service{}
-	serviceKey := types.NamespacedName{
+	serviceKey := client.ObjectKey{
 		Namespace: dpuCluster.Namespace,
 		Name:      dpuCluster.Name,
 	}
 
-	err := hostClient.Get(ctx, serviceKey, service)
-	g.Expect(err).NotTo(HaveOccurred(), "Should get Kamaji service")
+	if err := hostClient.Get(ctx, serviceKey, service); err != nil {
+		return 0, fmt.Errorf("get Kamaji service: %w", err)
+	}
 
-	// Find the kube-apiserver port
-	var targetPort int32
 	for _, port := range service.Spec.Ports {
 		if port.Name == "kube-apiserver" {
-			targetPort = port.Port
-			break
+			return port.Port, nil
 		}
 	}
-	g.Expect(targetPort).NotTo(BeZero(), "kube-apiserver port should be found in service")
-
-	return targetPort
+	return 0, fmt.Errorf("kube-apiserver port not found in service %s/%s", dpuCluster.Namespace, dpuCluster.Name)
 }
 
 // getKamajiControlPlanePod finds the Kamaji control plane pod
-func getKamajiControlPlanePod(g Gomega, ctx context.Context, hostClient client.Client, dpuCluster *provisioningv1.DPUCluster) *corev1.Pod {
-	// Find the Kamaji control plane pod
+func getKamajiControlPlanePod(ctx context.Context, hostClient client.Client, dpuCluster *provisioningv1.DPUCluster) (*corev1.Pod, error) {
 	podList := &corev1.PodList{}
-	err := hostClient.List(ctx, podList, client.InNamespace(dpuCluster.Namespace), client.MatchingLabels(map[string]string{
-		"kamaji.clastix.io/name": dpuCluster.Name,
-	}))
-	g.Expect(err).NotTo(HaveOccurred(), "Should list Kamaji pods")
-	g.Expect(podList.Items).NotTo(BeEmpty(), "Should find at least one Kamaji control plane pod")
+	err := hostClient.List(ctx, podList,
+		client.InNamespace(dpuCluster.Namespace),
+		client.MatchingLabels{"kamaji.clastix.io/name": dpuCluster.Name},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list Kamaji pods: %w", err)
+	}
+	if len(podList.Items) == 0 {
+		return nil, fmt.Errorf("no Kamaji control plane pods found for DPUCluster %s/%s", dpuCluster.Namespace, dpuCluster.Name)
+	}
 
-	// Use the first pod (there should be only one control plane pod)
-	return &podList.Items[0]
+	return &podList.Items[0], nil
 }
 
 // createPortForwarder creates and starts the port forwarder
-func createPortForwarder(g Gomega, hostRESTConfig *rest.Config, pod *corev1.Pod, targetPort int32) *Tunnel {
+func createPortForwarder(hostRESTConfig *rest.Config, pod *corev1.Pod, targetPort int32) (*Tunnel, error) {
 	// Create a clientset for REST client operations
 	hostClientset, err := kubernetes.NewForConfig(hostRESTConfig)
-	g.Expect(err).NotTo(HaveOccurred(), "Should create host clientset")
+	if err != nil {
+		return nil, fmt.Errorf("create host clientset: %w", err)
+	}
 
 	// Create port forward request
 	req := hostClientset.CoreV1().RESTClient().Post().
@@ -205,7 +191,9 @@ func createPortForwarder(g Gomega, hostRESTConfig *rest.Config, pod *corev1.Pod,
 
 	// Create SPDY dialer
 	transport, upgrader, err := spdy.RoundTripperFor(hostRESTConfig)
-	g.Expect(err).NotTo(HaveOccurred(), "Should create SPDY transport")
+	if err != nil {
+		return nil, fmt.Errorf("create SPDY transport: %w", err)
+	}
 
 	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, "POST", req.URL())
 
@@ -216,8 +204,11 @@ func createPortForwarder(g Gomega, hostRESTConfig *rest.Config, pod *corev1.Pod,
 
 	// Start port forwarding with a random local port
 	portString := fmt.Sprintf("0:%d", targetPort)
-	pf, err := portforward.New(dialer, []string{portString}, stopCh, readyCh, os.Stdout, os.Stderr)
-	g.Expect(err).NotTo(HaveOccurred(), "Should create port forward")
+	pf, err := portforward.New(dialer, []string{portString}, stopCh, readyCh, io.Discard, os.Stderr)
+	if err != nil {
+		close(stopCh)
+		return nil, fmt.Errorf("create port forward: %w", err)
+	}
 
 	tunnel := &Tunnel{
 		stopCh: stopCh,
@@ -232,46 +223,36 @@ func createPortForwarder(g Gomega, hostRESTConfig *rest.Config, pod *corev1.Pod,
 		if err := pf.ForwardPorts(); err != nil {
 			select {
 			case errCh <- err:
-			case <-stopCh:
-				errCh <- fmt.Errorf("port forwarding stopped: %w", err)
+			default:
 			}
 		}
 	}()
 
-	return tunnel
+	return tunnel, nil
 }
 
-// waitForTunnelReadyWithContext waits for the tunnel to be ready with context support.
+// waitForReady waits for the tunnel to be ready.
 // Also waits for the port forwarding to be established and the local port to be assigned.
-func (t *Tunnel) waitForTunnelReadyWithContext(ctx context.Context) bool {
-	Eventually(func(g Gomega) int {
-		// Check if the tunnel is stopped, context is done or an error occurred.
-		// If any of these conditions are met, close the tunnel and return 0.
+func (t *Tunnel) waitForReady(ctx context.Context) error {
+	return wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
 		select {
 		case <-t.stopCh:
-			t.Close()
-			StopTrying("Tunnel was stopped before it could be established").Now()
-			return 0
-		case <-ctx.Done():
-			t.Close()
-			StopTrying("Context was canceled before tunnel could be established").Now()
-			return 0
+			return false, fmt.Errorf("tunnel stopped before it could be established")
 		case err := <-t.errCh:
-			t.Close()
-			g.Expect(err).NotTo(HaveOccurred(), "Port forwarding should not have errors")
-			return 0
+			return false, fmt.Errorf("port forwarding error: %w", err)
 		default:
 		}
 
 		// Get the actual local port that was assigned
 		ports, err := t.pf.GetPorts()
-		g.Expect(err).NotTo(HaveOccurred(), "Failed to get tunnel ports")
-		if len(ports) == 0 {
-			return 0
+		if err != nil {
+			return false, nil
 		}
-		return int(ports[0].Local)
-	}, 30*time.Second, 100*time.Millisecond).Should(Not(BeZero()),
-		"Port forwarding should be established and return a valid local port")
+		if len(ports) == 0 || ports[0].Local == 0 {
+			return false, nil
+		}
 
-	return true
+		t.localPort = int(ports[0].Local)
+		return true, nil
+	})
 }
