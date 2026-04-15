@@ -411,10 +411,13 @@ func TestLoadIfaceMACAddressMapping(t *testing.T) {
 			verifyContents: true,
 		},
 		{
-			name:  "empty config",
+			name:  "no VFs",
 			ecpfs: []string{"p0", "p1"},
 			mockFS: &mockFS{
-				files: map[string][]byte{},
+				files: map[string][]byte{
+					"/sys/class/net/p0/smart_nic/pf/config": []byte("MAC: fa:b0:b2:04:9f:b3\n"),
+					"/sys/class/net/p1/smart_nic/pf/config": []byte("MAC: fa:b0:b2:04:9f:b6\n"),
+				},
 				dirs: map[string]bool{
 					"/sys/class/net/p0/smart_nic": true,
 					"/sys/class/net/p1/smart_nic": true,
@@ -422,6 +425,17 @@ func TestLoadIfaceMACAddressMapping(t *testing.T) {
 			},
 			wantErr:        false,
 			verifyContents: true,
+		},
+		{
+			name:  "no pf config",
+			ecpfs: []string{"p0"},
+			mockFS: &mockFS{
+				dirs: map[string]bool{
+					"/sys/class/net/p0/smart_nic": true,
+				},
+			},
+			wantErr:        true,
+			verifyContents: false,
 		},
 		{
 			name:  "invalid MAC",
@@ -450,12 +464,17 @@ func TestLoadIfaceMACAddressMapping(t *testing.T) {
 			}
 
 			if tt.verifyContents {
-				for ecpf, ecpfConfig := range vfmapping {
-					for iface, config := range ecpfConfig {
-						if vfmapping[ecpf][iface].MAC != config.MAC {
-							t.Errorf("%s[%s].MAC = %v, want %v", ecpf, iface, vfmapping[ecpf][iface].MAC, config.MAC)
-						}
+				for _, ecpf := range tt.ecpfs {
+					ecpfConfig, ok := vfmapping[ecpf]
+					if !ok {
+						t.Errorf("ECPF %s not found in mapping", ecpf)
 					}
+
+					_, ok = ecpfConfig["pf"]
+					if !ok {
+						t.Errorf("PF not found in ECPF %s", ecpf)
+					}
+
 				}
 			}
 		})
@@ -1181,6 +1200,191 @@ func TestDiscoverECPFs(t *testing.T) {
 				if ecpf != tt.wantECPFs[i] {
 					t.Errorf("discoverECPFs()[%d] = %v, want %v", i, ecpf, tt.wantECPFs[i])
 				}
+			}
+		})
+	}
+}
+
+func TestGetVFMacAddressFromVFMapping(t *testing.T) {
+	testMAC1 := "96:db:23:78:65:7e"
+	testMAC2 := "da:f2:ea:53:cf:40"
+
+	tests := []struct {
+		name     string
+		mapping  VFMapping
+		ecpfName string
+		vfID     int
+		wantMAC  string
+		wantErr  bool
+	}{
+		{
+			name: "valid VF lookup",
+			mapping: VFMapping{
+				"p0": ECPFConfig{
+					"vf0": VFConfig{MAC: testMAC1},
+					"vf1": VFConfig{MAC: testMAC2},
+				},
+			},
+			ecpfName: "p0",
+			vfID:     0,
+			wantMAC:  testMAC1,
+			wantErr:  false,
+		},
+		{
+			name: "valid VF lookup - second VF",
+			mapping: VFMapping{
+				"p0": ECPFConfig{
+					"vf0": VFConfig{MAC: testMAC1},
+					"vf1": VFConfig{MAC: testMAC2},
+				},
+			},
+			ecpfName: "p0",
+			vfID:     1,
+			wantMAC:  testMAC2,
+			wantErr:  false,
+		},
+		{
+			name: "valid VF lookup - second ECPF",
+			mapping: VFMapping{
+				"p0": ECPFConfig{"vf0": VFConfig{MAC: testMAC1}},
+				"p1": ECPFConfig{"vf0": VFConfig{MAC: testMAC2}},
+			},
+			ecpfName: "p1",
+			vfID:     0,
+			wantMAC:  testMAC2,
+			wantErr:  false,
+		},
+		{
+			name: "ECPF not found",
+			mapping: VFMapping{
+				"p0": ECPFConfig{"vf0": VFConfig{MAC: testMAC1}},
+			},
+			ecpfName: "p1",
+			vfID:     0,
+			wantErr:  true,
+		},
+		{
+			name: "VF not found in ECPF",
+			mapping: VFMapping{
+				"p0": ECPFConfig{"vf0": VFConfig{MAC: testMAC1}},
+			},
+			ecpfName: "p0",
+			vfID:     5,
+			wantErr:  true,
+		},
+		{
+			name:     "empty mapping",
+			mapping:  VFMapping{},
+			ecpfName: "p0",
+			vfID:     0,
+			wantErr:  true,
+		},
+		{
+			name: "empty ECPF config",
+			mapping: VFMapping{
+				"p0": ECPFConfig{},
+			},
+			ecpfName: "p0",
+			vfID:     0,
+			wantErr:  true,
+		},
+		{
+			name:     "negative VF ID",
+			mapping:  VFMapping{"p0": ECPFConfig{"vf0": VFConfig{MAC: testMAC1}}},
+			ecpfName: "p0",
+			vfID:     -1,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.mapping.GetVFMacAddress(tt.ecpfName, tt.vfID)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetVFMacAddressFromVFMapping() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got != tt.wantMAC {
+				t.Errorf("GetVFMacAddressFromVFMapping() = %v, want %v", got, tt.wantMAC)
+			}
+		})
+	}
+}
+
+func TestGetPFMacAddressFromVFMapping(t *testing.T) {
+	testMAC1 := "96:db:23:78:65:7e"
+	testMAC2 := "da:f2:ea:53:cf:40"
+
+	tests := []struct {
+		name     string
+		mapping  VFMapping
+		ecpfName string
+		wantMAC  string
+		wantErr  bool
+	}{
+		{
+			name: "valid PF lookup",
+			mapping: VFMapping{
+				"p0": ECPFConfig{
+					"pf":  VFConfig{MAC: testMAC1},
+					"vf0": VFConfig{MAC: testMAC2},
+				},
+			},
+			ecpfName: "p0",
+			wantMAC:  testMAC1,
+			wantErr:  false,
+		},
+		{
+			name: "valid PF lookup - second ECPF",
+			mapping: VFMapping{
+				"p0": ECPFConfig{"pf": VFConfig{MAC: testMAC1}},
+				"p1": ECPFConfig{"pf": VFConfig{MAC: testMAC2}},
+			},
+			ecpfName: "p1",
+			wantMAC:  testMAC2,
+			wantErr:  false,
+		},
+		{
+			name: "ECPF not found",
+			mapping: VFMapping{
+				"p0": ECPFConfig{"pf": VFConfig{MAC: testMAC1}},
+			},
+			ecpfName: "p1",
+			wantErr:  true,
+		},
+		{
+			name: "PF not found in ECPF",
+			mapping: VFMapping{
+				"p0": ECPFConfig{"vf0": VFConfig{MAC: testMAC1}},
+			},
+			ecpfName: "p0",
+			wantErr:  true,
+		},
+		{
+			name:     "empty mapping",
+			mapping:  VFMapping{},
+			ecpfName: "p0",
+			wantErr:  true,
+		},
+		{
+			name: "empty ECPF config",
+			mapping: VFMapping{
+				"p0": ECPFConfig{},
+			},
+			ecpfName: "p0",
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.mapping.GetPFMacAddress(tt.ecpfName)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetPFMacAddressFromVFMapping() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got != tt.wantMAC {
+				t.Errorf("GetPFMacAddressFromVFMapping() = %v, want %v", got, tt.wantMAC)
 			}
 		})
 	}

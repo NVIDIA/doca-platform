@@ -301,16 +301,14 @@ func (v *VFMAC) getIfaceMACConfig(ecpf, iface string) (string, error) {
 // LoadIfaceMACAddressMapping walks sysfs to build a ECPF/VF → MAC mapping.
 func (v *VFMAC) LoadIfaceMACAddressMapping() (VFMapping, error) {
 	v.log.Info("Loading mac address mapping from", "path", filepath.Join(sysfsNetPath))
-
 	mapping := make(VFMapping)
 
+	// Process MAC addresses
 	for _, ecpf := range v.ecpfs {
 		mapping[ecpf] = make(ECPFConfig)
-		// Process PF MAC address
-		if _, err := v.fs.Stat(filepath.Join(sysfsNetPath, ecpf, "smart_nic", "pf", "config")); err == nil {
-			if err := v.processMACAddress(mapping, ecpf, "pf"); err != nil {
-				return nil, err
-			}
+		// Process PF MAC address so we have it in mapping (even though when storing the vfmac config file we dont store the PF MAC address).
+		if err := v.processMACAddress(mapping, ecpf, "pf"); err != nil {
+			return nil, fmt.Errorf("failed to process PF MAC address for %s: %w", ecpf, err)
 		}
 
 		// Process VF MAC addresses
@@ -465,4 +463,44 @@ func (v *VFMAC) countVFFolders(ecpf string) (int, error) {
 	}
 
 	return count, nil
+}
+
+// GetVFMacAddress retrieves the MAC address from an ECPF (specified by its netdev name) of a VF interface from the VF MAC mapping.
+func (vfMapping VFMapping) GetVFMacAddress(ecpfName string, vfID int) (string, error) {
+	if vfID < 0 {
+		return "", fmt.Errorf("invalid VF ID: %d (must be >= 0)", vfID)
+	}
+
+	// vf key is in the format "vf%d" i.e "vf0", "vf1", "vf2", etc.
+	vfKey := fmt.Sprintf("vf%d", vfID)
+
+	ecpfConfig, ok := vfMapping[ecpfName]
+	if !ok {
+		return "", fmt.Errorf("ECPF %s not found in VF MAC address mapping", ecpfName)
+	}
+
+	vfConfig, ok := ecpfConfig[vfKey]
+	if !ok {
+		return "", fmt.Errorf("VF %s not found in VF MAC address mapping for ecpf %s", vfKey, ecpfName)
+	}
+
+	return vfConfig.MAC, nil
+}
+
+// GetPFMacAddress retrieves the MAC address from an ECPF (specified by its netdev name) of a PF interface from the VF MAC mapping.
+func (vfMapping VFMapping) GetPFMacAddress(ecpfName string) (string, error) {
+	// pf key is hardcoded to "pf"
+	pfKey := "pf"
+
+	ecpfConfig, ok := vfMapping[ecpfName]
+	if !ok {
+		return "", fmt.Errorf("ECPF %s not found in VF MAC address mapping", ecpfName)
+	}
+
+	vfConfig, ok := ecpfConfig[pfKey]
+	if !ok {
+		return "", fmt.Errorf("PF not found in VF MAC address mapping for ecpf %s", ecpfName)
+	}
+
+	return vfConfig.MAC, nil
 }
