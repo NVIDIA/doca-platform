@@ -94,7 +94,7 @@ The collected artifacts are saved to the specified directory for analysis.`,
 				}
 			} else {
 				// Only collect from main cluster
-				mainCluster, err := collector.NewCluster(k8sClient, filepath.Join(artifactsDir, "main"), clientset, "main")
+				mainCluster, err := collector.NewMainCluster(k8sClient, filepath.Join(artifactsDir, "main"), clientset)
 				if err != nil {
 					return fmt.Errorf("failed to create main cluster collector: %w", err)
 				}
@@ -103,6 +103,7 @@ The collected artifacts are saved to the specified directory for analysis.`,
 
 			// Run collection
 			c := collector.New(collectors)
+			defer c.Close()
 			if err := c.Run(ctx); err != nil {
 				return fmt.Errorf("resource collection failed: %w", err)
 			}
