@@ -132,6 +132,12 @@ func (f *fromDPUService) applyDPUServiceEdits(vars Variables, labelsToAdd map[st
 		NamespaceEdit(vars.Namespace),
 		LabelsEdit(labelsToAdd))
 
+	// Add the component label to ServiceDaemonSet.Labels for system components, so that the pods
+	// running on DPU clusters from system DPUServices can be identified
+	if componentName, ok := labelsToAdd[operatorv1.DPFComponentLabelKey]; ok {
+		edits.AddForKindS(DPUServiceKind, dpuServiceSetServiceDaemonSetLabelEdit(operatorv1.DPFComponentLabelKey, componentName))
+	}
+
 	// Update resources from variables if possible.
 	// Handle all resources for this component (both single and multi-container)
 	for resourceKey, resourceReqs := range vars.Resources {
@@ -736,4 +742,22 @@ func generateResourceEditsFromPaths(
 	return []StructuredEdit{
 		dpuServiceAddValueEdit(resourceReqs, resourcePath...),
 	}, nil
+}
+
+// dpuServiceSetServiceDaemonSetLabelEdit adds a label to the ServiceDaemonSet labels of a DPUService.
+func dpuServiceSetServiceDaemonSetLabelEdit(key, value string) StructuredEdit {
+	return func(obj client.Object) error {
+		dpuService, ok := obj.(*dpuservicev1.DPUService)
+		if !ok {
+			return fmt.Errorf("unexpected object kind %s. expected DPUService", obj.GetObjectKind().GroupVersionKind())
+		}
+		if dpuService.Spec.ServiceDaemonSet == nil {
+			dpuService.Spec.ServiceDaemonSet = &dpuservicev1.ServiceDaemonSetValues{}
+		}
+		if dpuService.Spec.ServiceDaemonSet.Labels == nil {
+			dpuService.Spec.ServiceDaemonSet.Labels = map[string]string{}
+		}
+		dpuService.Spec.ServiceDaemonSet.Labels[key] = value
+		return nil
+	}
 }

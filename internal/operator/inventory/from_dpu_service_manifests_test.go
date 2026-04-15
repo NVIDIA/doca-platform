@@ -167,6 +167,11 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+						Labels: map[string]string{
+							operatorv1.DPFComponentLabelKey: serviceName,
+						},
+					},
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "helmchart.com",
@@ -208,6 +213,11 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+						Labels: map[string]string{
+							operatorv1.DPFComponentLabelKey: serviceName,
+						},
+					},
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "helmchart.com",
@@ -249,6 +259,11 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+						Labels: map[string]string{
+							operatorv1.DPFComponentLabelKey: serviceName,
+						},
+					},
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "helmchart.com",
@@ -290,6 +305,11 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+						Labels: map[string]string{
+							operatorv1.DPFComponentLabelKey: operatorv1.FlannelName.String(),
+						},
+					},
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "oci://example.com",
@@ -331,6 +351,11 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+						Labels: map[string]string{
+							operatorv1.DPFComponentLabelKey: operatorv1.FlannelName.String(),
+						},
+					},
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "oci://example.com",
@@ -372,6 +397,11 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+						Labels: map[string]string{
+							operatorv1.DPFComponentLabelKey: operatorv1.CNIInstallerName.String(),
+						},
+					},
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "oci://example.com",
@@ -426,6 +456,11 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+						Labels: map[string]string{
+							operatorv1.DPFComponentLabelKey: operatorv1.SRIOVDevicePluginName.String(),
+						},
+					},
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "oci://example.com",
