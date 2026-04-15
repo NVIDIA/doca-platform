@@ -47,6 +47,16 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+// dpuServiceStatus is a wrapper around the DPUService object and
+// a boolean indicating if the service is disruptive.
+// It is used to track the status of the DPUService and to avoid
+// unnecessary reconciliations.
+type dpuServiceStatus struct {
+	service *dpuservicev1.DPUService
+	// disruptive reflects whether the DPUService is undergoing a disruptive operation
+	disruptive bool
+}
+
 // reconcileDPUServices reconciles the DPUServices created by the DPUDeployment.
 // Returns the requeue result, error, and a map of the patched DPUService objects for use by subsequent functions.
 func reconcileDPUServices(
@@ -56,7 +66,7 @@ func reconcileDPUServices(
 	dependencies *dpuDeploymentDependencies,
 	interfaceNameByServiceName map[string]interfaceNameToDPUServiceInterfaceName,
 	dpuNodeLabels map[string]string,
-) (ctrl.Result, map[string]*dpuservicev1.DPUService, bool, error) {
+) (ctrl.Result, map[string]dpuServiceStatus, bool, error) {
 	owner := metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)
 	requeue := ctrl.Result{}
 	hasDisruptiveChanges := false
@@ -94,7 +104,7 @@ func reconcileDPUServices(
 		return ctrl.Result{}, nil, false, fmt.Errorf("failed to sort DPUService: %w", err)
 	}
 
-	patchedDPUServices := make(map[string]*dpuservicev1.DPUService, len(existingDPUServices.Items))
+	patchedDPUServices := make(map[string]dpuServiceStatus, len(existingDPUServices.Items))
 	var errs []error
 	dpuClusterSelector := getAggregatedDPUClusterSelector(dpuDeployment)
 	// Create or update DPUServices to match what is defined in the DPUDeployment.
@@ -131,6 +141,7 @@ func reconcileDPUServices(
 
 		// filter existing services by name
 		currentRevision, oldRevisions := getCurrentAndStaleDPUServices(serviceName, versionDigest, existingDPUServices)
+		var isDisruptiveService bool
 		switch {
 		case currentRevision != nil:
 			// we found the current revision based on the digest, there might be old revisions to handle
@@ -143,6 +154,8 @@ func reconcileDPUServices(
 
 			// If we have an ongoing disruptive upgrade, we still apply disruptive changes in the cluster
 			hasDisruptiveChanges = hasDisruptiveChanges || isDisruptiveUpgradeOngoing
+			// Mark this specific service as disruptive
+			isDisruptiveService = isDisruptiveUpgradeOngoing
 		case len(oldRevisions) > 0:
 			// we have only previous revisions
 			req, isDisruptive, err := reconcileDPUServiceWithOldRevisions(ctx, c, newRevision, oldRevisions, serviceName, dpuDeployment, serviceConfig, dpuNodeLabels, existingDPUServicesMap)
@@ -156,10 +169,14 @@ func reconcileDPUServices(
 			}
 			// Mark if this was a disruptive change
 			hasDisruptiveChanges = hasDisruptiveChanges || isDisruptive
+			// Mark this specific service as disruptive
+			isDisruptiveService = isDisruptive
 		default:
 			// no previous version, we are creating a new one
 			isDisruptive := reconcileNewDPUServiceRevision(newRevision, serviceName, dpuDeployment, serviceConfig, dpuNodeLabels)
 			hasDisruptiveChanges = hasDisruptiveChanges || isDisruptive
+			// Mark this specific service as disruptive
+			isDisruptiveService = isDisruptive
 		}
 
 		newRevision.SetManagedFields(nil)
@@ -172,7 +189,10 @@ func reconcileDPUServices(
 			continue
 		}
 
-		patchedDPUServices[serviceName] = newRevision
+		patchedDPUServices[serviceName] = dpuServiceStatus{
+			service:    newRevision,
+			disruptive: isDisruptiveService,
+		}
 	}
 
 	// If we have found errors, we don't want to delete any of the existing DPUServices as we might have partially applied
@@ -309,6 +329,10 @@ func reconcileCurrentDPUServiceRevision(ctx context.Context, c client.Client,
 
 	// We update the name of the newRevision to the currentRevision so that we can patch the existing object
 	newRevision.Name = currentRevision.GetName()
+	// For Backward compatibility, preserve the existing ServiceID to avoid unnecessary changes on in-place patches
+	if ptr.Deref(currentRev.Spec.ServiceID, "") == getLegacyServiceID(client.ObjectKeyFromObject(dpuDeployment), serviceName) {
+		newRevision.Spec.ServiceID = currentRev.Spec.ServiceID
+	}
 
 	// We update the newRevision nodeSelector to match the currentRevision nodeSelector since it relies on the revision name
 	newRevision.SetServiceDaemonSetNodeSelector(&corev1.NodeSelector{
@@ -489,7 +513,7 @@ func generateDPUService(dpuDeploymentNamespacedName types.NamespacedName,
 				Source: serviceTemplate.Spec.HelmChart.Source,
 				Values: mergedValuesRawExtension,
 			},
-			ServiceID:       ptr.To(getServiceID(dpuDeploymentNamespacedName, name)),
+			ServiceID:       ptr.To(getServiceID(dpuDeploymentNamespacedName, name, versionDigest)),
 			DeployInCluster: serviceConfig.Spec.ServiceConfiguration.DeployInCluster,
 			Interfaces:      slices.Sorted(maps.Values(interfaces)),
 		},
@@ -608,8 +632,17 @@ func getNodeSelectorTermsForDPUServiceVersion(nodeSelector *corev1.NodeSelector,
 	return result
 }
 
-// generateServiceID generates the serviceID for the child resources of a DPUDeployment.
-func getServiceID(dpuDeploymentNamespacedName types.NamespacedName, serviceName string) string {
+// getServiceID generates the serviceID for the child resources of a DPUDeployment.
+// The versionDigest makes the ID revision-specific so that old and new revisions
+// produce different IDs, preventing stale pod/ServiceInterface matching.
+func getServiceID(dpuDeploymentNamespacedName types.NamespacedName, serviceName string, versionDigest string) string {
+	// We need to be less than 63 characters long to avoid issues with the ServiceID label.
+	return fmt.Sprintf("%s_%s_%s", dpuDeploymentNamespacedName.Name, serviceName, versionDigest)
+}
+
+// getLegacyServiceID generates the legacy serviceID for the child resources of a DPUDeployment.
+// The legacy serviceID is used for backward compatibility with the old serviceID format.
+func getLegacyServiceID(dpuDeploymentNamespacedName types.NamespacedName, serviceName string) string {
 	return fmt.Sprintf("dpudeployment_%s_%s", dpuDeploymentNamespacedName.Name, serviceName)
 }
 
@@ -677,7 +710,7 @@ func servicesTopologicalSort(dpuDeployment *dpuservicev1.DPUDeployment) ([]strin
 }
 
 // checkDPUServiceDependencies checks if the dependencies of a DPUService exist.
-func checkDPUServiceDependencies(ctx context.Context, c client.Client, dependencies []dpuservicev1.LocalObjectDependency, dpuServices map[string]*dpuservicev1.DPUService) error {
+func checkDPUServiceDependencies(ctx context.Context, c client.Client, dependencies []dpuservicev1.LocalObjectDependency, dpuServices map[string]dpuServiceStatus) error {
 	var errs []error
 	for _, dependency := range dependencies {
 		dependentService, exists := dpuServices[dependency.Name]
@@ -686,7 +719,7 @@ func checkDPUServiceDependencies(ctx context.Context, c client.Client, dependenc
 			continue
 		}
 		currentService := &dpuservicev1.DPUService{}
-		if err := c.Get(ctx, client.ObjectKeyFromObject(dependentService), currentService); err != nil {
+		if err := c.Get(ctx, client.ObjectKeyFromObject(dependentService.service), currentService); err != nil {
 			errs = append(errs, fmt.Errorf("failed to get DPUService %s: %w", dependency.Name, err))
 			continue
 		}
@@ -711,7 +744,7 @@ type TemplateDPUServiceConfigurationValuesParams struct {
 // templateDPUServiceConfigurationValues templates the DPUServiceConfiguration helm chart values
 // using the provided dependencies and the DPUServices map.
 // It returns a runtime.RawExtension containing the templated values or an error if the templating fails.
-func templateDPUServiceConfigurationValues(serviceConfig *dpuservicev1.DPUServiceConfiguration, dependencies []dpuservicev1.LocalObjectDependency, dpuServices map[string]*dpuservicev1.DPUService,
+func templateDPUServiceConfigurationValues(serviceConfig *dpuservicev1.DPUServiceConfiguration, dependencies []dpuservicev1.LocalObjectDependency, dpuServices map[string]dpuServiceStatus,
 ) (*runtime.RawExtension, error) {
 	if serviceConfig.Spec.ServiceConfiguration.HelmChart.Values == nil {
 		return nil, nil
@@ -724,8 +757,8 @@ func templateDPUServiceConfigurationValues(serviceConfig *dpuservicev1.DPUServic
 		if dpuService, exists := dpuServices[dependency.Name]; exists {
 			// We use only the parameters of dependencies that exists.
 			params["Services"][dependency.Name] = TemplateDPUServiceConfigurationValuesParams{
-				Name:      dpuService.Name,
-				Namespace: dpuService.Namespace,
+				Name:      dpuService.service.Name,
+				Namespace: dpuService.service.Namespace,
 			}
 		} else {
 			return nil, fmt.Errorf("DPUService %s not found in patched services", dependency.Name)
