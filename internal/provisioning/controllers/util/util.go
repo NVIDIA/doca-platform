@@ -162,7 +162,9 @@ func GenerateBFBCFGFilePath(filename string) string {
 }
 
 func GenerateBFBTaskName(bfb provisioningv1.BFB) string {
-	return fmt.Sprintf("%s-%s", bfb.Namespace, bfb.Name)
+	// Include UID to avoid task collisions when a BFB is deleted and re-created
+	// with the same namespace/name but different spec (e.g. updated URL).
+	return fmt.Sprintf("%s-%s-%s", bfb.Namespace, bfb.Name, bfb.UID)
 }
 
 func GenerateBFBFilePath(filename string) string {

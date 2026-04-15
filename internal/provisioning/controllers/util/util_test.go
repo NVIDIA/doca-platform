@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 func TestUtil(t *testing.T) {
@@ -389,6 +390,32 @@ var _ = Describe("Util", func() {
 			input := []string{"same", "same", "same"}
 			result := RemoveDuplicates(input)
 			Expect(result).To(Equal([]string{"same"}))
+		})
+	})
+
+	Context("GenerateBFBTaskName", func() {
+		It("should include UID in task name", func() {
+			bfb := provisioningv1.BFB{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "default",
+					Name:      "test-bfb",
+					UID:       types.UID("uid-123"),
+				},
+			}
+			Expect(GenerateBFBTaskName(bfb)).To(Equal("default-test-bfb-uid-123"))
+		})
+
+		It("should produce different task names for same namespace/name with different UIDs", func() {
+			baseMeta := metav1.ObjectMeta{
+				Namespace: "default",
+				Name:      "test-bfb",
+			}
+			bfb1 := provisioningv1.BFB{ObjectMeta: baseMeta}
+			bfb1.UID = types.UID("uid-1")
+			bfb2 := provisioningv1.BFB{ObjectMeta: baseMeta}
+			bfb2.UID = types.UID("uid-2")
+
+			Expect(GenerateBFBTaskName(bfb1)).NotTo(Equal(GenerateBFBTaskName(bfb2)))
 		})
 	})
 })
