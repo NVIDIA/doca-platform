@@ -83,6 +83,7 @@ type DPUNodeReconciler struct {
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;create;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;create;delete;watch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
@@ -332,112 +333,7 @@ func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisionin
 			return ctrl.Result{}, err
 		}
 	} else if dpuNode.Spec.NodeRebootMethod.Script != nil {
-		logger.Info("waiting for custom script reboot")
-
-		condExists := false
-		c := cutil.DPUCondition(provisioningv1.DPUCondRebooted, "WaitingForScriptToRebootNode", "")
-		for _, dpu := range dpus {
-			if _, existedCond := cutil.GetDPUCondition(&dpu.Status, c.Type); existedCond != nil {
-				condExists = true
-				break
-			}
-		}
-		// Check whether the custom script reboot is already triggerred.
-		if condExists {
-			jobName := r.generateJobName(dpuNode)
-			job := &batchv1.Job{}
-			if err := r.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: jobName}, job); err != nil {
-				if apierrors.IsNotFound(err) {
-					// Job not found - check if ConfigMap has been modified to trigger auto-retry
-					shouldRetry, retryErr := r.shouldRetryScriptJob(ctx, dpuNode)
-					if retryErr != nil {
-						logger.Error(retryErr, "Failed to check if script job should be retried")
-					} else if shouldRetry {
-						logger.Info("Job not found but ConfigMap has been modified, triggering retry")
-
-						if err := r.clearDPURebootedConditions(ctx, dpus); err != nil {
-							return ctrl.Result{}, err
-						}
-
-						r.Recorder.Event(dpuNode, corev1.EventTypeNormal, "ScriptRebootRetry",
-							"ConfigMap modified after job deletion, retrying script reboot")
-
-						// Requeue to create a new job
-						return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
-					}
-
-					// No retry - set JobNotFound condition
-					err = fmt.Errorf("job %s not found", jobName)
-					if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "JobNotFound", err.Error())); err != nil {
-						return ctrl.Result{}, err
-					}
-				}
-				err = fmt.Errorf("failed to fetch Job %s: %w", jobName, err)
-				if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "FailedToFetchJob", err.Error())); err != nil {
-					return ctrl.Result{}, err
-				}
-				return ctrl.Result{}, err
-			}
-
-			if job.Status.Succeeded > 0 {
-				logger.Info("The custom reboot script succeeded.")
-				// Clean up the ConfigMap version annotation and persist to cluster
-				delete(dpuNode.Annotations, provisioningv1.DPUNodeScriptConfigMapVersionAnnotation)
-				r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionFalse, "", "")
-				if err := r.updateDPUCondition(ctx, dpus, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", "")); err != nil {
-					return ctrl.Result{}, err
-				}
-				return ctrl.Result{}, nil
-			} else if job.Status.Failed > 0 {
-				// Check if ConfigMap has been modified since the job was created
-				shouldRetry, err := r.shouldRetryScriptJob(ctx, dpuNode)
-				if err != nil {
-					logger.Error(err, "Failed to check if script job should be retried")
-					// Continue with normal failure handling if we can't check
-				} else if shouldRetry {
-					logger.Info("ConfigMap has been modified, automatically retrying script job")
-
-					// Delete the failed job
-					if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationForeground)); err != nil && !apierrors.IsNotFound(err) {
-						logger.Error(err, fmt.Sprintf("Unable to delete failed Job %s for retry", jobName))
-						return ctrl.Result{}, err
-					}
-
-					if err := r.clearDPURebootedConditions(ctx, dpus); err != nil {
-						return ctrl.Result{}, err
-					}
-
-					r.Recorder.Event(dpuNode, corev1.EventTypeNormal, "ScriptRebootRetry",
-						"ConfigMap was modified, retrying script reboot job")
-					logger.Info("Retry preparation complete, new job will be created on next reconciliation")
-					return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
-				}
-
-				r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionFalse, "", "")
-				// Not remove the failed job for user debugging.
-				err = fmt.Errorf("the custom reboot script failed")
-				if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "RebootFailed", err.Error())); err != nil {
-					return ctrl.Result{}, err
-				}
-				return ctrl.Result{}, nil
-			}
-			return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
-		}
-
-		if err := r.createScriptJob(ctx, dpuNode); err != nil {
-			err = fmt.Errorf("failed to create script job: %w", err)
-			if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "FailedToCreateScriptJob", err.Error())); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{}, err
-		}
-		err = fmt.Errorf("waiting for script to reboot node")
-		if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "WaitingForScriptToRebootNode", err.Error())); err != nil {
-			return ctrl.Result{}, err
-		}
-		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "", "")
-		logger.Info("Update DPUNode condition RebootInProgress to true.")
-		return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
+		return r.processScriptReboot(ctx, dpuNode, dpus)
 	} else {
 		panic("should not reach here")
 	}
@@ -445,16 +341,122 @@ func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisionin
 	return ctrl.Result{}, nil
 }
 
+// processScriptReboot manages the script-based reboot lifecycle, detecting and
+// cleaning up stale jobs from previous provisioning cycles before creating new ones.
+func (r *DPUNodeReconciler) processScriptReboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (ctrl.Result, error) {
+	condExists := false
+	for _, dpu := range dpus {
+		if _, existedCond := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondRebooted)); existedCond != nil {
+			if isScriptRelatedReason(existedCond.Reason) {
+				condExists = true
+				break
+			}
+		}
+	}
+	isFirstRun := !condExists
+	return r.handleExistingScriptJob(ctx, dpuNode, dpus, isFirstRun)
+}
+
+func (r *DPUNodeReconciler) createAndTrackScriptJob(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (ctrl.Result, error) {
+	if err := r.createScriptJob(ctx, dpuNode); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to create script job: %w", err)
+	}
+	r.Recorder.Event(dpuNode, corev1.EventTypeNormal, "ScriptRebootJobCreated",
+		"Custom reboot script job created")
+	waitErr := fmt.Errorf("waiting for script to reboot node")
+	if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), waitErr, cutil.ReasonRebootScriptWaiting, waitErr.Error())); err != nil {
+		return ctrl.Result{}, err
+	}
+	r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "", "")
+	return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
+}
+
+// handleExistingScriptJob fetches the script Job and routes based on its status.
+// When isFirstRun is true (no script-related condition on any DPU), the job is
+// stale from a previous provisioning cycle and is deleted regardless of status.
+func (r *DPUNodeReconciler) handleExistingScriptJob(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU, isFirstRun bool) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	jobName := r.generateJobName(dpuNode)
+	job := &batchv1.Job{}
+
+	if err := r.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: jobName}, job); err != nil {
+		if !apierrors.IsNotFound(err) {
+			err = fmt.Errorf("failed to fetch Job %s: %w", jobName, err)
+			_ = r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, cutil.ReasonRebootScriptFailedToFetchJob, err.Error()))
+			return ctrl.Result{}, err
+		}
+		return r.handleJobNotFound(ctx, dpuNode, dpus)
+	}
+
+	// Any job present when isFirstRun is true is stale from a previous
+	// provisioning cycle (deterministic name + TTL). Delete it and requeue so a
+	// fresh job can be created with the same name.
+	if isFirstRun {
+		logger.Info("Deleting stale script job from previous provisioning cycle",
+			"job", jobName, "succeeded", job.Status.Succeeded, "failed", job.Status.Failed)
+		if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationForeground)); client.IgnoreNotFound(err) != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to delete stale job %s: %w", jobName, err)
+		}
+		return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
+	}
+
+	if isJobComplete(job) {
+		return r.handleJobSucceeded(ctx, dpuNode, dpus)
+	}
+
+	if isJobFailed(job) {
+		return r.handleJobFailed(ctx, dpuNode, dpus, job)
+	}
+
+	// Job is active or in backoff -- wait for it to complete.
+	return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
+}
+
+// handleJobNotFound recreates the script job when it is not found. This covers
+// first-run (no job yet), accidental user deletion, and TTL cleanup races.
+// If a concurrent reconcile created the job between the NotFound check and the
+// Create call, createScriptJob's defense-in-depth guard returns an "already
+// exists" error, which triggers a harmless backoff retry.
+func (r *DPUNodeReconciler) handleJobNotFound(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	jobName := r.generateJobName(dpuNode)
+	logger.Info("Script job not found, creating", "job", jobName)
+	r.Recorder.Event(dpuNode, corev1.EventTypeWarning, "ScriptRebootJobCreating",
+		fmt.Sprintf("Script reboot job %s not found, creating", jobName))
+	return r.createAndTrackScriptJob(ctx, dpuNode, dpus)
+}
+
+func (r *DPUNodeReconciler) handleJobSucceeded(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (ctrl.Result, error) {
+	r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionFalse, "", "")
+	if err := r.updateDPUCondition(ctx, dpus, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", "")); err != nil {
+		return ctrl.Result{}, err
+	}
+	r.Recorder.Event(dpuNode, corev1.EventTypeNormal, "ScriptRebootSucceeded",
+		"Custom reboot script completed successfully")
+	return ctrl.Result{}, nil
+}
+
+// handleJobFailed sets a RebootScriptFailed condition on DPUs with enriched pod failure details.
+func (r *DPUNodeReconciler) handleJobFailed(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU, job *batchv1.Job) (ctrl.Result, error) {
+	failureDetails := r.extractPodFailureDetails(ctx, job)
+	r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionFalse, "", "")
+	failErr := fmt.Errorf("custom reboot script failed: %s. To retry, delete the failed job and the controller will recreate it", failureDetails)
+	if updateErr := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), failErr, cutil.ReasonRebootScriptFailed, failErr.Error())); updateErr != nil {
+		return ctrl.Result{}, updateErr
+	}
+	r.Recorder.Event(dpuNode, corev1.EventTypeWarning, "ScriptRebootFailed", failureDetails)
+	return ctrl.Result{}, nil
+}
+
 func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provisioningv1.DPUNode) error {
 	logger := log.FromContext(ctx)
 	job := &batchv1.Job{}
 	jobName := r.generateJobName(dpuNode)
-	// Checking job existed or not, if yes, delete it.
 	if err := r.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: jobName}, job); err == nil {
-		if err := client.IgnoreNotFound(r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationForeground))); err != nil {
-			logger.Error(err, fmt.Sprintf("Unable to delete Job %s, err: %v", jobName, err))
-			return err
-		}
+		return fmt.Errorf("refusing to create script job: job %s already exists (active=%d, succeeded=%d, failed=%d)",
+			jobName, job.Status.Active, job.Status.Succeeded, job.Status.Failed)
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to check for existing job %s: %w", jobName, err)
 	}
 
 	configMap := &corev1.ConfigMap{}
@@ -471,11 +473,6 @@ func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provis
 		return err
 	}
 
-	// Store the ConfigMap ResourceVersion for change detection
-	if dpuNode.Annotations == nil {
-		dpuNode.Annotations = make(map[string]string)
-	}
-	dpuNode.Annotations[provisioningv1.DPUNodeScriptConfigMapVersionAnnotation] = configMap.ResourceVersion
 	podTemplateStr, ok := configMap.Data[PodTemplateConfigMapKey]
 	if !ok {
 		err := fmt.Errorf("%s not found in ConfigMap", PodTemplateConfigMapKey)
@@ -485,8 +482,8 @@ func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provis
 
 	var podTemplate corev1.PodTemplateSpec
 	if err := yaml.Unmarshal([]byte(podTemplateStr), &podTemplate); err != nil {
-		logger.Error(err, fmt.Sprintf("Unable to unmarshal pod template from ConfigMap %s for DPUNode %s", dpuNode.Spec.NodeRebootMethod.Script.Name, dpuNode.Name))
-		return err
+		return fmt.Errorf("unable to unmarshal pod template from ConfigMap %s for DPUNode %s: %w (the %q key must contain a PodTemplateSpec in YAML or JSON, not a full Pod manifest)",
+			dpuNode.Spec.NodeRebootMethod.Script.Name, dpuNode.Name, err, PodTemplateConfigMapKey)
 	}
 
 	// Add more information to Job's Pod for rebooting script, e.g. labels, annotations, etc.
@@ -567,8 +564,12 @@ func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provis
 		}
 	}
 
-	var backoffLimit int32 = 0
-	var ttlSecondsAfterFinished int32 = 60
+	podTemplate.Spec.Tolerations = ensureControlPlaneToleration(podTemplate.Spec.Tolerations)
+
+	var backoffLimit int32 = 3
+	// Allow enough time for the controller to observe job completion
+	// before Kubernetes TTL controller auto-deletes the Job.
+	var ttlSecondsAfterFinished int32 = 3600
 	job = &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
@@ -683,55 +684,90 @@ func (r *DPUNodeReconciler) generateJobName(dpuNode *provisioningv1.DPUNode) str
 	return fmt.Sprintf("%s-script-job", dpuNode.Name)
 }
 
-// shouldRetryScriptJob checks if the ConfigMap has been modified since the job was created
-func (r *DPUNodeReconciler) shouldRetryScriptJob(ctx context.Context, dpuNode *provisioningv1.DPUNode) (bool, error) {
-	if dpuNode.Spec.NodeRebootMethod == nil || dpuNode.Spec.NodeRebootMethod.Script == nil {
-		return false, nil
+// isScriptRelatedReason returns true for DPUCondRebooted condition reasons that
+// indicate a script-reboot lifecycle managed by this controller. It is used to
+// decide whether to route to handleExistingScriptJob (true) or attempt job
+// creation (false).
+func isScriptRelatedReason(reason string) bool {
+	switch reason {
+	case cutil.ReasonRebootScriptWaiting,
+		cutil.ReasonRebootScriptFailedToFetchJob, cutil.ReasonRebootScriptFailed:
+		return true
+	default:
+		return false
 	}
-
-	// Get the stored ConfigMap version
-	storedVersion, ok := dpuNode.Annotations[provisioningv1.DPUNodeScriptConfigMapVersionAnnotation]
-	if !ok {
-		// No stored version means we can't compare - don't retry automatically
-		return false, nil
-	}
-
-	// Fetch the current ConfigMap
-	configMap := &corev1.ConfigMap{}
-	configMapNamespacedName := types.NamespacedName{
-		Namespace: dpuNode.Namespace,
-		Name:      dpuNode.Spec.NodeRebootMethod.Script.Name,
-	}
-	if err := r.Get(ctx, configMapNamespacedName, configMap); err != nil {
-		return false, err
-	}
-
-	// Compare ResourceVersions
-	return configMap.ResourceVersion != storedVersion, nil
 }
 
-// clearDPURebootedConditions removes the Rebooted condition from all DPUs to allow retry.
-func (r *DPUNodeReconciler) clearDPURebootedConditions(ctx context.Context, dpus []*provisioningv1.DPU) error {
-	for _, dpu := range dpus {
-		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			if err := r.Get(ctx, client.ObjectKeyFromObject(dpu), dpu); err != nil {
-				return err
-			}
-			// Remove the Rebooted condition to reset the state
-			conditions := []metav1.Condition{}
-			for _, cond := range dpu.Status.Conditions {
-				if cond.Type != provisioningv1.DPUCondRebooted.String() {
-					conditions = append(conditions, cond)
-				}
-			}
-			dpu.Status.Conditions = conditions
-			return r.Status().Update(ctx, dpu)
-		})
-		if err != nil {
-			return err
+func isJobComplete(job *batchv1.Job) bool {
+	for _, cond := range job.Status.Conditions {
+		if cond.Type == batchv1.JobComplete && cond.Status == corev1.ConditionTrue {
+			return true
 		}
 	}
-	return nil
+	return false
+}
+
+func isJobFailed(job *batchv1.Job) bool {
+	for _, cond := range job.Status.Conditions {
+		if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *DPUNodeReconciler) extractPodFailureDetails(ctx context.Context, job *batchv1.Job) string {
+	logger := log.FromContext(ctx)
+	pods := &corev1.PodList{}
+	if err := r.List(ctx, pods,
+		client.InNamespace(job.Namespace),
+		client.MatchingLabels{"job-name": job.Name},
+	); err != nil {
+		logger.V(1).Info("Unable to list pods for failure details, falling back to job status", "error", err)
+		return extractJobFailureDetails(job)
+	}
+	if len(pods.Items) == 0 {
+		return extractJobFailureDetails(job)
+	}
+
+	for i := len(pods.Items) - 1; i >= 0; i-- {
+		for _, cs := range pods.Items[i].Status.InitContainerStatuses {
+			if cs.State.Terminated != nil && cs.State.Terminated.ExitCode != 0 {
+				return fmt.Sprintf("init container %q exited with code %d (reason: %s)",
+					cs.Name, cs.State.Terminated.ExitCode, cs.State.Terminated.Reason)
+			}
+		}
+		for _, cs := range pods.Items[i].Status.ContainerStatuses {
+			if cs.State.Terminated != nil && cs.State.Terminated.ExitCode != 0 {
+				return fmt.Sprintf("container %q exited with code %d (reason: %s)",
+					cs.Name, cs.State.Terminated.ExitCode, cs.State.Terminated.Reason)
+			}
+		}
+	}
+	return extractJobFailureDetails(job)
+}
+
+func extractJobFailureDetails(job *batchv1.Job) string {
+	for _, cond := range job.Status.Conditions {
+		if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
+			return fmt.Sprintf("job failed (reason: %s): %s", cond.Reason, cond.Message)
+		}
+	}
+	return "job failed with unknown reason"
+}
+
+func ensureControlPlaneToleration(tolerations []corev1.Toleration) []corev1.Toleration {
+	const key = "node-role.kubernetes.io/control-plane"
+	for _, t := range tolerations {
+		if t.Key == key && t.Effect == corev1.TaintEffectNoSchedule {
+			return tolerations
+		}
+	}
+	return append(tolerations, corev1.Toleration{
+		Key:      key,
+		Operator: corev1.TolerationOpExists,
+		Effect:   corev1.TaintEffectNoSchedule,
+	})
 }
 
 func (r *DPUNodeReconciler) ensureEnv(envs []corev1.EnvVar, name, value string) []corev1.EnvVar {
@@ -811,27 +847,7 @@ func (r *DPUNodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.dpuDeviceToDPUNodeReq)).
 		Watches(&operatorv1.DPFOperatorConfig{},
 			handler.EnqueueRequestsFromMapFunc(r.dpfOperatorConfigToDPUNodeReq)).
-		// Watch ConfigMaps for script reboot method changes
-		// Only watch ConfigMaps that have the pod-template key (used for script reboot)
-		Watches(&corev1.ConfigMap{},
-			handler.EnqueueRequestsFromMapFunc(r.configMapToDPUNodeReq),
-			builder.WithPredicates(r.scriptRebootConfigMapPredicate())).
 		Complete(r)
-}
-
-// scriptRebootConfigMapPredicate returns a predicate that filters ConfigMaps
-// to only those that contain the pod-template key used for script reboot.
-// This improves performance by avoiding processing unrelated ConfigMaps.
-func (r *DPUNodeReconciler) scriptRebootConfigMapPredicate() predicate.Predicate {
-	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
-		cm, ok := obj.(*corev1.ConfigMap)
-		if !ok {
-			return false
-		}
-		// Only process ConfigMaps that have the pod-template key
-		_, hasPodTemplate := cm.Data[PodTemplateConfigMapKey]
-		return hasPodTemplate
-	})
 }
 
 func (r *DPUNodeReconciler) dpfOperatorConfigToDPUNodeReq(ctx context.Context, resource client.Object) []reconcile.Request {
@@ -910,37 +926,6 @@ func (r *DPUNodeReconciler) dpuDeviceToDPUNodeReq(_ context.Context, resource cl
 			Namespace: dpuDevice.Namespace,
 		},
 	}}
-}
-
-// configMapToDPUNodeReq maps ConfigMap changes to DPUNodes that use them for script reboot
-func (r *DPUNodeReconciler) configMapToDPUNodeReq(ctx context.Context, resource client.Object) []reconcile.Request {
-	logger := log.FromContext(ctx)
-	configMap := resource.(*corev1.ConfigMap)
-	requests := make([]reconcile.Request, 0)
-
-	// List all DPUNodes in the same namespace
-	dpuNodeList := &provisioningv1.DPUNodeList{}
-	if err := r.List(ctx, dpuNodeList, client.InNamespace(configMap.Namespace)); err != nil {
-		logger.Error(err, "Failed to list DPUNodes for ConfigMap watch",
-			"configMap", configMap.Name, "namespace", configMap.Namespace)
-		return nil
-	}
-
-	// Find DPUNodes that reference this ConfigMap for script reboot
-	for _, dpuNode := range dpuNodeList.Items {
-		if dpuNode.Spec.NodeRebootMethod != nil &&
-			dpuNode.Spec.NodeRebootMethod.Script != nil &&
-			dpuNode.Spec.NodeRebootMethod.Script.Name == configMap.Name {
-			requests = append(requests, reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      dpuNode.GetName(),
-					Namespace: dpuNode.GetNamespace(),
-				},
-			})
-		}
-	}
-
-	return requests
 }
 
 func (r *DPUNodeReconciler) getDPUNodeUpgradeCondition(dpuNode *provisioningv1.DPUNode) (bool, bool) {

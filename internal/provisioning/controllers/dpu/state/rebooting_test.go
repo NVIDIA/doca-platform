@@ -18,6 +18,7 @@ package state_test
 
 import (
 	"context"
+	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
@@ -745,6 +746,69 @@ var _ = Describe("Phase Rebooting", func() {
 				Client: k8sClient,
 			})
 
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
+		})
+	})
+
+	Context("script reboot condition handling", func() {
+		createScriptDPUNode := func() {
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				Script: &provisioningv1.Script{Name: "reboot-script"},
+			}
+			createObject(dpuNode)
+		}
+
+		rebootingDPU := func() *provisioningv1.DPU {
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUNodeName = defaultDPUNodeName
+			dpu.Status.Phase = provisioningv1.DPURebooting
+			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaHostAgent))
+			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
+			return dpu
+		}
+
+		hostAgentCtx := func() *dutil.ControllerContext {
+			return &dutil.ControllerContext{
+				Client: k8sClient,
+				Options: dutil.DPUOptions{
+					DPUInstallInterface: string(provisioningv1.InstallViaHostAgent),
+				},
+			}
+		}
+
+		It("should stay in DPURebooting when script fails (condition preserved for user)", func() {
+			createScriptDPUNode()
+			dpu := rebootingDPU()
+			cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), fmt.Errorf("exit code 1"), cutil.ReasonRebootScriptFailed, ""))
+
+			status, err := state.Rebooting(ctx, dpu, hostAgentCtx())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
+			_, cond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondRebooted))
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(cutil.ReasonRebootScriptFailed))
+			Expect(cond.Message).To(ContainSubstring("exit code 1"))
+		})
+
+		It("should stay in DPURebooting for non-terminal script reasons", func() {
+			createScriptDPUNode()
+			for _, reason := range []string{cutil.ReasonRebootScriptFailedToFetchJob, cutil.ReasonRebootScriptWaiting} {
+				dpu := rebootingDPU()
+				cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), fmt.Errorf("err"), reason, "details"))
+
+				status, err := state.Rebooting(ctx, dpu, hostAgentCtx())
+				Expect(err).NotTo(HaveOccurred(), "reason=%s", reason)
+				Expect(status.Phase).To(Equal(provisioningv1.DPURebooting), "reason=%s", reason)
+			}
+		})
+
+		It("should stay in DPURebooting when no Rebooted condition exists yet", func() {
+			createScriptDPUNode()
+			dpu := rebootingDPU()
+
+			status, err := state.Rebooting(ctx, dpu, hostAgentCtx())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
 		})

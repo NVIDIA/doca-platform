@@ -29,6 +29,7 @@ import (
 	. "github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -704,51 +705,15 @@ spec:
 			Expect(job.Spec.Template.Labels).To(HaveKeyWithValue("env", "test"))
 		})
 
-		It("should delete existing job before creating new one", func() {
-			// Create existing job
+		It("should refuse to create job when one already exists", func() {
 			existingJob := &batchv1.Job{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpunode-script-job",
 					Namespace: "test-namespace",
 				},
-				Spec: batchv1.JobSpec{
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{Name: "old", Image: "old:image"},
-							},
-							RestartPolicy: corev1.RestartPolicyNever,
-						},
-					},
-				},
+				Status: batchv1.JobStatus{Active: 1},
 			}
 			Expect(fakeClient.Create(ctx, existingJob)).To(Succeed())
-
-			// Create ConfigMap with new template
-			podTemplate := corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "new-container",
-							Image: "new:image",
-						},
-					},
-					RestartPolicy: corev1.RestartPolicyNever,
-				},
-			}
-			podTemplateJSON, err := json.Marshal(podTemplate)
-			Expect(err).NotTo(HaveOccurred())
-
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
-					Namespace: "test-namespace",
-				},
-				Data: map[string]string{
-					PodTemplateConfigMapKey: string(podTemplateJSON),
-				},
-			}
-			Expect(fakeClient.Create(ctx, configMap)).To(Succeed())
 
 			dpuNode := &provisioningv1.DPUNode{
 				ObjectMeta: metav1.ObjectMeta{
@@ -765,17 +730,10 @@ spec:
 			}
 			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
 
-			err = reconciler.createScriptJob(ctx, dpuNode)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Verify new Job was created with new container
-			job := &batchv1.Job{}
-			err = fakeClient.Get(ctx, types.NamespacedName{
-				Name:      "test-dpunode-script-job",
-				Namespace: "test-namespace",
-			}, job)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(job.Spec.Template.Spec.Containers[0].Name).To(Equal("new-container"))
+			err := reconciler.createScriptJob(ctx, dpuNode)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("refusing to create script job"))
+			Expect(err.Error()).To(ContainSubstring("already exists"))
 		})
 
 		It("should store ConfigMap ResourceVersion in DPUNode annotation", func() {
@@ -841,400 +799,186 @@ spec:
 				Namespace: "test-namespace",
 			}, updatedDPUNode)).To(Succeed())
 
-			// Verify the ConfigMap ResourceVersion is stored in DPUNode annotation
-			Expect(updatedDPUNode.Annotations).NotTo(BeNil())
-			Expect(updatedDPUNode.Annotations[provisioningv1.DPUNodeScriptConfigMapVersionAnnotation]).To(Equal(configMap.ResourceVersion))
-		})
-	})
-
-	Context("shouldRetryScriptJob", func() {
-		var (
-			reconciler *DPUNodeReconciler
-			fakeClient client.Client
-			ctx        context.Context
-		)
-
-		BeforeEach(func() {
-			ctx = context.Background()
-			scheme := runtime.NewScheme()
-			_ = provisioningv1.AddToScheme(scheme)
-			_ = corev1.AddToScheme(scheme)
-
-			fakeClient = fake.NewClientBuilder().
-				WithScheme(scheme).
-				Build()
-
-			reconciler = &DPUNodeReconciler{
-				Client: fakeClient,
-			}
 		})
 
-		It("should return false when NodeRebootMethod is nil", func() {
-			dpuNode := &provisioningv1.DPUNode{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpunode",
-					Namespace: "test-namespace",
-				},
-				Spec: provisioningv1.DPUNodeSpec{
-					NodeRebootMethod: nil,
-				},
-			}
-
-			shouldRetry, err := reconciler.shouldRetryScriptJob(ctx, dpuNode)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(shouldRetry).To(BeFalse())
-		})
-
-		It("should return false when Script is nil", func() {
-			dpuNode := &provisioningv1.DPUNode{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpunode",
-					Namespace: "test-namespace",
-				},
-				Spec: provisioningv1.DPUNodeSpec{
-					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
-						External: &provisioningv1.External{},
-					},
-				},
-			}
-
-			shouldRetry, err := reconciler.shouldRetryScriptJob(ctx, dpuNode)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(shouldRetry).To(BeFalse())
-		})
-
-		It("should return false when ConfigMap version annotation is not set", func() {
-			dpuNode := &provisioningv1.DPUNode{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpunode",
-					Namespace: "test-namespace",
-				},
-				Spec: provisioningv1.DPUNodeSpec{
-					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
-						Script: &provisioningv1.Script{
-							Name: "test-configmap",
+		It("should set backoffLimit to 3", func() {
+			podTemplate := corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "reboot-script",
+							Image: "busybox:latest",
 						},
 					},
+					RestartPolicy: corev1.RestartPolicyNever,
 				},
 			}
-
-			shouldRetry, err := reconciler.shouldRetryScriptJob(ctx, dpuNode)
+			podTemplateJSON, err := json.Marshal(podTemplate)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(shouldRetry).To(BeFalse())
-		})
 
-		It("should return error when ConfigMap does not exist", func() {
-			dpuNode := &provisioningv1.DPUNode{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpunode",
-					Namespace: "test-namespace",
-					Annotations: map[string]string{
-						provisioningv1.DPUNodeScriptConfigMapVersionAnnotation: "12345",
-					},
-				},
-				Spec: provisioningv1.DPUNodeSpec{
-					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
-						Script: &provisioningv1.Script{
-							Name: "non-existent-configmap",
-						},
-					},
-				},
-			}
-
-			shouldRetry, err := reconciler.shouldRetryScriptJob(ctx, dpuNode)
-			Expect(err).To(HaveOccurred())
-			Expect(shouldRetry).To(BeFalse())
-		})
-
-		It("should return false when ConfigMap ResourceVersion matches stored version", func() {
 			configMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
+					Name:      "test-configmap-bl",
 					Namespace: "test-namespace",
 				},
 				Data: map[string]string{
-					"key": "value",
+					PodTemplateConfigMapKey: string(podTemplateJSON),
 				},
 			}
 			Expect(fakeClient.Create(ctx, configMap)).To(Succeed())
 
-			// Get the ConfigMap to retrieve the ResourceVersion
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
-				Name:      "test-configmap",
-				Namespace: "test-namespace",
-			}, configMap)).To(Succeed())
-
 			dpuNode := &provisioningv1.DPUNode{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpunode",
+					Name:      "test-dpunode-bl",
 					Namespace: "test-namespace",
-					Annotations: map[string]string{
-						provisioningv1.DPUNodeScriptConfigMapVersionAnnotation: configMap.ResourceVersion,
-					},
 				},
 				Spec: provisioningv1.DPUNodeSpec{
 					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
 						Script: &provisioningv1.Script{
-							Name: "test-configmap",
+							Name: "test-configmap-bl",
 						},
 					},
 				},
 			}
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
 
-			shouldRetry, err := reconciler.shouldRetryScriptJob(ctx, dpuNode)
+			err = reconciler.createScriptJob(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(shouldRetry).To(BeFalse())
+
+			job := &batchv1.Job{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode-bl-script-job",
+				Namespace: "test-namespace",
+			}, job)).To(Succeed())
+
+			Expect(job.Spec.BackoffLimit).NotTo(BeNil())
+			Expect(*job.Spec.BackoffLimit).To(Equal(int32(3)))
 		})
 
-		It("should return true when ConfigMap ResourceVersion differs from stored version", func() {
+		It("should add control-plane toleration to job pod template", func() {
+			podTemplate := corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "reboot-script",
+							Image: "busybox:latest",
+						},
+					},
+					RestartPolicy: corev1.RestartPolicyNever,
+				},
+			}
+			podTemplateJSON, err := json.Marshal(podTemplate)
+			Expect(err).NotTo(HaveOccurred())
+
 			configMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
+					Name:      "test-configmap-tol",
 					Namespace: "test-namespace",
 				},
 				Data: map[string]string{
-					"key": "value",
+					PodTemplateConfigMapKey: string(podTemplateJSON),
 				},
 			}
 			Expect(fakeClient.Create(ctx, configMap)).To(Succeed())
 
-			// Get the ConfigMap to retrieve the ResourceVersion
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
-				Name:      "test-configmap",
-				Namespace: "test-namespace",
-			}, configMap)).To(Succeed())
-
 			dpuNode := &provisioningv1.DPUNode{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpunode",
+					Name:      "test-dpunode-tol",
 					Namespace: "test-namespace",
-					Annotations: map[string]string{
-						// Store an old/different version
-						provisioningv1.DPUNodeScriptConfigMapVersionAnnotation: "old-version-12345",
-					},
 				},
 				Spec: provisioningv1.DPUNodeSpec{
 					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
 						Script: &provisioningv1.Script{
-							Name: "test-configmap",
+							Name: "test-configmap-tol",
 						},
 					},
 				},
 			}
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
 
-			shouldRetry, err := reconciler.shouldRetryScriptJob(ctx, dpuNode)
+			err = reconciler.createScriptJob(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(shouldRetry).To(BeTrue())
-		})
-	})
 
-	Context("configMapToDPUNodeReq", func() {
-		var (
-			reconciler *DPUNodeReconciler
-			fakeClient client.Client
-			ctx        context.Context
-		)
+			job := &batchv1.Job{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode-tol-script-job",
+				Namespace: "test-namespace",
+			}, job)).To(Succeed())
 
-		BeforeEach(func() {
-			ctx = context.Background()
-			scheme := runtime.NewScheme()
-			_ = provisioningv1.AddToScheme(scheme)
-			_ = corev1.AddToScheme(scheme)
-
-			fakeClient = fake.NewClientBuilder().
-				WithScheme(scheme).
-				Build()
-
-			reconciler = &DPUNodeReconciler{
-				Client: fakeClient,
+			found := false
+			for _, t := range job.Spec.Template.Spec.Tolerations {
+				if t.Key == "node-role.kubernetes.io/control-plane" && t.Effect == corev1.TaintEffectNoSchedule {
+					found = true
+					break
+				}
 			}
+			Expect(found).To(BeTrue(), "control-plane toleration should be present")
 		})
 
-		It("should return empty list when no DPUNodes exist", func() {
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
-					Namespace: "test-namespace",
+		It("should not duplicate control-plane toleration if user already added it", func() {
+			podTemplate := corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "reboot-script",
+							Image: "busybox:latest",
+						},
+					},
+					RestartPolicy: corev1.RestartPolicyNever,
+					Tolerations: []corev1.Toleration{
+						{
+							Key:      "node-role.kubernetes.io/control-plane",
+							Operator: corev1.TolerationOpExists,
+							Effect:   corev1.TaintEffectNoSchedule,
+						},
+					},
 				},
 			}
+			podTemplateJSON, err := json.Marshal(podTemplate)
+			Expect(err).NotTo(HaveOccurred())
 
-			requests := reconciler.configMapToDPUNodeReq(ctx, configMap)
-			Expect(requests).To(BeEmpty())
-		})
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-configmap-tol2",
+					Namespace: "test-namespace",
+				},
+				Data: map[string]string{
+					PodTemplateConfigMapKey: string(podTemplateJSON),
+				},
+			}
+			Expect(fakeClient.Create(ctx, configMap)).To(Succeed())
 
-		It("should return empty list when no DPUNodes reference the ConfigMap", func() {
 			dpuNode := &provisioningv1.DPUNode{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpunode",
+					Name:      "test-dpunode-tol2",
 					Namespace: "test-namespace",
 				},
 				Spec: provisioningv1.DPUNodeSpec{
 					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
 						Script: &provisioningv1.Script{
-							Name: "different-configmap",
+							Name: "test-configmap-tol2",
 						},
 					},
 				},
 			}
 			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
 
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
-					Namespace: "test-namespace",
-				},
+			err = reconciler.createScriptJob(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+
+			job := &batchv1.Job{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode-tol2-script-job",
+				Namespace: "test-namespace",
+			}, job)).To(Succeed())
+
+			cpCount := 0
+			for _, t := range job.Spec.Template.Spec.Tolerations {
+				if t.Key == "node-role.kubernetes.io/control-plane" && t.Effect == corev1.TaintEffectNoSchedule {
+					cpCount++
+				}
 			}
-
-			requests := reconciler.configMapToDPUNodeReq(ctx, configMap)
-			Expect(requests).To(BeEmpty())
-		})
-
-		It("should return request for DPUNode that references the ConfigMap", func() {
-			dpuNode := &provisioningv1.DPUNode{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpunode",
-					Namespace: "test-namespace",
-				},
-				Spec: provisioningv1.DPUNodeSpec{
-					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
-						Script: &provisioningv1.Script{
-							Name: "test-configmap",
-						},
-					},
-				},
-			}
-			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
-
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
-					Namespace: "test-namespace",
-				},
-			}
-
-			requests := reconciler.configMapToDPUNodeReq(ctx, configMap)
-			Expect(requests).To(HaveLen(1))
-			Expect(requests[0].Name).To(Equal("test-dpunode"))
-			Expect(requests[0].Namespace).To(Equal("test-namespace"))
-		})
-
-		It("should return requests for multiple DPUNodes that reference the same ConfigMap", func() {
-			dpuNode1 := &provisioningv1.DPUNode{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "dpunode-1",
-					Namespace: "test-namespace",
-				},
-				Spec: provisioningv1.DPUNodeSpec{
-					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
-						Script: &provisioningv1.Script{
-							Name: "shared-configmap",
-						},
-					},
-				},
-			}
-			dpuNode2 := &provisioningv1.DPUNode{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "dpunode-2",
-					Namespace: "test-namespace",
-				},
-				Spec: provisioningv1.DPUNodeSpec{
-					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
-						Script: &provisioningv1.Script{
-							Name: "shared-configmap",
-						},
-					},
-				},
-			}
-			Expect(fakeClient.Create(ctx, dpuNode1)).To(Succeed())
-			Expect(fakeClient.Create(ctx, dpuNode2)).To(Succeed())
-
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "shared-configmap",
-					Namespace: "test-namespace",
-				},
-			}
-
-			requests := reconciler.configMapToDPUNodeReq(ctx, configMap)
-			Expect(requests).To(HaveLen(2))
-
-			names := []string{requests[0].Name, requests[1].Name}
-			Expect(names).To(ContainElements("dpunode-1", "dpunode-2"))
-		})
-
-		It("should not return requests for DPUNodes in different namespace", func() {
-			dpuNode := &provisioningv1.DPUNode{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpunode",
-					Namespace: "other-namespace",
-				},
-				Spec: provisioningv1.DPUNodeSpec{
-					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
-						Script: &provisioningv1.Script{
-							Name: "test-configmap",
-						},
-					},
-				},
-			}
-			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
-
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
-					Namespace: "test-namespace",
-				},
-			}
-
-			requests := reconciler.configMapToDPUNodeReq(ctx, configMap)
-			Expect(requests).To(BeEmpty())
-		})
-
-		It("should not return requests for DPUNodes with nil NodeRebootMethod", func() {
-			dpuNode := &provisioningv1.DPUNode{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpunode",
-					Namespace: "test-namespace",
-				},
-				Spec: provisioningv1.DPUNodeSpec{
-					NodeRebootMethod: nil,
-				},
-			}
-			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
-
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
-					Namespace: "test-namespace",
-				},
-			}
-
-			requests := reconciler.configMapToDPUNodeReq(ctx, configMap)
-			Expect(requests).To(BeEmpty())
-		})
-
-		It("should not return requests for DPUNodes with External reboot method", func() {
-			dpuNode := &provisioningv1.DPUNode{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpunode",
-					Namespace: "test-namespace",
-				},
-				Spec: provisioningv1.DPUNodeSpec{
-					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
-						External: &provisioningv1.External{},
-					},
-				},
-			}
-			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
-
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
-					Namespace: "test-namespace",
-				},
-			}
-
-			requests := reconciler.configMapToDPUNodeReq(ctx, configMap)
-			Expect(requests).To(BeEmpty())
+			Expect(cpCount).To(Equal(1), "control-plane toleration should not be duplicated")
 		})
 	})
 
@@ -1323,314 +1067,6 @@ spec:
 		})
 	})
 
-	Context("clearDPURebootedConditions", func() {
-		var (
-			reconciler *DPUNodeReconciler
-			fakeClient client.Client
-			ctx        context.Context
-		)
-
-		BeforeEach(func() {
-			ctx = context.Background()
-			scheme := runtime.NewScheme()
-			_ = provisioningv1.AddToScheme(scheme)
-
-			fakeClient = fake.NewClientBuilder().
-				WithScheme(scheme).
-				WithStatusSubresource(&provisioningv1.DPU{}).
-				Build()
-
-			reconciler = &DPUNodeReconciler{
-				Client: fakeClient,
-			}
-		})
-
-		It("should return nil for empty DPU list", func() {
-			dpus := []*provisioningv1.DPU{}
-			err := reconciler.clearDPURebootedConditions(ctx, dpus)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("should remove Rebooted condition from single DPU", func() {
-			dpu := &provisioningv1.DPU{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpu",
-					Namespace: "test-namespace",
-				},
-				Status: provisioningv1.DPUStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:   string(provisioningv1.DPUCondRebooted),
-							Status: metav1.ConditionFalse,
-							Reason: "RebootFailed",
-						},
-						{
-							Type:   "OtherCondition",
-							Status: metav1.ConditionTrue,
-							Reason: "SomeReason",
-						},
-					},
-				},
-			}
-			Expect(fakeClient.Create(ctx, dpu)).To(Succeed())
-			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
-
-			dpus := []*provisioningv1.DPU{dpu}
-			err := reconciler.clearDPURebootedConditions(ctx, dpus)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Verify Rebooted condition was removed
-			updatedDPU := &provisioningv1.DPU{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
-				Name:      "test-dpu",
-				Namespace: "test-namespace",
-			}, updatedDPU)).To(Succeed())
-
-			// Should only have OtherCondition, not Rebooted
-			Expect(updatedDPU.Status.Conditions).To(HaveLen(1))
-			Expect(updatedDPU.Status.Conditions[0].Type).To(Equal("OtherCondition"))
-		})
-
-		It("should remove Rebooted condition from multiple DPUs", func() {
-			dpu1 := &provisioningv1.DPU{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpu-1",
-					Namespace: "test-namespace",
-				},
-				Status: provisioningv1.DPUStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:   string(provisioningv1.DPUCondRebooted),
-							Status: metav1.ConditionFalse,
-							Reason: "RebootFailed",
-						},
-					},
-				},
-			}
-			dpu2 := &provisioningv1.DPU{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpu-2",
-					Namespace: "test-namespace",
-				},
-				Status: provisioningv1.DPUStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:   string(provisioningv1.DPUCondRebooted),
-							Status: metav1.ConditionFalse,
-							Reason: "RebootFailed",
-						},
-					},
-				},
-			}
-			Expect(fakeClient.Create(ctx, dpu1)).To(Succeed())
-			Expect(fakeClient.Status().Update(ctx, dpu1)).To(Succeed())
-			Expect(fakeClient.Create(ctx, dpu2)).To(Succeed())
-			Expect(fakeClient.Status().Update(ctx, dpu2)).To(Succeed())
-
-			dpus := []*provisioningv1.DPU{dpu1, dpu2}
-			err := reconciler.clearDPURebootedConditions(ctx, dpus)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Verify both DPUs have Rebooted condition removed
-			for _, name := range []string{"test-dpu-1", "test-dpu-2"} {
-				updatedDPU := &provisioningv1.DPU{}
-				Expect(fakeClient.Get(ctx, types.NamespacedName{
-					Name:      name,
-					Namespace: "test-namespace",
-				}, updatedDPU)).To(Succeed())
-				Expect(updatedDPU.Status.Conditions).To(BeEmpty())
-			}
-		})
-
-		It("should preserve other conditions when removing Rebooted", func() {
-			dpu := &provisioningv1.DPU{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpu",
-					Namespace: "test-namespace",
-				},
-				Status: provisioningv1.DPUStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:   string(provisioningv1.DPUCondRebooted),
-							Status: metav1.ConditionFalse,
-							Reason: "RebootFailed",
-						},
-						{
-							Type:   "OSInstalled",
-							Status: metav1.ConditionTrue,
-							Reason: "Success",
-						},
-						{
-							Type:   "InterfaceInitialized",
-							Status: metav1.ConditionTrue,
-							Reason: "Success",
-						},
-					},
-				},
-			}
-			Expect(fakeClient.Create(ctx, dpu)).To(Succeed())
-			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
-
-			dpus := []*provisioningv1.DPU{dpu}
-			err := reconciler.clearDPURebootedConditions(ctx, dpus)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Verify only Rebooted was removed
-			updatedDPU := &provisioningv1.DPU{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
-				Name:      "test-dpu",
-				Namespace: "test-namespace",
-			}, updatedDPU)).To(Succeed())
-
-			Expect(updatedDPU.Status.Conditions).To(HaveLen(2))
-			conditionTypes := []string{}
-			for _, cond := range updatedDPU.Status.Conditions {
-				conditionTypes = append(conditionTypes, cond.Type)
-			}
-			Expect(conditionTypes).To(ContainElements("OSInstalled", "InterfaceInitialized"))
-			Expect(conditionTypes).NotTo(ContainElement(string(provisioningv1.DPUCondRebooted)))
-		})
-
-		It("should handle DPU without Rebooted condition", func() {
-			dpu := &provisioningv1.DPU{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpu",
-					Namespace: "test-namespace",
-				},
-				Status: provisioningv1.DPUStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:   "OtherCondition",
-							Status: metav1.ConditionTrue,
-							Reason: "SomeReason",
-						},
-					},
-				},
-			}
-			Expect(fakeClient.Create(ctx, dpu)).To(Succeed())
-			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
-
-			dpus := []*provisioningv1.DPU{dpu}
-			err := reconciler.clearDPURebootedConditions(ctx, dpus)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Verify OtherCondition is still there
-			updatedDPU := &provisioningv1.DPU{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
-				Name:      "test-dpu",
-				Namespace: "test-namespace",
-			}, updatedDPU)).To(Succeed())
-
-			Expect(updatedDPU.Status.Conditions).To(HaveLen(1))
-			Expect(updatedDPU.Status.Conditions[0].Type).To(Equal("OtherCondition"))
-		})
-
-		It("should return error when DPU does not exist", func() {
-			nonExistentDPU := &provisioningv1.DPU{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "non-existent-dpu",
-					Namespace: "test-namespace",
-				},
-			}
-
-			dpus := []*provisioningv1.DPU{nonExistentDPU}
-			err := reconciler.clearDPURebootedConditions(ctx, dpus)
-			Expect(err).To(HaveOccurred())
-		})
-	})
-
-	Context("scriptRebootConfigMapPredicate", func() {
-		// Helper function that mirrors the predicate logic for testing
-		filterFunc := func(obj client.Object) bool {
-			cm, ok := obj.(*corev1.ConfigMap)
-			if !ok {
-				return false
-			}
-			_, hasPodTemplate := cm.Data[PodTemplateConfigMapKey]
-			return hasPodTemplate
-		}
-
-		It("should return true for ConfigMap with pod-template key", func() {
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
-					Namespace: "test-namespace",
-				},
-				Data: map[string]string{
-					PodTemplateConfigMapKey: `{"spec": {}}`,
-				},
-			}
-
-			Expect(filterFunc(configMap)).To(BeTrue())
-		})
-
-		It("should return false for ConfigMap without pod-template key", func() {
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
-					Namespace: "test-namespace",
-				},
-				Data: map[string]string{
-					"other-key": "some-value",
-				},
-			}
-
-			Expect(filterFunc(configMap)).To(BeFalse())
-		})
-
-		It("should return true for ConfigMap with pod-template key among other keys", func() {
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
-					Namespace: "test-namespace",
-				},
-				Data: map[string]string{
-					"other-key":             "some-value",
-					PodTemplateConfigMapKey: `{"spec": {}}`,
-					"another-key":           "another-value",
-				},
-			}
-
-			Expect(filterFunc(configMap)).To(BeTrue())
-		})
-
-		It("should return false for ConfigMap with empty Data", func() {
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
-					Namespace: "test-namespace",
-				},
-				Data: map[string]string{},
-			}
-
-			Expect(filterFunc(configMap)).To(BeFalse())
-		})
-
-		It("should return false for ConfigMap with nil Data", func() {
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
-					Namespace: "test-namespace",
-				},
-				Data: nil,
-			}
-
-			Expect(filterFunc(configMap)).To(BeFalse())
-		})
-
-		It("should return false for non-ConfigMap objects", func() {
-			// Test with a different object type (Pod)
-			pod := &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod",
-					Namespace: "test-namespace",
-				},
-			}
-
-			Expect(filterFunc(pod)).To(BeFalse())
-		})
-	})
-
 	Context("rebootNode", func() {
 		var (
 			reconciler *DPUNodeReconciler
@@ -1647,7 +1083,7 @@ spec:
 			_ = batchv1.AddToScheme(scheme)
 		})
 
-		createTestSetup := func(jobStatus *batchv1.JobStatus, configMapVersion string, storedVersion string) (*provisioningv1.DPUNode, *provisioningv1.DPU, *batchv1.Job) {
+		createTestSetup := func(jobStatus *batchv1.JobStatus) (*provisioningv1.DPUNode, *provisioningv1.DPU, *batchv1.Job) {
 			podTemplate := corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -1663,25 +1099,18 @@ spec:
 
 			configMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:            "test-configmap",
-					Namespace:       "test-namespace",
-					ResourceVersion: configMapVersion,
+					Name:      "test-configmap",
+					Namespace: "test-namespace",
 				},
 				Data: map[string]string{
 					PodTemplateConfigMapKey: string(podTemplateJSON),
 				},
 			}
 
-			annotations := map[string]string{}
-			if storedVersion != "" {
-				annotations[provisioningv1.DPUNodeScriptConfigMapVersionAnnotation] = storedVersion
-			}
-
 			dpuNode := &provisioningv1.DPUNode{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:        "test-dpunode",
-					Namespace:   "test-namespace",
-					Annotations: annotations,
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
 				},
 				Spec: provisioningv1.DPUNodeSpec{
 					NodeRebootMethod: &provisioningv1.NodeRebootMethod{
@@ -1739,121 +1168,99 @@ spec:
 			return dpuNode, dpu, job
 		}
 
-		It("should handle job succeeded and clean up annotation", func() {
-			jobStatus := &batchv1.JobStatus{Succeeded: 1}
-			dpuNode, _, _ := createTestSetup(jobStatus, "v2", "v1")
+		completedJobStatus := func() *batchv1.JobStatus {
+			return &batchv1.JobStatus{
+				Succeeded: 1,
+				Conditions: []batchv1.JobCondition{
+					{
+						Type:   batchv1.JobComplete,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			}
+		}
 
-			// Set condition to indicate reboot was already triggered
+		terminalFailedJobStatus := func() *batchv1.JobStatus {
+			return &batchv1.JobStatus{
+				Failed: 3,
+				Conditions: []batchv1.JobCondition{
+					{
+						Type:    batchv1.JobFailed,
+						Status:  corev1.ConditionTrue,
+						Reason:  "BackoffLimitExceeded",
+						Message: "Job has reached the specified backoff limit",
+					},
+				},
+			}
+		}
+
+		setDPUConditionForTest := func(dpuNode *provisioningv1.DPUNode, reason string) {
 			dpu := &provisioningv1.DPU{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
+			ExpectWithOffset(1, fakeClient.Get(ctx, types.NamespacedName{
 				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
 				Namespace: "test-namespace",
 			}, dpu)).To(Succeed())
-			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "WaitingForScriptToRebootNode", ""))
-			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
+			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondRebooted, reason, ""))
+			ExpectWithOffset(1, fakeClient.Status().Update(ctx, dpu)).To(Succeed())
+		}
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(BeZero())
-
-			// Verify annotation is removed
-			Expect(dpuNode.Annotations[provisioningv1.DPUNodeScriptConfigMapVersionAnnotation]).To(BeEmpty())
-		})
-
-		It("should handle job failed without ConfigMap change (no retry)", func() {
-			jobStatus := &batchv1.JobStatus{Failed: 1}
-			// Same version - no retry expected
-			dpuNode, _, _ := createTestSetup(jobStatus, "v1", "v1")
-
-			// Set condition to indicate reboot was already triggered
+		getDPUConditionForTest := func(dpuNode *provisioningv1.DPUNode) *metav1.Condition {
 			dpu := &provisioningv1.DPU{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
-				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
-				Namespace: "test-namespace",
-			}, dpu)).To(Succeed())
-			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "WaitingForScriptToRebootNode", ""))
-			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
-
-			result, err := reconciler.rebootNode(ctx, dpuNode)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(BeZero())
-
-			// Verify DPU condition is set to failed
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
+			ExpectWithOffset(1, fakeClient.Get(ctx, types.NamespacedName{
 				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
 				Namespace: "test-namespace",
 			}, dpu)).To(Succeed())
 			_, cond := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondRebooted))
+			return cond
+		}
+
+		It("should handle job succeeded", func() {
+			dpuNode, _, _ := createTestSetup(completedJobStatus())
+			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
+
+			result, err := reconciler.rebootNode(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero())
+		})
+
+		It("should handle job failed with terminal condition", func() {
+			dpuNode, _, _ := createTestSetup(terminalFailedJobStatus())
+			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
+
+			fakeRecorder := record.NewFakeRecorder(10)
+			reconciler.Recorder = fakeRecorder
+
+			result, err := reconciler.rebootNode(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero())
+
+			cond := getDPUConditionForTest(dpuNode)
 			Expect(cond).NotTo(BeNil())
-			Expect(cond.Reason).To(Equal("RebootFailed"))
+			Expect(cond.Reason).To(Equal(cutil.ReasonRebootScriptFailed))
+			Expect(cond.Message).To(ContainSubstring("BackoffLimitExceeded"))
+			Expect(cond.Message).To(ContainSubstring("delete the failed job"))
+
+			Eventually(fakeRecorder.Events).Should(Receive(ContainSubstring("ScriptRebootFailed")))
 		})
 
-		It("should handle job failed with ConfigMap change (auto-retry)", func() {
-			jobStatus := &batchv1.JobStatus{Failed: 1}
-			// Different versions - retry expected
-			dpuNode, _, _ := createTestSetup(jobStatus, "v2", "v1")
-
-			// Set condition to indicate reboot was already triggered
-			dpu := &provisioningv1.DPU{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
-				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
-				Namespace: "test-namespace",
-			}, dpu)).To(Succeed())
-			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "WaitingForScriptToRebootNode", ""))
-			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
+		It("should recreate job when not found", func() {
+			dpuNode, _, _ := createTestSetup(nil)
+			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
 
 			result, err := reconciler.rebootNode(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).NotTo(BeZero())
+			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue after recreating job")
 
-			// Verify failed job was deleted
+			cond := getDPUConditionForTest(dpuNode)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(cutil.ReasonRebootScriptWaiting))
+
 			job := &batchv1.Job{}
-			err = fakeClient.Get(ctx, types.NamespacedName{
-				Name:      "test-dpunode-script-job",
-				Namespace: "test-namespace",
-			}, job)
-			Expect(err).To(HaveOccurred())
-		})
-
-		It("should handle job not found with ConfigMap change (auto-retry)", func() {
-			// No job (nil jobStatus), different versions - retry expected
-			dpuNode, _, _ := createTestSetup(nil, "v2", "v1")
-
-			// Set condition to indicate reboot was already triggered
-			dpu := &provisioningv1.DPU{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
-				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
-				Namespace: "test-namespace",
-			}, dpu)).To(Succeed())
-			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "WaitingForScriptToRebootNode", ""))
-			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
-
-			result, err := reconciler.rebootNode(ctx, dpuNode)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).NotTo(BeZero())
-		})
-
-		It("should handle job not found without ConfigMap change (no retry)", func() {
-			// No job, same versions - no retry, set JobNotFound condition
-			dpuNode, _, _ := createTestSetup(nil, "v1", "v1")
-
-			// Set condition to indicate reboot was already triggered
-			dpu := &provisioningv1.DPU{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
-				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
-				Namespace: "test-namespace",
-			}, dpu)).To(Succeed())
-			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "WaitingForScriptToRebootNode", ""))
-			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
-
-			_, err := reconciler.rebootNode(ctx, dpuNode)
-			// Error is expected due to job not found
-			Expect(err).To(HaveOccurred())
+			Expect(reconciler.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: reconciler.generateJobName(dpuNode)}, job)).To(Succeed())
 		})
 
 		It("should create script job when no condition exists", func() {
-			// Job exists but no DPUCondRebooted condition - should create new job
-			dpuNode, _, _ := createTestSetup(nil, "v1", "")
+			dpuNode, _, _ := createTestSetup(nil)
 
 			result, err := reconciler.rebootNode(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
@@ -1870,16 +1277,8 @@ spec:
 
 		It("should requeue when job is still running", func() {
 			jobStatus := &batchv1.JobStatus{Active: 1}
-			dpuNode, _, _ := createTestSetup(jobStatus, "v1", "v1")
-
-			// Set condition to indicate reboot was already triggered
-			dpu := &provisioningv1.DPU{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
-				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
-				Namespace: "test-namespace",
-			}, dpu)).To(Succeed())
-			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "WaitingForScriptToRebootNode", ""))
-			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
+			dpuNode, _, _ := createTestSetup(jobStatus)
+			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
 
 			result, err := reconciler.rebootNode(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
@@ -1999,6 +1398,486 @@ spec:
 			result, err := reconciler.rebootNode(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero())
+		})
+
+		// --- A1: Race condition tests ---
+
+		It("should create job when DPU has non-script condition reason (race condition fix)", func() {
+			dpuNode, _, _ := createTestSetup(nil)
+			setDPUConditionForTest(dpuNode, "DPUNodeNotFound")
+
+			result, err := reconciler.rebootNode(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).NotTo(BeZero())
+
+			job := &batchv1.Job{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode-script-job",
+				Namespace: "test-namespace",
+			}, job)).To(Succeed())
+		})
+
+		It("should detect condExists=true for WaitingForScript reason", func() {
+			jobStatus := &batchv1.JobStatus{Active: 1}
+			dpuNode, _, _ := createTestSetup(jobStatus)
+			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
+
+			result, err := reconciler.rebootNode(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).NotTo(BeZero())
+		})
+
+		It("should recreate job when condExists=true but job was deleted", func() {
+			dpuNode, _, _ := createTestSetup(nil)
+			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptFailed)
+
+			result, err := reconciler.rebootNode(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue after recreating job")
+
+			cond := getDPUConditionForTest(dpuNode)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(cutil.ReasonRebootScriptWaiting))
+
+			job := &batchv1.Job{}
+			Expect(reconciler.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: reconciler.generateJobName(dpuNode)}, job)).To(Succeed())
+		})
+
+		It("should requeue when job has Failed count but no Failed condition (mid-retry)", func() {
+			jobStatus := &batchv1.JobStatus{Failed: 1, Active: 1}
+			dpuNode, _, _ := createTestSetup(jobStatus)
+			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
+
+			result, err := reconciler.rebootNode(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).NotTo(BeZero())
+		})
+
+		It("should include pod exit code in condition message when available", func() {
+			dpuNode, _, _ := createTestSetup(terminalFailedJobStatus())
+			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
+
+			failedPod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpunode-script-job-pod-1",
+					Namespace: "test-namespace",
+					Labels:    map[string]string{"job-name": "test-dpunode-script-job"},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name: "reboot-script",
+							State: corev1.ContainerState{
+								Terminated: &corev1.ContainerStateTerminated{
+									ExitCode: 137,
+									Reason:   "OOMKilled",
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(fakeClient.Create(ctx, failedPod)).To(Succeed())
+
+			_, err := reconciler.rebootNode(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+
+			cond := getDPUConditionForTest(dpuNode)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Message).To(ContainSubstring("137"))
+			Expect(cond.Message).To(ContainSubstring("OOMKilled"))
+		})
+
+		It("should emit Normal event when job is created", func() {
+			dpuNode, _, _ := createTestSetup(nil)
+
+			fakeRecorder := record.NewFakeRecorder(10)
+			reconciler.Recorder = fakeRecorder
+
+			result, err := reconciler.rebootNode(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).NotTo(BeZero())
+
+			Eventually(fakeRecorder.Events).Should(Receive(ContainSubstring("ScriptRebootJobCreated")))
+		})
+
+		// --- Job-existence guard tests ---
+
+		It("should delete stale active job from previous cycle when isFirstRun is true", func() {
+			jobStatus := &batchv1.JobStatus{Active: 1}
+			dpuNode, _, _ := createTestSetup(jobStatus)
+
+			dpu := &provisioningv1.DPU{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
+				Namespace: "test-namespace",
+			}, dpu)).To(Succeed())
+			cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), fmt.Errorf("transient"), "GetDPUNodeError", "transient error"))
+			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
+
+			result, err := reconciler.rebootNode(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue after deleting stale job")
+
+			job := &batchv1.Job{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode-script-job",
+				Namespace: "test-namespace",
+			}, job)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue(), "stale active job should be deleted from the API")
+		})
+
+		It("should delete stale completed job from previous cycle and requeue", func() {
+			dpuNode, _, _ := createTestSetup(completedJobStatus())
+
+			dpu := &provisioningv1.DPU{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
+				Namespace: "test-namespace",
+			}, dpu)).To(Succeed())
+			cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), fmt.Errorf("error"), "GenerateIPMIToolCommandError", "error"))
+			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
+
+			result, err := reconciler.rebootNode(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue to let API server finish deletion")
+		})
+
+		It("should delete stale failed job from previous cycle and requeue", func() {
+			dpuNode, _, _ := createTestSetup(terminalFailedJobStatus())
+
+			dpu := &provisioningv1.DPU{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
+				Namespace: "test-namespace",
+			}, dpu)).To(Succeed())
+			cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), fmt.Errorf("not found"), "DPUNodeNotFound", "not found"))
+			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
+
+			result, err := reconciler.rebootNode(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue to let API server finish deletion")
+		})
+
+		It("should not delete job in backoff between retries", func() {
+			jobStatus := &batchv1.JobStatus{Failed: 1}
+			dpuNode, _, _ := createTestSetup(jobStatus)
+			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
+
+			result, err := reconciler.rebootNode(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).NotTo(BeZero())
+
+			job := &batchv1.Job{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode-script-job",
+				Namespace: "test-namespace",
+			}, job)).To(Succeed())
+			Expect(job.Status.Failed).To(Equal(int32(1)))
+
+			cond := getDPUConditionForTest(dpuNode)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(cutil.ReasonRebootScriptWaiting), "condition should not be modified for in-progress job")
+		})
+
+	})
+
+	Context("isScriptRelatedReason", func() {
+		It("should return true for all script-related reasons", func() {
+			Expect(isScriptRelatedReason(cutil.ReasonRebootScriptWaiting)).To(BeTrue())
+			Expect(isScriptRelatedReason(cutil.ReasonRebootScriptFailedToFetchJob)).To(BeTrue())
+			Expect(isScriptRelatedReason(cutil.ReasonRebootScriptFailed)).To(BeTrue())
+		})
+
+		It("should return false for DPU-controller reasons", func() {
+			Expect(isScriptRelatedReason("DPUNodeNotFound")).To(BeFalse())
+			Expect(isScriptRelatedReason("InvalidState")).To(BeFalse())
+			Expect(isScriptRelatedReason("GenerateIPMIToolCommandError")).To(BeFalse())
+			Expect(isScriptRelatedReason("")).To(BeFalse())
+		})
+	})
+
+	Context("isJobComplete", func() {
+		It("should return true when job has Complete condition", func() {
+			job := &batchv1.Job{
+				Status: batchv1.JobStatus{
+					Succeeded: 1,
+					Conditions: []batchv1.JobCondition{
+						{
+							Type:   batchv1.JobComplete,
+							Status: corev1.ConditionTrue,
+						},
+					},
+				},
+			}
+			Expect(isJobComplete(job)).To(BeTrue())
+		})
+
+		It("should return false when job has no Complete condition", func() {
+			job := &batchv1.Job{
+				Status: batchv1.JobStatus{
+					Succeeded: 1,
+				},
+			}
+			Expect(isJobComplete(job)).To(BeFalse())
+		})
+
+		It("should return false when Complete condition status is not True", func() {
+			job := &batchv1.Job{
+				Status: batchv1.JobStatus{
+					Conditions: []batchv1.JobCondition{
+						{
+							Type:   batchv1.JobComplete,
+							Status: corev1.ConditionFalse,
+						},
+					},
+				},
+			}
+			Expect(isJobComplete(job)).To(BeFalse())
+		})
+	})
+
+	Context("isJobFailed", func() {
+		It("should return true when job has Failed condition", func() {
+			job := &batchv1.Job{
+				Status: batchv1.JobStatus{
+					Conditions: []batchv1.JobCondition{
+						{
+							Type:   batchv1.JobFailed,
+							Status: corev1.ConditionTrue,
+							Reason: "BackoffLimitExceeded",
+						},
+					},
+				},
+			}
+			Expect(isJobFailed(job)).To(BeTrue())
+		})
+
+		It("should return false when job has no Failed condition", func() {
+			job := &batchv1.Job{
+				Status: batchv1.JobStatus{
+					Failed: 2,
+				},
+			}
+			Expect(isJobFailed(job)).To(BeFalse())
+		})
+
+		It("should return false when Failed condition status is not True", func() {
+			job := &batchv1.Job{
+				Status: batchv1.JobStatus{
+					Conditions: []batchv1.JobCondition{
+						{
+							Type:   batchv1.JobFailed,
+							Status: corev1.ConditionFalse,
+						},
+					},
+				},
+			}
+			Expect(isJobFailed(job)).To(BeFalse())
+		})
+	})
+
+	Context("extractJobFailureDetails", func() {
+		It("should return reason and message from Failed condition", func() {
+			job := &batchv1.Job{
+				Status: batchv1.JobStatus{
+					Conditions: []batchv1.JobCondition{
+						{
+							Type:    batchv1.JobFailed,
+							Status:  corev1.ConditionTrue,
+							Reason:  "BackoffLimitExceeded",
+							Message: "Job has reached the specified backoff limit",
+						},
+					},
+				},
+			}
+			details := extractJobFailureDetails(job)
+			Expect(details).To(ContainSubstring("BackoffLimitExceeded"))
+			Expect(details).To(ContainSubstring("Job has reached the specified backoff limit"))
+		})
+
+		It("should return unknown reason when no Failed condition exists", func() {
+			job := &batchv1.Job{
+				Status: batchv1.JobStatus{},
+			}
+			details := extractJobFailureDetails(job)
+			Expect(details).To(Equal("job failed with unknown reason"))
+		})
+	})
+
+	Context("extractPodFailureDetails", func() {
+		var (
+			reconciler *DPUNodeReconciler
+			fakeClient client.Client
+			ctx        context.Context
+			scheme     *runtime.Scheme
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			scheme = runtime.NewScheme()
+			_ = corev1.AddToScheme(scheme)
+			_ = batchv1.AddToScheme(scheme)
+		})
+
+		It("should return container exit code and reason", func() {
+			job := &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-job", Namespace: "ns"},
+			}
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-job-pod", Namespace: "ns",
+					Labels: map[string]string{"job-name": "test-job"},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name: "reboot-script",
+							State: corev1.ContainerState{
+								Terminated: &corev1.ContainerStateTerminated{
+									ExitCode: 137,
+									Reason:   "OOMKilled",
+								},
+							},
+						},
+					},
+				},
+			}
+
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+			reconciler = &DPUNodeReconciler{Client: fakeClient}
+
+			details := reconciler.extractPodFailureDetails(ctx, job)
+			Expect(details).To(ContainSubstring("reboot-script"))
+			Expect(details).To(ContainSubstring("137"))
+			Expect(details).To(ContainSubstring("OOMKilled"))
+		})
+
+		It("should return init container failure before regular containers", func() {
+			job := &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-job", Namespace: "ns"},
+			}
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-job-pod", Namespace: "ns",
+					Labels: map[string]string{"job-name": "test-job"},
+				},
+				Status: corev1.PodStatus{
+					InitContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name: "init-setup",
+							State: corev1.ContainerState{
+								Terminated: &corev1.ContainerStateTerminated{
+									ExitCode: 1,
+									Reason:   "Error",
+								},
+							},
+						},
+					},
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name: "main",
+							State: corev1.ContainerState{
+								Terminated: &corev1.ContainerStateTerminated{
+									ExitCode: 2,
+									Reason:   "Error",
+								},
+							},
+						},
+					},
+				},
+			}
+
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+			reconciler = &DPUNodeReconciler{Client: fakeClient}
+
+			details := reconciler.extractPodFailureDetails(ctx, job)
+			Expect(details).To(ContainSubstring("init container"))
+			Expect(details).To(ContainSubstring("init-setup"))
+		})
+
+		It("should fall back to job status when no pods exist", func() {
+			job := &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-job", Namespace: "ns"},
+				Status: batchv1.JobStatus{
+					Conditions: []batchv1.JobCondition{
+						{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "BackoffLimitExceeded", Message: "limit reached"},
+					},
+				},
+			}
+
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
+			reconciler = &DPUNodeReconciler{Client: fakeClient}
+
+			details := reconciler.extractPodFailureDetails(ctx, job)
+			Expect(details).To(ContainSubstring("BackoffLimitExceeded"))
+		})
+
+		It("should fall back to job status when containers exited with code 0", func() {
+			job := &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-job", Namespace: "ns"},
+				Status: batchv1.JobStatus{
+					Conditions: []batchv1.JobCondition{
+						{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "DeadlineExceeded", Message: "timed out"},
+					},
+				},
+			}
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-job-pod", Namespace: "ns",
+					Labels: map[string]string{"job-name": "test-job"},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name: "main",
+							State: corev1.ContainerState{
+								Terminated: &corev1.ContainerStateTerminated{ExitCode: 0, Reason: "Completed"},
+							},
+						},
+					},
+				},
+			}
+
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+			reconciler = &DPUNodeReconciler{Client: fakeClient}
+
+			details := reconciler.extractPodFailureDetails(ctx, job)
+			Expect(details).To(ContainSubstring("DeadlineExceeded"))
+		})
+	})
+
+	Context("ensureControlPlaneToleration", func() {
+		It("should add toleration when not present", func() {
+			tolerations := ensureControlPlaneToleration(nil)
+			Expect(tolerations).To(HaveLen(1))
+			Expect(tolerations[0].Key).To(Equal("node-role.kubernetes.io/control-plane"))
+			Expect(tolerations[0].Effect).To(Equal(corev1.TaintEffectNoSchedule))
+			Expect(tolerations[0].Operator).To(Equal(corev1.TolerationOpExists))
+		})
+
+		It("should not duplicate toleration if already present", func() {
+			existing := []corev1.Toleration{
+				{
+					Key:      "node-role.kubernetes.io/control-plane",
+					Operator: corev1.TolerationOpExists,
+					Effect:   corev1.TaintEffectNoSchedule,
+				},
+			}
+			tolerations := ensureControlPlaneToleration(existing)
+			Expect(tolerations).To(HaveLen(1))
+		})
+
+		It("should add toleration alongside existing different tolerations", func() {
+			existing := []corev1.Toleration{
+				{
+					Key:      "other-key",
+					Operator: corev1.TolerationOpExists,
+					Effect:   corev1.TaintEffectNoExecute,
+				},
+			}
+			tolerations := ensureControlPlaneToleration(existing)
+			Expect(tolerations).To(HaveLen(2))
 		})
 	})
 
@@ -2123,45 +2002,13 @@ spec:
 			Expect(err).To(HaveOccurred())
 		})
 
-		It("should delete existing job before creating new one", func() {
-			podTemplate := corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "new-container",
-							Image: "new:image",
-						},
-					},
-					RestartPolicy: corev1.RestartPolicyNever,
-				},
-			}
-			podTemplateJSON, _ := json.Marshal(podTemplate)
-
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-configmap",
-					Namespace: "test-namespace",
-				},
-				Data: map[string]string{
-					PodTemplateConfigMapKey: string(podTemplateJSON),
-				},
-			}
-
+		It("should return error when job already exists (defense in depth)", func() {
 			existingJob := &batchv1.Job{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpunode-script-job",
 					Namespace: "test-namespace",
 				},
-				Spec: batchv1.JobSpec{
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{Name: "old-container", Image: "old:image"},
-							},
-							RestartPolicy: corev1.RestartPolicyNever,
-						},
-					},
-				},
+				Status: batchv1.JobStatus{Active: 1},
 			}
 
 			dpuNode := &provisioningv1.DPUNode{
@@ -2180,7 +2027,7 @@ spec:
 
 			fakeClient = fake.NewClientBuilder().
 				WithScheme(scheme).
-				WithObjects(configMap, dpuNode, existingJob).
+				WithObjects(dpuNode, existingJob).
 				Build()
 
 			reconciler = &DPUNodeReconciler{
@@ -2188,16 +2035,9 @@ spec:
 			}
 
 			err := reconciler.createScriptJob(ctx, dpuNode)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Verify new job was created
-			job := &batchv1.Job{}
-			err = fakeClient.Get(ctx, types.NamespacedName{
-				Name:      "test-dpunode-script-job",
-				Namespace: "test-namespace",
-			}, job)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(job.Spec.Template.Spec.Containers[0].Name).To(Equal("new-container"))
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("refusing to create script job"))
+			Expect(err.Error()).To(ContainSubstring("already exists"))
 		})
 
 		It("should add init container volume mounts when volume exists", func() {
