@@ -106,6 +106,11 @@ spec:
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+						Labels: map[string]string{
+							operatorv1.DPFComponentLabelKey: operatorv1.SFCControllerName.String(),
+						},
+					},
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "oci://example.com",
@@ -208,6 +213,11 @@ spec:
 					},
 				},
 				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+						Labels: map[string]string{
+							operatorv1.DPFComponentLabelKey: operatorv1.SFCControllerName.String(),
+						},
+					},
 					HelmChart: dpuservicev1.HelmChart{
 						Source: dpuservicev1.ApplicationSource{
 							RepoURL: "oci://some-registry.com",

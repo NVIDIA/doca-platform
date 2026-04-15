@@ -106,6 +106,11 @@ spec:
 						},
 					},
 					Spec: dpuservicev1.DPUServiceSpec{
+						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+							Labels: map[string]string{
+								operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName.String(),
+							},
+						},
 						DeployInCluster: ptr.To(false),
 						HelmChart: dpuservicev1.HelmChart{
 							Source: dpuservicev1.ApplicationSource{
@@ -208,6 +213,11 @@ spec:
 						},
 					},
 					Spec: dpuservicev1.DPUServiceSpec{
+						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+							Labels: map[string]string{
+								operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName.String(),
+							},
+						},
 						DeployInCluster: ptr.To(true),
 						HelmChart: dpuservicev1.HelmChart{
 							Source: dpuservicev1.ApplicationSource{
@@ -317,6 +327,11 @@ spec:
 						},
 					},
 					Spec: dpuservicev1.DPUServiceSpec{
+						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+							Labels: map[string]string{
+								operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName.String(),
+							},
+						},
 						DeployInCluster: ptr.To(false),
 						HelmChart: dpuservicev1.HelmChart{
 							Source: dpuservicev1.ApplicationSource{
@@ -465,6 +480,11 @@ spec:
 						},
 					},
 					Spec: dpuservicev1.DPUServiceSpec{
+						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+							Labels: map[string]string{
+								operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName.String(),
+							},
+						},
 						DeployInCluster: ptr.To(true),
 						HelmChart: dpuservicev1.HelmChart{
 							Source: dpuservicev1.ApplicationSource{
@@ -576,6 +596,11 @@ spec:
 						},
 					},
 					Spec: dpuservicev1.DPUServiceSpec{
+						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+							Labels: map[string]string{
+								operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName.String(),
+							},
+						},
 						DeployInCluster: ptr.To(true),
 						HelmChart: dpuservicev1.HelmChart{
 							Source: dpuservicev1.ApplicationSource{
@@ -685,6 +710,11 @@ spec:
 						},
 					},
 					Spec: dpuservicev1.DPUServiceSpec{
+						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+							Labels: map[string]string{
+								operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName.String(),
+							},
+						},
 						DeployInCluster: ptr.To(false),
 						HelmChart: dpuservicev1.HelmChart{
 							Source: dpuservicev1.ApplicationSource{
@@ -861,6 +891,11 @@ spec:
 						},
 					},
 					Spec: dpuservicev1.DPUServiceSpec{
+						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+							Labels: map[string]string{
+								operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName.String(),
+							},
+						},
 						DeployInCluster: ptr.To(true),
 						HelmChart: dpuservicev1.HelmChart{
 							Source: dpuservicev1.ApplicationSource{
@@ -970,6 +1005,11 @@ spec:
 						},
 					},
 					Spec: dpuservicev1.DPUServiceSpec{
+						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+							Labels: map[string]string{
+								operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName.String(),
+							},
+						},
 						DeployInCluster: ptr.To(false),
 						HelmChart: dpuservicev1.HelmChart{
 							Source: dpuservicev1.ApplicationSource{
