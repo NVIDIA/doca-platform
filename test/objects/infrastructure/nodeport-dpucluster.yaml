@@ -14,7 +14,10 @@ spec:
     - IPv4
   ipFamilyPolicy: SingleStack
   ports:
-    - nodePort: 32443
+    # Use a port in the lower static band of the NodePort range to avoid collisions with
+    # dynamically auto-assigned NodePorts, which are allocated from the upper band first.
+    # See https://github.com/kubernetes/enhancements/tree/master/keps/sig-network/3668-reserved-service-nodeport-range
+    - nodePort: 30043
       port: 6443
       protocol: TCP
       targetPort: 6443

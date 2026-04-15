@@ -26,7 +26,10 @@ CLUSTER_NAME="${CLUSTER_NAME:-"dpf-dev"}"
 KIND_BIN="${KIND_BIN:-"unknown"}"
 KIND_KUBERNETES_VERSION="${KIND_KUBERNETES_VERSION:-"v1.32.8"}"
 ADD_CONTROL_PLANE_TAINTS="${ADD_CONTROL_PLANE_TAINTS:-"false"}"
-DPUCLUSTER_NODE_PORT="32443"
+# Use a port in the lower static band of the NodePort range to avoid collisions with
+# dynamically auto-assigned NodePorts, which are allocated from the upper band first.
+# See https://github.com/kubernetes/enhancements/tree/master/keps/sig-network/3668-reserved-service-nodeport-range
+DPUCLUSTER_NODE_PORT="30043"
 KIND_CONFIG_FILE="/tmp/kind-config-${CLUSTER_NAME}.yaml"
 # Registry mirror configuration (comma-separated list of host:target-endpoint)
 # Example: "docker.io:https://registry-1.docker.io,gcr.io:https://mirror.gcr.io"
