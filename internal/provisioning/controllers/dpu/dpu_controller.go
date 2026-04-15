@@ -342,7 +342,11 @@ func (r *DPUReconciler) reconcileBFBRegistry(ctx context.Context, namespace stri
 		logger.V(4).Info("bfb-registry reconcile skipping: required env not set (POD_NAME, NODE_NAME, BFB_REGISTRY_IMAGE)")
 		return nil
 	}
-	if err := bfbregistry.EnsureBFBRegistry(ctx, r.ctrlCtx.Client, namespace, podName, nodeName, registryImage, r.ctrlCtx.Options.BFBPVC, r.ctrlCtx.Options.ImagePullSecrets); err != nil {
+	if err := bfbregistry.EnsureBFBRegistry(ctx, bfbregistry.EnsureBFBRegistryDeps{
+		Client:           r.ctrlCtx.Client,
+		BFBPVC:           r.ctrlCtx.Options.BFBPVC,
+		ImagePullSecrets: r.ctrlCtx.Options.ImagePullSecrets,
+	}, namespace, podName, nodeName, registryImage); err != nil {
 		return fmt.Errorf("ensure bfb-registry: %w", err)
 	}
 	return nil

@@ -1471,11 +1471,20 @@ spec:
                           By default, the BFB Registry can be accessed via its Service.
                           For non-kubernetes environments, this must be set due to the lack of kubelet on worker nodes.
                           For zero-trust environments, this must be set so that the BFB Registry can be accessed from DPU BMC.
+                          Deprecated: Address is deprecated and will be removed in a future release.
+                        pattern: ^http://
+                        type: string
+                      loadBalancerAddress:
+                        description: |-
+                          LoadBalancerAddress is the address of the load balancer for the BFB Registry which the hostagent/redfish use to fetch the BFB and generated bf.cfg.
+                          To enable the load balancer, you need to deploy your own load balancer controller and configure the LoadBalancerAddress field.
+                          Then check the bfb-registry nodeport service and make your load balancer controller to distribute the requests to the bfb-registry nodeport.
                         pattern: ^http://
                         type: string
                       port:
-                        description: Port is the port on which the registry instances
-                          will listen
+                        description: |-
+                          Port is the port on which the registry instances will listen
+                          Deprecated: Address is deprecated and will be removed in a future release.
                         maximum: 65535
                         minimum: 1
                         type: integer
