@@ -26,7 +26,6 @@ import (
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/test/utils/tunnel"
 
-	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -56,6 +55,7 @@ type Cluster struct {
 	client       client.Client
 	artifactsDir string
 	clientset    *kubernetes.Clientset
+	tunnel       *tunnel.Tunnel
 }
 
 type ClusterCollector struct {
@@ -67,7 +67,7 @@ type ClusterCollector struct {
 func GetClusterCollectors(ctx context.Context, cc ClusterCollector, artifactsDirectory string) ([]*Cluster, error) {
 	log := ctrllog.FromContext(ctx)
 	directory := filepath.Join(artifactsDirectory, "main")
-	mainCluster, err := NewCluster(cc.Client, directory, cc.ClientSet, "main")
+	mainCluster, err := NewMainCluster(cc.Client, directory, cc.ClientSet)
 	if err != nil {
 		// If the main cluster client isn't created return early.
 		return nil, err
@@ -81,29 +81,66 @@ func GetClusterCollectors(ctx context.Context, cc ClusterCollector, artifactsDir
 		return nil, err
 	}
 	for _, conf := range clusterConfigs {
-		dpuClusterClient, _ := tunnel.NewTunneledClient(gomega.Default, ctx, cc.Client, cc.RestConfig, conf.Cluster)
-		dpuClusterClientset, _ := tunnel.NewTunneledClientset(gomega.Default, ctx, cc.Client, cc.RestConfig, conf.Cluster)
-		directory = filepath.Join(artifactsDirectory, conf.Cluster.Name)
-		c, err := NewCluster(dpuClusterClient, directory, dpuClusterClientset, conf.Cluster.Name)
+		restCfg, tun, err := tunnel.NewTunneledRestConfig(ctx, cc.Client, cc.RestConfig, conf.Cluster)
 		if err != nil {
+			errs = append(errs, fmt.Errorf("create tunnel for DPUCluster %s: %w", conf.Cluster.Name, err))
+			continue
+		}
+
+		dpuClusterClient, err := client.New(restCfg, client.Options{})
+		if err != nil {
+			tun.Close()
+			errs = append(errs, fmt.Errorf("create client for DPUCluster %s: %w", conf.Cluster.Name, err))
+			continue
+		}
+
+		dpuClusterClientset, err := kubernetes.NewForConfig(restCfg)
+		if err != nil {
+			tun.Close()
+			errs = append(errs, fmt.Errorf("create clientset for DPUCluster %s: %w", conf.Cluster.Name, err))
+			continue
+		}
+
+		directory = filepath.Join(artifactsDirectory, conf.Cluster.Name)
+		c, err := NewDPUCluster(dpuClusterClient, directory, dpuClusterClientset, conf.Cluster.Name, tun)
+		if err != nil {
+			tun.Close()
 			errs = append(errs, err)
 			continue
 		}
 		collectors = append(collectors, c)
 	}
 	if len(errs) > 0 {
-		log.Error(kerrors.NewAggregate(errs), "failed creating collectors for hosted control planes")
+		log.Error(kerrors.NewAggregate(errs), "Failed to create collectors for hosted control planes")
 	}
 	return collectors, nil
 }
 
-func NewCluster(client client.Client, artifactsDirectory string, clientset *kubernetes.Clientset, name string) (*Cluster, error) {
+func NewMainCluster(client client.Client, artifactsDirectory string, clientset *kubernetes.Clientset) (*Cluster, error) {
+	return &Cluster{
+		clusterName:  "main",
+		client:       client,
+		artifactsDir: artifactsDirectory,
+		clientset:    clientset,
+	}, nil
+}
+
+func NewDPUCluster(client client.Client, artifactsDirectory string, clientset *kubernetes.Clientset, name string, tun *tunnel.Tunnel) (*Cluster, error) {
 	return &Cluster{
 		clusterName:  name,
 		client:       client,
 		artifactsDir: artifactsDirectory,
 		clientset:    clientset,
+		tunnel:       tun,
 	}, nil
+}
+
+func (c *Collector) Close() {
+	for _, cluster := range c.clusters {
+		if cluster.tunnel != nil {
+			cluster.tunnel.Close()
+		}
+	}
 }
 
 func (c *Cluster) Name() string {

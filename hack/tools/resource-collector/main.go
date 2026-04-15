@@ -83,6 +83,7 @@ func main() {
 		log.Error(err, "Failed to get cluster collectors")
 	}
 	resourceCollector := collector.New(clusters)
+	defer resourceCollector.Close()
 	log.Info(fmt.Sprintf("Running the resource resourceCollector. Artifacts will be stored in %s", artifactsDirectory))
 	// Run the resourceCollector for the main cluster.
 
