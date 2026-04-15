@@ -234,7 +234,7 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 					{
 						Name:       "http",
 						Port:       int32(ContainerPort),
-						TargetPort: intstr.FromInt(ContainerPort),
+						TargetPort: intstr.FromInt32(ContainerPort),
 					},
 				},
 			},
@@ -249,10 +249,17 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 	return nil
 }
 
+// EnsureBFBRegistryDeps carries client and controller options used when ensuring bfb-registry objects.
+type EnsureBFBRegistryDeps struct {
+	Client           client.Client
+	BFBPVC           string
+	ImagePullSecrets []corev1.LocalObjectReference
+}
+
 // EnsureBFBRegistry ensures the bfb-registry Pod and Service exist in the given namespace.
-func EnsureBFBRegistry(ctx context.Context, c client.Client, namespace, leaderPodName, nodeName, registryImage, bfbPVC string, imagePullSecrets []corev1.LocalObjectReference) error {
+func EnsureBFBRegistry(ctx context.Context, deps EnsureBFBRegistryDeps, namespace, leaderPodName, nodeName, registryImage string) error {
 	leaderPod := &corev1.Pod{}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: leaderPodName}, leaderPod); err != nil {
+	if err := deps.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: leaderPodName}, leaderPod); err != nil {
 		return fmt.Errorf("get leader pod %s/%s: %w", namespace, leaderPodName, err)
 	}
 	ownerRef := metav1.NewControllerRef(leaderPod, corev1.SchemeGroupVersion.WithKind("Pod"))
@@ -260,9 +267,9 @@ func EnsureBFBRegistry(ctx context.Context, c client.Client, namespace, leaderPo
 	ownerRef.BlockOwnerDeletion = ptr.To(true)
 
 	run := &BFBRegistryRunnable{
-		Client:           c,
-		BFBPVC:           bfbPVC,
-		ImagePullSecrets: imagePullSecrets,
+		Client:           deps.Client,
+		BFBPVC:           deps.BFBPVC,
+		ImagePullSecrets: deps.ImagePullSecrets,
 	}
 	if err := run.ensurePod(ctx, namespace, nodeName, registryImage, ownerRef); err != nil {
 		return err

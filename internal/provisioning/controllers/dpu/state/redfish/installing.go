@@ -118,8 +118,7 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 		if err != nil {
 			err = fmt.Errorf("failed to get bfb-registry address: %w", err)
 			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToGetBFBRegistryAddress", err.Error()))
-			state.Phase = provisioningv1.DPUError
-			return *state, nil
+			return *state, err
 		}
 		logger.Info("submit BFB install task", "will use bfbRegistry", bfbRegistryAddr, "bfbFile", dpu.Status.BFBFile, "bfcfgFile", dpu.Status.BFCFGFile)
 		resp, taskInfo, err := client.InstallBFB(concatBFBAndBFCFGPath(bfbRegistryAddr, dpu.Status.BFBFile, dpu.Status.BFCFGFile))
@@ -183,8 +182,11 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 	return *state, nil
 }
 
-// getBFBRegistryAddress returns the full bfb-registry address (e.g. http://host:nodePort)
+// getBFBRegistryAddress returns the full bfb-registry address
 func getBFBRegistryAddress(ctx context.Context, ctrlCtx *dutil.ControllerContext) (string, error) {
+	if ctrlCtx.Options.BFBRegistryLoadBalancer != "" {
+		return ctrlCtx.Options.BFBRegistryLoadBalancer, nil
+	}
 	return cutil.GetBFBRegistryAddressWithPort(ctx, ctrlCtx.Client, os.Getenv("POD_NAMESPACE"), ctrlCtx.Options.BFBRegistry)
 }
 
