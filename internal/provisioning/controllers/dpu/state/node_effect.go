@@ -147,9 +147,6 @@ func handleNodeEffectCompletion(ctx context.Context, state *provisioningv1.DPUSt
 
 func createDPUNodeMaintenance(ctx context.Context, k8sClient client.Client, name string, dpu *provisioningv1.DPU) error {
 	logger := log.FromContext(ctx)
-	if dpu.Spec.NodeEffect == nil {
-		return fmt.Errorf("node effect is nil")
-	}
 	requestors := make([]string, 0)
 	if dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors != nil {
 		requestors = dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors

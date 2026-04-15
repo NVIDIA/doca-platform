@@ -68,7 +68,6 @@ func (c *DPUSet) SetConditions(conditions []metav1.Condition) {
 var DPUSetGroupVersionKind = GroupVersion.WithKind(DPUSetKind)
 
 // StrategyType describes strategy to use to reprovision existing DPUs.
-// Default is "OnDelete".
 // +kubebuilder:validation:Enum=OnDelete;RollingUpdate
 type StrategyType string
 
@@ -84,9 +83,8 @@ const (
 
 type DPUSetStrategy struct {
 	// Can be "OnDelete" or "RollingUpdate".
-	// +kubebuilder:default=OnDelete
-	// +optional
-	Type StrategyType `json:"type,omitempty"`
+	// +required
+	Type StrategyType `json:"type"`
 
 	// Rolling update config params. Present only if StrategyType = RollingUpdate.
 	// +optional
@@ -122,9 +120,8 @@ type DPUTemplateSpec struct {
 	// Specifies a BFB CR
 	BFB BFBReference `json:"bfb,omitempty"`
 	// Specifies how changes to the DPU should affect the Node
-	// +kubebuilder:default={drain: true}
-	// +optional
-	NodeEffect *NodeEffect `json:"nodeEffect,omitempty"`
+	// +required
+	NodeEffect NodeEffect `json:"nodeEffect"`
 	// Specifies details on the K8S cluster to join
 	// +optional
 	Cluster *ClusterSpec `json:"cluster,omitempty"`
@@ -262,8 +259,8 @@ func (n *NodeEffect) IsNoEffect() bool {
 // DPUSetSpec defines the desired state of DPUSet
 type DPUSetSpec struct {
 	// The rolling update strategy to use to updating existing DPUs with new ones.
-	// +optional
-	Strategy *DPUSetStrategy `json:"strategy,omitempty"`
+	// +required
+	Strategy DPUSetStrategy `json:"strategy"`
 
 	// Select the DPUNodes with specific labels
 	// +optional

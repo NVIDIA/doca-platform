@@ -257,7 +257,6 @@ func (r *DPUDeploymentReconciler) reconcile(ctx context.Context, dpuDeployment *
 	// These labels are needed to perform the upgrade synchronization logic across the child objects the DPUDeployment
 	// creates.
 	dpuNodeLabels := make(map[string]string)
-
 	deps, err := prepareDependencies(ctx, r.Client, dpuDeployment)
 	if err != nil {
 		conditions.AddFalse(
@@ -781,13 +780,7 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 		}
 	}
 
-	if dpuDeployment.Spec.DPUs.NodeEffect != nil {
-		dpuSet.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{Action: *dpuDeployment.Spec.DPUs.NodeEffect}
-	} else {
-		// We need to patch with the default which is drain in order to avoid issues with updating the nodeEffect on
-		// subsequent edits.
-		dpuSet.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{Action: provisioningv1.Action{Drain: ptr.To(true)}}
-	}
+	dpuSet.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{Action: dpuDeployment.Spec.DPUs.NodeEffect}
 
 	// Create a slice of NodeMaintenanceAdditionalRequestors
 	// Each DPUService and DPUServiceChain has a NodeMaintenanceAdditionalRequestor.

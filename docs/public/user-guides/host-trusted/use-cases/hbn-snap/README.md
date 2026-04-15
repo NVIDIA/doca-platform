@@ -1353,6 +1353,8 @@ spec:
   dpus:
     bfb: bf-bundle-$TAG
     flavor: hbn-snap-nvme-$TAG
+    nodeEffect:
+      drain: true
     dpuSets:
     - nameSuffix: "dpuset1"
       dpuAnnotations:
@@ -2346,6 +2348,8 @@ spec:
   dpus:
     bfb: bf-bundle-$TAG
     flavor: hbn-snap-virtiofs-$TAG
+    nodeEffect:
+      drain: true
     dpuSets:
     - nameSuffix: "dpuset1"
       dpuAnnotations:

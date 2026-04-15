@@ -79,12 +79,13 @@ spec:
                             x-kubernetes-int-or-string: true
                         type: object
                       type:
-                        default: OnDelete
                         description: Can be "OnDelete" or "RollingUpdate".
                         enum:
                         - OnDelete
                         - RollingUpdate
                         type: string
+                    required:
+                    - type
                     type: object
                   dpuSets:
                     description: DPUSets contains configuration for each DPUSet that
@@ -361,7 +362,9 @@ spec:
                     type: boolean
                 required:
                 - bfb
+                - dpuSetStrategy
                 - flavor
+                - nodeEffect
                 type: object
               revisionHistoryLimit:
                 default: 10

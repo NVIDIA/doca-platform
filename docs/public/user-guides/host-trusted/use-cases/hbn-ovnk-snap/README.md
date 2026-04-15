@@ -872,6 +872,8 @@ spec:
   dpus:
     bfb: bf-bundle-$TAG
     flavor: hbn-ovnk-snap-nvme-$TAG
+    nodeEffect:
+      drain: true
     dpuSets:
     - nameSuffix: "dpuset1"
       dpuNodeSelector:

@@ -87,10 +87,14 @@ var _ = Describe("DPUSet", func() {
 				Namespace:    testNS.Name,
 			},
 			Spec: provisioningv1.DPUSetSpec{
+				Strategy: provisioningv1.DPUSetStrategy{
+					Type: provisioningv1.OnDeleteStrategyType,
+				},
 				DPUTemplate: provisioningv1.DPUTemplate{
 					Spec: provisioningv1.DPUTemplateSpec{
-						BFB:       provisioningv1.BFBReference{Name: "test-bfb"},
-						DPUFlavor: "test-flavor",
+						BFB:        provisioningv1.BFBReference{Name: "test-bfb"},
+						DPUFlavor:  "test-flavor",
+						NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 					},
 				},
 			},
@@ -542,7 +546,7 @@ var _ = Describe("DPUSet", func() {
 		It("DPUSet: should propagate NodeEffect fields with NoEffect", func() {
 			By("creating dpuset with NoEffect and additional fields")
 			obj := createDPUSet("obj-dpuset")
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				// Only use NoEffect as the NodeEffect type
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
@@ -570,7 +574,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 
 				// Verify NoEffect is set correctly
 				g.Expect(dpu.Spec.NodeEffect.NoEffect).To(Equal(ptr.To(true)))
@@ -596,7 +599,7 @@ var _ = Describe("DPUSet", func() {
 		It("DPUSet: should support updating ApplyOnLabelChange from false to true after DPU provisioning", func() {
 			By("creating dpuset with ApplyOnLabelChange set to false")
 			obj := createDPUSet("obj-dpuset")
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 				},
@@ -617,7 +620,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(false)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
@@ -632,7 +634,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
@@ -640,7 +641,7 @@ var _ = Describe("DPUSet", func() {
 		It("DPUSet: should support updating ApplyOnLabelChange from true to false after DPU provisioning", func() {
 			By("creating dpuset with ApplyOnLabelChange set to true")
 			obj := createDPUSet("obj-dpuset")
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 				},
@@ -661,7 +662,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
@@ -676,7 +676,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(false)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
@@ -684,7 +683,7 @@ var _ = Describe("DPUSet", func() {
 		It("DPUSet: should support updating DPU NodeMaintenanceAdditionalRequestors when DPUSet changes", func() {
 			By("creating dpuset with NodeMaintenanceAdditionalRequestors")
 			obj := createDPUSet("obj-dpuset")
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 				},
@@ -706,7 +705,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors).To(HaveLen(1))
 				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors[0]).To(Equal("test-requestor-1"))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
@@ -722,7 +720,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors).To(ContainElements(
 					"test-requestor-1",
 					"test-requestor-2",
@@ -731,10 +728,9 @@ var _ = Describe("DPUSet", func() {
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 
-		It("DPUSet: should handle DPU with nil NodeEffect initially", func() {
-			By("creating dpuset without NodeEffect")
+		It("DPUSet: should propagate NodeEffect from DPUSet to DPU and handle updates", func() {
+			By("creating dpuset with NoEffect NodeEffect")
 			obj := createDPUSet("obj-dpuset")
-			// Don't set NodeEffect - let it be nil
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(func() {
 				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, obj))).To(Succeed())
@@ -742,20 +738,18 @@ var _ = Describe("DPUSet", func() {
 
 			dpuList := &provisioningv1.DPUList{}
 
-			By("checking initial DPU is created with default NodeEffect")
+			By("checking initial DPU is created with the specified NodeEffect")
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name))).To(Succeed())
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
-				g.Expect(dpu.Spec.NodeEffect.Drain).To(Equal(ptr.To(true))) // Default value
-				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(false)))
+				g.Expect(dpu.Spec.NodeEffect.NoEffect).To(Equal(ptr.To(true)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
 			By("updating DPUSet to add NodeEffect with ApplyOnLabelChange=true")
 			patcher := patch.NewSerialPatcher(obj, k8sClient)
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 				},
@@ -771,7 +765,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
@@ -779,7 +772,7 @@ var _ = Describe("DPUSet", func() {
 		It("DPUSet: should handle DPU with NodeEffect but nil ApplyOnLabelChange initially", func() {
 			By("creating dpuset with NodeEffect but no ApplyOnLabelChange")
 			obj := createDPUSet("obj-dpuset")
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 				},
@@ -798,7 +791,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(false)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
@@ -813,7 +805,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
@@ -821,7 +812,7 @@ var _ = Describe("DPUSet", func() {
 		It("DPUSet: should handle no-op updates (same value)", func() {
 			By("creating dpuset with ApplyOnLabelChange set to true")
 			obj := createDPUSet("obj-dpuset")
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 				},
@@ -842,7 +833,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
@@ -857,7 +847,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
@@ -883,7 +872,7 @@ var _ = Describe("DPUSet", func() {
 
 			By("creating dpuset with ApplyOnLabelChange set to false")
 			obj := createDPUSet("obj-dpuset")
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
 				},
@@ -904,7 +893,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(3))
 
 				for _, dpu := range dpuList.Items {
-					g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 					g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(false)))
 				}
 			}).WithTimeout(10 * time.Second).Should(Succeed())
@@ -920,7 +908,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(3))
 
 				for _, dpu := range dpuList.Items {
-					g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 					g.Expect(dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange).To(Equal(ptr.To(true)))
 				}
 			}).WithTimeout(10 * time.Second).Should(Succeed())
@@ -953,7 +940,7 @@ var _ = Describe("DPUSet", func() {
 		It("DPUSet: should update NodeEffect Action from Taint to Drain", func() {
 			By("creating dpuset with Taint nodeEffect")
 			obj := createDPUSet("obj-dpuset")
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Taint: &corev1.Taint{
 						Key:    "test-key",
@@ -976,7 +963,6 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(dpuList.Items).To(HaveLen(1))
 
 				dpu := dpuList.Items[0]
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.Taint).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.Taint.Key).To(Equal("test-key"))
 				g.Expect(dpu.Spec.NodeEffect.Taint.Value).To(Equal("test-value"))
@@ -1009,7 +995,7 @@ var _ = Describe("DPUSet", func() {
 
 			By("updating DPUSet to change nodeEffect from Taint to Drain")
 			patcher := patch.NewSerialPatcher(obj, k8sClient)
-			obj.Spec.DPUTemplate.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					Drain: ptr.To(true),
 				},
@@ -1023,7 +1009,6 @@ var _ = Describe("DPUSet", func() {
 
 				dpu := dpuList.Items[0]
 				g.Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPUReady))
-				g.Expect(dpu.Spec.NodeEffect).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.Drain).ToNot(BeNil())
 				g.Expect(dpu.Spec.NodeEffect.Drain).To(Equal(ptr.To(true)))
 				g.Expect(dpu.Spec.NodeEffect.Taint).To(BeNil())
@@ -1071,11 +1056,14 @@ var _ = Describe("DPUSet", func() {
 					Namespace: testNamespace,
 				},
 				Spec: provisioningv1.DPUSetSpec{
+					Strategy: provisioningv1.DPUSetStrategy{
+						Type: provisioningv1.OnDeleteStrategyType,
+					},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:       provisioningv1.BFBReference{Name: "test-bfb"},
 							DPUFlavor: "test-flavor",
-							NodeEffect: &provisioningv1.NodeEffect{
+							NodeEffect: provisioningv1.NodeEffect{
 								Action: provisioningv1.Action{
 									Drain: ptr.To(true),
 								},
@@ -1108,7 +1096,7 @@ var _ = Describe("DPUSet", func() {
 			By("Updating DPU spec to have NoEffect action (different from DPUSet's Drain)")
 			patch := client.MergeFrom(dpu.DeepCopy())
 			dpu.Labels[cutil.DPUSetDPUTemplateSpecHashLabelKey] = "oldhash456"
-			dpu.Spec.NodeEffect = &provisioningv1.NodeEffect{
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true), // Different from DPUSet's Drain
 				},
@@ -1223,11 +1211,14 @@ var _ = Describe("DPUSet", func() {
 					Namespace: testNamespace,
 				},
 				Spec: provisioningv1.DPUSetSpec{
+					Strategy: provisioningv1.DPUSetStrategy{
+						Type: provisioningv1.OnDeleteStrategyType,
+					},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:       provisioningv1.BFBReference{Name: "test-bfb"},
 							DPUFlavor: "test-flavor",
-							NodeEffect: &provisioningv1.NodeEffect{
+							NodeEffect: provisioningv1.NodeEffect{
 								Action: provisioningv1.Action{
 									NoEffect: ptr.To(true),
 								},

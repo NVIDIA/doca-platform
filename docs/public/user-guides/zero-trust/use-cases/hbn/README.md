@@ -481,7 +481,9 @@ spec:
     bfb: bf-bundle-$TAG
     flavor: hbn-$TAG
     nodeEffect:
-      noEffect: true
+      hold: true
+    dpuSetStrategy:
+      type: OnDelete
     dpuSets:
     - nameSuffix: "dpuset1"
       dpuNodeSelector:
@@ -900,6 +902,28 @@ DPFOperatorConfig/dpfoperatorconfig                 dpf-operator-system
         └─DPUService/doca-hbn-jmj45                 dpf-operator-system  Ready: True  Success               11m
 ```
 
+###### Releasing the Node Effect Hold
+
+Since the DPUDeployment is configured with `nodeEffect.hold: true`, the DPUs will pause at the "Node Effect"
+phase and wait for external action before proceeding with provisioning. This gives the administrator control
+over when the node effect is applied.
+
+To check that DPUNodeMaintenance objects have been created and are in the hold state:
+
+```shell
+kubectl get dpunodemaintenances -n dpf-operator-system
+```
+
+Once you are ready for provisioning to proceed, release the hold by setting the annotation on the
+DPUNodeMaintenance objects to `"false"`. You can do this per-node or all at once:
+
+```shell
+kubectl annotate --overwrite dpunodemaintenances -n dpf-operator-system --all provisioning.dpu.nvidia.com/wait-for-external-nodeeffect=false
+```
+
+After releasing the hold, the DPUs will proceed through the remaining provisioning phases (BFB installation,
+OS installation, etc.).
+
 ###### Making the DPUs Ready
 
 In order to make the DPUs ready, we will need to manually power cycle the host. This operation should be done in the
@@ -1179,7 +1203,9 @@ spec:
     bfb: bf-bundle-$TAG
     flavor: hbn-$TAG
     nodeEffect:
-      noEffect: true
+      hold: true
+    dpuSetStrategy:
+      type: OnDelete
     dpuSets:
     - nameSuffix: "dpuset1"
       dpuNodeSelector:
@@ -1732,6 +1758,28 @@ DPFOperatorConfig/dpfoperatorconfig                 dpf-operator-system
       └─DPUServices
         └─DPUService/doca-hbn-bjqbh                 dpf-operator-system  Ready: True  Success        77s
 ```
+
+###### Releasing the Node Effect Hold
+
+Since the DPUDeployment is configured with `nodeEffect.hold: true`, the DPUs will pause at the "Node Effect"
+phase and wait for external action before proceeding with provisioning. This gives the administrator control
+over when the node effect is applied.
+
+To check that DPUNodeMaintenance objects have been created and are in the hold state:
+
+```shell
+kubectl get dpunodemaintenances -n dpf-operator-system
+```
+
+Once you are ready for provisioning to proceed, release the hold by setting the annotation on the
+DPUNodeMaintenance objects to `"false"`. You can do this per-node or all at once:
+
+```shell
+kubectl annotate --overwrite dpunodemaintenances -n dpf-operator-system --all provisioning.dpu.nvidia.com/wait-for-external-nodeeffect=false
+```
+
+After releasing the hold, the DPUs will proceed through the remaining provisioning phases (BFB installation,
+OS installation, etc.).
 
 ###### Making the DPUs Ready
 

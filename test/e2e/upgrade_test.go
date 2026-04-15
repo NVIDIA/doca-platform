@@ -35,6 +35,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -179,6 +180,36 @@ var _ = Describe("DPF Upgrade validation", Labels{Domain.DPFUpgradeValidation}, 
 
 		It("validate DPU and DPUService generations after upgrade", func() {
 			validateGenerationsAfterUpgrade()
+		})
+
+		It("update DPUDeployments with new required fields", func() {
+			By("Listing all DPUDeployments in the system namespace")
+			dpuDeploymentList := &dpuservicev1.DPUDeploymentList{}
+			Expect(input.client.List(ctx, dpuDeploymentList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			Expect(dpuDeploymentList.Items).NotTo(BeEmpty(), "expected at least one DPUDeployment")
+
+			for i := range dpuDeploymentList.Items {
+				dpuDeployment := &dpuDeploymentList.Items[i]
+				By(fmt.Sprintf("Patching DPUDeployment %s with dpuSetStrategy and nodeEffect", dpuDeployment.Name))
+				original := dpuDeployment.DeepCopy()
+				dpuDeployment.Spec.DPUs.DPUSetStrategy = provisioningv1.DPUSetStrategy{
+					Type: provisioningv1.RollingUpdateStrategyType,
+				}
+				dpuDeployment.Spec.DPUs.NodeEffect = provisioningv1.Action{
+					Drain: ptr.To(true),
+				}
+				Expect(input.client.Patch(ctx, dpuDeployment, client.MergeFrom(original))).To(Succeed())
+			}
+
+			By("Waiting for DPUSetsReconciled condition to become True")
+			for i := range dpuDeploymentList.Items {
+				dpuDeployment := &dpuDeploymentList.Items[i]
+				Eventually(func(g Gomega) {
+					g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+					g.Expect(conditions.IsTrue(dpuDeployment, dpuservicev1.ConditionDPUSetsReconciled)).To(BeTrue(),
+						"DPUSetsReconciled should be True for %s", dpuDeployment.Name)
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+			}
 		})
 
 		It("perform DPU and DPUService rollout test", func() {

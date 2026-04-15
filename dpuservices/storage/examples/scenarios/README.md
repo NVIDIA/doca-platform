@@ -432,6 +432,10 @@ spec:
         nodeSelector:
           matchLabels:
             feature.node.kubernetes.io/dpu-enabled: "true"
+    nodeEffect:
+      hold: true
+    dpuSetStrategy:
+      type: OnDelete
   services:
     snap-node-driver:
       serviceTemplate: snap-node-driver
@@ -1141,6 +1145,10 @@ spec:
         nodeSelector:
           matchLabels:
             feature.node.kubernetes.io/dpu-enabled: "true"
+    nodeEffect:
+      hold: true
+    dpuSetStrategy:
+      type: OnDelete
   services:
     snap-node-driver:
       serviceTemplate: snap-node-driver
@@ -1853,6 +1861,10 @@ spec:
         nodeSelector:
           matchLabels:
             feature.node.kubernetes.io/dpu-enabled: "true"
+    nodeEffect:
+      hold: true
+    dpuSetStrategy:
+      type: OnDelete
   services:
     snap-node-driver:
       serviceTemplate: snap-node-driver
@@ -2509,6 +2521,10 @@ spec:
         nodeSelector:
           matchLabels:
             feature.node.kubernetes.io/dpu-enabled: "true"
+    nodeEffect:
+      hold: true
+    dpuSetStrategy:
+      type: OnDelete
   services:
     snap-node-driver:
       serviceTemplate: snap-node-driver
@@ -3310,6 +3326,10 @@ spec:
         nodeSelector:
           matchLabels:
             feature.node.kubernetes.io/dpu-enabled: "true"
+    nodeEffect:
+      drain: true
+    dpuSetStrategy:
+      type: RollingUpdate
   services:
     snap-csi-plugin:
       serviceTemplate: snap-csi-plugin
@@ -4153,6 +4173,10 @@ spec:
         nodeSelector:
           matchLabels:
             feature.node.kubernetes.io/dpu-enabled: "true"
+    nodeEffect:
+      drain: true
+    dpuSetStrategy:
+      type: RollingUpdate
   services:
     snap-csi-plugin:
       serviceTemplate: snap-csi-plugin
@@ -4940,6 +4964,10 @@ spec:
         nodeSelector:
           matchLabels:
             feature.node.kubernetes.io/dpu-enabled: "true"
+    nodeEffect:
+      drain: true
+    dpuSetStrategy:
+      type: RollingUpdate
   services:
     snap-csi-plugin:
       serviceTemplate: snap-csi-plugin

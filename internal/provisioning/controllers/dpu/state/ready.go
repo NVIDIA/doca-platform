@@ -65,7 +65,7 @@ func Ready(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Controll
 			return *state, err
 		} else if needUpdateLabels {
 			// Check if applyOnLabelChange is enabled
-			if dpu.Spec.NodeEffect != nil && dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange != nil && *dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange {
+			if dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange != nil && *dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange {
 				// Set status field to trigger node effect
 				state.PostProvisioningNodeEffect = ptr.To(true)
 				// Transition to nodeEffect state instead of DPUClusterConfig

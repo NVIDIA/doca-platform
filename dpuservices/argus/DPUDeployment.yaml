@@ -12,6 +12,10 @@ spec:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
     flavor: dpf-provisioning-argus
+    nodeEffect:
+      drain: true
+    dpuSetStrategy:
+      type: RollingUpdate
   serviceChains:
     switches:
     - ports:

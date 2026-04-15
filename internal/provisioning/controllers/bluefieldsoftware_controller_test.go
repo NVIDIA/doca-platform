@@ -36,6 +36,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/utils/ptr"
 )
 
 var _ = Describe("BlueFieldSoftware", func() {
@@ -680,6 +681,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 					DPUDeviceName:     "test-device",
 					DPUFlavor:         "test-flavor",
 					SerialNumber:      "MT25066004C12345",
+					NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, dpu)).To(Succeed())
