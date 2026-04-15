@@ -182,7 +182,7 @@ var _ = Describe("Installing", func() {
 			Spec: corev1.ServiceSpec{
 				Type: corev1.ServiceTypeNodePort,
 				Ports: []corev1.ServicePort{
-					{Name: "http", Port: int32(bfbregistry.ContainerPort), TargetPort: intstr.FromInt(bfbregistry.ContainerPort)},
+					{Name: "http", Port: int32(bfbregistry.ContainerPort), TargetPort: intstr.FromInt32(bfbregistry.ContainerPort)},
 				},
 			},
 		}

@@ -237,13 +237,22 @@ type RegistryConfiguration struct {
 	// For zero-trust environments, this must be set so that the BFB Registry can be accessed from DPU BMC.
 	// +kubebuilder:validation:Pattern="^http://"
 	// +optional
+	// Deprecated: Address is deprecated and will be removed in a future release.
 	Address *string `json:"address,omitempty"`
 
 	// Port is the port on which the registry instances will listen
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=65535
 	// +optional
+	// Deprecated: Address is deprecated and will be removed in a future release.
 	Port *int `json:"port,omitempty"`
+
+	// LoadBalancerAddress is the address of the load balancer for the BFB Registry which the hostagent/redfish use to fetch the BFB and generated bf.cfg.
+	// To enable the load balancer, you need to deploy your own load balancer controller and configure the LoadBalancerAddress field.
+	// Then check the bfb-registry nodeport service and make your load balancer controller to distribute the requests to the bfb-registry nodeport.
+	// +kubebuilder:validation:Pattern="^http://"
+	// +optional
+	LoadBalancerAddress *string `json:"loadBalancerAddress,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"

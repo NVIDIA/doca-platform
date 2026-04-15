@@ -50,6 +50,7 @@ type DPUOptions struct {
 	BFCFGTemplateFile           string
 	BFBRegistry                 string
 	BFBPVC                      string
+	BFBRegistryLoadBalancer     string
 	CustomCASecretName          string
 	MaxDPUParallelInstallations int32
 	// OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
