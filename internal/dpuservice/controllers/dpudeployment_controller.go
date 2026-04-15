@@ -333,7 +333,7 @@ func (r *DPUDeploymentReconciler) reconcile(ctx context.Context, dpuDeployment *
 		requeue = req
 	}
 
-	req, hasDisruptiveChains, err := reconcileDPUServiceChain(ctx, r.Client, dpuDeployment, dpuNodeLabels)
+	req, hasDisruptiveChains, err := reconcileDPUServiceChain(ctx, r.Client, dpuDeployment, dpuNodeLabels, patchedDPUServices)
 	if err != nil {
 		conditions.AddFalse(
 			dpuDeployment,
