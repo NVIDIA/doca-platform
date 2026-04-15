@@ -26,6 +26,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/release"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -509,7 +510,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			}
 			tt.vars.HelmCharts[componentName] = "helmchart.com/chart:v1"
 
-			got, err := f.GenerateManifests(context.Background(), tt.vars, skipApplySetCreationOption{})
+			got, err := f.GenerateManifests(context.Background(), tt.vars)
 			if tt.wantErr {
 				g.Expect(err).To(HaveOccurred())
 			}
@@ -529,7 +530,9 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 			err = runtime.DefaultUnstructuredConverter.FromUnstructured(gotUnstructured.UnstructuredContent(), gott)
 			g.Expect(err).ToNot(HaveOccurred())
 
-			g.Expect(gott).To(BeComparableTo(tt.want))
+			g.Expect(gott).To(BeComparableTo(tt.want, cmpopts.IgnoreMapEntries(func(k, _ string) bool {
+				return k == applysetPartOfLabel
+			})))
 		})
 	}
 }

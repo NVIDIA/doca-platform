@@ -251,15 +251,19 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 			controller[operatorv1.NodeSRIOVDevicePluginControllerName.String()] = true
 		}
 
-		deployValidation := func(c client.Client, clusterName, name string) {
+		deployValidation := func(g Gomega, c client.Client, clusterName, name string) {
 			nameForCluster := fmt.Sprintf("%s-%s", clusterName, name)
+			trackingAnnotationValuePrefix := nameForCluster
+			if prereqsNamespace != "" {
+				trackingAnnotationValuePrefix = fmt.Sprintf("%s_%s", dpfOperatorSystemNamespace, nameForCluster)
+			}
 			tracker.By(nameForCluster, "verifying overrides for %s", nameForCluster)
 			deployments := appsv1.DeploymentList{}
 			g.Expect(c.List(ctx, &deployments)).To(Succeed())
 
 			var matchingDeployments []appsv1.Deployment
 			for _, deploy := range deployments.Items {
-				if strings.HasPrefix(deploy.GetAnnotations()[argoCDTrackingIDAnnotation], nameForCluster) {
+				if strings.HasPrefix(deploy.GetAnnotations()[argoCDTrackingIDAnnotation], trackingAnnotationValuePrefix) {
 					matchingDeployments = append(matchingDeployments, deploy)
 				}
 			}
@@ -275,18 +279,22 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 		// Verify overrides for inCluster DPUServices
 		for name := range inClusterDeploymentDPUServices {
 			n := getPerClusterDPUServiceName(name, input.dpuClusters[0].Name, input.dpuClusters[0].Namespace)
-			deployValidation(input.client, "in-cluster", n)
+			deployValidation(g, input.client, "in-cluster", n)
 		}
 		// Verify overrides in the DPUClusters
 		for name := range daemonSetDPUServices {
 			nameForCluster := fmt.Sprintf("%s-%s", input.dpuClusters[0].Name, name)
+			trackingAnnotationValuePrefix := nameForCluster
+			if prereqsNamespace != "" {
+				trackingAnnotationValuePrefix = fmt.Sprintf("%s_%s", dpfOperatorSystemNamespace, nameForCluster)
+			}
 			tracker.By(nameForCluster, "verifying overrides for %s", nameForCluster)
 			daemonSets := appsv1.DaemonSetList{}
 			g.Expect(dpuClusterClient[0].List(ctx, &daemonSets)).To(Succeed())
 
 			var matchingDaemonSets []appsv1.DaemonSet
 			for _, ds := range daemonSets.Items {
-				if strings.HasPrefix(ds.GetAnnotations()[argoCDTrackingIDAnnotation], nameForCluster) {
+				if strings.HasPrefix(ds.GetAnnotations()[argoCDTrackingIDAnnotation], trackingAnnotationValuePrefix) {
 					matchingDaemonSets = append(matchingDaemonSets, ds)
 				}
 			}
@@ -491,15 +499,16 @@ func ValidateDPFOperatorPathConfiguration(ctx context.Context, input *systemTest
 	modifiedCNIBinPath := "/cnibin"
 	modifiedOVSharedLibPath := "/ovssharedlib"
 	modifiedOVSharedLib64Path := "/ovssharedlib64"
-	modifiedConfig.Spec.Overrides = &operatorv1.Overrides{
-		DPUCNIBinPath:                       ptr.To(modifiedCNIBinPath),
-		DPUCNIConfigPath:                    ptr.To(modifiedCNIConfigPath),
-		DPUOpenvSwitchRunPath:               ptr.To(modifiedOVSRunPath),
-		DPUOpenvSwitchBinPath:               ptr.To(modifiedOVSBinPath),
-		DPUOpenvSwitchSystemSharedLibPath:   ptr.To(modifiedOVSharedLibPath),
-		DPUOpenvSwitchSystemSharedLib64Path: ptr.To(modifiedOVSharedLib64Path),
-		FlannelSkipCNIConfigInstallation:    ptr.To(false),
+	if modifiedConfig.Spec.Overrides == nil {
+		modifiedConfig.Spec.Overrides = &operatorv1.Overrides{}
 	}
+	modifiedConfig.Spec.Overrides.DPUCNIBinPath = ptr.To(modifiedCNIBinPath)
+	modifiedConfig.Spec.Overrides.DPUCNIConfigPath = ptr.To(modifiedCNIConfigPath)
+	modifiedConfig.Spec.Overrides.DPUOpenvSwitchRunPath = ptr.To(modifiedOVSRunPath)
+	modifiedConfig.Spec.Overrides.DPUOpenvSwitchBinPath = ptr.To(modifiedOVSBinPath)
+	modifiedConfig.Spec.Overrides.DPUOpenvSwitchSystemSharedLibPath = ptr.To(modifiedOVSharedLibPath)
+	modifiedConfig.Spec.Overrides.DPUOpenvSwitchSystemSharedLib64Path = ptr.To(modifiedOVSharedLib64Path)
+	modifiedConfig.Spec.Overrides.FlannelSkipCNIConfigInstallation = ptr.To(false)
 	Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(originalConfig))).To(Succeed())
 
 	dpuServiceDaemonSetsWithPathChanges := map[operatorv1.ComponentName]bool{
@@ -515,11 +524,15 @@ func ValidateDPFOperatorPathConfiguration(ctx context.Context, input *systemTest
 		for name := range dpuServiceDaemonSetsWithPathChanges {
 			daemonSets := appsv1.DaemonSetList{}
 			nameForCluster := fmt.Sprintf("%s-%s", input.dpuClusters[0].Name, name)
+			trackingAnnotationValuePrefix := nameForCluster
+			if prereqsNamespace != "" {
+				trackingAnnotationValuePrefix = fmt.Sprintf("%s_%s", dpfOperatorSystemNamespace, nameForCluster)
+			}
 			g.Expect(dpuClusterClient[0].List(ctx, &daemonSets)).To(Succeed())
 
 			var matchingDaemonSets []appsv1.DaemonSet
 			for _, ds := range daemonSets.Items {
-				if strings.HasPrefix(ds.GetAnnotations()[argoCDTrackingIDAnnotation], nameForCluster) {
+				if strings.HasPrefix(ds.GetAnnotations()[argoCDTrackingIDAnnotation], trackingAnnotationValuePrefix) {
 					matchingDaemonSets = append(matchingDaemonSets, ds)
 				}
 			}
@@ -600,10 +613,11 @@ func ValidateDPFOperatorKubernetesAPIServerVIPAndPort(ctx context.Context, input
 	originalConfig := modifiedConfig.DeepCopy()
 
 	By("modifying the DPFOperatorConfig to set the Kubernetes API Server related variables")
-	modifiedConfig.Spec.Overrides = &operatorv1.Overrides{
-		KubernetesAPIServerVIP:  ptr.To("192.168.1.1"),
-		KubernetesAPIServerPort: ptr.To(1111),
+	if modifiedConfig.Spec.Overrides == nil {
+		modifiedConfig.Spec.Overrides = &operatorv1.Overrides{}
 	}
+	modifiedConfig.Spec.Overrides.KubernetesAPIServerVIP = ptr.To("192.168.1.1")
+	modifiedConfig.Spec.Overrides.KubernetesAPIServerPort = ptr.To(1111)
 	Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(originalConfig))).To(Succeed())
 
 	By("validating that the provisioning controller pod has the correct argument")

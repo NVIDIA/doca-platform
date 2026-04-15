@@ -138,14 +138,10 @@ func (p *provisioningControllerObjects) Parse() (err error) {
 }
 
 // GenerateManifests applies edits and returns objects
-func (p *provisioningControllerObjects) GenerateManifests(_ context.Context, vars Variables, options ...GenerateManifestOption) ([]client.Object, error) {
+func (p *provisioningControllerObjects) GenerateManifests(_ context.Context, vars Variables) ([]client.Object, error) {
 	ret := []client.Object{}
 	if ok := vars.DisableSystemComponents[p.Name()]; ok {
 		return []client.Object{}, nil
-	}
-	opts := &GenerateManifestOptions{}
-	for _, option := range options {
-		option.Apply(opts)
 	}
 	// check vars
 	// BFBPersistentVolumeClaimName is now optional - if not provided, will use hostPath
@@ -162,11 +158,7 @@ func (p *provisioningControllerObjects) GenerateManifests(_ context.Context, var
 	labelsToAdd := map[string]string{
 		operatorv1.DPFComponentLabelKey: p.Name().String(),
 		release.DPFVersionLabelKey:      release.DPFVersion(),
-	}
-	applySetID := ApplySetID(vars.Namespace, p)
-	// Add the ApplySet to the manifests if this hasn't been disabled.
-	if !opts.skipApplySet {
-		labelsToAdd[applysetPartOfLabel] = applySetID
+		applysetPartOfLabel:             ApplySetID(vars.Namespace, p),
 	}
 
 	bfbRegistryObjects, err := p.editRegistryObjs(vars, labelsToAdd)

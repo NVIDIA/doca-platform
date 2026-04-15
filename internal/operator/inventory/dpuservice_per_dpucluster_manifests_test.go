@@ -28,6 +28,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -1137,7 +1138,7 @@ spec:
 			err := scs.Parse()
 			g.Expect(err).NotTo(HaveOccurred())
 
-			got, err := scs.GenerateManifests(context.Background(), tt.vars, skipApplySetCreationOption{})
+			got, err := scs.GenerateManifests(context.Background(), tt.vars)
 			g.Expect(err).NotTo(HaveOccurred())
 
 			// Find DPUServices and DPUServiceCredentialsRequests in results
@@ -1164,10 +1165,13 @@ spec:
 			}
 
 			// Verify DPUServices
-			g.Expect(gotDPUServices).To(BeComparableTo(tt.wantDPUServices))
+			ignoreApplySetLabel := cmpopts.IgnoreMapEntries(func(k, _ string) bool {
+				return k == applysetPartOfLabel
+			})
+			g.Expect(gotDPUServices).To(BeComparableTo(tt.wantDPUServices, ignoreApplySetLabel))
 
 			// Verify DPUServiceCredentialsRequests
-			g.Expect(gotDPUServiceCredentialsRequests).To(BeComparableTo(tt.wantDPUServiceCredentialsRequests))
+			g.Expect(gotDPUServiceCredentialsRequests).To(BeComparableTo(tt.wantDPUServiceCredentialsRequests, ignoreApplySetLabel))
 		})
 	}
 }

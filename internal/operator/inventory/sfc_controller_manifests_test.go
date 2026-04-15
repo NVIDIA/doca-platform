@@ -26,6 +26,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/release"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -290,7 +291,7 @@ spec:
 			err := sfc.Parse()
 			g.Expect(err).NotTo(HaveOccurred())
 
-			got, err := sfc.GenerateManifests(context.Background(), tt.vars, skipApplySetCreationOption{})
+			got, err := sfc.GenerateManifests(context.Background(), tt.vars)
 			g.Expect(err).NotTo(HaveOccurred())
 
 			// Find DPUService in results
@@ -316,12 +317,16 @@ spec:
 			}
 
 			// Verify DPUService
-			g.Expect(gotDPUService).To(BeComparableTo(tt.wantDPUService))
+			g.Expect(gotDPUService).To(BeComparableTo(tt.wantDPUService, cmpopts.IgnoreMapEntries(func(k, _ string) bool {
+				return k == applysetPartOfLabel
+			})))
 
 			// Verify DPUServiceNADs
 			g.Expect(gotDPUServiceNADs).To(HaveLen(len(tt.wantDPUServiceNADs)))
 			for i, wantNAD := range tt.wantDPUServiceNADs {
-				g.Expect(gotDPUServiceNADs[i]).To(Equal(wantNAD))
+				g.Expect(gotDPUServiceNADs[i]).To(BeComparableTo(wantNAD, cmpopts.IgnoreMapEntries(func(k, _ string) bool {
+					return k == applysetPartOfLabel
+				})))
 			}
 		})
 	}

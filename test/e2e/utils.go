@@ -121,6 +121,9 @@ var (
 	netutilsImage = ""
 	// ngcAPIKey can be used to create a secret to be able to pull images from NGC, this secret can be used by DPUservices and should not be used for core components.
 	ngcAPIKey = ""
+	// prereqsNamespace can be used to override the namespace where the prerequisites are deployed.
+	// This is useful to test scenarios where the prerequisites are deployed in a different namespace than the known default.
+	prereqsNamespace = ""
 	// Labels and resources targeted for cleanup before running our e2e tests.
 	// This cleanup is typically handled by cleanupObjs, but if an e2e test fails, the standard cleanup may not be executed.
 	// Note: order matters as some object deletion depends on controllers that may be deployed via dpuservices/dpudeployments

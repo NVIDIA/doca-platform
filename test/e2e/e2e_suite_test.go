@@ -151,6 +151,13 @@ func getEnvVariables() {
 		_, basePath, _, _ := runtime.Caller(0)
 		artifactsDir = filepath.Join(filepath.Dir(basePath), "../../artifacts")
 	}
+
+	if ns, found := os.LookupEnv("PREREQS_NAMESPACE"); found {
+		// Only set the override if it differs from the default namespace.
+		if ns != dpfOperatorSystemNamespace {
+			prereqsNamespace = ns
+		}
+	}
 }
 
 // Run e2e tests using the Ginkgo runner.

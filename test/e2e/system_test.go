@@ -111,10 +111,11 @@ func SetInput() {
 			}
 		}
 		By(fmt.Sprintf("Using API server VIP %s:%d for zero-trust kubeconfig", controlPlaneIP, apiServerPort))
-		dpfOperatorConfig.Spec.Overrides = &operatorv1.Overrides{
-			KubernetesAPIServerVIP:  ptr.To(controlPlaneIP),
-			KubernetesAPIServerPort: ptr.To(apiServerPort),
+		if dpfOperatorConfig.Spec.Overrides == nil {
+			dpfOperatorConfig.Spec.Overrides = &operatorv1.Overrides{}
 		}
+		dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerVIP = ptr.To(controlPlaneIP)
+		dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort = ptr.To(apiServerPort)
 	}
 
 	if isGinkgoLabelApplied(Domain.Scale) {
@@ -124,6 +125,14 @@ func SetInput() {
 				Disable: ptr.To(true),
 			},
 		}
+	}
+
+	if prereqsNamespace != "" {
+		if dpfOperatorConfig.Spec.Overrides == nil {
+			dpfOperatorConfig.Spec.Overrides = &operatorv1.Overrides{}
+		}
+
+		dpfOperatorConfig.Spec.Overrides.ArgoCDNamespace = ptr.To(prereqsNamespace)
 	}
 
 	input = &systemTestInput{
