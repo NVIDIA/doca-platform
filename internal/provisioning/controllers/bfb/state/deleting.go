@@ -22,6 +22,7 @@ import (
 	"os"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	butil "github.com/nvidia/doca-platform/internal/provisioning/controllers/bfb/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/events"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
@@ -38,6 +39,13 @@ type bfbDeletingState struct {
 }
 
 func (st *bfbDeletingState) Handle(ctx context.Context, client ctrlclient.Client) error {
+	// Ensure any in-flight download task is canceled/cleaned up during deletion.
+	taskName := cutil.GenerateBFBTaskName(*st.bfb)
+	if cancelFunc, ok := butil.DownloadingTaskMap.Load(taskName + "cancel"); ok {
+		cancelFunc.(context.CancelFunc)()
+	}
+	butil.DownloadingTaskMap.Delete(taskName)
+	butil.DownloadingTaskMap.Delete(taskName + "cancel")
 
 	// Check for DPUSet references (scoped to same namespace)
 	dpusetList := &provisioningv1.DPUSetList{}
