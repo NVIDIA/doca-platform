@@ -108,7 +108,7 @@ type cliFlags struct {
 	syncPeriod                     time.Duration
 	dpuInstallInterface            string
 	bfCFGTemplateFile              string
-	bfbRegistry                    string
+	bfbRegistryLoadBalancerAddress string
 	concurrency                    int
 	customCASecretName             string
 	dmsPodEnvs                     []string
@@ -143,7 +143,7 @@ func parseFlags() *cliFlags {
 	fs.IntVar(&flags.concurrency, "concurrency", 1, "Number of objects to process simultaneously by each controller.")
 	fs.StringVar(&flags.dpuInstallInterface, "dpu-install-interface", string(provisioningv1.InstallViaHostAgent), "the interface used to provision DPUs")
 	fs.StringVar(&flags.bfCFGTemplateFile, "bf-cfg-template-file", "", "A custom bf.cfg template used as part of DPU provisioning.")
-	fs.StringVar(&flags.bfbRegistry, "bfb-registry", "", "hostname of the BFB registry from which BFBs are downloaded")
+	fs.StringVar(&flags.bfbRegistryLoadBalancerAddress, "bfb-registry-load-balancer-address", "", "load balancer address for the BFB registry from which BFBs are downloaded")
 	fs.StringVar(&flags.customCASecretName, "custom-CA-secret", "", "the secret object which containing the custom CA certificate")
 	fs.StringSliceVar(&flags.dmsPodEnvs, "dms-pod-envs", []string{}, "environment variables to set in the DMS pod")
 	fs.Int32Var(&flags.maxDPUParallelInstallations, "max-dpu-parallel-installations", 50, "The maximum number of DPUs that can be in provisioning at once")
@@ -237,30 +237,36 @@ func createManager(flags *cliFlags) (ctrl.Manager, *rest.Config) {
 	return mgr, clientConfig
 }
 
-func resolveBFBRegistry(flags *cliFlags) error {
-	// always parse address from environment variable NODE_IP for RedFish installation,ignore the bfb-registry flag
-	if flags.dpuInstallInterface == string(provisioningv1.InstallViaRedFish) {
-		nodeIP := os.Getenv("NODE_IP")
-		if nodeIP == "" {
-			return fmt.Errorf("NODE_IP is empty, can not build the bfb-registry address")
+func resolveBFBRegistry(flags *cliFlags) (string, error) {
+	// If the load balancer address is set, use it to build the bfb-registry address
+	registryAddress := ""
+	if flags.bfbRegistryLoadBalancerAddress == "" {
+		if flags.dpuInstallInterface == string(provisioningv1.InstallViaRedFish) {
+			nodeIP := os.Getenv("NODE_IP")
+			if nodeIP == "" {
+				return "", fmt.Errorf("NODE_IP is empty, can not build the bfb-registry address")
+			}
+			registryAddress = "http://" + nodeIP
+		} else {
+			registryAddress = defaultBFBRegistryAddress
 		}
-		flags.bfbRegistry = "http://" + nodeIP
 	} else {
-		flags.bfbRegistry = defaultBFBRegistryAddress
+		registryAddress = flags.bfbRegistryLoadBalancerAddress
 	}
-	flags.bfbRegistry = httputils.EnsureHTTPScheme(flags.bfbRegistry)
-	setupLog.Info("bfb-registry address for downloading BFB files", "bfbRegistry", flags.bfbRegistry)
-	return nil
+	registryAddress = httputils.EnsureHTTPScheme(registryAddress)
+	setupLog.Info("bfb-registry address for downloading BFB files", "bfbRegistry", registryAddress)
+	return registryAddress, nil
 }
 
-func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferences []corev1.LocalObjectReference) *dutil.DPUInProvisioningMap {
+func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, imagePullSecretsReferences []corev1.LocalObjectReference) *dutil.DPUInProvisioningMap {
 	alloc := allocator.NewAllocator(mgr.GetClient())
 	dpuOptions := dutil.DPUOptions{
 		ImagePullSecrets:            imagePullSecretsReferences,
 		DPUInstallInterface:         flags.dpuInstallInterface,
 		BFCFGTemplateFile:           flags.bfCFGTemplateFile,
-		BFBRegistry:                 flags.bfbRegistry,
+		BFBRegistry:                 bfbRegistry,
 		BFBPVC:                      flags.bfbPVC,
+		BFBRegistryLoadBalancer:     flags.bfbRegistryLoadBalancerAddress,
 		CustomCASecretName:          flags.customCASecretName,
 		MaxDPUParallelInstallations: flags.maxDPUParallelInstallations,
 		OSInstallTimeout:            flags.osInstallTimeout,
@@ -333,7 +339,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, imagePullSecretsReferen
 		DMSTimeout:            flags.dmsTimeout,
 		DMSPodTimeout:         flags.dmsPodTimeout,
 		DMSPodEnvs:            flags.dmsPodEnvs,
-		BFBRegistryAddress:    flags.bfbRegistry,
+		BFBRegistryAddress:    bfbRegistry,
 		HostAgentDNSPolicy:    corev1.DNSPolicy(flags.hostAgentDNSPolicy),
 	}
 	setupLog.Info("DPUNode", "options", dmsPodOptions)
@@ -466,13 +472,13 @@ func main() {
 		}
 	}
 
-	err := resolveBFBRegistry(flags)
+	bfbRegistryAddress, err := resolveBFBRegistry(flags)
 	if err != nil {
-		setupLog.Error(err, "unable to resolve bfb-registry address", "bfbRegistry", flags.bfbRegistry)
+		setupLog.Error(err, "unable to resolve bfb-registry address", "bfbRegistry", bfbRegistryAddress)
 		os.Exit(1)
 	}
 
-	dpuMap := setupControllers(mgr, flags, imagePullSecretsReferences)
+	dpuMap := setupControllers(mgr, flags, bfbRegistryAddress, imagePullSecretsReferences)
 	setupWebhooks(mgr, flags.dpuInstallInterface)
 	setupCSRController(mgr, clientConfig)
 
