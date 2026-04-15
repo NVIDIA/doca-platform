@@ -168,9 +168,14 @@ func ResolveParams(ctx context.Context, controllerCtx *util.ControllerContext, d
 			return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("creating DPU agent bootstrap kubeconfig: %w", err)
 		}
 		params.BootstrapKubeconfig = string(kubeconfigData)
-		bfbRegistryAddr, err := cutil.GetBFBRegistryAddressWithPort(ctx, controllerCtx.Client, os.Getenv("POD_NAMESPACE"), controllerCtx.Options.BFBRegistry)
-		if err != nil {
-			return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("bfb-registry address with port: %w", err)
+		var bfbRegistryAddr string
+		if controllerCtx.Options.BFBRegistryLoadBalancer != "" {
+			bfbRegistryAddr = controllerCtx.Options.BFBRegistryLoadBalancer
+		} else {
+			bfbRegistryAddr, err = cutil.GetBFBRegistryAddressWithPort(ctx, controllerCtx.Client, os.Getenv("POD_NAMESPACE"), controllerCtx.Options.BFBRegistry)
+			if err != nil {
+				return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("bfb-registry address with port: %w", err)
+			}
 		}
 		params.DPUAgentRepoURL = strings.TrimRight(bfbRegistryAddr, "/") + "/deb"
 	} else {

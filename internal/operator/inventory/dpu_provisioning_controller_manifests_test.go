@@ -314,7 +314,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			fmt.Sprintf("--dpu-install-interface=%s", provisioningv1.InstallViaHostAgent),
 			fmt.Sprintf("--dms-pod-envs=KUBERNETES_SERVICE_HOST=%s,KUBERNETES_SERVICE_PORT=%d", expectedKubernetesAPIServerVIP, expectedKubernetesAPIServerPort),
 			fmt.Sprintf("--multi-dpu-operations-sync-wait-time=%s", expectedMultiDPUOperationsSyncWaitTime),
-			"--bfb-registry=",
+			"--bfb-registry-load-balancer-address=",
 		}
 		g.Expect(gotDeployment.Spec.Template.Spec.Containers).To(HaveLen(1))
 		g.Expect(container.Args).To(HaveLen(len(expectedArgs)))
@@ -591,9 +591,10 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 		// Only manager container; bfb-registry is created by controller when leader
 		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
 
-		// Manager container gets --bfb-registry from InstallViaRedfish.BFBRegistryAddress
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--dpu-install-interface=redfish"))
-		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--bfb-registry=registry-address"))
+		for _, arg := range deployment.Spec.Template.Spec.Containers[0].Args {
+			g.Expect(arg).NotTo(HavePrefix("--bfb-registry="), "provisioning manager no longer takes --bfb-registry")
+		}
 	})
 
 	t.Run("test generating bfb-registry manifests with default port when BFBRegistry is nil", func(t *testing.T) {
@@ -631,7 +632,39 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 		g.Expect(deployment).NotTo(BeNil())
 		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--dpu-install-interface=redfish"))
-		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--bfb-registry=registry-address"))
+	})
+
+	t.Run("test Registry LoadBalancerAddress is passed as --bfb-registry-load-balancer-address", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+
+		expectedPVC := TestPVC
+		lbAddr := "http://lb.example.com:8080"
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: &expectedPVC,
+			Registry: &operatorv1.RegistryConfiguration{
+				LoadBalancerAddress: ptr.To(lbAddr),
+			},
+		}
+
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		var deployment *appsv1.Deployment
+		for _, obj := range generatedObjs {
+			if obj.GetObjectKind().GroupVersionKind().Kind == string(DeploymentKind) {
+				deploy := &appsv1.Deployment{}
+				unstructuredObj, ok := obj.(*unstructured.Unstructured)
+				g.Expect(ok).To(BeTrue())
+				err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), deploy)
+				g.Expect(err).NotTo(HaveOccurred())
+				deployment = deploy
+				break
+			}
+		}
+
+		g.Expect(deployment).NotTo(BeNil())
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--bfb-registry-load-balancer-address=" + lbAddr))
 	})
 }
 

@@ -218,7 +218,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setNodeEffectRemovalTimeout,
 			p.setHostAgentDNSPolicy,
 			p.setResources,
-			p.setBFBRegistryAddress,
+			p.setBFBRegistryLoadBalancerAddress,
 			p.setReplicas,
 		}
 		for _, mod := range mods {
@@ -542,19 +542,15 @@ func (p *provisioningControllerObjects) setInstallInterface(deploy *appsv1.Deplo
 	return fmt.Errorf("provisioning controller install interface not set")
 }
 
-func (p *provisioningControllerObjects) setBFBRegistryAddress(deploy *appsv1.Deployment, vars Variables) error {
+func (p *provisioningControllerObjects) setBFBRegistryLoadBalancerAddress(deploy *appsv1.Deployment, vars Variables) error {
 	c := getManagerContainer(deploy)
 	if c == nil {
 		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
-	if vars.DPFProvisioningController.Registry != nil && vars.DPFProvisioningController.Registry.Address != nil {
-		return setFlags(c, fmt.Sprintf("--bfb-registry=%s", *vars.DPFProvisioningController.Registry.Address))
+	if vars.DPFProvisioningController.Registry != nil && vars.DPFProvisioningController.Registry.LoadBalancerAddress != nil {
+		return setFlags(c, fmt.Sprintf("--bfb-registry-load-balancer-address=%s", *vars.DPFProvisioningController.Registry.LoadBalancerAddress))
 	}
-	if vars.DPFProvisioningController.InstallInterface != nil &&
-		vars.DPFProvisioningController.InstallInterface.InstallViaRedfish != nil {
-		return setFlags(c, fmt.Sprintf("--bfb-registry=%s", vars.DPFProvisioningController.InstallInterface.InstallViaRedfish.BFBRegistryAddress)) //nolint:staticcheck
-	}
-	return setFlags(c, "--bfb-registry=")
+	return setFlags(c, "--bfb-registry-load-balancer-address=")
 }
 
 func (p *provisioningControllerObjects) setDMSTimeout(deploy *appsv1.Deployment, vars Variables) error {

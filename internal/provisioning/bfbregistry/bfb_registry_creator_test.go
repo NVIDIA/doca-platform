@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -50,7 +50,7 @@ var _ = Describe("EnsureBFBRegistry", func() {
 
 	It("returns error when leader pod does not exist", func() {
 		c := fake.NewClientBuilder().WithScheme(scheme).Build()
-		err := EnsureBFBRegistry(ctx, c, testNamespace, "leader-pod", "node-1", "img", "", nil)
+		err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "img")
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("get leader pod"))
 	})
@@ -65,7 +65,7 @@ var _ = Describe("EnsureBFBRegistry", func() {
 		}
 		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(leaderPod).Build()
 
-		err := EnsureBFBRegistry(ctx, c, testNamespace, "leader-pod", "node-1", "registry:8082", "", nil)
+		err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "registry:8082")
 		Expect(err).NotTo(HaveOccurred())
 
 		pod := &corev1.Pod{}
@@ -105,7 +105,7 @@ var _ = Describe("EnsureBFBRegistry", func() {
 			WithObjects(leaderPod, existingPod, existingSvc).
 			Build()
 
-		err := EnsureBFBRegistry(ctx, c, testNamespace, "leader-pod", "node-1", "registry:8082", "", nil)
+		err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "registry:8082")
 		Expect(err).NotTo(HaveOccurred())
 
 		// Should still have exactly one pod and one service (no duplicates)
