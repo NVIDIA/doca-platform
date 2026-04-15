@@ -86,7 +86,6 @@ func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	if dc.Status.Phase == provisioningv1.PhasePending {
 		dc.Status.Phase = provisioningv1.PhaseCreating
-		dc.Status.Version = cutil.KubernetesVersion
 		if err := r.Client.Status().Update(ctx, dc); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to set Creating phase %w", err)
 		}
@@ -115,9 +114,11 @@ func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err != nil {
 			healthCheckErr = err
 			healthCheckMsg = "failed to get admin client"
-		} else if _, err := adminClient.ServerVersion(); err != nil {
+		} else if serverVersion, err := adminClient.ServerVersion(); err != nil {
 			healthCheckErr = err
 			healthCheckMsg = "health check failed"
+		} else {
+			dc.Status.Version = serverVersion.GitVersion
 		}
 
 		if healthCheckErr != nil {

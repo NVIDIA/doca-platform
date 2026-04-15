@@ -328,6 +328,11 @@ var _ = Describe("Kubelet", func() {
 					return nil
 				},
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					if cmd == "kubelet --version" {
+						var stdout bytes.Buffer
+						stdout.WriteString("Kubernetes v1.33.3")
+						return stdout, bytes.Buffer{}, nil
+					}
 					joinCmdExecuted = cmd
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
@@ -431,6 +436,11 @@ var _ = Describe("Kubelet", func() {
 					return nil
 				},
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					if cmd == "kubelet --version" {
+						var stdout bytes.Buffer
+						stdout.WriteString("Kubernetes v1.33.3")
+						return stdout, bytes.Buffer{}, nil
+					}
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 			}

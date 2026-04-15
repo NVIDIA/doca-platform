@@ -1211,6 +1211,7 @@ _Appears in:_
 | `initialBootID` _string_ | InitialBootID is the boot ID of the DPU OS during the first boot |  |  |
 | `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the type of reset/reboot set by the DPU agent<br />See enum values in RebootMethodType.<br />No default is set intentionally: nil means "check not run or not applicable"<br />(e.g. legacy flow, or agent has not run the check yet);<br />a non-nil value means the check ran and this is the result. |  | Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot] <br />Optional: \{\} <br /> |
 | `rebootSequenceCount` _integer_ | RebootSequenceCount is the length of the current non-NoAction RebootMethod sequence:<br />it increments on each agent run that reports a RebootMethod other than NoAction and<br />resets to 0 when the agent reports NoAction. Used with RebootMethod to bound host reboot loops. |  | Minimum: 0 <br />Optional: \{\} <br /> |
+| `kubeletVersion` _string_ | KubeletVersion represents the kubelet version running on the DPU. |  |  |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  | Optional: \{\} <br /> |
 
 

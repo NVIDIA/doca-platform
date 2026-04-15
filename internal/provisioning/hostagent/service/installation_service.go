@@ -380,6 +380,9 @@ func (s *InstallationService) UpdateStatus(req *restful.Request, resp *restful.R
 	if request.AgentStatus.RebootSequenceCount != nil {
 		dpu.Status.AgentStatus.RebootSequenceCount = request.AgentStatus.RebootSequenceCount
 	}
+	if request.AgentStatus.KubeletVersion != nil {
+		dpu.Status.AgentStatus.KubeletVersion = request.AgentStatus.KubeletVersion
+	}
 	for _, condition := range request.AgentStatus.Conditions {
 		meta.SetStatusCondition(&dpu.Status.AgentStatus.Conditions, condition)
 	}
