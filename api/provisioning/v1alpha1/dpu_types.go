@@ -443,6 +443,9 @@ type AgentStatus struct {
 	// +kubebuilder:validation:Minimum=0
 	RebootSequenceCount *int32 `json:"rebootSequenceCount,omitempty"`
 
+	// KubeletVersion represents the kubelet version running on the DPU.
+	KubeletVersion *string `json:"kubeletVersion,omitempty"`
+
 	// Conditions contains the conditions reported from inside the DPU
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
