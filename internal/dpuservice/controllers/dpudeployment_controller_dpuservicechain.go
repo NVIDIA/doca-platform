@@ -29,7 +29,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -38,7 +40,8 @@ import (
 func reconcileDPUServiceChain(ctx context.Context,
 	c client.Client,
 	dpuDeployment *dpuservicev1.DPUDeployment,
-	dpuNodeLabels map[string]string) (ctrl.Result, bool, error) {
+	dpuNodeLabels map[string]string,
+	patchedDPUServices map[string]dpuServiceStatus) (ctrl.Result, bool, error) {
 	owner := metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)
 	requeue := ctrl.Result{}
 	hasDisruptiveChanges := false
@@ -72,11 +75,25 @@ func reconcileDPUServiceChain(ctx context.Context,
 
 	if dpuDeployment.Spec.ServiceChains != nil {
 		dpuClusterSelector := getAggregatedDPUClusterSelector(dpuDeployment)
-		versionDigest := calculateDPUServiceChainVersionDigest(dpuDeployment.Spec.ServiceChains.Switches)
-		newRevision := generateDPUServiceChain(client.ObjectKeyFromObject(dpuDeployment),
+		dpuDeploymentKey := client.ObjectKeyFromObject(dpuDeployment)
+		switches := dpuDeployment.Spec.ServiceChains.Switches
+		serviceIDs, hasDisruptiveServices, legacyServiceIDOnly, err := resolveSwitchesServiceIDs(dpuDeploymentKey, switches, patchedDPUServices)
+		if err != nil {
+			return ctrl.Result{}, false, fmt.Errorf("failed to resolve service chain switches: %w", err)
+		}
+		var versionDigest string
+		if legacyServiceIDOnly {
+			// Use original switches for the digest to preserve backward compatibility
+			// for clusters where all ServiceIDs still use the legacy naming convention.
+			versionDigest = calculateDPUServiceChainVersionDigest(switches)
+		} else {
+			versionDigest = calculateDPUServiceChainVersionDigest(withResolvedSwitchesServiceIDs(switches, serviceIDs))
+		}
+		newRevision := generateDPUServiceChain(dpuDeploymentKey,
 			owner,
 			versionDigest,
-			dpuDeployment.Spec.ServiceChains.Switches,
+			switches,
+			serviceIDs,
 			dpuClusterSelector,
 		)
 
@@ -95,7 +112,7 @@ func reconcileDPUServiceChain(ctx context.Context,
 			hasDisruptiveChanges = hasDisruptiveChanges || isDisruptiveUpgradeOngoing
 		case len(oldRevisions) > 0:
 			// we have only previous revisions
-			req, isDisruptive := reconcileDPUServiceChainWithOldRevisions(newRevision, oldRevisions, dpuDeployment, dpuNodeLabels, existingDPUServiceChainsMap)
+			req, isDisruptive := reconcileDPUServiceChainWithOldRevisions(newRevision, oldRevisions, dpuDeployment, dpuNodeLabels, existingDPUServiceChainsMap, hasDisruptiveServices)
 			if !req.IsZero() {
 				requeue = req
 			}
@@ -103,7 +120,7 @@ func reconcileDPUServiceChain(ctx context.Context,
 			hasDisruptiveChanges = hasDisruptiveChanges || isDisruptive
 		default:
 			// no previous revision, we are creating a new one
-			isDisruptive := reconcileNewDPUServiceChainRevision(newRevision, dpuDeployment, dpuNodeLabels)
+			isDisruptive := reconcileNewDPUServiceChainRevision(newRevision, dpuDeployment, dpuNodeLabels, hasDisruptiveServices)
 			hasDisruptiveChanges = hasDisruptiveChanges || isDisruptive
 		}
 
@@ -130,14 +147,17 @@ func reconcileDPUServiceChain(ctx context.Context,
 // Returns true if this is a disruptive service chain.
 func reconcileNewDPUServiceChainRevision(newRevision *dpuservicev1.DPUServiceChain,
 	dpuDeployment *dpuservicev1.DPUDeployment,
-	dpuNodeLabels map[string]string) bool {
+	dpuNodeLabels map[string]string,
+	hasDisruptiveServices bool) bool {
 	newRevision.SetServiceChainSetLabelSelector(newObjectLabelSelectorWithOwner(dpuServiceChainVersionLabelAnnotationKey, newRevision.Name, client.ObjectKeyFromObject(dpuDeployment)))
 
 	// This is needed in all cases, because we don't know if a dpuSet will be updated or created
 	setDPUServiceChainNodeLabelValue(newRevision.Name, dpuNodeLabels)
 
 	// Return true if this is a disruptive service chain
-	return dpuDeployment.Spec.ServiceChains.UpgradePolicy.ShouldApplyNodeEffect()
+	// disruptive if either the upgrade policy is disruptive or there are disruptive services
+	// that have an impact in the ports used by the chain here
+	return dpuDeployment.Spec.ServiceChains.UpgradePolicy.ShouldApplyNodeEffect() || hasDisruptiveServices
 }
 
 // reconcileDPUServiceChainWithOldRevisions reconciles a new revision of the DPUServiceChain and the old revisions.
@@ -148,12 +168,15 @@ func reconcileDPUServiceChainWithOldRevisions(newRevision *dpuservicev1.DPUServi
 	oldRevisions []client.Object,
 	dpuDeployment *dpuservicev1.DPUDeployment,
 	dpuNodeLabels map[string]string,
-	existingDPUServiceChainsMap map[string]dpuservicev1.DPUServiceChain) (ctrl.Result, bool) {
+	existingDPUServiceChainsMap map[string]dpuservicev1.DPUServiceChain,
+	hasDisruptiveServices bool) (ctrl.Result, bool) {
 	dpuServiceChainNodeSelector := newObjectLabelSelectorWithOwner(dpuServiceChainVersionLabelAnnotationKey, newRevision.Name, client.ObjectKeyFromObject(dpuDeployment))
 	nodeLabelValue := newRevision.Name
 	var toRetain []client.Object
 	isDisruptive := false
-	if dpuDeployment.Spec.ServiceChains.UpgradePolicy.ShouldApplyNodeEffect() {
+	// disruptive if either the upgrade policy is disruptive or there are disruptive services
+	// that have an impact in the ports used by the chain here
+	if dpuDeployment.Spec.ServiceChains.UpgradePolicy.ShouldApplyNodeEffect() || hasDisruptiveServices {
 		// Mark this as a disruptive change
 		isDisruptive = true
 		toRetain = getRevisionHistoryLimitList(oldRevisions, *dpuDeployment.Spec.RevisionHistoryLimit-1)
@@ -268,11 +291,10 @@ func getLabelSelectorDPUServiceChainVersionValue(labelSelector *metav1.LabelSele
 }
 
 // generateDPUServiceChain generates a DPUServiceChain according to the DPUDeployment.
-func generateDPUServiceChain(dpuDeploymentNamespacedName types.NamespacedName, owner *metav1.OwnerReference, versionDigest string, switches []dpuservicev1.DPUDeploymentSwitch, dpuClusterSelector *metav1.LabelSelector) *dpuservicev1.DPUServiceChain {
+func generateDPUServiceChain(dpuDeploymentNamespacedName types.NamespacedName, owner *metav1.OwnerReference, versionDigest string, switches []dpuservicev1.DPUDeploymentSwitch, serviceIDs map[string]string, dpuClusterSelector *metav1.LabelSelector) *dpuservicev1.DPUServiceChain {
 	sw := make([]dpuservicev1.Switch, 0, len(switches))
-
 	for _, s := range switches {
-		sw = append(sw, convertToSFCSwitch(dpuDeploymentNamespacedName, s))
+		sw = append(sw, convertToSFCSwitch(s, serviceIDs))
 	}
 
 	dpuServiceChain := &dpuservicev1.DPUServiceChain{
@@ -317,8 +339,10 @@ func cleanStaleDPUServiceChains(ctx context.Context, c client.Client, oldObjects
 	return nil
 }
 
-// convertToSFCSwitch converts a dpuservicev1.DPUDeploymentSwitch to a dpuservicev1.DPUDeploymentSwitch.
-func convertToSFCSwitch(dpuDeploymentNamespacedName types.NamespacedName, sw dpuservicev1.DPUDeploymentSwitch) dpuservicev1.Switch {
+// convertToSFCSwitch converts a dpuservicev1.DPUDeploymentSwitch to a dpuservicev1.Switch.
+// serviceIDs maps each service name (as declared in the DPUDeployment spec) to the
+// resolved ServiceID that should be used in the ServiceInterface match labels.
+func convertToSFCSwitch(sw dpuservicev1.DPUDeploymentSwitch, serviceIDs map[string]string) dpuservicev1.Switch {
 	o := dpuservicev1.Switch{
 		Ports:      make([]dpuservicev1.Port, 0, len(sw.Ports)),
 		ServiceMTU: sw.ServiceMTU,
@@ -333,7 +357,8 @@ func convertToSFCSwitch(dpuDeploymentNamespacedName types.NamespacedName, sw dpu
 				outPort.ServiceInterface.IPAM = inPort.Service.IPAM.DeepCopy()
 			}
 			outPort.ServiceInterface.MatchLabels = map[string]string{
-				dpuservicev1.DPFServiceIDLabelKey:  getServiceID(dpuDeploymentNamespacedName, inPort.Service.Name),
+				// all keys are guaranteed to be set by the resolveServiceIDs function
+				dpuservicev1.DPFServiceIDLabelKey:  serviceIDs[inPort.Service.Name],
 				ServiceInterfaceInterfaceNameLabel: inPort.Service.InterfaceName,
 			}
 		}
@@ -343,7 +368,6 @@ func convertToSFCSwitch(dpuDeploymentNamespacedName types.NamespacedName, sw dpu
 		}
 
 		o.Ports = append(o.Ports, outPort)
-
 	}
 	return o
 }
@@ -358,4 +382,61 @@ func clientObjectToDPUServiceChainList(oldRevisions []client.Object) []dpuservic
 
 func calculateDPUServiceChainVersionDigest(switches []dpuservicev1.DPUDeploymentSwitch) string {
 	return digest.Short(digest.FromObjects(switches), 10)
+}
+
+// resolveSwitchesServiceIDs builds a map from service name (as declared in the
+// DPUDeployment spec) to the resolved ServiceID from the corresponding
+// patched DPUService. It also reports whether any referenced service
+// underwent a disruptive change and whether all resolved ServiceIDs use
+// the legacy naming convention.
+func resolveSwitchesServiceIDs(dpuDeploymentNamespacedName types.NamespacedName, switches []dpuservicev1.DPUDeploymentSwitch, patchedDPUServices map[string]dpuServiceStatus) (serviceIDs map[string]string, hasDisruptive bool, allLegacy bool, _ error) {
+	serviceIDs = make(map[string]string)
+	// allLegacy tracks whether every resolved ServiceID still uses the old
+	// 2-part naming convention (dpudeployment_<deployment>_<service>).
+	// When true, the caller uses original (unresolved) switches for the chain
+	// digest to preserve backward compatibility for clusters that haven't
+	// been fully migrated yet.
+	allLegacy = true
+	var errs []error
+	for _, sw := range switches {
+		for _, port := range sw.Ports {
+			if port.Service == nil {
+				continue
+			}
+			serviceName := port.Service.Name
+			patchedSvc, ok := patchedDPUServices[serviceName]
+			if !ok {
+				errs = append(errs, fmt.Errorf("service %s not found in patched services", serviceName))
+				continue
+			}
+			id := ptr.Deref(patchedSvc.service.Spec.ServiceID, "")
+			serviceIDs[serviceName] = id
+			if patchedSvc.disruptive {
+				hasDisruptive = true
+			}
+			if id != getLegacyServiceID(dpuDeploymentNamespacedName, serviceName) {
+				allLegacy = false
+			}
+		}
+	}
+	return serviceIDs, hasDisruptive, allLegacy && len(serviceIDs) > 0, kerrors.NewAggregate(errs)
+}
+
+// withResolvedSwitchesServiceIDs returns a deep copy of switches with each port's
+// Service.Name replaced by its resolved ServiceID. This is used for digest
+// computation where the serialized representation must include the ServiceID.
+func withResolvedSwitchesServiceIDs(switches []dpuservicev1.DPUDeploymentSwitch, serviceIDs map[string]string) []dpuservicev1.DPUDeploymentSwitch {
+	resolved := make([]dpuservicev1.DPUDeploymentSwitch, len(switches))
+	for i, sw := range switches {
+		resolved[i] = *sw.DeepCopy()
+		for j := range resolved[i].Ports {
+			if resolved[i].Ports[j].Service == nil {
+				continue
+			}
+			if id, ok := serviceIDs[resolved[i].Ports[j].Service.Name]; ok {
+				resolved[i].Ports[j].Service.Name = id
+			}
+		}
+	}
+	return resolved
 }
