@@ -7,4 +7,4 @@ spec:
   ipRangeSpec:
     ipRange:
       startIP: 10.0.110.122
-      endIP: 10.0.110.124
+      endIP: 10.0.110.128
