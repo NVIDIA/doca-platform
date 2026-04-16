@@ -608,7 +608,7 @@ func getDPUKubeletVersion(dpu *provisioningv1.DPU) (string, error) {
 	}
 
 	if dpu.Status.DPFVersion == nil {
-		return "", fmt.Errorf("DPU %s/%s has no KubeletVersion", dpu.Namespace, dpu.Name)
+		return "", fmt.Errorf("no KubeletVersion")
 	}
 	dpfVer, err := semver.NewVersion(*dpu.Status.DPFVersion)
 	if err != nil {
@@ -621,7 +621,7 @@ func getDPUKubeletVersion(dpu *provisioningv1.DPU) (string, error) {
 		return "", nil
 	}
 	if !dpfVer.GreaterThan(lastDPFReleaseWithoutKubeletSupport) {
-		return "", fmt.Errorf("DPU %s/%s has unsupported DPF version %s (minimum supported: v25.10.x)", dpu.Namespace, dpu.Name, *dpu.Status.DPFVersion)
+		return "", fmt.Errorf("unsupported DPF version %s (minimum supported: v25.10.x)", *dpu.Status.DPFVersion)
 	}
 
 	// DPU has a recent DPFVersion but no KubeletVersion. This is unexpected.
