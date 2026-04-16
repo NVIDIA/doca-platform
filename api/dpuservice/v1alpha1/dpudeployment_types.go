@@ -131,6 +131,7 @@ type DPUDeploymentSpec struct {
 	// Defaults to 10.
 	// +optional
 	// +kubebuilder:default=10
+	// +kubebuilder:validation:Minimum=1
 	RevisionHistoryLimit *int32 `json:"revisionHistoryLimit,omitempty"`
 }
 

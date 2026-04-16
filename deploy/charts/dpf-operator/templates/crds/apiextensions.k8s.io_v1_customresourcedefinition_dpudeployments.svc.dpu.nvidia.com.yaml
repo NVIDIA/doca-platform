@@ -378,6 +378,7 @@ spec:
                   The maximum number of revisions that can be retained during upgrades.
                   Defaults to 10.
                 format: int32
+                minimum: 1
                 type: integer
               serviceChains:
                 description: ServiceChains contains the configuration related to the

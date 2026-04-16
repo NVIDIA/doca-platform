@@ -3974,7 +3974,7 @@ _Appears in:_
 | `dpus` _[DPUs](#dpus)_ | DPUs contains the DPU related configuration |  | Required: \{\} <br /> |
 | `services` _object (keys:string, values:[DPUDeploymentServiceConfiguration](#dpudeploymentserviceconfiguration))_ | Services contains the DPUDeploymentService related configuration. The key is the deploymentServiceName and the value is its<br />configuration. All underlying objects must specify the same deploymentServiceName in order to be able to be consumed by the<br />DPUDeployment. |  | MaxProperties: 50 <br />MinProperties: 1 <br />Required: \{\} <br /> |
 | `serviceChains` _[ServiceChains](#servicechains)_ | ServiceChains contains the configuration related to the DPUServiceChains that the DPUDeployment creates. |  | Optional: \{\} <br /> |
-| `revisionHistoryLimit` _integer_ | The maximum number of revisions that can be retained during upgrades.<br />Defaults to 10. | 10 | Optional: \{\} <br /> |
+| `revisionHistoryLimit` _integer_ | The maximum number of revisions that can be retained during upgrades.<br />Defaults to 10. | 10 | Minimum: 1 <br />Optional: \{\} <br /> |
 
 
 #### DPUDeploymentStatus
