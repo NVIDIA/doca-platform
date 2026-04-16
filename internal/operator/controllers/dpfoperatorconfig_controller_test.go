@@ -1632,7 +1632,7 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		g.Expect(testClient.Create(ctx, dpuNoDPFVer)).To(Succeed())
 		err = r.validateKubernetesVersionSkew(ctx, &operatorv1.DPFOperatorConfig{}, dpuClusters)
 		g.Expect(err).To(HaveOccurred())
-		g.Expect(err.Error()).To(ContainSubstring("/dpu-no-dpfversion has no KubeletVersion"))
+		g.Expect(err.Error()).To(ContainSubstring("dpu-no-dpfversion: no KubeletVersion"))
 		g.Expect(testClient.Delete(ctx, dpuNoDPFVer)).To(Succeed())
 
 		// Create DPU with old DPFVersion (predates KubeletVersion support) and no KubeletVersion
@@ -1788,7 +1788,7 @@ func TestGetDPUKubeletVersion(t *testing.T) {
 			name:        "errors when DPU has no AgentStatus and no DPFVersion (very old DPU)",
 			agentStatus: nil,
 			dpfVersion:  nil,
-			wantErr:     "has no KubeletVersion",
+			wantErr:     "no KubeletVersion",
 		},
 		{
 			name:        "skips DPU with DPFVersion equal to LastReleasedDPFGAVersion (v25.10.x)",
