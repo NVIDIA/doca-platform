@@ -23,6 +23,11 @@ Management---|--OOB---|  br-dpu |--ensXf0vf0--|--|--pf0vf0     |
              +--------------------------------+  +-------------+
 ```
 
+> [!IMPORTANT]
+> The DPU high-speed ports (`p0`, `p1`) must be connected to the network. The VF representor (`pf0vf0`) used
+> for the communication channel between the host and the DPU (`br-comm-ch`) is created on the high-speed
+> interface. If the high-speed ports are not connected, the DPU will fail to join the DPUCluster.
+
 ## Example Solution - Set Up The Bridge Using Netplan 
 Utilize  [Netplan](https://netplan.readthedocs.io/en/stable/) to configure the necessary network interfaces. Netplan configuration files are executed at boot time before the kubelet process.
 
