@@ -214,6 +214,9 @@ kubectl get dpu -n dpf-operator-system -o custom-columns=NAME:.metadata.name,NOD
 ## Network Setup
 
 * All nodes have full internet access - both from the host out-of-band and DPU high speed interfaces
+* DPU high-speed ports (`p0`, `p1`) must be connected to the network. In host-trusted mode, the DPU communication
+  channel (`br-comm-ch`) is established through a VF on the high-speed interface. If the high-speed ports are not
+  connected, the DPU will fail to join the DPUCluster
 * Virtual IP from the management subnet reserved for internal DPF usage
 * The out-of-band management and high-speed networks are routable to each other
 * The control plane nodes hosting the DPU control plane pods must be located on the same L2 broadcast domain
