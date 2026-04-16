@@ -34,6 +34,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	provcertificate "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/bootstrap"
+	providentity "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/identity"
 
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -46,9 +47,7 @@ import (
 )
 
 const (
-	tlsBootstrapTimeout  = 5 * time.Minute
-	dpuAgentPairName     = "dpu-agent-client"
-	dpuAgentOrganization = "dpu-agents"
+	dpuAgentPairName = "dpu-agent-client"
 )
 
 func main() {
@@ -112,7 +111,9 @@ func main() {
 	if err := dpuagent.NewDPUAgent(optCtx).Run(execCtx); err != nil {
 		klog.Fatalf("failed to run DPU agent: %v", err)
 	}
-	klog.Info("Successfully ran DPU agent")
+	klog.Info("DPUAgent successfully completed all operations")
+	<-execCtx.Done()
+	klog.Info("DPUAgent stop signal received")
 }
 
 func buildZeroTrustClientConfig(options *opts.Options) (*restclient.Config, error) {
@@ -127,7 +128,7 @@ func buildZeroTrustClientConfig(options *opts.Options) (*restclient.Config, erro
 		return nil, fmt.Errorf("failed to load client config: %w", err)
 	}
 
-	commonName := provisioningv1.DPUAgentUsername(options.DPUName)
+	commonName := providentity.DPUAgentUsername(options.DPUName)
 	newClientsetFn := func(current *tls.Certificate) (clientset.Interface, error) {
 		config := certConfig
 		if current != nil {
@@ -143,14 +144,14 @@ func buildZeroTrustClientConfig(options *opts.Options) (*restclient.Config, erro
 		newClientsetFn,
 		dpuAgentPairName,
 		commonName,
-		[]string{dpuAgentOrganization},
+		[]string{providentity.DPUAgentOrganization},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create certificate manager: %w", err)
 	}
 
 	transportConfig := restclient.AnonymousClientConfig(clientConfig)
-	_, err = provcertificate.UpdateTransport(wait.NeverStop, transportConfig, clientCertificateManager, tlsBootstrapTimeout)
+	_, err = provcertificate.UpdateTransport(wait.NeverStop, transportConfig, clientCertificateManager, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update transport: %w", err)
 	}

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	providentity "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/identity"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -55,7 +56,7 @@ const (
 // CreateDPUAgentRole creates a per-DPU Role that restricts the DPU agent to
 // only its own DPU CR and kubeadm join Secret.
 func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *runtime.Scheme, dpu *provisioningv1.DPU) error {
-	roleName := provisioningv1.DPUAgentUsername(dpu.Name)
+	roleName := providentity.DPUAgentUsername(dpu.Name)
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      roleName,
@@ -97,7 +98,7 @@ func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *run
 // CreateDPUAgentRoleBinding creates a per-DPU RoleBinding that binds the
 // certificate username (da-{dpu.name}) to the per-DPU Role.
 func CreateDPUAgentRoleBinding(ctx context.Context, client crclient.Client, scheme *runtime.Scheme, dpu *provisioningv1.DPU) error {
-	bindingName := provisioningv1.DPUAgentUsername(dpu.Name)
+	bindingName := providentity.DPUAgentUsername(dpu.Name)
 	rb := &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      bindingName,
@@ -106,13 +107,13 @@ func CreateDPUAgentRoleBinding(ctx context.Context, client crclient.Client, sche
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:     rbacv1.UserKind,
-				Name:     provisioningv1.DPUAgentUsername(dpu.Name),
+				Name:     providentity.DPUAgentUsername(dpu.Name),
 				APIGroup: rbacv1.GroupName,
 			},
 		},
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "Role",
-			Name:     provisioningv1.DPUAgentUsername(dpu.Name),
+			Name:     providentity.DPUAgentUsername(dpu.Name),
 			APIGroup: rbacv1.GroupName,
 		},
 	}

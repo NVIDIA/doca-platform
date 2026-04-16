@@ -93,10 +93,6 @@ func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 }
 
 func (d *DPUAgent) Run(ctx context.Context) error {
-	if d.optCtx == nil {
-		return fmt.Errorf("context is nil")
-	}
-
 	if d.retryInterval == 0 {
 		d.retryInterval = defaultRetryInterval
 	}
@@ -135,7 +131,6 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 		}
 	}
 	d.updateStatusUntilSuccess(ctx)
-	klog.Infof("DPUAgent finished")
 	return nil
 }
 
