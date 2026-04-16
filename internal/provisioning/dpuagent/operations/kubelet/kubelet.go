@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
@@ -255,7 +256,11 @@ func (c *ConfigureKubelet) KubeletVersion() (*string, error) {
 	if stdout.Len() == 0 {
 		return nil, fmt.Errorf("kubelet version output is empty, stderr: %s", stderr.String())
 	}
-	kubeletVersion := stdout.String()[len("Kubernetes "):]
+	output := strings.TrimSpace(stdout.String())
+	if !strings.HasPrefix(output, "Kubernetes ") {
+		return nil, fmt.Errorf("unexpected kubelet version output: %s", output)
+	}
+	kubeletVersion := strings.TrimPrefix(output, "Kubernetes ")
 	return &kubeletVersion, nil
 }
 
