@@ -279,7 +279,7 @@ func (c *Client) SetIfaceExternalIDs(ctx context.Context, name string, externalI
 	if err := c.Get(ctx, iface); err != nil {
 		return fmt.Errorf("failed to get interface %s: %w", name, err)
 	}
-	return c.applyExternalIDs(ctx, iface, &iface.ExternalIDs, externalIDs)
+	return c.mutateOVSMapField(ctx, iface, &iface.ExternalIDs, externalIDs)
 }
 
 func (c *Client) GetIfaceWithExternalIDs(ctx context.Context, externalIDs map[string]string) (*ovsmodel.Interface, error) {
@@ -338,58 +338,56 @@ func (c *Client) ListBridgesWithExternalIDs(ctx context.Context, externalIDs map
 	return bridges, nil
 }
 
+// SetIfaceOptions sets keys on the interface options map (existing keys get new values).
+// No-op if options is empty or values already match.
 func (c *Client) SetIfaceOptions(ctx context.Context, name string, options map[string]string) error {
-	iface := &ovsmodel.Interface{
-		Name: name,
+	iface := &ovsmodel.Interface{Name: name}
+	if err := c.Get(ctx, iface); err != nil {
+		return fmt.Errorf("failed to get interface %s: %w", name, err)
 	}
-
-	return c.mutate(ctx, iface, model.Mutation{
-		Field:   &iface.Options,
-		Mutator: ovsdb.MutateOperationInsert,
-		Value:   options,
-	})
+	return c.mutateOVSMapField(ctx, iface, &iface.Options, options)
 }
 
-// applyExternalIDs updates the ExternalIDs field on an already-fetched model.
-// It is a no-op if desiredExternalIDs is empty or if externalIDsField already matches desiredExternalIDs.
-// Only keys that need a change are updated: existing keys with the same value are left alone; we delete then insert only for keys that are new or have a different value.
-func (c *Client) applyExternalIDs(ctx context.Context, m model.Model, externalIDsField *map[string]string, desiredExternalIDs map[string]string) error {
-	if len(desiredExternalIDs) == 0 {
+// mutateOVSMapField updates a string map column on an already-fetched model (e.g. external_ids, options).
+// Only keys in desired map are written, already existing keys on the row are unchanged. No-op if desired is empty or already matches.
+// Changing a value uses OVSDB delete-then-insert, in one transaction when both steps apply.
+func (c *Client) mutateOVSMapField(ctx context.Context, m model.Model, field *map[string]string, desired map[string]string) error {
+	if len(desired) == 0 {
 		return nil
 	}
 
-	externalIDsToDelete := map[string]string{}
-	externalIDsToInsert := map[string]string{}
-	for k, desiredVal := range desiredExternalIDs {
-		currentVal, exists := (*externalIDsField)[k]
+	toDelete := map[string]string{}
+	toInsert := map[string]string{}
+	for k, desiredVal := range desired {
+		currentVal, exists := (*field)[k]
 		if exists && currentVal == desiredVal {
 			continue
 		}
-		externalIDsToInsert[k] = desiredVal
+		toInsert[k] = desiredVal
 		if exists {
-			externalIDsToDelete[k] = currentVal
+			toDelete[k] = currentVal
 		}
 	}
 
 	// OVSDB map mutate requires delete-then-insert for keys we're changing. Both in one transaction.
 	var mutations []model.Mutation
-	if len(externalIDsToDelete) > 0 {
+	if len(toDelete) > 0 {
 		mutations = append(mutations, model.Mutation{
-			Field:   externalIDsField,
+			Field:   field,
 			Mutator: ovsdb.MutateOperationDelete,
-			Value:   externalIDsToDelete,
+			Value:   toDelete,
 		})
 	}
-	if len(externalIDsToInsert) > 0 {
+	if len(toInsert) > 0 {
 		mutations = append(mutations, model.Mutation{
-			Field:   externalIDsField,
+			Field:   field,
 			Mutator: ovsdb.MutateOperationInsert,
-			Value:   externalIDsToInsert,
+			Value:   toInsert,
 		})
 	}
 	if len(mutations) > 0 {
 		if err := c.mutate(ctx, m, mutations...); err != nil {
-			return fmt.Errorf("failed to update external IDs: %v", err)
+			return fmt.Errorf("failed to update map field: %v", err)
 		}
 	}
 	return nil
@@ -402,7 +400,7 @@ func (c *Client) SetPortExternalIDs(ctx context.Context, name string, externalID
 	if err := c.Get(ctx, port); err != nil {
 		return fmt.Errorf("failed to get port %s: %w", name, err)
 	}
-	return c.applyExternalIDs(ctx, port, &port.ExternalIDs, externalIDs)
+	return c.mutateOVSMapField(ctx, port, &port.ExternalIDs, externalIDs)
 }
 
 // SetBridgeExternalIDs sets the external IDs for a bridge.
@@ -412,7 +410,7 @@ func (c *Client) SetBridgeExternalIDs(ctx context.Context, name string, external
 	if err := c.Get(ctx, bridge); err != nil {
 		return fmt.Errorf("failed to get bridge %s: %w", name, err)
 	}
-	return c.applyExternalIDs(ctx, bridge, &bridge.ExternalIDs, externalIDs)
+	return c.mutateOVSMapField(ctx, bridge, &bridge.ExternalIDs, externalIDs)
 }
 
 func (c *Client) IsIfaceInBr(ctx context.Context, bridgeName, portName string) (bool, error) {
@@ -464,7 +462,7 @@ func (c *Client) SetOpenVSwitchExternalIDs(ctx context.Context, externalIDs map[
 	if err != nil {
 		return fmt.Errorf("failed to get Open_vSwitch row: %v", err)
 	}
-	return c.applyExternalIDs(ctx, ovsRow, &ovsRow.ExternalIDs, externalIDs)
+	return c.mutateOVSMapField(ctx, ovsRow, &ovsRow.ExternalIDs, externalIDs)
 }
 
 func (c *Client) GetOpenVSwitchExternalIDs(ctx context.Context) (map[string]string, error) {

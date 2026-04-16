@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	ovsclient "github.com/ovn-org/libovsdb/client"
+	"github.com/ovn-org/libovsdb/model"
 	"github.com/ovn-org/libovsdb/ovsdb"
 	"go.uber.org/mock/gomock"
 )
@@ -1183,6 +1184,137 @@ var _ = Describe("OVSUtils", func() {
 					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
 
 				err := client.SetIfaceExternalIDs(ctx, "test-iface", externalIDs)
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+		Describe("SetIfaceOptions", func() {
+			var mockConditionalAPI *MockConditionalAPI
+
+			BeforeEach(func() {
+				mockConditionalAPI = NewMockConditionalAPI(mockCtrl)
+			})
+
+			It("should be no-op when requested options is empty", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(nil)
+				err := client.SetIfaceOptions(ctx, "test-iface", map[string]string{})
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should be no-op when interface options already match requested", func() {
+				opts := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						iface := model.(*ovsmodel.Interface)
+						iface.Name = "test-iface"
+						iface.Options = map[string]string{"key": "value"}
+						return nil
+					})
+
+				err := client.SetIfaceOptions(ctx, "test-iface", opts)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should return error when interface not found", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+
+				err := client.SetIfaceOptions(ctx, "test-iface", map[string]string{"key": "value"})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to get interface"))
+			})
+
+			It("should update when interface options differ from requested", func() {
+				opts := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						iface := model.(*ovsmodel.Interface)
+						iface.Name = "test-iface"
+						iface.Options = map[string]string{"key": "old"}
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				err := client.SetIfaceOptions(ctx, "test-iface", opts)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should update when interface has no options (toDelete empty)", func() {
+				opts := map[string]string{"key": "value"}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						iface := model.(*ovsmodel.Interface)
+						iface.Name = "test-iface"
+						iface.Options = nil
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.Operation{}, nil)
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				err := client.SetIfaceOptions(ctx, "test-iface", opts)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should only mutate keys in desired and leave other options unchanged", func() {
+				desired := map[string]string{"key": "new"}
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						iface := model.(*ovsmodel.Interface)
+						iface.Name = "test-iface"
+						iface.Options = map[string]string{
+							"key":      "old",
+							"preserve": "keep-me",
+						}
+						return nil
+					})
+				mockOVSClient.EXPECT().
+					Where(gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					Mutate(gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ model.Model, muts ...model.Mutation) ([]ovsdb.Operation, error) {
+						Expect(muts).To(HaveLen(2))
+						Expect(muts[0].Mutator).To(Equal(ovsdb.MutateOperationDelete))
+						delMap, ok := muts[0].Value.(map[string]string)
+						Expect(ok).To(BeTrue())
+						Expect(delMap).To(Equal(map[string]string{"key": "old"}))
+						Expect(delMap).NotTo(HaveKey("preserve"))
+
+						Expect(muts[1].Mutator).To(Equal(ovsdb.MutateOperationInsert))
+						insMap, ok := muts[1].Value.(map[string]string)
+						Expect(ok).To(BeTrue())
+						Expect(insMap).To(Equal(map[string]string{"key": "new"}))
+						Expect(insMap).NotTo(HaveKey("preserve"))
+
+						return []ovsdb.Operation{}, nil
+					})
+				mockOVSClient.EXPECT().
+					Transact(gomock.Any(), gomock.Any()).
+					Return([]ovsdb.OperationResult{{UUID: ovsdb.UUID{GoUUID: "test"}}}, nil)
+
+				err := client.SetIfaceOptions(ctx, "test-iface", desired)
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
