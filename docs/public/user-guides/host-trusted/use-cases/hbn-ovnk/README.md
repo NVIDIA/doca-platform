@@ -198,8 +198,9 @@ Verify the CNI installation with:
 ```shell
 ## Ensure all nodes in the cluster are ready.
 kubectl wait --for=condition=ready nodes -l node-role.kubernetes.io/control-plane --timeout=5m
-## Ensure all pods in the ovn-kubernetes namespace are ready.
-kubectl wait --for=condition=Ready --namespace ovn-kubernetes pods -l 'app.kubernetes.io/component!=ovnkube-node-dpu-host' --timeout=5m
+## Ensure all workloads in the ovn-kubernetes namespace are rolled out (excluding DPU node pods).
+kubectl rollout status deployment --namespace ovn-kubernetes ovn-kubernetes-cluster-manager --timeout=5m
+kubectl rollout status daemonset --namespace ovn-kubernetes ovn-kubernetes-identity ovn-kubernetes-node --timeout=5m
 ```
 
 ### 2. DPF Operator Installation
