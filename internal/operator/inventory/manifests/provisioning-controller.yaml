@@ -431,6 +431,22 @@ metadata:
   labels:
     app.kubernetes.io/part-of: dpf-provisioning-controller-manager
     dpu.nvidia.com/component: dpf-provisioning-controller-manager
+  name: dpf-provisioning-dpu-agent-renew
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dpf-provisioning-dpu-agent-csr-creator
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: dpu-agents
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/part-of: dpf-provisioning-controller-manager
+    dpu.nvidia.com/component: dpf-provisioning-controller-manager
   name: dpf-provisioning-hostagent-tls-bootstrapping
 roleRef:
   apiGroup: rbac.authorization.k8s.io

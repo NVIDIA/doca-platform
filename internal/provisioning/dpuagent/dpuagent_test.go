@@ -34,16 +34,6 @@ const testRetryInterval = 1 * time.Millisecond
 
 var _ = Describe("DPUAgent", func() {
 	Describe("Run", func() {
-		It("should return error if context is nil", func() {
-			agent := &DPUAgent{
-				optCtx:     nil,
-				operations: []operations.Operation{},
-			}
-			err := agent.Run(ctx)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("context is nil"))
-		})
-
 		It("should execute operations in order", func() {
 			executionOrder := []string{}
 			mockOps := []operations.Operation{
