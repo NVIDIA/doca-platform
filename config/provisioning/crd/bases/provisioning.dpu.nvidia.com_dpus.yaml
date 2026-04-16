@@ -358,6 +358,10 @@ spec:
                     description: InitialBootID is the boot ID of the DPU OS during
                       the first boot
                     type: string
+                  kubeletVersion:
+                    description: KubeletVersion represents the kubelet version running
+                      on the DPU.
+                    type: string
                   lastStartupTime:
                     description: LastStartupTime is the time when the DPU was last
                       started
