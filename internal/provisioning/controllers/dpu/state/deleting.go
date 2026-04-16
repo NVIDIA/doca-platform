@@ -24,6 +24,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	providentity "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/identity"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -101,13 +102,13 @@ func Deleting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contr
 		certificateRequest,
 		&rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      provisioningv1.DPUAgentUsername(dpu.Name),
+				Name:      providentity.DPUAgentUsername(dpu.Name),
 				Namespace: dpu.Namespace,
 			},
 		},
 		&rbacv1.RoleBinding{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      provisioningv1.DPUAgentUsername(dpu.Name),
+				Name:      providentity.DPUAgentUsername(dpu.Name),
 				Namespace: dpu.Namespace,
 			},
 		},
