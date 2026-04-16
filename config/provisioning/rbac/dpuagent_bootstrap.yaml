@@ -27,3 +27,18 @@ roleRef:
   kind: ClusterRole
   name: dpu-agent-csr-creator
   apiGroup: rbac.authorization.k8s.io
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dpu-agent-renew
+subjects:
+- kind: Group
+  name: dpu-agents
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: dpu-agent-csr-creator
+  apiGroup: rbac.authorization.k8s.io

@@ -4,9 +4,10 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=oneshot
+Type=simple
 ExecStart=/bin/bash -c '/opt/dpf/dpuagent $(cat /opt/dpf/dpuagent.conf)'
-RemainAfterExit=yes
+Restart=on-failure
+RestartSec=5
 TimeoutStartSec=infinity
 
 [Install]
