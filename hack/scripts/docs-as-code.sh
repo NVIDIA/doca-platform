@@ -58,6 +58,13 @@ describe_all() {
 }
 
 wait_for_dpus() {
+	echo "Waiting for DPUDeployment to have DPUSets reconciled..."
+	kubectl wait --namespace "${NAMESPACE}" --timeout=15m dpudeployment --all \
+		--for=condition=DPUSetsReconciled
+
+	echo "Waiting for DPU resources to be created..."
+	timeout 5m bash -c "until kubectl get dpu --namespace ${NAMESPACE} -o name 2>/dev/null | grep -q .; do sleep 2; done"
+
 	echo "Waiting for DPUs to be installed..."
 	kubectl wait --namespace "${NAMESPACE}" --timeout=30m dpu --all \
 		--for=condition=OSInstalled
