@@ -94,6 +94,11 @@ validations:
           kind: "DPUServiceNAD"
           field: ".spec.serviceMTU"
           error: "maximum constraint added when there was none previously : 9216"
+        # Allow the DPUDeployment.spec.revisionHistoryLimit minimum constraint
+        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
+          kind: "DPUDeployment"
+          field: ".spec.revisionHistoryLimit"
+          error: "minimum constraint added when there was none previously : 1"
         # Allow the DPUDeployment.spec.services validation to include at least one service and up to 50
         - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
           kind: "DPUDeployment"

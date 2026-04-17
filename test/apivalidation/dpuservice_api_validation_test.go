@@ -464,6 +464,28 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 				return o
 			}(), true),
 		)
+		It("should not create the DPUDeployment if revisionHistoryLimit is 0", func() {
+			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.RevisionHistoryLimit = ptr.To(int32(0))
+			Expect(testClient.Create(ctx, dpuDeployment)).ToNot(Succeed())
+		})
+		It("should not create the DPUDeployment if revisionHistoryLimit is negative", func() {
+			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.RevisionHistoryLimit = ptr.To(int32(-1))
+			Expect(testClient.Create(ctx, dpuDeployment)).ToNot(Succeed())
+		})
+		It("should create the DPUDeployment if revisionHistoryLimit is 1", func() {
+			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.RevisionHistoryLimit = ptr.To(int32(1))
+			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+		})
+		It("should create the DPUDeployment with default revisionHistoryLimit", func() {
+			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
+			Expect(dpuDeployment.Spec.RevisionHistoryLimit).ToNot(BeNil())
+			Expect(*dpuDeployment.Spec.RevisionHistoryLimit).To(Equal(int32(10)))
+		})
 		DescribeTable("Validates mutual exclusivity of deprecated and new selector fields", func(dpuSet dpuservicev1.DPUSet, expectError bool) {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{dpuSet}
