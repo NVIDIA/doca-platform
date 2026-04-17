@@ -1,11 +1,11 @@
 ARG builder_image
 ARG base_image=ubuntu:22.04
 
-# Stage 1: Build Tengine
+# Stage 1: Build Nginx
 FROM ${base_image} AS builder
 
 ARG TARGETARCH
-ARG tengine_version=3.1.0
+ARG nginx_version=1.29.8
 
 ARG PACKAGES="wget unzip build-essential libpcre3 libpcre3-dev libssl-dev zlib1g-dev gettext"
 
@@ -34,7 +34,7 @@ RUN find /etc/apt/sources.list* -type f -exec sed -i \
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
-    apt-get install -y -qq ca-certificates && \
+    apt-get install -y -qq ca-certificates git autoconf automake libtool && \
     echo "libc-bin libc-bin/upgrade-libraries boolean false" | debconf-set-selections || true && \
     dpkg-divert --local --rename --add /sbin/ldconfig || true && \
     ln -s /bin/true /sbin/ldconfig || true && \
@@ -44,11 +44,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
-RUN wget https://github.com/alibaba/tengine/archive/refs/tags/${tengine_version}.zip && unzip ${tengine_version}.zip
+RUN wget https://github.com/nginx/nginx/archive/refs/tags/release-${nginx_version}.zip && unzip release-${nginx_version}.zip
+RUN git clone https://github.com/alibaba/nginx-http-concat.git && cd nginx-http-concat && git checkout b8d3e7ec511724a6900ba3915df6b504337891a9
+RUN tar -czf nginx-http-concat.tar.gz nginx-http-concat
 
-WORKDIR /workspace/tengine-${tengine_version}
-RUN ./configure --add-dynamic-module=modules/ngx_http_concat_module
-RUN make && make install
+WORKDIR /workspace/nginx-release-${nginx_version}
+RUN auto/configure  --add-module=/workspace/nginx-http-concat
+RUN make -j $(nproc) && make install
 
 # Create necessary directories in the builder stage
 RUN mkdir -p /nginx
@@ -63,7 +65,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     test "${PACKAGE_SOURCES}" = "false" || ( \
       mkdir src && \
       cd src && \
-      cp /workspace/${tengine_version}.zip . && \
+      cp /workspace/release-${nginx_version}.zip . && \
+      cp /workspace/nginx-http-concat.tar.gz . && \
       apt-get update && \
       apt-get source --download-only ${PACKAGES} && \
       cd /workspace && \
