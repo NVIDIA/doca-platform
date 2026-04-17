@@ -2138,7 +2138,11 @@ func verifyDPUNodeMaintenanceHasRequestor(g Gomega, ctx context.Context, c clien
 			foundDPUNodeMaintenance = true
 			g.Expect(dpuNodeMaintenance.Spec.Requestor).To(ContainElement(expectedRequestor),
 				"DPUNodeMaintenance should contain the expected requestor")
-			g.Expect(conditions.IsTrue(dpuNodeMaintenance, provisioningv1.ConditionNodeEffectApplied)).To(BeTrue(),
+			// Avoid conditions.IsTrue which also requires ObservedGeneration == Generation.
+			// A spec update by the provisioning controller (e.g. removing its own requestor) bumps the
+			// generation and briefly makes that check return false even though the drain is still applied.
+			cond := conditions.Get(dpuNodeMaintenance, provisioningv1.ConditionNodeEffectApplied)
+			g.Expect(cond != nil && cond.Status == metav1.ConditionTrue).To(BeTrue(),
 				"DPUNodeMaintenance should be active (ConditionNodeEffectApplied is True)")
 		}
 	}
