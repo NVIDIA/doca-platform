@@ -600,19 +600,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx context.Context, 
 	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuServiceConfiguration), dpuServiceConfiguration)).To(Succeed())
 
 	By("Getting the ServiceID for example service from the DPUService")
-	var serviceIDForExample string
-	Eventually(func(g Gomega) {
-		dpuServiceList := &dpuservicev1.DPUServiceList{}
-		g.Expect(input.client.List(ctx, dpuServiceList,
-			client.InNamespace(dpuDeployment.GetNamespace()),
-			client.MatchingLabels{
-				dpuservicev1.ParentDPUDeploymentNameLabel:            fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName()),
-				dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: "example",
-			})).To(Succeed())
-		g.Expect(dpuServiceList.Items).To(HaveLen(1))
-		g.Expect(dpuServiceList.Items[0].Status.ServiceID).ToNot(BeEmpty())
-		serviceIDForExample = dpuServiceList.Items[0].Status.ServiceID
-	}).WithTimeout(30 * time.Second).Should(Succeed())
+	serviceIDForExample := GetServiceIDForDPUDeploymentService(ctx, input.client, dpuDeployment, "example")
 
 	By("Getting initial pods for example service in DPU cluster")
 	var initialPods []corev1.Pod
@@ -838,19 +826,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuServiceConfiguration), dpuServiceConfiguration)).To(Succeed())
 
 	By("Getting the ServiceID for example service from the DPUService")
-	var serviceIDForExample string
-	Eventually(func(g Gomega) {
-		dpuServiceList := &dpuservicev1.DPUServiceList{}
-		g.Expect(input.client.List(ctx, dpuServiceList,
-			client.InNamespace(dpuDeployment.GetNamespace()),
-			client.MatchingLabels{
-				dpuservicev1.ParentDPUDeploymentNameLabel:            fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName()),
-				dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: "example",
-			})).To(Succeed())
-		g.Expect(dpuServiceList.Items).To(HaveLen(1))
-		g.Expect(dpuServiceList.Items[0].Status.ServiceID).ToNot(BeEmpty())
-		serviceIDForExample = dpuServiceList.Items[0].Status.ServiceID
-	}).WithTimeout(30 * time.Second).Should(Succeed())
+	serviceIDForExample := GetServiceIDForDPUDeploymentService(ctx, input.client, dpuDeployment, "example")
 
 	By("Getting the mapping between DPUs and DPUNodes")
 	// Get all DPUs in the system
@@ -1122,19 +1098,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(ctx
 	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuServiceConfiguration), dpuServiceConfiguration)).To(Succeed())
 
 	By("Getting the ServiceID for example service from the DPUService")
-	var serviceIDForExample string
-	Eventually(func(g Gomega) {
-		dpuServiceList := &dpuservicev1.DPUServiceList{}
-		g.Expect(input.client.List(ctx, dpuServiceList,
-			client.InNamespace(dpuDeployment.GetNamespace()),
-			client.MatchingLabels{
-				dpuservicev1.ParentDPUDeploymentNameLabel:            fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName()),
-				dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: "example",
-			})).To(Succeed())
-		g.Expect(dpuServiceList.Items).To(HaveLen(1))
-		g.Expect(dpuServiceList.Items[0].Status.ServiceID).ToNot(BeEmpty())
-		serviceIDForExample = dpuServiceList.Items[0].Status.ServiceID
-	}).WithTimeout(30 * time.Second).Should(Succeed())
+	serviceIDForExample := GetServiceIDForDPUDeploymentService(ctx, input.client, dpuDeployment, "example")
 
 	By("Getting initial pods for example service in DPU cluster")
 	var initialPods []corev1.Pod
