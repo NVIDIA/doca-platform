@@ -208,11 +208,14 @@ func ValidateDPUServiceIPAMInL2ModeForMultiDPUCluster(ctx context.Context, input
 		g.Expect(conditions.IsTrue(dpuDeployment, conditions.TypeReady)).To(BeTrue())
 	}).WithTimeout(15 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 
+	By("Getting the ServiceID for example service from the DPUService")
+	serviceIDForExample := GetServiceIDForDPUDeploymentService(ctx, input.client, dpuDeployment, "example")
+
 	By("Validating DPUService Pod in first cluster has secondary IP from correct subnet")
 	Eventually(func(g Gomega) {
 		podList := &corev1.PodList{}
 		g.Expect(dpuClusterClient[0].List(ctx, podList,
-			client.MatchingLabels{"svc.dpu.nvidia.com/service": "dpudeployment_example_example"},
+			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
 			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 		g.Expect(podList.Items).ToNot(BeEmpty())
 		g.Expect(podList.Items).To(HaveLen(1))
@@ -231,7 +234,7 @@ func ValidateDPUServiceIPAMInL2ModeForMultiDPUCluster(ctx context.Context, input
 	Eventually(func(g Gomega) {
 		podList := &corev1.PodList{}
 		g.Expect(dpuClusterClient[1].List(ctx, podList,
-			client.MatchingLabels{"svc.dpu.nvidia.com/service": "dpudeployment_example_example"},
+			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
 			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 		g.Expect(podList.Items).ToNot(BeEmpty())
 		g.Expect(podList.Items).To(HaveLen(1))
@@ -321,11 +324,14 @@ func ValidateDPUServiceIPAMInL3ModeForMultiDPUCluster(ctx context.Context, input
 		g.Expect(conditions.IsTrue(dpuDeployment, conditions.TypeReady)).To(BeTrue())
 	}).WithTimeout(15 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 
+	By("Getting the ServiceID for example service from the DPUService")
+	serviceIDForExample := GetServiceIDForDPUDeploymentService(ctx, input.client, dpuDeployment, "example")
+
 	By("Validating DPUService Pod in first cluster has secondary IP from correct subnet")
 	Eventually(func(g Gomega) {
 		podList := &corev1.PodList{}
 		g.Expect(dpuClusterClient[0].List(ctx, podList,
-			client.MatchingLabels{"svc.dpu.nvidia.com/service": "dpudeployment_example_example"},
+			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
 			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 		g.Expect(podList.Items).ToNot(BeEmpty())
 		g.Expect(podList.Items).To(HaveLen(1))
@@ -344,7 +350,7 @@ func ValidateDPUServiceIPAMInL3ModeForMultiDPUCluster(ctx context.Context, input
 	Eventually(func(g Gomega) {
 		podList := &corev1.PodList{}
 		g.Expect(dpuClusterClient[1].List(ctx, podList,
-			client.MatchingLabels{"svc.dpu.nvidia.com/service": "dpudeployment_example_example"},
+			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
 			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 		g.Expect(podList.Items).ToNot(BeEmpty())
 		g.Expect(podList.Items).To(HaveLen(1))
