@@ -27,6 +27,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -304,12 +305,19 @@ func deleteObjectsInDPUCluster(ctx context.Context, dpuClusterConfig *dpucluster
 	if err != nil {
 		return nil, err
 	}
-	if err := r.deleteObjectsInDPUCluster(ctx, dpuClusterClient, dpuServiceObject); err != nil && !apierrors.IsNotFound(err) {
+	if err := r.deleteObjectsInDPUCluster(ctx, dpuClusterClient, dpuServiceObject); err != nil && !isObjectUnavailable(err) {
 		return nil, err
 	}
 	objs, err := r.getObjectsInDPUCluster(ctx, dpuClusterClient, dpuServiceObject)
-	if err != nil && !apierrors.IsNotFound(err) {
+	if err != nil && !isObjectUnavailable(err) {
 		return nil, err
 	}
 	return objs, nil
+}
+
+// isObjectUnavailable returns true when an object type cannot be addressed in the API server.
+// NoMatch means the API server does not serve this GVK (for example CRD not installed), so
+// there cannot be objects of this type to delete.
+func isObjectUnavailable(err error) bool {
+	return apierrors.IsNotFound(err) || meta.IsNoMatchError(err)
 }
