@@ -1036,7 +1036,11 @@ ports:
     enabled: true
     containerPort: 4318
     servicePort: 4318
-    nodePort: 30318  # Fixed NodePort for DPU clusters to use
+    # Fixed NodePort for DPU clusters to use. Chosen from the lower static band of
+    # the NodePort range to avoid collisions with dynamically auto-assigned NodePorts,
+    # which are allocated from the upper band first.
+    # See https://github.com/kubernetes/enhancements/tree/master/keps/sig-network/3668-reserved-service-nodeport-range
+    nodePort: 30050
     protocol: TCP
   metrics:
     enabled: true

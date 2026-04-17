@@ -33,7 +33,7 @@ import (
 
 // otelNodePort is the NodePort used for OpenTelemetry Collector endpoint as configured in otel Helm Chart.
 const (
-	otelNodePort       = 30318
+	otelNodePort       = 30050
 	otelEndpointSchema = "http://"
 )
 
