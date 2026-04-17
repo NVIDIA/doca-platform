@@ -138,10 +138,19 @@ func ValidateDPUServiceChainDeletion(ctx context.Context, input *systemTestInput
 	Expect(input.client.Create(ctx, dpuServiceChain)).To(Succeed())
 
 	dsi := &dpuservicev1.DPUServiceInterface{}
-	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpuServiceInterface.Namespace, Name: dpuServiceInterface.Name}, dsi)).To(Succeed())
-	Expect(input.client.Delete(ctx, dsi)).To(Succeed())
 	dsc := &dpuservicev1.DPUServiceChain{}
-	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpuServiceChain.Namespace, Name: dpuServiceChain.Name}, dsc)).To(Succeed())
+
+	// Wait for the controllers to set their finalizers before deleting, otherwise a
+	// Delete racing with the finalizer patch can remove the object before reconcileDelete
+	// runs and leaves the dpu-cluster object orphaned. See https://github.com/kubernetes/kubernetes/issues/77988
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuServiceInterface), dsi)).To(Succeed())
+		g.Expect(dsi.Finalizers).To(ContainElement(dpuservicev1.DPUServiceInterfaceFinalizer))
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuServiceChain), dsc)).To(Succeed())
+		g.Expect(dsc.Finalizers).To(ContainElement(dpuservicev1.DPUServiceChainFinalizer))
+	}).WithTimeout(60 * time.Second).Should(Succeed())
+
+	Expect(input.client.Delete(ctx, dsi)).To(Succeed())
 	Expect(input.client.Delete(ctx, dsc)).To(Succeed())
 	// Get the control plane secrets.
 	Eventually(func(g Gomega) {

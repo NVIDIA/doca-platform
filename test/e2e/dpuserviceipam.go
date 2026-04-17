@@ -127,8 +127,15 @@ func ValidateDPUServiceIPAMMetricsDeletion(ctx context.Context, input *systemTes
 	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithIPPoolName, dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
+	// Wait for the controller to set its finalizer before deleting, otherwise a
+	// Delete racing with the finalizer patch can remove the object before reconcileDelete
+	// runs and leaves the dpu-cluster object orphaned. See https://github.com/kubernetes/kubernetes/issues/77988
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), dpuServiceIPAM)).To(Succeed())
+		g.Expect(dpuServiceIPAM.Finalizers).To(ContainElement(dpuservicev1.DPUServiceIPAMFinalizer))
+	}).WithTimeout(60 * time.Second).Should(Succeed())
+
 	By("Deleting the DPUServiceIPAM")
-	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpuServiceIPAMNamespace, Name: dpuServiceIPAMWithIPPoolName}, dpuServiceIPAM)).To(Succeed())
 	Expect(input.client.Delete(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("Checking that NVIPAM IPPool CR is deleted in each DPU cluster")
@@ -187,8 +194,15 @@ func ValidateDPUServiceIPAMDeletionCidrSplit(ctx context.Context, input *systemT
 	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithCIDRPoolName, dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
+	// Wait for the controller to set its finalizer before deleting, otherwise a
+	// Delete racing with the finalizer patch can remove the object before reconcileDelete
+	// runs and leaves the dpu-cluster object orphaned. See https://github.com/kubernetes/kubernetes/issues/77988
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), dpuServiceIPAM)).To(Succeed())
+		g.Expect(dpuServiceIPAM.Finalizers).To(ContainElement(dpuservicev1.DPUServiceIPAMFinalizer))
+	}).WithTimeout(60 * time.Second).Should(Succeed())
+
 	By("Deleting the DPUServiceIPAM")
-	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpuServiceIPAM.Namespace, Name: dpuServiceIPAM.Name}, dpuServiceIPAM)).To(Succeed())
 	Expect(input.client.Delete(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("Checking that NVIPAM CIDRPool CR is deleted in each DPU cluster")
