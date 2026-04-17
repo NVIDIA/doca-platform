@@ -409,3 +409,21 @@ func getPodSameNodeConfigs(ctx context.Context, input *systemTestInput, namespac
 
 	return pod1Config, pod2Config
 }
+
+// GetServiceIDForDPUDeploymentService retrieves the ServiceID for the named service within a DPUDeployment.
+func GetServiceIDForDPUDeploymentService(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment, serviceName string) string {
+	var serviceID string
+	Eventually(func(g Gomega) {
+		dpuServiceList := &dpuservicev1.DPUServiceList{}
+		g.Expect(c.List(ctx, dpuServiceList,
+			client.InNamespace(dpuDeployment.GetNamespace()),
+			client.MatchingLabels{
+				dpuservicev1.ParentDPUDeploymentNameLabel:            fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName()),
+				dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: serviceName,
+			})).To(Succeed())
+		g.Expect(dpuServiceList.Items).To(HaveLen(1))
+		g.Expect(dpuServiceList.Items[0].Status.ServiceID).ToNot(BeEmpty())
+		serviceID = dpuServiceList.Items[0].Status.ServiceID
+	}).WithTimeout(30 * time.Second).Should(Succeed())
+	return serviceID
+}
