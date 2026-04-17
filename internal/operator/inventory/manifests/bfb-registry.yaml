@@ -3,8 +3,6 @@ data:
   nginx.conf: |-
     error_log  /dev/stderr notice;
 
-    load_module /usr/local/nginx/modules/ngx_http_concat_module.so;
-
     worker_processes  auto;
 
     events {
