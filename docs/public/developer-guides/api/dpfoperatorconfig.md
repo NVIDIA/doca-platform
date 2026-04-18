@@ -13,8 +13,7 @@ them according to the configuration.
 
 ## Basic Configuration Example
 
-This basic config example enables the Kamaji cluster manager and sets the PVC name of the BFB PVC which is necessary for
-the provisioning controller to download the bf-bundle.
+This basic config example enables the Kamaji cluster manager.
 
 > [!NOTE]
 > In the current implementation the `DPFOperatorConfig` resource is a singleton. This means that only one instance of
@@ -33,8 +32,6 @@ spec:
     disable: true
   kamajiClusterManager:
     disable: false
-  provisioningController:
-    bfbPVCName: bfb-pvc
 ```
 
 We can verify if the configuration is applied correctly by checking the status of the `DPFOperatorConfig` resource.
@@ -199,7 +196,7 @@ spec:
 
 #### Provisioning Controller Configuration Options
 
-* `spec.provisioningController.bfbPVCName`: **(Required)** Name of the PVC containing the BFB (BF Bundle) for provisioning DPUs.
+* `spec.provisioningController.bfbPVCName`: **(Optional)** Name of the PVC containing the BFB (BF Bundle) for provisioning DPUs. If it is not set, node local storage via a hostPath volume is used by default.
 
 * `spec.provisioningController.maxDPUParallelInstallations`: Controls the maximum number of DPUs that can be provisioned concurrently.
     The default value is 50. The value must be at least 1.
@@ -227,35 +224,30 @@ spec:
     Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration.
 
 * `spec.provisioningController.registry`: Configuration for the container registry used during provisioning.
-    - `address`: Registry address
-    - `port`: Registry port
+    - `address`: Registry address (deprecated)
+    - `port`: Registry port (deprecated)
+    - `loadBalancerAddress`: Load balancer address for registry
 
 * `spec.provisioningController.installInterface`: Method for installing DPU firmware. Choose one:
     - `installViaHostAgent`: Install via host agent
     - `installViaGNOI`: Install via gNOI protocol
     - `installViaRedfish`: Install via Redfish API with additional options:
         - `bfbRegistry.disable`: Disable the BFB registry
-        - `bfbRegistry.port`: Port for BFB registry
-        - `bfbRegistryAddress`: Address of BFB registry
+        - `bfbRegistry.port`: Port for BFB registry (deprecated)
+        - `bfbRegistryAddress`: Address of BFB registry (deprecated)
         - `skipDpuNodeDiscovery`: Skip automatic DPU node discovery
 
 ```yaml
 spec:
   provisioningController:
-    bfbPVCName: bfb-pvc
     maxDPUParallelInstallations: 25  # Limit concurrent provisioning to 25 DPUs
     maxUnavailableDPUNodes: 5
     dmsTimeout: 600
     replicas: 2
     multiDPUOperationsSyncWaitTime: 30s
     customCASecretName: my-ca-secret
-    registry:
-      address: "registry.example.com"
-      port: 5000
     installInterface:
       installViaRedfish:
-        bfbRegistry:
-          port: 8080
         skipDpuNodeDiscovery: false
 ```
 

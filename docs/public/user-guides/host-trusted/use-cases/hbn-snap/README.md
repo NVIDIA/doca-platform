@@ -74,10 +74,6 @@ export DPUCLUSTER_VIP=
 ## Interface on which the DPUCluster load balancer will listen. Should be the management interface of the control plane node.
 export DPUCLUSTER_INTERFACE=
 
-## IP address of the NFS server used for storing the BFB image.
-## NOTE: This environment variable does NOT control the address of the NFS server used as a remote target by SNAP VirtioFS.
-export NFS_SERVER_IP=
-
 ## The repository URL for the NVIDIA Helm chart registry.
 ## Usually this is the NVIDIA Helm NGC registry. For development purposes, this can be set to a different repository.
 export HELM_REGISTRY_REPO_URL=https://helm.ngc.nvidia.com/nvidia/doca
@@ -112,67 +108,7 @@ source manifests/00-env-vars/envvars.env
 
 ### 1. DPF Operator Installation
 
-#### Create storage required by the DPF Operator
-A number of [environment variables](#0-required-variables) must be set before running this command.
-
-```shell
-kubectl create ns dpf-operator-system
-cat manifests/01-dpf-operator-installation/*.yaml | envsubst | kubectl apply -f - 
-```
-
-This deploys the following objects:
-
-<details markdown="1"><summary>PersistentVolume and PersistentVolumeClaim for the provisioning controller</summary>
-
-[embedmd]:#(manifests/01-dpf-operator-installation/nfs-storage-for-bfb-dpf-ga.yaml)
-```yaml
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: bfb-pv
-spec:
-  capacity:
-    storage: 10Gi
-  volumeMode: Filesystem
-  accessModes:
-    - ReadWriteMany
-  nfs: 
-    path: /mnt/dpf_share/bfb
-    server: $NFS_SERVER_IP
-  persistentVolumeReclaimPolicy: Delete
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: bfb-pvc
-  namespace: dpf-operator-system
-spec:
-  accessModes:
-  - ReadWriteMany
-  resources:
-    requests:
-      storage: 10Gi
-  volumeMode: Filesystem
-  storageClassName: ""
-```
-</details>
-
-<details markdown="1"><summary>Local Path Provisioner Helm values</summary>
-
-[embedmd]:#(manifests/01-dpf-operator-installation/helm-values/local-path-provisioner.yml)
-```yml
-tolerations:
-  - operator: Exists
-    effect: NoSchedule
-    key: node-role.kubernetes.io/control-plane
-  - operator: Exists
-    effect: NoSchedule
-    key: node-role.kubernetes.io/master
-```
-</details>
-
-#### Additional Dependencies
+#### Dependencies
 
 Before deploying the DPF Operator, ensure that Helm is properly configured according to the [Helm prerequisites](../../../../getting-started/helm-prerequisites.md).
 
@@ -238,7 +174,6 @@ metadata:
   namespace: dpf-operator-system
 spec:
   provisioningController:
-    bfbPVCName: "bfb-pvc"
     dmsTimeout: 900
   kamajiClusterManager:
     disable: false
@@ -2762,12 +2697,6 @@ helm uninstall -n nvidia-network-operator network-operator --wait
 ```shell
 kubectl delete -n dpf-operator-system dpfoperatorconfig dpfoperatorconfig --wait
 helm uninstall -n dpf-operator-system dpf-operator --wait
-```
-
-### Delete DPF Operator PVC
-```shell
-kubectl -n dpf-operator-system delete pvc bfb-pvc
-kubectl delete pv bfb-pv
 ```
 
 Note: there can be a race condition with deleting the underlying Kamaji cluster
