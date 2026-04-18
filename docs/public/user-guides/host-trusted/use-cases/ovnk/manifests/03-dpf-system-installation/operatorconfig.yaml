@@ -9,7 +9,6 @@ spec:
     kubernetesAPIServerVIP: $TARGETCLUSTER_API_SERVER_HOST
     kubernetesAPIServerPort: $TARGETCLUSTER_API_SERVER_PORT
   provisioningController:
-    bfbPVCName: "bfb-pvc"
     dmsTimeout: 900
   kamajiClusterManager:
     disable: false

@@ -67,9 +67,6 @@ export DPUCLUSTER_VIP=
 ## Interface on which the DPUCluster load balancer will listen. Should be the management interface of the control plane node.
 export DPUCLUSTER_INTERFACE=
 
-## IP address to the NFS server used as storage for the BFB.
-export NFS_SERVER_IP=
-
 ## The repository URL for the NVIDIA Helm chart registry.
 ## Usually this is the NVIDIA Helm NGC registry. For development purposes, this can be set to a different repository.
 export HELM_REGISTRY_REPO_URL=https://helm.ngc.nvidia.com/nvidia/doca
@@ -116,53 +113,6 @@ source manifests/00-env-vars/envvars.env
 ```
 
 ### 1. DPF Operator installation
-
-#### Create storage required by the DPF Operator
-
-A number of [environment variables](#0-required-variables) must be set before running this command.
-
-```shell
-kubectl create ns dpf-operator-system
-cat manifests/01-dpf-operator-installation/*.yaml | envsubst | kubectl apply -f -
-```
-
-This deploys the following objects:
-
-<details markdown="1"><summary>PersistentVolume and PersistentVolumeClaim for the provisioning controller</summary>
-
-[embedmd]:#(manifests/01-dpf-operator-installation/nfs-storage-for-bfb-dpf-ga.yaml)
-```yaml
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: bfb-pv
-spec:
-  capacity:
-    storage: 10Gi
-  volumeMode: Filesystem
-  accessModes:
-    - ReadWriteMany
-  nfs: 
-    path: /mnt/dpf_share/bfb
-    server: $NFS_SERVER_IP
-  persistentVolumeReclaimPolicy: Delete
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: bfb-pvc
-  namespace: dpf-operator-system
-spec:
-  accessModes:
-  - ReadWriteMany
-  resources:
-    requests:
-      storage: 10Gi
-  volumeMode: Filesystem
-  storageClassName: ""
-```
-</details>
 
 #### Create DPU BMC shared password secret
 
@@ -252,11 +202,7 @@ spec:
   dpuDetector:
     disable: true
   provisioningController:
-    bfbPVCName: "bfb-pvc"
     dmsTimeout: 900
-    registry:
-      # Set this to the IP of one of your control plane nodes + 8080 port
-      address: "http://$TARGETCLUSTER_API_SERVER_HOST:8080"
     installInterface:
       installViaRedfish:
         skipDPUNodeDiscovery: false
@@ -1958,13 +1904,6 @@ This section covers only the DPF related components and not the prerequisites as
 ```shell
 kubectl delete -n dpf-operator-system dpfoperatorconfig dpfoperatorconfig --wait
 helm uninstall -n dpf-operator-system dpf-operator --wait
-```
-
-### Delete DPF Operator PVC
-
-```shell
-kubectl -n dpf-operator-system delete pvc bfb-pvc
-kubectl delete pv bfb-pv
 ```
 
 Note: there can be a race condition with deleting the underlying Kamaji cluster which runs the DPU cluster control

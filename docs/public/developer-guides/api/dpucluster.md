@@ -28,8 +28,6 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
-  provisioningController:
-    bfbPVCName: "bfb-pvc"
   staticClusterManager: {}
 ```
 
