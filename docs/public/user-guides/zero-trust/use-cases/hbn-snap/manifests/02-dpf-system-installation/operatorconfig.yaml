@@ -11,11 +11,7 @@ spec:
   dpuDetector:
     disable: true
   provisioningController:
-    bfbPVCName: "bfb-pvc"
     dmsTimeout: 900
-    registry:
-      # Set this to the IP of one of your control plane nodes + 8080 port
-      address: "http://$TARGETCLUSTER_API_SERVER_HOST:8080"
     installInterface:
       installViaRedfish:
         skipDPUNodeDiscovery: false

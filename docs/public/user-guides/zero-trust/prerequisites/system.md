@@ -192,11 +192,6 @@ kubectl get dpu -n dpf-operator-system -o custom-columns=NAME:.metadata.name,NOD
 
 ## System Software Setup
 
-### Control Plane Machines
-
-* NFS client packages - i.e. ` nfs-common`
-* NFS server available with `/mnt/dpf_share` readable and writable by any user
-
 ### Kubernetes
 
 * Kubernetes 1.32 - 1.34

@@ -42,7 +42,6 @@ metadata:
   namespace: dpf-operator-system
 spec:
   provisioningController:
-    bfbPVCName: "bfb-pvc"
     customCASecretName: "custom-ca-secret"
   kamajiClusterManager: {}
 ```
