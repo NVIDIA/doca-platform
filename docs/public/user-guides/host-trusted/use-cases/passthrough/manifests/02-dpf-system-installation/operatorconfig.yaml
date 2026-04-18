@@ -6,7 +6,6 @@ metadata:
   namespace: dpf-operator-system
 spec:
   provisioningController:
-    bfbPVCName: "bfb-pvc"
     dmsTimeout: 900
   kamajiClusterManager:
     disable: false
