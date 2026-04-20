@@ -48,6 +48,9 @@ type NetworkHelper interface {
 	DeleteRoute(network *net.IPNet, gateway net.IP, device string) error
 	// RouteExists checks whether a route exists
 	RouteExists(network *net.IPNet, gateway net.IP, device string, table *int) (bool, error)
+	// RouteList returns IPv4 routes for device.
+	// When table is non-nil, only routes in that routing table are returned.
+	RouteList(device string, table *int) ([]netlink.Route, error)
 	// AddDummyLink adds a dummy link
 	AddDummyLink(link string) error
 	// DummyLinkExists checks if a dummy link exists
