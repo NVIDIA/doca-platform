@@ -962,18 +962,26 @@ func verifyDPUServicesReady(ctx context.Context, input *systemTestInput, dpuServ
 // getDPUClusterClient retrieves the DPUCluster client for the cluster at the given index. This function is internal and should not be called directly.
 // Instead, use getDPUClusterClients to retrieve all clients for all clusters.
 func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, clusterIndex int) {
-	var clientHealthCheck func() bool
-	var restConfigHealthCheck func() bool
+	var tun *tunnel.Tunnel
+
 	Eventually(func(g Gomega) {
-		// Use the new tunnel helper to create a client and the restConfig for the Kamaji cluster
-		dpuClusterClient[clusterIndex], clientHealthCheck = tunnel.NewTunneledClient(g, ctx, input.client, input.restConfig, input.dpuClusters[clusterIndex])
-		dpuClusterRestConfig[clusterIndex], restConfigHealthCheck = tunnel.NewTunneledRestConfig(g, ctx, input.client, input.restConfig, input.dpuClusters[clusterIndex])
-		// Setup the dpuClusterRestClient
-		dpuClusterRestConfig[clusterIndex].APIPath = "/api"
-		dpuClusterRestConfig[clusterIndex].GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
-		dpuClusterRestConfig[clusterIndex].NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(input.dpuClusters[clusterIndex]), input.dpuClusters[clusterIndex])).To(Succeed())
+		g.Expect(input.dpuClusters[clusterIndex].Spec.Kubeconfig).ToNot(BeEmpty(), "DPUCluster kubeconfig should be populated")
+
 		var err error
-		dpuClusterRestClient[clusterIndex], err = rest.RESTClientFor(dpuClusterRestConfig[clusterIndex])
+		var restCfg *rest.Config
+		restCfg, tun, err = tunnel.NewTunneledRestConfig(ctx, input.client, input.restConfig, input.dpuClusters[clusterIndex])
+		g.Expect(err).NotTo(HaveOccurred(), "Should create tunneled REST config")
+
+		dpuClusterClient[clusterIndex], err = client.New(restCfg, client.Options{})
+		g.Expect(err).NotTo(HaveOccurred(), "Should create tunneled client")
+
+		// Setup the dpuClusterRestClient
+		restCfg.APIPath = "/api"
+		restCfg.GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
+		restCfg.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
+		dpuClusterRestConfig[clusterIndex] = restCfg
+		dpuClusterRestClient[clusterIndex], err = rest.RESTClientFor(restCfg)
 		g.Expect(err).ToNot(HaveOccurred())
 	}).WithTimeout(10 * time.Second).Should(Succeed())
 
@@ -992,16 +1000,10 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if !clientHealthCheck() {
-					By("Tunneled client health check failed, recreating client and rest config")
+				if !tun.IsHealthy() {
+					By("Tunnel health check failed, recreating client and rest config")
+					tun.Close()
 					getDPUClusterClient(ctx, input, clusterIndex)
-					// Exit this goroutine as a new one will be created
-					return
-				}
-				if !restConfigHealthCheck() {
-					By("Tunneled rest config health check failed, recreating client and rest config")
-					getDPUClusterClient(ctx, input, clusterIndex)
-					// Exit this goroutine as a new one will be created
 					return
 				}
 			}
@@ -1100,5 +1102,7 @@ func collectKubernetesResources(ctx context.Context, input collectResourcesInput
 	// Create a resourceCollector to dump logs and resources for test debugging.
 	clusters, err := collector.GetClusterCollectors(ctx, cc, artifactsPath)
 	Expect(err).NotTo(HaveOccurred())
-	return collector.New(clusters).Run(ctx)
+	c := collector.New(clusters)
+	defer c.Close()
+	return c.Run(ctx)
 }
