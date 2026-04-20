@@ -17,7 +17,7 @@ configuration options.
 General note: In the official documentation, all options should be specified in the `dts_config.ini` file using the
 `key=value` format. In DPF the same options should be set via `DPUService.yaml` as `key: value` in yaml format.
 
-To start the DTS service, you need to create a `DPUService` resource.  
+To start the DTS service, user needs to create a `DPUService` resource.  
 This resource will define the service configuration and deployment details.
 
 Configuration file:
@@ -99,9 +99,9 @@ The default configuration is set to collect `sysfs` and `ethtool` counters and e
 User configuration is organized into the following groups:
 
 * providers
-* aggregator_providers
 * general
 * fluent
+* counterset
 
 All user options should be set in DPUService under:
 
@@ -114,15 +114,13 @@ spec:
 
 The following subsections explain each user option groups
 
-### Providers:
+### Providers
 
 Available data providers are listed here: [DTS providers](https://docs.nvidia.com/doca/sdk/doca-telemetry-service-guide/index.html#src-4420192989_id-.DOCATelemetryServiceGuidev3.2.0LC-Providers).
 
 Note: some of the providers are supported only on host and not on DPU.
 
-To enable data providers in DTS service:
-
-**1.** Set data providers csv-line under `spec.helmChart.values.configMapData.providers`. E.g.:
+To enable data providers in DTS service set csv-line under `spec.helmChart.values.configMapData.providers`. E.g.:
 
 ```yaml
 spec:
@@ -131,8 +129,6 @@ spec:
       configMapData:
         providers: "sysfs,ethtool"
 ```
-
-**2.** Optionally, set aggregator providers csv-line under `spec.helmChart.values.configMapData.aggregator_providers`.
 
 ### General options
 
@@ -147,7 +143,6 @@ For instance, DPU service exposes essential general options:
   * `update: 1000` to set the sample interval in milliseconds.
   * `sync-time-limit: 10000` buffer rotation time limit in seconds.
 
-
 ### Configure Fluent exporter
 
 Additionally Fluent Bit export files can be set via `spec.helmChart.configMapData.fluent.DESTINATION`.
@@ -160,6 +155,11 @@ Available fluent export destinations are:
 
 Default values are exposed for each case in DPUService.yaml.
 See more details regarding each destination in official documentation.
+
+### Counterset
+
+According to official docs xcset, fset, or cset configure data filtering in data exporter.  
+Set one or several user sets under `spec.helmChart.values.configMapData.counterset`.
 
 # Run Service
 
@@ -184,4 +184,74 @@ DPFOperatorConfig/dpfoperatorconfig              dpf-operator-system  True   Suc
                 ├─ApplicationsReady                                   True   Success  21d
                 ├─ApplicationsReconciled                              True   Success  25d
                 └─DPUServiceInterfaceReconciled                       True   Success  25d
+```
+
+## SPX mode
+
+SPX mode provides broader counter configuration and capabilities according to Spectrum-X configuration.
+
+A preconfigured DPUService file is available at `dpuservices/dts/DPUServiceSPX.yaml`:
+
+<details markdown="1"><summary>DPUServiceSPX</summary>
+
+[embedmd]:#(../../../../dpuservices/dts/DPUServiceSPX.yaml)
+```yaml
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: doca-telemetry-service
+  namespace: dpf-operator-system
+spec:
+  helmChart:
+    source:
+      repoURL: https://helm.ngc.nvidia.com/nvidia/doca
+      version: 1.25.2
+      chart: doca-telemetry
+    values:
+      dtsConfigDir: "astra_spectrum_x"
+      securityContext:
+        privileged: true
+      configMapData:
+        providers: "sysfs,ethtool,diagnostic_data_low_freq,amber,vnic,ppcc_eth"
+        general:
+          update: 1000
+          sync-time-limit: 10
+          event-buffer-size: 65536
+          counter-buffer-size: 65536
+
+          diagnostic-data-yml-file: "/config/diagnostic_data_configs/all-single-port.yml"
+          level-labels-file: "/config/level_labels.ini"
+        prometheus:
+          enable: 1
+
+        fluent:
+          forward:
+            enable: 0
+            port: 24224
+            host: "127.0.0.1"
+            tag: "doca_telemetry"
+
+  serviceDaemonSet:
+    updateStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: 2
+    labels:
+      dpuservice.dpu.nvidia.com/name: doca-telemetry-service
+    annotations:
+      dpuservice.dpu.nvidia.com/name: doca-telemetry-service
+  configPorts:
+    serviceType: None
+    ports:
+      - name: httpserverport
+        port: 9100
+        protocol: TCP
+```
+
+</details>
+
+To enable it run:
+
+```bash
+kubectl apply -f DPUServiceAstra.yaml
 ```
