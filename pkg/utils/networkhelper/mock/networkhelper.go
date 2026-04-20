@@ -336,6 +336,21 @@ func (mr *MockNetworkHelperMockRecorder) RouteExists(network, gateway, device, t
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RouteExists", reflect.TypeOf((*MockNetworkHelper)(nil).RouteExists), network, gateway, device, table)
 }
 
+// RouteList mocks base method.
+func (m *MockNetworkHelper) RouteList(device string, table *int) ([]netlink.Route, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RouteList", device, table)
+	ret0, _ := ret[0].([]netlink.Route)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RouteList indicates an expected call of RouteList.
+func (mr *MockNetworkHelperMockRecorder) RouteList(device, table any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RouteList", reflect.TypeOf((*MockNetworkHelper)(nil).RouteList), device, table)
+}
+
 // RuleExists mocks base method.
 func (m *MockNetworkHelper) RuleExists(src *net.IPNet, table, priority int) (bool, error) {
 	m.ctrl.T.Helper()

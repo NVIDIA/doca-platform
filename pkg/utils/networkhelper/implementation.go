@@ -204,32 +204,38 @@ func (n *networkHelper) RouteExists(network *net.IPNet, gateway net.IP, device s
 	if network == nil {
 		return false, errors.New("network is empty, can't check whether route exists")
 	}
-	l, err := netlink.LinkByName(device)
+	routes, err := n.RouteList(device, table)
 	if err != nil {
-		return false, fmt.Errorf("netlink.LinkByName() failed: %w", err)
+		return false, err
 	}
-
-	routeFilter := &netlink.Route{
-		LinkIndex: l.Attrs().Index,
-	}
-	// This one is copied from netlink.RouteList()
-	filterMask := netlink.RT_FILTER_OIF
-
-	if table != nil {
-		routeFilter.Table = *table
-		filterMask += netlink.RT_FILTER_TABLE
-	}
-	routes, err := netlink.RouteListFiltered(netlink.FAMILY_V4, routeFilter, filterMask)
-	if err != nil {
-		return false, fmt.Errorf("netlink.RouteList() failed: %w", err)
-	}
-
 	for _, r := range routes {
 		if r.Dst.String() == network.String() && r.Gw.String() == gateway.String() {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// RouteList returns IPv4 routes for device.
+// When table is non-nil, only routes in that routing table are returned.
+func (n *networkHelper) RouteList(device string, table *int) ([]netlink.Route, error) {
+	l, err := netlink.LinkByName(device)
+	if err != nil {
+		return nil, fmt.Errorf("netlink.LinkByName() failed: %w", err)
+	}
+	routeFilter := &netlink.Route{
+		LinkIndex: l.Attrs().Index,
+	}
+	filterMask := netlink.RT_FILTER_OIF
+	if table != nil {
+		routeFilter.Table = *table
+		filterMask += netlink.RT_FILTER_TABLE
+	}
+	routes, err := netlink.RouteListFiltered(netlink.FAMILY_V4, routeFilter, filterMask)
+	if err != nil {
+		return nil, fmt.Errorf("netlink.RouteListFiltered() failed: %w", err)
+	}
+	return routes, nil
 }
 
 // AddRoute adds a route
