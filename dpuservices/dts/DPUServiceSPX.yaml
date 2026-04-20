@@ -1,0 +1,50 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: doca-telemetry-service
+  namespace: dpf-operator-system
+spec:
+  helmChart:
+    source:
+      repoURL: https://helm.ngc.nvidia.com/nvidia/doca
+      version: 1.25.2
+      chart: doca-telemetry
+    values:
+      dtsConfigDir: "astra_spectrum_x"
+      securityContext:
+        privileged: true
+      configMapData:
+        providers: "sysfs,ethtool,diagnostic_data_low_freq,amber,vnic,ppcc_eth"
+        general:
+          update: 1000
+          sync-time-limit: 10
+          event-buffer-size: 65536
+          counter-buffer-size: 65536
+
+          diagnostic-data-yml-file: "/config/diagnostic_data_configs/all-single-port.yml"
+          level-labels-file: "/config/level_labels.ini"
+        prometheus:
+          enable: 1
+
+        fluent:
+          forward:
+            enable: 0
+            port: 24224
+            host: "127.0.0.1"
+            tag: "doca_telemetry"
+
+  serviceDaemonSet:
+    updateStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: 2
+    labels:
+      dpuservice.dpu.nvidia.com/name: doca-telemetry-service
+    annotations:
+      dpuservice.dpu.nvidia.com/name: doca-telemetry-service
+  configPorts:
+    serviceType: None
+    ports:
+      - name: httpserverport
+        port: 9100
+        protocol: TCP
