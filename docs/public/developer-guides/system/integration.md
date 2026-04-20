@@ -60,7 +60,7 @@ The DPF Operator has a number of dependencies which can be swapped out during in
 Today the following are either mentioned in the installation guide or installed as dependencies from the DPF Operator helm chart.
 
 * certificate management using `cert-manager`
-* storage provisioning using `NFS` and `local-path` provisioner
+* storage provisioning using `local-path` provisioner
 * NVIDIA Network Operator
 * NVIDIA Node maintenance operator
 
@@ -204,7 +204,6 @@ metadata:
   namespace: dpf-operator-system
 spec:
   provisioningController:
-    bfbPVCName: "bfb-pvc"
     bfCFGTemplateConfigMap: custom-bfb.cfg
 ...
 ```

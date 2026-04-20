@@ -102,9 +102,6 @@ export DPUCLUSTER_VIP=
 ## Interface on which the DPUCluster load balancer will listen. Should be the management interface of the control plane node.
 export DPUCLUSTER_INTERFACE=
 
-## IP address to the NFS server used as storage for the BFB.
-export NFS_SERVER_IP=
-
 ## The repository URL for the NVIDIA Helm chart registry.
 ## Usually this is the NVIDIA Helm NGC registry. For development purposes, this can be set to a different repository.
 export HELM_REGISTRY_REPO_URL=https://helm.ngc.nvidia.com/nvidia/doca
@@ -198,54 +195,7 @@ kubectl wait --for=condition=ready --namespace ovn-kubernetes pods --all --timeo
 
 ### 2. DPF Operator Installation
 
-
-#### Create storage required by the DPF Operator
-A number of [environment variables](#0-required-variables) must be set before running this command.
-
-```shell
-kubectl create ns dpf-operator-system
-cat manifests/02-dpf-operator-installation/*.yaml | envsubst | kubectl apply -f - 
-```
-
-This deploys the following objects:
-
-<details markdown="1"><summary>PersistentVolume and PersistentVolumeClaim for the provisioning controller</summary>
-
-[embedmd]:#(manifests/02-dpf-operator-installation/nfs-storage-for-bfb-dpf-ga.yaml)
-```yaml
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: bfb-pv
-spec:
-  capacity:
-    storage: 10Gi
-  volumeMode: Filesystem
-  accessModes:
-    - ReadWriteMany
-  nfs: 
-    path: /mnt/dpf_share/bfb
-    server: $NFS_SERVER_IP
-  persistentVolumeReclaimPolicy: Delete
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: bfb-pvc
-  namespace: dpf-operator-system
-spec:
-  accessModes:
-  - ReadWriteMany
-  resources:
-    requests:
-      storage: 10Gi
-  volumeMode: Filesystem
-  storageClassName: ""
-```
-</details>
-
-#### Additional Dependencies
+#### Dependencies
 
 Before deploying the DPF Operator, ensure that Helm is properly configured according to the [Helm prerequisites](../../../../getting-started/helm-prerequisites.md).  
 
@@ -324,7 +274,6 @@ spec:
     kubernetesAPIServerVIP: $TARGETCLUSTER_API_SERVER_HOST
     kubernetesAPIServerPort: $TARGETCLUSTER_API_SERVER_PORT
   provisioningController:
-    bfbPVCName: "bfb-pvc"
     dmsTimeout: 900
   kamajiClusterManager:
     disable: false
@@ -1187,12 +1136,6 @@ Then we can delete the config and system namespace.
 ```shell
 kubectl delete -n dpf-operator-system dpfoperatorconfig dpfoperatorconfig --wait
 helm uninstall -n dpf-operator-system dpf-operator --wait
-```
-
-### Delete DPF Operator PVC
-```shell
-kubectl -n dpf-operator-system delete pvc bfb-pvc
-kubectl delete pv bfb-pv
 ```
 
 Note: there can be a race condition with deleting the underlying Kamaji cluster which runs the DPU cluster control plane in this guide. If that happens it may be necessary to remove finalizers manually from `DPUCluster` and `Datastore` objects.
