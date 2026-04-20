@@ -571,11 +571,19 @@ clean-test-env: kind ## Clean Kind test environment (delete Kind cluster)
 OPERATOR_NAMESPACE ?= dpf-operator-system
 TEST_DEPLOY_PREREQS_NAMESPACE ?= dpf-operator-system
 HELMFILE_ENV ?=
+NFD_WAIT ?= true
 .PHONY: test-deploy-operator-helm
 test-deploy-operator-helm: helm helm-package-operator ## Deploy the DPF Operator using helm
 	# Deploy the DPF Operator prerequisites.
 	sed "s/dpf-operator-system/$(TEST_DEPLOY_PREREQS_NAMESPACE)/g" $(CURDIR)/deploy/helmfiles/prereqs.yaml > $(CURDIR)/deploy/helmfiles/prereqs.yaml.tmp
+ifeq ($(NFD_WAIT),false)
+	# When NFD_WAIT=false, deploy all prereqs except NFD first, then deploy NFD without waiting.
+	# This is needed when OVN Kubernetes is the CNI because NFD cannot become ready without a functioning CNI.
+	$(MAKE) HELMFILE_FILE=$(CURDIR)/deploy/helmfiles/prereqs.yaml.tmp HELMFILE_SELECTOR="app!=node-feature-discovery" test-deploy-helmfile
+	$(MAKE) HELMFILE_FILE=$(CURDIR)/deploy/helmfiles/prereqs.yaml.tmp HELMFILE_WAIT=false HELMFILE_SELECTOR="app=node-feature-discovery" test-deploy-helmfile
+else
 	$(MAKE) HELMFILE_FILE=$(CURDIR)/deploy/helmfiles/prereqs.yaml.tmp test-deploy-helmfile
+endif
 
 	# Deploy the DPF Operator.
 	$(HELM) upgrade --install --create-namespace --namespace $(OPERATOR_NAMESPACE) \
