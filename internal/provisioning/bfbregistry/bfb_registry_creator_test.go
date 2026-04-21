@@ -87,17 +87,25 @@ var _ = Describe("EnsureBFBRegistry", func() {
 				UID:       "leader-uid",
 			},
 		}
+		ref := leaderControllerRef(leaderPod)
 		existingPod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      PodName,
-				Namespace: testNamespace,
+				Name:            PodName,
+				Namespace:       testNamespace,
+				OwnerReferences: []metav1.OwnerReference{*ref},
 			},
-			Spec: corev1.PodSpec{NodeName: "node-1"},
+			Spec: corev1.PodSpec{
+				NodeName: "node-1",
+				Containers: []corev1.Container{
+					{Name: "bfb-registry", Image: "registry:8082"},
+				},
+			},
 		}
 		existingSvc := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      PodName,
-				Namespace: testNamespace,
+				Name:            PodName,
+				Namespace:       testNamespace,
+				OwnerReferences: []metav1.OwnerReference{*ref},
 			},
 			Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeNodePort},
 		}
@@ -115,5 +123,59 @@ var _ = Describe("EnsureBFBRegistry", func() {
 		svcList := &corev1.ServiceList{}
 		Expect(c.List(ctx, svcList, client.InNamespace(testNamespace))).To(Succeed())
 		Expect(svcList.Items).To(HaveLen(1))
+	})
+
+	It("replaces bfb-registry pod and re-parents service when owned by a different leader", func() {
+		oldLeader := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "leader-old",
+				Namespace: testNamespace,
+				UID:       "old-uid",
+			},
+		}
+		newLeader := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "leader-new",
+				Namespace: testNamespace,
+				UID:       "new-uid",
+			},
+		}
+		refOld := leaderControllerRef(oldLeader)
+		existingPod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            PodName,
+				Namespace:       testNamespace,
+				OwnerReferences: []metav1.OwnerReference{*refOld},
+			},
+			Spec: corev1.PodSpec{
+				NodeName: "node-1",
+				Containers: []corev1.Container{
+					{Name: "bfb-registry", Image: "registry:8082"},
+				},
+			},
+		}
+		existingSvc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            PodName,
+				Namespace:       testNamespace,
+				OwnerReferences: []metav1.OwnerReference{*refOld},
+			},
+			Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeNodePort},
+		}
+		c := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(oldLeader, newLeader, existingPod, existingSvc).
+			Build()
+
+		err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-new", "node-2", "registry:8082")
+		Expect(err).NotTo(HaveOccurred())
+
+		p := &corev1.Pod{}
+		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: PodName}, p)).To(Succeed())
+		Expect(podOwnedByLeaderPod(p, newLeader)).To(BeTrue())
+		Expect(p.Spec.NodeName).To(Equal("node-2"))
+
+		svc := &corev1.Service{}
+		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: PodName}, svc)).To(Succeed())
+		Expect(serviceOwnedByLeaderPod(svc, newLeader)).To(BeTrue())
 	})
 })
