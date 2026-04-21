@@ -90,23 +90,31 @@ var runnerListCmd = &cobra.Command{
 		// Filter runners
 		filteredRunners := filterRunners(runners)
 
-		// Fetch detailed runner information
-		runnerDetailsList := make([]*gitlab.RunnerDetails, 0, len(filteredRunners))
+		// Fetch detailed runner information and current job state
+		runnerList := make([]runnerWithJob, 0, len(filteredRunners))
 		for _, runner := range filteredRunners {
 			runnerDetails, err := client.GetRunnerDetails(runner.ID)
 			if err != nil {
 				return fmt.Errorf("failed to fetch runner details: %v", err)
 			}
-			runnerDetailsList = append(runnerDetailsList, runnerDetails)
+			jobState := "idle"
+			runningJobs, err := client.GetRunnerJobs(runner.ID, "running", 1)
+			if err != nil {
+				return fmt.Errorf("failed to fetch runner jobs: %v", err)
+			}
+			if len(runningJobs) > 0 {
+				jobState = fmt.Sprintf("running: %s", runningJobs[0].Name)
+			}
+			runnerList = append(runnerList, runnerWithJob{Details: runnerDetails, Job: jobState})
 		}
 
 		// Sort runners by description (alphabetically, stable ordering)
-		sort.Slice(runnerDetailsList, func(i, j int) bool {
-			return runnerDetailsList[i].Description < runnerDetailsList[j].Description
+		sort.Slice(runnerList, func(i, j int) bool {
+			return runnerList[i].Details.Description < runnerList[j].Details.Description
 		})
 
 		// Print runners
-		printRunners(runnerDetailsList)
+		printRunners(runnerList)
 
 		return nil
 	},
@@ -137,18 +145,25 @@ func filterRunners(runners []gitlab.Runner) []gitlab.Runner {
 	return filtered
 }
 
+// runnerWithJob pairs runner details with its current job state.
+type runnerWithJob struct {
+	Details *gitlab.RunnerDetails
+	Job     string
+}
+
 // printRunners prints the runner list in a formatted table
-func printRunners(runners []*gitlab.RunnerDetails) {
+func printRunners(runners []runnerWithJob) {
 	if len(runners) == 0 {
 		fmt.Println("No runners found matching the criteria.")
 		return
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tDESCRIPTION\tSTATUS\tONLINE\tACTIVE\tPAUSED\tTYPE\tTAGS")
-	fmt.Fprintln(w, "--\t----\t-----------\t------\t------\t------\t------\t----\t----")
+	fmt.Fprintln(w, "ID\tNAME\tDESCRIPTION\tSTATUS\tJOB\tONLINE\tACTIVE\tPAUSED\tTYPE\tTAGS")
+	fmt.Fprintln(w, "--\t----\t-----------\t------\t---\t------\t------\t------\t----\t----")
 
-	for _, runner := range runners {
+	for _, entry := range runners {
+		runner := entry.Details
 		name := runner.Name
 		if name == "" {
 			name = "-"
@@ -174,11 +189,12 @@ func printRunners(runners []*gitlab.RunnerDetails) {
 			runnerType = "-"
 		}
 
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%t\t%t\t%t\t%s\t%s\n",
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%t\t%t\t%t\t%s\t%s\n",
 			runner.ID,
 			name,
 			description,
 			status,
+			entry.Job,
 			runner.Online,
 			runner.Active,
 			runner.Paused,
