@@ -7,7 +7,7 @@ spec:
   bfcfgParameters:
     - UPDATE_ATF_UEFI=yes
     - UPDATE_DPU_OS=yes
-    - WITH_NIC_FW_UPDATE=yes
+    - WITH_NIC_FW_UPDATE=no
     - UPDATE_BMC_FW=no
     - UPDATE_CEC_FW=no
   configFiles:
