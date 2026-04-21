@@ -18,14 +18,17 @@ package bfbregistry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -39,6 +42,13 @@ const (
 	LabelValue        = "bfb-registry"
 	ContainerPort     = 8082
 	BFBHostPath       = "/var/lib/nvidia/dpf/bfb"
+
+	// bfbRegistryPodDeleteMaxWait bounds how long we block waiting for the API server to
+	// finish deleting the bfb-registry Pod after we issue Delete. On deadline, we log and
+	// return without failing the manager so provisioning can start; EnsureBFBRegistry from
+	// the DPU reconciler can retry.
+	bfbRegistryPodDeletePollInterval = 200 * time.Millisecond
+	bfbRegistryPodDeleteMaxWait      = 15 * time.Second
 )
 
 // BFBRegistryRunnable creates the bfb-registry Pod and Service when the provisioning controller.
@@ -65,9 +75,6 @@ func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
 	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: podName}, pod); err != nil {
 		return fmt.Errorf("get leader pod %s/%s: %w", namespace, podName, err)
 	}
-	podOwnerRef := metav1.NewControllerRef(pod, corev1.SchemeGroupVersion.WithKind("Pod"))
-	podOwnerRef.Controller = ptr.To(true)
-	podOwnerRef.BlockOwnerDeletion = ptr.To(true)
 
 	if err := r.removeLegacyDaemonSet(ctx, namespace); err != nil {
 		return err
@@ -75,10 +82,10 @@ func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
 	if err := r.removeLegacyBFBRegistryService(ctx, namespace, pod); err != nil {
 		return err
 	}
-	if err := r.ensurePod(ctx, namespace, nodeName, registryImage, podOwnerRef); err != nil {
+	if err := r.ensurePod(ctx, namespace, nodeName, registryImage, pod); err != nil {
 		return err
 	}
-	if err := r.ensureService(ctx, namespace, podOwnerRef); err != nil {
+	if err := r.ensureService(ctx, namespace, pod); err != nil {
 		return err
 	}
 	<-ctx.Done()
@@ -127,7 +134,26 @@ func serviceOwnedByLeaderPod(svc *corev1.Service, leaderPod *corev1.Pod) bool {
 	return false
 }
 
-func (r *BFBRegistryRunnable) ensurePod(ctx context.Context, namespace, nodeName, image string, ownerRef *metav1.OwnerReference) error {
+func podOwnedByLeaderPod(pod *corev1.Pod, leaderPod *corev1.Pod) bool {
+	for i := range pod.OwnerReferences {
+		ref := &pod.OwnerReferences[i]
+		if ref.Kind == "Pod" && ref.Name == leaderPod.Name && ref.UID == leaderPod.UID &&
+			ref.Controller != nil && *ref.Controller {
+			return true
+		}
+	}
+	return false
+}
+
+func leaderControllerRef(leaderPod *corev1.Pod) *metav1.OwnerReference {
+	ref := metav1.NewControllerRef(leaderPod, corev1.SchemeGroupVersion.WithKind("Pod"))
+	ref.Controller = ptr.To(true)
+	ref.BlockOwnerDeletion = ptr.To(true)
+	return ref
+}
+
+func (r *BFBRegistryRunnable) ensurePod(ctx context.Context, namespace, nodeName, image string, leaderPod *corev1.Pod) error {
+	ownerRef := leaderControllerRef(leaderPod)
 	existing := &corev1.Pod{}
 	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, existing)
 	if err != nil {
@@ -142,6 +168,39 @@ func (r *BFBRegistryRunnable) ensurePod(ctx context.Context, namespace, nodeName
 			return err
 		}
 		return nil
+	}
+	if podOwnedByLeaderPod(existing, leaderPod) {
+		return nil
+	}
+	if err := r.Client.Delete(ctx, existing, client.GracePeriodSeconds(0)); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	logger := log.FromContext(ctx)
+	if err := wait.PollUntilContextTimeout(ctx, bfbRegistryPodDeletePollInterval, bfbRegistryPodDeleteMaxWait, true, func(ctx context.Context) (bool, error) {
+		err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, &corev1.Pod{})
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return false, nil
+	}); err != nil {
+		// DeadlineExceeded means the pod is still terminating (e.g. finalizers). Do not fail
+		// manager.Start; the DPU controller watch will call EnsureBFBRegistry again.
+		if errors.Is(err, context.DeadlineExceeded) {
+			logger.Error(err, "timed out waiting for bfb-registry pod deletion; continuing without recreating pod, will retry from reconcile",
+				"maxWait", bfbRegistryPodDeleteMaxWait)
+			return nil
+		}
+		return fmt.Errorf("waiting for bfb-registry pod deletion: %w", err)
+	}
+	desired := r.desiredPod(namespace, nodeName, image, ownerRef)
+	if err := r.Client.Create(ctx, desired); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			return nil
+		}
+		return err
 	}
 	return nil
 }
@@ -214,7 +273,8 @@ func bfbRegistryPodLabels() map[string]string {
 	}
 }
 
-func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace string, ownerRef *metav1.OwnerReference) error {
+func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace string, leaderPod *corev1.Pod) error {
+	ownerRef := leaderControllerRef(leaderPod)
 	existing := &corev1.Service{}
 	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, existing)
 	if err != nil {
@@ -234,7 +294,7 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 					{
 						Name:       "http",
 						Port:       int32(ContainerPort),
-						TargetPort: intstr.FromInt32(ContainerPort),
+						TargetPort: intstr.FromInt(ContainerPort),
 					},
 				},
 			},
@@ -245,6 +305,15 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 			}
 			return err
 		}
+		return nil
+	}
+	if serviceOwnedByLeaderPod(existing, leaderPod) {
+		return nil
+	}
+	patchBase := existing.DeepCopy()
+	existing.OwnerReferences = []metav1.OwnerReference{*ownerRef}
+	if err := r.Client.Patch(ctx, existing, client.MergeFrom(patchBase)); err != nil {
+		return err
 	}
 	return nil
 }
@@ -262,17 +331,14 @@ func EnsureBFBRegistry(ctx context.Context, deps EnsureBFBRegistryDeps, namespac
 	if err := deps.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: leaderPodName}, leaderPod); err != nil {
 		return fmt.Errorf("get leader pod %s/%s: %w", namespace, leaderPodName, err)
 	}
-	ownerRef := metav1.NewControllerRef(leaderPod, corev1.SchemeGroupVersion.WithKind("Pod"))
-	ownerRef.Controller = ptr.To(true)
-	ownerRef.BlockOwnerDeletion = ptr.To(true)
 
 	run := &BFBRegistryRunnable{
 		Client:           deps.Client,
 		BFBPVC:           deps.BFBPVC,
 		ImagePullSecrets: deps.ImagePullSecrets,
 	}
-	if err := run.ensurePod(ctx, namespace, nodeName, registryImage, ownerRef); err != nil {
+	if err := run.ensurePod(ctx, namespace, nodeName, registryImage, leaderPod); err != nil {
 		return err
 	}
-	return run.ensureService(ctx, namespace, ownerRef)
+	return run.ensureService(ctx, namespace, leaderPod)
 }
