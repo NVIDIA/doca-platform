@@ -18,11 +18,16 @@ set -o nounset
 set -o pipefail
 set -o errexit
 
-: ${ZERO_TRUST:="false"}
 # create-artefact-secrets.sh will create secrets required to pull images and helm charts from NGC or Gitlab if the relevant API KEY is set in the environment
 
+: ${ZERO_TRUST:="false"}
+# Namespace where ArgoCD is installed. dpf-helm-secret (ArgoCD repository
+# credentials) must live here because ArgoCD only reads repository-typed
+# secrets from its own namespace.
+: ${TEST_DEPLOY_PREREQS_NAMESPACE:="dpf-operator-system"}
+
 ## Ensure the script is idempotent, allowing safe re-execution even if the secret already exists.
-kubectl -n dpf-operator-system delete secret dpf-helm-secret --ignore-not-found
+kubectl -n "$TEST_DEPLOY_PREREQS_NAMESPACE" delete secret dpf-helm-secret --ignore-not-found
 kubectl -n dpf-operator-system delete secret dpf-pull-secret --ignore-not-found
 kubectl -n dpf-operator-system delete secret bmc-shared-password --ignore-not-found
 
@@ -47,8 +52,9 @@ fi
 
 REGISTRY_SERVER=$(echo $REGISTRY | cut -d'/' -f1)
 
-## create namespace if it doesn't exist
+## create namespaces if they don't exist
 kubectl create namespace dpf-operator-system --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace "$TEST_DEPLOY_PREREQS_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
 ## Create a pull secret to be used for images in Kubernetes.
 kubectl -n dpf-operator-system create secret docker-registry dpf-pull-secret --docker-server=$REGISTRY_SERVER --docker-username="\$oauthtoken" --docker-password=$IMAGE_PULL_KEY
@@ -59,7 +65,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: dpf-helm-secret
-  namespace: dpf-operator-system
+  namespace: $TEST_DEPLOY_PREREQS_NAMESPACE
   labels:
     argocd.argoproj.io/secret-type: repository
 stringData:
