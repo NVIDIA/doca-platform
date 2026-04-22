@@ -290,8 +290,12 @@ func daemonSetReadyCheck(ctx context.Context, c client.Client, namespace string,
 }
 
 func getManagerContainer(deploy *appsv1.Deployment) *corev1.Container {
+	return getContainerByName(deploy, managerContainerName)
+}
+
+func getContainerByName(deploy *appsv1.Deployment, name string) *corev1.Container {
 	for i, c := range deploy.Spec.Template.Spec.Containers {
-		if c.Name == managerContainerName {
+		if c.Name == name {
 			return &deploy.Spec.Template.Spec.Containers[i]
 		}
 	}

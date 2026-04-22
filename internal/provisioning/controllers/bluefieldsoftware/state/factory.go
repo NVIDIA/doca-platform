@@ -40,6 +40,11 @@ func GetBlueFieldSoftwareState(bfs *provisioningv1.BlueFieldSoftware, recorder r
 			bfs,
 			recorder,
 		}
+	case provisioningv1.BlueFieldSoftwareExtracting:
+		return &blueFieldSoftwareExtractingState{
+			bfs:      bfs,
+			recorder: recorder,
+		}
 	case provisioningv1.BlueFieldSoftwareReady:
 		return &blueFieldSoftwareReadyState{
 			bfs,
