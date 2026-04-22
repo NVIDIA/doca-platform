@@ -1,5 +1,5 @@
 ---
-title: VPC OVN upgrade guide
+title: VPC OVN Upgrade Guide
 ---
 
 To achieve a zero‑downtime VPC OVN upgrade, upgrade the services in this order: vpc-ovn-node ovn-controller, ovn-central, then vpc-ovn-controller.

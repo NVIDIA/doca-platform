@@ -71,7 +71,7 @@ spec:
 ### Image Pull Secrets
 
 Specify secrets for pulling container images. This is only necessary if your container registry requires authentication.
-If you are using the public GHCR registry, which is the default, you don't need to configure this.
+If you are using the public GHCR registry, which is the default, you do not need to configure this.
 
 ```yaml
 spec:
@@ -103,7 +103,7 @@ spec:
 
 This pattern applies to all components listed in
 the [Optional Component Configurations](#optional-component-configurations) section below.  
-For production deployments, it's recommended to set appropriate resource limits based on your cluster's workload.
+For production deployments, it is recommended to set appropriate resource limits based on your cluster's workload.
 
 ### Optional Component Configurations
 

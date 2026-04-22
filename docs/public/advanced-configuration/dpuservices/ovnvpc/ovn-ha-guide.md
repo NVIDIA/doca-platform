@@ -1,5 +1,5 @@
 ---
-title: OVN High Availability (HA) guide
+title: OVN High Availability (HA) Guide
 ---
 
 To achieve high availability (HA) for OVN, deploy the `ovn-central` DPUService with the `enableHA` option enabled.

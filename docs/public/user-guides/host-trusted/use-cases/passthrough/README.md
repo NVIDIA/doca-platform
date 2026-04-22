@@ -40,7 +40,7 @@ where it makes sense, but many will be specific to the target infrastructure.
 
 Commands in this guide are run in the same directory that contains this readme.
 
-<details markdown="1"><summary>Environment variables file</summary>
+<details markdown="1"><summary>**Environment variables file**</summary>
 
 [embedmd]:# (manifests/00-env-vars/envvars.env sh)
 ```sh
@@ -123,7 +123,7 @@ kubectl wait --for=condition=ready --namespace dpf-operator-system pods --all
 This section involves creating the DPF system components and some basic infrastructure
 required for a functioning DPF-enabled cluster.
 
-#### Deploy the DPF System components
+#### Deploy the DPF System Components
 
 A number of [environment variables](#0-required-variables) must be set before running
 this command.
@@ -134,7 +134,7 @@ cat manifests/02-dpf-system-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will create the following objects:
-<details markdown="1"><summary>DPFOperatorConfig to install the DPF System components</summary>
+<details markdown="1"><summary>**DPFOperatorConfig to install the DPF System components**</summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/operatorconfig.yaml)
 ```yaml
@@ -152,7 +152,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUCluster to serve as Kubernetes control plane for DPU nodes</summary>
+<details markdown="1"><summary>**DPUCluster to serve as Kubernetes control plane for DPU nodes**</summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/dpucluster.yaml)
 ```yaml
@@ -220,7 +220,7 @@ cat manifests/03-dpf-object-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will deploy the following objects:
-<details markdown="1"><summary>BFB to download the BFB to a shared volume</summary>
+<details markdown="1"><summary>**BFB** is used to download the BFB to a shared volume</summary>
 
 [embedmd]:#(manifests/03-dpf-object-installation/bfb.yaml)
 ```yaml
@@ -235,7 +235,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUFlavor used for provisioning the DPUs</summary>
+<details markdown="1"><summary>**DPUFlavor** is used to provision the DPUs</summary>
 
 [embedmd]:#(manifests/03-dpf-object-installation/dpuflavor.yaml)
 ```yaml
@@ -327,7 +327,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUSet to provision DPUs on worker nodes</summary>
+<details markdown="1"><summary>**DPUSet** is used to provision DPUs on worker nodes</summary>
 
 [embedmd]:#(manifests/03-dpf-object-installation/dpuset.yaml)
 ```yaml
@@ -353,7 +353,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceInterfaces used by the DPUServiceChain</summary>
+<details markdown="1"><summary>**DPUServiceInterfaces** is used by the DPUServiceChain</summary>
 
 [embedmd]:#(manifests/03-dpf-object-installation/ifaces.yaml)
 ```yaml
@@ -428,7 +428,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceChain to make the device act as passthrough device</summary>
+<details markdown="1"><summary>**DPUServiceChain** is used to make the device act as passthrough device</summary>
 
 [embedmd]:#(manifests/03-dpf-object-installation/dpuservicechain.yaml)
 ```yaml
@@ -548,7 +548,7 @@ rtt min/avg/max/mdev = 0.344/0.375/0.396/0.022 ms
 This section covers only the DPF related components and not the prerequisites as
 these must be managed by the admin.
 
-### Delete the DPF Operator system and DPF Operator
+### Delete the DPF Operator System and DPF Operator
 
 ```shell
 kubectl delete -n dpf-operator-system dpfoperatorconfig dpfoperatorconfig --wait

@@ -58,7 +58,7 @@ You can run this example by saving it into `dpuservice_credential_request.yaml`
 $ kubectl apply -f dpuservice_credential_request.yaml
 ```
 
-## How to use the DPUServiceCredentialRequest output to get a client
+## How to Use the DPUServiceCredentialRequest Output to Get a Client
 
 The `DPUServiceCredentialRequest` creates a secret with the following types:
 

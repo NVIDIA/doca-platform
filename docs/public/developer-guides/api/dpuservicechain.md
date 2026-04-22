@@ -204,14 +204,14 @@ Let's break it down step by step.
     2. **NOTE**: This only affects services on the DPU, it should be aligned with the general MTU set for the traffic in
         the network
     3. **NOTE**: That when changed, it will restart every pod that relates to this switch
-    4. **NOTE**: The maximum value of `serviceMTU` can't exceed the `highspeedMTU` value from the `dpfOperatorConfig`
+    4. **NOTE**: The maximum value of `serviceMTU` cannot exceed the `highspeedMTU` value from the `dpfOperatorConfig`
 
 In the above example, traffic will flow from uplink port p0 to example DPU service's eth1 iface. From eth1 iface, it
 will go to eth2 iface(eth1->eth2 is handled by the service itself and not by the chain) and then to uplink port pf0hpf
 on the host.
 
 # Constraints
-## DPUServiceInterface and ServiceInterface uniqueness
+## DPUServiceInterface and ServiceInterface Uniqueness
 Each physical uplink port (e.g., `p0`) must be owned by exactly one
 `DPUServiceInterface`, and each `matchLabels` selector used in a
 `DPUServiceChain` must resolve to exactly one `ServiceInterface` per node.

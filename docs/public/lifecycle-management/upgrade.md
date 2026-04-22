@@ -17,7 +17,7 @@ Further prerequisites include:
 
 * All DPF Operator components MUST be in a **ready state**
 * All DPUs MUST be in a **ready and healthy state**
-* Always **review the release notes** for the version you're upgrading to
+* Always **review the release notes** for the version you are upgrading to
   * Release notes contain critical information about:
     * New features and capabilities
     * Bug fixes and improvements
@@ -82,7 +82,7 @@ can continue.
 
 * Version Compatibility Validation
     * **DPF Version Check**: Validates that the current DPF version is compatible with the target version
-    * **Supported Upgrade Path**: Ensures you're upgrading from a supported version (n-1 policy)
+    * **Supported Upgrade Path**: Ensures you are upgrading from a supported version (n-1 policy)
 * System Components Readiness
     * The operator validates that all critical system components are ready for upgrade
 * DPU State Validation

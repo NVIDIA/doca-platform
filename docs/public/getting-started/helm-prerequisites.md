@@ -65,10 +65,12 @@ below.
 
 ## Required Configuration Values
 
-The following sections provide the specific Helm chart values that must be configured before installing each dependency.
+The following section provides the specific Helm chart values that must be configured before installing each dependency.
 These configurations ensure proper integration with the DPF Operator and optimal performance in your environment.
 
-<details markdown="1"><summary>cert-manager</summary>
+**Helm Chart Values**
+
+<details markdown="1"><summary>**cert-manager**</summary>
 
 [embedmd]:#(../../../deploy/helmfiles/values/cert-manager.yaml)
 ```yaml
@@ -133,7 +135,7 @@ webhook:
 
 </details>
 
-<details markdown="1"><summary>argo-cd</summary>
+<details markdown="1"><summary>**argo-cd**</summary>
 
 [embedmd]:#(../../../deploy/helmfiles/values/argo-cd.yaml)
 ```yaml
@@ -174,7 +176,7 @@ configs:
 
 </details>
 
-<details markdown="1"><summary>node-feature-discovery</summary>
+<details markdown="1"><summary>**node-feature-discovery**</summary>
 
 [embedmd]:#(../../../deploy/helmfiles/values/node-feature-discovery.yaml)
 ```yaml
@@ -237,7 +239,7 @@ gc:
 
 </details>
 
-<details markdown="1"><summary>maintenance-operator</summary>
+<details markdown="1"><summary>**maintenance-operator**</summary>
 
 [embedmd]:#(../../../deploy/helmfiles/values/maintenance-operator-chart.yaml)
 ```yaml
@@ -267,7 +269,7 @@ operator:
 
 </details>
 
-<details markdown="1"><summary>kamaji</summary>
+<details markdown="1"><summary>**kamaji**</summary>
 
 [embedmd]:#(../../../deploy/helmfiles/values/kamaji.yaml)
 ```yaml
@@ -346,7 +348,7 @@ cfssl:
 
 </details>
 
-<details markdown="1"><summary>local-path-provisioner</summary>
+<details markdown="1"><summary>**local-path-provisioner**</summary>
 
 [embedmd]:#(../../../deploy/helmfiles/values/local-path-provisioner.yaml)
 ```yaml
@@ -371,7 +373,7 @@ tolerations:
 
 </details>
 
-<details markdown="1"><summary>kube-state-metrics</summary>
+<details markdown="1"><summary>**kube-state-metrics**</summary>
 
 [embedmd]:#(../../../deploy/helmfiles/values/kube-state-metrics.yaml)
 ```yaml
@@ -428,7 +430,7 @@ rbac:
 
 </details>
 
-<details markdown="1"><summary>kube-prometheus-stack</summary>
+<details markdown="1"><summary>**kube-prometheus-stack**</summary>
 
 [embedmd]:#(../../../deploy/helmfiles/values/kube-prometheus-stack.yaml)
 ```yaml
@@ -758,7 +760,7 @@ prometheusOperator:
 
 </details>
 
-<details markdown="1"><summary>loki</summary>
+<details markdown="1"><summary>**loki**</summary>
 
 [embedmd]:#(../../../deploy/helmfiles/values/loki.yaml)
 ```yaml
@@ -898,7 +900,7 @@ lokiCanary:
 </details>
 
 
-<details markdown="1"><summary>opentelemetry-collector</summary>
+<details markdown="1"><summary>**opentelemetry-collector**</summary>
 
 [embedmd]:#(../../../deploy/helmfiles/values/opentelemetry-collector.yaml)
 ```yaml

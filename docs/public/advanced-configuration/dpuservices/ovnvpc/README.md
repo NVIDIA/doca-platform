@@ -126,7 +126,7 @@ An IsolationClass defines the parameters to be used by the VPC implementation wh
 * **Parameters**: Implementation-specific parameters. In this case, OVN-specific configuration such as database endpoints
 * **Cluster Scope**: Shared across all VPCs using the same isolation class
 
-<details markdown="1"><summary>Reference Example</summary>
+<details markdown="1"><summary>**Reference Example**</summary>
 
 [embedmd]:#(examples/reference-isolationclass.yaml)
 ```yaml
@@ -163,7 +163,7 @@ A DPUVPC represents a Virtual Private Cloud isolated network environment for a s
 * **Isolation Class**: The isolation mechanism (OVN-based) to use, referenced by name
 * **Inter-Network Access**: Whether virtual networks within the VPC can communicate
 
-<details markdown="1"><summary>Reference Example</summary>
+<details markdown="1"><summary>**Reference Example**</summary>
 
 [embedmd]:#(examples/reference-dpuvpc.yaml)
 ```yaml
@@ -199,7 +199,7 @@ A DPUVirtualNetwork defines a logical network segment within a VPC and supports:
 * **IP Address Management**: Automated DHCP with configurable subnets and exclusions
 * **Node Selection**: Selective deployment across DPU nodes
 
-<details markdown="1"><summary>Reference Example</summary>
+<details markdown="1"><summary>**Reference Example**</summary>
 
 [embedmd]:#(examples/reference-dpuvirtualnetwork.yaml)
 ```yaml
@@ -247,7 +247,7 @@ Supported interface types: `PF`, `VF`, `Service`.
 > [!NOTE]
 > A DPUServiceInterface of type `Service` is intended for advanced use cases where a DPUService network interface needs to be connected to a virtual network. see *Advanced Use-Cases* section below
 
-<details markdown="1"><summary>Reference Example</summary>
+<details markdown="1"><summary>**Reference Example**</summary>
 
 [embedmd]:#(examples/reference-dpuserviceinterface.yaml)
 ```yaml
@@ -310,7 +310,7 @@ The topology consists of:
 2. A DPUVirtualNetwork: `testnet1`
 3. A DPUServiceInterface of type `VF` targeting VF ID `2`: `testnet1-vf2`
 
-<details markdown="1"><summary>VPC Example Topology</summary>
+<details markdown="1"><summary>**VPC Example Topology**</summary>
 
 [embedmd]:#(examples/example-topology-1.yaml)
 ```yaml
@@ -378,7 +378,7 @@ In this example, we assume two groups of DPU nodes are labeled with `vpc.dpu.nvi
 
 Hosts can communicate with each other (E/W) in an isolated manner as well as reach the external network behind NAT. Nodes will belong to different virtual networks (subnets) according to the specified label.
 
-<details markdown="1"><summary>VPC Example Topology</summary>
+<details markdown="1"><summary>**VPC Example Topology**</summary>
 
 [embedmd]:#(examples/example-topology-2.yaml)
 ```yaml
@@ -486,7 +486,7 @@ In this example, we assume two groups of DPU nodes are labeled with `vpc.dpu.nvi
 
 Each VPC and its resources can be created in their own namespace. This example uses the `default` namespace for both.
 
-<details markdown="1"><summary>VPC Example Topology</summary>
+<details markdown="1"><summary>**VPC Example Topology**</summary>
 
 [embedmd]:#(examples/example-topology-3.yaml)
 ```yaml

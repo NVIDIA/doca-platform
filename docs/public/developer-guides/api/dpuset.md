@@ -217,7 +217,7 @@ In Host Trusted model, the automatically created DPUDevice objects have the foll
 
 ### Selection Flow
 
-## Host Power-cycle in DPU provisioning
+## Host Power-Cycle in DPU Provisioning
 
 If the version of running BFB is lower than 2.7 before DPU provisioning, the BlueField firmware upgrades and mlxconfig
 parameter changes require a host power-cycle. Once the version of BFB is updated to be greater than or equal to 2.7 a
@@ -302,7 +302,7 @@ annotation on such kind of worker nodes:
 provisioning.dpu.nvidia.com/powercycle-command: reset
 ```
 
-## Node effect
+## Node Effect
 
 Node effect specifies how changes to the DPU should affect the Kubernetes Node the DPU belongs to. Only the following
 options can be specified:

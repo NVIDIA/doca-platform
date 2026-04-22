@@ -13,7 +13,7 @@ It implements a dual-cluster architecture:
 
 Refer to the installation guide for setup details, dependencies, and prerequisites.
 
-## DPF system components
+## DPF System Components
 
 DPF is made up of the following sets of components:
 
@@ -68,7 +68,7 @@ DPF_Operator[DPF Operator]
     DPUServiceChain --> DPUCluster
 ```
 
-## Provisioning components
+## Provisioning Components
 
 This component set uses the Kamaji Cluster Manager - but other Cluster managers may be used.
 
@@ -101,7 +101,7 @@ This component set uses the Kamaji Cluster Manager - but other Cluster managers 
     * Configure up Virtual Functions, bridges and routes for Host to DPU communication
     * Communicate with the host node through CLI calls
 
-## DPUService components
+## DPUService Components
 
 #### In the host cluster control plane
 
@@ -119,7 +119,7 @@ This component set uses the Kamaji Cluster Manager - but other Cluster managers 
     * Manage lifecycle of helm charts on the DPU Cluster
     * Communicate with the host control plane and DPU control plane
 
-## DPUServiceChain components
+## DPUServiceChain Components
 
 #### In the host cluster control plane
 
@@ -168,7 +168,7 @@ This component set uses the Kamaji Cluster Manager - but other Cluster managers 
     * Manage the lifecycle of Virtual Functions on the DPU node
     * Communicate with the host OS and Kubelet
 
-## Provisioning user flows
+## Provisioning User Flows
 
 DPF provisioning has four principle user flows.
 
@@ -304,7 +304,7 @@ sequenceDiagram
 
 4. DPU controller deletes the DPU Kubernetes node.
 
-## DPUService flow
+## DPUService Flow
 DPUService orchestration has four principle user flows.
 
 ### Create a DPUServiceCredentialRequest
@@ -391,7 +391,7 @@ sequenceDiagram
 
 TODO: DPUDeployment flow
 
-## DPUServiceInterface flow
+## DPUServiceInterface Flow
 ```mermaid
 sequenceDiagram
     participant User

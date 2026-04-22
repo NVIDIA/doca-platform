@@ -4,7 +4,7 @@ title: "Local Development"
 
 [TOC]
 
-This guide helps the developer in setting and running a local env that can be used to deploy the various DPF components and run tests. The local env doesn't require a DPU. 
+This guide helps the developer in setting and running a local env that can be used to deploy the various DPF components and run tests. The local env does not require a DPU. 
 
 ## Prerequisites
 1. [GO](https://go.dev/doc/install) >= 1.25

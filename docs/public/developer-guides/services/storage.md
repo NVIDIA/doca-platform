@@ -408,7 +408,7 @@ sequenceDiagram
 
 19. **Host Volume Preparation**: The user-provided script performs the necessary operations to discover, prepare, and make the emulated storage device available to the host workload. This includes any required driver loading, device configuration, and mounting operations.
 
-## Core components
+## Core Components
 
 ### SNAP CSI Plugin
 
@@ -576,7 +576,7 @@ The SNAP services present networked storage as local block or file system device
 Additional details about the SNAP services can be found in the [DOCA SNAP documentation](https://docs.nvidia.com/doca/sdk/doca+snap+services/index.html).
 
 
-## Vendor-specific components
+## Vendor-Specific Components
 
 ### Vendor CSI Plugin Controller
 

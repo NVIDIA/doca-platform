@@ -25,7 +25,7 @@ depending on the mode the `DPUServiceIPAM` is configured.
 
 Switching from one mode to another leads to the previous Custom Resource being deleted and the new one to be created.
 
-Removing the pool, doesn't affect running Pods. Readding the same pool, assuming that there was no node addition/deletion
+Removing the pool does not affect running Pods. Readding the same pool, assuming that there was no node addition/deletion
 in the DPU cluster, is a safe operation and will not lead to duplicate IP consumption by Pods.
 
 In order to avoid duplicating docs related to the usage of each field, take a look at the [API Documentation](./api.md#dpuserviceipam).
@@ -84,7 +84,7 @@ This configuration creates subnets of size `/24` for each node with gateway the 
 
 For our workload to consume an IP from the IPAM we have installed in the cluster, we need to create a `DPUServiceChain`
 and reference the IPAM object via labels. Below is an example of 2 fake `DPUServices` that are part of the same chain
-and each of them require an IP address from a particular pool. We won't go into details on the `DPUServiceInterface`
+and each of them require an IP address from a particular pool. We will not go into details on the `DPUServiceInterface`
 or `DPUService` objects here, but we provide reference examples to ensure that the `DPUServiceChain` is understandable.
 
 The following diagram may help illustrate the objects that are involved.
@@ -105,7 +105,7 @@ graph TD
 First, we need to create the `DPUServiceIPAM`. We can create the one specified in
 [Split subnet into chunk per node](#split-subnet-into-chunk-per-node).
 
-Order of applying those resources doesn't matter, but in the interest of making the flow easier to understand, we apply
+Order of applying those resources does not matter, but in the interest of making the flow easier to understand, we apply
 some order.
 
 Then, we apply the `DPUService` and its `DPUServiceInterface` resources for each of the service:
