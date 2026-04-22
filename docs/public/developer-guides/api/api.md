@@ -1210,6 +1210,7 @@ _Appears in:_
 | `lastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastStartupTime is the time when the DPU was last started |  | Optional: \{\} <br /> |
 | `initialBootID` _string_ | InitialBootID is the boot ID of the DPU OS during the first boot |  |  |
 | `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the type of reset/reboot set by the DPU agent<br />See enum values in RebootMethodType.<br />No default is set intentionally: nil means "check not run or not applicable"<br />(e.g. legacy flow, or agent has not run the check yet);<br />a non-nil value means the check ran and this is the result. |  | Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot] <br />Optional: \{\} <br /> |
+| `lastObservedPendingNvconfig` _[PendingNVConfigState](#pendingnvconfigstate)_ | LastObservedPendingNVConfig stores the last pending NVConfig parameters seen<br />during reboot-method discovery on this boot. It is used on the next boot to<br />ignore repeated parameters that remained unchanged across boots. |  | Optional: \{\} <br /> |
 | `rebootSequenceCount` _integer_ | RebootSequenceCount is the length of the current non-NoAction RebootMethod sequence:<br />it increments on each agent run that reports a RebootMethod other than NoAction and<br />resets to 0 when the agent reports NoAction. Used with RebootMethod to bound host reboot loops. |  | Minimum: 0 <br />Optional: \{\} <br /> |
 | `kubeletVersion` _string_ | KubeletVersion represents the kubelet version running on the DPU. |  |  |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  | Optional: \{\} <br /> |
@@ -2706,6 +2707,59 @@ _Appears in:_
 | `hostAgent` _[HostAgent](#hostagent)_ | Use the HostAgent to reboot the host. |  | Optional: \{\} <br /> |
 | `external` _[External](#external)_ | Reboot the host via an external means, not controlled by the DPU controller. |  | Optional: \{\} <br /> |
 | `script` _[Script](#script)_ | Reboot the host by executing a custom script. This field defined which ConfigMap store the custom script.<br />The ConfigMap should include a pod template of Job object under the `pod-template` key.<br />That pod template will be put in a Job object to be executed. |  | Optional: \{\} <br /> |
+
+
+#### PendingNVConfigDevice
+
+
+
+
+
+
+
+_Appears in:_
+- [PendingNVConfigState](#pendingnvconfigstate)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `device` _string_ |  |  |  |
+| `entries` _[PendingNVConfigEntry](#pendingnvconfigentry) array_ |  |  |  |
+
+
+#### PendingNVConfigEntry
+
+
+
+
+
+
+
+_Appears in:_
+- [PendingNVConfigDevice](#pendingnvconfigdevice)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ |  |  |  |
+| `default` _string_ |  |  |  |
+| `current` _string_ |  |  |  |
+| `next_boot` _string_ | NextBoot uses the "next_boot" so this type can be reused for parsing mlxfwrest output |  |  |
+
+
+#### PendingNVConfigState
+
+
+
+
+
+
+
+_Appears in:_
+- [AgentStatus](#agentstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `bootID` _string_ |  |  |  |
+| `devices` _[PendingNVConfigDevice](#pendingnvconfigdevice) array_ |  |  |  |
 
 
 #### RebootMethodType

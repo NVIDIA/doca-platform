@@ -111,13 +111,30 @@ var _ = Describe("InstallationService", func() {
 			dpu := createDPU("test-dpu", testNS.Name)
 
 			lastStartupTime := metav1.NewTime(time.Now().Truncate(time.Second))
+			pending := &provisioningv1.PendingNVConfigState{
+				BootID: "boot-1",
+				Devices: []provisioningv1.PendingNVConfigDevice{
+					{
+						Device: "0000:03:00.0",
+						Entries: []provisioningv1.PendingNVConfigEntry{
+							{
+								Name:     "INTERNAL_CPU_MODEL",
+								Default:  "0",
+								Current:  "0",
+								NextBoot: "1",
+							},
+						},
+					},
+				},
+			}
 			request := types.UpdateStatusRequest{
 				DPUName:      dpu.Name,
 				DPUNamespace: dpu.Namespace,
 				DPUUID:       string(dpu.UID),
 				AgentStatus: provisioningv1.AgentStatus{
-					LastStartupTime: &lastStartupTime,
-					InitialBootID:   ptr.To("test-initial-boot-id"),
+					LastStartupTime:             &lastStartupTime,
+					InitialBootID:               ptr.To("test-initial-boot-id"),
+					LastObservedPendingNVConfig: pending,
 					Conditions: []metav1.Condition{
 						{
 							Type:    string(provisioningv1.ReadyForReboot),
@@ -144,6 +161,7 @@ var _ = Describe("InstallationService", func() {
 			Expect(updatedDPU.Status.AgentStatus.LastStartupTime.Equal(&lastStartupTime)).To(BeTrue())
 			Expect(updatedDPU.Status.AgentStatus.InitialBootID).NotTo(BeNil())
 			Expect(*updatedDPU.Status.AgentStatus.InitialBootID).To(Equal(*request.AgentStatus.InitialBootID))
+			Expect(updatedDPU.Status.AgentStatus.LastObservedPendingNVConfig).To(Equal(pending))
 			Expect(updatedDPU.Status.AgentStatus.Conditions[0].Type).To(Equal(request.AgentStatus.Conditions[0].Type))
 			Expect(updatedDPU.Status.AgentStatus.Conditions[0].Status).To(Equal(request.AgentStatus.Conditions[0].Status))
 			Expect(updatedDPU.Status.AgentStatus.Conditions[0].Reason).To(Equal(request.AgentStatus.Conditions[0].Reason))
@@ -175,6 +193,15 @@ var _ = Describe("InstallationService", func() {
 			latestDPU.Status.AgentStatus = &provisioningv1.AgentStatus{
 				LastStartupTime: &lastStartupTime,
 				InitialBootID:   ptr.To("test-initial-boot-id"),
+				LastObservedPendingNVConfig: &provisioningv1.PendingNVConfigState{
+					BootID: "boot-1",
+					Devices: []provisioningv1.PendingNVConfigDevice{
+						{
+							Device:  "0000:03:00.0",
+							Entries: []provisioningv1.PendingNVConfigEntry{},
+						},
+					},
+				},
 				Conditions: []metav1.Condition{
 					cond1,
 					cond2,
@@ -214,6 +241,9 @@ var _ = Describe("InstallationService", func() {
 			By("initialBootID should not be updated")
 			Expect(updatedDPU.Status.AgentStatus.InitialBootID).NotTo(BeNil())
 			Expect(*updatedDPU.Status.AgentStatus.InitialBootID).To(Equal("test-initial-boot-id"))
+
+			By("lastObservedPendingNVConfig should not be updated")
+			Expect(updatedDPU.Status.AgentStatus.LastObservedPendingNVConfig).To(Equal(latestDPU.Status.AgentStatus.LastObservedPendingNVConfig))
 
 			By("existing conditions should not be removed")
 			Expect(updatedDPU.Status.AgentStatus.Conditions).To(HaveLen(3))

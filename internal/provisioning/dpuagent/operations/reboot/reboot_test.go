@@ -49,6 +49,7 @@ var _ = Describe("Reboot", func() {
 				optCtx := &operations.Context{
 					LatestDPU:                dpu,
 					RebootMethodDiscovery:    false,
+					CurrentBootID:            bootIDStr,
 					UpdateStatusUntilSuccess: func(context.Context) {}, // no-op for unit test
 				}
 				reboot := &HandleReboot{
@@ -84,6 +85,7 @@ var _ = Describe("Reboot", func() {
 				optCtx := &operations.Context{
 					LatestDPU:             dpu,
 					RebootMethodDiscovery: false,
+					CurrentBootID:         currentBootIDStr,
 				}
 				reboot := &HandleReboot{}
 				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
@@ -105,6 +107,7 @@ var _ = Describe("Reboot", func() {
 				optCtx := &operations.Context{
 					LatestDPU:             dpu,
 					RebootMethodDiscovery: false,
+					CurrentBootID:         "boot-id",
 				}
 				reboot := &HandleReboot{skipBlock: true}
 				err := reboot.Execute(context.Background(), optCtx)
@@ -123,6 +126,7 @@ var _ = Describe("Reboot", func() {
 				optCtx := &operations.Context{
 					LatestDPU:                dpu,
 					RebootMethodDiscovery:    false,
+					CurrentBootID:            "boot-id",
 					UpdateStatusUntilSuccess: func(context.Context) {},
 				}
 				reboot := &HandleReboot{
@@ -157,6 +161,7 @@ var _ = Describe("Reboot", func() {
 				optCtx := &operations.Context{
 					LatestDPU:                dpu,
 					RebootMethodDiscovery:    false,
+					CurrentBootID:            currentBootIDStr,
 					GrubConfigChanged:        true,
 					UpdateStatusUntilSuccess: func(context.Context) { statusPushed = true },
 				}
@@ -185,6 +190,7 @@ var _ = Describe("Reboot", func() {
 				statusPushed := false
 				optCtx := &operations.Context{
 					RebootMethodDiscovery:    true,
+					CurrentBootID:            "boot-id",
 					GrubConfigChanged:        true,
 					UpdateStatusUntilSuccess: func(context.Context) { statusPushed = true },
 				}
@@ -224,7 +230,7 @@ var _ = Describe("Reboot", func() {
 
 				h := &HandleReboot{}
 
-				optCtxNotBooted := &operations.Context{LatestDPU: &provisioningv1.DPU{}, RebootMethodDiscovery: false}
+				optCtxNotBooted := &operations.Context{LatestDPU: &provisioningv1.DPU{}, RebootMethodDiscovery: false, CurrentBootID: currentBootIDStr}
 				m, err := h.getRebootMethod(optCtxNotBooted)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(m).NotTo(BeNil())
@@ -233,6 +239,7 @@ var _ = Describe("Reboot", func() {
 
 				optCtxBooted := &operations.Context{
 					RebootMethodDiscovery: false,
+					CurrentBootID:         currentBootIDStr,
 					LatestDPU: &provisioningv1.DPU{
 						Status: provisioningv1.DPUStatus{
 							AgentStatus: &provisioningv1.AgentStatus{
@@ -258,7 +265,7 @@ var _ = Describe("Reboot", func() {
 			devicePath := filepath.Join(dir, "mt4125_pciconf0")
 			Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
 
-			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id"}
 			var ran string
 			h := &HandleReboot{
 				mstDevicesPath: dir,
@@ -285,7 +292,7 @@ var _ = Describe("Reboot", func() {
 			Expect(os.WriteFile(devA, nil, 0600)).To(Succeed())
 			Expect(os.WriteFile(devB, nil, 0600)).To(Succeed())
 
-			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id"}
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -314,7 +321,7 @@ var _ = Describe("Reboot", func() {
 			devicePath := filepath.Join(dir, "mt4125_pciconf0")
 			Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
 
-			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id"}
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -341,7 +348,7 @@ var _ = Describe("Reboot", func() {
 			devicePath := filepath.Join(dir, "mt4125_pciconf0")
 			Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
 
-			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id"}
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -358,11 +365,337 @@ var _ = Describe("Reboot", func() {
 			Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
 		})
 
+		Context("removeForeverPending workaround", func() {
+			It("stores current pending NVConfig entries in agent status", func() {
+				dir, err := os.MkdirTemp("", "reboot-mst-dq-pending-status-")
+				Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = os.RemoveAll(dir) }()
+				devicePath := filepath.Join(dir, "mt4125_pciconf0")
+				Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
+				currentBootID, err := getCurrentRebootID()
+				Expect(err).NotTo(HaveOccurred())
+
+				mlxfwresetJSON := strings.TrimSpace(`
+{
+  "reset_needed": true,
+  "pending_nvconfig_parameters": [
+    {"name": "PARAM_A", "current": "0", "next_boot": "1"},
+    {"name": "PARAM_B", "current": "x", "next_boot": "y"}
+  ],
+  "reasons": ["Pending NVCONFIG parameter change"]
+}
+`)
+				optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: currentBootID}
+				h := &HandleReboot{
+					mstDevicesPath: dir,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						var b bytes.Buffer
+						_, _ = b.WriteString(mlxfwresetJSON)
+						return b, bytes.Buffer{}, nil
+					},
+				}
+				_, err = h.getRebootMethod(optCtx)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(optCtx.Status.LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
+					BootID: currentBootID,
+					Devices: []provisioningv1.PendingNVConfigDevice{
+						{
+							Device: devicePath,
+							Entries: []provisioningv1.PendingNVConfigEntry{
+								{Name: "PARAM_A", Current: "0", NextBoot: "1"},
+								{Name: "PARAM_B", Current: "x", NextBoot: "y"},
+							},
+						},
+					},
+				}))
+			})
+
+			It("stores pending NVConfig state when reset_needed is false", func() {
+				dir, err := os.MkdirTemp("", "reboot-mst-dq-pending-status-false-")
+				Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = os.RemoveAll(dir) }()
+				devicePath := filepath.Join(dir, "mt4125_pciconf0")
+				Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
+
+				mlxfwresetJSON := strings.TrimSpace(`
+{
+  "reset_needed": false,
+  "pending_nvconfig_parameters": "N/A (No pending NVCONFIG parameters)",
+  "reasons": []
+}
+`)
+				optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id"}
+				h := &HandleReboot{
+					mstDevicesPath: dir,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						var b bytes.Buffer
+						_, _ = b.WriteString(mlxfwresetJSON)
+						return b, bytes.Buffer{}, nil
+					},
+				}
+				_, err = h.getRebootMethod(optCtx)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(optCtx.Status.LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
+					BootID: "boot-id",
+					Devices: []provisioningv1.PendingNVConfigDevice{
+						{
+							Device:  devicePath,
+							Entries: []provisioningv1.PendingNVConfigEntry{},
+						},
+					},
+				}))
+			})
+
+			It("ignores repeated pending NVConfig entries after boot change when they are the only reason", func() {
+				dir, err := os.MkdirTemp("", "reboot-mst-dq-ignore-stuck-")
+				Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = os.RemoveAll(dir) }()
+				devicePath := filepath.Join(dir, "mt4125_pciconf0")
+				Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
+				currentBootID, err := getCurrentRebootID()
+				Expect(err).NotTo(HaveOccurred())
+				cmd := fmt.Sprintf("mlxfwreset -d %s reset --level 3", devicePath)
+
+				mlxfwresetJSON := fmt.Sprintf(`{
+  "reset_needed": true,
+  "pending_nvconfig_parameters": [
+    {"name": "PARAM_A", "default": "2", "current": "0", "next_boot": "1"}
+  ],
+  "command_required": %q,
+  "reasons": ["Pending NVCONFIG parameter change"]
+}`, cmd)
+				optCtx := &operations.Context{
+					RebootMethodDiscovery: true,
+					CurrentBootID:         currentBootID,
+					LatestDPU: &provisioningv1.DPU{
+						Status: provisioningv1.DPUStatus{
+							AgentStatus: &provisioningv1.AgentStatus{
+								LastObservedPendingNVConfig: &provisioningv1.PendingNVConfigState{
+									BootID: "previous-boot",
+									Devices: []provisioningv1.PendingNVConfigDevice{
+										{
+											Device: devicePath,
+											Entries: []provisioningv1.PendingNVConfigEntry{
+												{Name: "PARAM_A", Default: "2", Current: "0", NextBoot: "1"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+				h := &HandleReboot{
+					mstDevicesPath: dir,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						var b bytes.Buffer
+						_, _ = b.WriteString(mlxfwresetJSON)
+						return b, bytes.Buffer{}, nil
+					},
+				}
+				m, err := h.getRebootMethod(optCtx)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
+				Expect(optCtx.CondMessage).To(Equal(fmt.Sprintf(
+					"device=%s pending NVCONFIG params did not take effect after reboot: [PARAM_A(default=2,current=0,next=1)]; reset ignored because no other reset reasons remain.",
+					devicePath,
+				)))
+				Expect(optCtx.Status.LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
+					BootID: currentBootID,
+					Devices: []provisioningv1.PendingNVConfigDevice{
+						{
+							Device: devicePath,
+							Entries: []provisioningv1.PendingNVConfigEntry{
+								{Name: "PARAM_A", Default: "2", Current: "0", NextBoot: "1"},
+							},
+						},
+					},
+				}))
+			})
+
+			It("filters stuck pending NVConfig entries per entry before selecting reboot method", func() {
+				dir, err := os.MkdirTemp("", "reboot-mst-dq-filter-stuck-")
+				Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = os.RemoveAll(dir) }()
+				devicePath := filepath.Join(dir, "mt4125_pciconf0")
+				Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
+				cmd := fmt.Sprintf("mlxfwreset -d %s reset --level 3", devicePath)
+
+				mlxfwresetJSON := fmt.Sprintf(`{
+  "reset_needed": true,
+  "pending_nvconfig_parameters": [
+    {"name": "INTERNAL_CPU_MODEL", "default": "model-default", "current": "x", "next_boot": "y"},
+    {"name": "ROCE_CONTROL", "default": "ROCE_ENABLE(2)", "current": "DEVICE_DEFAULT(0)", "next_boot": "ROCE_DISABLE(1)"}
+  ],
+  "command_required": %q,
+  "reasons": ["Pending NVCONFIG parameter change"]
+}`, cmd)
+				optCtx := &operations.Context{
+					RebootMethodDiscovery: true,
+					CurrentBootID:         "current-boot-id",
+					LatestDPU: &provisioningv1.DPU{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								cutil.AgentAnnotationAllowFirmwareResetReboot: "true",
+							},
+						},
+						Status: provisioningv1.DPUStatus{
+							AgentStatus: &provisioningv1.AgentStatus{
+								LastObservedPendingNVConfig: &provisioningv1.PendingNVConfigState{
+									BootID: "previous-boot",
+									Devices: []provisioningv1.PendingNVConfigDevice{
+										{
+											Device: devicePath,
+											Entries: []provisioningv1.PendingNVConfigEntry{
+												{Name: "INTERNAL_CPU_MODEL", Default: "model-default", Current: "x", NextBoot: "y"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+				h := &HandleReboot{
+					mstDevicesPath: dir,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						var b bytes.Buffer
+						_, _ = b.WriteString(mlxfwresetJSON)
+						return b, bytes.Buffer{}, nil
+					},
+				}
+				m, err := h.getRebootMethod(optCtx)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(*m).To(Equal(provisioningv1.RebootMethodFirmwareReset))
+				Expect(optCtx.CondMessage).To(Equal(fmt.Sprintf(
+					"device=%s pending NVCONFIG params did not take effect after reboot: [INTERNAL_CPU_MODEL(default=model-default,current=x,next=y)]; reset still required because other reset reasons remain.",
+					devicePath,
+				)))
+			})
+
+			It("does not ignore reset when pending NVCONFIG is not the only reason", func() {
+				dir, err := os.MkdirTemp("", "reboot-mst-dq-other-reasons-")
+				Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = os.RemoveAll(dir) }()
+				devicePath := filepath.Join(dir, "mt4125_pciconf0")
+				Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
+
+				mlxfwresetJSON := `{
+  "reset_needed": true,
+  "pending_nvconfig_parameters": [
+    {"name": "PARAM_A", "default": "2", "current": "0", "next_boot": "1"}
+  ],
+  "command_required": "Reboot external host is required",
+  "reasons": ["Pending NVCONFIG parameter change", "another reason"]
+}`
+				optCtx := &operations.Context{
+					RebootMethodDiscovery: true,
+					CurrentBootID:         "current-boot-id",
+					LatestDPU: &provisioningv1.DPU{
+						Status: provisioningv1.DPUStatus{
+							AgentStatus: &provisioningv1.AgentStatus{
+								LastObservedPendingNVConfig: &provisioningv1.PendingNVConfigState{
+									BootID: "previous-boot",
+									Devices: []provisioningv1.PendingNVConfigDevice{
+										{
+											Device: devicePath,
+											Entries: []provisioningv1.PendingNVConfigEntry{
+												{Name: "PARAM_A", Default: "2", Current: "0", NextBoot: "1"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+				h := &HandleReboot{
+					mstDevicesPath: dir,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						var b bytes.Buffer
+						_, _ = b.WriteString(mlxfwresetJSON)
+						return b, bytes.Buffer{}, nil
+					},
+				}
+
+				m, err := h.getRebootMethod(optCtx)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+				Expect(optCtx.CondMessage).To(Equal(fmt.Sprintf(
+					"device=%s pending NVCONFIG params did not take effect after reboot: [PARAM_A(default=2,current=0,next=1)]; reset still required because other reset reasons remain.",
+					devicePath,
+				)))
+				Expect(optCtx.Status.LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
+					BootID: "current-boot-id",
+					Devices: []provisioningv1.PendingNVConfigDevice{
+						{
+							Device: devicePath,
+							Entries: []provisioningv1.PendingNVConfigEntry{
+								{Name: "PARAM_A", Default: "2", Current: "0", NextBoot: "1"},
+							},
+						},
+					},
+				}))
+			})
+
+			It("ignores repeated pending NVConfig entries on the same boot", func() {
+				dir, err := os.MkdirTemp("", "reboot-mst-dq-same-boot-")
+				Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = os.RemoveAll(dir) }()
+				devicePath := filepath.Join(dir, "mt4125_pciconf0")
+				Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
+				currentBootID, err := getCurrentRebootID()
+				Expect(err).NotTo(HaveOccurred())
+				cmd := fmt.Sprintf("mlxfwreset -d %s reset --level 3", devicePath)
+
+				mlxfwresetJSON := fmt.Sprintf(`{
+  "reset_needed": true,
+  "pending_nvconfig_parameters": [
+    {"name": "INTERNAL_CPU_MODEL", "current": "x", "next_boot": "y"}
+  ],
+  "command_required": %q,
+  "reasons": ["Pending NVCONFIG parameter change"]
+}`, cmd)
+				optCtx := &operations.Context{
+					RebootMethodDiscovery: true,
+					CurrentBootID:         currentBootID,
+					LatestDPU: &provisioningv1.DPU{
+						Status: provisioningv1.DPUStatus{
+							AgentStatus: &provisioningv1.AgentStatus{
+								LastObservedPendingNVConfig: &provisioningv1.PendingNVConfigState{
+									BootID: currentBootID,
+									Devices: []provisioningv1.PendingNVConfigDevice{
+										{
+											Device: devicePath,
+											Entries: []provisioningv1.PendingNVConfigEntry{
+												{Name: "INTERNAL_CPU_MODEL", Current: "x", NextBoot: "y"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+				h := &HandleReboot{
+					mstDevicesPath: dir,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						var b bytes.Buffer
+						_, _ = b.WriteString(mlxfwresetJSON)
+						return b, bytes.Buffer{}, nil
+					},
+				}
+				m, err := h.getRebootMethod(optCtx)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
+			})
+		})
+
 		It("getRebootMethod returns error when no MST devices are found", func() {
 			dir, err := os.MkdirTemp("", "reboot-mst-empty-dq-")
 			Expect(err).NotTo(HaveOccurred())
 			defer func() { _ = os.RemoveAll(dir) }()
-			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id"}
 			h := &HandleReboot{mstDevicesPath: dir}
 			_, err = h.getRebootMethod(optCtx)
 			Expect(err).To(HaveOccurred())
@@ -384,6 +717,7 @@ var _ = Describe("Reboot", func() {
 
 			optCtx := &operations.Context{
 				RebootMethodDiscovery:    true,
+				CurrentBootID:            "boot-id",
 				UpdateStatusUntilSuccess: func(context.Context) {},
 			}
 			h := &HandleReboot{
@@ -426,6 +760,7 @@ var _ = Describe("Reboot", func() {
 
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
 			}
 			h := &HandleReboot{
 				mstDevicesPath: dir,
@@ -477,6 +812,7 @@ var _ = Describe("Reboot", func() {
 
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
 				LatestDPU: &provisioningv1.DPU{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
@@ -516,7 +852,7 @@ var _ = Describe("Reboot", func() {
   "command_required": "mlxfwreset -d /dev/mst/mt4125_pciconf0 reset --level 3 --type 0 --sync 0 --method 0"
 }
 `)
-			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id"}
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -546,7 +882,7 @@ var _ = Describe("Reboot", func() {
   "command_required": "mlxfwreset -d /dev/mst/mt41692_pciconf0 reset --level 3"
 }
 `)
-			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id"}
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -577,7 +913,7 @@ var _ = Describe("Reboot", func() {
   "command_required": "Host POWER CYCLE is required before applying configuration"
 }
 `)
-			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id"}
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -608,7 +944,7 @@ var _ = Describe("Reboot", func() {
   "command_required": "Reboot external host is required"
 }
 `)
-			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id"}
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -633,7 +969,7 @@ var _ = Describe("Reboot", func() {
 			Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
 
 			mlxfwresetJSON := `{"reset_needed":true,"command_required":"  reboot EXTERNAL host is required  "}`
-			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id"}
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -658,7 +994,7 @@ var _ = Describe("Reboot", func() {
 
 			jsonFR := `{"reset_needed":true,"command_required":"mlxfwreset -d /dev/mst/mt_a reset --level 3"}`
 			jsonPC := `{"reset_needed":true,"pending_nvconfig_parameters":[{"name":"INTERNAL_CPU_MODEL"}]}`
-			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id"}
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -693,7 +1029,7 @@ var _ = Describe("Reboot", func() {
 
 			jsonFR := `{"reset_needed":true,"command_required":"mlxfwreset -d /dev/mst/mt_a reset --level 3"}`
 			jsonSLR := `{"reset_needed":true,"command_required":"Reboot external host is required"}`
-			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id"}
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -760,6 +1096,7 @@ var _ = Describe("Reboot", func() {
 			jsonB := `{"reset_needed":true,"command_required":"` + cmdB + `"}`
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
 				LatestDPU: &provisioningv1.DPU{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
@@ -796,7 +1133,7 @@ var _ = Describe("Reboot", func() {
 			devicePath := filepath.Join(dir, "mt4125_pciconf0")
 			Expect(os.WriteFile(devicePath, nil, 0600)).To(Succeed())
 
-			optCtx := &operations.Context{RebootMethodDiscovery: true}
+			optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id"}
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -875,10 +1212,14 @@ var _ = Describe("Reboot", func() {
 	// exec* tests call HandleReboot helpers directly; they are not tied to RebootMethodDiscovery or Execute().
 	Describe("HandleReboot exec helpers", func() {
 		Context("execPowerCycle", func() {
-			It("sets RebootMethod PowerCycle", func() {
-				optCtx := &operations.Context{}
-				h := &HandleReboot{}
-				Expect(h.execPowerCycle(optCtx)).To(Succeed())
+			It("sets RebootMethod PowerCycle and updates status before blocking", func() {
+				statusPushed := false
+				optCtx := &operations.Context{
+					UpdateStatusUntilSuccess: func(context.Context) { statusPushed = true },
+				}
+				h := &HandleReboot{skipBlock: true}
+				Expect(h.execPowerCycle(context.Background(), optCtx)).To(Succeed())
+				Expect(statusPushed).To(BeTrue())
 				Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
 				Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
 			})
