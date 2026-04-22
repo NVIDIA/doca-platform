@@ -1,5 +1,5 @@
 ---
-title: "Secondary Network support for HBN-OVNK use case"
+title: "Secondary Network Support for HBN-OVNK Use Case"
 ---
 
 [TOC]
@@ -27,7 +27,7 @@ are set before running this command.
 envsubst < manifests/01-cni-installation/ovn-kubernetes_secondary_network.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version ${OVN_KUBERNETES_CHART_TAG} --values -
 ```
 
-<details markdown="1"><summary>OVN-Kubernetes Helm values</summary>
+<details markdown="1"><summary>**OVN-Kubernetes Helm values**</summary>
 
 [embedmd]:#(manifests/01-cni-installation/ovn-kubernetes_secondary_network.yml)
 ```yml
@@ -71,7 +71,7 @@ Ensure [environment variables](../../user-guides/host-trusted/use-cases/hbn-ovnk
 cat manifests/02-dpudeployment-modifications/*.yaml | envsubst | kubectl apply -f -
 ```
 
-<details markdown="1"><summary>OVN DPUServiceTemplate to deploy OVN workloads to the DPUs</summary>
+<details markdown="1"><summary>**OVN DPUServiceTemplate to deploy OVN workloads to the DPUs**</summary>
 
 [embedmd]:#(manifests/02-dpudeployment-modifications/dpuservicetemplate_ovn_secondary_network.yaml)
 ```yaml

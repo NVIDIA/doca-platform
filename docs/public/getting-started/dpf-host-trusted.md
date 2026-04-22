@@ -69,7 +69,7 @@ helm upgrade --install -n dpf-operator-system dpf-operator dpf-repository/dpf-op
 
 The command above does the following:
 
-* Creates the `dpf-operator-system` namespace if it doesn't exist
+* Creates the `dpf-operator-system` namespace if it does not exist
 * Installs the DPF Operator version v25.10.1 from the NVIDIA repository
 
 ### 3. Verify the Installation
@@ -92,7 +92,7 @@ You can also verify all components are running:
 kubectl get pods -n dpf-operator-system
 ```
 
-## What's Next?
+## Next Steps
 
 This minimal setup provides a foundation for DPF Host Trusted mode. To proceed with DPU provisioning and making the DPUs
 act as passthrough devices, explore the guide

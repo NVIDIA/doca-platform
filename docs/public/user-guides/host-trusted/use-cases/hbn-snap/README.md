@@ -64,7 +64,7 @@ The following variables are required by this guide. A sensible default is provid
 
 Commands in this guide are run in the same directory that contains this readme.
 
-<details markdown="1"><summary>Environment variables file</summary>
+<details markdown="1"><summary>**Environment variables file**</summary>
 
 [embedmd]:# (manifests/00-env-vars/envvars.env sh)
 ```sh
@@ -162,7 +162,7 @@ cat manifests/02-dpf-system-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will create the following objects:
-<details markdown="1"><summary>DPFOperatorConfig to install the DPF System components</summary>
+<details markdown="1"><summary>**DPFOperatorConfig to install the DPF System components**</summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/operatorconfig.yaml)
 ```yaml
@@ -182,7 +182,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUCluster to serve as Kubernetes control plane for DPU nodes</summary>
+<details markdown="1"><summary>**DPUCluster to serve as Kubernetes control plane for DPU nodes**</summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/dpucluster.yaml)
 ```yaml
@@ -233,7 +233,7 @@ helm repo add nvidia https://helm.ngc.nvidia.com/nvidia --force-update
 helm upgrade --no-hooks --install --create-namespace --namespace nvidia-network-operator network-operator nvidia/network-operator --version 26.1.0 -f ./manifests/03-enable-accelerated-interfaces/helm-values/network-operator.yml
 ```
 
-<details markdown="1"><summary>NVIDIA Network Operator Helm values</summary>
+<details markdown="1"><summary>**NVIDIA Network Operator Helm values**</summary>
 
 [embedmd]:#(manifests/03-enable-accelerated-interfaces/helm-values/network-operator.yml)
 ```yml
@@ -262,7 +262,7 @@ kubectl apply -f manifests/03-enable-accelerated-interfaces/nic_cluster_policy.y
 
 This will deploy the following object:
 
-<details markdown="1"><summary>NICClusterPolicy for the NVIDIA Network Operator</summary>
+<details markdown="1"><summary>**NICClusterPolicy for the NVIDIA Network Operator**</summary>
 
 [embedmd]:#(manifests/03-enable-accelerated-interfaces/nic_cluster_policy.yaml)
 ```yaml
@@ -289,7 +289,7 @@ The NodeSRIOVDevicePluginConfig defines which VFs on the DPU physical functions 
 kubectl apply -f manifests/03-enable-accelerated-interfaces/nodesriovdevicepluginconfig.yaml
 ```
 
-<details markdown="1"><summary>NodeSRIOVDevicePluginConfig for VFs on PF0 and PF1</summary>
+<details markdown="1"><summary>**NodeSRIOVDevicePluginConfig for VFs on PF0 and PF1**</summary>
 
 [embedmd]:#(manifests/03-enable-accelerated-interfaces/nodesriovdevicepluginconfig.yaml)
 ```yaml
@@ -336,7 +336,7 @@ kubectl rollout status daemonset --namespace nvidia-network-operator kube-multus
 
 ### 4. DPU Provisioning and Service Installation
 
-In this section, you'll provision your DPUs and deploy the required services. You'll need to create a `DPUDeployment` object that defines which `DPUServices` should be installed on each selected DPU. This provides a flexible way to specify and manage the services that run on your DPUs.
+In this section, you will provision your DPUs and deploy the required services. You will need to create a `DPUDeployment` object that defines which `DPUServices` should be installed on each selected DPU. This provides a flexible way to specify and manage the services that run on your DPUs.
 
 > If you want to learn more about `DPUDeployments`, check the [DPUDeployment documentation](../../../../developer-guides/api/dpudeployment.md).
 
@@ -362,7 +362,7 @@ Create the credential request for the SPDK CSI Controller before installing the 
 kubectl apply -f manifests/04.1-dpudeployment-installation-nvme/credentials/
 ```
 
-<details markdown="1"><summary>DPUServiceCredentialRequest for SPDK CSI Controller</summary>
+<details markdown="1"><summary>**DPUServiceCredentialRequest for SPDK CSI Controller**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/credentials/spdk-csi-controller-dpuservicecredentialrequest.yaml)
 ```yaml
@@ -415,7 +415,7 @@ helm upgrade --install -n dpf-operator-system snap-host-controller \
   -f manifests/04.1-dpudeployment-installation-nvme/helm-values/snap-host-controller.yml
 ```
 
-<details markdown="1"><summary>SNAP Host Controller Helm values</summary>
+<details markdown="1"><summary>**SNAP Host Controller Helm values**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/helm-values/snap-host-controller.yml)
 ```yml
@@ -465,7 +465,7 @@ helm upgrade --install -n dpf-operator-system snap-csi-plugin \
   -f manifests/04.1-dpudeployment-installation-nvme/helm-values/snap-csi-plugin-controller.yml
 ```
 
-<details markdown="1"><summary>SNAP CSI Plugin Controller Helm values</summary>
+<details markdown="1"><summary>**SNAP CSI Plugin Controller Helm values**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/helm-values/snap-csi-plugin-controller.yml)
 ```yml
@@ -499,7 +499,7 @@ helm upgrade --install -n dpf-operator-system spdk-csi-controller \
   -f manifests/04.1-dpudeployment-installation-nvme/helm-values/spdk-csi-controller.yml
 ```
 
-<details markdown="1"><summary>SPDK CSI Controller Helm values</summary>
+<details markdown="1"><summary>**SPDK CSI Controller Helm values**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/helm-values/spdk-csi-controller.yml)
 ```yml
@@ -531,7 +531,7 @@ cat manifests/04.1-dpudeployment-installation-nvme/*.yaml | envsubst | kubectl a
 
 This will deploy the following objects:
 
-<details markdown="1"><summary>BFB to download Bluefield Bitstream to a shared volume</summary>
+<details markdown="1"><summary>**BFB to download Bluefield Bitstream to a shared volume**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/bfb.yaml)
 ```yaml
@@ -546,7 +546,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>HBN + SNAP NVMe DPUFlavor to configure DPUs on provisioning</summary>
+<details markdown="1"><summary>**HBN + SNAP NVMe DPUFlavor to configure DPUs on provisioning**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/dpuflavor.yaml)
 ```yaml
@@ -644,7 +644,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for DOCA HBN</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for DOCA HBN**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/hbn-dpuserviceconfig.yaml)
 ```yaml
@@ -856,7 +856,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceInterfaces for physical ports and VFs on the DPU</summary>
+<details markdown="1"><summary>**DPUServiceInterfaces for physical ports and VFs on the DPU**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/physical-ifaces.yaml)
 ```yaml
@@ -935,7 +935,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceIPAMs</summary>
+<details markdown="1"><summary>**DPUServiceIPAMs**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/hbn-ipam.yaml)
 ```yaml
@@ -996,7 +996,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceNAD for storage services (no RDMA CNI chaining)</summary>
+<details markdown="1"><summary>**DPUServiceNAD for storage services (no RDMA CNI chaining)**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/storage-dpuservicenad.yaml)
 ```yaml
@@ -1013,7 +1013,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for DOCA SNAP (NVMe)</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for DOCA SNAP (NVMe)**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/doca-snap-dpuserviceconfiguration.yaml)
 ```yaml
@@ -1071,7 +1071,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for SNAP Node Driver</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for SNAP Node Driver**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/snap-node-driver-dpuserviceconfiguration.yaml)
 ```yaml
@@ -1110,7 +1110,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for Block Storage DPU Plugin</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for Block Storage DPU Plugin**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/block-storage-dpu-plugin-dpuserviceconfiguration.yaml)
 ```yaml
@@ -1148,7 +1148,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for SNAP CSI Plugin (NVMe)</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for SNAP CSI Plugin (NVMe)**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/snap-csi-plugin-dpuserviceconfiguration.yaml)
 ```yaml
@@ -1192,7 +1192,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>Secret for SPDK CSI Controller</summary>
+<details markdown="1"><summary>**Secret for SPDK CSI Controller**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/spdk-csi-secret.yaml)
 ```yaml
@@ -1221,7 +1221,7 @@ stringData:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for SPDK CSI Controller on DPU</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for SPDK CSI Controller on DPU**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/spdk-csi-controller-dpu-dpuserviceconfiguration.yaml)
 ```yaml
@@ -1274,7 +1274,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUDeployment to provision DPUs on worker nodes</summary>
+<details markdown="1"><summary>**DPUDeployment to provision DPUs on worker nodes**</summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/dpudeployment.yaml)
 ```yaml
@@ -1389,7 +1389,7 @@ Create the credential request for the NFS CSI Controller before installing the c
 kubectl apply -f manifests/04.2-dpudeployment-installation-virtiofs/credentials/
 ```
 
-<details markdown="1"><summary>DPUServiceCredentialRequest for NFS CSI Controller</summary>
+<details markdown="1"><summary>**DPUServiceCredentialRequest for NFS CSI Controller**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/credentials/nfs-csi-controller-dpuservicecredentialrequest.yaml)
 ```yaml
@@ -1442,7 +1442,7 @@ helm upgrade --install -n dpf-operator-system snap-host-controller \
   -f manifests/04.2-dpudeployment-installation-virtiofs/helm-values/snap-host-controller.yml
 ```
 
-<details markdown="1"><summary>SNAP Host Controller Helm values</summary>
+<details markdown="1"><summary>**SNAP Host Controller Helm values**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/helm-values/snap-host-controller.yml)
 ```yml
@@ -1492,7 +1492,7 @@ helm upgrade --install -n dpf-operator-system snap-csi-plugin \
   -f manifests/04.2-dpudeployment-installation-virtiofs/helm-values/snap-csi-plugin-controller.yml
 ```
 
-<details markdown="1"><summary>SNAP CSI Plugin Controller Helm values</summary>
+<details markdown="1"><summary>**SNAP CSI Plugin Controller Helm values**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/helm-values/snap-csi-plugin-controller.yml)
 ```yml
@@ -1526,7 +1526,7 @@ helm upgrade --install -n dpf-operator-system nfs-csi-controller \
   -f manifests/04.2-dpudeployment-installation-virtiofs/helm-values/nfs-csi-controller.yml
 ```
 
-<details markdown="1"><summary>NFS CSI Controller Helm values</summary>
+<details markdown="1"><summary>**NFS CSI Controller Helm values**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/helm-values/nfs-csi-controller.yml)
 ```yml
@@ -1548,7 +1548,7 @@ cat manifests/04.2-dpudeployment-installation-virtiofs/*.yaml | envsubst | kubec
 
 This will deploy the following objects:
 
-<details markdown="1"><summary>BFB to download BlueField Bitstream to a shared volume</summary>
+<details markdown="1"><summary>**BFB to download BlueField Bitstream to a shared volume**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/bfb.yaml)
 ```yaml
@@ -1563,7 +1563,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>SNAP VirtioFS with HBN DPUFlavor to configure DPUs on provisioning</summary>
+<details markdown="1"><summary>**SNAP VirtioFS with HBN DPUFlavor to configure DPUs on provisioning**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/dpuflavor.yaml)
 ```yaml
@@ -1661,7 +1661,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for DOCA HBN</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for DOCA HBN**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/hbn-dpuserviceconfig.yaml)
 ```yaml
@@ -1873,7 +1873,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceNAD for storage services (no RDMA CNI chaining)</summary>
+<details markdown="1"><summary>**DPUServiceNAD for storage services (no RDMA CNI chaining)**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/storage-dpuservicenad.yaml)
 ```yaml
@@ -1890,7 +1890,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for DOCA SNAP</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for DOCA SNAP**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/doca-snap-dpuserviceconfiguration.yaml)
 ```yaml
@@ -1948,7 +1948,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for SNAP Node Driver</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for SNAP Node Driver**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/snap-node-driver-dpuserviceconfiguration.yaml)
 ```yaml
@@ -1987,7 +1987,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for FS Storage DPU Plugin</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for FS Storage DPU Plugin**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/fs-storage-dpu-plugin-dpuserviceconfiguration.yaml)
 ```yaml
@@ -2034,7 +2034,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for SNAP CSI Plugin</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for SNAP CSI Plugin**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/snap-csi-plugin-dpuserviceconfiguration.yaml)
 ```yaml
@@ -2078,7 +2078,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for NFS CSI Controller (DPU)</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for NFS CSI Controller (DPU)**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/nfs-csi-controller-dpu-dpuserviceconfiguration.yaml)
 ```yaml
@@ -2129,7 +2129,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceIPAMs</summary>
+<details markdown="1"><summary>**DPUServiceIPAMs**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/hbn-ipam.yaml)
 ```yaml
@@ -2190,7 +2190,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceInterfaces for physical ports and VFs on the DPU</summary>
+<details markdown="1"><summary>**DPUServiceInterfaces for physical ports and VFs on the DPU**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/physical-ifaces.yaml)
 ```yaml
@@ -2269,7 +2269,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUDeployment to provision DPUs on worker nodes</summary>
+<details markdown="1"><summary>**DPUDeployment to provision DPUs on worker nodes**</summary>
 
 [embedmd]:#(manifests/04.2-dpudeployment-installation-virtiofs/dpudeployment.yaml)
 ```yaml
@@ -2414,7 +2414,7 @@ cat manifests/05-network-configuration/*.yaml | envsubst | kubectl apply -f -
 
 This will create the following objects:
 
-<details markdown="1"><summary>NetworkAttachmentDefinition for host-device VFs</summary>
+<details markdown="1"><summary>**NetworkAttachmentDefinition for host-device VFs**</summary>
 
 [embedmd]:#(manifests/05-network-configuration/nad-hostdev.yaml)
 ```yaml
@@ -2544,7 +2544,7 @@ cat manifests/07.1-storage-configuration-nvme/*.yaml | envsubst | kubectl apply 
 
 This will create the following objects:
 
-<details markdown="1"><summary>DPUStorageVendor for SPDK CSI</summary>
+<details markdown="1"><summary>**DPUStorageVendor for SPDK CSI**</summary>
 
 [embedmd]:#(manifests/07.1-storage-configuration-nvme/spdk-csi-dpustoragevendor.yaml)
 ```yaml
@@ -2560,7 +2560,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUStoragePolicy for block storage</summary>
+<details markdown="1"><summary>**DPUStoragePolicy for block storage**</summary>
 
 [embedmd]:#(manifests/07.1-storage-configuration-nvme/policy-block-dpustoragepolicy.yaml)
 ```yaml
@@ -2604,7 +2604,7 @@ cat manifests/07.2-storage-configuration-virtiofs/*.yaml | envsubst | kubectl ap
 
 This will create the following objects:
 
-<details markdown="1"><summary>DPUStorageVendor for NFS CSI</summary>
+<details markdown="1"><summary>**DPUStorageVendor for NFS CSI**</summary>
 
 [embedmd]:#(manifests/07.2-storage-configuration-virtiofs/nfs-csi-dpustoragevendor.yaml)
 ```yaml
@@ -2620,7 +2620,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUStoragePolicy for filesystem policy</summary>
+<details markdown="1"><summary>**DPUStoragePolicy for filesystem policy**</summary>
 
 [embedmd]:#(manifests/07.2-storage-configuration-virtiofs/policy-fs-dpustoragepolicy.yaml)
 ```yaml
