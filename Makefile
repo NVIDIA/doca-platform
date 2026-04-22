@@ -22,6 +22,7 @@ PROJECT_DIR := $(shell cd $(dir $(lastword $(MAKEFILE_LIST))) && pwd -L)
 PROJECT_DIR := $(patsubst %/,%,$(PROJECT_DIR))
 
 GO_VERSION ?= $(shell awk '/^toolchain /{print $$2}' go.mod | awk -F 'go' '{print $$2}')
+GOTOOLCHAIN ?= go$(GO_VERSION)+auto
 
 ## Include Make modules which are split up in this repo for better structure.
 include hack/tools/tools.mk
@@ -511,7 +512,7 @@ test: envtest ## Run tests.
 
 .PHONY: test-report
 test-report: envtest gotestsum ## Run tests and generate a junit style report
-	set +o errexit; GOTOOLCHAIN=$(shell go version | awk '{print $$3}')+auto KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test -count 1 -race -json $(TESTPKGS) -coverprofile cover.out -coverpkg=$(COVERPKGS) > junit.stdout; echo $$? > junit.exitcode;
+	set +o errexit; GOTOOLCHAIN=$(GOTOOLCHAIN) KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test -count 1 -race -json $(TESTPKGS) -coverprofile cover.out -coverpkg=$(COVERPKGS) > junit.stdout; echo $$? > junit.exitcode;
 	$(GOTESTSUM) --junitfile junit.xml --raw-command cat junit.stdout
 	exit $$(cat junit.exitcode)
 
@@ -622,11 +623,11 @@ commit-check: conform ## Run conform to validate commit message
 GOLANGCI_LINT_GOGC ?= "100"
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter & yamllint
-	GOOS=linux GOGC=$(GOLANGCI_LINT_GOGC) $(GOLANGCI_LINT) run --timeout 5m
+	GOOS=linux GOTOOLCHAIN=$(GOTOOLCHAIN) GOGC=$(GOLANGCI_LINT_GOGC) $(GOLANGCI_LINT) run --timeout 5m
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
-	GOOS=linux $(GOLANGCI_LINT) run --fix
+	GOOS=linux GOTOOLCHAIN=$(GOTOOLCHAIN) $(GOLANGCI_LINT) run --fix
 
 VERIFY_TARGETS ?= generate copyright md-links shfmt crdify manifests-all
 
