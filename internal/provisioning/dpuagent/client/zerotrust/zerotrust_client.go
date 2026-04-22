@@ -96,6 +96,9 @@ func (c *ZerotrustClient) UpdateStatus(ctx context.Context, agentStatus provisio
 	if agentStatus.KubeletVersion != nil {
 		latestDPU.Status.AgentStatus.KubeletVersion = agentStatus.KubeletVersion
 	}
+	if agentStatus.LastObservedPendingNVConfig != nil {
+		latestDPU.Status.AgentStatus.LastObservedPendingNVConfig = agentStatus.LastObservedPendingNVConfig.DeepCopy()
+	}
 	for _, condition := range agentStatus.Conditions {
 		meta.SetStatusCondition(&latestDPU.Status.AgentStatus.Conditions, condition)
 	}

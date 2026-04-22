@@ -427,6 +427,12 @@ type AgentStatus struct {
 	// +optional
 	RebootMethod *RebootMethodType `json:"rebootMethod,omitempty"`
 
+	// LastObservedPendingNVConfig stores the last pending NVConfig parameters seen
+	// during reboot-method discovery on this boot. It is used on the next boot to
+	// ignore repeated parameters that remained unchanged across boots.
+	// +optional
+	LastObservedPendingNVConfig *PendingNVConfigState `json:"lastObservedPendingNvconfig,omitempty"`
+
 	// RebootSequenceCount is the length of the current non-NoAction RebootMethod sequence:
 	// it increments on each agent run that reports a RebootMethod other than NoAction and
 	// resets to 0 when the agent reports NoAction. Used with RebootMethod to bound host reboot loops.
@@ -440,6 +446,24 @@ type AgentStatus struct {
 	// Conditions contains the conditions reported from inside the DPU
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+type PendingNVConfigState struct {
+	BootID  string                  `json:"bootID,omitempty"`
+	Devices []PendingNVConfigDevice `json:"devices,omitempty"`
+}
+
+type PendingNVConfigDevice struct {
+	Device  string                 `json:"device,omitempty"`
+	Entries []PendingNVConfigEntry `json:"entries"`
+}
+
+type PendingNVConfigEntry struct {
+	Name    string `json:"name,omitempty"`
+	Default string `json:"default,omitempty"`
+	Current string `json:"current,omitempty"`
+	// NextBoot uses the "next_boot" so this type can be reused for parsing mlxfwrest output
+	NextBoot string `json:"next_boot,omitempty"`
 }
 
 // +kubebuilder:object:root=true
