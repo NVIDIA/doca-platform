@@ -17,11 +17,11 @@ outside the cluster by default but sosreport may need to be run for troubleshoot
 purposes.
 
 
-## Generating a SOS Report with a Debug Pod 
+## Generating a sosreport with a Debug Pod 
 
 ### Target Host Cluster
 
-#### Create a secret containing the kubeconfig
+#### Create a Secret Containing the kubeconfig
 
 In order to run `sosreport`, a `kubeconfig` is needed to access the API Server. 
 
@@ -31,7 +31,7 @@ In order to run `sosreport`, a `kubeconfig` is needed to access the API Server.
 kubectl create secret generic admin-config --from-file=kubeconfig=<path_to_kubeconfig>
 ```
 
-#### Deploy sos-report
+#### Deploy sosreport
 
 **1.** Display the list of nodes in the cluster and export the selected node.
 The following command will display the list of nodes:
@@ -115,7 +115,7 @@ EOF
 
 ### Target Tenant Cluster
 
-#### Find the tenant cluster kubeconfig
+#### Find the Tenant Cluster kubeconfig
 
 In order to run `sosreport`, a `kubeconfig` is needed to access the API Server.
 When the report has to be generated for a tenant cluster, we have to retrieve the 
@@ -143,7 +143,7 @@ kubectl create secret generic admin-config --from-file=kubeconfig=/tmp/${NAMESPA
   --kubeconfig=/tmp/${NAMESPACE}-${CLUSTER_NAME}.kubeconfig
 ```
 
-#### Deploy sos-report
+#### Deploy sosreport
 
 **1.** Display the list of nodes in the cluster and export the selected node.
 The following command will display the list of nodes:

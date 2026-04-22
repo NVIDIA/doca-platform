@@ -1,5 +1,5 @@
 ---
-title: "Host Trusted Multi-DPU support OVN-Kubernetes and HBN Services"
+title: "Host Trusted Multi-DPU Support OVN-Kubernetes and HBN Services"
 ---
 
 > [!NOTE] **Tech Preview**: This feature is currently in technical preview and may be subject to changes in 

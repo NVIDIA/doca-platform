@@ -66,7 +66,7 @@ Firefly consists of two main components:
 
 Configuration files:
    
-<details markdown="1"><summary>DPUServiceConfiguration-dpu</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration-dpu**</summary>
 
 [embedmd]:#(../../../../dpuservices/firefly/DPUServiceConfiguration-dpu.yaml)
 ```yaml
@@ -122,7 +122,7 @@ spec:
 
 </details>
 
-<details markdown="1"><summary>DPUServiceTemplate-dpu</summary>
+<details markdown="1"><summary>**DPUServiceTemplate-dpu**</summary>
 
 [embedmd]:#(../../../../dpuservices/firefly/DPUServiceTemplate-dpu.yaml)
 ```yaml
@@ -159,7 +159,7 @@ spec:
 
 Configuration files:
 
-<details markdown="1"><summary>DPUServiceConfiguration-host.yaml</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration-host.yaml**</summary>
 
 [embedmd]:#(../../../../dpuservices/firefly/DPUServiceConfiguration-host.yaml)
 ```yaml
@@ -180,7 +180,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceTemplate-host</summary>
+<details markdown="1"><summary>**DPUServiceTemplate-host**</summary>
 
 [embedmd]:#(../../../../dpuservices/firefly/DPUServiceTemplate-host.yaml)
 ```yaml
@@ -219,7 +219,7 @@ The general resources are:
 #### DPUFlavor
 
 Defines the DPU flavor for the Firefly service.
-<details markdown="1"><summary>DPUFlavor</summary>
+<details markdown="1"><summary>**DPUFlavor**</summary>
 
 [embedmd]:#(../../../../dpuservices/firefly/DPUFlavor.yaml)
 ```yaml
@@ -338,7 +338,7 @@ spec:
 Defines the trusted [Scalable Function (SF)](https://docs.nvidia.com/networking/display/bluefielddpuosv385/scalable+functions)
 for the Firefly service.
 
-<details markdown="1"><summary>DPUServiceNAD</summary>
+<details markdown="1"><summary>**DPUServiceNAD**</summary>
 
 [embedmd]:#(../../../../dpuservices/firefly/DPUServiceNAD.yaml)
 ```yaml
@@ -360,7 +360,7 @@ spec:
 #### DPUDeployment
 
 Defines the DPUDeployment for the Firefly service.
-<details markdown="1"><summary>DPUDeployment</summary>
+<details markdown="1"><summary>**DPUDeployment**</summary>
 
 [embedmd]:#(../../../../dpuservices/firefly/DPUDeployment.yaml)
 ```yaml

@@ -65,7 +65,7 @@ be specific to the target infrastructure.
 
 Commands in this guide are run in the same directory that contains this readme.
 
-<details markdown="1"><summary>Environment variables file</summary>
+<details markdown="1"><summary>**Environment variables file**</summary>
 
 [embedmd]:# (manifests/00-env-vars/envvars.env sh)
 ```sh
@@ -205,7 +205,7 @@ cat manifests/02-dpf-system-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will create the following objects:
-<details markdown="1"><summary>DPFOperatorConfig to install the DPF System components</summary>
+<details markdown="1"><summary>**DPFOperatorConfig to install the DPF System components**</summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/operatorconfig.yaml)
 ```yaml
@@ -231,7 +231,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUCluster to serve as Kubernetes control plane for DPU nodes</summary>
+<details markdown="1"><summary>**DPUCluster to serve as Kubernetes control plane for DPU nodes**</summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/dpucluster.yaml)
 ```yaml
@@ -258,7 +258,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUDiscovery to discover DPUDevices or DPUNodes</summary>
+<details markdown="1"><summary>**DPUDiscovery to discover DPUDevices or DPUNodes**</summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/dpudiscovery.yaml)
 ```yaml
@@ -295,7 +295,7 @@ kubectl wait --for=condition=ready --namespace dpu-cplane-tenant1 dpucluster --a
 
 ### 3. DPU Provisioning and Service Installation
 
-In this section, you'll provision your DPUs and deploy the required services. You'll need to create a `DPUDeployment` object that defines which `DPUServices` should be installed on each selected DPU. This provides a flexible way to specify and manage the services that run on your DPUs.
+In this section, you will provision your DPUs and deploy the required services. You will need to create a `DPUDeployment` object that defines which `DPUServices` should be installed on each selected DPU. This provides a flexible way to specify and manage the services that run on your DPUs.
 
 > If you want to learn more about `DPUDeployments`, check the [DPUDeployment documentation](../../../../developer-guides/api/dpudeployment.md).
 
@@ -321,7 +321,7 @@ Create the credential request for the SPDK CSI Controller before installing the 
 kubectl apply -f manifests/03.1-dpudeployment-installation-nvme/credentials/
 ```
 
-<details markdown="1"><summary>DPUServiceCredentialRequest for SPDK CSI Controller</summary>
+<details markdown="1"><summary>**DPUServiceCredentialRequest for SPDK CSI Controller**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/credentials/spdk-csi-controller-dpuservicecredentialrequest.yaml)
 ```yaml
@@ -374,7 +374,7 @@ helm upgrade --install -n dpf-operator-system snap-host-controller \
   -f manifests/03.1-dpudeployment-installation-nvme/helm-values/snap-host-controller.yml
 ```
 
-<details markdown="1"><summary>SNAP Host Controller Helm values</summary>
+<details markdown="1"><summary>**SNAP Host Controller Helm values**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/helm-values/snap-host-controller.yml)
 ```yml
@@ -407,7 +407,7 @@ helm upgrade --install -n dpf-operator-system spdk-csi-controller \
   -f manifests/03.1-dpudeployment-installation-nvme/helm-values/spdk-csi-controller.yml
 ```
 
-<details markdown="1"><summary>SPDK CSI Controller Helm values</summary>
+<details markdown="1"><summary>**SPDK CSI Controller Helm values**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/helm-values/spdk-csi-controller.yml)
 ```yml
@@ -443,7 +443,7 @@ cat manifests/03.1-dpudeployment-installation-nvme/*.yaml | envsubst | kubectl a
 ```
 
 This will deploy the following objects:
-<details markdown="1"><summary>BFB to download Bluefield Bitstream to a shared volume</summary>
+<details markdown="1"><summary>**BFB to download Bluefield Bitstream to a shared volume**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/bfb.yaml)
 ```yaml
@@ -458,7 +458,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>HBN DPUFlavor to correctly configure the DPUs on provisioning</summary>
+<details markdown="1"><summary>**HBN DPUFlavor to correctly configure the DPUs on provisioning**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/dpuflavor.yaml)
 ```yaml
@@ -556,7 +556,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUDeployment to provision DPUs on worker nodes</summary>
+<details markdown="1"><summary>**DPUDeployment to provision DPUs on worker nodes**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/dpudeployment.yaml)
 ```yaml
@@ -640,7 +640,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfig and DPUServiceTemplate to deploy HBN workloads to the DPUs</summary>
+<details markdown="1"><summary>**DPUServiceConfig and DPUServiceTemplate to deploy HBN workloads to the DPUs**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/hbn-dpuserviceconfig.yaml)
 ```yaml
@@ -852,7 +852,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceInterfaces for physical ports on the DPU</summary>
+<details markdown="1"><summary>**DPUServiceInterfaces for physical ports on the DPU**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/physical-ifaces.yaml)
 ```yaml
@@ -927,7 +927,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceIPAM to set up IP Address Management on the DPUCluster</summary>
+<details markdown="1"><summary>**DPUServiceIPAM to set up IP Address Management on the DPUCluster**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/hbn-ipam.yaml)
 ```yaml
@@ -960,7 +960,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceIPAM for the loopback interface in HBN</summary>
+<details markdown="1"><summary>**DPUServiceIPAM for the loopback interface in HBN**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/hbn-loopback-ipam.yaml)
 ```yaml
@@ -977,7 +977,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceIPAM for storage network</summary>
+<details markdown="1"><summary>**DPUServiceIPAM for storage network**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/storage-ipam.yaml)
 ```yaml
@@ -998,7 +998,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceNAD for storage services (no RDMA CNI chaining)</summary>
+<details markdown="1"><summary>**DPUServiceNAD for storage services (no RDMA CNI chaining)**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/storage-dpuservicenad.yaml)
 ```yaml
@@ -1015,7 +1015,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for DOCA SNAP</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for DOCA SNAP**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/doca-snap-dpuserviceconfiguration.yaml)
 ```yaml
@@ -1073,7 +1073,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for Block Storage DPU Plugin</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for Block Storage DPU Plugin**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/block-storage-dpu-plugin-dpuserviceconfiguration.yaml)
 ```yaml
@@ -1111,7 +1111,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for SNAP Node Driver</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for SNAP Node Driver**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/snap-node-driver-dpuserviceconfiguration.yaml)
 ```yaml
@@ -1150,7 +1150,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for SPDK CSI Controller on DPU</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for SPDK CSI Controller on DPU**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/spdk-csi-controller-dpu-dpuserviceconfiguration.yaml)
 ```yaml
@@ -1203,7 +1203,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>Secret for SPDK CSI</summary>
+<details markdown="1"><summary>**Secret for SPDK CSI**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/spdk-csi-secret.yaml)
 ```yaml
@@ -1269,7 +1269,7 @@ cat manifests/04.1-storage-configuration-nvme/*.yaml | envsubst | kubectl apply 
 
 This will create the following objects:
 
-<details markdown="1"><summary>DPUStorageVendor for SPDK CSI</summary>
+<details markdown="1"><summary>**DPUStorageVendor for SPDK CSI**</summary>
 
 [embedmd]:#(manifests/04.1-storage-configuration-nvme/spdk-csi-dpustoragevendor.yaml)
 ```yaml
@@ -1285,7 +1285,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUStoragePolicy for block storage</summary>
+<details markdown="1"><summary>**DPUStoragePolicy for block storage**</summary>
 
 [embedmd]:#(manifests/04.1-storage-configuration-nvme/policy-block-dpustoragepolicy.yaml)
 ```yaml
@@ -1320,7 +1320,7 @@ cat manifests/05.1-storage-test-nvme/*.yaml | envsubst | kubectl apply -f -
 
 This will create the following objects:
 
-<details markdown="1"><summary>DPUVolumes for block storage</summary>
+<details markdown="1"><summary>**DPUVolumes for block storage**</summary>
 
 [embedmd]:#(manifests/05.1-storage-test-nvme/dpuvolume.yaml)
 ```yaml
@@ -1355,7 +1355,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUVolumeAttachments for block storage with static PFs</summary>
+<details markdown="1"><summary>**DPUVolumeAttachments for block storage with static PFs**</summary>
 
 [embedmd]:#(manifests/05.1-storage-test-nvme/dpuvolumeattachment.yaml)
 ```yaml
@@ -1540,7 +1540,7 @@ cat manifests/05.1-storage-test-nvme/hotplug/*.yaml | envsubst | kubectl apply -
 
 This will create the following objects:
 
-<details markdown="1"><summary>DPUVolume for hot-plug storage PFs</summary>
+<details markdown="1"><summary>**DPUVolume for hot-plug storage PFs**</summary>
 
 [embedmd]:#(manifests/05.1-storage-test-nvme/hotplug/dpuvolume.yaml)
 ```yaml
@@ -1575,7 +1575,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUVolumeAttachment for hot-plug storage PFs</summary>
+<details markdown="1"><summary>**DPUVolumeAttachment for hot-plug storage PFs**</summary>
 
 [embedmd]:#(manifests/05.1-storage-test-nvme/hotplug/dpuvolumeattachment.yaml)
 ```yaml
@@ -1631,7 +1631,7 @@ Create the credential request for the NFS CSI Controller before installing the c
 kubectl apply -f manifests/03.2-dpudeployment-installation-virtiofs/credentials/
 ```
 
-<details markdown="1"><summary>DPUServiceCredentialRequest for NFS CSI Controller</summary>
+<details markdown="1"><summary>**DPUServiceCredentialRequest for NFS CSI Controller**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/credentials/nfs-csi-controller-dpuservicecredentialrequest.yaml)
 ```yaml
@@ -1684,7 +1684,7 @@ helm upgrade --install -n dpf-operator-system snap-host-controller \
   -f manifests/03.2-dpudeployment-installation-virtiofs/helm-values/snap-host-controller.yml
 ```
 
-<details markdown="1"><summary>SNAP Host Controller Helm values</summary>
+<details markdown="1"><summary>**SNAP Host Controller Helm values**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/helm-values/snap-host-controller.yml)
 ```yml
@@ -1717,7 +1717,7 @@ helm upgrade --install -n dpf-operator-system nfs-csi-controller \
   -f manifests/03.2-dpudeployment-installation-virtiofs/helm-values/nfs-csi-controller.yml
 ```
 
-<details markdown="1"><summary>NFS CSI Controller Helm values</summary>
+<details markdown="1"><summary>**NFS CSI Controller Helm values**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/helm-values/nfs-csi-controller.yml)
 ```yml
@@ -1743,7 +1743,7 @@ cat manifests/03.2-dpudeployment-installation-virtiofs/*.yaml | envsubst | kubec
 ```
 
 This will deploy the following objects:
-<details markdown="1"><summary>BFB to download Bluefield Bitstream to a shared volume</summary>
+<details markdown="1"><summary>**BFB to download Bluefield Bitstream to a shared volume**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/bfb.yaml)
 ```yaml
@@ -1758,7 +1758,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUFlavor with VirtioFS Storage config</summary>
+<details markdown="1"><summary>**DPUFlavor with VirtioFS Storage config**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/dpuflavor.yaml)
 ```yaml
@@ -1856,7 +1856,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUDeployment for VirtioFS Storage</summary>
+<details markdown="1"><summary>**DPUDeployment for VirtioFS Storage**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/dpudeployment.yaml)
 ```yaml
@@ -1946,7 +1946,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceIPAM</summary>
+<details markdown="1"><summary>**DPUServiceIPAM**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/storage-ipam.yaml)
 ```yaml
@@ -1967,7 +1967,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for DOCA HBN</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for DOCA HBN**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/hbn-dpuserviceconfig.yaml)
 ```yaml
@@ -2179,7 +2179,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceNAD for storage services (no RDMA CNI chaining)</summary>
+<details markdown="1"><summary>**DPUServiceNAD for storage services (no RDMA CNI chaining)**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/storage-dpuservicenad.yaml)
 ```yaml
@@ -2196,7 +2196,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for DOCA SNAP</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for DOCA SNAP**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/doca-snap-dpuserviceconfiguration.yaml)
 ```yaml
@@ -2254,7 +2254,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for SNAP Node Driver</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for SNAP Node Driver**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/snap-node-driver-dpuserviceconfiguration.yaml)
 ```yaml
@@ -2293,7 +2293,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for FS Storage DPU Plugin</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for FS Storage DPU Plugin**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/fs-storage-dpu-plugin-dpuserviceconfiguration.yaml)
 ```yaml
@@ -2340,7 +2340,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfiguration and DPUServiceTemplate for NFS CSI Controller on DPU</summary>
+<details markdown="1"><summary>**DPUServiceConfiguration and DPUServiceTemplate for NFS CSI Controller on DPU**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-virtiofs/nfs-csi-controller-dpu-dpuserviceconfiguration.yaml)
 ```yaml
@@ -2428,7 +2428,7 @@ cat manifests/04.2-storage-configuration-virtiofs/*.yaml | envsubst | kubectl ap
 
 This will create the following objects:
 
-<details markdown="1"><summary>DPUStorageVendor for NFS CSI</summary>
+<details markdown="1"><summary>**DPUStorageVendor for NFS CSI**</summary>
 
 [embedmd]:#(manifests/04.2-storage-configuration-virtiofs/nfs-csi-dpustoragevendor.yaml)
 ```yaml
@@ -2444,7 +2444,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUStoragePolicy for filesystem storage</summary>
+<details markdown="1"><summary>**DPUStoragePolicy for filesystem storage**</summary>
 
 [embedmd]:#(manifests/04.2-storage-configuration-virtiofs/policy-fs-dpustoragepolicy.yaml)
 ```yaml
@@ -2539,7 +2539,7 @@ cat manifests/05.2-storage-test-virtiofs/*.yaml | envsubst | kubectl apply -f -
 
 This will create the following objects:
 
-<details markdown="1"><summary>DPUVolume for VirtioFS storage</summary>
+<details markdown="1"><summary>**DPUVolume for VirtioFS storage**</summary>
 
 [embedmd]:#(manifests/05.2-storage-test-virtiofs/dpuvolume.yaml)
 ```yaml
@@ -2574,7 +2574,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUVolumeAttachment for VirtioFS storage</summary>
+<details markdown="1"><summary>**DPUVolumeAttachment for VirtioFS storage**</summary>
 
 [embedmd]:#(manifests/05.2-storage-test-virtiofs/dpuvolumeattachment.yaml)
 ```yaml

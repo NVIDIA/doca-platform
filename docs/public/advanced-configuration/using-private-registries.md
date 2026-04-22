@@ -23,7 +23,7 @@ To create an image pull secret, you need to specify the following environment va
 export REGISTRY=${REGISTRY:?Must specify the registry}
 
 ## The namespace to which the image pull secret will be created. 
-## Note: If you're creating DPUServices in other namespaces, you'll need to create the secret for each namespace.
+## Note: If you are creating DPUServices in other namespaces, you will need to create the secret for each namespace.
 export IMAGE_PULL_SECRET_NAMESPACE="${IMAGE_PULL_SECRET_NAMESPACE:-dpf-operator-system}"
 
 ## The username used to log in to the registry.

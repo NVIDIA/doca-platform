@@ -22,7 +22,7 @@ This resource will define the service configuration and deployment details.
 
 Configuration file:
 
-<details markdown="1"><summary>DPUService</summary>
+<details markdown="1"><summary>**DPUService**</summary>
 
 [embedmd]:#(../../../../dpuservices/dts/DPUService.yaml)
 ```yaml
@@ -90,11 +90,11 @@ spec:
 kubectl apply -f DPUService.yaml
 ```
 
-## Default configuration
+## Default Configuration
 
 The default configuration is set to collect `sysfs` and `ethtool` counters and expose them via Prometheus endpoint.
 
-## DPF configuration
+## DPF Configuration
 
 User configuration is organized into the following groups:
 
@@ -192,7 +192,7 @@ SPX mode provides broader counter configuration and capabilities according to Sp
 
 A preconfigured DPUService file is available at `dpuservices/dts/DPUServiceSPX.yaml`:
 
-<details markdown="1"><summary>DPUServiceSPX</summary>
+<details markdown="1"><summary>**DPUServiceSPX**</summary>
 
 [embedmd]:#(../../../../dpuservices/dts/DPUServiceSPX.yaml)
 ```yaml

@@ -14,17 +14,17 @@ The DOCA Platform Framework (DPF) is a comprehensive platform for managing Data 
 
 DPF supports different deployment modes depending on your infrastructure and security requirements:
 
-### 🔒 [Zero Trust Mode](dpf-zero-trust.md)
+### [Zero Trust Mode](dpf-zero-trust.md)
 
 Recommended for environments requiring maximum security with BMC access and secure boot capabilities.
 
-### 🏠 [Host Trusted Mode](dpf-host-trusted.md)
+### [Host Trusted Mode](dpf-host-trusted.md)
 
 Suitable for controlled environments with host trusted infrastructure.
 
 ## Next Steps
 
-Once you've completed the initial setup using one of the deployment guides above, explore these areas:
+Once you have completed the initial setup using one of the deployment guides above, explore these areas:
 
 ### Learn More
 

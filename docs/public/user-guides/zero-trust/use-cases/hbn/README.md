@@ -47,7 +47,7 @@ be specific to the target infrastructure.
 
 Commands in this guide are run in the same directory that contains this readme.
 
-<details markdown="1"><summary>Environment variables file</summary>
+<details markdown="1"><summary>**Environment variables file**</summary>
 
 [embedmd]:# (manifests/00-env-vars/envvars.env sh)
 ```sh
@@ -185,7 +185,7 @@ cat manifests/02-dpf-system-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will create the following objects:
-<details markdown="1"><summary>DPFOperatorConfig to install the DPF System components</summary>
+<details markdown="1"><summary>**DPFOperatorConfig to install the DPF System components**</summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/operatorconfig.yaml)
 ```yaml
@@ -211,7 +211,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUCluster to serve as Kubernetes control plane for DPU nodes</summary>
+<details markdown="1"><summary>**DPUCluster to serve as Kubernetes control plane for DPU nodes**</summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/dpucluster.yaml)
 ```yaml
@@ -238,7 +238,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUDiscovery to discover DPUDevices or DPUNodes</summary>
+<details markdown="1"><summary>**DPUDiscovery to discover DPUDevices or DPUNodes**</summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/dpudiscovery.yaml)
 ```yaml
@@ -307,7 +307,7 @@ cat manifests/03.1-dpudeployment-installation-pf/*.yaml | envsubst | kubectl app
 ```
 
 This will deploy the following objects:
-<details markdown="1"><summary>BFB to download Bluefield Bitstream to a shared volume</summary>
+<details markdown="1"><summary>**BFB to download Bluefield Bitstream to a shared volume**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-pf/bfb.yaml)
 ```yaml
@@ -322,7 +322,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>HBN DPUFlavor to correctly configure the DPUs on provisioning</summary>
+<details markdown="1"><summary>**HBN DPUFlavor to correctly configure the DPUs on provisioning**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-pf/hbn-dpuflavor.yaml)
 ```yaml
@@ -412,7 +412,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUDeployment to provision DPUs on worker nodes</summary>
+<details markdown="1"><summary>**DPUDeployment to provision DPUs on worker nodes**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-pf/dpudeployment.yaml)
 ```yaml
@@ -472,7 +472,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfig and DPUServiceTemplate to deploy HBN workloads to the DPUs</summary>
+<details markdown="1"><summary>**DPUServiceConfig and DPUServiceTemplate to deploy HBN workloads to the DPUs**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-pf/hbn-dpuserviceconfig.yaml)
 ```yaml
@@ -667,7 +667,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceInterfaces for physical ports on the DPU</summary>
+<details markdown="1"><summary>**DPUServiceInterfaces for physical ports on the DPU**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-pf/physical-ifaces.yaml)
 ```yaml
@@ -742,7 +742,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceIPAM to set up IP Address Management on the DPUCluster</summary>
+<details markdown="1"><summary>**DPUServiceIPAM to set up IP Address Management on the DPUCluster**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-pf/hbn-ipam.yaml)
 ```yaml
@@ -775,7 +775,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceIPAM for the loopback interface in HBN</summary>
+<details markdown="1"><summary>**DPUServiceIPAM for the loopback interface in HBN**</summary>
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-pf/hbn-loopback-ipam.yaml)
 ```yaml
@@ -1029,7 +1029,7 @@ cat manifests/03.2-dpudeployment-installation-pf-vf/*.yaml | envsubst | kubectl 
 ```
 
 This will deploy the following objects:
-<details markdown="1"><summary>BFB to download Bluefield Bitstream to a shared volume</summary>
+<details markdown="1"><summary>**BFB to download Bluefield Bitstream to a shared volume**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-pf-vf/bfb.yaml)
 ```yaml
@@ -1044,7 +1044,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>HBN DPUFlavor to correctly configure the DPUs on provisioning</summary>
+<details markdown="1"><summary>**HBN DPUFlavor to correctly configure the DPUs on provisioning**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-pf-vf/hbn-dpuflavor.yaml)
 ```yaml
@@ -1134,7 +1134,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUDeployment to provision DPUs on worker nodes</summary>
+<details markdown="1"><summary>**DPUDeployment to provision DPUs on worker nodes**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-pf-vf/dpudeployment.yaml)
 ```yaml
@@ -1208,7 +1208,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceConfig and DPUServiceTemplate to deploy HBN workloads to the DPUs</summary>
+<details markdown="1"><summary>**DPUServiceConfig and DPUServiceTemplate to deploy HBN workloads to the DPUs**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-pf-vf/hbn-dpuserviceconfig.yaml)
 ```yaml
@@ -1459,7 +1459,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceInterfaces for physical ports on the DPU</summary>
+<details markdown="1"><summary>**DPUServiceInterfaces for physical ports on the DPU**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-pf-vf/physical-ifaces.yaml)
 ```yaml
@@ -1572,7 +1572,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceIPAM to set up IP Address Management on the DPUCluster</summary>
+<details markdown="1"><summary>**DPUServiceIPAM to set up IP Address Management on the DPUCluster**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-pf-vf/hbn-ipam.yaml)
 ```yaml
@@ -1631,7 +1631,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>DPUServiceIPAM for the loopback interface in HBN</summary>
+<details markdown="1"><summary>**DPUServiceIPAM for the loopback interface in HBN**</summary>
 
 [embedmd]:#(manifests/03.2-dpudeployment-installation-pf-vf/hbn-loopback-ipam.yaml)
 ```yaml
