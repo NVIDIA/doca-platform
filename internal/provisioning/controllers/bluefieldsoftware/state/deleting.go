@@ -18,6 +18,7 @@ package state
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"os"
 
@@ -83,6 +84,14 @@ func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.C
 			if err := os.Remove(filePath); err != nil {
 				errors = append(errors, fmt.Errorf("failed to delete %s: %w", componentType, err))
 			}
+		}
+	}
+
+	extractDir := extractOutputDirForBFS(st.bfs)
+	if extractDir != "" {
+		// RemoveAll returns nil when the path does not exist; ignore ErrNotExist if wrapped.
+		if err := os.RemoveAll(extractDir); err != nil && !stderrors.Is(err, os.ErrNotExist) {
+			errors = append(errors, fmt.Errorf("failed to delete extract output directory %q: %w", extractDir, err))
 		}
 	}
 

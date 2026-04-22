@@ -33,7 +33,7 @@ var BlueFieldGroupVersionKind = GroupVersion.WithKind(BlueFieldKind)
 // BlueFieldSoftwarePhase describes current state of BlueFieldSoftware CR.
 // Only one of the following state may be specified.
 // Default is Initializing.
-// +kubebuilder:validation:Enum=Initializing;Downloading;Ready;Deleting;Error
+// +kubebuilder:validation:Enum=Initializing;Downloading;Extracting;Ready;Deleting;Error
 type BlueFieldSoftwarePhase string
 
 // These are the valid statuses of BlueFieldSoftware.
@@ -44,6 +44,8 @@ const (
 	BlueFieldSoftwareInitializing BlueFieldSoftwarePhase = "Initializing"
 	// Downloading BlueFieldSoftware components
 	BlueFieldSoftwareDownloading BlueFieldSoftwarePhase = "Downloading"
+	// Extracting BlueFieldSoftware components from downloaded bundle
+	BlueFieldSoftwareExtracting BlueFieldSoftwarePhase = "Extracting"
 	// Finished downloading BlueFieldSoftware components, ready for DPU to use
 	BlueFieldSoftwareReady BlueFieldSoftwarePhase = "Ready"
 	// Delete BlueFieldSoftware

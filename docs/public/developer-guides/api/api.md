@@ -1397,7 +1397,7 @@ Only one of the following state may be specified.
 Default is Initializing.
 
 _Validation:_
-- Enum: [Initializing Downloading Ready Deleting Error]
+- Enum: [Initializing Downloading Extracting Ready Deleting Error]
 
 _Appears in:_
 - [BlueFieldSoftwareStatus](#bluefieldsoftwarestatus)
@@ -1406,6 +1406,7 @@ _Appears in:_
 | --- | --- |
 | `Initializing` | BlueFieldSoftware CR is created<br /> |
 | `Downloading` | Downloading BlueFieldSoftware components<br /> |
+| `Extracting` | Extracting BlueFieldSoftware components from downloaded bundle<br /> |
 | `Ready` | Finished downloading BlueFieldSoftware components, ready for DPU to use<br /> |
 | `Deleting` | Delete BlueFieldSoftware<br /> |
 | `Error` | Error happens during BlueFieldSoftware downloading<br /> |
@@ -1440,7 +1441,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `phase` _[BlueFieldSoftwarePhase](#bluefieldsoftwarephase)_ | The current state of BlueFieldSoftware. | Initializing | Enum: [Initializing Downloading Ready Deleting Error] <br />Required: \{\} <br /> |
+| `phase` _[BlueFieldSoftwarePhase](#bluefieldsoftwarephase)_ | The current state of BlueFieldSoftware. | Initializing | Enum: [Initializing Downloading Extracting Ready Deleting Error] <br />Required: \{\} <br /> |
 | `versions` _[BluefieldSoftwareVersions](#bluefieldsoftwareversions)_ | Versions tracks the versions of the components |  | Optional: \{\} <br /> |
 | `downloadedComponents` _[DownloadedComponents](#downloadedcomponents)_ | DownloadedComponents tracks which components have been successfully downloaded |  | Optional: \{\} <br /> |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |

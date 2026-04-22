@@ -158,6 +158,7 @@ spec:
                 enum:
                 - Initializing
                 - Downloading
+                - Extracting
                 - Ready
                 - Deleting
                 - Error

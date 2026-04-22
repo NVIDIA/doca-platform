@@ -584,6 +584,12 @@ func (p *provisioningControllerObjects) setDefaultImageNames(deploy *appsv1.Depl
 	if err != nil {
 		return err
 	}
+
+	if sc := getContainerByName(deploy, operatorv1.PLDMUnpackContainerName.String()); sc != nil {
+		if bfbImage, ok := vars.Images[operatorv1.BFBRegistryName.String()]; ok {
+			sc.Image = bfbImage
+		}
+	}
 	return nil
 }
 

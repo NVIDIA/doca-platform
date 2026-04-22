@@ -6,3 +6,7 @@ images:
 - name: controller
   newName: example.com/dpf-system
   newTag: v0.1.0
+# PLDM unpack sidecar (same image as BFB registry: python3 + fwpkg_unpack.py + pldmunpackserver).
+- name: bfb-registry
+  newName: example.com/bfb-registry
+  newTag: v0.1.0

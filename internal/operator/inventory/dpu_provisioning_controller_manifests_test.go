@@ -291,7 +291,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		g.Expect(gotDeployment.Spec.Template.Spec.ImagePullSecrets[0].Name).To(Equal(expectedImagePullSecret1))
 		g.Expect(gotDeployment.Spec.Template.Spec.ImagePullSecrets[1].Name).To(Equal(expectedImagePullSecret2))
 		// * check bfb pvc (no init container when using PVC)
-		g.Expect(gotDeployment.Spec.Template.Spec.Volumes).To(HaveLen(3))
+		g.Expect(gotDeployment.Spec.Template.Spec.Volumes).To(HaveLen(4))
 		g.Expect(gotDeployment.Spec.Template.Spec.Volumes[1].PersistentVolumeClaim).NotTo(BeNil())
 		g.Expect(gotDeployment.Spec.Template.Spec.Volumes[1].PersistentVolumeClaim.ClaimName).To(Equal(expectedPVC))
 		g.Expect(gotDeployment.Spec.Template.Spec.InitContainers).To(BeEmpty(), "no init container when BFB PVC is set")
@@ -316,7 +316,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			fmt.Sprintf("--multi-dpu-operations-sync-wait-time=%s", expectedMultiDPUOperationsSyncWaitTime),
 			"--bfb-registry-load-balancer-address=",
 		}
-		g.Expect(gotDeployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+		g.Expect(gotDeployment.Spec.Template.Spec.Containers).To(HaveLen(2))
 		g.Expect(container.Args).To(HaveLen(len(expectedArgs)))
 		for i, ea := range expectedArgs {
 			g.Expect(container.Args[i]).To(Equal(ea))
@@ -408,8 +408,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		podTemplate := gotDeployment.Spec.Template
 		// * ensure that the expected modifications have been made to the deployment.
 		g.Expect(gotDeployment).NotTo(BeNil())
-		// Only manager container
-		g.Expect(podTemplate.Spec.Containers).To(HaveLen(1))
+		g.Expect(podTemplate.Spec.Containers).To(HaveLen(2))
 		// * ensure the arg is added to the container
 		g.Expect(podTemplate.Spec.Containers[0].Args).To(ContainElement(fmt.Sprintf("--bf-cfg-template-file=%s", "/bfb-config/bf.cfg.template")))
 		// * ensure the volume is added to the pod spec
@@ -588,8 +587,7 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 		}
 
 		g.Expect(deployment).NotTo(BeNil())
-		// Only manager container; bfb-registry is created by controller when leader
-		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2))
 
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--dpu-install-interface=redfish"))
 		for _, arg := range deployment.Spec.Template.Spec.Containers[0].Args {
@@ -630,7 +628,7 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 		}
 
 		g.Expect(deployment).NotTo(BeNil())
-		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2))
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--dpu-install-interface=redfish"))
 	})
 
@@ -710,7 +708,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		}
 
 		g.Expect(deployment).NotTo(BeNil())
-		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2))
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--max-dpu-parallel-installations=10"))
 	})
 
@@ -740,7 +738,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		}
 
 		g.Expect(deployment).NotTo(BeNil())
-		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2))
 		for _, arg := range deployment.Spec.Template.Spec.Containers[0].Args {
 			g.Expect(arg).NotTo(ContainSubstring("--max-dpu-parallel-installations"))
 		}
@@ -774,7 +772,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		}
 
 		g.Expect(deployment).NotTo(BeNil())
-		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2))
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--max-dpu-parallel-installations=1"))
 	})
 
@@ -806,7 +804,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		}
 
 		g.Expect(deployment).NotTo(BeNil())
-		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2))
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--max-dpu-parallel-installations=-1"))
 	})
 
@@ -838,7 +836,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		}
 
 		g.Expect(deployment).NotTo(BeNil())
-		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2))
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--max-dpu-parallel-installations=1000"))
 	})
 }

@@ -18,6 +18,10 @@ spec:
         volumeMounts:
           - mountPath: /bfb
             name: bfb-volume
+      - name: pldmunpack
+        volumeMounts:
+          - mountPath: /bfb
+            name: bfb-volume
       volumes:
       - name: bfb-volume
         persistentVolumeClaim:
