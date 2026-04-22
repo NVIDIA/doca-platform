@@ -41,5 +41,8 @@ func init() {
 	describeCmd.AddCommand(describeAllCmd)
 	describeAllCmd.Flags().BoolVar(&opts.showStorage, "show-storage", false,
 		"Show storage resources in the output.")
+	must(describeAllCmd.RegisterFlagCompletionFunc("show-storage", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp
+	}))
 	describeAllCmd.Flags().AddFlagSet(describeCmd.Flags())
 }
