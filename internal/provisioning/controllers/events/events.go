@@ -35,4 +35,8 @@ const (
 	EventSuccessfulDownloadBFBReason = "SuccessfulDownload"
 	// EventBFBFileNotFoundReason indicates that BFB file was not found in cache.
 	EventBFBFileNotFoundReason = "BFBFileNotFound"
+	// EventFailedExtractBFBReason indicates that component extraction failed.
+	EventFailedExtractBFBReason = "FailedExtract"
+	// EventSuccessfulExtractBFBReason indicates that component extraction succeeded.
+	EventSuccessfulExtractBFBReason = "SuccessfulExtract"
 )

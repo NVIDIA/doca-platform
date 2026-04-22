@@ -58,13 +58,64 @@ spec:
           - containerPort: 8080
             name: metrics
             protocol: TCP
+        env:
+        # Unix socket served by the pldmunpack sidecar (see volumes pldm-unpack-socket).
+        - name: PLDM_UNPACK_SOCKET_PATH
+          value: /var/run/dpf/pldm-unpack.sock
+        - name: PLDM_UNPACK_ENDPOINT
+          value: /v1/unpack
         volumeMounts:
         - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
           name: kube-api-access
           readOnly: true
+        - mountPath: /var/run/dpf
+          name: pldm-unpack-socket
+      # PLDM fwpkg unpack HTTP API over a Unix domain socket (shared with manager).
+      - name: pldmunpack
+        image: bfb-registry
+        command:
+        - /usr/local/bin/pldmunpackserver
+        args:
+        - --socket-path=/var/run/dpf/pldm-unpack.sock
+        - --script-path=/opt/pldm-unpack/fwpkg_unpack.py
+        livenessProbe:
+          exec:
+            command:
+            - test
+            - -S
+            - /var/run/dpf/pldm-unpack.sock
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+            - test
+            - -S
+            - /var/run/dpf/pldm-unpack.sock
+          initialDelaySeconds: 3
+          periodSeconds: 10
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 65532
+          capabilities:
+            drop:
+              - "ALL"
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        volumeMounts:
+        - mountPath: /var/run/dpf
+          name: pldm-unpack-socket
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
       volumes:
+      - name: pldm-unpack-socket
+        emptyDir: {}
       - name: kube-api-access
         projected:
           defaultMode: 420

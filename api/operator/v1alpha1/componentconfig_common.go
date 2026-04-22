@@ -45,6 +45,7 @@ var (
 	KubeStateMetricsRBACName            ComponentName = "kube-state-metrics-rbac"
 	NodeProblemDetectorName             ComponentName = "node-problem-detector"
 	OpenTelemetryCollectorName          ComponentName = "opentelemetry-collector"
+	PLDMUnpackContainerName             ComponentName = "pldmunpack"
 )
 
 type ComponentName string

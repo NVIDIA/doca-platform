@@ -1,5 +1,20 @@
 ARG builder_image
 ARG base_image=ubuntu:22.04
+ARG bfb_registry_base_image
+
+# NVIDIA PLDM-unpack (MIT): https://github.com/NVIDIA/PLDM-unpack
+# Pinned commit for reproducible builds; override with --build-arg PLDM_UNPACK_REF=<git-sha>.
+FROM ${base_image} AS pldm-unpack-fetch
+ARG PLDM_UNPACK_REF=44f734f828dd27866f32669e4f0b5e7d7065f654
+ARG PLDM_UNPACK_SHA256=35106367f040d0e7256f608eeda2704792d7769a5238aba08c874e2598b9cb77
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /opt/pldm-unpack && \
+    wget -q -O /opt/pldm-unpack/fwpkg_unpack.py \
+      "https://raw.githubusercontent.com/NVIDIA/PLDM-unpack/${PLDM_UNPACK_REF}/fwpkg_unpack.py" && \
+    echo "${PLDM_UNPACK_SHA256}  /opt/pldm-unpack/fwpkg_unpack.py" | sha256sum -c - && \
+    wget -q -O /opt/pldm-unpack/License-MIT-fwpkg-unpack.txt \
+      "https://raw.githubusercontent.com/NVIDIA/PLDM-unpack/${PLDM_UNPACK_REF}/License-MIT-fwpkg-unpack.txt" && \
+    chmod 755 /opt/pldm-unpack/fwpkg_unpack.py
 
 # Stage 1: Build Nginx
 FROM ${base_image} AS builder
@@ -123,7 +138,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,source=Makefile,target=Makefile \
     --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
-    GOFLAGS="-mod=vendor" make binary-dpuagent
+    GOFLAGS="-mod=vendor" make binary-dpuagent binary-pldmunpackserver
 
 # Copy the go source code so it can be distributed in the final image.
 RUN mkdir src && \
@@ -162,8 +177,8 @@ RUN dpkg-scanpackages -m . > Packages && gzip -k Packages
 WORKDIR /rpm
 RUN createrepo_c .
 
-# Stage 3: Create final image based on distroless
-FROM nvcr.io/nvidia/doca/dpf_containers:1.0.2-ubuntu22.04-distroless AS distroless
+# Stage 3: Create final image based on bfb-registry base image
+FROM ${bfb_registry_base_image}
 
 # copy the tengine source code
 ARG version=3.1.0
@@ -187,5 +202,11 @@ COPY --chown=${uid}:${uid} --chmod=700 --from=builder /nginx /nginx
 # Copy APT/YUM repositories containing dpu-agent packages
 COPY --from=dpuagent-packager /deb /deb
 COPY --from=dpuagent-packager /rpm /rpm
+
+# PLDM firmware package unpacker (Python 3.8+; stdlib only). Run: python3 /opt/pldm-unpack/fwpkg_unpack.py --help
+COPY --chown=root:root --from=pldm-unpack-fetch /opt/pldm-unpack /opt/pldm-unpack
+
+# PLDM unpack HTTP server (Unix socket); default script: /opt/pldm-unpack/fwpkg_unpack.py
+COPY --chown=root:root --chmod=755 --from=dpuagent-builder /workspace/bin/pldmunpackserver /usr/local/bin/pldmunpackserver
 
 USER ${uid}:${uid}

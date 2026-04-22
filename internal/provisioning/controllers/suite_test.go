@@ -20,6 +20,8 @@ import (
 	"context"
 	"crypto/tls"
 	_ "embed"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -282,6 +284,7 @@ var _ = BeforeSuite(func() {
 	}()
 
 	defer bfbServer(testBFB)
+	defer pldmUnpackServer()
 
 	// wait for the webhook server to get ready
 	dialer := &net.Dialer{Timeout: time.Second}
@@ -352,6 +355,48 @@ func bfbServer(bfbToServe []byte) func() {
 
 	go s.Start()
 	return s.Close
+}
+
+func pldmUnpackServer() func() {
+	socketDir, err := os.MkdirTemp("", "pldm-unpack-test")
+	Expect(err).NotTo(HaveOccurred())
+	socketPath := filepath.Join(socketDir, "pldm-unpack.sock")
+
+	listener, err := net.Listen("unix", socketPath)
+	Expect(err).NotTo(HaveOccurred())
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/unpack", func(w http.ResponseWriter, r *http.Request) {
+		Expect(r.Method).To(Equal(http.MethodPost))
+		w.Header().Set("Content-Type", "application/json")
+		Expect(json.NewEncoder(w).Encode(map[string]any{
+			"success":  true,
+			"exitCode": 0,
+			"stdout":   "",
+			"stderr":   "",
+			"error":    "",
+		})).To(Succeed())
+	})
+
+	server := &http.Server{Handler: mux}
+	go func() {
+		defer GinkgoRecover()
+		err := server.Serve(listener)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			Fail(fmt.Sprintf("failed to serve pldm unpack test server: %v", err))
+		}
+	}()
+
+	Expect(os.Setenv("PLDM_UNPACK_SOCKET_PATH", socketPath)).To(Succeed())
+	Expect(os.Setenv("PLDM_UNPACK_ENDPOINT", "/v1/unpack")).To(Succeed())
+
+	return func() {
+		_ = os.Unsetenv("PLDM_UNPACK_SOCKET_PATH")
+		_ = os.Unsetenv("PLDM_UNPACK_ENDPOINT")
+		_ = server.Close()
+		_ = listener.Close()
+		_ = os.RemoveAll(socketDir)
+	}
 }
 
 type mockNodeJoinCommandGenerator struct{}
