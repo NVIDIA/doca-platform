@@ -93,3 +93,6 @@ stringData:
   username: $HELM_REPOSITORY_USERNAME
   password: $HELM_REPOSITORY_KEY
 ```
+
+> [!NOTE]
+The Secret must be created in the same namespace as the ArgoCD installation.
