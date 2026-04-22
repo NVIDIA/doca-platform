@@ -79,7 +79,7 @@ func (st *blueFieldSoftwareDownloadingState) Handle(ctx context.Context, _ clien
 }
 
 func (st *blueFieldSoftwareDownloadingState) markAllComponentsReady() error {
-	st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareReady
+	st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareExtracting
 	msg := fmt.Sprintf("Download BlueFieldSoftware: (%s/%s) successful", st.bfs.Namespace, st.bfs.Name)
 	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, msg)
 	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)

@@ -536,6 +536,7 @@ test-release-e2e-quick: # Build images required for the quick DPF e2e test.
 	$(MAKE) docker-build-dpf-system-for-$(ARCH) docker-push-dpf-system-for-$(ARCH)
 	$(MAKE) docker-build-dummydpuservice docker-push-dummydpuservice
 	$(MAKE) docker-build-mock-dms docker-push-mock-dms
+	$(MAKE) docker-build-bfb-registry docker-push-bfb-registry
 	# Build and push all the helm charts
 	$(MAKE) helm-package-all helm-push-all
 	$(MAKE) helm-package-dummydpuservice helm-push-dummydpuservice
@@ -1163,6 +1164,8 @@ ALPINE_IMAGE = alpine:3.19
 HOSTDRIVER_BASE_IMAGE ?= nvcr.io/nvidia/doca/doca:3.2.1-full-rt-ubuntu24.04-host
 # Base image for storage-host, by default it is the same as the hostdriver base image
 STORAGE_HOST_BASE_IMAGE ?= $(HOSTDRIVER_BASE_IMAGE)
+# Base image for bfb-registry, by default it is the same as the hostdriver base image
+BFB_REGISTRY_BASE_IMAGE ?= $(HOSTDRIVER_BASE_IMAGE)
 
 .PHONY: binaries
 binaries: $(addprefix binary-,$(BUILD_TARGETS)) ## Build all binaries
@@ -1215,6 +1218,10 @@ binary-dpudetector: ## Build the DPU detector binary.
 .PHONY: binary-dpuagent
 binary-dpuagent: ## Build the DPU agent binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(DPU_ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(DPUAGENT_BINARY) github.com/nvidia/doca-platform/cmd/dpuagent
+
+.PHONY: binary-pldmunpackserver
+binary-pldmunpackserver: ## Build the PLDM unpack HTTP server (Unix socket) binary.
+	CGO_ENABLED=0 GOOS=linux GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/pldmunpackserver github.com/nvidia/doca-platform/cmd/provisioning/pldmunpackserver
 
 # DPU Agent packaging variables
 DPUAGENT_PKG_DIR = $(CURDIR)/internal/provisioning/dpuagent/packaging
@@ -1698,6 +1705,7 @@ docker-build-bfb-registry-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg bfb_registry_base_image=$(BFB_REGISTRY_BASE_IMAGE) \
 		--provenance=false \
 		--platform=linux/$* \
 		--progress=plain \

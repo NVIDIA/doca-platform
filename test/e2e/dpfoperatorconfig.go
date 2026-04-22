@@ -320,6 +320,10 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 			g.Expect(deployments.Items).To(HaveLen(1))
 			deployment := deployments.Items[0]
 			for _, container := range deployment.Spec.Template.Spec.Containers {
+				// The PLDM unpack container uses the bfb registry image which is not configurable via the DPFOperatorConfig.
+				if name == inventory.DPFProvisioningControllerName && container.Name == operatorv1.PLDMUnpackContainerName.String() {
+					continue
+				}
 				g.Expect(container.Image).To(ContainSubstring(dummyRegistryName))
 				g.Expect(container.Resources).To(BeEquivalentTo(expectedDummyResources))
 			}
@@ -634,7 +638,7 @@ func ValidateDPFOperatorKubernetesAPIServerVIPAndPort(ctx context.Context, input
 			client.MatchingLabels{operatorv1.DPFComponentLabelKey: "dpf-provisioning-controller-manager"})).To(Succeed())
 		g.Expect(pods.Items).ToNot(BeEmpty())
 		for _, pod := range pods.Items {
-			g.Expect(pod.Spec.Containers).To(HaveLen(1))
+			g.Expect(pod.Spec.Containers).To(HaveLen(2))
 			g.Expect(pod.Spec.Containers[0].Args).To(ContainElement(fmt.Sprintf("--dms-pod-envs=KUBERNETES_SERVICE_HOST=%s,KUBERNETES_SERVICE_PORT=%d", testKubernetesAPIServerVIP, testKubernetesAPIServerPort)))
 		}
 	}).WithTimeout(120 * time.Second).Should(Succeed())
@@ -680,7 +684,7 @@ func ValidateDPFOperatorKubernetesAPIServerVIPAndPort(ctx context.Context, input
 			client.MatchingLabels{operatorv1.DPFComponentLabelKey: "dpf-provisioning-controller-manager"})).To(Succeed())
 		g.Expect(pods.Items).ToNot(BeEmpty())
 		for _, pod := range pods.Items {
-			g.Expect(pod.Spec.Containers).To(HaveLen(1))
+			g.Expect(pod.Spec.Containers).To(HaveLen(2))
 			g.Expect(pod.Spec.Containers[0].Args).ToNot(ContainElement(fmt.Sprintf("--dms-pod-envs=KUBERNETES_SERVICE_HOST=%s,KUBERNETES_SERVICE_PORT=%d", testKubernetesAPIServerVIP, testKubernetesAPIServerPort)))
 		}
 	}).WithTimeout(120 * time.Second).Should(Succeed())

@@ -587,6 +587,10 @@ spec:
         env:
         - name: GRPC_ENFORCE_ALPN_ENABLED
           value: "false"
+        - name: PLDM_UNPACK_SOCKET_PATH
+          value: /var/run/dpf/pldm-unpack.sock
+        - name: PLDM_UNPACK_ENDPOINT
+          value: /v1/unpack
         image: example.com/dpf-system:v0.1.0
         livenessProbe:
           httpGet:
@@ -631,6 +635,50 @@ spec:
         - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
           name: kube-api-access
           readOnly: true
+        - mountPath: /var/run/dpf
+          name: pldm-unpack-socket
+      - args:
+        - --socket-path=/var/run/dpf/pldm-unpack.sock
+        - --script-path=/opt/pldm-unpack/fwpkg_unpack.py
+        command:
+        - /usr/local/bin/pldmunpackserver
+        image: example.com/bfb-registry:v0.1.0
+        livenessProbe:
+          exec:
+            command:
+            - test
+            - -S
+            - /var/run/dpf/pldm-unpack.sock
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        name: pldmunpack
+        readinessProbe:
+          exec:
+            command:
+            - test
+            - -S
+            - /var/run/dpf/pldm-unpack.sock
+          initialDelaySeconds: 3
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 65532
+        volumeMounts:
+        - mountPath: /bfb
+          name: bfb-volume
+        - mountPath: /var/run/dpf
+          name: pldm-unpack-socket
       imagePullSecrets:
       - name: dpf-provisioning-regcred
       serviceAccountName: dpf-provisioning-controller-manager
@@ -643,6 +691,8 @@ spec:
       - name: bfb-volume
         persistentVolumeClaim:
           claimName: bfb-pvc
+      - emptyDir: {}
+        name: pldm-unpack-socket
       - name: kube-api-access
         projected:
           defaultMode: 420
