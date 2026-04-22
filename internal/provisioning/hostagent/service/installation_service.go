@@ -383,6 +383,9 @@ func (s *InstallationService) UpdateStatus(req *restful.Request, resp *restful.R
 	if request.AgentStatus.KubeletVersion != nil {
 		dpu.Status.AgentStatus.KubeletVersion = request.AgentStatus.KubeletVersion
 	}
+	if request.AgentStatus.LastObservedPendingNVConfig != nil {
+		dpu.Status.AgentStatus.LastObservedPendingNVConfig = request.AgentStatus.LastObservedPendingNVConfig.DeepCopy()
+	}
 	for _, condition := range request.AgentStatus.Conditions {
 		meta.SetStatusCondition(&dpu.Status.AgentStatus.Conditions, condition)
 	}

@@ -84,9 +84,26 @@ var _ = Describe("ZerotrustClient", func() {
 			agentClient, err := NewZerotrustClient(testCfg, dpu.Name, dpu.Namespace, string(dpu.UID))
 			Expect(err).NotTo(HaveOccurred())
 			lastStartupTime := metav1.NewTime(time.Now().Truncate(time.Second))
+			pending := &provisioningv1.PendingNVConfigState{
+				BootID: "boot-1",
+				Devices: []provisioningv1.PendingNVConfigDevice{
+					{
+						Device: "0000:03:00.0",
+						Entries: []provisioningv1.PendingNVConfigEntry{
+							{
+								Name:     "INTERNAL_CPU_MODEL",
+								Default:  "0",
+								Current:  "0",
+								NextBoot: "1",
+							},
+						},
+					},
+				},
+			}
 			agentStatus := provisioningv1.AgentStatus{
-				LastStartupTime: &lastStartupTime,
-				InitialBootID:   ptr.To("test-initial-boot-id"),
+				LastStartupTime:             &lastStartupTime,
+				InitialBootID:               ptr.To("test-initial-boot-id"),
+				LastObservedPendingNVConfig: pending,
 				Conditions: []metav1.Condition{
 					{
 						Type:    "Ready",
@@ -105,6 +122,7 @@ var _ = Describe("ZerotrustClient", func() {
 			Expect(latestDPU.Status.AgentStatus.LastStartupTime.Equal(&lastStartupTime)).To(BeTrue())
 			Expect(latestDPU.Status.AgentStatus.InitialBootID).NotTo(BeNil())
 			Expect(*latestDPU.Status.AgentStatus.InitialBootID).To(Equal("test-initial-boot-id"))
+			Expect(latestDPU.Status.AgentStatus.LastObservedPendingNVConfig).To(Equal(pending))
 			Expect(latestDPU.Status.AgentStatus.Conditions).To(HaveLen(1))
 			Expect(latestDPU.Status.AgentStatus.Conditions[0].Type).To(Equal("Ready"))
 			Expect(latestDPU.Status.AgentStatus.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
@@ -161,9 +179,19 @@ var _ = Describe("ZerotrustClient", func() {
 				LastTransitionTime: metav1.NewTime(time.Now().Truncate(time.Second)),
 			}
 			lastStartupTime := metav1.NewTime(time.Now().Truncate(time.Second))
+			pending := &provisioningv1.PendingNVConfigState{
+				BootID: "boot-1",
+				Devices: []provisioningv1.PendingNVConfigDevice{
+					{
+						Device:  "0000:03:00.0",
+						Entries: []provisioningv1.PendingNVConfigEntry{},
+					},
+				},
+			}
 			latestDPU.Status.AgentStatus = &provisioningv1.AgentStatus{
-				LastStartupTime: &lastStartupTime,
-				InitialBootID:   ptr.To(initialBootID),
+				LastStartupTime:             &lastStartupTime,
+				InitialBootID:               ptr.To(initialBootID),
+				LastObservedPendingNVConfig: pending,
 				Conditions: []metav1.Condition{
 					cond1,
 					cond2,
@@ -194,6 +222,9 @@ var _ = Describe("ZerotrustClient", func() {
 			By("initialBootID should not be updated")
 			Expect(updatedDPU.Status.AgentStatus.InitialBootID).NotTo(BeNil())
 			Expect(*updatedDPU.Status.AgentStatus.InitialBootID).To(Equal(initialBootID))
+
+			By("lastObservedPendingNVConfig should not be updated")
+			Expect(updatedDPU.Status.AgentStatus.LastObservedPendingNVConfig).To(Equal(pending))
 
 			By("existing conditions should not be removed")
 			Expect(updatedDPU.Status.AgentStatus.Conditions).To(HaveLen(3))

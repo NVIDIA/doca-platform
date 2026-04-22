@@ -63,6 +63,14 @@ type Context struct {
 	// the agent pushes it to the API via Client.UpdateStatus.
 	Status provisioningv1.AgentStatus
 
+	// CondMessage is cleared before each operation attempt. On success, dpuagent
+	// writes it to the operation condition message.
+	CondMessage string
+
+	// CurrentBootID caches the current host boot_id for this agent run so reboot
+	// operations do not need to read it repeatedly.
+	CurrentBootID string
+
 	// GrubConfigChanged is set by ConfigureKernelCmdLine when it writes a new grub config
 	// and runs update-grub. HandleReboot uses this to force a reboot even when the reboot
 	// method is NoAction, so that the new kernel parameters take effect.
