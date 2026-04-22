@@ -27,6 +27,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -246,6 +247,104 @@ var _ = Describe("DPUAgent", func() {
 			err := agent.Run(ctx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(attempts).To(Equal(3))
+		})
+
+		It("uses CondMessage for the success condition message", func() {
+			const condType = "Op1Condition"
+			agent := &DPUAgent{
+				retryInterval: testRetryInterval,
+				optCtx: &operations.Context{
+					Client: &mockClient{},
+				},
+				operations: []operations.Operation{
+					&mockOperation{
+						name:          "op1",
+						conditionType: condType,
+						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+							optCtx.CondMessage = "custom success message"
+							return nil
+						},
+					},
+				},
+			}
+
+			Expect(agent.Run(ctx)).To(Succeed())
+			cond := meta.FindStatusCondition(agent.optCtx.Status.Conditions, condType)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Message).To(Equal("custom success message"))
+		})
+
+		It("clears CondMessage before each retry attempt", func() {
+			const condType = "RetryCondition"
+			attempts := 0
+			seen := []string{}
+			agent := &DPUAgent{
+				retryInterval: testRetryInterval,
+				optCtx: &operations.Context{
+					Client: &mockClient{},
+				},
+				operations: []operations.Operation{
+					&mockOperation{
+						name:          "retry-op",
+						conditionType: condType,
+						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+							seen = append(seen, optCtx.CondMessage)
+							attempts++
+							if attempts == 1 {
+								optCtx.CondMessage = "stale message"
+								return fmt.Errorf("temporary error")
+							}
+							optCtx.CondMessage = "fresh message"
+							return nil
+						},
+					},
+				},
+			}
+
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(seen).To(Equal([]string{"", ""}))
+			cond := meta.FindStatusCondition(agent.optCtx.Status.Conditions, condType)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Message).To(Equal("fresh message"))
+		})
+
+		It("does not leak CondMessage to the next operation", func() {
+			const firstCond = "FirstCondition"
+			const secondCond = "SecondCondition"
+			secondSeen := "unset"
+			agent := &DPUAgent{
+				retryInterval: testRetryInterval,
+				optCtx: &operations.Context{
+					Client: &mockClient{},
+				},
+				operations: []operations.Operation{
+					&mockOperation{
+						name:          "op1",
+						conditionType: firstCond,
+						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+							optCtx.CondMessage = "first message"
+							return nil
+						},
+					},
+					&mockOperation{
+						name:          "op2",
+						conditionType: secondCond,
+						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+							secondSeen = optCtx.CondMessage
+							return nil
+						},
+					},
+				},
+			}
+
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(secondSeen).To(BeEmpty())
+			first := meta.FindStatusCondition(agent.optCtx.Status.Conditions, firstCond)
+			Expect(first).NotTo(BeNil())
+			Expect(first.Message).To(Equal("first message"))
+			second := meta.FindStatusCondition(agent.optCtx.Status.Conditions, secondCond)
+			Expect(second).NotTo(BeNil())
+			Expect(second.Message).To(BeEmpty())
 		})
 
 		It("should update status when operation fails or requires update before continue", func() {

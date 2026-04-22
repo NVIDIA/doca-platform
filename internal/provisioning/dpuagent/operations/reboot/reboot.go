@@ -64,6 +64,8 @@ const (
 	// powerCycleCommandRequiredText is the canonical mlxfwreset `command_required` text pattern that
 	// maps to RebootMethodPowerCycle when present in the field (trim + case-insensitive substring match).
 	powerCycleCommandRequiredText = "power cycle"
+
+	pendingNVConfigReason = "Pending NVCONFIG parameter change"
 )
 
 // powerCyclePendingNvconfigNames lists pending NVCONFIG parameter names that require
@@ -126,16 +128,12 @@ func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Conte
 	}
 
 	// Keep track of the current boot ID on Client side.
-	currentRebootID, err := getCurrentRebootID()
-	if err != nil {
-		return fmt.Errorf("failed to read boot ID file: %w", err)
-	}
-	optCtx.Status.InitialBootID = ptr.To(currentRebootID)
+	optCtx.Status.InitialBootID = ptr.To(optCtx.CurrentBootID)
 
 	optCtx.Status.RebootMethod = nil
 	switch *m {
 	case provisioningv1.RebootMethodPowerCycle:
-		return h.execPowerCycle(optCtx)
+		return h.execPowerCycle(execCtx, optCtx)
 	case provisioningv1.RebootMethodSystemReboot:
 		return h.execSystemReboot(optCtx)
 	case provisioningv1.RebootMethodSystemLevelReset:
@@ -152,9 +150,10 @@ func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Conte
 	return fmt.Errorf("unsupported reboot method: %s", *m)
 }
 
-func (h *HandleReboot) execPowerCycle(optCtx *operations.Context) error {
+func (h *HandleReboot) execPowerCycle(execCtx context.Context, optCtx *operations.Context) error {
 	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodPowerCycle)
-	return nil
+	optCtx.UpdateStatusUntilSuccess(execCtx)
+	return h.blockUntilReset()
 }
 
 func (h *HandleReboot) execSystemReboot(optCtx *operations.Context) error {
@@ -259,12 +258,7 @@ func (h *HandleReboot) getRebootMethod(optCtx *operations.Context) (*provisionin
 
 // getRebootMethodBootID is used when RebootMethodDiscovery is false (Boot-ID based).
 func getRebootMethodBootID(optCtx *operations.Context) (*provisioningv1.RebootMethodType, error) {
-	currentRebootID, err := getCurrentRebootID()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read boot ID file: %w", err)
-	}
-
-	if hasBeenBooted(optCtx.LatestDPU, currentRebootID) {
+	if hasBeenBooted(optCtx.LatestDPU, optCtx.CurrentBootID) {
 		if optCtx.GrubConfigChanged {
 			return ptr.To(provisioningv1.RebootMethodDPUWarmReboot), nil
 		}
@@ -274,13 +268,31 @@ func getRebootMethodBootID(optCtx *operations.Context) (*provisioningv1.RebootMe
 	return ptr.To(provisioningv1.RebootMethodSystemLevelReset), nil
 }
 
+type pendingParamList []provisioningv1.PendingNVConfigEntry
+
+func (p *pendingParamList) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || data[0] != '[' {
+		*p = pendingParamList{}
+		return nil
+	}
+	out := []provisioningv1.PendingNVConfigEntry{}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return err
+	}
+	*p = pendingParamList(out)
+	return nil
+}
+
 // mlxfwresetStatusJSON is the subset of `mlxfwreset -d <mst_device> s --json` output we need for reboot decisions.
-// pending_nvconfig_parameters may be an array of objects or a string (e.g. "N/A"); RawMessage preserves both.
 // Other fields remain in the raw JSON string passed to the discovery condition Message.
 type mlxfwresetStatusJSON struct {
-	ResetNeeded               *bool           `json:"reset_needed"`
-	PendingNvconfigParameters json.RawMessage `json:"pending_nvconfig_parameters"`
-	CommandRequired           string          `json:"command_required"`
+	ResetNeeded *bool `json:"reset_needed"`
+	// PendingNvconfigParameters may be an array of provisioningv1.PendingNVConfigEntry
+	// or a string (e.g. "N/A"); non-array value is parsed as an empty list.
+	PendingNvconfigParameters pendingParamList `json:"pending_nvconfig_parameters"`
+	CommandRequired           string           `json:"command_required"`
+	Reasons                   []string         `json:"reasons"`
 }
 
 // checkRebootMethodPowerCycle reports whether a power-cycle reboot is indicated by command_required
@@ -292,18 +304,11 @@ func checkRebootMethodPowerCycle(_ *HandleReboot, out *mlxfwresetStatusJSON) boo
 	}
 	// Workaround should be removed once [1] is fixed.
 	// [1] Feature Request #4846233: [DPF][BF4] Server Reboot Reduction - Mark specific TLVs for blocking FW reset
-	raw := out.PendingNvconfigParameters
-	if len(raw) == 0 {
-		return false
-	}
-	var entries []struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(raw, &entries); err != nil {
+	if len(out.PendingNvconfigParameters) == 0 {
 		return false
 	}
 	// Detect Power Cycle reboot request using pending_nvconfig_parameters predefined names.
-	for _, e := range entries {
+	for _, e := range out.PendingNvconfigParameters {
 		if _, ok := powerCyclePendingNvconfigNames[e.Name]; ok {
 			return true
 		}
@@ -373,6 +378,103 @@ func rebootMethodFromMlxfwresetStatus(h *HandleReboot, device string, out *mlxfw
 	return provisioningv1.RebootMethodSystemLevelReset
 }
 
+func lastPendingState(dpu *provisioningv1.DPU) *provisioningv1.PendingNVConfigState {
+	if dpu == nil || dpu.Status.AgentStatus == nil {
+		return nil
+	}
+	return dpu.Status.AgentStatus.LastObservedPendingNVConfig
+}
+
+func recordPending(optCtx *operations.Context, device string, entries pendingParamList) {
+	if optCtx.Status.LastObservedPendingNVConfig == nil {
+		optCtx.Status.LastObservedPendingNVConfig = &provisioningv1.PendingNVConfigState{}
+	}
+	optCtx.Status.LastObservedPendingNVConfig.BootID = optCtx.CurrentBootID
+	optCtx.Status.LastObservedPendingNVConfig.Devices = append(optCtx.Status.LastObservedPendingNVConfig.Devices, provisioningv1.PendingNVConfigDevice{
+		Device:  device,
+		Entries: []provisioningv1.PendingNVConfigEntry(entries),
+	})
+}
+
+// removeForeverPending filters parameters that mlxfwreset keeps reporting as
+// pending across boots and ignores them when they are the only reset reason.
+// TODO: Remove this workaround once the MFT tool is fixed.
+func removeForeverPending(
+	optCtx *operations.Context,
+	device string,
+	mlxfwresetOutput mlxfwresetStatusJSON,
+) (mlxfwresetStatusJSON, bool) {
+	curPending := mlxfwresetOutput.PendingNvconfigParameters
+	if len(curPending) == 0 {
+		return mlxfwresetOutput, false
+	}
+
+	lastObserved := lastPendingState(optCtx.LatestDPU)
+	if lastObserved == nil {
+		return mlxfwresetOutput, false
+	}
+	// This usually means provisioning already finished and dpu-agent restarted
+	// while the DPU OS did not reboot. In that case we must avoid shutting
+	// down the DPU OS again. This can also happen if the agent flow is interrupted
+	// unexpectedly during provisioning, but that path is considered extremely
+	// unlikely and is not handled separately. If it happens, reprovisioning resolves the issue.
+	if lastObserved.BootID == optCtx.CurrentBootID {
+		return mlxfwresetOutput, true
+	}
+	lastPending := []provisioningv1.PendingNVConfigEntry{}
+	for _, d := range lastObserved.Devices {
+		if d.Device == device {
+			lastPending = d.Entries
+			break
+		}
+	}
+	if len(lastPending) == 0 {
+		return mlxfwresetOutput, false
+	}
+
+	// filter out pending parameters that are the same as the last pending parameters
+	effectivePending := []provisioningv1.PendingNVConfigEntry{}
+	removed := []string{}
+	for _, cur := range curPending {
+		found := false
+		for _, lastP := range lastPending {
+			if lastP.Name == cur.Name && lastP.Current == cur.Current {
+				found = true
+				removed = append(removed, fmt.Sprintf("%s(default=%s,current=%s,next=%s)", cur.Name, cur.Default, cur.Current, cur.NextBoot))
+				break
+			}
+		}
+		if !found {
+			effectivePending = append(effectivePending, cur)
+		}
+	}
+	effective := mlxfwresetOutput
+	effective.PendingNvconfigParameters = pendingParamList(effectivePending)
+	hasOtherReasons := false
+	for _, reason := range mlxfwresetOutput.Reasons {
+		if !strings.EqualFold(strings.TrimSpace(reason), pendingNVConfigReason) {
+			hasOtherReasons = true
+			break
+		}
+	}
+	shouldIgnore := len(effectivePending) == 0 && !hasOtherReasons
+
+	// format the message for the condition
+	sort.Strings(removed)
+	msg := fmt.Sprintf(
+		"device=%s pending NVCONFIG params did not take effect after reboot: [%s]",
+		device,
+		strings.Join(removed, ","),
+	)
+	if shouldIgnore {
+		msg += "; reset ignored because no other reset reasons remain."
+	} else {
+		msg += "; reset still required because other reset reasons remain."
+	}
+	optCtx.CondMessage += msg
+	return effective, shouldIgnore
+}
+
 // agentAnnotationAllowsFirmwareResetReboot reports whether AgentAnnotationAllowFirmwareResetReboot is true on LatestDPU.
 // Default off when omitted or not "true".
 func agentAnnotationAllowsFirmwareResetReboot(optCtx *operations.Context) bool {
@@ -423,11 +525,24 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 		if err := json.Unmarshal([]byte(raw), &out); err != nil {
 			return nil, fmt.Errorf("mlxfwreset status for %s: parse JSON: %w", device, err)
 		}
+		recordPending(optCtx, device, out.PendingNvconfigParameters)
 		if !ptr.Deref(out.ResetNeeded, false) {
 			continue
 		}
+		// Some NVConfig parameters depend on other parameters. When those
+		// dependencies are not satisfied, the parameter values still do not change
+		// after reboot, so mlxfwreset keeps reporting them as pending. As a
+		// workaround, removeForeverPending filters parameters that remained
+		// unchanged across boots. Provisioning continues only when all remaining
+		// pending_nvconfig_parameters are filtered out and "Pending NVCONFIG
+		// parameter change" is the only reason for reset.
+		effective, shouldIgnore := removeForeverPending(optCtx, device, out)
+		if shouldIgnore {
+			klog.Infof("MST device %s: ignoring repeated pending NVCONFIG parameters after boot change", device)
+			continue
+		}
 		rawParts = append(rawParts, raw)
-		m := rebootMethodFromMlxfwresetStatus(h, device, &out)
+		m := rebootMethodFromMlxfwresetStatus(h, device, &effective)
 		if rebootMethodTakesPrecedenceOver(m, finalRebootMethod) {
 			finalRebootMethod = m
 		}

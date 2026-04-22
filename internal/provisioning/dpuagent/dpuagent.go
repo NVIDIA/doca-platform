@@ -19,6 +19,8 @@ package dpuagent
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -50,6 +52,8 @@ import (
 )
 
 const defaultRetryInterval = 30 * time.Second
+
+const bootIDFile = "/proc/sys/kernel/random/boot_id"
 
 type DPUAgent struct {
 	optCtx        *operations.Context
@@ -102,7 +106,9 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 		Conditions:   []metav1.Condition{},
 		RebootMethod: ptr.To(provisioningv1.RebootMethodUnknown),
 	}
-	var err error
+	if err := d.initCurrentBootID(); err != nil {
+		return err
+	}
 	for _, op := range d.operations {
 		if op.ShouldSkip(d.optCtx) {
 			klog.Infof("Skipping operation %s", op.Name())
@@ -110,14 +116,15 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 		}
 
 		// Execute the operations until success
-		err = wait.PollUntilContextCancel(ctx, d.retryInterval, true, func(execCtx context.Context) (bool, error) {
+		err := wait.PollUntilContextCancel(ctx, d.retryInterval, true, func(execCtx context.Context) (bool, error) {
+			d.optCtx.CondMessage = ""
 			err := op.Execute(execCtx, d.optCtx)
 			if err != nil {
 				klog.Errorf("[%s] Failed to execute, retrying. err: %v", op.Name(), err)
 				hostutil.NewCondition(op.ConditionType()).Failure(err, "FailedToExecute").Set(&d.optCtx.Status.Conditions)
 			} else {
 				klog.Infof("[%s] Successfully executed", op.Name())
-				hostutil.NewCondition(op.ConditionType()).Success("").Set(&d.optCtx.Status.Conditions)
+				hostutil.NewCondition(op.ConditionType()).Success(d.optCtx.CondMessage).Set(&d.optCtx.Status.Conditions)
 			}
 
 			if err != nil || op.ShouldUpdateStatusBeforeContinue(d.optCtx) {
@@ -154,4 +161,13 @@ func (d *DPUAgent) resolveRebootMethodDiscovery(ctx context.Context) bool {
 		return d.rebootMethodDiscoveryFunc(ctx)
 	}
 	return reboot.ResolveRebootMethodDiscovery(bash.Run)
+}
+
+func (d *DPUAgent) initCurrentBootID() error {
+	currentBootID, err := os.ReadFile(bootIDFile)
+	if err != nil {
+		return fmt.Errorf("initialize current boot ID: %w", err)
+	}
+	d.optCtx.CurrentBootID = strings.TrimSpace(string(currentBootID))
+	return nil
 }
