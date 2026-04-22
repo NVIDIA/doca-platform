@@ -65,6 +65,49 @@ alias dpfctl="kubectl -n dpf-operator-system exec deploy/dpf-operator-controller
 alias watch="watch -c "
 ```
 
+## Shell Completion
+
+`dpfctl` supports shell completion for commands, flags, and flag values (e.g. resource kinds for
+`--show-resources`, `--show-conditions`, and `--expand-resources`).
+
+### Bash
+
+Bash completion requires the [bash-completion](https://github.com/scop/bash-completion) package (v2+) and Bash 4.1+.
+
+```shell
+# Add to ~/.bashrc
+command -v dpfctl >/dev/null && source <(dpfctl completion bash)
+```
+
+### Zsh
+
+Zsh completion requires `compinit` to be enabled. If it is not already, add the following to your
+`~/.zshrc` before the completion source line:
+
+```shell
+autoload -Uz compinit && compinit
+```
+
+Then add:
+
+```shell
+# Add to ~/.zshrc
+command -v dpfctl >/dev/null && source <(dpfctl completion zsh)
+```
+
+### Fish
+
+```shell
+dpfctl completion fish > ~/.config/fish/completions/dpfctl.fish
+```
+
+### PowerShell
+
+```powershell
+# Add to your PowerShell profile
+dpfctl completion powershell | Out-String | Invoke-Expression
+```
+
 ## Usage
 
 ```sh
