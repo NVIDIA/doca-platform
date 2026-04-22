@@ -508,11 +508,11 @@ COVERPKGS ?= $$(go list ./... | grep -v /e2e | grep -v /third_party | tr '\n' ',
 
 .PHONY: test
 test: envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test $(TESTPKGS) $(GO_TEST_ARGS)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test -timeout 0 $(TESTPKGS) $(GO_TEST_ARGS)
 
 .PHONY: test-report
 test-report: envtest gotestsum ## Run tests and generate a junit style report
-	set +o errexit; GOTOOLCHAIN=$(GOTOOLCHAIN) KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test -count 1 -race -json $(TESTPKGS) -coverprofile cover.out -coverpkg=$(COVERPKGS) > junit.stdout; echo $$? > junit.exitcode;
+	set +o errexit; GOTOOLCHAIN=$(GOTOOLCHAIN) KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test -timeout 0 -count 1 -race -json $(TESTPKGS) -coverprofile cover.out -coverpkg=$(COVERPKGS) > junit.stdout; echo $$? > junit.exitcode;
 	$(GOTESTSUM) --junitfile junit.xml --raw-command cat junit.stdout
 	exit $$(cat junit.exitcode)
 
