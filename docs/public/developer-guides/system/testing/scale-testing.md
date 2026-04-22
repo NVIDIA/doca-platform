@@ -6,7 +6,7 @@ title: "Scale Testing"
 
 This document describes a test design for assessing the DPF core components at scale. It mocks a number of parts of the DPF system to enable performance testing of the core DPF components in response to growth in specific dimensions of scale.
 
-### Testing components
+### Testing Components
 
 The major differences between a full DPF installation and the scale testing infrastructure are:
 

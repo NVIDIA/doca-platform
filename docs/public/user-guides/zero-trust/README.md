@@ -81,7 +81,7 @@ For assistance with zero trust deployments:
 
 ## Next Steps
 
-Once you've familiarized yourself with the zero trust concept, proceed to:
+Once you are familiar with the zero trust concept, proceed to:
 
 1. Review the [prerequisites](prerequisites/README.md).
 2. Select an appropriate [use case](use-cases/README.md).
