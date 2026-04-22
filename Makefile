@@ -1304,11 +1304,17 @@ binary-hostagent: ## Build the hostagent binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/hostagent github.com/nvidia/doca-platform/cmd/hostagent
 
 # Setup docker buildx builder with docker-container driver for cache export support
+BUILDKITD_CONFIG ?=
 .PHONY: docker-buildx-setup
 docker-buildx-setup:
 	@if ! docker buildx inspect dpf-builder > /dev/null 2>&1; then \
 		echo "Creating buildx builder 'dpf-builder'..."; \
-		docker buildx create --name dpf-builder --driver docker-container --use --bootstrap > /dev/null; \
+		if [ -f "$(BUILDKITD_CONFIG)" ]; then \
+			echo "Using BuildKit config: $(BUILDKITD_CONFIG)"; \
+			docker buildx create --name dpf-builder --driver docker-container --use --bootstrap --config "$(BUILDKITD_CONFIG)" > /dev/null; \
+		else \
+			docker buildx create --name dpf-builder --driver docker-container --use --bootstrap > /dev/null; \
+		fi; \
 	else \
 		docker buildx use dpf-builder > /dev/null 2>&1 || true; \
 	fi
