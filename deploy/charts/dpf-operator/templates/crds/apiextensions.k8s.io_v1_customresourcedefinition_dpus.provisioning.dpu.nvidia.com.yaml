@@ -374,6 +374,40 @@ spec:
                     description: KubeletVersion represents the kubelet version running
                       on the DPU.
                     type: string
+                  lastObservedPendingNvconfig:
+                    description: |-
+                      LastObservedPendingNVConfig stores the last pending NVConfig parameters seen
+                      during reboot-method discovery on this boot. It is used on the next boot to
+                      ignore repeated parameters that remained unchanged across boots.
+                    properties:
+                      bootID:
+                        type: string
+                      devices:
+                        items:
+                          properties:
+                            device:
+                              type: string
+                            entries:
+                              items:
+                                properties:
+                                  current:
+                                    type: string
+                                  default:
+                                    type: string
+                                  name:
+                                    type: string
+                                  next_boot:
+                                    description: NextBoot uses the "next_boot" so
+                                      this type can be reused for parsing mlxfwrest
+                                      output
+                                    type: string
+                                type: object
+                              type: array
+                          required:
+                          - entries
+                          type: object
+                        type: array
+                    type: object
                   lastStartupTime:
                     description: LastStartupTime is the time when the DPU was last
                       started
