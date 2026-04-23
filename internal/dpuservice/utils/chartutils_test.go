@@ -34,13 +34,15 @@ import (
 var _ = Describe("chartutils", Ordered, func() {
 	Context("testing the pull secret parsing", func() {
 		var testNS *corev1.Namespace
+		var config *operatorv1.DPFOperatorConfig
 		BeforeAll(func() {
 			By("Creating the namespace")
 			testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "somens"}}
 			Expect(testClient.Create(ctx, testNS)).To(Succeed())
 			DeferCleanup(testClient.Delete, ctx, testNS)
-
-			config := &operatorv1.DPFOperatorConfig{
+		})
+		BeforeEach(func() {
+			config = &operatorv1.DPFOperatorConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "config",
 					Namespace: testNS.Name,
@@ -51,11 +53,12 @@ var _ = Describe("chartutils", Ordered, func() {
 					},
 				},
 			}
-			Expect(testClient.Create(ctx, config)).To(Succeed())
-			DeferCleanup(testClient.Delete, ctx, config)
-
+			// Ensure we try to delete it.
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, config)
 		})
 		It("parses a valid secret with helm registry correctly", func() {
+			Expect(testClient.Create(ctx, config)).To(Succeed())
+
 			secret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "dpu1",
@@ -85,6 +88,8 @@ var _ = Describe("chartutils", Ordered, func() {
 			Expect(password).To(Equal("mypassword"))
 		})
 		It("parses a valid secret with oci registry correctly", func() {
+			Expect(testClient.Create(ctx, config)).To(Succeed())
+
 			secret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "dpu1",
@@ -112,6 +117,66 @@ var _ = Describe("chartutils", Ordered, func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(username).To(Equal("myuser"))
 			Expect(password).To(Equal("mypassword"))
+		})
+		It("reads secrets from the ArgoCD namespace override rather than the DPFOperatorConfig namespace", func() {
+			By("Creating a separate namespace for ArgoCD")
+			argoCDNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "argocd"}}
+			Expect(testClient.Create(ctx, argoCDNS)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, argoCDNS)
+
+			config.Spec.Overrides = &operatorv1.Overrides{
+				ArgoCDNamespace: ptr.To(argoCDNS.Name),
+			}
+
+			Expect(testClient.Create(ctx, config)).To(Succeed())
+
+			By("Creating a matching secret in the DPFOperatorConfig namespace that must be ignored")
+			wrongSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "wrong-ns",
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						"argocd.argoproj.io/secret-type": "repository",
+					},
+				},
+				StringData: map[string]string{
+					"type":     "helm",
+					"url":      "https://example.com",
+					"username": "wronguser",
+					"password": "wrongpassword",
+				},
+			}
+			Expect(testClient.Create(ctx, wrongSecret)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, wrongSecret)
+
+			By("Creating the expected secret in the ArgoCD namespace")
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "argocd-secret",
+					Namespace: argoCDNS.Name,
+					Labels: map[string]string{
+						"argocd.argoproj.io/secret-type": "repository",
+					},
+				},
+				StringData: map[string]string{
+					"type":     "helm",
+					"url":      "https://example.com",
+					"username": "argouser",
+					"password": "argopassword",
+				},
+			}
+			Expect(testClient.Create(ctx, secret)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, secret)
+
+			username, password, err := getChartPullCredentials(
+				ctx,
+				testClient,
+				dpuservicev1.ApplicationSource{
+					RepoURL: "https://example.com",
+				})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(username).To(Equal("argouser"))
+			Expect(password).To(Equal("argopassword"))
 		})
 	})
 })

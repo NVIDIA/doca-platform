@@ -169,7 +169,7 @@ func getChartPullCredentials(ctx context.Context, c client.Client, source dpuser
 		client.MatchingLabels{
 			"argocd.argoproj.io/secret-type": "repository",
 		},
-		client.InNamespace(dpfOperatorConfig.Namespace)); err != nil {
+		client.InNamespace(dpfOperatorConfig.GetArgoCDNamespace())); err != nil {
 		return "", "", fmt.Errorf("listing secrets: %w", err)
 	}
 
