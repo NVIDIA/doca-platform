@@ -38,6 +38,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// Stdout controls where port-forward informational output is written.
+// Defaults to io.Discard.
+var Stdout io.Writer = io.Discard
+
+// Stderr controls where port-forward error output is written.
+// Defaults to os.Stderr to preserve visibility in e2e tests and other callers.
+// dpfctl sets this to io.Discard unless --verbose is used.
+var Stderr io.Writer = os.Stderr
+
 // Tunnel represents a port forwarding tunnel to a Kamaji cluster.
 type Tunnel struct {
 	pf        *portforward.PortForwarder
@@ -204,7 +213,7 @@ func createPortForwarder(hostRESTConfig *rest.Config, pod *corev1.Pod, targetPor
 
 	// Start port forwarding with a random local port
 	portString := fmt.Sprintf("0:%d", targetPort)
-	pf, err := portforward.New(dialer, []string{portString}, stopCh, readyCh, io.Discard, os.Stderr)
+	pf, err := portforward.New(dialer, []string{portString}, stopCh, readyCh, Stdout, Stderr)
 	if err != nil {
 		close(stopCh)
 		return nil, fmt.Errorf("create port forward: %w", err)
