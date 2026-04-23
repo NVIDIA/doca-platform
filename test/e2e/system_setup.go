@@ -34,10 +34,10 @@ import (
 	"github.com/nvidia/doca-platform/internal/dpfctl"
 	operatorutils "github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/utils/tunnel"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils/collector"
-	"github.com/nvidia/doca-platform/test/utils/tunnel"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"

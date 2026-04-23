@@ -247,9 +247,3 @@ func newClient() (client.Client, error) {
 
 	return client.New(config, client.Options{Scheme: scheme})
 }
-
-func must(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
