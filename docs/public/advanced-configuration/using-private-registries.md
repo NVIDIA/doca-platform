@@ -95,4 +95,4 @@ stringData:
 ```
 
 > [!NOTE]
-The Secret must be created in the same namespace as the ArgoCD installation.
+> The Secret must be created in the same namespace as the ArgoCD installation.
