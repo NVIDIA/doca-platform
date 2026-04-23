@@ -118,7 +118,7 @@ type ProvisioningControllerConfiguration struct {
 
 	// OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
 	// If the installation exceeds this timeout, the DPU will transition to an error state.
-	// +kubebuilder:default="45m"
+	// +kubebuilder:default="60m"
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
 	// +kubebuilder:validation:Format=duration

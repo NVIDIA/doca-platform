@@ -37,6 +37,7 @@ Each worker machine:
 * 32 GB memory
 * Flashed with NVIDIA BFB with DOCA version 2.5 or higher
 * Out-of-band management port is not used
+* All the firmware on the DPU (BMC, CEC, UEFI, etc...) must be of the same supported DOCA bundle. For example, see the [DOCA 3.3 Embedded Firmware Components table](https://docs.nvidia.com/doca/sdk/general-support/index.html#src-4734124965_id-.GeneralSupportv3.3.0LC-EmbeddedDOCAFirmwareComponents-BlueField)
 
 ### Control Plane Nodes with BlueField DPUs
 

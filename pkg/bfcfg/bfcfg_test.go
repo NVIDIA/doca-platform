@@ -171,7 +171,6 @@ var (
 			const customTemplate = `{{range .BFGCFGParams}}{{.}}
 {{end}}
 
-{{- if .RedfishInterface}}
 BMC_PASSWORD="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 4)-$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 4)_$(tr -dc '0-9' </dev/urandom | head -c 2)$(tr -dc 'a-z' </dev/urandom | head -c 1)$(tr -dc 'A-Z' </dev/urandom | head -c 1)"
 BMC_USER="fw_updater"
 BMC_REBOOT="yes"
@@ -189,7 +188,6 @@ pre_bmc_components_update() {
 post_bmc_components_update() {
     ipmitool user set name $USER_ID ""
 }
-{{end}}
 
 bfb_modify_os()
 {
@@ -537,6 +535,28 @@ network:
 				Expect(kubeconfigFile.Content).To(Equal(sampleKubeconfig))
 			})
 
+			It("verify bf.cfg template output updates bmc firmware in both zero trust and trusted host modes", func() {
+				zeroTrust := cloudinit.Params{
+					DPUHostName:            "test-dpu",
+					KubeadmSecretName:      "test-secret",
+					KubeadmSecretNamespace: "default",
+					BootstrapKubeconfig:    sampleKubeconfig,
+					RedfishInterface:       true,
+				}
+				trustedHost := cloudinit.Params{
+					DPUHostName:            "test-dpu",
+					KubeadmSecretName:      "test-secret",
+					KubeadmSecretNamespace: "default",
+					RedfishInterface:       false,
+				}
+				for _, params := range []cloudinit.Params{zeroTrust, trustedHost} {
+					Expect(params.ApplyFlavor(flavor)).To(Succeed())
+					got, err := generateDefault(flavor, params)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(string(got)).To(ContainSubstring("pre_bmc_components_update"))
+				}
+			})
+
 			It("bf.cfg template output format", func() {
 				tmpl, err := template.New("").Funcs(sprig.FuncMap()).Parse(string(DefaultBFCFGTemplateData))
 				Expect(err).NotTo(HaveOccurred())
@@ -557,6 +577,7 @@ network:
 PARAM1=yes
 PARAM2=no
 
+
 BMC_PASSWORD="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 4)-$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 4)_$(tr -dc '0-9' </dev/urandom | head -c 2)$(tr -dc 'a-z' </dev/urandom | head -c 1)$(tr -dc 'A-Z' </dev/urandom | head -c 1)"
 BMC_USER="fw_updater"
 BMC_REBOOT="yes"
@@ -574,7 +595,6 @@ pre_bmc_components_update() {
 post_bmc_components_update() {
     ipmitool user set name $USER_ID ""
 }
-
 
 bfb_modify_os()
 {
@@ -594,7 +614,7 @@ EOF
 `)))
 			})
 
-			It("gNOI mode: no BMC, tmfifo network, no kubeconfig", func() {
+			It("gNOI mode: tmfifo network, no kubeconfig", func() {
 				raw, parsed := generateAndParse(cloudinit.Params{
 					DPUHostName:            "test-dpu",
 					KubeadmSecretName:      "test-secret",
@@ -607,7 +627,7 @@ EOF
 					DPUAgentRepoURL:        "http://[fe80::1%25tmfifo_net0]:11029/deb",
 				})
 
-				Expect(string(raw)).NotTo(ContainSubstring("pre_bmc_components_update"))
+				Expect(string(raw)).To(ContainSubstring("pre_bmc_components_update"))
 
 				netplanFile := getWriteFile(parsed, "/etc/netplan/50-dpf-bootstrap.yaml")
 				expectedNetplan := skipFirstEmptyLine(`
