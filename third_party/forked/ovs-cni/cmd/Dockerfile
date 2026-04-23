@@ -46,7 +46,8 @@ RUN go build -tags no_openssl -o /workdir/bin/ovs-mirror-consumer ./cmd/mirror-c
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 
-RUN microdnf install -y findutils
+# Explicitly upgrade libcap to fix CVE-2026-4878; --refresh ensures latest patched version is pulled
+RUN microdnf --refresh install -y findutils libcap && microdnf clean all
 
 COPY --from=builder /workdir/.version /.version
 COPY --from=builder /workdir/bin/* /
