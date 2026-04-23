@@ -538,6 +538,7 @@ test-release-e2e-slow: release # Build images required for the slow DPF e2e test
 
 TEST_CLUSTER_NAME := dpf-test
 ADD_CONTROL_PLANE_TAINTS ?= true
+TEST_DEPLOY_PREREQS_NAMESPACE ?= dpf-operator-system
 .PHONY: test-env-e2e
 test-env-e2e: kind helm ## Setup a Kind Kubernetes environment to run tests.
 	# Create a kind cluster to host the test.
@@ -554,7 +555,6 @@ clean-test-env: kind ## Clean Kind test environment (delete Kind cluster)
 
 
 OPERATOR_NAMESPACE ?= dpf-operator-system
-TEST_DEPLOY_PREREQS_NAMESPACE ?= dpf-operator-system
 HELMFILE_ENV ?=
 .PHONY: test-deploy-operator-helm
 test-deploy-operator-helm: helm helm-package-operator ## Deploy the DPF Operator using helm
