@@ -549,6 +549,9 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 				return apierrors.IsNotFound(err)
 			}).WithTimeout(3 * time.Second).Should(BeTrue())
 
+			By("Triggering reconciliation")
+			Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, dpuNodeObj)).To(Succeed())
+
 			By("Verifying all operational conditions are set to Unknown with Pending reason")
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
@@ -576,6 +579,9 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 				err := dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(dpuClusterNode), dpuClusterNode)
 				return apierrors.IsNotFound(err)
 			}).WithTimeout(3 * time.Second).Should(BeTrue())
+
+			By("Triggering reconciliation")
+			Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, dpuNodeObj)).To(Succeed())
 
 			By("Verifying all operational conditions are set to False with Error reason")
 			Eventually(func(g Gomega) {
@@ -657,6 +663,9 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 				return apierrors.IsNotFound(err)
 			}).WithTimeout(3 * time.Second).Should(BeTrue())
 
+			By("Triggering reconciliation")
+			Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, dpuNodeObj)).To(Succeed())
+
 			By("Waiting for Pending conditions")
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
@@ -689,6 +698,9 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 			}
 			Expect(dpuClusterClient.Create(ctx, newNode)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, newNode)
+
+			By("Triggering reconciliation")
+			Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, dpuNodeObj)).To(Succeed())
 
 			By("Verifying conditions transition to normal aggregation")
 			Eventually(func(g Gomega) {
