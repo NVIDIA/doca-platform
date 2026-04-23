@@ -1,0 +1,369 @@
+/*
+Copyright 2026 NVIDIA
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package sosreport
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+const (
+	// labelManagedBy is the label key for identifying resources managed by dpfctl.
+	labelManagedBy = "app.kubernetes.io/managed-by"
+	// labelComponent is the label key for identifying the component.
+	labelComponent = "dpfctl.dpf.nvidia.com/component"
+	// labelCaseID is the label key for the case ID.
+	labelCaseID = "dpfctl.dpf.nvidia.com/case-id"
+	// labelNode is the label key for the node name.
+	labelNode = "dpfctl.dpf.nvidia.com/node"
+	// labelCluster is the label key for the cluster name.
+	labelCluster = "dpfctl.dpf.nvidia.com/cluster"
+	// componentValue is the component label value for sosreport resources.
+	componentValue = "sosreport"
+	// managedByValue is the managed-by label value.
+	managedByValue = "dpfctl"
+
+	outputDir      = "/sos-output"
+	secretDataKey  = "kubeconfig"
+	secretBaseName = "sos-admin-config"
+)
+
+// OutputMode defines where the SOS report output is stored.
+type OutputMode string
+
+const (
+	OutputLocal OutputMode = "local"
+	OutputNFS   OutputMode = "nfs"
+)
+
+// JobOptions contains the configuration for creating a SOS report Job.
+type JobOptions struct {
+	Namespace   string
+	NodeName    string
+	CaseID      string
+	Image       string
+	ClusterName string
+	Timeout     time.Duration
+	Output      OutputMode
+	NFSServer   string
+	NFSPath     string
+	NFSSubDir   string
+}
+
+// commonLabels returns the standard labels for all sosreport resources.
+func commonLabels(caseID, nodeName, clusterName string) map[string]string {
+	return map[string]string{
+		labelManagedBy: managedByValue,
+		labelComponent: componentValue,
+		labelCaseID:    caseID,
+		labelNode:      nodeName,
+		labelCluster:   clusterName,
+	}
+}
+
+// selectorLabels returns labels used to select sosreport resources.
+func selectorLabels() map[string]string {
+	return map[string]string{
+		labelManagedBy: managedByValue,
+		labelComponent: componentValue,
+	}
+}
+
+// jobName returns the Job name for a given node.
+func jobName(nodeName string) string {
+	return fmt.Sprintf("sos-report-%s", nodeName)
+}
+
+// secretName returns the kubeconfig Secret name for a given cluster.
+func secretName(clusterName string) string {
+	return fmt.Sprintf("%s-%s", secretBaseName, clusterName)
+}
+
+// CreateJob creates a SOS report Job on the given cluster for the specified node.
+func CreateJob(ctx context.Context, c client.Client, opts JobOptions) (*batchv1.Job, error) {
+	labels := commonLabels(opts.CaseID, opts.NodeName, opts.ClusterName)
+	jobName := jobName(opts.NodeName)
+
+	sosContainer := corev1.Container{
+		Name:            "sosreport",
+		Image:           opts.Image,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Env: []corev1.EnvVar{
+			{Name: "CASE_ID", Value: opts.CaseID},
+			{Name: "OUTPUT_DIR", Value: outputDir},
+		},
+		SecurityContext: &corev1.SecurityContext{
+			Privileged: ptr.To(true),
+			RunAsUser:  ptr.To(int64(0)),
+		},
+		VolumeMounts: append(baseVolumeMounts(), corev1.VolumeMount{
+			MountPath: outputDir, Name: "output",
+		}),
+	}
+
+	var container corev1.Container
+	volumes := baseVolumes(secretName(opts.ClusterName))
+
+	// Sosreport always runs as an init container. The pod entering Running phase
+	// means sosreport has completed — giving us a single readiness check for both modes.
+	initContainers := []corev1.Container{sosContainer}
+
+	switch opts.Output {
+	case OutputNFS:
+		if opts.NFSSubDir != "" {
+			// sosreport doesn't create OUTPUT_DIR — prepend a mkdir init container.
+			initContainers = append([]corev1.Container{{
+				Name:    "mkdir",
+				Image:   opts.Image,
+				Command: []string{"mkdir", "-p", outputDir + "/" + opts.NFSSubDir},
+				VolumeMounts: []corev1.VolumeMount{
+					{MountPath: outputDir, Name: "output"},
+				},
+			}}, initContainers...)
+			// Override the OUTPUT_DIR env on the sosreport container to include the subdirectory.
+			// Find by name rather than index to avoid breakage if init container order changes.
+			for ic := range initContainers {
+				if initContainers[ic].Name != "sosreport" {
+					continue
+				}
+				for i := range initContainers[ic].Env {
+					if initContainers[ic].Env[i].Name == "OUTPUT_DIR" {
+						initContainers[ic].Env[i].Value = outputDir + "/" + opts.NFSSubDir
+					}
+				}
+			}
+		}
+		// Main container just exits — Job completes after sosreport finishes.
+		container = corev1.Container{
+			Name:    "done",
+			Image:   opts.Image,
+			Command: []string{"echo", "SOS report written to NFS"},
+		}
+		volumes = append(volumes, corev1.Volume{
+			Name: "output",
+			VolumeSource: corev1.VolumeSource{
+				NFS: &corev1.NFSVolumeSource{
+					Server: opts.NFSServer,
+					Path:   opts.NFSPath,
+				},
+			},
+		})
+	case OutputLocal:
+		// Main container sleeps so we can download the report from the pod.
+		container = corev1.Container{
+			Name:    "sleep",
+			Image:   opts.Image,
+			Command: []string{"sleep", "infinity"},
+			VolumeMounts: []corev1.VolumeMount{
+				{MountPath: outputDir, Name: "output"},
+			},
+		}
+		volumes = append(volumes, corev1.Volume{
+			Name: "output",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		})
+	}
+
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: opts.Namespace,
+			Labels:    labels,
+		},
+		Spec: batchv1.JobSpec{
+			Completions:           ptr.To(int32(1)),
+			Parallelism:           ptr.To(int32(1)),
+			BackoffLimit:          ptr.To(int32(3)),
+			ActiveDeadlineSeconds: ptr.To(int64(opts.Timeout.Seconds())),
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: podSpec(opts.NodeName, container, initContainers, volumes),
+			},
+		},
+	}
+
+	if err := c.Create(ctx, job); err != nil {
+		return nil, fmt.Errorf("create SOS report Job for node %s: %w", opts.NodeName, err)
+	}
+
+	return job, nil
+}
+
+// CreateKubeconfigSecret creates a Secret containing a kubeconfig for the SOS report pod.
+func CreateKubeconfigSecret(ctx context.Context, c client.Client, namespace, clusterName, caseID string, data []byte) error {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName(clusterName),
+			Namespace: namespace,
+			Labels:    commonLabels(caseID, "", clusterName),
+		},
+		Data: map[string][]byte{
+			secretDataKey: data,
+		},
+	}
+	if err := c.Create(ctx, secret); err != nil {
+		if client.IgnoreAlreadyExists(err) != nil {
+			return fmt.Errorf("create kubeconfig secret: %w", err)
+		}
+	}
+	return nil
+}
+
+// ListNamespaces returns namespace names in the cluster (best-effort, for shell completion).
+func ListNamespaces(ctx context.Context, c client.Client) []string {
+	nsList := &corev1.NamespaceList{}
+	if err := c.List(ctx, nsList); err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(nsList.Items))
+	for _, ns := range nsList.Items {
+		names = append(names, ns.Name)
+	}
+	return names
+}
+
+// ListNodes returns the list of node names in the cluster.
+// If labelSelector is non-empty, only nodes matching the selector are returned.
+func ListNodes(ctx context.Context, c client.Client, labelSelector string) ([]string, error) {
+	nodes := &corev1.NodeList{}
+	listOpts := []client.ListOption{}
+	if labelSelector != "" {
+		selector, err := labels.Parse(labelSelector)
+		if err != nil {
+			return nil, fmt.Errorf("parse node selector %q: %w", labelSelector, err)
+		}
+		listOpts = append(listOpts, client.MatchingLabelsSelector{Selector: selector})
+	}
+	if err := c.List(ctx, nodes, listOpts...); err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+
+	names := make([]string, 0, len(nodes.Items))
+	for _, node := range nodes.Items {
+		names = append(names, node.Name)
+	}
+	return names, nil
+}
+
+// FindReadyDownloadPod finds a running pod for download (sleep strategy).
+// With sleep strategy, the pod is Running and sleeping after sosreport completes.
+func FindReadyDownloadPod(ctx context.Context, c client.Client, namespace string, podLabels map[string]string) (*corev1.Pod, error) {
+	podList := &corev1.PodList{}
+	if err := c.List(ctx, podList, client.InNamespace(namespace), client.MatchingLabels(podLabels)); err != nil {
+		return nil, err
+	}
+	for i := range podList.Items {
+		if podList.Items[i].Status.Phase == corev1.PodRunning {
+			return &podList.Items[i], nil
+		}
+	}
+	return nil, nil
+}
+
+// ListJobs lists all sosreport Jobs in the namespace, optionally filtered by case ID.
+func ListJobs(ctx context.Context, c client.Client, namespace, caseID string) ([]batchv1.Job, error) {
+	labels := selectorLabels()
+	if caseID != "" {
+		labels[labelCaseID] = caseID
+	}
+
+	jobList := &batchv1.JobList{}
+	if err := c.List(ctx, jobList, client.InNamespace(namespace), client.MatchingLabels(labels)); err != nil {
+		return nil, fmt.Errorf("list SOS report Jobs: %w", err)
+	}
+	return jobList.Items, nil
+}
+
+// CreateKubeconfigDataFromConfig converts a rest.Config into kubeconfig YAML bytes.
+func CreateKubeconfigDataFromConfig(config *rest.Config) ([]byte, error) {
+	apiConfig := clientcmdapi.NewConfig()
+	clusterName := "cluster"
+	userName := "user"
+	contextName := "context"
+
+	apiConfig.Clusters[clusterName] = &clientcmdapi.Cluster{
+		Server:                   config.Host,
+		CertificateAuthorityData: config.CAData,
+		InsecureSkipTLSVerify:    config.Insecure,
+	}
+	apiConfig.AuthInfos[userName] = &clientcmdapi.AuthInfo{
+		ClientCertificateData: config.CertData,
+		ClientKeyData:         config.KeyData,
+		Token:                 config.BearerToken,
+	}
+	apiConfig.Contexts[contextName] = &clientcmdapi.Context{
+		Cluster:  clusterName,
+		AuthInfo: userName,
+	}
+	apiConfig.CurrentContext = contextName
+
+	return clientcmd.Write(*apiConfig)
+}
+
+func podSpec(nodeName string, container corev1.Container, initContainers []corev1.Container, volumes []corev1.Volume) corev1.PodSpec {
+	return corev1.PodSpec{
+		NodeName:       nodeName,
+		RestartPolicy:  corev1.RestartPolicyNever,
+		HostIPC:        true,
+		HostNetwork:    true,
+		HostPID:        true,
+		InitContainers: initContainers,
+		Containers:     []corev1.Container{container},
+		Volumes:        volumes,
+	}
+}
+
+func baseVolumeMounts() []corev1.VolumeMount {
+	return []corev1.VolumeMount{
+		{MountPath: "/host", Name: "host"},
+		{MountPath: "/run", Name: "run"},
+		{MountPath: "/var/log", Name: "varlog"},
+		{MountPath: "/etc/kubernetes/admin.conf", Name: "adminconf", SubPath: secretDataKey},
+		{MountPath: "/etc/localtime", Name: "localtime"},
+		{MountPath: "/etc/machine-id", Name: "machineid"},
+		{MountPath: "/boot", Name: "boot"},
+		{MountPath: "/usr/lib/modules/", Name: "modules"},
+	}
+}
+
+func baseVolumes(secretName string) []corev1.Volume {
+	return []corev1.Volume{
+		{Name: "host", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/"}}},
+		{Name: "run", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/run"}}},
+		{Name: "boot", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/boot"}}},
+		{Name: "modules", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/usr/lib/modules/"}}},
+		{Name: "varlog", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/log"}}},
+		{Name: "adminconf", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: secretName}}},
+		{Name: "localtime", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/etc/localtime"}}},
+		{Name: "machineid", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/etc/machine-id"}}},
+	}
+}

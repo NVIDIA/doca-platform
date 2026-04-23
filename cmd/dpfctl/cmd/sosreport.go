@@ -1,0 +1,176 @@
+/*
+Copyright 2026 NVIDIA
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package cmd
+
+import (
+	"context"
+	"flag"
+	"io"
+	"os"
+	"time"
+
+	"github.com/nvidia/doca-platform/internal/dpfctl/sosreport"
+	"github.com/nvidia/doca-platform/internal/utils/tunnel"
+
+	"github.com/spf13/cobra"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+)
+
+type sosreportFlags struct {
+	cluster      string
+	dpuCluster   string
+	nodes        []string
+	nodeSelector string
+	namespace    string
+	image        string
+	caseID       string
+	nfsServer    string
+	nfsPath      string
+	nfsNoSub     bool
+	timeout      time.Duration
+	outputDir    string
+	cleanup      bool
+	archive      bool
+}
+
+var sosOpts sosreportFlags
+
+var sosreportCmd = &cobra.Command{
+	Use:   "sosreport",
+	Short: "Collect SOS reports from DPF cluster nodes",
+	Long: `Collect SOS reports from host and DPU cluster nodes using Kubernetes Jobs.
+
+The sosreport command creates privileged Jobs on target nodes that run the
+NVIDIA sosreport tool to collect system diagnostics. Reports can be written
+to NFS or downloaded directly to your local machine.`,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		if sosreport.Verbose {
+			tunnel.Stdout = os.Stderr
+			tunnel.Stderr = os.Stderr
+		} else {
+			tunnel.Stdout = io.Discard
+			tunnel.Stderr = io.Discard
+			// Suppress port-forward teardown errors from runtime.HandleError.
+			// These are internal to controller-runtime and not actionable for users;
+			// --verbose restores full output for debugging.
+			utilruntime.ErrorHandlers = []utilruntime.ErrorHandler{
+				func(_ context.Context, _ error, _ string, _ ...any) {},
+			}
+		}
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(sosreportCmd)
+
+	f := sosreportCmd.PersistentFlags()
+	f.StringVar(&sosOpts.cluster, "target", "all", "Target environment: host, dpu, or all")
+	must(sosreportCmd.RegisterFlagCompletionFunc("target", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return []string{"host", "dpu", "all"}, cobra.ShellCompDirectiveNoFileComp
+	}))
+
+	f.StringVar(&sosOpts.dpuCluster, "dpu-cluster", "", "Target a specific DPUCluster by name (defaults to all)")
+	must(sosreportCmd.RegisterFlagCompletionFunc("dpu-cluster", completeDPUClusters))
+
+	f.StringSliceVar(&sosOpts.nodes, "nodes", nil, "Target specific nodes across all targeted clusters (comma-separated)")
+	must(sosreportCmd.RegisterFlagCompletionFunc("nodes", completeNodes))
+
+	f.StringVar(&sosOpts.nodeSelector, "node-selector", "", "Label selector to filter nodes across all targeted clusters (e.g. node-role.kubernetes.io/worker=)")
+
+	f.StringVar(&sosOpts.namespace, "namespace", "default", "Namespace for Jobs and Secrets")
+	must(sosreportCmd.RegisterFlagCompletionFunc("namespace", completeNamespaces))
+
+	f.StringVar(&sosOpts.image, "image", "ghcr.io/nvidia/sosreport:latest", "SOS report container image")
+	f.BoolVarP(&sosreport.Verbose, "verbose", "v", false, "Show debug output including port-forward details")
+	f.AddGoFlagSet(flag.CommandLine)
+}
+
+// startOpts builds StartOptions from the cobra flags.
+func startOpts() *sosreport.StartOptions {
+	return &sosreport.StartOptions{
+		Namespace:    sosOpts.namespace,
+		Image:        sosOpts.image,
+		CaseID:       sosOpts.caseID,
+		Output:       outputMode(),
+		NFSServer:    sosOpts.nfsServer,
+		NFSPath:      sosOpts.nfsPath,
+		NFSNoSub:     sosOpts.nfsNoSub,
+		Timeout:      sosOpts.timeout,
+		Nodes:        sosOpts.nodes,
+		NodeSelector: sosOpts.nodeSelector,
+		Cluster:      sosOpts.cluster,
+		DPUCluster:   sosOpts.dpuCluster,
+	}
+}
+
+// outputMode derives the output mode from flags.
+func outputMode() sosreport.OutputMode {
+	if sosOpts.nfsServer != "" {
+		return sosreport.OutputNFS
+	}
+	return sosreport.OutputLocal
+}
+
+// getTargets is a helper that resolves cluster targets from flags.
+func getTargets(ctx context.Context) (sosreport.ClusterTargets, error) {
+	return sosreport.GetClusterTargets(ctx, sosOpts.cluster, sosOpts.dpuCluster)
+}
+
+// completeDPUClusters provides shell completion for --dpu-cluster by listing DPUCluster names.
+func completeDPUClusters(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+	targets, err := sosreport.GetClusterTargets(cmd.Context(), "dpu", "")
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	defer targets.Close()
+	names := make([]string, 0, len(targets))
+	for _, t := range targets {
+		names = append(names, t.Name)
+	}
+	return names, cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeNodes provides shell completion for --nodes by listing node names from all targeted clusters.
+func completeNodes(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+	targets, err := sosreport.GetClusterTargets(cmd.Context(), sosOpts.cluster, sosOpts.dpuCluster)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	defer targets.Close()
+	var names []string
+	for _, t := range targets {
+		nodes, err := sosreport.ListNodes(cmd.Context(), t.Client, sosOpts.nodeSelector)
+		if err != nil {
+			continue
+		}
+		names = append(names, nodes...)
+	}
+	return names, cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeNamespaces provides shell completion for --namespace by listing cluster namespaces.
+func completeNamespaces(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+	targets, err := sosreport.GetClusterTargets(cmd.Context(), "host", "")
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	defer targets.Close()
+	if len(targets) == 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return sosreport.ListNamespaces(cmd.Context(), targets[0].Client), cobra.ShellCompDirectiveNoFileComp
+}

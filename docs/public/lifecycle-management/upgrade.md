@@ -27,7 +27,7 @@ Further prerequisites include:
 
 ### Verifying Readiness
 
-You can verify the readiness of your DPF Operator and DPUs using [`dpfctl`](../troubleshooting/dpfctl.md) or `kubectl`:
+You can verify the readiness of your DPF Operator and DPUs using [`dpfctl`](../troubleshooting/dpfctl/README.md) or `kubectl`:
 
 **Using dpfctl (recommended):**
 
@@ -99,7 +99,7 @@ If any validation fails:
 
 ### Status Monitoring
 
-You can monitor prevalidation status using either [dpfctl](../troubleshooting/dpfctl.md) or kubectl as described in the
+You can monitor prevalidation status using either [dpfctl](../troubleshooting/dpfctl/README.md) or kubectl as described in the
 prerequisites above. The `DPFOperatorConfig` status will indicate whether prevalidations have passed or failed. All
 conditions must be `True` for the upgrade to proceed.
 
