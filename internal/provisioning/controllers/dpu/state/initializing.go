@@ -157,7 +157,7 @@ func Initializing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, err
 	}
 
-	if obj.DeletionTimestamp != nil {
+	if !obj.DeletionTimestamp.IsZero() {
 		err := fmt.Errorf("DPUCluster %s/%s is being deleted", obj.Namespace, obj.Name)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondInitialized.String(), err, "DPUClusterDeleting", err.Error()))
 		return *state, err

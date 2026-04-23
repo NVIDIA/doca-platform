@@ -59,6 +59,9 @@ const (
 	DPUSetNameLabel = DPUProvisioningPrefix + "dpuset-name"
 	// DPUSetNamespaceLabel is the label that indicates the namespace of the DPUSet.
 	DPUSetNamespaceLabel = DPUProvisioningPrefix + "dpuset-namespace"
+	// DPUSetCollisionLabelPrefix is the label that indicates that the DPU has a collision with another DPUSet.
+	// Full key format: provisioning.dpu.nvidia.com/collision-dpuset-<dpuSetName>
+	DPUSetCollisionLabelPrefix = DPUProvisioningPrefix + "collision-dpuset-"
 	// DPUDeviceNameLabel is the label that indicates the name of the DPUDevice the DPU is associated with.
 	DPUDeviceNameLabel = DPUProvisioningPrefix + "dpudevice-name"
 	// DPUDevicePCIAddressLabel is the label that indicates the PCI address of the DPU device.
@@ -152,6 +155,12 @@ var (
 	BFBBaseDir        = "bfb"
 	KubeconfigBaseDir = "kubeconfig"
 )
+
+// GenerateDPUSetCollisionLabelKey returns the collision label key for a given DPUSet name.
+// Format: provisioning.dpu.nvidia.com/collision-dpuset-<dpuSetName>
+func GenerateDPUSetCollisionLabelKey(dpuSetName string) string {
+	return DPUSetCollisionLabelPrefix + dpuSetName
+}
 
 func GenerateBFCFGFileName(dpuName string, uid string) string {
 	return fmt.Sprintf("%s-%s.%s", dpuName, uid, CFGExtension)
