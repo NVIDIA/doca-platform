@@ -1146,7 +1146,7 @@ var _ = Describe("DPUSet", func() {
 			Expect(dpusUpdated).To(BeTrue(), "DPUs should have been updated")
 
 			By("Calling updateDPUSetStatus with dpusUpdated=true to fetch fresh data")
-			err = reconciler.UpdateDPUSetStatus(ctx, dpuSet, dpusUpdated)
+			err = reconciler.UpdateDPUSetStatus(ctx, dpuSet, dpusUpdated, 1, 0)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying DPUSet status reflects fresh DPU state (not ready because Generation != ObservedGeneration)")
@@ -1193,7 +1193,7 @@ var _ = Describe("DPUSet", func() {
 				dpusUpdated, err := reconciler.UpdateDPUs(ctx, dpuSet, dpuMap)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(dpusUpdated).To(BeFalse(), "No DPU updates should be needed now")
-				err = reconciler.UpdateDPUSetStatus(ctx, dpuSet, dpusUpdated)
+				err = reconciler.UpdateDPUSetStatus(ctx, dpuSet, dpusUpdated, 1, 0)
 				g.Expect(err).NotTo(HaveOccurred())
 				readyCondition := meta.FindStatusCondition(dpuSet.Status.Conditions, "Ready")
 				g.Expect(readyCondition).NotTo(BeNil())
@@ -1296,7 +1296,7 @@ var _ = Describe("DPUSet", func() {
 			Expect(dpusUpdated).To(BeFalse(), "DPUs should NOT have been updated when no changes are needed")
 
 			By("Calling updateDPUSetStatus with dpusUpdated=false to use cached data")
-			err = reconciler.UpdateDPUSetStatus(ctx, dpuSet, dpusUpdated)
+			err = reconciler.UpdateDPUSetStatus(ctx, dpuSet, dpusUpdated, 1, 0)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying DPUSet status is correct (should use cached data since dpusUpdated=false)")
@@ -1316,6 +1316,336 @@ var _ = Describe("DPUSet", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(freshDPU.Generation).To(Equal(initialGeneration),
 				"Generation should not change when no update is needed")
+		})
+	})
+
+	Context("DPU owned by another DPUSet", func() {
+		ctx := context.Background()
+		const (
+			firstDPUSetName       = "first-dpuset-"
+			secondDPUSetName      = "second-dpuset-"
+			extraDeviceNamePrefix = "extra-device-"
+			extraNodeNamePrefix   = "extra-node-"
+			pendingCondition      = "Pending"
+			readyCondition        = "Ready"
+		)
+
+		It("second DPUSet targeting the same DPUDevice should not create a DPU and should report pending status", func() {
+			By("Creating the first DPUSet")
+			firstDPUSet := createDPUSet(firstDPUSetName)
+			Expect(k8sClient.Create(ctx, firstDPUSet)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, firstDPUSet))).To(Succeed())
+			})
+
+			By("Waiting for first DPUSet to create its DPU")
+			Eventually(func(g Gomega) {
+				dpuList := &provisioningv1.DPUList{}
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name),
+					client.MatchingLabels{cutil.DPUSetNameLabel: firstDPUSet.Name})).To(Succeed())
+				g.Expect(dpuList.Items).To(HaveLen(1))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Creating a second DPUSet targeting the same DPUDevice")
+			secondDPUSet := createDPUSet(secondDPUSetName)
+			Expect(k8sClient.Create(ctx, secondDPUSet)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, secondDPUSet))).To(Succeed())
+			})
+
+			By("Verifying second DPUSet does not create an additional DPU")
+			Consistently(func(g Gomega) {
+				dpuList := &provisioningv1.DPUList{}
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name),
+					client.MatchingLabels{cutil.DPUSetNameLabel: secondDPUSet.Name})).To(Succeed())
+				g.Expect(dpuList.Items).To(BeEmpty(), "Second DPUSet should not own any DPUs")
+			}).WithTimeout(5 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+
+			By("Verifying second DPUSet has a pending condition with owned DPU message")
+			expectedMessage := fmt.Sprintf("1/1 DPU(s) cannot be provisioned, owned by another DPUSet. To identify the conflicting DPUs, filter the DPUs by the label: %s", cutil.GenerateDPUSetCollisionLabelKey(secondDPUSet.Name))
+			Eventually(func(g Gomega) {
+				fetched := &provisioningv1.DPUSet{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name: secondDPUSet.Name, Namespace: secondDPUSet.Namespace,
+				}, fetched)).To(Succeed())
+				cond := meta.FindStatusCondition(fetched.Status.Conditions, readyCondition)
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal(pendingCondition))
+				g.Expect(cond.Message).To(Equal(expectedMessage))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying the collision label is set on the DPU owned by the first DPUSet")
+			Eventually(func(g Gomega) {
+				dpuList := &provisioningv1.DPUList{}
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name),
+					client.MatchingLabels{cutil.DPUSetNameLabel: firstDPUSet.Name})).To(Succeed())
+				g.Expect(dpuList.Items).To(HaveLen(1))
+				g.Expect(dpuList.Items[0].Labels).To(HaveKeyWithValue(cutil.GenerateDPUSetCollisionLabelKey(secondDPUSet.Name), "true"))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
+		It("second DPUSet should not block first DPUSet from being ready", func() {
+			By("Creating the first DPUSet")
+			firstDPUSet := createDPUSet(firstDPUSetName)
+			Expect(k8sClient.Create(ctx, firstDPUSet)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, firstDPUSet))).To(Succeed())
+			})
+
+			By("Waiting for first DPUSet to create its DPU")
+			var createdDPU provisioningv1.DPU
+			Eventually(func(g Gomega) {
+				dpuList := &provisioningv1.DPUList{}
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name),
+					client.MatchingLabels{cutil.DPUSetNameLabel: firstDPUSet.Name})).To(Succeed())
+				g.Expect(dpuList.Items).To(HaveLen(1))
+				createdDPU = dpuList.Items[0]
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Simulating DPU reaching Ready state")
+			statusPatch := client.MergeFrom(createdDPU.DeepCopy())
+			createdDPU.Status.Phase = provisioningv1.DPUReady
+			createdDPU.Status.ObservedGeneration = createdDPU.Generation
+			Expect(k8sClient.Status().Patch(ctx, &createdDPU, statusPatch)).To(Succeed())
+
+			By("Verifying first DPUSet reaches Ready")
+			Eventually(func(g Gomega) {
+				fetched := &provisioningv1.DPUSet{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name: firstDPUSet.Name, Namespace: firstDPUSet.Namespace,
+				}, fetched)).To(Succeed())
+				cond := meta.FindStatusCondition(fetched.Status.Conditions, readyCondition)
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue),
+					"First DPUSet should be ready")
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Creating a second DPUSet targeting the same DPUDevice")
+			secondDPUSet := createDPUSet(secondDPUSetName)
+			Expect(k8sClient.Create(ctx, secondDPUSet)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, secondDPUSet))).To(Succeed())
+			})
+
+			By("Verifying first DPUSet is still Ready")
+			Consistently(func(g Gomega) {
+				fetched := &provisioningv1.DPUSet{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name: firstDPUSet.Name, Namespace: firstDPUSet.Namespace,
+				}, fetched)).To(Succeed())
+				cond := meta.FindStatusCondition(fetched.Status.Conditions, readyCondition)
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue),
+					"First DPUSet should remain ready after second DPUSet is created")
+			}).WithTimeout(5 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+
+			By("Verifying the collision label is set on the DPU owned by the first DPUSet")
+			Eventually(func(g Gomega) {
+				freshDPU := &provisioningv1.DPU{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&createdDPU), freshDPU)).To(Succeed())
+				g.Expect(freshDPU.Labels).To(HaveKeyWithValue(cutil.GenerateDPUSetCollisionLabelKey(secondDPUSet.Name), "true"))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
+		It("second DPUSet with partial overlap should report 1/3 DPUs cannot be provisioned", func() {
+			By("Creating two additional DPUDevices and DPUNodes for the second DPUSet")
+			extraDPUNodeName1 := fmt.Sprintf("%s1-%s", extraNodeNamePrefix, utilrand.String(5))
+			extraDPUDeviceName1 := fmt.Sprintf("%s1-%s", extraDeviceNamePrefix, utilrand.String(5))
+			extraDPUDevice1 := createDPUDevice(ctx, testNS.Name, extraDPUDeviceName1, "0000-05-00", extraDPUNodeName1)
+			extraDPUNode1 := createDPUNode(ctx, testNS.Name, extraDPUNodeName1, []string{extraDPUDevice1.Name})
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, extraDPUDevice1))).To(Succeed())
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, extraDPUNode1))).To(Succeed())
+			})
+
+			extraDPUNodeName2 := fmt.Sprintf("%s2-%s", extraNodeNamePrefix, utilrand.String(5))
+			extraDPUDeviceName2 := fmt.Sprintf("%s2-%s", extraDeviceNamePrefix, utilrand.String(5))
+			extraDPUDevice2 := createDPUDevice(ctx, testNS.Name, extraDPUDeviceName2, "0000-06-00", extraDPUNodeName2)
+			extraDPUNode2 := createDPUNode(ctx, testNS.Name, extraDPUNodeName2, []string{extraDPUDevice2.Name})
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, extraDPUDevice2))).To(Succeed())
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, extraDPUNode2))).To(Succeed())
+			})
+
+			By("Creating the first DPUSet (selects only the default DPUDevice via dpuDeviceSelector)")
+			firstDPUSet := createDPUSet(firstDPUSetName)
+			firstDPUSet.Spec.DPUDeviceSelector = &metav1.LabelSelector{
+				MatchLabels: map[string]string{provisioningv1.DPUNodeNameLabel: dpuNodeName},
+			}
+			Expect(k8sClient.Create(ctx, firstDPUSet)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, firstDPUSet))).To(Succeed())
+			})
+
+			By("Waiting for first DPUSet to create its DPU")
+			Eventually(func(g Gomega) {
+				dpuList := &provisioningv1.DPUList{}
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name),
+					client.MatchingLabels{cutil.DPUSetNameLabel: firstDPUSet.Name})).To(Succeed())
+				g.Expect(dpuList.Items).To(HaveLen(1))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Creating the second DPUSet (selects all 3 DPUDevices, no selector)")
+			secondDPUSet := createDPUSet(secondDPUSetName)
+			Expect(k8sClient.Create(ctx, secondDPUSet)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, secondDPUSet))).To(Succeed())
+			})
+
+			By("Waiting for second DPUSet to create DPUs for the 2 unowned devices")
+			Eventually(func(g Gomega) {
+				dpuList := &provisioningv1.DPUList{}
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name),
+					client.MatchingLabels{cutil.DPUSetNameLabel: secondDPUSet.Name})).To(Succeed())
+				g.Expect(dpuList.Items).To(HaveLen(2),
+					"Second DPUSet should own 2 DPUs (the 2 extra devices)")
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying second DPUSet condition reports 1/3 cannot be provisioned")
+			expectedMessage := fmt.Sprintf("1/3 DPU(s) cannot be provisioned, owned by another DPUSet. To identify the conflicting DPUs, filter the DPUs by the label: %s", cutil.GenerateDPUSetCollisionLabelKey(secondDPUSet.Name))
+			Eventually(func(g Gomega) {
+				fetched := &provisioningv1.DPUSet{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name: secondDPUSet.Name, Namespace: secondDPUSet.Namespace,
+				}, fetched)).To(Succeed())
+				cond := meta.FindStatusCondition(fetched.Status.Conditions, readyCondition)
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal(pendingCondition))
+				g.Expect(cond.Message).To(Equal(expectedMessage))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying total DPU count is 3 (1 owned by first, 2 owned by second)")
+			dpuList := &provisioningv1.DPUList{}
+			Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name))).To(Succeed())
+			Expect(dpuList.Items).To(HaveLen(3))
+
+			By("Verifying the collision label is set only on the overlapping DPU")
+			Eventually(func(g Gomega) {
+				firstDPUList := &provisioningv1.DPUList{}
+				g.Expect(k8sClient.List(ctx, firstDPUList, client.InNamespace(testNS.Name),
+					client.MatchingLabels{cutil.DPUSetNameLabel: firstDPUSet.Name})).To(Succeed())
+				g.Expect(firstDPUList.Items).To(HaveLen(1))
+				g.Expect(firstDPUList.Items[0].Labels).To(HaveKeyWithValue(cutil.GenerateDPUSetCollisionLabelKey(secondDPUSet.Name), "true"))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying the DPUs owned by the second DPUSet do not have the collision label")
+			secondDPUList := &provisioningv1.DPUList{}
+			Expect(k8sClient.List(ctx, secondDPUList, client.InNamespace(testNS.Name),
+				client.MatchingLabels{cutil.DPUSetNameLabel: secondDPUSet.Name})).To(Succeed())
+			for _, dpu := range secondDPUList.Items {
+				Expect(dpu.Labels).NotTo(HaveKey(cutil.GenerateDPUSetCollisionLabelKey(secondDPUSet.Name)),
+					"DPU %s owned by second DPUSet should not have collision label", dpu.Name)
+			}
+		})
+
+		It("collision label should be removed when second DPUSet selector changes to no longer target the same DPUDevice", func() {
+			By("Creating an extra DPUDevice and DPUNode for the second DPUSet to retarget to")
+			extraDPUNodeName := fmt.Sprintf("%s%s", extraNodeNamePrefix, utilrand.String(5))
+			extraDPUDeviceName := fmt.Sprintf("%s%s", extraDeviceNamePrefix, utilrand.String(5))
+			extraDPUDevice := createDPUDevice(ctx, testNS.Name, extraDPUDeviceName, "0000-07-00", extraDPUNodeName)
+			extraDPUNode := createDPUNode(ctx, testNS.Name, extraDPUNodeName, []string{extraDPUDevice.Name})
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, extraDPUDevice))).To(Succeed())
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, extraDPUNode))).To(Succeed())
+			})
+
+			By("Creating the first DPUSet")
+			firstDPUSet := createDPUSet(firstDPUSetName)
+			Expect(k8sClient.Create(ctx, firstDPUSet)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, firstDPUSet))).To(Succeed())
+			})
+
+			By("Waiting for first DPUSet to create its DPU")
+			var firstDPU provisioningv1.DPU
+			Eventually(func(g Gomega) {
+				dpuList := &provisioningv1.DPUList{}
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name),
+					client.MatchingLabels{cutil.DPUSetNameLabel: firstDPUSet.Name})).To(Succeed())
+				g.Expect(dpuList.Items).To(HaveLen(1))
+				firstDPU = dpuList.Items[0]
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Creating the second DPUSet targeting the same DPUDevice (no selector)")
+			secondDPUSet := createDPUSet(secondDPUSetName)
+			Expect(k8sClient.Create(ctx, secondDPUSet)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, secondDPUSet))).To(Succeed())
+			})
+
+			By("Verifying the collision label is set on the first DPUSet's DPU")
+			collisionKey := cutil.GenerateDPUSetCollisionLabelKey(secondDPUSet.Name)
+			Eventually(func(g Gomega) {
+				freshDPU := &provisioningv1.DPU{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&firstDPU), freshDPU)).To(Succeed())
+				g.Expect(freshDPU.Labels).To(HaveKeyWithValue(collisionKey, "true"))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Updating the second DPUSet selector to target only the extra DPUDevice")
+			fetched := &provisioningv1.DPUSet{}
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(secondDPUSet), fetched)).To(Succeed())
+			labelPatch := client.MergeFrom(fetched.DeepCopy())
+			fetched.Spec.DPUDeviceSelector = &metav1.LabelSelector{
+				MatchLabels: map[string]string{provisioningv1.DPUNodeNameLabel: extraDPUNodeName},
+			}
+			Expect(k8sClient.Patch(ctx, fetched, labelPatch)).To(Succeed())
+
+			By("Verifying the collision label is removed from the first DPUSet's DPU")
+			Eventually(func(g Gomega) {
+				freshDPU := &provisioningv1.DPU{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&firstDPU), freshDPU)).To(Succeed())
+				g.Expect(freshDPU.Labels).NotTo(HaveKey(collisionKey))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
+		It("collision label should be removed when the colliding DPUSet is deleted", func() {
+			By("Creating the first DPUSet")
+			firstDPUSet := createDPUSet(firstDPUSetName)
+			Expect(k8sClient.Create(ctx, firstDPUSet)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, firstDPUSet))).To(Succeed())
+			})
+
+			By("Waiting for first DPUSet to create its DPU")
+			var firstDPU provisioningv1.DPU
+			Eventually(func(g Gomega) {
+				dpuList := &provisioningv1.DPUList{}
+				g.Expect(k8sClient.List(ctx, dpuList, client.InNamespace(testNS.Name),
+					client.MatchingLabels{cutil.DPUSetNameLabel: firstDPUSet.Name})).To(Succeed())
+				g.Expect(dpuList.Items).To(HaveLen(1))
+				firstDPU = dpuList.Items[0]
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Creating the second DPUSet targeting the same DPUDevice")
+			secondDPUSet := createDPUSet(secondDPUSetName)
+			Expect(k8sClient.Create(ctx, secondDPUSet)).To(Succeed())
+
+			By("Verifying the collision label is set on the first DPUSet's DPU")
+			collisionKey := cutil.GenerateDPUSetCollisionLabelKey(secondDPUSet.Name)
+			Eventually(func(g Gomega) {
+				freshDPU := &provisioningv1.DPU{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&firstDPU), freshDPU)).To(Succeed())
+				g.Expect(freshDPU.Labels).To(HaveKeyWithValue(collisionKey, "true"))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Deleting the second DPUSet")
+			Expect(k8sClient.Delete(ctx, secondDPUSet)).To(Succeed())
+
+			By("Waiting for the second DPUSet to be fully deleted")
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(secondDPUSet), &provisioningv1.DPUSet{})
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(client.IgnoreNotFound(err)).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("Verifying the collision label is removed from the first DPUSet's DPU")
+			Eventually(func(g Gomega) {
+				freshDPU := &provisioningv1.DPU{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&firstDPU), freshDPU)).To(Succeed())
+				g.Expect(freshDPU.Labels).NotTo(HaveKey(collisionKey))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 	})
 })

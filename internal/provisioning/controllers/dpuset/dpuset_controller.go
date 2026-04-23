@@ -155,8 +155,29 @@ func (r *DPUSetReconciler) reconcileDelete(ctx context.Context, dpuSet *provisio
 		return fmt.Errorf("not all DPUs are deleted")
 	}
 
+	if err := r.cleanupCollisionLabels(ctx, dpuSet); err != nil {
+		return fmt.Errorf("failed to clean up collision labels: %w", err)
+	}
+
 	controllerutil.RemoveFinalizer(dpuSet, provisioningv1.DPUSetFinalizer)
 
+	return nil
+}
+
+// cleanupCollisionLabels removes this DPUSet's collision label from all DPUs that have it.
+func (r *DPUSetReconciler) cleanupCollisionLabels(ctx context.Context, dpuSet *provisioningv1.DPUSet) error {
+	collisionKey := cutil.GenerateDPUSetCollisionLabelKey(dpuSet.Name)
+	dpuList := &provisioningv1.DPUList{}
+	if err := r.List(ctx, dpuList, client.InNamespace(dpuSet.Namespace), client.MatchingLabels{
+		collisionKey: "true",
+	}); err != nil {
+		return fmt.Errorf("failed to list DPUs with collision label for DPUSet %s: %w", dpuSet.Name, err)
+	}
+	for i := range dpuList.Items {
+		if err := r.removeCollisionLabel(ctx, &dpuList.Items[i], collisionKey); err != nil {
+			return fmt.Errorf("failed to remove collision label from DPU %s: %w", dpuList.Items[i].Name, err)
+		}
+	}
 	return nil
 }
 
@@ -208,8 +229,12 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 		return ctrl.Result{}, fmt.Errorf("failed to get DPU map %w", err)
 	}
 
-	dpusCreated, err := r.createMissingDPUs(ctx, dpuSet, dpuDeviceMap, dpuMap)
+	dpusCreated, dpusOwnedByOtherDPUSet, err := r.createMissingDPUs(ctx, dpuSet, dpuDeviceMap, dpuMap)
 	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if err := r.removeStaleCollisionLabels(ctx, dpuSet, dpuDeviceMap); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -244,7 +269,7 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 	// Check if any DPU changes were made (created or updated)
 	dpusChanged := dpusCreated || dpusUpdated
 
-	if err := r.UpdateDPUSetStatus(ctx, dpuSet, dpusChanged); err != nil {
+	if err := r.UpdateDPUSetStatus(ctx, dpuSet, dpusChanged, len(dpuDeviceMap), dpusOwnedByOtherDPUSet); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update DPUSet status: %w", err)
 	}
 
@@ -596,7 +621,7 @@ func (r *DPUSetReconciler) collectDPUStatistics(dpuMap map[string]provisioningv1
 	return dpuStatistics
 }
 
-func (r *DPUSetReconciler) UpdateDPUSetStatus(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpusChanged bool) error {
+func (r *DPUSetReconciler) UpdateDPUSetStatus(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpusChanged bool, totalSelectedDPUs int, dpusOwnedByOtherDPUSet int) error {
 	dpuMap, err := r.GetDPUsMap(ctx, dpuSet)
 	if err != nil {
 		return fmt.Errorf("failed to get DPU map from cache: %w", err)
@@ -637,17 +662,24 @@ func (r *DPUSetReconciler) UpdateDPUSetStatus(ctx context.Context, dpuSet *provi
 		}
 	}
 
-	if dpuSetReady {
+	switch {
+	case dpuSetReady && dpusOwnedByOtherDPUSet == 0:
 		conditions.AddTrue(dpuSet, conditions.TypeReady)
-	} else {
+	case dpusOwnedByOtherDPUSet > 0:
+		dpusOwnedMsg := fmt.Sprintf("%d/%d DPU(s) cannot be provisioned, owned by another DPUSet. To identify the conflicting DPUs, filter the DPUs by the label: %s",
+			dpusOwnedByOtherDPUSet, totalSelectedDPUs, cutil.GenerateDPUSetCollisionLabelKey(dpuSet.Name))
+		conditions.AddFalse(dpuSet, conditions.TypeReady, conditions.ReasonPending,
+			conditions.ConditionMessage(dpusOwnedMsg))
+	default:
 		conditions.AddFalse(dpuSet, conditions.TypeReady, conditions.ReasonPending, "Some DPUs are not ready")
 	}
 
 	return nil
 }
 
-func (r *DPUSetReconciler) createMissingDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuDeviceMap map[string]provisioningv1.DPUDevice, dpuMap map[string]provisioningv1.DPU) (bool, error) {
+func (r *DPUSetReconciler) createMissingDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuDeviceMap map[string]provisioningv1.DPUDevice, dpuMap map[string]provisioningv1.DPU) (bool, int, error) {
 	dpusCreated := false
+	dpusOwnedByOtherDPUSet := 0
 	logger := log.FromContext(ctx)
 	for dpuDeviceName, dpuDevice := range dpuDeviceMap {
 		var err error
@@ -664,13 +696,94 @@ func (r *DPUSetReconciler) createMissingDPUs(ctx context.Context, dpuSet *provis
 			err = r.createDPU(ctx, dpuSet, &dpuDevice)
 			if err == nil {
 				dpusCreated = true
+			} else if apierrors.IsAlreadyExists(err) {
+				owned, labelErr := r.isDPUOwnedByOtherDPUSet(ctx, dpuSet, &dpuDevice)
+				if labelErr != nil {
+					return dpusCreated, dpusOwnedByOtherDPUSet, labelErr
+				}
+				if owned {
+					dpusOwnedByOtherDPUSet++
+				}
+				continue
 			}
 		}
 		if err != nil {
-			return dpusCreated, err
+			return dpusCreated, dpusOwnedByOtherDPUSet, err
 		}
 	}
-	return dpusCreated, nil
+	return dpusCreated, dpusOwnedByOtherDPUSet, nil
+}
+
+func (r *DPUSetReconciler) isDPUOwnedByOtherDPUSet(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuDevice *provisioningv1.DPUDevice) (bool, error) {
+	logger := log.FromContext(ctx)
+	existingDPU := &provisioningv1.DPU{}
+	dpuName := cutil.GenerateDPUName(dpuDevice.Labels[provisioningv1.DPUNodeNameLabel], dpuDevice.Name)
+	if err := r.Get(ctx, types.NamespacedName{Name: dpuName, Namespace: dpuSet.Namespace}, existingDPU); err != nil {
+		return false, nil
+	}
+	ownerDPUSetName := existingDPU.Labels[cutil.DPUSetNameLabel]
+	if ownerDPUSetName == dpuSet.Name {
+		return false, nil
+	}
+
+	if err := r.addCollisionLabel(ctx, existingDPU, dpuSet.Name); err != nil {
+		return false, fmt.Errorf("failed to add collision label to DPU %s/%s: %w", existingDPU.Namespace, existingDPU.Name, err)
+	}
+
+	if ownerDPUSetName == "" {
+		logger.Info(fmt.Sprintf("DPU %s/%s exists but has no owner label - cannot be managed by this DPUSet",
+			existingDPU.Namespace, existingDPU.Name))
+	} else {
+		logger.Info(fmt.Sprintf("DPU %s/%s already owned by DPUSet %s",
+			existingDPU.Namespace, existingDPU.Name, ownerDPUSetName))
+	}
+	return true, nil
+}
+
+// addCollisionLabel adds the dpuset-collision label to a DPU to indicate that
+// another DPUSet attempted to claim it.
+func (r *DPUSetReconciler) addCollisionLabel(ctx context.Context, dpu *provisioningv1.DPU, dpuSetName string) error {
+	collisionKey := cutil.GenerateDPUSetCollisionLabelKey(dpuSetName)
+	if dpu.Labels[collisionKey] == "true" {
+		return nil
+	}
+	patcher := patch.NewSerialPatcher(dpu, r.Client)
+	if dpu.Labels == nil {
+		dpu.Labels = make(map[string]string)
+	}
+	dpu.Labels[collisionKey] = "true"
+	return patcher.Patch(ctx, dpu)
+}
+
+// removeCollisionLabel removes the given collision label key from a DPU.
+func (r *DPUSetReconciler) removeCollisionLabel(ctx context.Context, dpu *provisioningv1.DPU, collisionKey string) error {
+	if _, exists := dpu.Labels[collisionKey]; !exists {
+		return nil
+	}
+	patcher := patch.NewSerialPatcher(dpu, r.Client)
+	delete(dpu.Labels, collisionKey)
+	return patcher.Patch(ctx, dpu)
+}
+
+// removeStaleCollisionLabels removes this DPUSet's collision label from DPUs whose
+// DPUDevice is no longer targeted by this DPUSet (e.g. selector changed).
+func (r *DPUSetReconciler) removeStaleCollisionLabels(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuDeviceMap map[string]provisioningv1.DPUDevice) error {
+	collisionKey := cutil.GenerateDPUSetCollisionLabelKey(dpuSet.Name)
+	dpuList := &provisioningv1.DPUList{}
+	if err := r.List(ctx, dpuList, client.InNamespace(dpuSet.Namespace), client.MatchingLabels{
+		collisionKey: "true",
+	}); err != nil {
+		return fmt.Errorf("failed to list DPUs with collision label for DPUSet %s: %w", dpuSet.Name, err)
+	}
+	for i := range dpuList.Items {
+		dpu := &dpuList.Items[i]
+		if _, targeted := dpuDeviceMap[dpu.Spec.DPUDeviceName]; !targeted {
+			if err := r.removeCollisionLabel(ctx, dpu, collisionKey); err != nil {
+				return fmt.Errorf("failed to remove collision label from DPU %s: %w", dpu.Name, err)
+			}
+		}
+	}
+	return nil
 }
 
 func (r *DPUSetReconciler) deleteStaleDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuDeviceMap map[string]provisioningv1.DPUDevice, dpuMap map[string]provisioningv1.DPU) error {
