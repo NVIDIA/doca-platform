@@ -21,6 +21,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -35,6 +37,8 @@ import (
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -85,32 +89,97 @@ var describeCmd = &cobra.Command{
 	Example: fmt.Sprintf(exampleCmds, rootCmd.Root().Name(), "<all,dpuclusters,dpudeployments,dpusets,dpuservices,dpuvpcs,storage>"),
 }
 
+// dpfAPIGroups are the API groups queried via discovery to determine which
+// resources are actually installed on the cluster.
+var dpfAPIGroups = []schema.GroupVersion{
+	operatorv1.GroupVersion,
+	provisioningv1.GroupVersion,
+	dpuservicev1.GroupVersion,
+	vpcv1.GroupVersion,
+}
+
+// completeResourceKinds queries the API server for installed resources in our
+// API groups and returns their plural names.
+func completeResourceKinds() []string {
+	config, err := ctrl.GetConfig()
+	if err != nil {
+		return []string{}
+	}
+
+	dc, err := discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
+		return []string{}
+	}
+
+	result := []string{"all"}
+	for _, group := range dpfAPIGroups {
+		resources, err := dc.ServerResourcesForGroupVersion(group.String())
+		if err != nil {
+			continue
+		}
+		for _, r := range resources.APIResources {
+			// Skip subresources (e.g. dpusets/status).
+			if strings.Contains(r.Name, "/") {
+				continue
+			}
+			result = append(result, r.Name)
+		}
+	}
+
+	sort.Strings(result)
+	return result
+}
+
 func init() {
 	rootCmd.AddCommand(describeCmd)
 
 	describeCmd.Flags().StringVar(&opts.showOtherConditions, "show-conditions", "",
 		"list of comma separated kind or kind/name for which the command should show all the object's conditions (use 'all' to show conditions for everything).")
+	must(describeCmd.RegisterFlagCompletionFunc("show-conditions", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return completeResourceKinds(), cobra.ShellCompDirectiveNoFileComp
+	}))
 
 	describeCmd.Flags().StringVar(&opts.showResources, "show-resources", "",
 		"list of comma separated kind or kind/name for which the command should show all the object's resources (default value is 'all').")
+	must(describeCmd.RegisterFlagCompletionFunc("show-resources", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return completeResourceKinds(), cobra.ShellCompDirectiveNoFileComp
+	}))
 
 	describeCmd.Flags().StringVar(&opts.expandResources, "expand-resources", "",
-		"list of comma separated kind or kind/name for which the command should show all the object's child resources (default value is '', 'failed' to expand only failed DPUServices).")
+		"list of comma separated kind or kind/name for which the command should show all the object's child resources (default value is '').")
+	must(describeCmd.RegisterFlagCompletionFunc("expand-resources", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return completeResourceKinds(), cobra.ShellCompDirectiveNoFileComp
+	}))
 
 	describeCmd.Flags().BoolVar(&opts.grouping, "grouping", true,
 		"enable grouping of objects by kind.")
+	must(describeCmd.RegisterFlagCompletionFunc("grouping", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp
+	}))
 
 	describeCmd.Flags().BoolVarP(&opts.color, "color", "c", true,
 		"Enable or disable color output; if not set color is enabled by default only if using tty. The flag is overridden by the NO_COLOR env variable if set.")
+	must(describeCmd.RegisterFlagCompletionFunc("color", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp
+	}))
 
 	describeCmd.Flags().StringVarP(&opts.output, "output", "o", "table",
 		"Output format. One of: table, json, yaml.")
+	must(describeCmd.RegisterFlagCompletionFunc("output", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"table", "json", "yaml"}, cobra.ShellCompDirectiveNoFileComp
+	}))
 
 	describeCmd.Flags().BoolVar(&opts.showPending, "show-pending", false,
 		"Show conditions with Reason=Pending and Status=Unknown. These are hidden by default as they represent transient states.")
+	must(describeCmd.RegisterFlagCompletionFunc("show-pending", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp
+	}))
 
 	describeCmd.Flags().BoolVar(&opts.issues, "issues", false,
 		"Show only resources with issues (non-Ready conditions). Healthy subtrees are hidden.")
+	must(describeCmd.RegisterFlagCompletionFunc("issues", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp
+	}))
 
 	// TODO: decide if we want to use Kubernetes cli-runtime here instead of the controller-runtime flags.
 	// The cli-runtime has alot dependencies, but brings several generic flags that can be useful.
@@ -177,4 +246,10 @@ func newClient() (client.Client, error) {
 	_ = corev1.AddToScheme(scheme)
 
 	return client.New(config, client.Options{Scheme: scheme})
+}
+
+func must(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
