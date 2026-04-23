@@ -18,6 +18,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -25,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -691,4 +693,428 @@ var _ = Describe("DPUSetReconciler rolloutRolling", func() {
 			},
 		}, true),
 	)
+})
+
+var _ = Describe("DPUSetReconciler collision labels", func() {
+	var (
+		ctx        context.Context
+		reconciler *DPUSetReconciler
+		scheme     *runtime.Scheme
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		scheme = runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+	})
+
+	Context("DPU owned by another DPUSet", func() {
+		const collisionDPUSetName = "colliding-dpuset"
+
+		Context("cleanupCollisionLabels", func() {
+			It("should remove the collision label from every DPU that has it", func() {
+				collisionKey := cutil.GenerateDPUSetCollisionLabelKey(collisionDPUSetName)
+
+				dpuWithCollision1 := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "dpu-with-collision-1",
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							cutil.DPUSetNameLabel: "owner-dpuset",
+							collisionKey:          "true",
+						},
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUDeviceName: "device-1",
+					},
+				}
+
+				dpuWithCollision2 := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "dpu-with-collision-2",
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							cutil.DPUSetNameLabel: "owner-dpuset",
+							collisionKey:          "true",
+						},
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUDeviceName: "device-2",
+					},
+				}
+
+				dpuWithoutCollision := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "dpu-without-collision",
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							cutil.DPUSetNameLabel: "owner-dpuset",
+						},
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUDeviceName: "device-3",
+					},
+				}
+
+				dpuSet := &provisioningv1.DPUSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      collisionDPUSetName,
+						Namespace: testNamespace,
+					},
+				}
+
+				fakeClient := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(dpuWithCollision1, dpuWithCollision2, dpuWithoutCollision).
+					Build()
+
+				reconciler = &DPUSetReconciler{
+					Client: fakeClient,
+					Scheme: scheme,
+				}
+
+				Expect(reconciler.cleanupCollisionLabels(ctx, dpuSet)).To(Succeed())
+
+				dpu := &provisioningv1.DPU{}
+				Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(dpuWithCollision1), dpu)).To(Succeed())
+				Expect(dpu.Labels).NotTo(HaveKey(collisionKey))
+
+				dpu = &provisioningv1.DPU{}
+				Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(dpuWithCollision2), dpu)).To(Succeed())
+				Expect(dpu.Labels).NotTo(HaveKey(collisionKey))
+
+				dpu = &provisioningv1.DPU{}
+				Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(dpuWithoutCollision), dpu)).To(Succeed())
+				Expect(dpu.Labels).NotTo(HaveKey(collisionKey))
+				Expect(dpu.Labels).To(HaveKeyWithValue(cutil.DPUSetNameLabel, "owner-dpuset"))
+			})
+
+			It("should succeed without modifying DPUs when none have the collision label", func() {
+				dpuNoLabel := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "dpu-no-collision",
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							cutil.DPUSetNameLabel: "owner-dpuset",
+						},
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUDeviceName: "device-1",
+					},
+				}
+
+				dpuSet := &provisioningv1.DPUSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      collisionDPUSetName,
+						Namespace: testNamespace,
+					},
+				}
+
+				fakeClient := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(dpuNoLabel).
+					Build()
+
+				reconciler = &DPUSetReconciler{
+					Client: fakeClient,
+					Scheme: scheme,
+				}
+
+				Expect(reconciler.cleanupCollisionLabels(ctx, dpuSet)).To(Succeed())
+
+				dpu := &provisioningv1.DPU{}
+				Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(dpuNoLabel), dpu)).To(Succeed())
+				Expect(dpu.Labels).To(HaveKeyWithValue(cutil.DPUSetNameLabel, "owner-dpuset"))
+			})
+
+			It("should only remove collision labels in the DPUSet's namespace", func() {
+				collisionKey := cutil.GenerateDPUSetCollisionLabelKey(collisionDPUSetName)
+
+				dpuSameNamespace := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "dpu-same-ns",
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							collisionKey: "true",
+						},
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUDeviceName: "device-1",
+					},
+				}
+
+				dpuOtherNamespace := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "dpu-other-ns",
+						Namespace: "other-namespace",
+						Labels: map[string]string{
+							collisionKey: "true",
+						},
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUDeviceName: "device-2",
+					},
+				}
+
+				dpuSet := &provisioningv1.DPUSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      collisionDPUSetName,
+						Namespace: testNamespace,
+					},
+				}
+
+				fakeClient := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(dpuSameNamespace, dpuOtherNamespace).
+					Build()
+
+				reconciler = &DPUSetReconciler{
+					Client: fakeClient,
+					Scheme: scheme,
+				}
+
+				Expect(reconciler.cleanupCollisionLabels(ctx, dpuSet)).To(Succeed())
+
+				dpu := &provisioningv1.DPU{}
+				Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(dpuSameNamespace), dpu)).To(Succeed())
+				Expect(dpu.Labels).NotTo(HaveKey(collisionKey))
+
+				dpu = &provisioningv1.DPU{}
+				Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(dpuOtherNamespace), dpu)).To(Succeed())
+				Expect(dpu.Labels).To(HaveKeyWithValue(collisionKey, "true"))
+			})
+		})
+
+		Context("removeStaleCollisionLabels", func() {
+			It("should remove collision label from DPUs whose device is no longer targeted", func() {
+				collisionKey := cutil.GenerateDPUSetCollisionLabelKey(collisionDPUSetName)
+
+				dpuStale := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "dpu-stale",
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							cutil.DPUSetNameLabel: "owner-dpuset",
+							collisionKey:          "true",
+						},
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUDeviceName: "device-no-longer-targeted",
+					},
+				}
+
+				dpuStillTargeted := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "dpu-still-targeted",
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							cutil.DPUSetNameLabel: "owner-dpuset",
+							collisionKey:          "true",
+						},
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUDeviceName: "device-still-targeted",
+					},
+				}
+
+				dpuSet := &provisioningv1.DPUSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      collisionDPUSetName,
+						Namespace: testNamespace,
+					},
+				}
+
+				dpuDeviceMap := map[string]provisioningv1.DPUDevice{
+					"device-still-targeted": {
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "device-still-targeted",
+							Namespace: testNamespace,
+						},
+					},
+				}
+
+				fakeClient := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(dpuStale, dpuStillTargeted).
+					Build()
+
+				reconciler = &DPUSetReconciler{
+					Client: fakeClient,
+					Scheme: scheme,
+				}
+
+				Expect(reconciler.removeStaleCollisionLabels(ctx, dpuSet, dpuDeviceMap)).To(Succeed())
+
+				dpu := &provisioningv1.DPU{}
+				Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(dpuStale), dpu)).To(Succeed())
+				Expect(dpu.Labels).NotTo(HaveKey(collisionKey))
+				Expect(dpu.Labels).To(HaveKeyWithValue(cutil.DPUSetNameLabel, "owner-dpuset"))
+
+				dpu = &provisioningv1.DPU{}
+				Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(dpuStillTargeted), dpu)).To(Succeed())
+				Expect(dpu.Labels).To(HaveKeyWithValue(collisionKey, "true"))
+			})
+
+			It("should remove all collision labels when dpuDeviceMap is empty", func() {
+				collisionKey := cutil.GenerateDPUSetCollisionLabelKey(collisionDPUSetName)
+
+				dpu1 := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "dpu-1",
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							collisionKey: "true",
+						},
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUDeviceName: "device-1",
+					},
+				}
+
+				dpu2 := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "dpu-2",
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							collisionKey: "true",
+						},
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUDeviceName: "device-2",
+					},
+				}
+
+				dpuSet := &provisioningv1.DPUSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      collisionDPUSetName,
+						Namespace: testNamespace,
+					},
+				}
+
+				fakeClient := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(dpu1, dpu2).
+					Build()
+
+				reconciler = &DPUSetReconciler{
+					Client: fakeClient,
+					Scheme: scheme,
+				}
+
+				Expect(reconciler.removeStaleCollisionLabels(ctx, dpuSet, map[string]provisioningv1.DPUDevice{})).To(Succeed())
+
+				dpu := &provisioningv1.DPU{}
+				Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(dpu1), dpu)).To(Succeed())
+				Expect(dpu.Labels).NotTo(HaveKey(collisionKey))
+
+				dpu = &provisioningv1.DPU{}
+				Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(dpu2), dpu)).To(Succeed())
+				Expect(dpu.Labels).NotTo(HaveKey(collisionKey))
+			})
+
+			It("should succeed without modifying DPUs when none have the collision label", func() {
+				dpuNoLabel := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "dpu-no-collision",
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							cutil.DPUSetNameLabel: "owner-dpuset",
+						},
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUDeviceName: "device-1",
+					},
+				}
+
+				dpuSet := &provisioningv1.DPUSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      collisionDPUSetName,
+						Namespace: testNamespace,
+					},
+				}
+
+				dpuDeviceMap := map[string]provisioningv1.DPUDevice{
+					"device-1": {},
+				}
+
+				fakeClient := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(dpuNoLabel).
+					Build()
+
+				reconciler = &DPUSetReconciler{
+					Client: fakeClient,
+					Scheme: scheme,
+				}
+
+				Expect(reconciler.removeStaleCollisionLabels(ctx, dpuSet, dpuDeviceMap)).To(Succeed())
+
+				dpu := &provisioningv1.DPU{}
+				Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(dpuNoLabel), dpu)).To(Succeed())
+				Expect(dpu.Labels).To(HaveKeyWithValue(cutil.DPUSetNameLabel, "owner-dpuset"))
+			})
+
+			It("should keep collision labels when all labeled DPUs are still targeted", func() {
+				collisionKey := cutil.GenerateDPUSetCollisionLabelKey(collisionDPUSetName)
+
+				dpu1 := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "dpu-1",
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							collisionKey: "true",
+						},
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUDeviceName: "device-1",
+					},
+				}
+
+				dpu2 := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "dpu-2",
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							collisionKey: "true",
+						},
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUDeviceName: "device-2",
+					},
+				}
+
+				dpuSet := &provisioningv1.DPUSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      collisionDPUSetName,
+						Namespace: testNamespace,
+					},
+				}
+
+				dpuDeviceMap := map[string]provisioningv1.DPUDevice{
+					"device-1": {},
+					"device-2": {},
+				}
+
+				fakeClient := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(dpu1, dpu2).
+					Build()
+
+				reconciler = &DPUSetReconciler{
+					Client: fakeClient,
+					Scheme: scheme,
+				}
+
+				Expect(reconciler.removeStaleCollisionLabels(ctx, dpuSet, dpuDeviceMap)).To(Succeed())
+
+				dpu := &provisioningv1.DPU{}
+				Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(dpu1), dpu)).To(Succeed())
+				Expect(dpu.Labels).To(HaveKeyWithValue(collisionKey, "true"))
+
+				dpu = &provisioningv1.DPU{}
+				Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(dpu2), dpu)).To(Succeed())
+				Expect(dpu.Labels).To(HaveKeyWithValue(collisionKey, "true"))
+			})
+		})
+	})
 })
