@@ -64,3 +64,9 @@ func printVersion() error {
 	fmt.Printf("Client Version: %s\n", version)
 	return nil
 }
+
+func must(err error) {
+	if err != nil {
+		panic(err)
+	}
+}

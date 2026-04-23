@@ -8,7 +8,7 @@ This section provides comprehensive troubleshooting guidance for common issues y
 
 ## Quick Diagnostic Tools
 
-### [DPF CLI (dpfctl)](dpfctl.md)
+### [DPF CLI (dpfctl)](dpfctl/README.md)
 Command-line tool for visualizing, debugging, and troubleshooting DPU resources in Kubernetes. Essential for real-time visibility into resource states and conditions.
 
 **Use when:**
@@ -17,8 +17,8 @@ Command-line tool for visualizing, debugging, and troubleshooting DPU resources 
 * Need to understand resource dependencies
 * Debugging component readiness issues
 
-### [System Reports (sosreport)](sos-report.md)
-Generate comprehensive system reports for deeper analysis and support requests.
+### [SOS Report Collection (dpfctl sosreport)](dpfctl/sosreport.md)
+Collect system diagnostics from host and DPU cluster nodes for support cases.
 
 **Use when:**
 
@@ -36,7 +36,7 @@ If a `ServiceChain` or `ServiceChainSet` is stuck at `Ready=False` or flapping b
 If you cannot resolve the issue using the guides above:
 
 1. **Collect Diagnostic Information**
-   * Generate a [sosreport](sos-report.md) for your environment
+   * Collect a [sosreport](dpfctl/sosreport.md) for your environment
 
 2. **Check Known Issues**
    * Review [Release Notes](../release-notes/README.md) for known issues

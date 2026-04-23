@@ -18,7 +18,7 @@ current major version. Patch upgrades are always supported. Skipping major versi
 
 ## Ensuring Deployment Readiness
 
-Use [`dpfctl`](../troubleshooting/dpfctl.md) to verify that your DPFOperatorConfig and all DPU resources are in a
+Use [`dpfctl`](../troubleshooting/dpfctl/README.md) to verify that your DPFOperatorConfig and all DPU resources are in a
 `Ready` state before performing maintenance operations.
 
 ## DPF Operator Upgrade
