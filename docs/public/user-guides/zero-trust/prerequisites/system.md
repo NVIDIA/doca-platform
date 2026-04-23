@@ -34,6 +34,7 @@ Each workload machine has the following characteristics:
 * 32 GB memory
 * Flashed with NVIDIA BFB with DOCA version 2.5 or higher
 * out-of-band management port must be connected to the management network
+* All the firmware on the DPU (BMC, CEC, UEFI, etc...) must be of the same supported DOCA bundle. For example, see the [DOCA 3.3 Embedded Firmware Components table](https://docs.nvidia.com/doca/sdk/general-support/index.html#src-4734124965_id-.GeneralSupportv3.3.0LC-EmbeddedDOCAFirmwareComponents-BlueField)
 
 ### Control Plane Nodes with BlueField DPUs
 

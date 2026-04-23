@@ -1455,7 +1455,7 @@ spec:
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
                   osInstallTimeout:
-                    default: 45m
+                    default: 60m
                     description: |-
                       OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
                       If the installation exceeds this timeout, the DPU will transition to an error state.
