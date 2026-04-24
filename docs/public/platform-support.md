@@ -42,6 +42,26 @@ The following NVIDIA BlueField 3 DPU models are recommended for DPF:
 * [B3220](https://docs.nvidia.com/networking/display/bf3dpu/specifications#src-2449222537_Specifications-B3220DPUsSpecifications)
 * [B3210](https://docs.nvidia.com/networking/display/bf3dpu/specifications#src-2449222537_Specifications-B3210DPUsSpecifications)
 
+## BlueField BFB Support Matrix
+
+The following matrix shows which BFB versions are supported with each DPF release.
+
+| BFB Version | DPF v25.10 | DPF v26.4 |
+|-------------|------------|-----------|
+| 3.2 (LTS)   | ✅          | ☑️        |
+| 3.4 (Apr)   | ❌          | ✅         |
+
+* ✅: The BFB version is fully tested and supported with this DPF release.
+* ☑️: DPUs running this BFB version are allowed to operate under this DPF release. However, in a support case,
+  updating to the latest supported BFB will be required before further investigation.
+* ❌: This combination is not supported.
+
+> [!NOTE]
+> Non-LTS BFB versions (3.3, 3.5) are only supported with their corresponding DPF release and are not carried forward.
+> DPF supports the latest LTS BFB version and allows upgrades from LTS to LTS. Older LTS versions are permitted to
+> operate but are considered unsupported. In a support case, updating to the latest supported BFB will be required
+> before further investigation.
+
 ## BlueField DPU Requirements
 
 | Component      | Minimum Version | Notes                                                                                                |
