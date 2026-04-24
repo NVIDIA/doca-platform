@@ -18,7 +18,6 @@ package cmd
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/nvidia/doca-platform/internal/dpfctl/sosreport"
 
@@ -81,13 +80,6 @@ subdirectory is created automatically (use --nfs-no-subdir to disable).`,
 func init() {
 	sosreportCmd.AddCommand(sosreportStartCmd)
 
-	f := sosreportStartCmd.Flags()
-	f.StringVar(&sosOpts.caseID, "case-id", "", "Case ID for the SOS report (default: dpf-<timestamp>)")
-	f.StringVar(&sosOpts.nfsServer, "nfs-server", "", "NFS server address (enables NFS output mode)")
-	f.StringVar(&sosOpts.nfsPath, "nfs-path", "", "NFS export path (must exist on the NFS server)")
-	f.BoolVar(&sosOpts.nfsNoSub, "nfs-no-subdir", false, "Write directly to --nfs-path without creating a subdirectory")
-	must(sosreportStartCmd.RegisterFlagCompletionFunc("nfs-no-subdir", cobra.FixedCompletions([]string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp)))
-
-	f.DurationVar(&sosOpts.timeout, "timeout", 30*time.Minute, "Job active deadline timeout")
-	must(sosreportStartCmd.RegisterFlagCompletionFunc("timeout", cobra.FixedCompletions([]string{"5m", "15m", "30m", "1h"}, cobra.ShellCompDirectiveNoFileComp)))
+	addStartFlags(sosreportStartCmd)
+	addArchiveFlags(sosreportStartCmd)
 }

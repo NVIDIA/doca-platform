@@ -51,26 +51,13 @@ then running 'download'.`,
 func init() {
 	sosreportCmd.AddCommand(sosreportCollectCmd)
 
+	addStartFlags(sosreportCollectCmd)
+	addDownloadFlags(sosreportCollectCmd)
+	addArchiveFlags(sosreportCollectCmd)
+
 	f := sosreportCollectCmd.Flags()
-	f.StringVar(&sosOpts.caseID, "case-id", "", "Case ID for the SOS report (default: dpf-<timestamp>)")
-	f.StringVar(&sosOpts.nfsServer, "nfs-server", "", "NFS server address (enables NFS output mode)")
-	f.StringVar(&sosOpts.nfsPath, "nfs-path", "", "NFS export path (must exist on the NFS server)")
-	f.BoolVar(&sosOpts.nfsNoSub, "nfs-no-subdir", false, "Write directly to --nfs-path without creating a subdirectory")
-	must(sosreportCollectCmd.RegisterFlagCompletionFunc("nfs-no-subdir", cobra.FixedCompletions([]string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp)))
-
-	f.DurationVar(&sosOpts.timeout, "timeout", 30*time.Minute, "Job active deadline timeout")
-	must(sosreportCollectCmd.RegisterFlagCompletionFunc("timeout", cobra.FixedCompletions([]string{"5m", "15m", "30m", "1h"}, cobra.ShellCompDirectiveNoFileComp)))
-
-	f.StringVar(&sosOpts.outputDir, "output-dir", "", "Local directory for downloaded reports (default: sosreport-<timestamp>)")
-	must(sosreportCollectCmd.RegisterFlagCompletionFunc("output-dir", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		return nil, cobra.ShellCompDirectiveFilterDirs
-	}))
-
 	f.BoolVar(&sosOpts.cleanup, "cleanup", true, "Clean up resources after download")
 	must(sosreportCollectCmd.RegisterFlagCompletionFunc("cleanup", cobra.FixedCompletions([]string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp)))
-
-	f.BoolVar(&sosOpts.archive, "archive", false, "Create a .tar.gz archive of all downloaded reports")
-	must(sosreportCollectCmd.RegisterFlagCompletionFunc("archive", cobra.FixedCompletions([]string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp)))
 }
 
 func runSOSReportCollect(ctx context.Context) error {
@@ -114,8 +101,19 @@ func runSOSReportCollect(ctx context.Context) error {
 
 	// Step 3: For NFS mode, just clean up. For local mode, download then prompt for cleanup.
 	if opts.Output == sosreport.OutputNFS {
+		if opts.NFSSubDir != "" {
+			if sosOpts.archiveOnly {
+				sosreport.Result("Archive created on NFS: %s/%s.tar.gz", opts.NFSPath, opts.NFSSubDir)
+			} else {
+				sosreport.Result("Reports written to NFS: %s/%s", opts.NFSPath, opts.NFSSubDir)
+				if sosOpts.archive {
+					sosreport.Result("Archive created on NFS: %s/%s.tar.gz", opts.NFSPath, opts.NFSSubDir)
+				}
+			}
+		} else {
+			sosreport.Result("Reports written to NFS: %s", opts.NFSPath)
+		}
 		sosreport.Step("Cleaning up")
-		sosreport.Info("NFS output mode: reports were written to the configured NFS path")
 		sosreport.Cleanup(context.Background(), targets, sosOpts.namespace, opts.CaseID)
 		return nil
 	}
@@ -124,8 +122,14 @@ func runSOSReportCollect(ctx context.Context) error {
 	cleanupExplicit = true
 	sosOpts.cleanup = false
 
+	// Use a fresh context — the interrupt context (ctx) may already be
+	// canceled if the user pressed Ctrl+C during the wait phase. We still
+	// want to attempt downloading whatever reports are ready.
+	if ctx.Err() != nil {
+		sosreport.Warn("Wait was interrupted. Proceeding to download all available reports; results may be incomplete")
+	}
 	sosreport.Step("Downloading SOS reports")
-	dlCtx, dlCancel := context.WithTimeout(ctx, 10*time.Minute)
+	dlCtx, dlCancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer dlCancel()
 	if err := runSOSReportDownload(dlCtx); err != nil {
 		sosreport.Warn("Download failed: %v", err)
