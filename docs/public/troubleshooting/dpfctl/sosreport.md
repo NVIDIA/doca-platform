@@ -97,18 +97,33 @@ specified path without a subdirectory:
 dpfctl sosreport start --nfs-server 10.0.0.1 --nfs-path /exports/sos --nfs-no-subdir
 ```
 
-## Archive
-
-Use the `--archive` flag to create a single `.tar.gz` file of all downloaded reports, suitable for attaching to a
-support ticket:
+If the NFS server uses `root_squash`, use `--nfs-uid` to specify a non-root UID for creating directories and writing
+files on the NFS share:
 
 ```shell
-dpfctl sosreport collect --archive --output-dir /tmp/sos-reports
+dpfctl sosreport start --nfs-server 10.0.0.1 --nfs-path /exports/sos --nfs-uid 1000
 ```
 
-This creates `<output-dir>.tar.gz` (e.g., `/tmp/sos-reports.tar.gz`) alongside the output directory.
+## Archive
 
-The `--archive` flag is also available on the `download` subcommand:
+Use the `--archive` flag to create a single `.tar.gz` archive of all reports, suitable for attaching to a support
+ticket. This works in both local download and NFS output modes:
+
+```shell
+# Archive after local download
+dpfctl sosreport collect --archive --output-dir /tmp/sos-reports
+
+# Archive on the NFS share
+dpfctl sosreport start --nfs-server 10.0.0.1 --nfs-path /exports/sos --archive
+```
+
+Use `--archive-only` to create the archive and remove the individual report files afterwards:
+
+```shell
+dpfctl sosreport collect --archive-only --output-dir /tmp/sos-reports
+```
+
+The `--archive` and `--archive-only` flags are also available on the `download` subcommand:
 
 ```shell
 dpfctl sosreport download --archive --output-dir /tmp/sos-reports
@@ -138,10 +153,11 @@ The default refresh interval is 5 seconds. Use `-i` to change it:
 dpfctl sosreport status -w -i 10
 ```
 
-Both `status` and `cleanup` accept `--case-id` to filter by a specific collection run:
+The `status`, `download`, and `cleanup` subcommands accept `--case-id` to filter by a specific collection run:
 
 ```shell
 dpfctl sosreport status --case-id CASE-12345
+dpfctl sosreport download --case-id CASE-12345 --output-dir /tmp/sos-reports
 dpfctl sosreport cleanup --case-id CASE-12345
 ```
 
@@ -149,11 +165,14 @@ dpfctl sosreport cleanup --case-id CASE-12345
 
 These flags apply to all `sosreport` subcommands:
 
-| Flag             | Default                              | Description                                    |
-|------------------|--------------------------------------|------------------------------------------------|
-| `--target`         | `all`                                | Target environment: `host`, `dpu`, or `all`    |
-| `--dpu-cluster`    |                                      | Specific DPUCluster name (defaults to all)     |
-| `--nodes`          |                                      | Comma-separated node names (defaults to all)   |
-| `--node-selector`  |                                      | Label selector to filter nodes                 |
-| `--namespace`    | `default`                            | Namespace for Jobs and Secrets                 |
-| `--image`        | `ghcr.io/nvidia/sosreport:latest`    | SOS report container image                     |
+| Flag              | Default                           | Description                                                          |
+|-------------------|-----------------------------------|----------------------------------------------------------------------|
+| `--target`        | `all`                             | Target environment: `host`, `dpu`, or `all`                          |
+| `--dpu-cluster`   |                                   | Specific DPUCluster name (defaults to all)                           |
+| `--nodes`         |                                   | Comma-separated node names (defaults to all)                         |
+| `--node-selector` |                                   | Label selector to filter nodes                                       |
+| `--namespace`     | `default`                         | Namespace for Jobs and Secrets                                       |
+| `--image`         | `ghcr.io/nvidia/sosreport:latest` | SOS report container image                                           |
+| `--nfs-uid`       | `0`                               | UID for NFS directory creation (use non-zero when NFS has root_squash) |
+| `--archive`       | `false`                           | Create a `.tar.gz` archive of all reports                            |
+| `--archive-only`  | `false`                           | Remove individual report files after archiving (implies `--archive`) |

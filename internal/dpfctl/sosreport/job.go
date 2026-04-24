@@ -73,6 +73,9 @@ type JobOptions struct {
 	NFSServer   string
 	NFSPath     string
 	NFSSubDir   string
+	NFSUID      int64
+	Archive     bool
+	ArchiveOnly bool
 }
 
 // commonLabels returns the standard labels for all sosreport resources.
@@ -94,9 +97,9 @@ func selectorLabels() map[string]string {
 	}
 }
 
-// jobName returns the Job name for a given node.
-func jobName(nodeName string) string {
-	return fmt.Sprintf("sos-report-%s", nodeName)
+// jobName returns the Job name for a given node and case ID.
+func jobName(caseID, nodeName string) string {
+	return fmt.Sprintf("sos-%s-%s", caseID, nodeName)
 }
 
 // secretName returns the kubeconfig Secret name for a given cluster.
@@ -107,7 +110,7 @@ func secretName(clusterName string) string {
 // CreateJob creates a SOS report Job on the given cluster for the specified node.
 func CreateJob(ctx context.Context, c client.Client, opts JobOptions) (*batchv1.Job, error) {
 	labels := commonLabels(opts.CaseID, opts.NodeName, opts.ClusterName)
-	jobName := jobName(opts.NodeName)
+	jobName := jobName(opts.CaseID, opts.NodeName)
 
 	sosContainer := corev1.Container{
 		Name:            "sosreport",
@@ -135,44 +138,117 @@ func CreateJob(ctx context.Context, c client.Client, opts JobOptions) (*batchv1.
 
 	switch opts.Output {
 	case OutputNFS:
-		if opts.NFSSubDir != "" {
-			// sosreport doesn't create OUTPUT_DIR — prepend a mkdir init container.
-			initContainers = append([]corev1.Container{{
-				Name:    "mkdir",
-				Image:   opts.Image,
-				Command: []string{"mkdir", "-p", outputDir + "/" + opts.NFSSubDir},
-				VolumeMounts: []corev1.VolumeMount{
-					{MountPath: outputDir, Name: "output"},
-				},
-			}}, initContainers...)
-			// Override the OUTPUT_DIR env on the sosreport container to include the subdirectory.
-			// Find by name rather than index to avoid breakage if init container order changes.
-			for ic := range initContainers {
-				if initContainers[ic].Name != "sosreport" {
-					continue
-				}
-				for i := range initContainers[ic].Env {
-					if initContainers[ic].Env[i].Name == "OUTPUT_DIR" {
-						initContainers[ic].Env[i].Value = outputDir + "/" + opts.NFSSubDir
-					}
+		// NFS with root_squash: sosreport must run as root (privileged host access),
+		// but root can't write to NFS. Strategy:
+		//   1. mkdir   (NFS UID) — create subdir on NFS
+		//   2. sosreport (root)  — write to staging emptyDir
+		//   3. copy    (NFS UID) — copy from staging to NFS
+		const stagingDir = "/sos-staging"
+
+		// Sosreport writes to the staging emptyDir instead of the NFS volume.
+		for i := range initContainers {
+			if initContainers[i].Name != "sosreport" {
+				continue
+			}
+			for j := range initContainers[i].Env {
+				if initContainers[i].Env[j].Name == "OUTPUT_DIR" {
+					initContainers[i].Env[j].Value = stagingDir
 				}
 			}
+			initContainers[i].VolumeMounts = append(baseVolumeMounts(),
+				corev1.VolumeMount{MountPath: stagingDir, Name: "staging"},
+			)
 		}
-		// Main container just exits — Job completes after sosreport finishes.
+
+		nfsTarget := outputDir
+		if opts.NFSSubDir != "" {
+			nfsTarget = outputDir + "/" + opts.NFSSubDir
+		}
+
+		if opts.ArchiveOnly && opts.NFSSubDir != "" {
+			// Archive-only: tar staging directly to NFS — no mkdir or copy needed.
+			archiveName := opts.NFSSubDir + ".tar.gz"
+			initContainers = append(initContainers, corev1.Container{
+				Name:    "archive",
+				Image:   opts.Image,
+				Command: []string{"tar", "czf", outputDir + "/" + archiveName, "-C", stagingDir, "."},
+				SecurityContext: &corev1.SecurityContext{
+					RunAsUser: ptr.To(opts.NFSUID),
+				},
+				VolumeMounts: []corev1.VolumeMount{
+					{MountPath: stagingDir, Name: "staging", ReadOnly: true},
+					{MountPath: outputDir, Name: "output"},
+				},
+			})
+		} else {
+			// Copy reports to NFS, optionally creating a subdirectory first.
+			if opts.NFSSubDir != "" {
+				initContainers = append([]corev1.Container{{
+					Name:    "mkdir",
+					Image:   opts.Image,
+					Command: []string{"mkdir", "-p", nfsTarget},
+					SecurityContext: &corev1.SecurityContext{
+						RunAsUser: ptr.To(opts.NFSUID),
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{MountPath: outputDir, Name: "output"},
+					},
+				}}, initContainers...)
+			}
+
+			initContainers = append(initContainers, corev1.Container{
+				Name:    "copy-to-nfs",
+				Image:   opts.Image,
+				Command: []string{"sh", "-c", fmt.Sprintf("cp -a %s/. %s/", stagingDir, nfsTarget)},
+				SecurityContext: &corev1.SecurityContext{
+					RunAsUser: ptr.To(opts.NFSUID),
+				},
+				VolumeMounts: []corev1.VolumeMount{
+					{MountPath: stagingDir, Name: "staging", ReadOnly: true},
+					{MountPath: outputDir, Name: "output"},
+				},
+			})
+
+			// Optionally also create an archive on NFS alongside the files.
+			if opts.Archive && opts.NFSSubDir != "" {
+				archiveName := opts.NFSSubDir + ".tar.gz"
+				initContainers = append(initContainers, corev1.Container{
+					Name:    "archive",
+					Image:   opts.Image,
+					Command: []string{"tar", "czf", outputDir + "/" + archiveName, "-C", outputDir, opts.NFSSubDir},
+					SecurityContext: &corev1.SecurityContext{
+						RunAsUser: ptr.To(opts.NFSUID),
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{MountPath: outputDir, Name: "output"},
+					},
+				})
+			}
+		}
+
+		// Main container just exits — Job completes after all init containers finish.
 		container = corev1.Container{
 			Name:    "done",
 			Image:   opts.Image,
 			Command: []string{"echo", "SOS report written to NFS"},
 		}
-		volumes = append(volumes, corev1.Volume{
-			Name: "output",
-			VolumeSource: corev1.VolumeSource{
-				NFS: &corev1.NFSVolumeSource{
-					Server: opts.NFSServer,
-					Path:   opts.NFSPath,
+		volumes = append(volumes,
+			corev1.Volume{
+				Name: "staging",
+				VolumeSource: corev1.VolumeSource{
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
 				},
 			},
-		})
+			corev1.Volume{
+				Name: "output",
+				VolumeSource: corev1.VolumeSource{
+					NFS: &corev1.NFSVolumeSource{
+						Server: opts.NFSServer,
+						Path:   opts.NFSPath,
+					},
+				},
+			},
+		)
 	case OutputLocal:
 		// Main container sleeps so we can download the report from the pod.
 		container = corev1.Container{
@@ -272,6 +348,13 @@ func ListNodes(ctx context.Context, c client.Client, labelSelector string) ([]st
 		names = append(names, node.Name)
 	}
 	return names, nil
+}
+
+// isNFSJob returns true if the Job was created with NFS output mode.
+// NFS jobs use a "done" main container instead of the "sleep" container used for local downloads.
+func isNFSJob(job *batchv1.Job) bool {
+	containers := job.Spec.Template.Spec.Containers
+	return len(containers) > 0 && containers[0].Name == "done"
 }
 
 // FindReadyDownloadPod finds a running pod for download (sleep strategy).

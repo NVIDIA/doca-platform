@@ -41,10 +41,12 @@ type sosreportFlags struct {
 	nfsServer    string
 	nfsPath      string
 	nfsNoSub     bool
+	nfsUID       int64
 	timeout      time.Duration
 	outputDir    string
 	cleanup      bool
 	archive      bool
+	archiveOnly  bool
 }
 
 var sosOpts sosreportFlags
@@ -94,9 +96,41 @@ func init() {
 	f.StringVar(&sosOpts.namespace, "namespace", "default", "Namespace for Jobs and Secrets")
 	must(sosreportCmd.RegisterFlagCompletionFunc("namespace", completeNamespaces))
 
+	f.StringVar(&sosOpts.caseID, "case-id", "", "Case ID for the SOS report (default: dpf-<timestamp>)")
 	f.StringVar(&sosOpts.image, "image", "ghcr.io/nvidia/sosreport:latest", "SOS report container image")
 	f.BoolVarP(&sosreport.Verbose, "verbose", "v", false, "Show debug output including port-forward details")
 	f.AddGoFlagSet(flag.CommandLine)
+}
+
+// addStartFlags registers the flags shared by the start and collect subcommands.
+func addStartFlags(cmd *cobra.Command) {
+	f := cmd.Flags()
+	f.StringVar(&sosOpts.nfsServer, "nfs-server", "", "NFS server address (enables NFS output mode)")
+	f.StringVar(&sosOpts.nfsPath, "nfs-path", "", "NFS export path (must exist on the NFS server)")
+	f.BoolVar(&sosOpts.nfsNoSub, "nfs-no-subdir", false, "Write directly to --nfs-path without creating a subdirectory")
+	must(cmd.RegisterFlagCompletionFunc("nfs-no-subdir", cobra.FixedCompletions([]string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp)))
+	f.Int64Var(&sosOpts.nfsUID, "nfs-uid", 0, "UID for NFS directory creation (use non-zero when NFS has root_squash)")
+	f.DurationVar(&sosOpts.timeout, "timeout", 30*time.Minute, "Job active deadline timeout")
+	must(cmd.RegisterFlagCompletionFunc("timeout", cobra.FixedCompletions([]string{"5m", "15m", "30m", "1h"}, cobra.ShellCompDirectiveNoFileComp)))
+}
+
+// addArchiveFlags registers the --archive and --archive-only flags.
+// Used by start (NFS archiving), collect (both modes), and download (local archiving).
+func addArchiveFlags(cmd *cobra.Command) {
+	f := cmd.Flags()
+	f.BoolVar(&sosOpts.archive, "archive", false, "Create a .tar.gz archive of all reports")
+	must(cmd.RegisterFlagCompletionFunc("archive", cobra.FixedCompletions([]string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp)))
+	f.BoolVar(&sosOpts.archiveOnly, "archive-only", false, "Remove individual report files after archiving (implies --archive)")
+	must(cmd.RegisterFlagCompletionFunc("archive-only", cobra.FixedCompletions([]string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp)))
+}
+
+// addDownloadFlags registers the flags shared by the collect and download subcommands.
+func addDownloadFlags(cmd *cobra.Command) {
+	f := cmd.Flags()
+	f.StringVar(&sosOpts.outputDir, "output-dir", "", "Local directory for downloaded reports (default: sosreport-<timestamp>)")
+	must(cmd.RegisterFlagCompletionFunc("output-dir", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return nil, cobra.ShellCompDirectiveFilterDirs
+	}))
 }
 
 // startOpts builds StartOptions from the cobra flags.
@@ -109,6 +143,9 @@ func startOpts() *sosreport.StartOptions {
 		NFSServer:    sosOpts.nfsServer,
 		NFSPath:      sosOpts.nfsPath,
 		NFSNoSub:     sosOpts.nfsNoSub,
+		NFSUID:       sosOpts.nfsUID,
+		Archive:      sosOpts.archive,
+		ArchiveOnly:  sosOpts.archiveOnly,
 		Timeout:      sosOpts.timeout,
 		Nodes:        sosOpts.nodes,
 		NodeSelector: sosOpts.nodeSelector,
