@@ -1551,8 +1551,11 @@ var _ = Describe("DPUSet", func() {
 				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, extraDPUNode))).To(Succeed())
 			})
 
-			By("Creating the first DPUSet")
+			By("Creating the first DPUSet targeting the default DPUDevice")
 			firstDPUSet := createDPUSet(firstDPUSetName)
+			firstDPUSet.Spec.DPUDeviceSelector = &metav1.LabelSelector{
+				MatchLabels: map[string]string{provisioningv1.DPUNodeNameLabel: dpuNodeName},
+			}
 			Expect(k8sClient.Create(ctx, firstDPUSet)).To(Succeed())
 			DeferCleanup(func() {
 				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, firstDPUSet))).To(Succeed())
