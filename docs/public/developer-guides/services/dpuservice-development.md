@@ -31,14 +31,14 @@ The DPUService API is flexible, and some implementations may not fully conform t
 document. For example, some DPUServices are deployed on clusters other than the DPUCluster using the `.spec.deployInCluster`
 parameter. Services deployed in this manner must match the architecture of their target cluster.
 
-## Container image
+## Container Image
 
 A DPUService container image must:
 
 * be available on a container registry which is accessible from the DPU.
 * run on `arm64` architecture.
 
-## DPUService Helm chart
+## DPUService Helm Chart
 
 A DPUService Helm chart must:
 
@@ -81,7 +81,7 @@ parameter in the Helm chart. This parameter is optional for chart implementers.
 
 ### Recommendations
 
-The following list contains some recommended features for the DPUService Helm chart. If the chart developer doesn't
+The following list contains some recommended features for the DPUService Helm chart. If the chart developer does not
 implement these, users may face issues deploying the chart in e.g. air-gapped or large scale environments.
 
 * ImagePullSecrets for pod controllers - e.g. DaemonSets, Deployments should be configurable.
@@ -277,7 +277,7 @@ You can monitor the health of your DPUService with:
 dpfctl describe dpuservices --show-conditions=dpuservice/dummydpuservice
 ```
 
-## Additional information about supported features
+## Additional Information About Supported Features
 
 ### Version Constraints
 
