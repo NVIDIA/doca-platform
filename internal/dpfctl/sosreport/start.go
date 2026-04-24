@@ -36,6 +36,9 @@ type StartOptions struct {
 	NFSPath      string
 	NFSSubDir    string
 	NFSNoSub     bool
+	NFSUID       int64
+	Archive      bool
+	ArchiveOnly  bool
 	Timeout      time.Duration
 	Nodes        []string
 	NodeSelector string
@@ -64,6 +67,10 @@ func ValidateStartOptions(opts *StartOptions) error {
 
 	if opts.Output == OutputNFS && !opts.NFSNoSub {
 		opts.NFSSubDir = fmt.Sprintf("sosreport-%s", now)
+	}
+
+	if opts.ArchiveOnly {
+		opts.Archive = true
 	}
 
 	return nil
@@ -124,6 +131,9 @@ func startOnCluster(ctx context.Context, target ClusterTarget, hostClient client
 			NFSServer:   opts.NFSServer,
 			NFSPath:     opts.NFSPath,
 			NFSSubDir:   opts.NFSSubDir,
+			NFSUID:      opts.NFSUID,
+			Archive:     opts.Archive,
+			ArchiveOnly: opts.ArchiveOnly,
 		}
 
 		job, err := CreateJob(ctx, target.Client, jobOpts)
