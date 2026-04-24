@@ -104,6 +104,15 @@ func statusWithColumns(ctx context.Context, targets ClusterTargets, namespace, c
 	for _, r := range results {
 		cols.update(r.cluster, r.node, r.job, r.status)
 	}
+	// If any job is still in progress, pre-widen the status column to fit
+	// the longest terminal status ("Completed") so watch-mode appended lines
+	// stay aligned.
+	for _, r := range results {
+		if r.status != "Completed" && r.status != "Ready" {
+			cols.update("", "", "", "Completed")
+			break
+		}
+	}
 
 	f := cols.fmt()
 	fmt.Printf(f, "CLUSTER", "NODE", "JOB", "STATUS", "AGE")

@@ -118,6 +118,45 @@ func TestValidateStartOptions_PreserveExistingCaseID(t *testing.T) {
 	g.Expect(opts.CaseID).To(Equal("my-case"))
 }
 
+func TestValidateStartOptions_PathTraversal(t *testing.T) {
+	tests := []struct {
+		name    string
+		caseID  string
+		wantErr bool
+	}{
+		{name: "valid case ID", caseID: "CASE-12345", wantErr: false},
+		{name: "forward slash", caseID: "../../etc", wantErr: true},
+		{name: "backslash", caseID: `case\id`, wantErr: true},
+		{name: "dot-dot", caseID: "case..id", wantErr: true},
+		{name: "embedded slash", caseID: "case/id", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			opts := StartOptions{Cluster: "host", Output: OutputLocal, CaseID: tt.caseID}
+			err := ValidateStartOptions(&opts)
+			if tt.wantErr {
+				g.Expect(err).To(HaveOccurred())
+			} else {
+				g.Expect(err).NotTo(HaveOccurred())
+			}
+		})
+	}
+}
+
+func TestValidateStartOptions_ArchiveOnlyImpliesArchive(t *testing.T) {
+	g := NewWithT(t)
+	opts := StartOptions{
+		Cluster:     "host",
+		Output:      OutputNFS,
+		NFSServer:   "10.0.0.1",
+		NFSPath:     "/exports",
+		ArchiveOnly: true,
+	}
+	g.Expect(ValidateStartOptions(&opts)).To(Succeed())
+	g.Expect(opts.Archive).To(BeTrue())
+}
+
 // newFakeTarget creates a ClusterTarget with a fake client containing the given nodes.
 func newFakeTarget(name string, nodes ...*corev1.Node) ClusterTarget {
 	scheme := runtime.NewScheme()

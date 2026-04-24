@@ -58,7 +58,4 @@ collections or clean up after a completed workflow.`,
 
 func init() {
 	sosreportCmd.AddCommand(sosreportCleanupCmd)
-
-	f := sosreportCleanupCmd.Flags()
-	f.StringVar(&sosOpts.caseID, "case-id", "", "Filter by case ID (default: clean up all)")
 }
