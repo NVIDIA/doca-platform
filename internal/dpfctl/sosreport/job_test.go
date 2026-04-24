@@ -70,7 +70,7 @@ func TestCreateJob(t *testing.T) {
 				NFSPath:     "/exports/sos",
 			},
 			wantContainerName:  "done",
-			wantInitContainers: 1,
+			wantInitContainers: 2, // sosreport + copy-to-nfs
 			wantOutputVolume: func(g Gomega, volumes []corev1.Volume) {
 				v := findVolume(volumes, "output")
 				g.Expect(v).NotTo(BeNil())
@@ -94,13 +94,71 @@ func TestCreateJob(t *testing.T) {
 				NFSSubDir:   "sosreport-20260416-120000",
 			},
 			wantContainerName:  "done",
-			wantInitContainers: 2,
+			wantInitContainers: 3, // mkdir + sosreport + copy-to-nfs
 			wantOutputVolume: func(g Gomega, volumes []corev1.Volume) {
 				v := findVolume(volumes, "output")
 				g.Expect(v).NotTo(BeNil())
 				g.Expect(v.VolumeSource.NFS).NotTo(BeNil())
 			},
-			wantOutputDirEnv: "/sos-output/sosreport-20260416-120000",
+			wantOutputDirEnv: "/sos-staging",
+		},
+		{
+			name: "NFS with subdir and archive adds archive init container",
+			opts: JobOptions{
+				Namespace:   "test-ns",
+				NodeName:    "worker-1",
+				CaseID:      "case-arc",
+				Image:       "ghcr.io/nvidia/sosreport:latest",
+				ClusterName: "host",
+				Timeout:     30 * time.Minute,
+				Output:      OutputNFS,
+				NFSServer:   "10.0.0.1",
+				NFSPath:     "/exports/sos",
+				NFSSubDir:   "sosreport-20260416-120000",
+				Archive:     true,
+			},
+			wantContainerName:  "done",
+			wantInitContainers: 4, // mkdir + sosreport + copy-to-nfs + archive
+			wantOutputDirEnv:   "/sos-staging",
+		},
+		{
+			name: "NFS archive-only skips mkdir and copy",
+			opts: JobOptions{
+				Namespace:   "test-ns",
+				NodeName:    "worker-1",
+				CaseID:      "case-ao",
+				Image:       "ghcr.io/nvidia/sosreport:latest",
+				ClusterName: "host",
+				Timeout:     30 * time.Minute,
+				Output:      OutputNFS,
+				NFSServer:   "10.0.0.1",
+				NFSPath:     "/exports/sos",
+				NFSSubDir:   "sosreport-20260416-120000",
+				Archive:     true,
+				ArchiveOnly: true,
+			},
+			wantContainerName:  "done",
+			wantInitContainers: 2, // sosreport + archive (no mkdir, no copy)
+			wantOutputDirEnv:   "/sos-staging",
+		},
+		{
+			name: "NFS with custom UID sets RunAsUser on mkdir",
+			opts: JobOptions{
+				Namespace:   "test-ns",
+				NodeName:    "worker-1",
+				CaseID:      "case-uid",
+				Image:       "ghcr.io/nvidia/sosreport:latest",
+				ClusterName: "host",
+				Timeout:     30 * time.Minute,
+				Output:      OutputNFS,
+				NFSServer:   "10.0.0.1",
+				NFSPath:     "/exports/sos",
+				NFSSubDir:   "sosreport-20260416-120000",
+				NFSUID:      1000,
+			},
+			wantContainerName:  "done",
+			wantInitContainers: 3, // mkdir + sosreport + copy-to-nfs
+			wantOutputDirEnv:   "/sos-staging",
 		},
 	}
 
@@ -117,7 +175,7 @@ func TestCreateJob(t *testing.T) {
 			g.Expect(err).NotTo(HaveOccurred())
 
 			// Verify metadata.
-			g.Expect(job.Name).To(Equal(jobName(tt.opts.NodeName)))
+			g.Expect(job.Name).To(Equal(jobName(tt.opts.CaseID, tt.opts.NodeName)))
 			g.Expect(job.Namespace).To(Equal(tt.opts.Namespace))
 			g.Expect(job.Labels).To(HaveKeyWithValue(labelCaseID, tt.opts.CaseID))
 			g.Expect(job.Labels).To(HaveKeyWithValue(labelNode, tt.opts.NodeName))
@@ -138,20 +196,45 @@ func TestCreateJob(t *testing.T) {
 			g.Expect(spec.Containers).To(HaveLen(1))
 			g.Expect(spec.Containers[0].Name).To(Equal(tt.wantContainerName))
 
-			// Verify sosreport init container is always present (last init container).
-			sosInit := spec.InitContainers[len(spec.InitContainers)-1]
-			g.Expect(sosInit.Name).To(Equal("sosreport"))
+			// Find sosreport init container by name.
+			var sosInit *corev1.Container
+			for i := range spec.InitContainers {
+				if spec.InitContainers[i].Name == "sosreport" {
+					sosInit = &spec.InitContainers[i]
+					break
+				}
+			}
+			g.Expect(sosInit).NotTo(BeNil(), "sosreport init container not found")
 			g.Expect(sosInit.Image).To(Equal(tt.opts.Image))
 			g.Expect(*sosInit.SecurityContext.Privileged).To(BeTrue())
-
-			// Verify mkdir init container when expected.
-			if tt.wantInitContainers == 2 {
-				g.Expect(spec.InitContainers[0].Name).To(Equal("mkdir"))
-			}
 
 			// Verify OUTPUT_DIR env override for subdir.
 			if tt.wantOutputDirEnv != "" {
 				g.Expect(findEnv(sosInit.Env, "OUTPUT_DIR")).To(Equal(tt.wantOutputDirEnv))
+			}
+
+			// Verify NFS UID is set on mkdir/copy/archive containers.
+			if tt.opts.Output == OutputNFS {
+				for _, ic := range spec.InitContainers {
+					switch ic.Name {
+					case "mkdir", "copy-to-nfs", "archive":
+						g.Expect(ic.SecurityContext).NotTo(BeNil(), "expected SecurityContext on %s", ic.Name)
+						g.Expect(*ic.SecurityContext.RunAsUser).To(Equal(tt.opts.NFSUID), "wrong RunAsUser on %s", ic.Name)
+					}
+				}
+			}
+
+			// Verify archive-only has no mkdir or copy containers.
+			if tt.opts.ArchiveOnly {
+				g.Expect(findInitContainer(spec.InitContainers, "mkdir")).To(BeNil(), "archive-only should not have mkdir")
+				g.Expect(findInitContainer(spec.InitContainers, "copy-to-nfs")).To(BeNil(), "archive-only should not have copy-to-nfs")
+				g.Expect(findInitContainer(spec.InitContainers, "archive")).NotTo(BeNil(), "archive-only should have archive")
+			}
+
+			// Verify --archive adds archive container alongside copy.
+			if tt.opts.Archive && !tt.opts.ArchiveOnly && tt.opts.NFSSubDir != "" {
+				g.Expect(findInitContainer(spec.InitContainers, "archive")).NotTo(BeNil(), "archive should be present")
+				g.Expect(findInitContainer(spec.InitContainers, "copy-to-nfs")).NotTo(BeNil(), "copy-to-nfs should be present")
 			}
 
 			// Verify output volume.
@@ -166,6 +249,16 @@ func TestOutputMode(t *testing.T) {
 	g := NewWithT(t)
 	g.Expect(string(OutputLocal)).To(Equal("local"))
 	g.Expect(string(OutputNFS)).To(Equal("nfs"))
+}
+
+// findInitContainer returns the init container with the given name, or nil.
+func findInitContainer(containers []corev1.Container, name string) *corev1.Container {
+	for i := range containers {
+		if containers[i].Name == name {
+			return &containers[i]
+		}
+	}
+	return nil
 }
 
 // findVolume returns the volume with the given name, or nil.

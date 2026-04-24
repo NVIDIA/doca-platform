@@ -131,6 +131,13 @@ func downloadFromCluster(ctx context.Context, target *ClusterTarget, namespace, 
 			continue
 		}
 
+		// NFS-mode jobs use a "done" container that exits immediately — reports
+		// live on the NFS share, not inside the pod. Skip download for these.
+		if isNFSJob(&job) {
+			Warn("%s/%s: NFS output mode — reports were written to the NFS share, not downloadable via this command", clusterName, nodeName)
+			continue
+		}
+
 		runningPod, err := FindReadyDownloadPod(ctx, target.Client, namespace, job.Spec.Template.Labels)
 		if err != nil {
 			Failure("%s/%s: %v", clusterName, nodeName, err)
@@ -155,7 +162,7 @@ func downloadFromCluster(ctx context.Context, target *ClusterTarget, namespace, 
 	return downloaded, nil
 }
 
-// CleanupResources deletes sosreport resources (Jobs, Secrets, pods) matching the given labels.
+// CleanupResources deletes sosreport resources (Jobs, Secrets) matching the given labels.
 func CleanupResources(ctx context.Context, c client.Client, namespace string, labels map[string]string) error {
 	listOpts := []client.ListOption{
 		client.InNamespace(namespace),
@@ -167,7 +174,7 @@ func CleanupResources(ctx context.Context, c client.Client, namespace string, la
 
 	var errs []error
 
-	// Delete Jobs first (foreground propagation also deletes their pods)
+	// Delete Jobs (foreground propagation also deletes their pods).
 	jobList := &batchv1.JobList{}
 	if err := c.List(ctx, jobList, listOpts...); err != nil {
 		errs = append(errs, fmt.Errorf("list Jobs: %w", err))
@@ -179,25 +186,13 @@ func CleanupResources(ctx context.Context, c client.Client, namespace string, la
 		}
 	}
 
-	// Delete any remaining pods (e.g., download pods)
-	podList := &corev1.PodList{}
-	if err := c.List(ctx, podList, listOpts...); err != nil {
-		errs = append(errs, fmt.Errorf("list Pods: %w", err))
-	} else {
-		for i := range podList.Items {
-			if err := c.Delete(ctx, &podList.Items[i], deleteOpts...); err != nil {
-				errs = append(errs, fmt.Errorf("delete Pod %s: %w", podList.Items[i].Name, err))
-			}
-		}
-	}
-
-	// Delete Secrets
+	// Delete Secrets.
 	secretList := &corev1.SecretList{}
 	if err := c.List(ctx, secretList, listOpts...); err != nil {
 		errs = append(errs, fmt.Errorf("list Secrets: %w", err))
 	} else {
 		for i := range secretList.Items {
-			if err := c.Delete(ctx, &secretList.Items[i], deleteOpts...); err != nil {
+			if err := c.Delete(ctx, &secretList.Items[i]); err != nil {
 				errs = append(errs, fmt.Errorf("delete Secret %s: %w", secretList.Items[i].Name, err))
 			}
 		}

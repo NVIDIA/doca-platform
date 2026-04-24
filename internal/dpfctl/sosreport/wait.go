@@ -21,7 +21,9 @@ import (
 	"fmt"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // WaitForAll waits for all SOS report Jobs with the given case ID to complete.
@@ -29,6 +31,8 @@ func WaitForAll(ctx context.Context, targets ClusterTargets, namespace, caseID s
 	deadline := timeout + 2*time.Minute
 	lastCount := -1
 	var stopSpinner func()
+
+	initContainerFailures := map[string]bool{}
 
 	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, deadline, true, func(ctx context.Context) (bool, error) {
 		waitingCount := 0
@@ -47,6 +51,21 @@ func WaitForAll(ctx context.Context, targets ClusterTargets, namespace, caseID s
 					continue
 				}
 				if IsSosreportDone(ctx, targets[i], &job) {
+					continue
+				}
+				// Report init container failures — skip waiting since the Job
+				// will either retry (new pod) or fail permanently (IsJobDone).
+				if msg := checkInitContainerFailure(ctx, targets[i].Client, job.Namespace, job.Spec.Template.Labels); msg != "" {
+					key := job.Name + ":" + msg
+					if !initContainerFailures[key] {
+						initContainerFailures[key] = true
+						if stopSpinner != nil {
+							stopSpinner()
+							stopSpinner = nil
+						}
+						nodeName := job.Labels[labelNode]
+						Failure("%s/%s: %s", targets[i].Name, nodeName, msg)
+					}
 					continue
 				}
 				waitingCount++
@@ -73,7 +92,9 @@ func WaitForAll(ctx context.Context, targets ClusterTargets, namespace, caseID s
 	}
 
 	if err == nil {
-		if lastCount >= 0 {
+		if len(initContainerFailures) > 0 {
+			Warn("Some jobs had init container failures")
+		} else if lastCount >= 0 {
 			Success("All jobs completed")
 		} else {
 			Info("No jobs found")
@@ -85,4 +106,30 @@ func WaitForAll(ctx context.Context, targets ClusterTargets, namespace, caseID s
 		return ctx.Err()
 	}
 	return fmt.Errorf("wait for jobs: %w", err)
+}
+
+// checkInitContainerFailure returns a description of a failing init container
+// on the most recent pod matching the given labels, or "" if none are failing.
+func checkInitContainerFailure(ctx context.Context, c client.Client, namespace string, podLabels map[string]string) string {
+	podList := &corev1.PodList{}
+	if err := c.List(ctx, podList, client.InNamespace(namespace), client.MatchingLabels(podLabels)); err != nil {
+		return ""
+	}
+	for _, pod := range podList.Items {
+		for _, cs := range pod.Status.InitContainerStatuses {
+			if cs.State.Waiting != nil && cs.State.Waiting.Reason == "CrashLoopBackOff" {
+				return fmt.Sprintf("init container %q is crash-looping: %s", cs.Name, cs.State.Waiting.Message)
+			}
+			if cs.State.Terminated == nil || cs.State.Terminated.ExitCode == 0 {
+				continue
+			}
+
+			msg := cs.State.Terminated.Message
+			if msg == "" {
+				msg = cs.State.Terminated.Reason
+			}
+			return fmt.Sprintf("init container %q failed (exit %d): %s", cs.Name, cs.State.Terminated.ExitCode, msg)
+		}
+	}
+	return ""
 }

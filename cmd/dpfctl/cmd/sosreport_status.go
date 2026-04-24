@@ -63,8 +63,6 @@ func init() {
 	sosreportCmd.AddCommand(sosreportStatusCmd)
 
 	f := sosreportStatusCmd.Flags()
-	f.StringVar(&sosOpts.caseID, "case-id", "", "Filter by case ID (default: show all)")
-
 	f.BoolVarP(&statusWatch, "watch", "w", false, "Watch status with continuous refresh")
 	must(sosreportStatusCmd.RegisterFlagCompletionFunc("watch", cobra.FixedCompletions([]string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp)))
 

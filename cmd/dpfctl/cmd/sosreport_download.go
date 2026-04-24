@@ -61,17 +61,12 @@ For local mode, downloads from the running Job pod after sosreport completes.`,
 func init() {
 	sosreportCmd.AddCommand(sosreportDownloadCmd)
 
-	f := sosreportDownloadCmd.Flags()
-	f.StringVar(&sosOpts.outputDir, "output-dir", "", "Local directory for downloaded reports (default: sosreport-<timestamp>)")
-	must(sosreportDownloadCmd.RegisterFlagCompletionFunc("output-dir", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		return nil, cobra.ShellCompDirectiveFilterDirs
-	}))
+	addDownloadFlags(sosreportDownloadCmd)
+	addArchiveFlags(sosreportDownloadCmd)
 
+	f := sosreportDownloadCmd.Flags()
 	f.BoolVar(&sosOpts.cleanup, "cleanup", false, "Clean up resources after download (omit to be prompted)")
 	must(sosreportDownloadCmd.RegisterFlagCompletionFunc("cleanup", cobra.FixedCompletions([]string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp)))
-
-	f.BoolVar(&sosOpts.archive, "archive", false, "Create a .tar.gz archive of all downloaded reports")
-	must(sosreportDownloadCmd.RegisterFlagCompletionFunc("archive", cobra.FixedCompletions([]string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp)))
 }
 
 func runSOSReportDownload(ctx context.Context) error {
@@ -104,6 +99,9 @@ func runSOSReportDownload(ctx context.Context) error {
 
 	sosreport.Result("Downloaded %d report(s) to %s", downloaded, sosOpts.outputDir)
 
+	if sosOpts.archiveOnly {
+		sosOpts.archive = true
+	}
 	if sosOpts.archive {
 		sosreport.Step("Creating archive")
 		archivePath, err := sosreport.CreateArchive(sosOpts.outputDir)
@@ -111,6 +109,11 @@ func runSOSReportDownload(ctx context.Context) error {
 			return fmt.Errorf("failed to create archive: %w", err)
 		}
 		sosreport.Result("Archive created: %s", archivePath)
+		if sosOpts.archiveOnly {
+			if err := os.RemoveAll(sosOpts.outputDir); err != nil {
+				return fmt.Errorf("failed to remove report directory: %w", err)
+			}
+		}
 	}
 
 	if shouldCleanup() {
