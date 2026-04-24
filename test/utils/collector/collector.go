@@ -22,8 +22,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/nvidia/doca-platform/internal/utils/tunnel"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
-	"github.com/nvidia/doca-platform/test/utils/tunnel"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
