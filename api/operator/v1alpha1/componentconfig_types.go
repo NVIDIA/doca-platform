@@ -127,7 +127,8 @@ type ProvisioningControllerConfiguration struct {
 
 	// NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
 	// If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state.
-	// +kubebuilder:default="30m"
+	// When set to "0s" (the default), the timeout is disabled and no time limit is enforced.
+	// +kubebuilder:default="0s"
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
 	// +kubebuilder:validation:Format=duration
