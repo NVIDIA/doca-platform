@@ -228,6 +228,8 @@ spec:
     - `port`: Registry port (deprecated)
     - `loadBalancerAddress`: Load balancer address for registry
 
+* `spec.provisioningController.nodeEffectRemovalTimeout`: Maximum time allowed for the Node Effect Removal phase. If the `DPUNodeMaintenance` CR still has requestors after this timeout, the DPU transitions to Error state, which is terminal and requires reprovisioning (deleting and recreating the DPU). The default is `0s`, which disables the timeout entirely (no time limit is enforced). To enable, set to a non-zero duration (e.g. `30m`). Value must be in units accepted by Go `time.ParseDuration` (e.g. `30m`, `1h`, `45m30s`).
+
 * `spec.provisioningController.installInterface`: Method for installing DPU firmware. Choose one:
     - `installViaHostAgent`: Install via host agent
     - `installViaGNOI`: Install via gNOI protocol
@@ -245,6 +247,7 @@ spec:
     dmsTimeout: 600
     replicas: 2
     multiDPUOperationsSyncWaitTime: 30s
+    nodeEffectRemovalTimeout: 0s  # Disabled by default. Set to e.g. "30m" to enforce a timeout.
     customCASecretName: my-ca-secret
     installInterface:
       installViaRedfish:
