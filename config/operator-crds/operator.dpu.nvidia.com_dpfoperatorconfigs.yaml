@@ -1445,10 +1445,11 @@ spec:
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
                   nodeEffectRemovalTimeout:
-                    default: 30m
+                    default: 0s
                     description: |-
                       NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
                       If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state.
+                      When set to "0s" (the default), the timeout is disabled and no time limit is enforced.
                     format: duration
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
