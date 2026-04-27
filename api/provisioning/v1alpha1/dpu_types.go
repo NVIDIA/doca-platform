@@ -92,7 +92,6 @@ const (
 	DPUCondFWConfigured           DPUConditionType = "FWConfigured"
 	DPUCondBFBTransferred         DPUConditionType = "BFBTransferred"
 	DPUCondOSInstalled            DPUConditionType = "OSInstalled"
-	DPUConditionHostPowerCycle    DPUConditionType = "HostPowerCycle"
 	DPUCondRebooted               DPUConditionType = "Rebooted"
 	DPUCondHostNetworkReady       DPUConditionType = "HostNetworkReady"
 	DPUCondDPUClusterReady        DPUConditionType = "DPUClusterReady"
