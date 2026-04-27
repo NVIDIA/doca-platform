@@ -187,11 +187,11 @@ func GetKubeconfigData(ctx context.Context, target ClusterTarget, hostClient cli
 	if err := hostClient.Get(ctx, client.ObjectKey{Name: target.dpuCluster.Spec.Kubeconfig, Namespace: target.dpuCluster.Namespace}, secret); err != nil {
 		return nil, fmt.Errorf("get kubeconfig secret for DPUCluster %s/%s: %w", target.dpuCluster.Namespace, target.dpuCluster.Name, err)
 	}
-	if data, ok := secret.Data["admin.conf"]; ok {
+	if data, ok := secret.Data["super-admin.conf"]; ok {
 		return data, nil
 	}
 
-	return nil, fmt.Errorf("kubeconfig secret %s/%s does not contain admin.conf", target.dpuCluster.Namespace, target.dpuCluster.Spec.Kubeconfig)
+	return nil, fmt.Errorf("kubeconfig secret %s/%s does not contain super-admin.conf", target.dpuCluster.Namespace, target.dpuCluster.Spec.Kubeconfig)
 }
 
 func getDPUClusterTargets(ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuClusterName string) (ClusterTargets, error) {
