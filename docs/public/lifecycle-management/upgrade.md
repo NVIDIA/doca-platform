@@ -74,6 +74,15 @@ minor version are always allowed.
 * Incompatible resource states
 * Unsupported configuration combinations
 
+> [!IMPORTANT]
+> The n-1 upgrade policy applies to the **DPF Operator** itself, regardless of the BFB version running on DPUs.
+> Even when operating DPUs with an older BFB LTS version (e.g., BFB 3.2), you must still upgrade DPF through
+> each sequential release (e.g., v25.7 → v25.10 → v26.4). Skipping DPF releases is not supported.
+
+## BlueField BFB Support Matrix
+
+For the full BFB version compatibility matrix, see the [BlueField BFB Support Matrix](../platform-support.md#bluefield-bfb-support-matrix) in the Platform Support documentation.
+
 ## Prevalidation
 
 Before the DPF Operator upgrades any components, the system performs prevalidation checks to ensure the cluster is
