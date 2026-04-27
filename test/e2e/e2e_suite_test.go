@@ -66,8 +66,6 @@ var (
 	externalTest string
 	// HostRebootScript path used to Zero Trust Host Reboot script
 	HostRebootScript string
-	// enableSOSReports to enable collecting SOS reports after an e2e test run failure.
-	enableSOSReports = false
 )
 
 var (
@@ -142,14 +140,6 @@ func getEnvVariables() {
 	if ns, found := os.LookupEnv("DPU_CLUSTER_NAMESPACE"); found {
 		dpuClusterNamespace = ns
 	}
-	if v, found := os.LookupEnv("ENABLE_SOS_REPORTS"); found {
-		var err error
-		enableSOSReports, err = strconv.ParseBool(v)
-		if err != nil {
-			panic(fmt.Errorf("string must be a bool: %v", err))
-		}
-	}
-
 	if path, found := os.LookupEnv("ARTIFACTS_DIR"); found {
 		artifactsDir = path
 	} else {
@@ -338,14 +328,6 @@ func reportAfterEach(spec SpecReport) {
 		err := collectKubernetesResources(ctx, collectInput, "failed_tests/"+spec.LeafNodeText)
 		if err != nil {
 			GinkgoLogr.Error(err, "failed to collect resources and logs for the clusters")
-		}
-
-		// Collect SOS reports if enabled
-		if enableSOSReports {
-			err := collectSOSReports(ctx, collectInput, dpuClusterClient[0], dpuClusterRestConfig[0])
-			if err != nil {
-				GinkgoLogr.Error(err, "Failed to collect SOS reports")
-			}
 		}
 	}
 }
