@@ -29,6 +29,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -56,10 +57,14 @@ type Tunnel struct {
 	closeOnce sync.Once
 }
 
-// Close stops the tunnel. Safe to call multiple times.
+// Close stops the tunnel. Safe to call multiple times and on nil receivers
+// (static clusters return no tunnel).
 // Only closes stopCh and the port forwarder. The errCh is left open
 // to avoid racing with the goroutine that may still send on it.
 func (t *Tunnel) Close() {
+	if t == nil {
+		return
+	}
 	t.closeOnce.Do(func() {
 		if t.pf != nil {
 			t.pf.Close()
@@ -86,34 +91,40 @@ func (t *Tunnel) IsHealthy() bool {
 	}
 }
 
-// NewTunneledRestConfig creates a tunneled REST config for accessing a DPU cluster.
-// Returns the REST config, the tunnel (caller must close when done), and any error.
+// NewTunneledRestConfig creates a REST config for accessing a DPU cluster.
+// It attempts to set up a port-forwarding tunnel via Kamaji resources. If the
+// Kamaji service or pod is not found (e.g. pure static clusters), it falls back
+// to using the kubeconfig's server URL directly (returned tunnel is nil).
 func NewTunneledRestConfig(ctx context.Context, hostClient client.Client, hostRESTConfig *rest.Config, dpuCluster *provisioningv1.DPUCluster) (*rest.Config, *Tunnel, error) {
 	// Create dpucluster.Config to handle kubeconfig retrieval
 	clusterConfig := dpucluster.NewConfig(hostClient, dpuCluster)
 
-	// Get the Kamaji cluster kubeconfig for authentication
-	kamajiKubeconfig, err := clusterConfig.Kubeconfig(ctx)
+	// Get the cluster kubeconfig for authentication
+	kubeconfig, err := clusterConfig.Kubeconfig(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("get Kamaji kubeconfig: %w", err)
+		return nil, nil, fmt.Errorf("get cluster kubeconfig: %w", err)
 	}
 
-	// Create REST config from Kamaji kubeconfig
-	kamajiRESTConfig, err := clientcmd.NewDefaultClientConfig(*kamajiKubeconfig, &clientcmd.ConfigOverrides{}).ClientConfig()
+	// Create REST config from kubeconfig
+	restConfig, err := clientcmd.NewDefaultClientConfig(*kubeconfig, &clientcmd.ConfigOverrides{}).ClientConfig()
 	if err != nil {
-		return nil, nil, fmt.Errorf("create Kamaji REST config: %w", err)
+		return nil, nil, fmt.Errorf("create REST config: %w", err)
 	}
 
-	// Set up port forwarding to the Kamaji cluster
+	// Try to set up port forwarding via Kamaji. If the Kamaji service or pod
+	// doesn't exist, fall back to the direct server URL from the kubeconfig.
 	tun, err := setupPortForward(ctx, hostClient, hostRESTConfig, dpuCluster)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return restConfig, nil, nil
+		}
 		return nil, nil, fmt.Errorf("set up port forward: %w", err)
 	}
 
 	// Update the host to use local port
-	kamajiRESTConfig.Host = fmt.Sprintf("https://localhost:%d", tun.LocalPort())
+	restConfig.Host = fmt.Sprintf("https://localhost:%d", tun.LocalPort())
 
-	return kamajiRESTConfig, tun, nil
+	return restConfig, tun, nil
 }
 
 // setupPortForward sets up port forwarding to the Kamaji cluster service
