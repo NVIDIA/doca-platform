@@ -30,6 +30,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // DPUDiscoveryReconciler reconciles a DPUDiscovery object
@@ -135,5 +136,7 @@ func (r *DPUDiscoveryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 func (r *DPUDiscoveryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&provisioningv1.DPUDiscovery{}).
+		// Avoid reconciling on status-only updates; only reconcile when spec changes (generation bump).
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		Complete(r)
 }
