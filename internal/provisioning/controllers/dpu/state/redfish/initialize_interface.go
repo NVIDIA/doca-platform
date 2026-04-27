@@ -89,8 +89,8 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 		}
 
 		log.Info(fmt.Sprintf("Host power cycle is required for DPU %s to transition from NicMode to DpuMode", device.BMCAddress()))
-		// Transition from a NIC mode to a DPU mode requires a host power cycle to take effect.
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUConditionHostPowerCycle), nil, "", "Host power cycle required to transition from NicMode to DpuMode"))
+		// Align with hostagent: use InterfaceInitialized + ModeUpdate as the mode-change reboot signal.
+		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", string(provisioningv1.DPUCondMessageModeUpdate)))
 		state.Phase = provisioningv1.DPURebooting
 		return *state, nil
 	}
