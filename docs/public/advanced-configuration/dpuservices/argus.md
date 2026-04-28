@@ -47,7 +47,7 @@ For more details, refer to the [official NVIDIA DOCA Argus documentation](https:
 
 Configuration files:
    
-<details markdown="1"><summary>**DPUServiceConfiguration**</summary>
+<details markdown="1"><summary><b>DPUServiceConfiguration</b></summary>
 
 [embedmd]:#(../../../../dpuservices/argus/DPUServiceConfiguration.yaml)
 ```yaml
@@ -68,7 +68,7 @@ spec:
 
 </details>
 
-<details markdown="1"><summary>**DPUServiceTemplate**</summary>
+<details markdown="1"><summary><b>DPUServiceTemplate</b></summary>
 
 [embedmd]:#(../../../../dpuservices/argus/DPUServiceTemplate.yaml)
 ```yaml
@@ -92,7 +92,7 @@ The general resources are:
 #### DPUFlavor
 
 Defines the DPU flavor for the Argus service.
-<details markdown="1"><summary>**DPUFlavor**</summary>
+<details markdown="1"><summary><b>DPUFlavor</b></summary>
 
 [embedmd]:#(../../../../dpuservices/argus/DPUFlavor.yaml)
 ```yaml
@@ -203,7 +203,7 @@ spec:
 #### DPUDeployment
 
 Defines the DPUDeployment for the Argus service.
-<details markdown="1"><summary>**DPUDeployment**</summary>
+<details markdown="1"><summary><b>DPUDeployment</b></summary>
 
 [embedmd]:#(../../../../dpuservices/argus/DPUDeployment.yaml)
 ```yaml

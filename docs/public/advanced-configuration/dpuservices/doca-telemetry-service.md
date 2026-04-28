@@ -22,7 +22,7 @@ This resource will define the service configuration and deployment details.
 
 Configuration file:
 
-<details markdown="1"><summary>**DPUService**</summary>
+<details markdown="1"><summary><b>DPUService</b></summary>
 
 [embedmd]:#(../../../../dpuservices/dts/DPUService.yaml)
 ```yaml
@@ -192,7 +192,7 @@ SPX mode provides broader counter configuration and capabilities according to Sp
 
 A preconfigured DPUService file is available at `dpuservices/dts/DPUServiceSPX.yaml`:
 
-<details markdown="1"><summary>**DPUServiceSPX**</summary>
+<details markdown="1"><summary><b>DPUServiceSPX</b></summary>
 
 [embedmd]:#(../../../../dpuservices/dts/DPUServiceSPX.yaml)
 ```yaml
