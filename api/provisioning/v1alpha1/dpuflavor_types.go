@@ -75,9 +75,8 @@ type DPUFlavorSpec struct {
 	// +optional
 	SystemReservedResources corev1.ResourceList `json:"systemReservedResources,omitempty"`
 
-	// Specifies the DPU Mode type: one of dpu,zero-trust.
-	// When not specified, defaults to "zero-trust" if the DPF deployment uses Redfish install interface,
-	// otherwise defaults to "dpu".
+	// DpuMode is deprecated and no longer used by provisioning workflows.
+	// Deployment mode is sourced from DPFOperatorConfig and exposed on DPU.status.deploymentMode.
 	// +optional
 	DpuMode DpuModeType `json:"dpuMode,omitempty"`
 
@@ -146,9 +145,11 @@ type DPUFlavorOVS struct {
 type DpuModeType string
 
 const (
-	DpuMode       DpuModeType = "dpu"
+	DpuMode DpuModeType = "dpu"
+	NicMode DpuModeType = "nic"
+	// ZeroTrustMode is deprecated and kept for backward compatibility with DPUFlavor.spec.dpuMode.
+	// Deprecated: DPUFlavor.spec.dpuMode is deprecated; use DPFOperatorConfig.spec.deploymentMode.
 	ZeroTrustMode DpuModeType = "zero-trust"
-	NicMode       DpuModeType = "nic"
 )
 
 // DPUFlavorFileOp defines the operation to be performed on the file

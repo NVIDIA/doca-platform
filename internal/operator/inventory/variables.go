@@ -97,6 +97,9 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			DevicePluginInitImage: defaults.DPFSystemImage,
 			DefaultResourcePrefix: "nvidia.com",
 		},
+		DPFProvisioningController: DPFProvisioningVariables{
+			DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+		},
 		Resources: map[string]corev1.ResourceRequirements{},
 		Replicas: map[operatorv1.ComponentName]*int32{
 			operatorv1.ProvisioningControllerName: ptr.To[int32](2),
@@ -148,6 +151,7 @@ type DPFProvisioningVariables struct {
 	OSInstallTimeout               *metav1.Duration
 	NodeEffectRemovalTimeout       *metav1.Duration
 	HostAgentDNSPolicy             *corev1.DNSPolicy
+	DeploymentMode                 operatorv1.DeploymentMode
 }
 
 type SFCControllerVariables struct {
@@ -269,6 +273,7 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		OSInstallTimeout:            config.Spec.ProvisioningController.OSInstallTimeout,
 		NodeEffectRemovalTimeout:    config.Spec.ProvisioningController.NodeEffectRemovalTimeout,
 		HostAgentDNSPolicy:          config.Spec.ProvisioningController.HostAgentDNSPolicy,
+		DeploymentMode:              config.Spec.DeploymentMode,
 	}
 	if config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime != nil {
 		variables.DPFProvisioningController.MultiDPUOperationsSyncWaitTime = config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime.Duration

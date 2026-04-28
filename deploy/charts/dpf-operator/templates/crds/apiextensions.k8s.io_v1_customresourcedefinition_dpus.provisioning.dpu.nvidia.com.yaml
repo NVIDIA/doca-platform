@@ -508,6 +508,18 @@ spec:
                   - type
                   type: object
                 type: array
+              deploymentMode:
+                allOf:
+                - enum:
+                  - zero-trust
+                  - trusted-host
+                - enum:
+                  - zero-trust
+                  - trusted-host
+                description: |-
+                  DeploymentMode is copied from DPFOperatorConfig.spec.deploymentMode by the controller.
+                  This field is read-only for users.
+                type: string
               dpfVersion:
                 description: DPF version used to install this DPU
                 type: string

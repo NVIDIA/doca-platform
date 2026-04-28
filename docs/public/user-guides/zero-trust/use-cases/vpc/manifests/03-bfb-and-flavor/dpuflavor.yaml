@@ -5,7 +5,6 @@ metadata:
   name: vpc-flavor-$TAG
   namespace: dpf-operator-system
 spec:
-  dpuMode: zero-trust
   bfcfgParameters:
   - UPDATE_ATF_UEFI=yes
   - UPDATE_DPU_OS=yes

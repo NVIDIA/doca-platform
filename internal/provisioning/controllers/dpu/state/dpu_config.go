@@ -53,7 +53,7 @@ func DPUConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 	logger.Info("DPUConfig: agent reboot method", "dpu", dpu.Name, "namespace", dpu.Namespace, "rebootMethod", rm)
 	switch rm {
 	case provisioningv1.RebootMethodNoAction:
-		if ctrlCtx.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
+		if ctrlCtx.Options.ZeroTrustProvisioningFlow() {
 			state.Phase = provisioningv1.DPUClusterConfig
 		} else {
 			state.Phase = provisioningv1.DPUHostNetworkConfiguration

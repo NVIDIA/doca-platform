@@ -196,6 +196,7 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
+  deploymentMode: zero-trust
   overrides:
     kubernetesAPIServerVIP: $TARGETCLUSTER_API_SERVER_HOST
     kubernetesAPIServerPort: $TARGETCLUSTER_API_SERVER_PORT
@@ -333,7 +334,6 @@ metadata:
   name: hbn-$TAG
   namespace: dpf-operator-system
 spec:
-  dpuMode: zero-trust
   bfcfgParameters:
   - UPDATE_ATF_UEFI=yes
   - UPDATE_DPU_OS=yes
@@ -1055,7 +1055,6 @@ metadata:
   name: hbn-$TAG
   namespace: dpf-operator-system
 spec:
-  dpuMode: zero-trust
   bfcfgParameters:
   - UPDATE_ATF_UEFI=yes
   - UPDATE_DPU_OS=yes

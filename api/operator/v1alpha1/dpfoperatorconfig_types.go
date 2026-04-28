@@ -138,7 +138,20 @@ type Networking struct {
 	HighSpeedMTU *int `json:"highSpeedMTU,omitempty"`
 }
 
+// DeploymentMode describes the cluster deployment model for DPU provisioning (zero-trust vs trusted-host).
+// +kubebuilder:validation:Enum=zero-trust;trusted-host
+type DeploymentMode string
+
+const (
+	// DeploymentModeZeroTrust requires provisioningController.installInterface.installViaRedfish
+	DeploymentModeZeroTrust DeploymentMode = "zero-trust"
+	// DeploymentModeTrustedHost allows provisioningController.installInterface.installViaHostAgent, or installViaGNOI
+	DeploymentModeTrustedHost DeploymentMode = "trusted-host"
+)
+
 // DPFOperatorConfigSpec defines the desired state of DPFOperatorConfig
+// +kubebuilder:validation:XValidation:rule="self.deploymentMode != 'zero-trust' || (has(self.provisioningController.installInterface) && has(self.provisioningController.installInterface.installViaRedfish))",message="deploymentMode zero-trust requires provisioningController.installInterface.installViaRedfish"
+// +kubebuilder:validation:XValidation:rule="self.deploymentMode != 'trusted-host' || !has(self.provisioningController.installInterface) || !has(self.provisioningController.installInterface.installViaRedfish)",message="deploymentMode trusted-host does not support provisioningController.installInterface.installViaRedfish"
 type DPFOperatorConfigSpec struct {
 	// +optional
 	Overrides *Overrides `json:"overrides,omitempty"`
@@ -155,6 +168,11 @@ type DPFOperatorConfigSpec struct {
 	// System reconciliation will not proceed until these secrets are available.
 	// +optional
 	ImagePullSecrets []string `json:"imagePullSecrets,omitempty"`
+
+	// DeploymentMode selects zero-trust vs trusted-host deployment alignment.
+	// Required: operators must set this explicitly; provisioning controllers propagate this to DPU.status.deploymentMode.
+	// +required
+	DeploymentMode DeploymentMode `json:"deploymentMode"`
 
 	// DPUServiceController is the configuration for the DPUServiceController
 	// +optional

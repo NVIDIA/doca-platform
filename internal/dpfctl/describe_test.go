@@ -894,6 +894,7 @@ func defaultDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 	return &operatorv1.DPFOperatorConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec: operatorv1.DPFOperatorConfigSpec{
+			DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 				BFBPersistentVolumeClaimName: ptr.To("oof"),
 			},
