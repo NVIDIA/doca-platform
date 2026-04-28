@@ -19,6 +19,7 @@ package release
 import (
 	"errors"
 	"os"
+	"sync"
 
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/yaml"
@@ -31,17 +32,23 @@ const (
 	defaultsFile = "/etc/dpf-defaults.yaml"
 )
 
-// defaultsContent is loaded at runtime from the defaults file
-var defaultsContent []byte
+// defaultsContent is loaded lazily from the defaults file when first needed.
+// This avoids warnings for binaries (like dpfctl) that import this package
+// only for version info and never use defaults.
+var (
+	defaultsContent []byte
+	defaultsOnce    sync.Once
+)
 
-func init() {
-	var err error
-	defaultsContent, err = os.ReadFile(defaultsFile)
-	if err != nil {
-		klog.Warningf("Unable to load defaults file from path %q: %v", defaultsFile, err)
-		// Set empty content if file doesn't exist (e.g., in tests)
-		defaultsContent = []byte{}
-	}
+func loadDefaults() {
+	defaultsOnce.Do(func() {
+		var err error
+		defaultsContent, err = os.ReadFile(defaultsFile)
+		if err != nil {
+			klog.Warningf("Unable to load defaults file from path %q: %v", defaultsFile, err)
+			defaultsContent = []byte{}
+		}
+	})
 }
 
 // Defaults structure contains the default artifacts that the operators should deploy
@@ -59,6 +66,7 @@ type Defaults struct {
 // Parse parses the defaults from the embedded generated YAML file
 // TODO: Add more validations here as needed.
 func (d *Defaults) Parse() error {
+	loadDefaults()
 	err := yaml.Unmarshal(defaultsContent, d)
 	if err != nil {
 		return err
@@ -96,5 +104,9 @@ func NewDefaults() *Defaults {
 // SetDefaultsContentForTesting allows injecting defaults content for testing purposes.
 // This should only be used in tests.
 func SetDefaultsContentForTesting(content []byte) {
+	// Reset the Once so loadDefaults() won't overwrite the injected content,
+	// and use a pre-fired Once to prevent file loading.
+	defaultsOnce = sync.Once{}
+	defaultsOnce.Do(func() {})
 	defaultsContent = content
 }
