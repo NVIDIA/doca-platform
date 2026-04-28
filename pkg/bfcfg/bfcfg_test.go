@@ -270,6 +270,7 @@ write_files:
       --dpuflavor=/opt/dpf/dpuflavor.yaml
       --control-plane-mtu={{.ControlPlaneMTU}}
       --zero-trust-mode={{.RedfishInterface}}
+      --astra-enabled={{.AstraEnabled}}
       --kubeadm-secret-name={{.KubeadmSecretName}}
       --kubeadm-secret-namespace={{.KubeadmSecretNamespace}}
 {{- if .RedfishInterface}}
@@ -427,6 +428,7 @@ EOF
 					DPUName:                "dpu-1",
 					DPUNamespace:           "ns-1",
 					DPUAgentRepoURL:        "http://bfb-registry:8080/deb",
+					AstraEnabled:           true,
 				})
 
 				netplanFile := getWriteFile(parsed, "/etc/netplan/50-dpf-bootstrap.yaml")
@@ -466,6 +468,7 @@ ovs-vsctl add-br br-test
 --dpuflavor=/opt/dpf/dpuflavor.yaml
 --control-plane-mtu=1500
 --zero-trust-mode=true
+--astra-enabled=true
 --kubeadm-secret-name=test-secret
 --kubeadm-secret-namespace=default
 --bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig
@@ -525,6 +528,7 @@ network:
 --dpuflavor=/opt/dpf/dpuflavor.yaml
 --control-plane-mtu=1500
 --zero-trust-mode=true
+--astra-enabled=false
 --kubeadm-secret-name=test-secret
 --kubeadm-secret-namespace=default
 --bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig
@@ -655,6 +659,7 @@ network:
 --dpuflavor=/opt/dpf/dpuflavor.yaml
 --control-plane-mtu=1500
 --zero-trust-mode=false
+--astra-enabled=false
 --kubeadm-secret-name=test-secret
 --kubeadm-secret-namespace=default
 `)

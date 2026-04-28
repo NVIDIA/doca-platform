@@ -73,6 +73,8 @@ type Params struct {
 	OVSRawScript           string
 	OOBNetwork             bool
 	RedfishInterface       bool
+	BFBRegistryURL         string
+	AstraEnabled           bool
 }
 
 // ApplyFlavor populates the flavor-derived fields from the given DPUFlavor.
@@ -152,6 +154,9 @@ func ResolveParams(ctx context.Context, controllerCtx *util.ControllerContext, d
 		DPUNamespace:           dpu.Namespace,
 		DPUUID:                 string(dpu.UID),
 	}
+	if dpu.Spec.AstraEnabled != nil {
+		params.AstraEnabled = *dpu.Spec.AstraEnabled
+	}
 	if isRedfish {
 		if dpfOperatorConfig.Spec.Overrides == nil || dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerVIP == nil || dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort == nil {
 			return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("KubernetesAPIServerVIP and KubernetesAPIServerPort must be set in DPFOperatorConfig for zero-trust mode")
@@ -177,7 +182,9 @@ func ResolveParams(ctx context.Context, controllerCtx *util.ControllerContext, d
 				return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("bfb-registry address with port: %w", err)
 			}
 		}
-		params.DPUAgentRepoURL = strings.TrimRight(bfbRegistryAddr, "/") + "/deb"
+		base := strings.TrimRight(bfbRegistryAddr, "/")
+		params.DPUAgentRepoURL = base + "/deb"
+		params.BFBRegistryURL = base
 	} else {
 		params.DPUAgentRepoURL = "http://[fe80::1%25tmfifo_net0]:11029/deb"
 	}

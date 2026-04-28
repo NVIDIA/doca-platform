@@ -69,6 +69,7 @@ var _ = Describe("ZT Bootstrap", func() {
 	Describe("CreateDPUAgentRole", func() {
 		It("should create a role with correct rules and owner reference", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+			dpu.Spec.BlueFieldSoftware = "bfs-1"
 
 			err := CreateDPUAgentRole(ctx, fakeClient, scheme, dpu)
 			Expect(err).NotTo(HaveOccurred())
@@ -79,7 +80,7 @@ var _ = Describe("ZT Bootstrap", func() {
 				Namespace: "dpf-operator-system",
 			}, role)).To(Succeed())
 
-			Expect(role.Rules).To(HaveLen(3))
+			Expect(role.Rules).To(HaveLen(4))
 			Expect(role.Rules[0].APIGroups).To(Equal([]string{"provisioning.dpu.nvidia.com"}))
 			Expect(role.Rules[0].Resources).To(Equal([]string{"dpus"}))
 			Expect(role.Rules[0].ResourceNames).To(Equal([]string{"dpu-01"}))
@@ -93,6 +94,11 @@ var _ = Describe("ZT Bootstrap", func() {
 			Expect(role.Rules[2].Resources).To(Equal([]string{"secrets"}))
 			Expect(role.Rules[2].ResourceNames).To(Equal([]string{"dpu-01-kubeadm-join"}))
 			Expect(role.Rules[2].Verbs).To(Equal([]string{"get"}))
+
+			Expect(role.Rules[3].APIGroups).To(Equal([]string{"provisioning.dpu.nvidia.com"}))
+			Expect(role.Rules[3].Resources).To(Equal([]string{"bluefieldsoftwares"}))
+			Expect(role.Rules[3].ResourceNames).To(Equal([]string{"bfs-1"}))
+			Expect(role.Rules[3].Verbs).To(Equal([]string{"get"}))
 
 			Expect(role.OwnerReferences).To(HaveLen(1))
 			Expect(role.OwnerReferences[0].Name).To(Equal("dpu-01"))

@@ -71,7 +71,11 @@ write_files:
       --dpuflavor=/opt/dpf/dpuflavor.yaml
       --control-plane-mtu={{.ControlPlaneMTU}}
       --zero-trust-mode={{.RedfishInterface}}
+      --astra-enabled={{.AstraEnabled}}
       --kubeadm-secret-name={{.KubeadmSecretName}}
+{{- if .BFBRegistryURL}}
+      --bfb-registry-url={{.BFBRegistryURL}}
+{{- end}}
       --kubeadm-secret-namespace={{.KubeadmSecretNamespace}}
 {{- if .RedfishInterface}}
       --bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig
