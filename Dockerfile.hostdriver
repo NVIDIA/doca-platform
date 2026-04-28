@@ -76,7 +76,7 @@ pv=1.8.5-2build1 \
 bridge-utils=1.7.1-1ubuntu2 \
 iptables=1.8.10-3ubuntu2 \
 iproute2=6.1.0-1ubuntu6 \
-netplan.io=1.1.2-8ubuntu1~24.04.1"
+netplan.io=1.1.2-8ubuntu1~24.04.2"
 
 ARG ubuntu_mirror=http://archive.ubuntu.com/ubuntu/
 RUN find /etc/apt/sources.list* -type f -exec sed -i \
