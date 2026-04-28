@@ -41,10 +41,14 @@ func ValidateDPUServiceCredentialRequestCreation(ctx context.Context, input *sys
 	By("Create a DPUServiceCredentialRequest targeting the DPUCluster")
 	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.dpuServiceCredentialRequest.DeepCopy())
 	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.dpuClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
+	dcr.Spec.ServiceAccount.Name = "dpu-sa"
+	dcr.Spec.Secret.Name = "dpu-credential"
 	Expect(input.client.Create(ctx, dcr)).To(Succeed())
 
 	By("Create a DPUServiceCredentialRequest targeting the host cluster")
 	hostDcr := utils.GenerateDPUObj(hostDPUServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.dpuServiceCredentialRequest.DeepCopy())
+	hostDcr.Spec.ServiceAccount.Name = "host-dpu-sa"
+	hostDcr.Spec.Secret.Name = "host-dpu-credential"
 	Expect(input.client.Create(ctx, hostDcr)).To(Succeed())
 
 	By("Verify reconciled DPUServiceCredentialRequest for DPUCluster")
@@ -68,6 +72,8 @@ func ValidateDPUServiceCredentialRequestMetrics(ctx context.Context, input *syst
 	By("Create a DPUServiceCredentialRequest targeting the DPUCluster")
 	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.dpuServiceCredentialRequest.DeepCopy())
 	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.dpuClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
+	dcr.Spec.ServiceAccount.Name = "dpu-sa-metrics"
+	dcr.Spec.Secret.Name = "dpu-credential-metrics"
 	Expect(input.client.Create(ctx, dcr)).To(Succeed())
 
 	By("Verify DPUServiceCredentialRequest metrics in KSM")
@@ -96,10 +102,14 @@ func ValidateDPUServiceCredentialRequestDeletion(ctx context.Context, input *sys
 	By("Create a DPUServiceCredentialRequest targeting the DPUCluster")
 	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.dpuServiceCredentialRequest.DeepCopy())
 	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.dpuClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
+	dcr.Spec.ServiceAccount.Name = "dpu-sa-delete"
+	dcr.Spec.Secret.Name = "dpu-credential-delete"
 	Expect(input.client.Create(ctx, dcr)).To(Succeed())
 
 	By("Create a DPUServiceCredentialRequest targeting the host cluster")
 	hostDcr := utils.GenerateDPUObj(hostDPUServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.dpuServiceCredentialRequest.DeepCopy())
+	hostDcr.Spec.ServiceAccount.Name = "host-dpu-sa-delete"
+	hostDcr.Spec.Secret.Name = "host-dpu-credential-delete"
 	Expect(input.client.Create(ctx, hostDcr)).To(Succeed())
 
 	By("Verify reconciled DPUServiceCredentialRequest for DPUCluster")
