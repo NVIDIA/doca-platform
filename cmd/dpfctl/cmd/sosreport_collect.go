@@ -81,7 +81,8 @@ func runSOSReportCollect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("get host client: %w", err)
 	}
-	if err := sosreport.Start(ctx, targets, hostClient, *opts); err != nil {
+	startedTargets, err := sosreport.Start(ctx, targets, hostClient, *opts)
+	if err != nil {
 		if ctx.Err() != nil {
 			sosreport.Warn("Interrupted during start")
 			return fmt.Errorf("interrupted")
@@ -91,7 +92,7 @@ func runSOSReportCollect(ctx context.Context) error {
 
 	// Step 2: Wait
 	sosreport.Step("Waiting for SOS report Jobs to complete")
-	if err := sosreport.WaitForAll(ctx, targets, sosOpts.namespace, opts.CaseID, sosOpts.timeout); err != nil {
+	if err := sosreport.WaitForAll(ctx, startedTargets, sosOpts.namespace, opts.CaseID, sosOpts.timeout); err != nil {
 		if ctx.Err() != nil {
 			sosreport.Warn("Interrupted")
 		} else {
@@ -114,7 +115,7 @@ func runSOSReportCollect(ctx context.Context) error {
 			sosreport.Result("Reports written to NFS: %s", opts.NFSPath)
 		}
 		sosreport.Step("Cleaning up")
-		sosreport.Cleanup(context.Background(), targets, sosOpts.namespace, opts.CaseID)
+		sosreport.Cleanup(context.Background(), startedTargets, sosOpts.namespace, opts.CaseID)
 		return nil
 	}
 
@@ -137,8 +138,8 @@ func runSOSReportCollect(ctx context.Context) error {
 		return fmt.Errorf("download failed: %w", err)
 	}
 
-	// Always clean up after collect — reuse existing targets.
+	// Always clean up after collect — reuse existing startedTargets.
 	sosreport.Step("Cleaning up")
-	sosreport.Cleanup(context.Background(), targets, sosOpts.namespace, opts.CaseID)
+	sosreport.Cleanup(context.Background(), startedTargets, sosOpts.namespace, opts.CaseID)
 	return nil
 }

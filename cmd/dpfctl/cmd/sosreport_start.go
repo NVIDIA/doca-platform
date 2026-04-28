@@ -65,7 +65,7 @@ subdirectory is created automatically (use --nfs-no-subdir to disable).`,
 		if err != nil {
 			return fmt.Errorf("get host client: %w", err)
 		}
-		if err := sosreport.Start(cmd.Context(), targets, hostClient, *opts); err != nil {
+		if _, err := sosreport.Start(cmd.Context(), targets, hostClient, *opts); err != nil {
 			return err
 		}
 

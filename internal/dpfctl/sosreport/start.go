@@ -77,28 +77,31 @@ func ValidateStartOptions(opts *StartOptions) error {
 }
 
 // Start creates SOS report Jobs on the given targets.
-// Returns an error if all clusters fail.
-func Start(ctx context.Context, targets ClusterTargets, hostClient client.Client, opts StartOptions) error {
+// Returns the subset of targets where jobs were successfully created, and an
+// error if all clusters fail. Callers should use the returned targets for
+// subsequent wait/download/cleanup phases to avoid operating on clusters
+// where no jobs exist.
+func Start(ctx context.Context, targets ClusterTargets, hostClient client.Client, opts StartOptions) (ClusterTargets, error) {
 	if opts.Output == OutputNFS && opts.NFSSubDir != "" {
 		Step("Starting SOS report collection (case-id: %s, nfs: %s/%s)", opts.CaseID, opts.NFSPath, opts.NFSSubDir)
 	} else {
 		Step("Starting SOS report collection (case-id: %s)", opts.CaseID)
 	}
 
-	succeeded := 0
+	var started ClusterTargets
 	for _, target := range targets {
 		if err := startOnCluster(ctx, target, hostClient, opts); err != nil {
 			Failure("cluster %s: %v", target.Name, err)
 			continue
 		}
-		succeeded++
+		started = append(started, target)
 	}
 
-	if succeeded == 0 {
-		return fmt.Errorf("failed to start SOS reports on all %d cluster(s)", len(targets))
+	if len(started) == 0 {
+		return nil, fmt.Errorf("failed to start SOS reports on all %d cluster(s)", len(targets))
 	}
 
-	return nil
+	return started, nil
 }
 
 func startOnCluster(ctx context.Context, target ClusterTarget, hostClient client.Client, opts StartOptions) error {
