@@ -402,7 +402,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 				},
 			}
 
-			err := reconciler.createScriptJob(ctx, dpuNode)
+			err := reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).To(HaveOccurred())
 		})
 
@@ -433,7 +433,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 			}
 			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
 
-			err := reconciler.createScriptJob(ctx, dpuNode)
+			err := reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("pod-template not found in ConfigMap"))
 		})
@@ -464,7 +464,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 				},
 			}
 
-			err := reconciler.createScriptJob(ctx, dpuNode)
+			err := reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).To(HaveOccurred())
 		})
 
@@ -514,7 +514,7 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 			}
 			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
 
-			err = reconciler.createScriptJob(ctx, dpuNode)
+			err = reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify Job was created
@@ -566,7 +566,7 @@ spec:
 			}
 			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
 
-			err := reconciler.createScriptJob(ctx, dpuNode)
+			err := reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify Job was created from YAML template
@@ -621,7 +621,7 @@ spec:
 			}
 			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
 
-			err = reconciler.createScriptJob(ctx, dpuNode)
+			err = reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify Job has DPUNODE_NAME env var
@@ -690,7 +690,7 @@ spec:
 			}
 			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
 
-			err = reconciler.createScriptJob(ctx, dpuNode)
+			err = reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify Job has dpuNode labels
@@ -730,7 +730,7 @@ spec:
 			}
 			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
 
-			err := reconciler.createScriptJob(ctx, dpuNode)
+			err := reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("refusing to create script job"))
 			Expect(err.Error()).To(ContainSubstring("already exists"))
@@ -786,7 +786,7 @@ spec:
 			// Create patcher to simulate defer behavior in Reconcile
 			patcher := patch.NewSerialPatcher(dpuNode, fakeClient)
 
-			err = reconciler.createScriptJob(ctx, dpuNode)
+			err = reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Patch the dpuNode to persist changes (simulating defer in Reconcile)
@@ -842,7 +842,7 @@ spec:
 			}
 			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
 
-			err = reconciler.createScriptJob(ctx, dpuNode)
+			err = reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			job := &batchv1.Job{}
@@ -896,7 +896,7 @@ spec:
 			}
 			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
 
-			err = reconciler.createScriptJob(ctx, dpuNode)
+			err = reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			job := &batchv1.Job{}
@@ -963,7 +963,7 @@ spec:
 			}
 			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
 
-			err = reconciler.createScriptJob(ctx, dpuNode)
+			err = reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			job := &batchv1.Job{}
@@ -979,6 +979,319 @@ spec:
 				}
 			}
 			Expect(cpCount).To(Equal(1), "control-plane toleration should not be duplicated")
+		})
+
+		// v26.4 stop-gap: the script Job should expose the aggregated reboot
+		// method (and the per-DPU mapping) to the script container so operators
+		// can branch on PowerCycle vs SystemReboot vs SLR without consuming the
+		// DPU API. The aggregator picks the most disruptive method present and
+		// "Unknown" only when every DPU is missing or Unknown.
+		Context("reboot-method propagation (v26.4 stop-gap)", func() {
+			var stopgapScheme *runtime.Scheme
+			BeforeEach(func() {
+				stopgapScheme = runtime.NewScheme()
+				Expect(provisioningv1.AddToScheme(stopgapScheme)).To(Succeed())
+				Expect(corev1.AddToScheme(stopgapScheme)).To(Succeed())
+				Expect(batchv1.AddToScheme(stopgapScheme)).To(Succeed())
+			})
+
+			// rebootMethodTestSetup builds a fakeClient with status subresource
+			// support, seeds the provided DPUs and a default ConfigMap, and
+			// returns a configured DPUNode + reconciler ready for the test.
+			rebootMethodTestSetup := func(dpuNodeName string, dpus ...*provisioningv1.DPU) (*provisioningv1.DPUNode, *DPUNodeReconciler, client.Client) {
+				podTemplate := corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "main", Image: "busybox:latest"},
+						},
+						InitContainers: []corev1.Container{
+							{Name: "init", Image: "busybox:latest"},
+						},
+						RestartPolicy: corev1.RestartPolicyNever,
+					},
+				}
+				podTemplateJSON, err := json.Marshal(podTemplate)
+				Expect(err).NotTo(HaveOccurred())
+
+				configMap := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "stopgap-cm-" + dpuNodeName,
+						Namespace: "test-namespace",
+					},
+					Data: map[string]string{PodTemplateConfigMapKey: string(podTemplateJSON)},
+				}
+				dpuNode := &provisioningv1.DPUNode{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      dpuNodeName,
+						Namespace: "test-namespace",
+					},
+					Spec: provisioningv1.DPUNodeSpec{
+						NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+							Script: &provisioningv1.Script{Name: configMap.Name},
+						},
+					},
+				}
+
+				objs := []client.Object{configMap, dpuNode}
+				for _, d := range dpus {
+					objs = append(objs, d)
+				}
+				newClient := fake.NewClientBuilder().
+					WithScheme(stopgapScheme).
+					WithObjects(objs...).
+					WithStatusSubresource(&provisioningv1.DPU{}).
+					Build()
+				return dpuNode, &DPUNodeReconciler{Client: newClient}, newClient
+			}
+
+			rebootMethodPtr := func(m provisioningv1.RebootMethodType) *provisioningv1.RebootMethodType {
+				return &m
+			}
+
+			makeDPU := func(name, dpuNodeName string, method *provisioningv1.RebootMethodType) *provisioningv1.DPU {
+				dpu := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      name,
+						Namespace: "test-namespace",
+						Labels: map[string]string{
+							provisioningv1.DPUNodeNameLabel: dpuNodeName,
+						},
+					},
+				}
+				if method != nil {
+					dpu.Status.AgentStatus = &provisioningv1.AgentStatus{RebootMethod: method}
+				}
+				return dpu
+			}
+
+			envValue := func(envs []corev1.EnvVar, name string) (string, bool) {
+				for _, e := range envs {
+					if e.Name == name {
+						return e.Value, true
+					}
+				}
+				return "", false
+			}
+
+			It("aggregates to PowerCycle when any DPU reports PowerCycle", func() {
+				dpuNodeName := "agg-powercycle"
+				dpus := []*provisioningv1.DPU{
+					makeDPU("dpu-a", dpuNodeName, rebootMethodPtr(provisioningv1.RebootMethodFirmwareReset)),
+					makeDPU("dpu-b", dpuNodeName, rebootMethodPtr(provisioningv1.RebootMethodPowerCycle)),
+					makeDPU("dpu-c", dpuNodeName, rebootMethodPtr(provisioningv1.RebootMethodNoAction)),
+				}
+				dpuNode, rec, c := rebootMethodTestSetup(dpuNodeName, dpus...)
+
+				Expect(rec.createScriptJob(ctx, dpuNode, dpus)).To(Succeed())
+
+				job := &batchv1.Job{}
+				Expect(c.Get(ctx, types.NamespacedName{
+					Name: rec.generateJobName(dpuNode), Namespace: "test-namespace",
+				}, job)).To(Succeed())
+
+				Expect(job.Spec.Template.Spec.Containers).To(HaveLen(1))
+				Expect(job.Spec.Template.Spec.InitContainers).To(HaveLen(1))
+
+				for _, c := range job.Spec.Template.Spec.Containers {
+					v, ok := envValue(c.Env, DPUNodeRebootMethodEnvVar)
+					Expect(ok).To(BeTrue(), "container %q missing %s", c.Name, DPUNodeRebootMethodEnvVar)
+					Expect(v).To(Equal(string(provisioningv1.RebootMethodPowerCycle)))
+
+					perDPU, ok := envValue(c.Env, DPUNodeRebootMethodsPerDPUEnvVar)
+					Expect(ok).To(BeTrue())
+					Expect(perDPU).To(Equal("dpu-a=FirmwareReset,dpu-b=PowerCycle,dpu-c=NoAction"))
+				}
+				for _, c := range job.Spec.Template.Spec.InitContainers {
+					v, _ := envValue(c.Env, DPUNodeRebootMethodEnvVar)
+					Expect(v).To(Equal(string(provisioningv1.RebootMethodPowerCycle)))
+				}
+
+				Expect(job.Spec.Template.Annotations).To(HaveKeyWithValue(
+					DPUNodeRebootMethodAnnotation, string(provisioningv1.RebootMethodPowerCycle)))
+				Expect(job.Spec.Template.Annotations).To(HaveKeyWithValue(
+					DPUNodeRebootMethodsPerDPUAnnotation, "dpu-a=FirmwareReset,dpu-b=PowerCycle,dpu-c=NoAction"))
+			})
+
+			It("aggregates to SystemLevelReset when only SLR and lower-priority methods are reported", func() {
+				dpuNodeName := "agg-slr"
+				dpus := []*provisioningv1.DPU{
+					makeDPU("dpu-a", dpuNodeName, rebootMethodPtr(provisioningv1.RebootMethodSystemLevelReset)),
+					makeDPU("dpu-b", dpuNodeName, rebootMethodPtr(provisioningv1.RebootMethodSystemReboot)),
+				}
+				dpuNode, rec, c := rebootMethodTestSetup(dpuNodeName, dpus...)
+
+				Expect(rec.createScriptJob(ctx, dpuNode, dpus)).To(Succeed())
+
+				job := &batchv1.Job{}
+				Expect(c.Get(ctx, types.NamespacedName{
+					Name: rec.generateJobName(dpuNode), Namespace: "test-namespace",
+				}, job)).To(Succeed())
+
+				v, _ := envValue(job.Spec.Template.Spec.Containers[0].Env, DPUNodeRebootMethodEnvVar)
+				Expect(v).To(Equal(string(provisioningv1.RebootMethodSystemLevelReset)))
+			})
+
+			It("defaults the aggregate to SystemLevelReset but keeps per-DPU Unknown when no DPU has reported a method", func() {
+				dpuNodeName := "agg-unknown"
+				dpus := []*provisioningv1.DPU{
+					makeDPU("dpu-a", dpuNodeName, nil),
+					makeDPU("dpu-b", dpuNodeName, rebootMethodPtr(provisioningv1.RebootMethodUnknown)),
+				}
+				dpuNode, rec, c := rebootMethodTestSetup(dpuNodeName, dpus...)
+
+				Expect(rec.createScriptJob(ctx, dpuNode, dpus)).To(Succeed())
+
+				job := &batchv1.Job{}
+				Expect(c.Get(ctx, types.NamespacedName{
+					Name: rec.generateJobName(dpuNode), Namespace: "test-namespace",
+				}, job)).To(Succeed())
+
+				v, _ := envValue(job.Spec.Template.Spec.Containers[0].Env, DPUNodeRebootMethodEnvVar)
+				Expect(v).To(Equal(string(provisioningv1.RebootMethodSystemLevelReset)),
+					"aggregate must default to SystemLevelReset rather than Unknown")
+				Expect(job.Spec.Template.Annotations).To(HaveKeyWithValue(
+					DPUNodeRebootMethodAnnotation, string(provisioningv1.RebootMethodSystemLevelReset)))
+
+				perDPU, _ := envValue(job.Spec.Template.Spec.Containers[0].Env, DPUNodeRebootMethodsPerDPUEnvVar)
+				Expect(perDPU).To(Equal("dpu-a=Unknown,dpu-b=Unknown"),
+					"per-DPU mapping must keep Unknown so scripts can still see which DPUs have not reported")
+				Expect(job.Spec.Template.Annotations).To(HaveKeyWithValue(
+					DPUNodeRebootMethodsPerDPUAnnotation, "dpu-a=Unknown,dpu-b=Unknown"))
+			})
+
+			It("defaults the aggregate to SystemLevelReset and emits an empty per-DPU mapping when no DPU is in Rebooting phase", func() {
+				dpuNode, rec, c := rebootMethodTestSetup("agg-no-dpus")
+
+				Expect(rec.createScriptJob(ctx, dpuNode, nil)).To(Succeed())
+
+				job := &batchv1.Job{}
+				Expect(c.Get(ctx, types.NamespacedName{
+					Name: rec.generateJobName(dpuNode), Namespace: "test-namespace",
+				}, job)).To(Succeed())
+
+				v, _ := envValue(job.Spec.Template.Spec.Containers[0].Env, DPUNodeRebootMethodEnvVar)
+				Expect(v).To(Equal(string(provisioningv1.RebootMethodSystemLevelReset)),
+					"aggregate must default to SystemLevelReset rather than Unknown")
+				Expect(job.Spec.Template.Annotations).To(HaveKeyWithValue(
+					DPUNodeRebootMethodAnnotation, string(provisioningv1.RebootMethodSystemLevelReset)))
+
+				perDPU, ok := envValue(job.Spec.Template.Spec.Containers[0].Env, DPUNodeRebootMethodsPerDPUEnvVar)
+				Expect(ok).To(BeTrue())
+				Expect(perDPU).To(BeEmpty())
+
+				Expect(job.Spec.Template.Annotations).To(HaveKeyWithValue(
+					DPUNodeRebootMethodsPerDPUAnnotation, ""))
+			})
+
+			It("emits the per-DPU mapping in deterministic, name-sorted order", func() {
+				dpuNodeName := "agg-sorted"
+				dpus := []*provisioningv1.DPU{
+					makeDPU("zzz-dpu", dpuNodeName, rebootMethodPtr(provisioningv1.RebootMethodSystemReboot)),
+					makeDPU("aaa-dpu", dpuNodeName, rebootMethodPtr(provisioningv1.RebootMethodSystemLevelReset)),
+					makeDPU("mmm-dpu", dpuNodeName, nil),
+				}
+				dpuNode, rec, c := rebootMethodTestSetup(dpuNodeName, dpus...)
+
+				Expect(rec.createScriptJob(ctx, dpuNode, dpus)).To(Succeed())
+
+				job := &batchv1.Job{}
+				Expect(c.Get(ctx, types.NamespacedName{
+					Name: rec.generateJobName(dpuNode), Namespace: "test-namespace",
+				}, job)).To(Succeed())
+
+				perDPU, _ := envValue(job.Spec.Template.Spec.Containers[0].Env, DPUNodeRebootMethodsPerDPUEnvVar)
+				Expect(perDPU).To(Equal("aaa-dpu=SystemLevelReset,mmm-dpu=Unknown,zzz-dpu=SystemReboot"))
+
+				Expect(job.Spec.Template.Annotations).To(HaveKeyWithValue(
+					DPUNodeRebootMethodsPerDPUAnnotation,
+					"aaa-dpu=SystemLevelReset,mmm-dpu=Unknown,zzz-dpu=SystemReboot"))
+			})
+
+			It("overwrites user-provided reboot-method annotations because the controller is the source of truth", func() {
+				dpuNodeName := "agg-override"
+				stalePodTemplate := corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							DPUNodeRebootMethodAnnotation:        "BogusUserValue",
+							DPUNodeRebootMethodsPerDPUAnnotation: "stale=value",
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers:    []corev1.Container{{Name: "main", Image: "busybox:latest"}},
+						RestartPolicy: corev1.RestartPolicyNever,
+					},
+				}
+				stalePodTemplateJSON, err := json.Marshal(stalePodTemplate)
+				Expect(err).NotTo(HaveOccurred())
+
+				configMap := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "stopgap-cm-" + dpuNodeName,
+						Namespace: "test-namespace",
+					},
+					Data: map[string]string{PodTemplateConfigMapKey: string(stalePodTemplateJSON)},
+				}
+				dpuNode := &provisioningv1.DPUNode{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      dpuNodeName,
+						Namespace: "test-namespace",
+					},
+					Spec: provisioningv1.DPUNodeSpec{
+						NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+							Script: &provisioningv1.Script{Name: configMap.Name},
+						},
+					},
+				}
+				dpu := makeDPU("dpu-a", dpuNodeName, rebootMethodPtr(provisioningv1.RebootMethodPowerCycle))
+
+				newClient := fake.NewClientBuilder().
+					WithScheme(stopgapScheme).
+					WithObjects(configMap, dpuNode, dpu).
+					WithStatusSubresource(&provisioningv1.DPU{}).
+					Build()
+				rec := &DPUNodeReconciler{Client: newClient}
+
+				Expect(rec.createScriptJob(ctx, dpuNode, []*provisioningv1.DPU{dpu})).To(Succeed())
+
+				job := &batchv1.Job{}
+				Expect(newClient.Get(ctx, types.NamespacedName{
+					Name: rec.generateJobName(dpuNode), Namespace: "test-namespace",
+				}, job)).To(Succeed())
+
+				Expect(job.Spec.Template.Annotations).To(HaveKeyWithValue(
+					DPUNodeRebootMethodAnnotation, string(provisioningv1.RebootMethodPowerCycle)))
+				Expect(job.Spec.Template.Annotations).To(HaveKeyWithValue(
+					DPUNodeRebootMethodsPerDPUAnnotation, "dpu-a=PowerCycle"))
+			})
+
+			// Verifies the contract that createScriptJob only aggregates the
+			// DPUs supplied by the caller (the Rebooting-phase set), even when
+			// other DPUs labeled for the same DPUNode exist in the API server.
+			// A pre-existing DPU still in DPUConfig with a stale RebootMethod
+			// must not influence the aggregated method or the per-DPU mapping.
+			It("aggregates only over the supplied DPUs and ignores other labeled DPUs", func() {
+				dpuNodeName := "agg-rebooting-only"
+				rebooting := []*provisioningv1.DPU{
+					makeDPU("dpu-a", dpuNodeName, rebootMethodPtr(provisioningv1.RebootMethodSystemReboot)),
+				}
+				stale := makeDPU("dpu-z", dpuNodeName, rebootMethodPtr(provisioningv1.RebootMethodPowerCycle))
+				dpuNode, rec, c := rebootMethodTestSetup(dpuNodeName, append(rebooting, stale)...)
+
+				Expect(rec.createScriptJob(ctx, dpuNode, rebooting)).To(Succeed())
+
+				job := &batchv1.Job{}
+				Expect(c.Get(ctx, types.NamespacedName{
+					Name: rec.generateJobName(dpuNode), Namespace: "test-namespace",
+				}, job)).To(Succeed())
+
+				v, _ := envValue(job.Spec.Template.Spec.Containers[0].Env, DPUNodeRebootMethodEnvVar)
+				Expect(v).To(Equal(string(provisioningv1.RebootMethodSystemReboot)),
+					"aggregation must reflect only the rebooting-phase DPUs")
+
+				perDPU, _ := envValue(job.Spec.Template.Spec.Containers[0].Env, DPUNodeRebootMethodsPerDPUEnvVar)
+				Expect(perDPU).To(Equal("dpu-a=SystemReboot"),
+					"per-DPU mapping must not include DPUs that are not in Rebooting phase")
+			})
 		})
 	})
 
@@ -1921,7 +2234,7 @@ spec:
 				Client: fakeClient,
 			}
 
-			err := reconciler.createScriptJob(ctx, dpuNode)
+			err := reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).To(HaveOccurred())
 		})
 
@@ -1959,7 +2272,7 @@ spec:
 				Client: fakeClient,
 			}
 
-			err := reconciler.createScriptJob(ctx, dpuNode)
+			err := reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("not found in ConfigMap"))
 		})
@@ -1998,7 +2311,7 @@ spec:
 				Client: fakeClient,
 			}
 
-			err := reconciler.createScriptJob(ctx, dpuNode)
+			err := reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).To(HaveOccurred())
 		})
 
@@ -2034,7 +2347,7 @@ spec:
 				Client: fakeClient,
 			}
 
-			err := reconciler.createScriptJob(ctx, dpuNode)
+			err := reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("refusing to create script job"))
 			Expect(err.Error()).To(ContainSubstring("already exists"))
@@ -2096,7 +2409,7 @@ spec:
 				Client: fakeClient,
 			}
 
-			err := reconciler.createScriptJob(ctx, dpuNode)
+			err := reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify job was created with init container volume mounts
@@ -2166,7 +2479,7 @@ spec:
 				Client: fakeClient,
 			}
 
-			err := reconciler.createScriptJob(ctx, dpuNode)
+			err := reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify job was created without duplicating the volume
@@ -2236,7 +2549,7 @@ spec:
 				Client: fakeClient,
 			}
 
-			err := reconciler.createScriptJob(ctx, dpuNode)
+			err := reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			job := &batchv1.Job{}
@@ -2307,7 +2620,7 @@ spec:
 				Client: fakeClient,
 			}
 
-			err := reconciler.createScriptJob(ctx, dpuNode)
+			err := reconciler.createScriptJob(ctx, dpuNode, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			job := &batchv1.Job{}

@@ -145,6 +145,29 @@ The Job is created with `backoffLimit: 3`, so Kubernetes automatically retries t
 with exponential backoff before reporting a terminal failure.
 If the Job still fails after those retries, see [Script reboot job failures and recovery](#script-reboot-job-failures-and-recovery).
 
+#### Reboot context exposed to the script (v26.4)
+
+Starting with DPF v26.4, the controller also propagates the aggregated reboot
+intent reported by the DPU agent(s) into every container and init container of
+the script pod, and stamps it as pod-template annotations. Custom reboot scripts
+can use this signal to choose the right host action (for example: cold power
+cycle vs warm reboot) without having to read the DPU API directly.
+
+| Surface | Name | Meaning |
+|---------|------|---------|
+| Env var | `DPUNODE_NAME` | Name of the `DPUNode` the Job is reconciling. |
+| Env var | `DPUNODE_REBOOT_METHOD` | Aggregated reboot method across the DPUs that have advanced to phase `Rebooting` for this DPUNode. The most disruptive method wins (priority: `PowerCycle` > `SystemLevelReset` > `SystemReboot` > `FirmwareReset` > `DPUWarmReboot` > `NoAction`). DPUs still in earlier provisioning phases (e.g. `DPUConfig`) are intentionally excluded so the value cannot be influenced by reboot methods that are still being negotiated. **The aggregate is never `Unknown`**: when no rebooting DPU has populated `status.agentStatus.rebootMethod`, the controller substitutes `SystemLevelReset` so the script always has an actionable signal. |
+| Env var | `DPUNODE_REBOOT_METHODS_PER_DPU` | Comma-separated `<dpu-name>=<method>` mapping for every DPU in phase `Rebooting`, **sorted by DPU name** for stability. DPUs that have not reported a method appear as `<dpu-name>=Unknown` (this mapping is informational and is *not* defaulted, so scripts can still tell which DPUs have not reported). Empty when no DPU is in `Rebooting` phase yet. |
+| Annotation | `provisioning.dpu.nvidia.com/reboot-method-aggregated` | Same value as `DPUNODE_REBOOT_METHOD`. Surfaced inside the pod through the existing `dpf-pod-info` downward-API mount at `/etc/dpf-pod-info/annotations`. |
+| Annotation | `provisioning.dpu.nvidia.com/reboot-methods-per-dpu` | Same value as `DPUNODE_REBOOT_METHODS_PER_DPU`. The DPUNode controller is the source of truth and overwrites any user-provided value for these two keys in the pod template. |
+
+The aggregate is guaranteed to be one of the seven non-`Unknown`
+`RebootMethodType` values. `SystemLevelReset` is the default when the agent
+has not reported yet -- it is the safe middle ground that triggers a
+host-impacting reboot without escalating to a hard `PowerCycle`. Per-DPU
+entries can still appear as `Unknown` and should be treated as "agent has
+not reported for this DPU yet".
+
 ```yaml
 ---
 apiVersion: v1
@@ -163,8 +186,25 @@ data:
         - -c
         - |
           echo "Performing custom reboot procedure for DPUNode $DPUNODE_NAME..."
-          # Add your custom reboot logic here
-          # For example: IPMI commands, SSH to BMC, etc.
+          echo "Aggregated reboot method: $DPUNODE_REBOOT_METHOD"
+          echo "Per-DPU methods: $DPUNODE_REBOOT_METHODS_PER_DPU"
+          # DPUNODE_REBOOT_METHOD is guaranteed by the controller to be one of
+          # the seven non-Unknown RebootMethodType values; SystemLevelReset is
+          # the default when no DPU has reported yet.
+          case "$DPUNODE_REBOOT_METHOD" in
+            PowerCycle)
+              # Hard power cycle via BMC / IPMI
+              ;;
+            SystemLevelReset|SystemReboot|FirmwareReset|DPUWarmReboot)
+              # Warm reboot of the host OS is sufficient
+              ;;
+            NoAction)
+              # Nothing to do; let the script exit 0
+              ;;
+            *)
+              # Defensive fallback for unknown future RebootMethodType values.
+              ;;
+          esac
           sleep 10
           exit 0
       restartPolicy: Never
