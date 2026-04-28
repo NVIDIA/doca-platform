@@ -40,7 +40,7 @@ where it makes sense, but many will be specific to the target infrastructure.
 
 Commands in this guide are run in the same directory that contains this readme.
 
-<details markdown="1"><summary>**Environment variables file**</summary>
+<details markdown="1"><summary><b>Environment variables file</b></summary>
 
 [embedmd]:# (manifests/00-env-vars/envvars.env sh)
 ```sh
@@ -134,7 +134,7 @@ cat manifests/02-dpf-system-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will create the following objects:
-<details markdown="1"><summary>**DPFOperatorConfig to install the DPF System components**</summary>
+<details markdown="1"><summary><b>DPFOperatorConfig to install the DPF System components</b></summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/operatorconfig.yaml)
 ```yaml
@@ -152,7 +152,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUCluster to serve as Kubernetes control plane for DPU nodes**</summary>
+<details markdown="1"><summary><b>DPUCluster to serve as Kubernetes control plane for DPU nodes</b></summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/dpucluster.yaml)
 ```yaml
@@ -220,7 +220,7 @@ cat manifests/03-dpf-object-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will deploy the following objects:
-<details markdown="1"><summary>**BFB** is used to download the BFB to a shared volume</summary>
+<details markdown="1"><summary><b>BFB</b> is used to download the BFB to a shared volume</summary>
 
 [embedmd]:#(manifests/03-dpf-object-installation/bfb.yaml)
 ```yaml
@@ -235,7 +235,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUFlavor** is used to provision the DPUs</summary>
+<details markdown="1"><summary><b>DPUFlavor</b> is used to provision the DPUs</summary>
 
 [embedmd]:#(manifests/03-dpf-object-installation/dpuflavor.yaml)
 ```yaml
@@ -327,7 +327,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUSet** is used to provision DPUs on worker nodes</summary>
+<details markdown="1"><summary><b>DPUSet</b> is used to provision DPUs on worker nodes</summary>
 
 [embedmd]:#(manifests/03-dpf-object-installation/dpuset.yaml)
 ```yaml
@@ -353,7 +353,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUServiceInterfaces** is used by the DPUServiceChain</summary>
+<details markdown="1"><summary><b>DPUServiceInterfaces</b> is used by the DPUServiceChain</summary>
 
 [embedmd]:#(manifests/03-dpf-object-installation/ifaces.yaml)
 ```yaml
@@ -428,7 +428,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUServiceChain** is used to make the device act as passthrough device</summary>
+<details markdown="1"><summary><b>DPUServiceChain</b> is used to make the device act as passthrough device</summary>
 
 [embedmd]:#(manifests/03-dpf-object-installation/dpuservicechain.yaml)
 ```yaml
