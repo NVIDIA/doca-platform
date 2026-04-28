@@ -629,6 +629,10 @@ ARTIFACTS_DIR ?= $(CURDIR)/artifacts
 $(ARTIFACTS_DIR):
 	@mkdir -p $(ARTIFACTS_DIR)
 
+# This is the default registry used for e2e tests, it can be overridden by setting the DOCKER_IO_REGISTRY environment variable.
+# This is useful for testing with a local registry or a registry mirror.
+export DOCKER_IO_REGISTRY ?= docker.io
+
 E2E_TEST_DEFAULTS ?= -v -ginkgo.v -ginkgo.fail-fast -ginkgo.timeout=2h
 E2E_TEST_ARGS ?= -ginkgo.label-filter="DPFSystem && !SDN && !DPFVPCOVN" -e2e.config=./config-quick.yaml
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.

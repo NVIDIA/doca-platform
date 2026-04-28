@@ -119,6 +119,8 @@ var (
 	metricsURI                   string
 	// helmRegistry holds the Helm registry in which the artifacts used in e2e are pushed
 	helmRegistry = ""
+	// dockerIORegistry is a DockerHub mirror registry used to pull mirrored images to avoid rate-limiting.
+	dockerIORegistry = ""
 	// tag holds the tag which the artifacts used in e2e are using
 	tag = ""
 	// bfbImageURL can be used to override the default BFB image URL used in the tests.
