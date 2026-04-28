@@ -38,6 +38,40 @@ type blueFieldSoftwareDeletingState struct {
 	recorder record.EventRecorder
 }
 
+func (st *blueFieldSoftwareDeletingState) statusPathForComponent(componentType butil.ComponentType) string {
+	switch componentType {
+	case butil.ComponentTypeFwBundle:
+		return st.bfs.Status.DownloadedComponents.PldmFwBundle
+	case butil.ComponentTypeOSISO:
+		return st.bfs.Status.DownloadedComponents.OsIso
+	case butil.ComponentTypeBMCEROT:
+		return st.bfs.Status.DownloadedComponents.BmcErot
+	case butil.ComponentTypeBMC:
+		return st.bfs.Status.DownloadedComponents.BmcFw
+	case butil.ComponentTypeNIC:
+		return st.bfs.Status.DownloadedComponents.AstraNicFw
+	case butil.ComponentTypeGRACEEROT:
+		return st.bfs.Status.DownloadedComponents.GraceErot
+	case butil.ComponentTypeGRACEFW:
+		return st.bfs.Status.DownloadedComponents.GraceFw
+	}
+	return ""
+}
+
+// componentFilePathToRemove returns the absolute path of a downloaded file to
+// delete for URL-based specs. Opaque (non-URL) spec values have no local file.
+func (st *blueFieldSoftwareDeletingState) componentFilePathToRemove(componentType butil.ComponentType) string {
+	specURL := butil.SpecURLForComponent(st.bfs, componentType)
+	if specURL == "" || !isURL(specURL) {
+		return ""
+	}
+	if p := st.statusPathForComponent(componentType); p != "" {
+		return p
+	}
+	fileName := butil.ComponentDownloadFilename(st.bfs, componentType, specURL)
+	return componentDestinationPath(componentType, fileName)
+}
+
 func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.Client) error {
 	// Check if any DPU is using this BlueFieldSoftware
 	dpuList := &provisioningv1.DPUList{}
@@ -75,8 +109,10 @@ func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.C
 
 	var errors []error
 	for _, componentType := range componentsToDelete {
-		fileName := butil.DefaultComponentFilename(st.bfs, componentType)
-		filePath := componentDestinationPath(componentType, fileName)
+		filePath := st.componentFilePathToRemove(componentType)
+		if filePath == "" {
+			continue
+		}
 
 		if exists, err := isFileExist(filePath); err != nil {
 			errors = append(errors, fmt.Errorf("failed to check %s: %w", componentType, err))

@@ -270,7 +270,7 @@ func TestUpdateComponentStatus_ClearsRetryCounter(t *testing.T) {
 	}
 
 	// Update status for FwBundle (should clear its counter)
-	expectedFw := componentDestinationPath(butil.ComponentTypeFwBundle, butil.DefaultComponentFilename(bfs, butil.ComponentTypeFwBundle))
+	expectedFw := componentDestinationPath(butil.ComponentTypeFwBundle, butil.ComponentDownloadFilename(bfs, butil.ComponentTypeFwBundle, ""))
 	st.updateComponentStatus(butil.ComponentTypeFwBundle, expectedFw)
 
 	// FwBundle counter should be cleared
@@ -735,17 +735,18 @@ func TestComponentDownloadSatisfied(t *testing.T) {
 	}
 	st := &blueFieldSoftwareDownloadingState{bfs: bfs}
 	ct := butil.ComponentTypeFwBundle
-	expectedPath := componentDestinationPath(ct, butil.DefaultComponentFilename(bfs, ct))
+	specURL := "https://example.com/path/fw-bundle.tar"
+	expectedPath := componentDestinationPath(ct, butil.ComponentDownloadFilename(bfs, ct, specURL))
 
 	t.Run("empty or wrong downloaded value is not satisfied", func(t *testing.T) {
-		assert.False(t, st.componentDownloadSatisfied(ct, ""))
-		assert.False(t, st.componentDownloadSatisfied(ct, "anything"))
+		assert.False(t, st.componentDownloadSatisfied(ct, specURL, ""))
+		assert.False(t, st.componentDownloadSatisfied(ct, specURL, "anything"))
 	})
 
 	t.Run("status holds destination path", func(t *testing.T) {
-		assert.True(t, st.componentDownloadSatisfied(ct, expectedPath))
+		assert.True(t, st.componentDownloadSatisfied(ct, specURL, expectedPath))
 	})
 	t.Run("mismatch", func(t *testing.T) {
-		assert.False(t, st.componentDownloadSatisfied(ct, "/wrong/path"))
+		assert.False(t, st.componentDownloadSatisfied(ct, specURL, "/wrong/path"))
 	})
 }
