@@ -180,6 +180,8 @@ network:
 			DPUName:                "dpu-1",
 			DPUNamespace:           "ns-1",
 			DPUAgentRepoURL:        "http://bfb-registry:8080/deb",
+			BFBRegistryURL:         "http://bfb-registry:8080",
+			AstraEnabled:           true,
 		})
 
 		netplanFile := getWriteFile(parsed, "/etc/netplan/50-dpf-bootstrap.yaml")
@@ -219,7 +221,9 @@ ovs-vsctl add-br br-test
 --dpuflavor=/opt/dpf/dpuflavor.yaml
 --control-plane-mtu=1500
 --zero-trust-mode=true
+--astra-enabled=true
 --kubeadm-secret-name=test-secret
+--bfb-registry-url=http://bfb-registry:8080
 --kubeadm-secret-namespace=default
 --bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig
 `)
@@ -254,6 +258,7 @@ ovs-vsctl add-br br-test
 			DPUName:                "dpu-1",
 			DPUNamespace:           "ns-1",
 			DPUAgentRepoURL:        "http://bfb-registry:8080/deb",
+			BFBRegistryURL:         "http://bfb-registry:8080",
 		})
 
 		netplanFile := getWriteFile(parsed, "/etc/netplan/50-dpf-bootstrap.yaml")
@@ -270,6 +275,7 @@ network:
 		agentConf := getWriteFile(parsed, "/opt/dpf/dpuagent.conf")
 		Expect(agentConf.Content).To(ContainSubstring("--zero-trust-mode=true"))
 		Expect(agentConf.Content).To(ContainSubstring("--bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig"))
+		Expect(agentConf.Content).To(ContainSubstring("--bfb-registry-url=http://bfb-registry:8080"))
 
 		kubeconfigFile := getWriteFile(parsed, "/var/lib/dpf/dpuagent/bootstrap-kubeconfig")
 		Expect(kubeconfigFile.Content).To(Equal(sampleKubeconfig))
