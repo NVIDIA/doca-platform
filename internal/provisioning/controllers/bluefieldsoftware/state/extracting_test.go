@@ -102,13 +102,134 @@ func TestCallPldmUnpackService_Success(t *testing.T) {
 
 		_ = json.NewEncoder(w).Encode(unpackResponse{
 			Success: true,
+			Stdout: `{
+				"FirmwareDeviceRecords": [
+					{
+						"Components": [
+							{
+								"ComponentVersionString": "BF4-26.01-4",
+								"FWImage": "/tmp/BMC_BF4-BMC_BF4-26.01-4_image.bin"
+							}
+						]
+					}
+				]
+			}`,
 		})
 	})
 	defer shutdown()
 
 	setEnvForUnpackServer(t, socketPath)
-	err := callPldmUnpackService(context.Background(), "/tmp/in.fwpkg", "/tmp/out")
+	components, err := callPldmUnpackService(context.Background(), "/tmp/in.fwpkg", "/tmp/out")
 	require.NoError(t, err)
+	require.Len(t, components, 1)
+	assert.Equal(t, unpackedComponent{
+		ComponentVersionString: "BF4-26.01-4",
+		FWImage:                "/tmp/BMC_BF4-BMC_BF4-26.01-4_image.bin",
+	}, components[0])
+}
+
+func TestExtractUnpackedComponents(t *testing.T) {
+	t.Run("extract component version and fw image", func(t *testing.T) {
+		stdout := `{
+			"FirmwareDeviceRecords": [
+				{
+					"Components": [
+						{
+							"ComponentVersionString": "02.00.0016.0000_n05",
+							"FWImage": "/tmp/ERoT_02.00.0016.0000_n05_image.bin"
+						},
+						{
+							"ComponentVersionString": "BF4-26.01-4",
+							"FWImage": "/tmp/BMC_BF4-BMC_BF4-26.01-4_image.bin"
+						}
+					]
+				},
+				{
+					"Components": [
+						{
+							"ComponentVersionString": "82.48.0906",
+							"FWImage": "/tmp/CX9_MT_0000001775_82.48.0906_image.bin"
+						}
+					]
+				}
+			]
+		}`
+
+		components, err := extractUnpackedComponents(stdout)
+		require.NoError(t, err)
+		require.Len(t, components, 3)
+		assert.Equal(t, unpackedComponent{
+			ComponentVersionString: "02.00.0016.0000_n05",
+			FWImage:                "/tmp/ERoT_02.00.0016.0000_n05_image.bin",
+		}, components[0])
+		assert.Equal(t, unpackedComponent{
+			ComponentVersionString: "BF4-26.01-4",
+			FWImage:                "/tmp/BMC_BF4-BMC_BF4-26.01-4_image.bin",
+		}, components[1])
+		assert.Equal(t, unpackedComponent{
+			ComponentVersionString: "82.48.0906",
+			FWImage:                "/tmp/CX9_MT_0000001775_82.48.0906_image.bin",
+		}, components[2])
+	})
+
+	t.Run("deduplicate duplicated components", func(t *testing.T) {
+		stdout := `{
+			"FirmwareDeviceRecords": [
+				{
+					"Components": [
+						{
+							"ComponentVersionString": "02.00.0016.0000_n05",
+							"FWImage": "/tmp/ERoT_02.00.0016.0000_n05_image.bin"
+						},
+						{
+							"ComponentVersionString": "BF4-26.01-4",
+							"FWImage": "/tmp/BMC_BF4-BMC_BF4-26.01-4_image.bin"
+						}
+					]
+				},
+				{
+					"Components": [
+						{
+							"ComponentVersionString": "02.00.0016.0000_n05",
+							"FWImage": "/tmp/ERoT_02.00.0016.0000_n05_image.bin"
+						},
+						{
+							"ComponentVersionString": "82.48.0906",
+							"FWImage": "/tmp/CX9_MT_0000001775_82.48.0906_image.bin"
+						}
+					]
+				}
+			]
+		}`
+
+		components, err := extractUnpackedComponents(stdout)
+		require.NoError(t, err)
+		require.Len(t, components, 3)
+		assert.Equal(t, unpackedComponent{
+			ComponentVersionString: "02.00.0016.0000_n05",
+			FWImage:                "/tmp/ERoT_02.00.0016.0000_n05_image.bin",
+		}, components[0])
+		assert.Equal(t, unpackedComponent{
+			ComponentVersionString: "BF4-26.01-4",
+			FWImage:                "/tmp/BMC_BF4-BMC_BF4-26.01-4_image.bin",
+		}, components[1])
+		assert.Equal(t, unpackedComponent{
+			ComponentVersionString: "82.48.0906",
+			FWImage:                "/tmp/CX9_MT_0000001775_82.48.0906_image.bin",
+		}, components[2])
+	})
+
+	t.Run("empty stdout", func(t *testing.T) {
+		components, err := extractUnpackedComponents("")
+		require.NoError(t, err)
+		assert.Empty(t, components)
+	})
+
+	t.Run("invalid stdout json", func(t *testing.T) {
+		_, err := extractUnpackedComponents("not-json")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parse stdout json")
+	})
 }
 
 func TestCallPldmUnpackService_ErrorStatus(t *testing.T) {
@@ -118,15 +239,32 @@ func TestCallPldmUnpackService_ErrorStatus(t *testing.T) {
 	defer shutdown()
 
 	setEnvForUnpackServer(t, socketPath)
-	err := callPldmUnpackService(context.Background(), "/tmp/in.fwpkg", "/tmp/out")
+	_, err := callPldmUnpackService(context.Background(), "/tmp/in.fwpkg", "/tmp/out")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "status 500")
 }
 
 func TestHandle_ExtractSuccess(t *testing.T) {
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	socketPath, shutdown := startUnixHTTPServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(unpackResponse{
 			Success: true,
+			Stdout: `{
+				"FirmwareDeviceRecords": [
+					{
+						"Components": [
+							{
+								"ComponentVersionString": "BF4-26.01-4",
+								"FWImage": "/tmp/BMC_BF4-BMC_BF4-26.01-4_image.bin"
+							},
+							{
+								"ComponentVersionString": "82.48.0906",
+								"FWImage": "/tmp/CX9_MT_0000001775_82.48.0906_image.bin"
+							}
+						]
+					}
+				]
+			}`,
 		})
 	})
 	defer shutdown()
@@ -135,8 +273,8 @@ func TestHandle_ExtractSuccess(t *testing.T) {
 
 	bfs := &provisioningv1.BlueFieldSoftware{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "ns1",
-			Name:      "bfs1",
+			Namespace: "ns1-" + suffix,
+			Name:      "bfs1-" + suffix,
 		},
 		Status: provisioningv1.BlueFieldSoftwareStatus{
 			Phase: provisioningv1.BlueFieldSoftwareExtracting,
@@ -145,6 +283,7 @@ func TestHandle_ExtractSuccess(t *testing.T) {
 			},
 		},
 	}
+	require.NoError(t, os.RemoveAll(extractOutputDirForBFS(bfs)))
 
 	st := &blueFieldSoftwareExtractingState{
 		bfs:      bfs,
@@ -153,12 +292,15 @@ func TestHandle_ExtractSuccess(t *testing.T) {
 	err := st.Handle(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Equal(t, provisioningv1.BlueFieldSoftwareReady, bfs.Status.Phase)
+	assert.Empty(t, bfs.Status.DownloadedComponents.BmcFw)
+	assert.Equal(t, "/tmp/CX9_MT_0000001775_82.48.0906_image.bin", bfs.Status.DownloadedComponents.AstraNicFw)
 	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondReady)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionTrue, cond.Status)
 }
 
 func TestHandle_ExtractFailure(t *testing.T) {
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	socketPath, shutdown := startUnixHTTPServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(unpackResponse{
 			Success:  false,
@@ -173,8 +315,8 @@ func TestHandle_ExtractFailure(t *testing.T) {
 
 	bfs := &provisioningv1.BlueFieldSoftware{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "ns1",
-			Name:      "bfs1",
+			Namespace: "ns1-" + suffix,
+			Name:      "bfs1-" + suffix,
 		},
 		Status: provisioningv1.BlueFieldSoftwareStatus{
 			Phase: provisioningv1.BlueFieldSoftwareExtracting,
@@ -183,6 +325,7 @@ func TestHandle_ExtractFailure(t *testing.T) {
 			},
 		},
 	}
+	require.NoError(t, os.RemoveAll(extractOutputDirForBFS(bfs)))
 
 	st := &blueFieldSoftwareExtractingState{
 		bfs:      bfs,
