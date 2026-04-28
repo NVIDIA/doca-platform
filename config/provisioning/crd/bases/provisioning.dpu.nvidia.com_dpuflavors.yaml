@@ -79,9 +79,8 @@ spec:
                 type: object
               dpuMode:
                 description: |-
-                  Specifies the DPU Mode type: one of dpu,zero-trust.
-                  When not specified, defaults to "zero-trust" if the DPF deployment uses Redfish install interface,
-                  otherwise defaults to "dpu".
+                  DpuMode is deprecated and no longer used by provisioning workflows.
+                  Deployment mode is sourced from DPFOperatorConfig and exposed on DPU.status.deploymentMode.
                 enum:
                 - dpu
                 - zero-trust

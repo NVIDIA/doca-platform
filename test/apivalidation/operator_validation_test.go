@@ -228,6 +228,34 @@ var _ = Describe("Operator API Validation", func() {
 				Entry("invalid - replicas is negative", ptr.To(int32(-1)), true, "should be greater than or equal to 1"),
 			)
 		})
+
+		Context("Validate deployment mode and install interface compatibility", func() {
+			DescribeTable("DPFOperatorConfig deploymentMode validation",
+				func(deploymentMode operatorv1.DeploymentMode, installInterface *operatorv1.ProvisioningInstallInterface, expectError bool, errorMessage string) {
+					config := getMinimalDPFOperatorConfig(testNs.Name)
+					config.Spec.DeploymentMode = deploymentMode
+					config.Spec.ProvisioningController.InstallInterface = installInterface
+					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
+				},
+				Entry("valid - trusted-host without install interface", operatorv1.DeploymentModeTrustedHost, nil, false, ""),
+				Entry("valid - trusted-host with installViaHostAgent", operatorv1.DeploymentModeTrustedHost, &operatorv1.ProvisioningInstallInterface{
+					InstallViaHostAgent: &operatorv1.InstallViaHostAgent{},
+				}, false, ""),
+				Entry("valid - trusted-host with installViaGNOI", operatorv1.DeploymentModeTrustedHost, &operatorv1.ProvisioningInstallInterface{
+					InstallViaGNOI: &operatorv1.InstallViaGNOI{},
+				}, false, ""),
+				Entry("invalid - trusted-host with installViaRedfish", operatorv1.DeploymentModeTrustedHost, &operatorv1.ProvisioningInstallInterface{
+					InstallViaRedfish: &operatorv1.InstallViaRedfish{},
+				}, true, "deploymentMode trusted-host does not support provisioningController.installInterface.installViaRedfish"),
+				Entry("invalid - zero-trust without install interface", operatorv1.DeploymentModeZeroTrust, nil, true, "deploymentMode zero-trust requires provisioningController.installInterface.installViaRedfish"),
+				Entry("invalid - zero-trust with installViaHostAgent", operatorv1.DeploymentModeZeroTrust, &operatorv1.ProvisioningInstallInterface{
+					InstallViaHostAgent: &operatorv1.InstallViaHostAgent{},
+				}, true, "deploymentMode zero-trust requires provisioningController.installInterface.installViaRedfish"),
+				Entry("valid - zero-trust with installViaRedfish", operatorv1.DeploymentModeZeroTrust, &operatorv1.ProvisioningInstallInterface{
+					InstallViaRedfish: &operatorv1.InstallViaRedfish{},
+				}, false, ""),
+			)
+		})
 	})
 })
 
@@ -404,6 +432,7 @@ func getMinimalDPFOperatorConfig(namespace string) *operatorv1.DPFOperatorConfig
 			Namespace: namespace,
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
+			DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 				BFBPersistentVolumeClaimName: ptr.To("test-bfb-pvc"),
 			},

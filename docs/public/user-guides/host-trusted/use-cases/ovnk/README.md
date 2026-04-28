@@ -272,6 +272,7 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
+  deploymentMode: trusted-host
   overrides:
     kubernetesAPIServerVIP: $TARGETCLUSTER_API_SERVER_HOST
     kubernetesAPIServerPort: $TARGETCLUSTER_API_SERVER_PORT

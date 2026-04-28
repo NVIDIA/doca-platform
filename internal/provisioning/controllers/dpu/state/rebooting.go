@@ -70,14 +70,12 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 		return *state, err
 	}
 
-	zeroTrustMode := ctrlCtx.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish)
-
 	switch {
 	case dpuNode.Spec.NodeRebootMethod.GNOI != nil || dpuNode.Spec.NodeRebootMethod.HostAgent != nil: //nolint:staticcheck // GNOI is deprecated but still honored for compatibility.
 		return reconcileHostRebootPhase(ctx, dpu, state, false), nil
 	case dpuNode.Spec.NodeRebootMethod.External != nil || dpuNode.Spec.NodeRebootMethod.Script != nil:
 		// External and script reboot both complete on the host side; zero-trust mode selects the next phase after reboot.
-		return reconcileHostRebootPhase(ctx, dpu, state, zeroTrustMode), nil
+		return reconcileHostRebootPhase(ctx, dpu, state, ctrlCtx.Options.ZeroTrustProvisioningFlow()), nil
 	default:
 		panic("should not reach here")
 	}

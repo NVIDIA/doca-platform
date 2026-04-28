@@ -325,6 +325,7 @@ _Appears in:_
 | `networking` _[Networking](#networking)_ |  | \{ controlPlaneMTU:1500 \} | Optional: \{\} <br /> |
 | `monitoring` _[MonitoringConfiguration](#monitoringconfiguration)_ | Monitoring is the configuration for monitoring resources. |  | Optional: \{\} <br /> |
 | `imagePullSecrets` _string array_ | List of secret names which are used to pull images for DPF system components and DPUServices.<br />These secrets must be in the same namespace as the DPF Operator Config and should be created before the config is created.<br />System reconciliation will not proceed until these secrets are available. |  | Optional: \{\} <br /> |
+| `deploymentMode` _[DeploymentMode](#deploymentmode)_ | DeploymentMode selects zero-trust vs trusted-host deployment alignment.<br />Required: operators must set this explicitly; provisioning controllers propagate this to DPU.status.deploymentMode. |  | Enum: [zero-trust trusted-host] <br />Required: \{\} <br /> |
 | `dpuServiceController` _[DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)_ | DPUServiceController is the configuration for the DPUServiceController |  | Optional: \{\} <br /> |
 | `provisioningController` _[ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)_ | ProvisioningController is the configuration for the ProvisioningController |  |  |
 | `serviceSetController` _[ServiceSetControllerConfiguration](#servicesetcontrollerconfiguration)_ | ServiceSetController is the configuration for the ServiceSetController |  | Optional: \{\} <br /> |
@@ -426,6 +427,24 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  | Optional: \{\} <br /> |
+
+
+#### DeploymentMode
+
+_Underlying type:_ _string_
+
+DeploymentMode describes the cluster deployment model for DPU provisioning (zero-trust vs trusted-host).
+
+_Validation:_
+- Enum: [zero-trust trusted-host]
+
+_Appears in:_
+- [DPFOperatorConfigSpec](#dpfoperatorconfigspec)
+
+| Field | Description |
+| --- | --- |
+| `zero-trust` | DeploymentModeZeroTrust requires provisioningController.installInterface.installViaRedfish<br /> |
+| `trusted-host` | DeploymentModeTrustedHost allows provisioningController.installInterface.installViaHostAgent, or installViaGNOI<br /> |
 
 
 
@@ -1984,7 +2003,7 @@ _Appears in:_
 | `containerdConfig` _[ContainerdConfig](#containerdconfig)_ | ContainerdConfig contains the configuration for containerd. |  | Optional: \{\} <br /> |
 | `dpuResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | DPUResources indicates the minimum amount of resources needed for a BFB with that flavor to be installed on a<br />DPU. Using this field, the controller can understand if that flavor can be installed on a particular DPU. It<br />should be set to the total amount of resources the system needs + the resources that should be made available for<br />DPUServices to consume. |  | Optional: \{\} <br /> |
 | `systemReservedResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are<br />not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and<br />SystemReservedResources. This field must not be specified if dpuResources are not specified. |  | Optional: \{\} <br /> |
-| `dpuMode` _[DpuModeType](#dpumodetype)_ | Specifies the DPU Mode type: one of dpu,zero-trust.<br />When not specified, defaults to "zero-trust" if the DPF deployment uses Redfish install interface,<br />otherwise defaults to "dpu". |  | Enum: [dpu zero-trust nic] <br />Optional: \{\} <br /> |
+| `dpuMode` _[DpuModeType](#dpumodetype)_ | DpuMode is deprecated and no longer used by provisioning workflows.<br />Deployment mode is sourced from DPFOperatorConfig and exposed on DPU.status.deploymentMode. |  | Enum: [dpu zero-trust nic] <br />Optional: \{\} <br /> |
 | `hostNetworkInterfaceConfigs` _[NetworkInterfaceConfig](#networkinterfaceconfig) array_ | HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces. |  | Optional: \{\} <br /> |
 | `ewNicConfigurations` _[NicConfiguration](#nicconfiguration)_ | EWNicConfigurations contains the configuration for the E/W NICs. |  | Optional: \{\} <br /> |
 
@@ -2371,6 +2390,7 @@ _Appears in:_
 | `agentLastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | AgentLastStartupTime is the time when the DPU agent was last started. This is copied from agentStatus.lastStartupTime. |  | Optional: \{\} <br /> |
 | `agentStatus` _[AgentStatus](#agentstatus)_ | AgentStatus contains the information reported from inside the DPU |  | Optional: \{\} <br /> |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | The mode of the DPU | dpu | Enum: [dpu nic] <br />Optional: \{\} <br /> |
+| `deploymentMode` _[DeploymentMode](#deploymentmode)_ | DeploymentMode is copied from DPFOperatorConfig.spec.deploymentMode by the controller.<br />This field is read-only for users. |  | Enum: [zero-trust trusted-host] <br />Optional: \{\} <br /> |
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |
 | `redfishTaskId` _string_ | The task ID of the last task performed on the DPU BMC |  | Optional: \{\} <br /> |
 
@@ -2434,6 +2454,27 @@ _Appears in:_
 | `BlueField4` |  |
 
 
+#### DeploymentMode
+
+_Underlying type:_ _string_
+
+DeploymentMode describes the cluster deployment model for provisioning (zero-trust vs trusted-host).
+This type is intentionally duplicated from operator/v1alpha1.DeploymentMode: the provisioning API
+must not import the operator API group. Keep values and semantics aligned with
+DPFOperatorConfig.spec.deploymentMode.
+
+_Validation:_
+- Enum: [zero-trust trusted-host]
+
+_Appears in:_
+- [DPUStatus](#dpustatus)
+
+| Field | Description |
+| --- | --- |
+| `zero-trust` |  |
+| `trusted-host` |  |
+
+
 #### DownloadedComponents
 
 
@@ -2473,8 +2514,8 @@ _Appears in:_
 | Field | Description |
 | --- | --- |
 | `dpu` |  |
-| `zero-trust` |  |
 | `nic` |  |
+| `zero-trust` | ZeroTrustMode is deprecated and kept for backward compatibility with DPUFlavor.spec.dpuMode.<br />Deprecated: DPUFlavor.spec.dpuMode is deprecated; use DPFOperatorConfig.spec.deploymentMode.<br /> |
 
 
 #### External

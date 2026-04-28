@@ -58,6 +58,7 @@ func SetInput() {
 			Labels:    CleanupScope.Suite,
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
+			DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 				BFBPersistentVolumeClaimName: bfbPVCName,
 			},
@@ -90,6 +91,7 @@ func SetInput() {
 		},
 	}
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+		dpfOperatorConfig.Spec.DeploymentMode = operatorv1.DeploymentModeZeroTrust
 		dpfOperatorConfig.Spec.StaticClusterManager.BaseComponentConfig.Disable = ptr.To(true)
 		dpfOperatorConfig.Spec.KamajiClusterManager.BaseComponentConfig.Disable = ptr.To(false)
 		dpfOperatorConfig.Spec.NodeSRIOVDevicePluginController.BaseComponentConfig.Disable = ptr.To(true)

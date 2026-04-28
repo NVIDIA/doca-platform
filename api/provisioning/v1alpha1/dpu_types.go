@@ -182,6 +182,18 @@ const (
 	InstallViaMock      DPUInstallInterfaceType = "mock"
 )
 
+// DeploymentMode describes the cluster deployment model for provisioning (zero-trust vs trusted-host).
+// This type is intentionally duplicated from operator/v1alpha1.DeploymentMode: the provisioning API
+// must not import the operator API group. Keep values and semantics aligned with
+// DPFOperatorConfig.spec.deploymentMode.
+// +kubebuilder:validation:Enum=zero-trust;trusted-host
+type DeploymentMode string
+
+const (
+	DeploymentModeZeroTrust   DeploymentMode = "zero-trust"
+	DeploymentModeTrustedHost DeploymentMode = "trusted-host"
+)
+
 func (ct DPUConditionType) String() string {
 	return string(ct)
 }
@@ -364,6 +376,12 @@ type DPUStatus struct {
 	// +kubebuilder:default=dpu
 	// +optional
 	DPUMode DpuModeType `json:"dpuMode,omitempty"`
+
+	// DeploymentMode is copied from DPFOperatorConfig.spec.deploymentMode by the controller.
+	// This field is read-only for users.
+	// +kubebuilder:validation:Enum=zero-trust;trusted-host
+	// +optional
+	DeploymentMode DeploymentMode `json:"deploymentMode,omitempty"`
 
 	// SecureBoot indicates the current UEFI Secure Boot state.
 	// +optional

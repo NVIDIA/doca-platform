@@ -35,6 +35,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
+	dpfutils "github.com/nvidia/doca-platform/internal/utils"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
@@ -215,6 +216,16 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	if err != nil {
 		logger.Error(err, "State handle error")
 	}
+
+	deploymentMode := provisioningv1.DeploymentMode(r.ctrlCtx.Options.DeploymentMode)
+	dpfOperatorConfig, cfgErr := dpfutils.GetDPFOperatorConfig(ctx, r.ctrlCtx.Client)
+	if cfgErr != nil {
+		logger.Error(cfgErr, "failed to read DPFOperatorConfig, falling back to controller option deployment mode")
+	} else {
+		deploymentMode = provisioningv1.DeploymentMode(dpfOperatorConfig.Spec.DeploymentMode)
+	}
+	nextState.DeploymentMode = deploymentMode
+
 	if UpdateDPUStatus(dpu, nextState) {
 		logger.Info("DPU phase changed", "from", dpu.Status.PreviousPhase, "to", dpu.Status.Phase)
 	}

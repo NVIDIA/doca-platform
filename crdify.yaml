@@ -53,6 +53,10 @@ validations:
           kind: "DPUDeployment"
           field: ".spec.dpus"
           error: "new required fields: [nodeEffect dpuSetStrategy]"
+        - apiVersion: "operator.dpu.nvidia.com/v1alpha1"
+          kind: "DPFOperatorConfig"
+          field: ".spec"
+          error: "new required fields: [deploymentMode]"
   - name: minimum
     enforcement: Error
     configuration:

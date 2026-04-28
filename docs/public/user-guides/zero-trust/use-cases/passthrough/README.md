@@ -175,6 +175,7 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
+  deploymentMode: zero-trust
   overrides:
     kubernetesAPIServerVIP: $TARGETCLUSTER_API_SERVER_HOST
     kubernetesAPIServerPort: $TARGETCLUSTER_API_SERVER_PORT
@@ -302,7 +303,6 @@ metadata:
   name: passthrough-$TAG
   namespace: dpf-operator-system
 spec:
-  dpuMode: zero-trust
   grub:
     kernelParameters:
     - console=hvc0

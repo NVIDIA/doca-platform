@@ -210,6 +210,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.addBFCFGConfigMapMountEdit,
 			p.setCustomCASecretName,
 			p.setInstallInterface,
+			p.setDeploymentMode,
 			p.setKubernetesAPIServerEnvVars,
 			p.setMaxDPUParallelInstallations,
 			p.setMultiDPUOperationsSyncWaitTime,
@@ -540,6 +541,17 @@ func (p *provisioningControllerObjects) setInstallInterface(deploy *appsv1.Deplo
 		return nil
 	}
 	return fmt.Errorf("provisioning controller install interface not set")
+}
+
+func (p *provisioningControllerObjects) setDeploymentMode(deploy *appsv1.Deployment, vars Variables) error {
+	if vars.DPFProvisioningController.DeploymentMode == "" {
+		return fmt.Errorf("deploymentMode must be set on DPFOperatorConfig.spec.deploymentMode")
+	}
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
+	}
+	return setFlags(c, fmt.Sprintf("--deployment-mode=%s", string(vars.DPFProvisioningController.DeploymentMode)))
 }
 
 func (p *provisioningControllerObjects) setBFBRegistryLoadBalancerAddress(deploy *appsv1.Deployment, vars Variables) error {
