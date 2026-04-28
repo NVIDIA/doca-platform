@@ -27,6 +27,7 @@ apiVersion: operator.doca-platform.nvidia.com/v1alpha1
 kind: DPFOperatorConfig
 metadata:
   name: dpf-operator-config
+  namespace: dpf-operator-system
 spec:
   staticClusterManager:
     disable: true
@@ -52,6 +53,32 @@ DPFOperatorConfig/dpfoperatorconfig       dpf-operator-system
             ├─ImagePullSecretsReconciled                       True    Success  1h
             ├─SystemComponentsReady                            True    Success  1h
             └─SystemComponentsReconciled                       True    Success  1h
+```
+
+## Argo CD Namespace
+
+The DPF system namespace is `dpf-operator-system`. The `DPFOperatorConfig` must be created in this namespace, and DPF
+Applications are reconciled from this namespace.
+
+If Argo CD is installed in a different namespace, set `spec.overrides.argoCDNamespace` to the Argo CD namespace.
+Ensure that `dpf-operator-system` is included in the Argo CD Helm value `configs.params.application.namespaces` (or an
+equivalent configuration) so Argo CD reconciles Applications in `dpf-operator-system`. See
+[Helm Prerequisites](../../getting-started/helm-prerequisites.md#running-argo-cd-in-a-separate-namespace) for the
+matching install-time guidance.
+
+```yaml
+apiVersion: operator.doca-platform.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  name: dpf-operator-config
+  namespace: dpf-operator-system
+spec:
+  overrides:
+    argoCDNamespace: argo-cd
+  staticClusterManager:
+    disable: true
+  kamajiClusterManager:
+    disable: false
 ```
 
 ## Configuration Options
@@ -295,3 +322,4 @@ spec:
 * `dpuOpenvSwitchSystemSharedPath`: Path to OpenvSwitch shared directory on DPU nodes.
 * `dpuOpenvSwitchSystemSharedLib64Path`: Path to OpenvSwitch 64-bit libraries on DPU nodes.
 * `flannelSkipCNIConfigInstallation`: Skip automatic CNI configuration installation for Flannel.
+* `argoCDNamespace`: Namespace where Argo CD is installed. Defaults to the namespace of the `DPFOperatorConfig`. AppProjects and cluster secrets required by DPF are created in this namespace.
