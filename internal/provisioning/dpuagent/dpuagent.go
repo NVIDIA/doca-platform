@@ -35,6 +35,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/kubelet"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/laststartuptime"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/netplan"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nicprovisioning"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nvconfig"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/ovsscript"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/reboot"
@@ -72,6 +73,7 @@ func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 		&netplan.CheckNetwork{},
 		&laststartuptime.ReportLastStartupTime{},
 		&getdpu.GetLatestDPU{},
+		&nicprovisioning.NICProvisioning{},
 		&dns.ConfigureDNS{},
 		&staticfiles.VerifyStaticFiles{},
 		&kubelet.RemoveBuiltinKubelet{},
