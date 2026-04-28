@@ -92,7 +92,7 @@ func (st *blueFieldSoftwareReadyState) checkMissingComponents() []butil.Componen
 			continue
 		}
 		if isURL(r.specURL) {
-			path := componentDestinationPath(r.ct, butil.DefaultComponentFilename(st.bfs, r.ct))
+			path := componentDestinationPath(r.ct, butil.ComponentDownloadFilename(st.bfs, r.ct, r.specURL))
 			ok, err := isFileExist(path)
 			if err != nil || !ok {
 				missing = append(missing, r.ct)

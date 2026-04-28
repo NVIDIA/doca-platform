@@ -64,7 +64,8 @@ var _ = Describe("BlueFieldSoftware", func() {
 	}
 
 	var getComponentFilePath = func(bfs *provisioningv1.BlueFieldSoftware, componentType bfsutil.ComponentType) string {
-		fileName := bfsutil.DefaultComponentFilename(bfs, componentType)
+		specURL := bfsutil.SpecURLForComponent(bfs, componentType)
+		fileName := bfsutil.ComponentDownloadFilename(bfs, componentType, specURL)
 		if componentType == bfsutil.ComponentTypeOSISO {
 			return cutil.GenerateBFBFilePath(fileName)
 		}
