@@ -169,7 +169,7 @@ func createLogGeneratorPod(ctx context.Context, c client.Client, namespace, name
 			Containers: []corev1.Container{
 				{
 					Name:    "log-generator",
-					Image:   "busybox:latest",
+					Image:   fmt.Sprintf("%s/busybox:latest", dockerIORegistry),
 					Command: []string{"sh", "-c", fmt.Sprintf("while true; do echo '%s'; sleep 1; done", logMessage)},
 				},
 			},
