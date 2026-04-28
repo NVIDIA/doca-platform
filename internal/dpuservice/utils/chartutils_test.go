@@ -48,6 +48,7 @@ var _ = Describe("chartutils", Ordered, func() {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						BFBPersistentVolumeClaimName: ptr.To("some"),
 					},

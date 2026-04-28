@@ -82,6 +82,7 @@ var _ = Describe("Redfish Mock Server Tests", func() {
 				Namespace: testNS.Name,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
+				DeploymentMode: operatorv1.DeploymentModeZeroTrust,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: ptr.To("bfb-pvc"),
 					InstallInterface: &operatorv1.ProvisioningInstallInterface{

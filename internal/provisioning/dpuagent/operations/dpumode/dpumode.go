@@ -70,27 +70,33 @@ func (d *EnsureMode) Execute(execCtx context.Context, optCtx *operations.Context
 		return nil
 	}
 
+	if optCtx.LatestDPU == nil {
+		return fmt.Errorf("latest DPU is required to resolve deployment mode")
+	}
+	deploymentMode := optCtx.LatestDPU.Status.DeploymentMode
+	if deploymentMode == "" {
+		return fmt.Errorf("dpu.status.deploymentMode is empty")
+	}
+
 	for _, dev := range devices {
-		if err := d.setDpuMode(dev, optCtx.DPUFlavor.Spec.DpuMode); err != nil {
+		if err := d.setDeploymentMode(dev, deploymentMode); err != nil {
 			return fmt.Errorf("failed to set DPU mode for device %s: %w", dev, err)
 		}
 	}
 	return nil
 }
 
-func (d *EnsureMode) setDpuMode(dev string, dpuMode provisioningv1.DpuModeType) error {
+func (d *EnsureMode) setDeploymentMode(dev string, deploymentMode provisioningv1.DeploymentMode) error {
 	var cmd string
-	switch dpuMode {
-	case provisioningv1.ZeroTrustMode:
+	switch deploymentMode {
+	case provisioningv1.DeploymentModeZeroTrust:
 		klog.Infof("Setting DPU to zero-trust mode for device %s", dev)
 		cmd = fmt.Sprintf("mlxprivhost -d %s r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner", dev)
-	case provisioningv1.DpuMode:
+	case provisioningv1.DeploymentModeTrustedHost:
 		klog.Infof("Setting DPU to DPU mode for device %s", dev)
 		cmd = fmt.Sprintf("mlxprivhost -d %s p", dev)
-	case provisioningv1.NicMode:
-		return nil
 	default:
-		return fmt.Errorf("invalid DPU mode: %s", dpuMode)
+		return fmt.Errorf("invalid deployment mode: %s", deploymentMode)
 	}
 
 	if d.runBash == nil {

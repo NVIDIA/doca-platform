@@ -19,6 +19,7 @@ package webhooks
 import (
 	"context"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -689,9 +690,8 @@ spec:
 			Expect(apierrors.IsInvalid(err)).To(BeTrue())
 		})
 
-		It("ValidateCreate should reject astraEnabled=true when dpuInstallInterface is not zero-trust", func() {
-			installInterface := string(provisioningv1.InstallViaHostAgent)
-			webhook := &DPUSet{DPUInstallInterface: &installInterface}
+		It("ValidateCreate should reject astraEnabled=true when deploymentMode is not zero-trust", func() {
+			webhook := &DPUSet{DeploymentMode: string(operatorv1.DeploymentModeTrustedHost)}
 			obj := &provisioningv1.DPUSet{
 				Spec: provisioningv1.DPUSetSpec{
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
@@ -709,9 +709,8 @@ spec:
 			Expect(apierrors.IsInvalid(err)).To(BeTrue())
 		})
 
-		It("ValidateCreate should allow astraEnabled=true when dpuInstallInterface is zero-trust", func() {
-			installInterface := string(provisioningv1.InstallViaRedFish)
-			webhook := &DPUSet{DPUInstallInterface: &installInterface}
+		It("ValidateCreate should allow astraEnabled=true when deploymentMode is zero-trust", func() {
+			webhook := &DPUSet{DeploymentMode: string(operatorv1.DeploymentModeZeroTrust)}
 			obj := &provisioningv1.DPUSet{
 				Spec: provisioningv1.DPUSetSpec{
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
@@ -728,9 +727,27 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 		})
 
-		It("ValidateUpdate should reject astraEnabled=true when dpuInstallInterface is not zero-trust", func() {
-			installInterface := string(provisioningv1.InstallViaHostAgent)
-			webhook := &DPUSet{DPUInstallInterface: &installInterface}
+		It("ValidateCreate should reject astraEnabled=true when deploymentMode is trusted-host", func() {
+			webhook := &DPUSet{DeploymentMode: string(operatorv1.DeploymentModeTrustedHost)}
+			obj := &provisioningv1.DPUSet{
+				Spec: provisioningv1.DPUSetSpec{
+					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							BFB:          provisioningv1.BFBReference{Name: "bfb"},
+							DPUFlavor:    "flavor",
+							AstraEnabled: ptr.To(true),
+						},
+					},
+				},
+			}
+			_, err := webhook.ValidateCreate(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+		})
+
+		It("ValidateUpdate should reject astraEnabled=true when deploymentMode is not zero-trust", func() {
+			webhook := &DPUSet{DeploymentMode: string(operatorv1.DeploymentModeTrustedHost)}
 			oldObj := &provisioningv1.DPUSet{
 				Spec: provisioningv1.DPUSetSpec{
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
@@ -750,9 +767,8 @@ spec:
 			Expect(apierrors.IsInvalid(err)).To(BeTrue())
 		})
 
-		It("ValidateUpdate should allow astraEnabled=true when dpuInstallInterface is zero-trust", func() {
-			installInterface := string(provisioningv1.InstallViaRedFish)
-			webhook := &DPUSet{DPUInstallInterface: &installInterface}
+		It("ValidateUpdate should allow astraEnabled=true when deploymentMode is zero-trust", func() {
+			webhook := &DPUSet{DeploymentMode: string(operatorv1.DeploymentModeZeroTrust)}
 			oldObj := &provisioningv1.DPUSet{
 				Spec: provisioningv1.DPUSetSpec{
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},

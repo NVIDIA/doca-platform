@@ -125,6 +125,14 @@ spec:
                         type: object
                     type: object
                 type: object
+              deploymentMode:
+                description: |-
+                  DeploymentMode selects zero-trust vs trusted-host deployment alignment.
+                  Required: operators must set this explicitly; provisioning controllers propagate this to DPU.status.deploymentMode.
+                enum:
+                - zero-trust
+                - trusted-host
+                type: string
               dpuDetector:
                 description: DPUDetector is the configuration for the DPUDetector.
                 properties:
@@ -1866,8 +1874,16 @@ spec:
                     can be set, but not both
                   rule: '!has(self.image) || !has(self.controller) || !has(self.controller.image)'
             required:
+            - deploymentMode
             - provisioningController
             type: object
+            x-kubernetes-validations:
+            - message: deploymentMode zero-trust requires provisioningController.installInterface.installViaRedfish
+              rule: self.deploymentMode != 'zero-trust' || (has(self.provisioningController.installInterface)
+                && has(self.provisioningController.installInterface.installViaRedfish))
+            - message: deploymentMode trusted-host does not support provisioningController.installInterface.installViaRedfish
+              rule: self.deploymentMode != 'trusted-host' || !has(self.provisioningController.installInterface)
+                || !has(self.provisioningController.installInterface.installViaRedfish)
           status:
             description: DPFOperatorConfigStatus defines the observed state of DPFOperatorConfig
             properties:

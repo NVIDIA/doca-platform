@@ -19,7 +19,7 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 - **Immutable Configuration**: Once created, the DPUFlavor spec cannot be modified to ensure consistency across DPU deployments
 - **Comprehensive System Configuration**: Covers all aspects of DPU system configuration from boot parameters to runtime settings
 - **Resource Management**: Defines resource requirements and allocation policies
-- **Multiple DPU Modes**: Supports both standard DPU mode and zero-trust mode
+- **Cluster deployment mode**: Zero-trust vs trusted-host is configured on `DPFOperatorConfig` and reflected on `DPU` status (`deploymentMode`), not on `DPUFlavor`
 - **Template Reusability**: Can be applied to multiple DPUs for consistent configuration
 
 ## API Reference
@@ -37,7 +37,6 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 | `containerdConfig` | [ContainerdConfig](#containerdconfig) | ContainerdConfig contains the configuration for containerd |
 | `dpuResources` | ResourceList | Minimum resources needed for BFB installation |
 | `systemReservedResources` | ResourceList | Resources reserved for system use |
-| `dpuMode` | [DpuModeType](#dpumodetype) | DPU operation mode. Defaults to `zero-trust` when using Redfish install interface, otherwise defaults to `dpu` |
 | `hostNetworkInterfaceConfigs` | [][NetworkInterfaceConfig](#networkinterfaceconfig) | Host-side network interface configuration |
 
 ### DPUFlavorGrub
@@ -129,17 +128,6 @@ nvconfig:
 
 ## Enumerations
 
-### DpuModeType
-
-- `dpu`: Standard DPU mode
-- `zero-trust`: Zero-trust security mode
-
-**Default Behavior**: When `dpuMode` is not specified in the DPUFlavor, the system automatically determines the appropriate mode based on the DPF deployment configuration:
-- If DPF is configured with Redfish install interface (Zero Trust deployment), defaults to `zero-trust`
-- Otherwise, defaults to `dpu`
-
-This ensures that DPUs are provisioned with the correct security mode matching the deployment type without requiring explicit configuration.
-
 ### DPUFlavorFileOp
 
 - `override`: Replace file content entirely
@@ -205,7 +193,6 @@ spec:
     path: /etc/mellanox/mlnx-sf.conf
     permissions: "0644"
     raw: ""
-  dpuMode: dpu
   grub:
     kernelParameters:
     - console=hvc0

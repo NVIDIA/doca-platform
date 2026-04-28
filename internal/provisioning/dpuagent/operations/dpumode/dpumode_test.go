@@ -67,9 +67,9 @@ var _ = Describe("Ensure Mode", func() {
 				},
 			}
 			err := operation.Execute(context.Background(), &operations.Context{
-				DPUFlavor: provisioningv1.DPUFlavor{
-					Spec: provisioningv1.DPUFlavorSpec{
-						DpuMode: provisioningv1.ZeroTrustMode,
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						DeploymentMode: provisioningv1.DeploymentModeZeroTrust,
 					},
 				},
 			})
@@ -89,9 +89,9 @@ var _ = Describe("Ensure Mode", func() {
 				},
 			}
 			err := operation.Execute(context.Background(), &operations.Context{
-				DPUFlavor: provisioningv1.DPUFlavor{
-					Spec: provisioningv1.DPUFlavorSpec{
-						DpuMode: provisioningv1.DpuMode,
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						DeploymentMode: provisioningv1.DeploymentModeTrustedHost,
 					},
 				},
 			})

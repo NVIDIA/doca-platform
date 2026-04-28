@@ -71,6 +71,7 @@ var _ = Describe("DPU: PrepareBFB", func() {
 				Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
+				DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: ptr.To("bfb-pvc"),
 				},

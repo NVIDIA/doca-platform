@@ -98,6 +98,7 @@ var _ = Describe("Node Controller", func() {
 						Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
 					},
 					Spec: operatorv1.DPFOperatorConfigSpec{
+						DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 						ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 							BFBPersistentVolumeClaimName: ptr.To("bfb-pvc"),
 						},
@@ -191,6 +192,7 @@ var _ = Describe("Node Controller", func() {
 					Namespace: namespace,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						BFBPersistentVolumeClaimName: ptr.To("foo-pvc"),
 					},

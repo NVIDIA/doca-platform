@@ -543,13 +543,8 @@ func (c *Client) SetDpuMode(desiredMode provisioningv1.DpuModeType) (*resty.Resp
 			return resp, err
 		}
 		body = []byte(`{"Mode": "DpuMode"}`)
-	case provisioningv1.ZeroTrustMode:
-		body = []byte(`{ "Attributes": {"InternalCPUModel": "Restricted" } }`)
-		resp, err := c.Client.R().SetBody(body).Patch(APISetBiosSettings)
-		if err != nil {
-			return resp, err
-		}
-		body = []byte(`{"Mode": "DpuMode"}`)
+	default:
+		return nil, fmt.Errorf("unsupported DPU mode: %s", desiredMode)
 	}
 
 	return c.Client.R().SetBody(body).Post(APISetMode)

@@ -127,6 +127,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
 
+			DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 			// This secret name is wrong - this prevents ImagePullSecretsReconciled from becoming true.
 			ImagePullSecrets: []string{"wrong-secret-name"},
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
@@ -232,6 +233,7 @@ func TestDPFOperatorConfigReconciler_Validation(t *testing.T) {
 			Namespace: testNS.Name,
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
+			DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 				BFBPersistentVolumeClaimName: ptr.To("foo"),
 			},
@@ -278,6 +280,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						Controller: &operatorv1.DefaultOverridesConfiguration{
 							ImageComponentConfig: operatorv1.ImageComponentConfig{
@@ -304,6 +307,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						BFBPersistentVolumeClaimName: ptr.To("name"),
 						MaxDPUParallelInstallations:  ptr.To(int32(0)),
@@ -320,6 +324,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						BFBPersistentVolumeClaimName: ptr.To("name"),
 					},
@@ -335,6 +340,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						Controller: &operatorv1.DefaultOverridesConfiguration{
 							ImageComponentConfig: operatorv1.ImageComponentConfig{
@@ -361,6 +367,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						Controller: &operatorv1.DefaultOverridesConfiguration{
 							ImageComponentConfig: operatorv1.ImageComponentConfig{
@@ -382,6 +389,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						Controller: &operatorv1.DefaultOverridesConfiguration{
 							ImageComponentConfig: operatorv1.ImageComponentConfig{
@@ -443,6 +451,7 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 			Namespace: testNS.Name,
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
+			DeploymentMode:   operatorv1.DeploymentModeTrustedHost,
 			ImagePullSecrets: initialImagePullSecrets,
 			Overrides: &operatorv1.Overrides{
 				Paused: ptr.To(true),
@@ -534,6 +543,7 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 		helmTemplate := "oci://release-artifacts.com/%s:v1.0"
 		// Update the config with
 		config.Spec = operatorv1.DPFOperatorConfigSpec{
+			DeploymentMode:   operatorv1.DeploymentModeTrustedHost,
 			ImagePullSecrets: initialImagePullSecrets,
 
 			// For objects which are deployed as raw manifests set the image field in configuration.
@@ -749,6 +759,7 @@ func TestDPFOperatorConfigReconciler_ReconcileWithTwoDPUClusters(t *testing.T) {
 			Namespace: testNS.Name,
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
+			DeploymentMode:   operatorv1.DeploymentModeTrustedHost,
 			ImagePullSecrets: initialImagePullSecrets,
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 				BFBPersistentVolumeClaimName: ptr.To("foo-pvc"),
@@ -968,6 +979,7 @@ func TestDPFOperatorConfigValidation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						BFBPersistentVolumeClaimName: ptr.To("something"),
 					},
@@ -989,6 +1001,7 @@ func TestDPFOperatorConfigValidation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						BFBPersistentVolumeClaimName: ptr.To("something"),
 					},
@@ -1161,6 +1174,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				Namespace: testNS.Name,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
+				DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 				},
@@ -1183,6 +1197,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				Namespace: testNS.Name,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
+				DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 				},
@@ -1206,6 +1221,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				Namespace: testNS.Name,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
+				DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 				},
@@ -1230,6 +1246,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				Namespace: testNS.Name,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
+				DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 				},
@@ -1247,6 +1264,111 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 		g.Expect(err.Error()).NotTo(ContainSubstring("invalid version v25.7.10"))
 	})
 
+	t.Run("formats multiple validation errors correctly", func(t *testing.T) {
+		config := &operatorv1.DPFOperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "config-multiple-errors",
+				Namespace: testNS.Name,
+			},
+			Spec: operatorv1.DPFOperatorConfigSpec{
+				DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
+				},
+			},
+			Status: operatorv1.DPFOperatorConfigStatus{
+				Version:            ptr.To(release.LastReleasedDPFGAVersion),
+				ObservedGeneration: 1,
+			},
+		}
+
+		// Create multiple DPUs that are not in a terminal state so DPU state validation reports both.
+		dpu1 := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "dpu-error-1",
+				Namespace: testNS.Name,
+			},
+			Spec: provisioningv1.DPUSpec{
+				SerialNumber:  "MT25066004C7",
+				DPUNodeName:   "test-node-1",
+				DPUDeviceName: "test-device-1",
+				BFB:           "test-bfb",
+				DPUFlavor:     "test-flavor",
+				NodeEffect: provisioningv1.NodeEffect{
+					Action: provisioningv1.Action{NoEffect: ptr.To(true)},
+				},
+			},
+		}
+
+		dpu2 := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "dpu-error-2",
+				Namespace: testNS.Name,
+			},
+			Spec: provisioningv1.DPUSpec{
+				SerialNumber:  "MT25066004C7",
+				DPUNodeName:   "test-node-2",
+				DPUDeviceName: "test-device-2",
+				BFB:           "test-bfb",
+				DPUFlavor:     "test-flavor",
+				NodeEffect: provisioningv1.NodeEffect{
+					Action: provisioningv1.Action{NoEffect: ptr.To(true)},
+				},
+			},
+		}
+
+		g.Expect(testClient.Create(ctx, dpu1)).To(Succeed())
+		g.Expect(testClient.Create(ctx, dpu2)).To(Succeed())
+
+		// Update the status separately using the status subresource
+		dpu1.Status = provisioningv1.DPUStatus{
+			Phase:      provisioningv1.DPUInitializing,
+			DPFVersion: ptr.To("invalid-version-1"),
+			Conditions: []metav1.Condition{
+				{
+					Type:               string(conditions.TypeReady),
+					Status:             metav1.ConditionFalse,
+					Reason:             "NotReady",
+					Message:            "DPU is not ready",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				},
+			},
+		}
+		g.Expect(testClient.Status().Update(ctx, dpu1)).To(Succeed())
+
+		dpu2.Status = provisioningv1.DPUStatus{
+			Phase:      provisioningv1.DPUInitializing,
+			DPFVersion: ptr.To("invalid-version-2"),
+			Conditions: []metav1.Condition{
+				{
+					Type:               string(conditions.TypeReady),
+					Status:             metav1.ConditionFalse,
+					Reason:             "NotReady",
+					Message:            "DPU is not ready",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				},
+			},
+		}
+		g.Expect(testClient.Status().Update(ctx, dpu2)).To(Succeed())
+
+		r := newReconciler()
+		err := r.reconcilePreUpgradeValidations(ctx, config, []*dpucluster.Config{})
+		g.Expect(err).To(HaveOccurred())
+
+		// Check that both DPU state errors are included in the aggregated validation message.
+
+		// Use case-insensitive matching since semver error message format may vary between semver versions
+		errMsg := strings.ToLower(err.Error())
+		g.Expect(errMsg).To(ContainSubstring("dpu dpu-error-1 is not ready"))
+		g.Expect(errMsg).To(ContainSubstring("dpu dpu-error-2 is not ready"))
+		g.Expect(errMsg).To(ContainSubstring("dpu state"))
+		g.Expect(errMsg).NotTo(ContainSubstring("dpf version validation:"))
+
+		// Clean up the DPUs
+		g.Expect(testClient.Delete(ctx, dpu1)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, dpu2)).To(Succeed())
+	})
+
 	t.Run("simulate simple update and verify it passes", func(t *testing.T) {
 		// Use a valid but different version to trigger upgrade validation
 		config := &operatorv1.DPFOperatorConfig{
@@ -1255,6 +1377,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				Namespace: testNS.Name,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
+				DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 					BaseComponentConfig: operatorv1.BaseComponentConfig{

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -587,6 +588,38 @@ var _ = Describe("Phase Rebooting", func() {
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUClusterConfig))
+		})
+
+		It("should move to DPUHostNetworkConfiguration when Rebooted is True via RedFish under trusted-host deployment mode", func() {
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				External: &provisioningv1.External{},
+			}
+			createObject(dpuNode)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Status.Phase = provisioningv1.DPURebooting
+			dpu.Status.DPUMode = provisioningv1.DpuMode
+			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
+			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
+			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
+				Type:    string(provisioningv1.DPUCondRebooted),
+				Status:  metav1.ConditionTrue,
+				Reason:  "Rebooted",
+				Message: "",
+			})
+
+			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+				Client: k8sClient,
+				Options: dutil.DPUOptions{
+					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
+					DeploymentMode:      string(operatorv1.DeploymentModeTrustedHost),
+				},
+			})
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUHostNetworkConfiguration))
 		})
 
 		It("should move to DPUClusterConfig when Rebooted is True via RedFish and NIC mode without PreviousPhase", func() {

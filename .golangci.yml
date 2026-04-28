@@ -100,6 +100,10 @@ linters:
           - staticcheck
         # corev1.Endpoints and related types are needed for DPUService reconciliation. Ignore warnings that they're deprecated.
         text: "SA1019.*corev1.Endpoint.*deprecated"
+      - linters:
+          - staticcheck
+        # ProvisioningInstallInterface.installViaGNOI is deprecated; validation still accepts it until configs migrate to installViaHostAgent.
+        text: "SA1019.*InstallViaGNOI.*deprecated"
     paths:
       - third_party
       - third_party$

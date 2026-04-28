@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -40,9 +41,9 @@ import (
 
 // DPUSet implements the webhooks for the DPUSet type.
 type DPUSet struct {
-	// Pointer to a cluster-level install interface/mode configuration.
-	// When nil, Astra + interface validation treats it as non-zero-trust.
-	DPUInstallInterface *string
+	// DeploymentMode is the cluster-wide DPF deployment mode (e.g. zero-trust vs trusted-host),
+	// matching DPFOperatorConfig and provisioning controller flags. Required for Astra validation.
+	DeploymentMode string
 }
 
 var _ webhook.CustomDefaulter = &DPUSet{}
@@ -159,14 +160,14 @@ func (r *DPUSet) validateAstraEnabledInstallInterface(path *field.Path, spec pro
 	if spec.DPUTemplate.Spec.AstraEnabled == nil || !*spec.DPUTemplate.Spec.AstraEnabled {
 		return nil
 	}
-	if r.DPUInstallInterface == nil || *r.DPUInstallInterface != string(provisioningv1.InstallViaRedFish) {
-		return field.Invalid(
-			path.Child("dpuTemplate", "spec", "astraEnabled"),
-			true,
-			"astraEnabled=true requires zero-trust deployment mode",
-		)
+	if (dutil.DPUOptions{DeploymentMode: r.DeploymentMode}).ZeroTrustProvisioningFlow() {
+		return nil
 	}
-	return nil
+	return field.Invalid(
+		path.Child("dpuTemplate", "spec", "astraEnabled"),
+		true,
+		"astraEnabled=true requires zero-trust deployment mode",
+	)
 }
 
 func validateStrategy(strategy provisioningv1.DPUSetStrategy) error {
