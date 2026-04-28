@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -59,6 +61,27 @@ const (
 	PodInfoLabelsFieldPath      string = "metadata.labels"
 	PodInfoAnnotationsFieldPath string = "metadata.annotations"
 	DPUNodeNameEnvVar           string = "DPUNODE_NAME"
+
+	// DPUNodeRebootMethodEnvVar is the env var name injected into custom-script
+	// reboot pods that holds the aggregated reboot method (highest-priority
+	// non-Unknown RebootMethod across the DPUs associated with the DPUNode).
+	// Possible values mirror the provisioningv1.RebootMethodType enum;
+	// "Unknown" is used when no DPU has reported a RebootMethod yet.
+	// Stop-gap for v26.4: lets custom reboot scripts branch on the required
+	// host action (e.g. PowerCycle vs SystemReboot) without consuming the DPU API.
+	DPUNodeRebootMethodEnvVar string = "DPUNODE_REBOOT_METHOD"
+	// DPUNodeRebootMethodsPerDPUEnvVar is the env var name injected into
+	// custom-script reboot pods that holds a comma-separated <dpu-name>=<method>
+	// mapping for every DPU associated with the DPUNode, sorted by DPU name.
+	// DPUs that have not reported a RebootMethod yet appear as "<dpu-name>=Unknown".
+	DPUNodeRebootMethodsPerDPUEnvVar string = "DPUNODE_REBOOT_METHODS_PER_DPU"
+	// DPUNodeRebootMethodAnnotation mirrors DPUNodeRebootMethodEnvVar as a
+	// pod-template annotation, exposed inside the pod through the existing
+	// dpf-pod-info downward-API mount at /etc/dpf-pod-info/annotations.
+	DPUNodeRebootMethodAnnotation string = cutil.DPUProvisioningPrefix + "reboot-method-aggregated"
+	// DPUNodeRebootMethodsPerDPUAnnotation mirrors
+	// DPUNodeRebootMethodsPerDPUEnvVar as a pod-template annotation.
+	DPUNodeRebootMethodsPerDPUAnnotation string = cutil.DPUProvisioningPrefix + "reboot-methods-per-dpu"
 )
 
 // DPUNodeReconciler reconciles a DPUNode object
@@ -243,6 +266,7 @@ func (r *DPUNodeReconciler) HandleRebootSync(ctx context.Context, dpuNode *provi
 			string(provisioningv1.DPUConfigFWParameters):  {},
 			string(provisioningv1.DPUInitializeInterface): {},
 			string(provisioningv1.DPUOSInstalling):        {},
+			string(provisioningv1.DPUConfig):              {},
 		}
 		if cutil.ContainsDPUPhase(dpuPhases, provisioningv1.DPURebooting) {
 			if len(dpuNode.Spec.DPUs) > 1 && cutil.ContainsDPUPhases(provisioningPhases, dpuPhases) {
@@ -358,7 +382,7 @@ func (r *DPUNodeReconciler) processScriptReboot(ctx context.Context, dpuNode *pr
 }
 
 func (r *DPUNodeReconciler) createAndTrackScriptJob(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (ctrl.Result, error) {
-	if err := r.createScriptJob(ctx, dpuNode); err != nil {
+	if err := r.createScriptJob(ctx, dpuNode, dpus); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create script job: %w", err)
 	}
 	r.Recorder.Event(dpuNode, corev1.EventTypeNormal, "ScriptRebootJobCreated",
@@ -448,7 +472,13 @@ func (r *DPUNodeReconciler) handleJobFailed(ctx context.Context, dpuNode *provis
 	return ctrl.Result{}, nil
 }
 
-func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provisioningv1.DPUNode) error {
+// createScriptJob creates the custom-reboot-script Job for dpuNode. The dpus
+// argument MUST be the set of DPUs the controller has already filtered down to
+// phase=Rebooting (see rebootNode -> processScriptReboot). The slice is the
+// authoritative source for the reboot-method context propagated to the script
+// pod, ensuring the Job is stamped with the methods of exactly the DPUs whose
+// host reboot the script is being asked to perform.
+func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) error {
 	logger := log.FromContext(ctx)
 	job := &batchv1.Job{}
 	jobName := r.generateJobName(dpuNode)
@@ -488,14 +518,37 @@ func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provis
 
 	// Add more information to Job's Pod for rebooting script, e.g. labels, annotations, etc.
 
+	// v26.4 stop-gap: surface the aggregated reboot method so custom scripts can
+	// branch on PowerCycle vs SystemReboot vs SLR without consuming the DPU API.
+	// dpus is already restricted to phase=Rebooting by the caller, so the
+	// aggregation reflects exactly the host action the controller is asking the
+	// script to perform - it does not include DPUs in DPUConfig or other
+	// provisioning phases that may still be reporting a stale RebootMethod.
+	aggregatedRebootMethod, perDPURebootMethods := aggregateDPURebootMethods(dpus)
+
+	// Never stamp the script Job with an Unknown aggregate: the script must
+	// always have an actionable signal. If no DPU has reported a RebootMethod
+	// yet (or every DPU reports Unknown), default the aggregate to
+	// SystemLevelReset - the safe middle ground that triggers a host-impacting
+	// reboot without escalating to a hard PowerCycle. The per-DPU mapping
+	// intentionally retains "<dpu>=Unknown" entries so scripts that need
+	// per-DPU detail can still tell which DPUs have not reported yet.
+	if aggregatedRebootMethod == provisioningv1.RebootMethodUnknown {
+		aggregatedRebootMethod = provisioningv1.RebootMethodSystemLevelReset
+	}
+
 	// Add DPUNODE_NAME to pod template containers env
 	for i := range podTemplate.Spec.Containers {
 		podTemplate.Spec.Containers[i].Env = r.ensureEnv(podTemplate.Spec.Containers[i].Env, DPUNodeNameEnvVar, dpuNode.Name)
+		podTemplate.Spec.Containers[i].Env = r.ensureEnv(podTemplate.Spec.Containers[i].Env, DPUNodeRebootMethodEnvVar, string(aggregatedRebootMethod))
+		podTemplate.Spec.Containers[i].Env = r.ensureEnv(podTemplate.Spec.Containers[i].Env, DPUNodeRebootMethodsPerDPUEnvVar, perDPURebootMethods)
 	}
 
 	// Add DPUNODE_NAME to pod template init containers env
 	for i := range podTemplate.Spec.InitContainers {
 		podTemplate.Spec.InitContainers[i].Env = r.ensureEnv(podTemplate.Spec.InitContainers[i].Env, DPUNodeNameEnvVar, dpuNode.Name)
+		podTemplate.Spec.InitContainers[i].Env = r.ensureEnv(podTemplate.Spec.InitContainers[i].Env, DPUNodeRebootMethodEnvVar, string(aggregatedRebootMethod))
+		podTemplate.Spec.InitContainers[i].Env = r.ensureEnv(podTemplate.Spec.InitContainers[i].Env, DPUNodeRebootMethodsPerDPUEnvVar, perDPURebootMethods)
 	}
 
 	// Add dpuNode annotations to pod template annotations
@@ -509,6 +562,13 @@ func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provis
 		}
 		podTemplate.Annotations[k] = v
 	}
+
+	// Stamp the aggregated reboot method as pod-template annotations so they
+	// flow through the existing dpf-pod-info downward-API mount. These are
+	// authoritative: any user-provided values for these specific keys are
+	// overwritten because the DPUNode controller is the single source of truth.
+	podTemplate.Annotations[DPUNodeRebootMethodAnnotation] = string(aggregatedRebootMethod)
+	podTemplate.Annotations[DPUNodeRebootMethodsPerDPUAnnotation] = perDPURebootMethods
 
 	// Add dpuNode labels to pod template labels
 	if podTemplate.Labels == nil {
@@ -786,6 +846,73 @@ func (r *DPUNodeReconciler) ensureMount(mnts []corev1.VolumeMount, name, path st
 		}
 	}
 	return append(mnts, corev1.VolumeMount{Name: name, MountPath: path})
+}
+
+// getRebootMethodPriority returns the aggregation priority of a RebootMethodType,
+// where lower numbers represent more demanding reboots. The order intentionally
+// mirrors the host-side host-agent merge order while extending it to the full
+// RebootMethodType enum so that the most disruptive action (PowerCycle) wins
+// when multiple DPUs report different methods.
+func getRebootMethodPriority(m provisioningv1.RebootMethodType) int {
+	switch m {
+	case provisioningv1.RebootMethodPowerCycle:
+		return 0
+	case provisioningv1.RebootMethodSystemLevelReset:
+		return 1
+	case provisioningv1.RebootMethodSystemReboot:
+		return 2
+	case provisioningv1.RebootMethodFirmwareReset:
+		return 3
+	case provisioningv1.RebootMethodNoAction:
+		return 4
+	default:
+		// Unknown or unrecognized: never wins against a known method.
+		return 5
+	}
+}
+
+// aggregateDPURebootMethods inspects AgentStatus.RebootMethod on every DPU in
+// the supplied slice and returns:
+//   - the aggregated reboot method: the highest-priority non-Unknown method
+//     across the DPUs, or RebootMethodUnknown when every DPU is missing or
+//     reports Unknown.
+//   - a comma-separated <dpu-name>=<method> mapping for every DPU, sorted by
+//     DPU name. DPUs whose RebootMethod has not been reported yet appear as
+//     "<dpu-name>=Unknown".
+//
+// This is a v26.4 stop-gap helper used exclusively by createScriptJob to
+// expose reboot intent to custom-script reboot pods. Callers MUST pass only
+// the DPUs that have advanced to phase=Rebooting so the aggregation never
+// incorporates DPUs whose RebootMethod is still being negotiated in earlier
+// provisioning phases (e.g. DPUConfig). The function is pure and does not
+// touch the API server. An empty/nil slice yields (RebootMethodUnknown, "").
+func aggregateDPURebootMethods(dpus []*provisioningv1.DPU) (provisioningv1.RebootMethodType, string) {
+	if len(dpus) == 0 {
+		return provisioningv1.RebootMethodUnknown, ""
+	}
+
+	sorted := make([]*provisioningv1.DPU, len(dpus))
+	copy(sorted, dpus)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+
+	aggregated := provisioningv1.RebootMethodUnknown
+	aggregatedPriority := getRebootMethodPriority(provisioningv1.RebootMethodUnknown)
+	pairs := make([]string, 0, len(sorted))
+	for _, d := range sorted {
+		if d == nil {
+			continue
+		}
+		method := provisioningv1.RebootMethodUnknown
+		if d.Status.AgentStatus != nil && d.Status.AgentStatus.RebootMethod != nil {
+			method = *d.Status.AgentStatus.RebootMethod
+		}
+		if p := getRebootMethodPriority(method); p < aggregatedPriority {
+			aggregated = method
+			aggregatedPriority = p
+		}
+		pairs = append(pairs, fmt.Sprintf("%s=%s", d.Name, method))
+	}
+	return aggregated, strings.Join(pairs, ",")
 }
 
 func (r *DPUNodeReconciler) handleHostAgentUpgrade(ctx context.Context, dpuNode *provisioningv1.DPUNode, isKubernetes bool) ctrl.Result {
