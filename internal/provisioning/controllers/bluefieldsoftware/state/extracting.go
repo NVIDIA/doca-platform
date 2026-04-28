@@ -114,7 +114,7 @@ func (st *blueFieldSoftwareExtractingState) resolvePackagePath() string {
 		return ""
 	}
 	if isURL(packageRef) {
-		fileName := butil.DefaultComponentFilename(st.bfs, butil.ComponentTypeFwBundle)
+		fileName := butil.ComponentDownloadFilename(st.bfs, butil.ComponentTypeFwBundle, packageRef)
 		return generateComponentFilePath(fileName)
 	}
 	return packageRef

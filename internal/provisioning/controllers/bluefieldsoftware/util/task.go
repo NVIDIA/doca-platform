@@ -18,6 +18,9 @@ package util
 
 import (
 	"fmt"
+	"net/url"
+	"path"
+	"strings"
 	"sync"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -48,8 +51,71 @@ const (
 	ComponentTypeGRACEFW   ComponentType = "gracefw"
 )
 
-func DefaultComponentFilename(bfs *provisioningv1.BlueFieldSoftware, componentType ComponentType) string {
-	return fmt.Sprintf("%s-%s-%s", bfs.Namespace, bfs.Name, componentType)
+// SpecURLForComponent returns the spec value (typically a URL) for componentType.
+// Fields that live under TmpFwComponents return "" when TmpFwComponents is nil.
+func SpecURLForComponent(bfs *provisioningv1.BlueFieldSoftware, componentType ComponentType) string {
+	tc := bfs.Spec.TmpFwComponents
+	switch componentType {
+	case ComponentTypeFwBundle:
+		return bfs.Spec.PldmFwBundle
+	case ComponentTypeOSISO:
+		return bfs.Spec.OsIso
+	case ComponentTypeBMCEROT:
+		if tc != nil {
+			return tc.BmcErot
+		}
+	case ComponentTypeBMC:
+		if tc != nil {
+			return tc.BmcFw
+		}
+	case ComponentTypeNIC:
+		if tc != nil {
+			return tc.AstraNicFw
+		}
+	case ComponentTypeGRACEEROT:
+		if tc != nil {
+			return tc.GraceErot
+		}
+	case ComponentTypeGRACEFW:
+		if tc != nil {
+			return tc.GraceFw
+		}
+	}
+	return ""
+}
+
+// FilenameFromHTTPURL returns the last path segment of rawURL when it is a valid
+// http(s) URL with a usable filename. Otherwise it returns "".
+func FilenameFromHTTPURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return ""
+	}
+	p := u.Path
+	if p == "" {
+		return ""
+	}
+	base := path.Base(strings.TrimSuffix(p, "/"))
+	if base == "." || base == "/" || base == "" {
+		return ""
+	}
+	if strings.ContainsAny(base, "/\\") {
+		return ""
+	}
+	if base == ".." || strings.HasPrefix(base, "..") {
+		return ""
+	}
+	return base
+}
+
+// ComponentDownloadFilename returns the local filename for a component given the
+// spec field value. For http(s) URLs it uses {namespace}-{name}-{URL basename} so
+// different BlueFieldSoftware objects never collide under the shared components dir.
+func ComponentDownloadFilename(bfs *provisioningv1.BlueFieldSoftware, componentType ComponentType, specValue string) string {
+	if name := FilenameFromHTTPURL(specValue); name != "" {
+		return fmt.Sprintf("%s-%s-%s", bfs.Namespace, bfs.Name, name)
+	}
+	return GenerateComponentTaskName(*bfs, componentType)
 }
 
 func GenerateComponentTaskName(bfs provisioningv1.BlueFieldSoftware, componentType ComponentType) string {

@@ -58,7 +58,7 @@ func TestResolvePackagePath(t *testing.T) {
 				},
 			},
 			expected: func(bfs *provisioningv1.BlueFieldSoftware) string {
-				return generateComponentFilePath(butil.DefaultComponentFilename(bfs, butil.ComponentTypeFwBundle))
+				return generateComponentFilePath(butil.ComponentDownloadFilename(bfs, butil.ComponentTypeFwBundle, bfs.Status.DownloadedComponents.PldmFwBundle))
 			},
 		},
 		{
