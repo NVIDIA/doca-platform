@@ -77,6 +77,8 @@ func (t ClusterTargets) Close() {
 
 // EnsureTunnel checks if the tunnel is healthy and re-establishes it if needed.
 // For host clusters (no tunnel), this is a no-op.
+// Before reconnecting, it verifies that the DPUCluster is still in Ready phase
+// to avoid pointless reconnection attempts against an unreachable cluster.
 func (ct *ClusterTarget) EnsureTunnel(ctx context.Context) error {
 	if ct.tunnel == nil {
 		return nil
@@ -84,6 +86,17 @@ func (ct *ClusterTarget) EnsureTunnel(ctx context.Context) error {
 
 	if ct.tunnel.IsHealthy() {
 		return nil
+	}
+
+	// Re-fetch the DPUCluster to check if it's still ready before reconnecting.
+	if ct.hostClient != nil && ct.dpuCluster != nil {
+		fresh := &provisioningv1.DPUCluster{}
+		if err := ct.hostClient.Get(ctx, client.ObjectKeyFromObject(ct.dpuCluster), fresh); err != nil {
+			return fmt.Errorf("check DPUCluster %s readiness: %w", ct.Name, err)
+		}
+		if fresh.Status.Phase != provisioningv1.PhaseReady {
+			return fmt.Errorf("DPUCluster %s is not ready (phase: %s), skipping tunnel reconnect", ct.Name, fresh.Status.Phase)
+		}
 	}
 
 	Warn("Tunnel to %s is unhealthy, reconnecting...", ct.Name)
@@ -209,6 +222,11 @@ func getDPUClusterTargets(ctx context.Context, hostClient client.Client, hostRES
 		dc := &dpuClusters.Items[i]
 
 		if dpuClusterName != "" && dc.Name != dpuClusterName {
+			continue
+		}
+
+		if dc.Status.Phase != provisioningv1.PhaseReady {
+			Warn("DPUCluster %s/%s is not ready (phase: %s), skipping", dc.Namespace, dc.Name, dc.Status.Phase)
 			continue
 		}
 
