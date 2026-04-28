@@ -119,6 +119,7 @@ type cliFlags struct {
 	osInstallTimeout               time.Duration
 	nodeEffectRemovalTimeout       time.Duration
 	hostAgentDNSPolicy             string
+	deploymentMode                 string
 }
 
 func parseFlags() *cliFlags {
@@ -153,6 +154,7 @@ func parseFlags() *cliFlags {
 	fs.DurationVar(&flags.osInstallTimeout, "os-install-timeout", 45*time.Minute, "Maximum time allowed for OS installation in zero-trust mode")
 	fs.DurationVar(&flags.nodeEffectRemovalTimeout, "node-effect-removal-timeout", 0, "Maximum time allowed for the Node Effect Removal phase before transitioning to error. 0 means no timeout.")
 	fs.StringVar(&flags.hostAgentDNSPolicy, "hostagent-dns-policy", string(corev1.DNSClusterFirstWithHostNet), "DNS policy for the hostagent pod")
+	fs.StringVar(&flags.deploymentMode, "deployment-mode", "", "required: cluster deployment mode from DPFOperatorConfig (zero-trust or trusted-host)")
 
 	logsv1.AddFlags(logOptions, fs)
 
@@ -263,6 +265,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, ima
 	dpuOptions := dutil.DPUOptions{
 		ImagePullSecrets:            imagePullSecretsReferences,
 		DPUInstallInterface:         flags.dpuInstallInterface,
+		DeploymentMode:              flags.deploymentMode,
 		BFCFGTemplateFile:           flags.bfCFGTemplateFile,
 		BFBRegistry:                 bfbRegistry,
 		BFBPVC:                      flags.bfbPVC,
@@ -389,20 +392,18 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, ima
 	return dpuMap
 }
 
-func setupWebhooks(mgr ctrl.Manager, dpuInstallInterface string) {
+func setupWebhooks(mgr ctrl.Manager, deploymentMode string) {
 	if err := (&provisioningwebhooks.BFB{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "BFB")
 		os.Exit(1)
 	}
 	if err := (&provisioningwebhooks.DPUSet{
-		DPUInstallInterface: &dpuInstallInterface,
+		DeploymentMode: deploymentMode,
 	}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "DPUSet")
 		os.Exit(1)
 	}
-	if err := (&provisioningwebhooks.DPUFlavor{
-		DPUInstallInterface: &dpuInstallInterface,
-	}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&provisioningwebhooks.DPUFlavor{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "DPUFlavor")
 		os.Exit(1)
 	}
@@ -463,6 +464,15 @@ func setupInitRunnable(mgr ctrl.Manager, dpuMap *dutil.DPUInProvisioningMap) {
 func main() {
 	flags := parseFlags()
 
+	if strings.TrimSpace(flags.dpuInstallInterface) == "" {
+		setupLog.Error(nil, "--dpu-install-interface must not be empty")
+		os.Exit(1)
+	}
+	if strings.TrimSpace(flags.deploymentMode) == "" {
+		setupLog.Error(nil, "--deployment-mode is required (zero-trust or trusted-host)")
+		os.Exit(1)
+	}
+
 	mgr, clientConfig := createManager(flags)
 
 	// imagePullSecrets should be a comma-joined list of the names of imagePullSecrets.
@@ -481,7 +491,7 @@ func main() {
 	}
 
 	dpuMap := setupControllers(mgr, flags, bfbRegistryAddress, imagePullSecretsReferences)
-	setupWebhooks(mgr, flags.dpuInstallInterface)
+	setupWebhooks(mgr, flags.deploymentMode)
 	setupCSRController(mgr, clientConfig)
 
 	// Get the context from the signal handler

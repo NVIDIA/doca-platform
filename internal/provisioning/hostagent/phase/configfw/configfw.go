@@ -28,7 +28,6 @@ import (
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	"github.com/fluxcd/pkg/runtime/patch"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -55,19 +54,11 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 	if !ok {
 		return dpu.Status, ctrl.Result{}, fmt.Errorf("device not found")
 	}
-	flavor := &provisioningv1.DPUFlavor{}
-	if err := h.Get(ctx, types.NamespacedName{Name: dpu.Spec.DPUFlavor, Namespace: dpu.Namespace}, flavor); err != nil {
-		hostutil.NewCondition(condition).Failure(err, "FailedToGetDPUFlavor").Set(&dpu.Status.Conditions)
-		return dpu.Status, ctrl.Result{}, err
-	}
 
-	if len(flavor.Spec.DpuMode) == 0 {
-		flavor.Spec.DpuMode = provisioningv1.DpuMode
-	}
-
-	if flavor.Spec.DpuMode != provisioningv1.DpuMode {
-		err := fmt.Errorf("requested mode %s is not supported by hostagent. Supported mode: %s", flavor.Spec.DpuMode, provisioningv1.DpuMode)
-		hostutil.NewCondition(condition).Failure(err, "UnsupportedDPUMode").Set(&dpu.Status.Conditions)
+	if dpu.Status.DeploymentMode != provisioningv1.DeploymentModeTrustedHost {
+		err := fmt.Errorf("deployment mode %q is not supported by hostagent Config FW phase; supported mode: %s",
+			dpu.Status.DeploymentMode, provisioningv1.DeploymentModeTrustedHost)
+		hostutil.NewCondition(condition).Failure(err, "UnsupportedDeploymentMode").Set(&dpu.Status.Conditions)
 		return dpu.Status, ctrl.Result{}, err
 	}
 

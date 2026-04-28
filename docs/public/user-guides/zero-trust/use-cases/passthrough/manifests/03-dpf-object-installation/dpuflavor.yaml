@@ -5,7 +5,6 @@ metadata:
   name: passthrough-$TAG
   namespace: dpf-operator-system
 spec:
-  dpuMode: zero-trust
   grub:
     kernelParameters:
     - console=hvc0

@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -99,7 +100,7 @@ var _ = BeforeSuite(func() {
 	err = (&BFB{}).SetupWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = (&DPUSet{}).SetupWebhookWithManager(mgr)
+	err = (&DPUSet{DeploymentMode: string(operatorv1.DeploymentModeTrustedHost)}).SetupWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = (&DPUFlavor{}).SetupWebhookWithManager(mgr)

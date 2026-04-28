@@ -578,6 +578,7 @@ var _ = Describe("Kamaji Handler - Defaults and Secrets", func() {
 					Namespace: operatorNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						BFBPersistentVolumeClaimName: ptr.To("pvc"),
 					},

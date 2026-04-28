@@ -146,6 +146,14 @@ var _ = Describe("DPF Upgrade tests", Labels{Domain.DPFUpgrade}, func() {
 
 var _ = Describe("DPF Upgrade validation", Labels{Domain.DPFUpgradeValidation}, func() {
 	Context("Should pass", Labels{Domain.RequiresNodes}, Serial, Ordered, func() {
+		It("patch DPFOperatorConfig for spec.deploymentMode (post-GA upgrade)", func() {
+			// Purpose: apply the DPFOperatorConfig change for the breaking introduction of
+			// DPFOperatorConfig.spec.deploymentMode (required, no default). The upgrade validation
+			// run does not re-apply SystemSetupBeforeSuite, so a cluster upgraded from a GA build
+			// can still have no deploymentMode, so use the mode from SetInput for this run.
+			patchDPFOperatorConfigForSpecDeploymentMode(ctx, input)
+		})
+
 		It("validate rollout is done and pre-upgrade validation successful", func() {
 			By("Validating pre-upgrade conditions")
 			validatePreUpgradeConditions(ctx, input)
@@ -469,4 +477,24 @@ func rolloutDPUService(ctx context.Context, input *systemTestInput) {
 		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(selectedDPUService), updatedDPUService)).To(Succeed())
 		g.Expect(updatedDPUService.GetUID()).ToNot(Equal(uuid), "DPUService should be recreated with a new UID")
 	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+}
+
+// patchDPFOperatorConfigForSpecDeploymentMode supports the breaking change that introduced
+// DPFOperatorConfig.spec.deploymentMode as a required field. DPFUpgradeValidation does not
+// re-apply the full spec from SetInput. When deploymentMode is still empty after upgrade from
+// a GA install, patch it from the current run input. For later breaking spec additions, add
+// patchDPFOperatorConfigForSpec<Name>.
+func patchDPFOperatorConfigForSpecDeploymentMode(ctx context.Context, input *systemTestInput) {
+	By("Patching DPFOperatorConfig for required spec.deploymentMode (breaking change vs pre-upgrade GA)")
+	cfg := &operatorv1.DPFOperatorConfig{}
+	Expect(input.client.Get(ctx, client.ObjectKey{
+		Name:      configName,
+		Namespace: dpfOperatorSystemNamespace,
+	}, cfg)).To(Succeed())
+	if cfg.Spec.DeploymentMode != "" {
+		return
+	}
+	original := cfg.DeepCopy()
+	cfg.Spec.DeploymentMode = input.config.Spec.DeploymentMode
+	Expect(input.client.Patch(ctx, cfg, client.MergeFrom(original))).To(Succeed())
 }

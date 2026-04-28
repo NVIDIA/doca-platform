@@ -48,6 +48,14 @@ func (r *DPFOperatorConfigReconciler) reconcileDelete(ctx context.Context, dpfOp
 	log := ctrllog.FromContext(ctx)
 	log.Info("Reconciling delete")
 
+	// CRs created before spec.deploymentMode was required can have an empty value.
+	// Inventory manifest generation (e.g. provisioning controller setDeploymentMode) requires a non-empty mode;
+	// the concrete value does not affect which objects are deleted.
+	// TODO: Remove after v26.4.
+	if dpfOperatorConfig.Spec.DeploymentMode == "" {
+		dpfOperatorConfig.Spec.DeploymentMode = operatorv1.DeploymentModeTrustedHost
+	}
+
 	log.Info("Ensuring DPF resources are deleted")
 	err := r.deleteDPFResources(ctx)
 	if err != nil {

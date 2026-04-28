@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
@@ -47,6 +49,7 @@ type DPUOptions struct {
 	PrarprouterdImageWithTag    string
 	ImagePullSecrets            []corev1.LocalObjectReference
 	DPUInstallInterface         string
+	DeploymentMode              string
 	BFCFGTemplateFile           string
 	BFBRegistry                 string
 	BFBPVC                      string
@@ -70,4 +73,14 @@ type ControllerContext struct {
 	JoinCommandGenerator NodeJoinCommandGenerator
 	HostUptimeChecker    reboot.HostUptimeChecker
 	DPUInProvisioningMap *DPUInProvisioningMap
+}
+
+// ZeroTrustProvisioningFlow reports whether the cluster policy is zero-trust for provisioning
+// phases that branch on ZT vs trusted-host (e.g. reboot completion, RebootMethodNoAction).
+// When DeploymentMode is unset (legacy), Redfish install interface implies zero-trust flow.
+func (o DPUOptions) ZeroTrustProvisioningFlow() bool {
+	if o.DeploymentMode != "" {
+		return o.DeploymentMode == string(operatorv1.DeploymentModeZeroTrust)
+	}
+	return o.DPUInstallInterface == string(provisioningv1.InstallViaRedFish)
 }
