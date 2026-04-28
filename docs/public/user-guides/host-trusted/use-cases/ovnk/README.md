@@ -80,7 +80,7 @@ The following variables are required by this guide. A sensible default is provid
 
 Commands in this guide are run in the same directory that contains this readme.
 
-<details markdown="1"><summary>**Environment variables file**</summary>
+<details markdown="1"><summary><b>Environment variables file</b></summary>
 
 [embedmd]:# (manifests/00-env-vars/envvars.env sh)
 ```sh
@@ -161,7 +161,7 @@ Install the OVN Kubernetes CNI components from the helm chart. A number of [envi
 envsubst < manifests/01-cni-installation/helm-values/ovn-kubernetes.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version ${OVN_KUBERNETES_CHART_TAG} --values -
 ```
 
-<details markdown="1"><summary>**OVN-Kubernetes Helm values**</summary>
+<details markdown="1"><summary><b>OVN-Kubernetes Helm values</b></summary>
 
 [embedmd]:#(manifests/01-cni-installation/helm-values/ovn-kubernetes.yml)
 ```yml
@@ -261,7 +261,7 @@ cat manifests/03-dpf-system-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will create the following objects:
-<details markdown="1"><summary>**DPFOperatorConfig to install the DPF System components**</summary>
+<details markdown="1"><summary><b>DPFOperatorConfig to install the DPF System components</b></summary>
 
 [embedmd]:#(manifests/03-dpf-system-installation/operatorconfig.yaml)
 ```yaml
@@ -284,7 +284,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUCluster to serve as Kubernetes control plane for DPU nodes**</summary>
+<details markdown="1"><summary><b>DPUCluster to serve as Kubernetes control plane for DPU nodes</b></summary>
 
 [embedmd]:#(manifests/03-dpf-system-installation/dpucluster.yaml)
 ```yaml
@@ -337,7 +337,7 @@ helm repo add nvidia https://helm.ngc.nvidia.com/nvidia --force-update
 helm upgrade --no-hooks --install --create-namespace --namespace nvidia-network-operator network-operator nvidia/network-operator --version 26.1.0 -f ./manifests/04-enable-accelerated-cni/helm-values/network-operator.yml
 ```
 
-<details markdown="1"><summary>**NVIDIA Network Operator Helm values**</summary>
+<details markdown="1"><summary><b>NVIDIA Network Operator Helm values</b></summary>
 
 [embedmd]:#(manifests/04-enable-accelerated-cni/helm-values/network-operator.yml)
 ```yml
@@ -366,7 +366,7 @@ The OVN Kubernetes resource injection webhook injected each pod scheduled to a w
 envsubst < manifests/04-enable-accelerated-cni/helm-values/ovn-kubernetes.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes-resource-injector ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version ${OVN_KUBERNETES_CHART_TAG} --values -
 ```
 
-<details markdown="1"><summary>**OVN Kubernetes Resource Injector Helm values**</summary>
+<details markdown="1"><summary><b>OVN Kubernetes Resource Injector Helm values</b></summary>
 
 [embedmd]:#(manifests/04-enable-accelerated-cni/helm-values/ovn-kubernetes.yml)
 ```yml
@@ -384,7 +384,7 @@ kubectl apply -f manifests/04-enable-accelerated-cni/nic_cluster_policy.yaml
 
 This will deploy the following object:
 
-<details markdown="1"><summary>**NICClusterPolicy for the NVIDIA Network Operator**</summary>
+<details markdown="1"><summary><b>NICClusterPolicy for the NVIDIA Network Operator</b></summary>
 
 [embedmd]:#(manifests/04-enable-accelerated-cni/nic_cluster_policy.yaml)
 ```yaml
@@ -411,7 +411,7 @@ The NodeSRIOVDevicePluginConfig defines which VFs on the DPU physical functions 
 kubectl apply -f manifests/04-enable-accelerated-cni/nodesriovdevicepluginconfig.yaml
 ```
 
-<details markdown="1"><summary>**NodeSRIOVDevicePluginConfig for VFs on PF0**</summary>
+<details markdown="1"><summary><b>NodeSRIOVDevicePluginConfig for VFs on PF0</b></summary>
 
 [embedmd]:#(manifests/04-enable-accelerated-cni/nodesriovdevicepluginconfig.yaml)
 ```yaml
@@ -480,7 +480,7 @@ cat manifests/05-dpudeployment-installation/*.yaml | envsubst | kubectl apply -f
 
 This will deploy the following objects:
 
-<details markdown="1"><summary>**BFB to download Bluefield Bitstream to a shared volume**</summary>
+<details markdown="1"><summary><b>BFB to download Bluefield Bitstream to a shared volume</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/bfb.yaml)
 ```yaml
@@ -495,7 +495,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**OVN DPUFlavor to correctly configure the DPUs on provisioning**</summary>
+<details markdown="1"><summary><b>OVN DPUFlavor to correctly configure the DPUs on provisioning</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuflavor-ovn.yaml)
 ```yaml
@@ -612,7 +612,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUDeployment to provision DPUs on worker nodes**</summary>
+<details markdown="1"><summary><b>DPUDeployment to provision DPUs on worker nodes</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpudeployment.yaml)
 ```yaml
@@ -659,7 +659,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**OVN DPUServiceConfig and DPUServiceTemplate to deploy OVN workloads to the DPUs**</summary>
+<details markdown="1"><summary><b>OVN DPUServiceConfig and DPUServiceTemplate to deploy OVN workloads to the DPUs</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfig_ovn.yaml)
 ```yaml
@@ -710,7 +710,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DOCA Telemetry Service DPUServiceConfig and DPUServiceTemplate to deploy DTS to the DPUs**</summary>
+<details markdown="1"><summary><b>DOCA Telemetry Service DPUServiceConfig and DPUServiceTemplate to deploy DTS to the DPUs</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfig_dts.yaml)
 ```yaml
@@ -742,7 +742,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**Blueman DPUServiceConfig and DPUServiceTemplate to deploy Blueman to the DPUs**</summary>
+<details markdown="1"><summary><b>Blueman DPUServiceConfig and DPUServiceTemplate to deploy Blueman to the DPUs</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfig_blueman.yaml)
 ```yaml
@@ -774,7 +774,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**OVN DPUServiceCredentialRequest to allow cross cluster communication**</summary>
+<details markdown="1"><summary><b>OVN DPUServiceCredentialRequest to allow cross cluster communication</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/ovn-credentials.yaml)
 ```yaml
@@ -799,7 +799,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUServiceInterfaces for physical ports on the DPU**</summary>
+<details markdown="1"><summary><b>DPUServiceInterfaces for physical ports on the DPU</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/physical-ifaces.yaml)
 ```yaml
@@ -823,7 +823,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**OVN DPUServiceInterface to define the ports attached to OVN workloads on the DPU**</summary>
+<details markdown="1"><summary><b>OVN DPUServiceInterface to define the ports attached to OVN workloads on the DPU</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/ovn-iface.yaml)
 ```yaml
