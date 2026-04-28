@@ -38,6 +38,8 @@ type Options struct {
 	DPUFlavor                  string
 	KubeadmSecretName          string
 	KubeadmSecretNamespace     string
+	BFBRegistryURL             string
+	AstraEnabled               bool
 	SkipSysctl                 bool
 	SkipNetworkConfig          bool
 	SkipDNSConfig              bool
@@ -50,6 +52,7 @@ type Options struct {
 	SkipConfigureKubelet       bool
 	SkipStartKubelet           bool
 	SkipRebootMethodDiscovery  bool
+	SkipAstra                  bool
 }
 
 func (o Options) Validate() error {

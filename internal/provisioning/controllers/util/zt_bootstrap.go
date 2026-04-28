@@ -81,6 +81,12 @@ func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *run
 				ResourceNames: []string{KubeadmJoinSecretName(dpu.Name)},
 				Verbs:         []string{"get"},
 			},
+			{
+				APIGroups:     []string{"provisioning.dpu.nvidia.com"},
+				Resources:     []string{"bluefieldsoftwares"},
+				ResourceNames: []string{dpu.Spec.BlueFieldSoftware},
+				Verbs:         []string{"get"},
+			},
 		},
 	}
 	if err := controllerutil.SetOwnerReference(dpu, role, scheme); err != nil {
