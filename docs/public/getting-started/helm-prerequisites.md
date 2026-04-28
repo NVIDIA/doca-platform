@@ -49,6 +49,15 @@ provide the necessary configuration for these components.
 [helmfile]: https://helmfile.readthedocs.io/
 [DPF repository]: https://github.com/nvidia/doca-platform/
 
+## Running Argo CD in a separate namespace
+
+DPF supports running Argo CD in a namespace other than `dpf-operator-system`. When Argo CD is installed outside
+`dpf-operator-system`, ensure that `dpf-operator-system` is included in the Argo CD Helm value
+`configs.params.application.namespaces` (or an equivalent configuration) so Argo CD reconciles Applications in
+`dpf-operator-system`. Also set `spec.overrides.argoCDNamespace` in the `DPFOperatorConfig` to the namespace where
+Argo CD is installed. See the
+[DPFOperatorConfig guide](../developer-guides/api/dpfoperatorconfig.md#argo-cd-namespace) for an example.
+
 ## Installation Options
 
 ### Option 1: Using Helmfile
