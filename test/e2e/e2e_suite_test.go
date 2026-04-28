@@ -123,6 +123,11 @@ func getEnvVariables() {
 	} else {
 		panic("HELM_REGISTRY env variable must be set")
 	}
+	if reg, found := os.LookupEnv("DOCKER_IO_REGISTRY"); found {
+		dockerIORegistry = reg
+	} else {
+		panic("DOCKER_IO_REGISTRY env variable must be set")
+	}
 
 	if t, found := os.LookupEnv("TAG"); found {
 		tag = t
@@ -134,6 +139,7 @@ func getEnvVariables() {
 	} else {
 		panic("NETUTILS_IMAGE env variable must be set")
 	}
+
 	if name, found := os.LookupEnv("DPU_CLUSTER_NAME"); found {
 		dpuClusterName = name
 	}
