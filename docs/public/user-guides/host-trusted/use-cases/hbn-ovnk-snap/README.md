@@ -87,7 +87,7 @@ The following variables are required by this guide. A sensible default is provid
 
 Commands in this guide are run in the same directory that contains this readme.
 
-<details markdown="1"><summary>**Environment variables file**</summary>
+<details markdown="1"><summary><b>Environment variables file</b></summary>
 
 [embedmd]:# (manifests/00-env-vars/envvars.env sh)
 ```sh
@@ -170,7 +170,7 @@ Install the OVN Kubernetes CNI components from the helm chart. A number of [envi
 envsubst < manifests/01-cni-installation/helm-values/ovn-kubernetes.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version ${OVN_KUBERNETES_CHART_TAG} --values -
 ```
 
-<details markdown="1"><summary>**OVN-Kubernetes Helm values**</summary>
+<details markdown="1"><summary><b>OVN-Kubernetes Helm values</b></summary>
 
 [embedmd]:#(manifests/01-cni-installation/helm-values/ovn-kubernetes.yml)
 ```yml
@@ -270,7 +270,7 @@ cat manifests/03-dpf-system-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will create the following objects:
-<details markdown="1"><summary>**DPFOperatorConfig to install the DPF System components**</summary>
+<details markdown="1"><summary><b>DPFOperatorConfig to install the DPF System components</b></summary>
 
 [embedmd]:#(manifests/03-dpf-system-installation/operatorconfig.yaml)
 ```yaml
@@ -293,7 +293,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUCluster to serve as Kubernetes control plane for DPU nodes**</summary>
+<details markdown="1"><summary><b>DPUCluster to serve as Kubernetes control plane for DPU nodes</b></summary>
 
 [embedmd]:#(manifests/03-dpf-system-installation/dpucluster.yaml)
 ```yaml
@@ -346,7 +346,7 @@ helm repo add nvidia https://helm.ngc.nvidia.com/nvidia --force-update
 helm upgrade --no-hooks --install --create-namespace --namespace nvidia-network-operator network-operator nvidia/network-operator --version 26.1.0 -f ./manifests/04-enable-accelerated-cni/helm-values/network-operator.yml
 ```
 
-<details markdown="1"><summary>**NVIDIA Network Operator Helm values**</summary>
+<details markdown="1"><summary><b>NVIDIA Network Operator Helm values</b></summary>
 
 [embedmd]:#(manifests/04-enable-accelerated-cni/helm-values/network-operator.yml)
 ```yml
@@ -375,7 +375,7 @@ The OVN Kubernetes resource injection webhook injected each pod scheduled to a w
 envsubst < manifests/04-enable-accelerated-cni/helm-values/ovn-kubernetes.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes-resource-injector ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version ${OVN_KUBERNETES_CHART_TAG} --values -
 ```
 
-<details markdown="1"><summary>**OVN Kubernetes Resource Injector Helm values**</summary>
+<details markdown="1"><summary><b>OVN Kubernetes Resource Injector Helm values</b></summary>
 
 [embedmd]:#(manifests/04-enable-accelerated-cni/helm-values/ovn-kubernetes.yml)
 ```yml
@@ -393,7 +393,7 @@ kubectl apply -f manifests/04-enable-accelerated-cni/nic_cluster_policy.yaml
 
 This will deploy the following object:
 
-<details markdown="1"><summary>**NICClusterPolicy for the NVIDIA Network Operator**</summary>
+<details markdown="1"><summary><b>NICClusterPolicy for the NVIDIA Network Operator</b></summary>
 
 [embedmd]:#(manifests/04-enable-accelerated-cni/nic_cluster_policy.yaml)
 ```yaml
@@ -420,7 +420,7 @@ The NodeSRIOVDevicePluginConfig defines which VFs on the DPU physical functions 
 kubectl apply -f manifests/04-enable-accelerated-cni/nodesriovdevicepluginconfig.yaml
 ```
 
-<details markdown="1"><summary>**NodeSRIOVDevicePluginConfig for VFs on PF0**</summary>
+<details markdown="1"><summary><b>NodeSRIOVDevicePluginConfig for VFs on PF0</b></summary>
 
 [embedmd]:#(manifests/04-enable-accelerated-cni/nodesriovdevicepluginconfig.yaml)
 ```yaml
@@ -486,7 +486,7 @@ Create the credential request for the SPDK CSI Controller before installing the 
 kubectl apply -f manifests/05-dpudeployment-installation/credentials/
 ```
 
-<details markdown="1"><summary>**SPDK CSI Controller DPUServiceCredentialRequest**</summary>
+<details markdown="1"><summary><b>SPDK CSI Controller DPUServiceCredentialRequest</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/credentials/dpuservicecredentialrequest_spdk-csi-controller.yaml)
 ```yaml
@@ -539,7 +539,7 @@ helm upgrade --install -n dpf-operator-system snap-host-controller \
   -f manifests/05-dpudeployment-installation/helm-values/snap-host-controller.yml
 ```
 
-<details markdown="1"><summary>**SNAP Host Controller Helm values**</summary>
+<details markdown="1"><summary><b>SNAP Host Controller Helm values</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/helm-values/snap-host-controller.yml)
 ```yml
@@ -589,7 +589,7 @@ helm upgrade --install -n dpf-operator-system snap-csi-plugin \
   -f manifests/05-dpudeployment-installation/helm-values/snap-csi-plugin-controller.yml
 ```
 
-<details markdown="1"><summary>**SNAP CSI Plugin Controller Helm values**</summary>
+<details markdown="1"><summary><b>SNAP CSI Plugin Controller Helm values</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/helm-values/snap-csi-plugin-controller.yml)
 ```yml
@@ -623,7 +623,7 @@ helm upgrade --install -n dpf-operator-system spdk-csi-controller \
   -f manifests/05-dpudeployment-installation/helm-values/spdk-csi-controller.yml
 ```
 
-<details markdown="1"><summary>**SPDK CSI Controller Helm values**</summary>
+<details markdown="1"><summary><b>SPDK CSI Controller Helm values</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/helm-values/spdk-csi-controller.yml)
 ```yml
@@ -667,7 +667,7 @@ cat manifests/05-dpudeployment-installation/*.yaml | envsubst | kubectl apply -f
 
 This will deploy the following objects:
 
-<details markdown="1"><summary>**BFB to download Bluefield Bitstream to a shared volume**</summary>
+<details markdown="1"><summary><b>BFB to download Bluefield Bitstream to a shared volume</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/bfb.yaml)
 ```yaml
@@ -682,7 +682,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**HBN OVN SNAP DPUFlavor to correctly configure the DPUs on provisioning**</summary>
+<details markdown="1"><summary><b>HBN OVN SNAP DPUFlavor to correctly configure the DPUs on provisioning</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuflavor.yaml)
 ```yaml
@@ -807,7 +807,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUDeployment to provision DPUs on worker nodes with SNAP Block Storage**</summary>
+<details markdown="1"><summary><b>DPUDeployment to provision DPUs on worker nodes with SNAP Block Storage</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpudeployment.yaml)
 ```yaml
@@ -896,7 +896,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**OVN DPUServiceConfiguration and DPUServiceTemplate to deploy OVN workloads to the DPUs**</summary>
+<details markdown="1"><summary><b>OVN DPUServiceConfiguration and DPUServiceTemplate to deploy OVN workloads to the DPUs</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfiguration_ovn.yaml)
 ```yaml
@@ -949,7 +949,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**HBN DPUServiceConfiguration and DPUServiceTemplate to deploy HBN workloads to the DPUs**</summary>
+<details markdown="1"><summary><b>HBN DPUServiceConfiguration and DPUServiceTemplate to deploy HBN workloads to the DPUs</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfiguration_hbn.yaml)
 ```yaml
@@ -1110,7 +1110,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DOCA Telemetry Service DPUServiceConfiguration and DPUServiceTemplate to deploy DTS to the DPUs**</summary>
+<details markdown="1"><summary><b>DOCA Telemetry Service DPUServiceConfiguration and DPUServiceTemplate to deploy DTS to the DPUs</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfiguration_dts.yaml)
 ```yaml
@@ -1142,7 +1142,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**Blueman DPUServiceConfiguration and DPUServiceTemplate to deploy Blueman to the DPUs**</summary>
+<details markdown="1"><summary><b>Blueman DPUServiceConfiguration and DPUServiceTemplate to deploy Blueman to the DPUs</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfiguration_blueman.yaml)
 ```yaml
@@ -1174,7 +1174,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUServiceNAD for storage services (no RDMA CNI chaining)**</summary>
+<details markdown="1"><summary><b>DPUServiceNAD for storage services (no RDMA CNI chaining)</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuservicenad_storage.yaml)
 ```yaml
@@ -1191,7 +1191,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DOCA SNAP DPUServiceConfiguration and DPUServiceTemplate for NVMe emulation**</summary>
+<details markdown="1"><summary><b>DOCA SNAP DPUServiceConfiguration and DPUServiceTemplate for NVMe emulation</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfiguration_doca-snap.yaml)
 ```yaml
@@ -1250,7 +1250,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**SNAP CSI Plugin DPUServiceConfiguration and DPUServiceTemplate**</summary>
+<details markdown="1"><summary><b>SNAP CSI Plugin DPUServiceConfiguration and DPUServiceTemplate</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfiguration_snap-csi-plugin.yaml)
 ```yaml
@@ -1293,7 +1293,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**SNAP Node Driver DPUServiceConfiguration and DPUServiceTemplate**</summary>
+<details markdown="1"><summary><b>SNAP Node Driver DPUServiceConfiguration and DPUServiceTemplate</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfiguration_snap-node-driver.yaml)
 ```yaml
@@ -1332,7 +1332,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**Block Storage DPU Plugin DPUServiceConfiguration and DPUServiceTemplate**</summary>
+<details markdown="1"><summary><b>Block Storage DPU Plugin DPUServiceConfiguration and DPUServiceTemplate</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfiguration_block-storage-dpu-plugin.yaml)
 ```yaml
@@ -1370,7 +1370,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**SPDK CSI Controller DPU DPUServiceConfiguration and DPUServiceTemplate (DPU Cluster)**</summary>
+<details markdown="1"><summary><b>SPDK CSI Controller DPU DPUServiceConfiguration and DPUServiceTemplate (DPU Cluster)</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfiguration_spdk-csi-controller-dpu.yaml)
 ```yaml
@@ -1423,7 +1423,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUServiceIPAM for SNAP storage networking**</summary>
+<details markdown="1"><summary><b>DPUServiceIPAM for SNAP storage networking</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/storage-ipam.yaml)
 ```yaml
@@ -1444,7 +1444,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**Secret for SPDK CSI credentials**</summary>
+<details markdown="1"><summary><b>Secret for SPDK CSI credentials</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/secret_spdk-csi.yaml)
 ```yaml
@@ -1473,7 +1473,7 @@ stringData:
 ```
 </details>
 
-<details markdown="1"><summary>**OVN DPUServiceCredentialRequest to allow cross cluster communication**</summary>
+<details markdown="1"><summary><b>OVN DPUServiceCredentialRequest to allow cross cluster communication</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/ovn-credentials.yaml)
 ```yaml
@@ -1498,7 +1498,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUServiceInterfaces for physical ports on the DPU**</summary>
+<details markdown="1"><summary><b>DPUServiceInterfaces for physical ports on the DPU</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/physical-ifaces.yaml)
 ```yaml
@@ -1539,7 +1539,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**OVN DPUServiceInterface to define the ports attached to OVN workloads on the DPU**</summary>
+<details markdown="1"><summary><b>OVN DPUServiceInterface to define the ports attached to OVN workloads on the DPU</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/ovn-iface.yaml)
 ```yaml
@@ -1563,7 +1563,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUServiceIPAM to set up IP Address Management on the DPUCluster**</summary>
+<details markdown="1"><summary><b>DPUServiceIPAM to set up IP Address Management on the DPUCluster</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/hbn-ovn-ipam.yaml)
 ```yaml
@@ -1581,7 +1581,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUServiceIPAM for the loopback interface in HBN**</summary>
+<details markdown="1"><summary><b>DPUServiceIPAM for the loopback interface in HBN</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/hbn-loopback-ipam.yaml)
 ```yaml
@@ -1645,7 +1645,7 @@ kubectl apply -f manifests/07-storage-configuration
 
 This will create the following objects:
 
-<details markdown="1"><summary>**DPUStorageVendor for SPDK CSI**</summary>
+<details markdown="1"><summary><b>DPUStorageVendor for SPDK CSI</b></summary>
 
 [embedmd]:#(manifests/07-storage-configuration/dpustoragevendor_spdk-csi.yaml)
 ```yaml
@@ -1661,7 +1661,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUStoragePolicy for block storage**</summary>
+<details markdown="1"><summary><b>DPUStoragePolicy for block storage</b></summary>
 
 [embedmd]:#(manifests/07-storage-configuration/dpustoragepolicy_policy-block.yaml)
 ```yaml
@@ -1696,7 +1696,7 @@ kubectl apply -f manifests/08-test-storage
 
 This will create the following objects:
 
-<details markdown="1"><summary>**StorageClass for SNAP NVMe VF**</summary>
+<details markdown="1"><summary><b>StorageClass for SNAP NVMe VF</b></summary>
 
 [embedmd]:#(manifests/08-test-storage/storageclass.yaml)
 ```yaml
@@ -1713,7 +1713,7 @@ parameters:
 ```
 </details>
 
-<details markdown="1"><summary>**StatefulSet with NVMe VF block storage**</summary>
+<details markdown="1"><summary><b>StatefulSet with NVMe VF block storage</b></summary>
 
 [embedmd]:#(manifests/08-test-storage/sts-block.yaml)
 ```yaml

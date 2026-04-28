@@ -22,7 +22,7 @@ This resource will define the service configuration and deployment details.
 
 Configuration file:
 
-<details markdown="1"><summary>**DPUService**</summary>
+<details markdown="1"><summary><b>DPUService</b></summary>
 
 [embedmd]:#(../../../../dpuservices/dts/DPUService.yaml)
 ```yaml

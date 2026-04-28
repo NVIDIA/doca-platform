@@ -46,7 +46,7 @@ Commands in this guide are run in the same directory that contains this readme.
 
 The following variables are required. Sensible defaults are provided where possible, but many values will be specific to your target infrastructure.
 
-<details markdown="1"><summary>**Environment variables file**</summary>
+<details markdown="1"><summary><b>Environment variables file</b></summary>
 
 [embedmd]:# (manifests/00-env-vars/envvars.env sh)
 ```sh
@@ -190,7 +190,7 @@ cat manifests/02-dpf-system-installation/*.yaml | envsubst | kubectl apply -f -
 ```
 
 This will create the following objects:
-<details markdown="1"><summary>**DPFOperatorConfig to install the DPF System components**</summary>
+<details markdown="1"><summary><b>DPFOperatorConfig to install the DPF System components</b></summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/operatorconfig.yaml)
 ```yaml
@@ -216,7 +216,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUCluster to serve as Kubernetes control plane for DPU nodes**</summary>
+<details markdown="1"><summary><b>DPUCluster to serve as Kubernetes control plane for DPU nodes</b></summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/dpucluster.yaml)
 ```yaml
@@ -243,7 +243,7 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary>**DPUDiscovery to discover DPUDevices or DPUNodes**</summary>
+<details markdown="1"><summary><b>DPUDiscovery to discover DPUDevices or DPUNodes</b></summary>
 
 [embedmd]:#(manifests/02-dpf-system-installation/dpudiscovery.yaml)
 ```yaml
@@ -288,7 +288,7 @@ cat manifests/03-bfb-and-flavor/* | envsubst | kubectl apply -f -
 
 This will deploy the following objects:
 
-<details markdown="1"><summary>**OVN VPC DPUDeployment**</summary>
+<details markdown="1"><summary><b>OVN VPC DPUDeployment</b></summary>
 
 [embedmd]:#(manifests/03-bfb-and-flavor/bfb.yaml)
 ```yaml
@@ -420,7 +420,7 @@ helm upgrade --install -n dpf-operator-system vpc-ovn-controller $HELM_REGISTRY_
   --version=$TAG --wait -f manifests/04.1-vpc-ovn-target-cluster/helm-values/vpc-ovn-controller.yaml
 ```
 
-<details markdown="1"><summary>**OVN Central Helm Values**</summary>
+<details markdown="1"><summary><b>OVN Central Helm Values</b></summary>
 
 [embedmd]:#(manifests/04.1-vpc-ovn-target-cluster/helm-values/ovn-central.yaml)
 ```yaml
@@ -452,7 +452,7 @@ management:
 
 </details>
 
-<details markdown="1"><summary>**VPC OVN Controller Helm Values**</summary>
+<details markdown="1"><summary><b>VPC OVN Controller Helm Values</b></summary>
 
 [embedmd]:#(manifests/04.1-vpc-ovn-target-cluster/helm-values/vpc-ovn-controller.yaml)
 ```yaml
@@ -486,7 +486,7 @@ cat manifests/04.2-vpc-ovn-dpudeployment/* | envsubst | kubectl apply -f -
 
 This will deploy the following objects:
 
-<details markdown="1"><summary>**OVN VPC DPUDeployment**</summary>
+<details markdown="1"><summary><b>OVN VPC DPUDeployment</b></summary>
 
 [embedmd]:#(manifests/04.2-vpc-ovn-dpudeployment/dpudeployment.yaml)
 ```yaml
@@ -796,7 +796,7 @@ cat manifests/05-vpc-resources/* | envsubst | kubectl apply -f -
 
 This will deploy the following objects:
 
-<details markdown="1"><summary>**Additional VPC Resources**</summary>
+<details markdown="1"><summary><b>Additional VPC Resources</b></summary>
 
 [embedmd]:#(manifests/05-vpc-resources/ovn-isolation-class.yaml)
 ```yaml
@@ -847,7 +847,7 @@ cat manifests/06-optional-test-traffic/vpc-topology-pf-only.yaml | envsubst | ku
 
 This will deploy the following objects:
 
-<details markdown="1"><summary>**VPC Test Topology**</summary>
+<details markdown="1"><summary><b>VPC Test Topology</b></summary>
 
 [embedmd]:#(manifests/06-optional-test-traffic/vpc-topology-pf-only.yaml)
 ```yaml
@@ -977,7 +977,7 @@ cat manifests/06-optional-test-traffic/* | envsubst | kubectl apply -f -
 
 This will deploy the following objects:
 
-<details markdown="1"><summary>**VPC Test Topology**</summary>
+<details markdown="1"><summary><b>VPC Test Topology</b></summary>
 
 [embedmd]:#(manifests/06-optional-test-traffic/vpc-topology-pf-only.yaml)
 ```yaml
