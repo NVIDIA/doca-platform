@@ -15,10 +15,7 @@ spec:
             kubernetes.io/hostname: replace
     flavor: flavor
     nodeEffect:
-      taint:
-        effect: NoSchedule
-        key: dpu
-        value: provisioning
+      drain: true
   revisionHistoryLimit: 10
   serviceChains:
     switches:
