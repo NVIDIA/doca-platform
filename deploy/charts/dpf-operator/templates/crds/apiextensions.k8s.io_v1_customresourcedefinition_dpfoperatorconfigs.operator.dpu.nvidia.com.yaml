@@ -508,9 +508,9 @@ spec:
               monitoring:
                 description: Monitoring is the configuration for monitoring resources.
                 properties:
-                  disabled:
+                  disable:
                     description: |-
-                      Disabled controls whether monitoring resources are installed.
+                      Disable controls whether monitoring resources are installed.
                       When enabled (default), the controller:
                       - Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.
                       - Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.
