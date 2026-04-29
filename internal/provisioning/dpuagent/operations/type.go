@@ -47,7 +47,7 @@ type Context struct {
 	RebootMethodDiscovery bool
 
 	// Client is the API client used to update DPU status and fetch objects (e.g. DPU resource).
-	// It may be a zero-trust client (direct to the API server) or a trusted-host client (via the host agent);
+	// It may be a zero-trust client (direct to the API server) or a host-trusted client (via the host agent);
 	// the implementation is chosen at startup.
 	Client client.Client
 

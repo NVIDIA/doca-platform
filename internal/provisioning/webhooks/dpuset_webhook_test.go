@@ -691,7 +691,7 @@ spec:
 		})
 
 		It("ValidateCreate should reject astraEnabled=true when deploymentMode is not zero-trust", func() {
-			webhook := &DPUSet{DeploymentMode: string(operatorv1.DeploymentModeTrustedHost)}
+			webhook := &DPUSet{DeploymentMode: string(operatorv1.DeploymentModeHostTrusted)}
 			obj := &provisioningv1.DPUSet{
 				Spec: provisioningv1.DPUSetSpec{
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
@@ -727,8 +727,8 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 		})
 
-		It("ValidateCreate should reject astraEnabled=true when deploymentMode is trusted-host", func() {
-			webhook := &DPUSet{DeploymentMode: string(operatorv1.DeploymentModeTrustedHost)}
+		It("ValidateCreate should reject astraEnabled=true when deploymentMode is host-trusted", func() {
+			webhook := &DPUSet{DeploymentMode: string(operatorv1.DeploymentModeHostTrusted)}
 			obj := &provisioningv1.DPUSet{
 				Spec: provisioningv1.DPUSetSpec{
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
@@ -747,7 +747,7 @@ spec:
 		})
 
 		It("ValidateUpdate should reject astraEnabled=true when deploymentMode is not zero-trust", func() {
-			webhook := &DPUSet{DeploymentMode: string(operatorv1.DeploymentModeTrustedHost)}
+			webhook := &DPUSet{DeploymentMode: string(operatorv1.DeploymentModeHostTrusted)}
 			oldObj := &provisioningv1.DPUSet{
 				Spec: provisioningv1.DPUSetSpec{
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},

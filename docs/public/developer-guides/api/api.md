@@ -325,7 +325,7 @@ _Appears in:_
 | `networking` _[Networking](#networking)_ |  | \{ controlPlaneMTU:1500 \} | Optional: \{\} <br /> |
 | `monitoring` _[MonitoringConfiguration](#monitoringconfiguration)_ | Monitoring is the configuration for monitoring resources. |  | Optional: \{\} <br /> |
 | `imagePullSecrets` _string array_ | List of secret names which are used to pull images for DPF system components and DPUServices.<br />These secrets must be in the same namespace as the DPF Operator Config and should be created before the config is created.<br />System reconciliation will not proceed until these secrets are available. |  | Optional: \{\} <br /> |
-| `deploymentMode` _[DeploymentMode](#deploymentmode)_ | DeploymentMode selects zero-trust vs trusted-host deployment alignment.<br />Required: operators must set this explicitly; provisioning controllers propagate this to DPU.status.deploymentMode. |  | Enum: [zero-trust trusted-host] <br />Required: \{\} <br /> |
+| `deploymentMode` _[DeploymentMode](#deploymentmode)_ | DeploymentMode selects zero-trust vs host-trusted deployment alignment.<br />Required: operators must set this explicitly; provisioning controllers propagate this to DPU.status.deploymentMode. |  | Enum: [zero-trust host-trusted] <br />Required: \{\} <br /> |
 | `dpuServiceController` _[DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)_ | DPUServiceController is the configuration for the DPUServiceController |  | Optional: \{\} <br /> |
 | `provisioningController` _[ProvisioningControllerConfiguration](#provisioningcontrollerconfiguration)_ | ProvisioningController is the configuration for the ProvisioningController |  |  |
 | `serviceSetController` _[ServiceSetControllerConfiguration](#servicesetcontrollerconfiguration)_ | ServiceSetController is the configuration for the ServiceSetController |  | Optional: \{\} <br /> |
@@ -433,10 +433,10 @@ _Appears in:_
 
 _Underlying type:_ _string_
 
-DeploymentMode describes the cluster deployment model for DPU provisioning (zero-trust vs trusted-host).
+DeploymentMode describes the cluster deployment model for DPU provisioning (zero-trust vs host-trusted).
 
 _Validation:_
-- Enum: [zero-trust trusted-host]
+- Enum: [zero-trust host-trusted]
 
 _Appears in:_
 - [DPFOperatorConfigSpec](#dpfoperatorconfigspec)
@@ -444,7 +444,7 @@ _Appears in:_
 | Field | Description |
 | --- | --- |
 | `zero-trust` | DeploymentModeZeroTrust requires provisioningController.installInterface.installViaRedfish<br /> |
-| `trusted-host` | DeploymentModeTrustedHost allows provisioningController.installInterface.installViaHostAgent, or installViaGNOI<br /> |
+| `host-trusted` | DeploymentModeHostTrusted allows provisioningController.installInterface.installViaHostAgent, or installViaGNOI<br /> |
 
 
 
@@ -2390,7 +2390,7 @@ _Appears in:_
 | `agentLastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | AgentLastStartupTime is the time when the DPU agent was last started. This is copied from agentStatus.lastStartupTime. |  | Optional: \{\} <br /> |
 | `agentStatus` _[AgentStatus](#agentstatus)_ | AgentStatus contains the information reported from inside the DPU |  | Optional: \{\} <br /> |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | The mode of the DPU | dpu | Enum: [dpu nic] <br />Optional: \{\} <br /> |
-| `deploymentMode` _[DeploymentMode](#deploymentmode)_ | DeploymentMode is copied from DPFOperatorConfig.spec.deploymentMode by the controller.<br />This field is read-only for users. |  | Enum: [zero-trust trusted-host] <br />Optional: \{\} <br /> |
+| `deploymentMode` _[DeploymentMode](#deploymentmode)_ | DeploymentMode is copied from DPFOperatorConfig.spec.deploymentMode by the controller.<br />This field is read-only for users. |  | Enum: [zero-trust host-trusted] <br />Optional: \{\} <br /> |
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |
 | `redfishTaskId` _string_ | The task ID of the last task performed on the DPU BMC |  | Optional: \{\} <br /> |
 
@@ -2458,13 +2458,13 @@ _Appears in:_
 
 _Underlying type:_ _string_
 
-DeploymentMode describes the cluster deployment model for provisioning (zero-trust vs trusted-host).
+DeploymentMode describes the cluster deployment model for provisioning (zero-trust vs host-trusted).
 This type is intentionally duplicated from operator/v1alpha1.DeploymentMode: the provisioning API
 must not import the operator API group. Keep values and semantics aligned with
 DPFOperatorConfig.spec.deploymentMode.
 
 _Validation:_
-- Enum: [zero-trust trusted-host]
+- Enum: [zero-trust host-trusted]
 
 _Appears in:_
 - [DPUStatus](#dpustatus)
@@ -2472,7 +2472,7 @@ _Appears in:_
 | Field | Description |
 | --- | --- |
 | `zero-trust` |  |
-| `trusted-host` |  |
+| `host-trusted` |  |
 
 
 #### DownloadedComponents

@@ -154,7 +154,7 @@ func parseFlags() *cliFlags {
 	fs.DurationVar(&flags.osInstallTimeout, "os-install-timeout", 45*time.Minute, "Maximum time allowed for OS installation in zero-trust mode")
 	fs.DurationVar(&flags.nodeEffectRemovalTimeout, "node-effect-removal-timeout", 0, "Maximum time allowed for the Node Effect Removal phase before transitioning to error. 0 means no timeout.")
 	fs.StringVar(&flags.hostAgentDNSPolicy, "hostagent-dns-policy", string(corev1.DNSClusterFirstWithHostNet), "DNS policy for the hostagent pod")
-	fs.StringVar(&flags.deploymentMode, "deployment-mode", "", "required: cluster deployment mode from DPFOperatorConfig (zero-trust or trusted-host)")
+	fs.StringVar(&flags.deploymentMode, "deployment-mode", "", "required: cluster deployment mode from DPFOperatorConfig (zero-trust or host-trusted)")
 
 	logsv1.AddFlags(logOptions, fs)
 
@@ -469,7 +469,7 @@ func main() {
 		os.Exit(1)
 	}
 	if strings.TrimSpace(flags.deploymentMode) == "" {
-		setupLog.Error(nil, "--deployment-mode is required (zero-trust or trusted-host)")
+		setupLog.Error(nil, "--deployment-mode is required (zero-trust or host-trusted)")
 		os.Exit(1)
 	}
 

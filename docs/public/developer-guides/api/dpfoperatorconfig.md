@@ -29,6 +29,7 @@ metadata:
   name: dpf-operator-config
   namespace: dpf-operator-system
 spec:
+  deploymentMode: host-trusted
   staticClusterManager:
     disable: true
   kamajiClusterManager:

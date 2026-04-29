@@ -19,7 +19,7 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 - **Immutable Configuration**: Once created, the DPUFlavor spec cannot be modified to ensure consistency across DPU deployments
 - **Comprehensive System Configuration**: Covers all aspects of DPU system configuration from boot parameters to runtime settings
 - **Resource Management**: Defines resource requirements and allocation policies
-- **Cluster deployment mode**: Zero-trust vs trusted-host is configured on `DPFOperatorConfig` and reflected on `DPU` status (`deploymentMode`), not on `DPUFlavor`
+- **Cluster deployment mode**: Zero-trust vs host-trusted is configured on `DPFOperatorConfig` and reflected on `DPU` status (`deploymentMode`), not on `DPUFlavor`
 - **Template Reusability**: Can be applied to multiple DPUs for consistent configuration
 
 ## API Reference
