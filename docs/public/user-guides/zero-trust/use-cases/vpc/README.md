@@ -742,10 +742,10 @@ The following verification commands may need to be run multiple times to ensure 
 kubectl wait --for=condition=OSInstalled --namespace dpf-operator-system dpu --all
 ```
 
-**2.** Ensure `Rebooted` condition type has `reason=WaitingForManualPowerCycleOrReboot`
+**2.** Ensure DPU `status.rebootStatus.reason=WaitingForManualPowerCycleOrReboot`
 
 ```shell
-kubectl wait --namespace dpf-operator-system dpu --all --for=jsonpath='{.status.conditions[?(@.type=="Rebooted")].reason}'=WaitingForManualPowerCycleOrReboot
+kubectl wait --namespace dpf-operator-system dpu --all --for=jsonpath='{.status.rebootStatus.reason}'=WaitingForManualPowerCycleOrReboot
 ```
 
 **3.** Power cycle DPU worker hosts - manual operation by the user

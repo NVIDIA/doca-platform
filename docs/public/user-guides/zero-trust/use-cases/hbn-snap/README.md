@@ -1433,14 +1433,8 @@ avoid corruption. This should happen when the object gives us the signal. The de
 admin depending on the infrastructure. The following verification command may need to be run multiple times to ensure the condition is met.
 
 ```shell
-## Ensure the DPUs are in the Rebooting phase and condition Rebooted is false with WaitingForManualPowerCycleOrReboot reason
-kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Rebooted")].reason}'=WaitingForManualPowerCycleOrReboot --namespace dpf-operator-system dpu --all 
-```
-
-or with `dpfctl`:
-
-```shell
-$ kubectl -n dpf-operator-system exec deploy/dpf-operator-controller-manager -- /dpfctl describe dpudeployments
+## Ensure the DPUs are in the Rebooting phase with rebootStatus.reason=WaitingForManualPowerCycleOrReboot
+kubectl wait --for=jsonpath='{.status.rebootStatus.reason}'=WaitingForManualPowerCycleOrReboot --namespace dpf-operator-system dpu --all 
 ```
 
 At this point, we have to power cycle the hosts.
@@ -2510,14 +2504,8 @@ avoid corruption. This should happen when the object gives us the signal. The de
 admin depending on the infrastructure. The following verification command may need to be run multiple times to ensure the condition is met.
 
 ```shell
-## Ensure the DPUs are in the Rebooting phase and condition Rebooted is false with WaitingForManualPowerCycleOrReboot reason
-kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Rebooted")].reason}'=WaitingForManualPowerCycleOrReboot --namespace dpf-operator-system dpu --all
-```
-
-or with `dpfctl`:
-
-```shell
-$ kubectl -n dpf-operator-system exec deploy/dpf-operator-controller-manager -- /dpfctl describe dpudeployments
+## Ensure the DPUs are in the Rebooting phase with rebootStatus.reason=WaitingForManualPowerCycleOrReboot
+kubectl wait --for=jsonpath='{.status.rebootStatus.reason}'=WaitingForManualPowerCycleOrReboot --namespace dpf-operator-system dpu --all
 ```
 
 At this point, we have to power cycle the hosts.
