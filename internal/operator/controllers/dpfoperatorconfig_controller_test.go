@@ -1388,7 +1388,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				Multus: &operatorv1.MultusConfiguration{
 					BaseComponentConfig: operatorv1.BaseComponentConfig{Disable: ptr.To(false)}},
 				// Disable other system components to avoid complexity
-				Monitoring: &operatorv1.MonitoringConfiguration{Disabled: ptr.To(true)},
+				Monitoring: &operatorv1.MonitoringConfiguration{Disable: ptr.To(true)},
 				ServiceSetController: &operatorv1.ServiceSetControllerConfiguration{
 					BaseComponentConfig: operatorv1.BaseComponentConfig{Disable: ptr.To(true)}},
 				SRIOVDevicePlugin: &operatorv1.SRIOVDevicePluginConfiguration{
