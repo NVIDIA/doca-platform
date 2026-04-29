@@ -24,6 +24,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -33,6 +34,54 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// DownloadAndArchive downloads completed SOS reports and optionally archives them.
+// It is the programmatic equivalent of `dpfctl sosreport download` (without
+// the interactive cleanup prompt).
+func DownloadAndArchive(ctx context.Context, targets ClusterTargets, opts DownloadOptions) error {
+	outputDir := opts.OutputDir
+	if outputDir == "" {
+		if opts.CaseID != "" {
+			outputDir = fmt.Sprintf("sosreport-%s", opts.CaseID)
+		} else {
+			outputDir = fmt.Sprintf("sosreport-%s", time.Now().Format("20060102-150405"))
+		}
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return fmt.Errorf("create output directory %s: %w", outputDir, err)
+	}
+
+	downloaded := Download(ctx, targets, opts.Namespace, outputDir)
+
+	if downloaded == 0 {
+		ResultFail("No completed SOS reports found to download")
+		if opts.ShowStatusHint {
+			Info("Use 'dpfctl sosreport status' to check Job progress")
+		}
+		return nil
+	}
+
+	Result("Downloaded %d report(s) to %s", downloaded, outputDir)
+
+	if opts.ArchiveOnly {
+		opts.Archive = true
+	}
+	if opts.Archive {
+		Step("Creating archive")
+		archivePath, err := CreateArchive(outputDir)
+		if err != nil {
+			return fmt.Errorf("failed to create archive: %w", err)
+		}
+		Result("Archive created: %s", archivePath)
+		if opts.ArchiveOnly {
+			if err := os.RemoveAll(outputDir); err != nil {
+				return fmt.Errorf("failed to remove report directory: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
 
 // StreamFromPod execs into a pod and streams the output directory as a tar.gz to the provided writer.
 func StreamFromPod(ctx context.Context, restConfig *rest.Config, namespace, podName, containerName string, stdout io.Writer) error {
