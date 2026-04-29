@@ -19,10 +19,13 @@ package dpudevice
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
+	"os"
 	"testing"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
+	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -627,7 +630,138 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(*dpuDevice.Status.SerialNumber).To(Equal(mock.DpuSerialNumber))
 		})
 	})
+
+	Context("initializeDPUDevice BMC firmware update conditions", func() {
+		const (
+			testDeviceName = "test-dpudevice-bmc"
+			testUID        = "test-uid-bmc"
+		)
+
+		var (
+			reconciler *DPUDeviceReconciler
+			dpuDevice  *provisioningv1.DPUDevice
+			ctx        context.Context
+			mockServer *mock.RedfishMockServer
+		)
+
+		setupBMCUpdateTest := func(bmcVersion string) {
+			ctx = context.Background()
+			scheme := runtime.NewScheme()
+			_ = provisioningv1.AddToScheme(scheme)
+			_ = corev1.AddToScheme(scheme)
+
+			var err error
+			mockServer, err = mock.CreateMockRedfishServer(bmcVersion, "testpassword")
+			Expect(err).NotTo(HaveOccurred())
+
+			bmcIP := mockServer.GetIPAddress()
+			bmcPort := uint32(mockServer.GetPort())
+
+			dpuDevice = &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      testDeviceName,
+					Namespace: "test-namespace",
+					UID:       types.UID(testUID),
+				},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCIP:   &bmcIP,
+					BMCPort: &bmcPort,
+				},
+			}
+
+			passwdSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmc-shared-password",
+					Namespace: "test-namespace",
+				},
+				Data: map[string][]byte{
+					"password": []byte("testpassword"),
+				},
+			}
+
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(passwdSecret).
+				Build()
+
+			reconciler = &DPUDeviceReconciler{
+				Client: k8sClient,
+			}
+		}
+
+		AfterEach(func() {
+			if mockServer != nil {
+				mockServer.Stop()
+			}
+			dutil.BmcFwUpdateTaskMap.Delete(fmt.Sprintf("%s-%s", testDeviceName, testUID))
+		})
+
+		It("should set Initialized=False when BMC update is started", func() {
+			setupBMCUpdateTest("BF-24.04-1")
+
+			tmpFile, err := os.CreateTemp("", "bf3-bmc-*.fwpkg")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.Remove(tmpFile.Name()) }()
+			_, err = tmpFile.WriteString("fake firmware data")
+			Expect(err).NotTo(HaveOccurred())
+			_ = tmpFile.Close()
+			GinkgoT().Setenv("BMC_FW_FILE", tmpFile.Name())
+
+			err = reconciler.initializeDPUDevice(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceInitialized))
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("Pending"))
+			Expect(condition.Message).To(ContainSubstring("BMC firmware update started"))
+			Expect(condition.Message).To(ContainSubstring("BF-24.04-1"))
+		})
+
+		It("should set Initialized=False with progress when BMC update is in progress", func() {
+			setupBMCUpdateTest("BF-24.04-1")
+			mockServer.SetTaskState("Running")
+
+			taskName := fmt.Sprintf("%s-%s", dpuDevice.Name, dpuDevice.UID)
+			dutil.BmcFwUpdateTaskMap.Store(taskName, "0")
+
+			err := reconciler.initializeDPUDevice(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceInitialized))
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("Pending"))
+			Expect(condition.Message).To(Equal("BMC firmware update in progress"))
+		})
+
+		It("should set Initialized=False with resetting message when BMC update is completed", func() {
+			setupBMCUpdateTest("BF-24.04-1")
+			mockServer.SetTaskState("Completed")
+
+			taskName := fmt.Sprintf("%s-%s", dpuDevice.Name, dpuDevice.UID)
+			dutil.BmcFwUpdateTaskMap.Store(taskName, "0")
+
+			err := reconciler.initializeDPUDevice(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceInitialized))
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("Pending"))
+			Expect(condition.Message).To(Equal("BMC firmware update completed, resetting BMC"))
+		})
+	})
 })
+
+func findCondition(dpuDevice *provisioningv1.DPUDevice, conditionType string) *metav1.Condition {
+	for i := range dpuDevice.GetConditions() {
+		if dpuDevice.GetConditions()[i].Type == conditionType {
+			return &dpuDevice.GetConditions()[i]
+		}
+	}
+	return nil
+}
 
 // setupDiscoveryTest creates a mock Redfish server and reconciler with necessary secrets
 func setupDiscoveryTest() (*mock.RedfishMockServer, *DPUDeviceReconciler) {
