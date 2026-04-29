@@ -36,21 +36,26 @@ const (
 
 // RedfishMockServer represents a mock Redfish server for testing
 type RedfishMockServer struct {
-	server                *httptest.Server
-	bmcVersion            string
-	password              string
-	dpuMode               string                   // Current DPU mode: "NicMode" or "DpuMode"
-	secureBootEnable      bool                     // Configured/desired Secure Boot state (for next boot)
-	secureBootCurrentBoot bool                     // Actual Secure Boot state of current boot session
-	secureBootError       bool                     // Simulate Secure Boot endpoint error for testing
-	secureBootPatchError  bool                     // Simulate Secure Boot PATCH-only error for testing
-	systemError           bool                     // Simulate GetSystem endpoint error for testing
-	resetSystemError      bool                     // Simulate ResetSystem endpoint error for testing
-	oemLastState          string                   // Current ARM OS boot state: "OsIsRunning", "OsStarting", etc.
-	dpuVersion            DpuVersion               // Current DPU version
-	model                 string                   // DPU model string (optional override)
-	taskState             string                   // Current task state: "Completed", "Exception", etc.
-	taskMessages          []map[string]interface{} // Task messages for Exception state
+	server                        *httptest.Server
+	bmcVersion                    string
+	password                      string
+	dpuMode                       string                   // Current DPU mode: "NicMode" or "DpuMode"
+	secureBootEnable              bool                     // Configured/desired Secure Boot state (for next boot)
+	secureBootCurrentBoot         bool                     // Actual Secure Boot state of current boot session
+	secureBootError               bool                     // Simulate Secure Boot endpoint error for testing
+	secureBootPatchError          bool                     // Simulate Secure Boot PATCH-only error for testing
+	systemError                   bool                     // Simulate GetSystem endpoint error for testing
+	resetSystemError              bool                     // Simulate ResetSystem endpoint error for testing
+	productDescriptionError       bool                     // Simulate GetProductDescription endpoint error for testing
+	taskProgressError             bool                     // Simulate CheckTaskProgress endpoint error for testing
+	chassisError                  bool                     // Simulate GetChassis endpoint error for testing
+	oemLastState                  string                   // Current ARM OS boot state: "OsIsRunning", "OsStarting", etc.
+	dpuVersion                    DpuVersion               // Current DPU version
+	model                         string                   // DPU model string (optional override)
+	taskState                     string                   // Current task state: "Completed", "Exception", etc.
+	taskMessages                  []map[string]interface{} // Task messages for Exception state
+	concurrentUpdateBusyRemaining int                      // Number of InstallBFB calls that return HTTP 400 "Another update is in progress"
+	concurrentUpdateBusyServed    int                      // How many 400 "Another update" responses were actually sent
 }
 
 type DpuVersion int
@@ -239,6 +244,13 @@ func (r *RedfishMockServer) handleGetChassis(w http.ResponseWriter, req *http.Re
 		return
 	}
 
+	if r.chassisError {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("BMC chassis endpoint unavailable"))
+		return
+	}
+
 	// Use custom model if set, otherwise default to BlueField-3
 	model := r.model
 	if model == "" {
@@ -267,6 +279,19 @@ func (r *RedfishMockServer) handleGetChassis(w http.ResponseWriter, req *http.Re
 func (r *RedfishMockServer) handleInstallBFB(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if r.concurrentUpdateBusyRemaining > 0 {
+		r.concurrentUpdateBusyRemaining--
+		r.concurrentUpdateBusyServed++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSONResponse(w, map[string]interface{}{
+			"error": map[string]interface{}{
+				"message": "Another update is in progress",
+			},
+		})
 		return
 	}
 
@@ -323,6 +348,13 @@ func (r *RedfishMockServer) handleCheckBMCFirmware(w http.ResponseWriter, req *h
 func (r *RedfishMockServer) handleGetTask(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if r.taskProgressError {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		writeJSONResponse(w, map[string]interface{}{"error": "BMC task endpoint unavailable"})
 		return
 	}
 
@@ -393,6 +425,12 @@ func (r *RedfishMockServer) handleGetNetworkDeviceFunction(w http.ResponseWriter
 func (r *RedfishMockServer) handleGetProductDescription(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if r.productDescriptionError {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		writeJSONResponse(w, map[string]interface{}{"error": "BMC unreachable"})
 		return
 	}
 	response := map[string]interface{}{
@@ -521,6 +559,23 @@ func (r *RedfishMockServer) SetResetSystemError(simulateError bool) {
 	r.resetSystemError = simulateError
 }
 
+// SetProductDescriptionError enables or disables GetProductDescription endpoint error simulation.
+// Since NewTLSClient calls GetProductDescription as a connectivity check, this effectively
+// simulates BMC unreachable at the TLS client creation level.
+func (r *RedfishMockServer) SetProductDescriptionError(simulateError bool) {
+	r.productDescriptionError = simulateError
+}
+
+// SetTaskProgressError enables or disables CheckTaskProgress endpoint error simulation for testing
+func (r *RedfishMockServer) SetTaskProgressError(simulateError bool) {
+	r.taskProgressError = simulateError
+}
+
+// SetChassisError enables or disables GetChassis endpoint error simulation for testing
+func (r *RedfishMockServer) SetChassisError(simulateError bool) {
+	r.chassisError = simulateError
+}
+
 // SetOemLastState sets the ARM OS boot state for the mock server
 func (r *RedfishMockServer) SetOemLastState(state string) {
 	r.oemLastState = state
@@ -549,6 +604,21 @@ func (r *RedfishMockServer) SetTaskState(state string) {
 // SetTaskMessages sets the task messages for the mock server
 func (r *RedfishMockServer) SetTaskMessages(messages []map[string]interface{}) {
 	r.taskMessages = messages
+}
+
+// SetConcurrentUpdateBusy configures the mock server to return HTTP 400
+// "Another update is in progress" for the next N InstallBFB calls.
+// After N calls the server returns the normal HTTP 202 Accepted response.
+// The served counter is reset to 0 each time this is called.
+func (r *RedfishMockServer) SetConcurrentUpdateBusy(count int) {
+	r.concurrentUpdateBusyRemaining = count
+	r.concurrentUpdateBusyServed = 0
+}
+
+// GetConcurrentUpdateBusyServed returns how many HTTP 400 "Another update
+// is in progress" responses the mock server has actually sent.
+func (r *RedfishMockServer) GetConcurrentUpdateBusyServed() int {
+	return r.concurrentUpdateBusyServed
 }
 
 // GetCertificate returns the server's TLS certificate in PEM format
