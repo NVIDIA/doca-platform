@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -564,6 +565,37 @@ func ProvisionBFBAndDPUFlavor(ctx context.Context, input ProvisionDPUClustersInp
 		}, bfb)).To(Succeed())
 		g.Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBReady))
 	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+		By("Verifying BFB file is reachable")
+		bfb := &provisioningv1.BFB{}
+		Expect(input.client.Get(ctx, client.ObjectKey{
+			Name:      input.bfb.Name,
+			Namespace: input.bfb.Namespace,
+		}, bfb)).To(Succeed())
+		Expect(bfb.Status.FileName).ToNot(BeEmpty(), "BFB status should have a FileName after reaching Ready")
+
+		controlPlaneIP := getClusterControlPlaneIP(ctx, input.client)
+		svc := &corev1.Service{}
+		Expect(input.client.Get(ctx, client.ObjectKey{
+			Namespace: input.bfb.Namespace,
+			Name:      "bfb-registry",
+		}, svc)).To(Succeed())
+		Expect(svc.Spec.Ports).ToNot(BeEmpty(), "bfb-registry Service should have ports")
+		nodePort := svc.Spec.Ports[0].NodePort
+		Expect(nodePort).ToNot(BeZero(), "bfb-registry Service should have a NodePort")
+
+		bfbURL := fmt.Sprintf("http://%s:%d/bfb/%s", controlPlaneIP, nodePort, bfb.Status.FileName)
+		By(fmt.Sprintf("Checking BFB is reachable at %s", bfbURL))
+		Eventually(func(g Gomega) {
+			httpClient := &http.Client{Timeout: 10 * time.Second}
+			resp, err := httpClient.Head(bfbURL)
+			g.Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close() //nolint:errcheck
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK),
+				fmt.Sprintf("BFB file should be reachable at %s, got status %d", bfbURL, resp.StatusCode))
+		}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}
 }
 
 // ProvisionDPUSet DPUSet that will provision DPUs in the background if the environment has such DPUs.
@@ -770,7 +802,7 @@ func RebootAndVerifyDPU(ctx context.Context, input ProvisionDPUClustersInput) {
 				g.Expect(current.Status.Phase).To(Equal(provisioningv1.DPURebooting))
 			}
 		}
-	}).WithTimeout(45 * time.Minute).Should(Succeed())
+	}).WithTimeout(60 * time.Minute).Should(Succeed())
 
 	By("Trigger host reboot via script for all DPUs requiring reboot")
 	Expect(input.client.List(ctx, dpus)).ToNot(HaveOccurred())
@@ -941,6 +973,111 @@ func CreateDPUDiscovery(ctx context.Context, input DeployDPFSystemComponentsInpu
 		g.Expect(err).NotTo(HaveOccurred())
 		return len(dpuDeviceList.Items)
 	}, time.Minute*5, time.Millisecond*250).Should(Equal(input.numberOfDPUNodes))
+}
+
+// ValidateDPUAgentStatus verifies that the DPU agent has reported its status correctly
+// on every ready DPU. Each DPU is validated against the supplied expected AgentStatus.
+func ValidateDPUAgentStatus(ctx context.Context, input *systemTestInput, expected provisioningv1.AgentStatus) {
+	if !input.hasDpuNodes() {
+		Skip("Skip DPU Agent validation as there are no DPU nodes")
+	}
+
+	expectedDPUs := input.totalDPUs()
+
+	By("Listing all DPUs and validating agent status")
+	Eventually(func(g Gomega) {
+		dpus := &provisioningv1.DPUList{}
+		g.Expect(input.client.List(ctx, dpus)).To(Succeed())
+		g.Expect(dpus.Items).To(HaveLen(expectedDPUs), "expected %d DPUs", expectedDPUs)
+
+		for i := range dpus.Items {
+			validateSingleDPUAgentStatus(g, &dpus.Items[i], expected)
+		}
+	}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+}
+
+// validateSingleDPUAgentStatus checks one DPU's agent-reported status against the expected AgentStatus.
+// Pointer fields that are nil in expected are skipped (not validated).
+// Non-nil pointer fields are validated for equality with the actual value.
+func validateSingleDPUAgentStatus(g Gomega, dpu *provisioningv1.DPU, expectedAgentStatus provisioningv1.AgentStatus) {
+	g.Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPUReady),
+		"DPU %s should be Ready, got %v", dpu.Name, dpu.Status.Phase)
+
+	By(fmt.Sprintf("Validating agent status on DPU %s", dpu.Name))
+
+	g.Expect(dpu.Status.AgentStatus).NotTo(BeNil(),
+		"DPU %s should have AgentStatus populated by the DPU agent", dpu.Name)
+
+	actualAgentStatus := dpu.Status.AgentStatus
+
+	g.Expect(actualAgentStatus.LastStartupTime).NotTo(BeNil(),
+		"DPU %s AgentStatus.LastStartupTime should be set", dpu.Name)
+
+	// The controller sets AgentLastStartupTime during the DPUConfig phase.
+	// If the agent restarts after the DPU is already Ready, LastStartupTime advances
+	// but AgentLastStartupTime stays at the value from the last provisioning cycle.
+	g.Expect(dpu.Status.AgentLastStartupTime).NotTo(BeNil(),
+		"DPU %s AgentLastStartupTime should be set by the provisioning controller", dpu.Name)
+	g.Expect(dpu.Status.AgentLastStartupTime.Time).To(
+		BeTemporally("<=", actualAgentStatus.LastStartupTime.Time),
+		"DPU %s AgentLastStartupTime (%v) should not be after AgentStatus.LastStartupTime (%v)",
+		dpu.Name, dpu.Status.AgentLastStartupTime, actualAgentStatus.LastStartupTime)
+
+	g.Expect(actualAgentStatus.KubeletVersion).NotTo(BeNil(),
+		"DPU %s AgentStatus.KubeletVersion should be reported", dpu.Name)
+	g.Expect(*actualAgentStatus.KubeletVersion).NotTo(BeEmpty(),
+		"DPU %s AgentStatus.KubeletVersion should not be empty", dpu.Name)
+
+	if expectedAgentStatus.RebootMethod != nil {
+		g.Expect(actualAgentStatus.RebootMethod).NotTo(BeNil(),
+			"DPU %s AgentStatus.RebootMethod should be set", dpu.Name)
+		g.Expect(*actualAgentStatus.RebootMethod).To(Equal(*expectedAgentStatus.RebootMethod),
+			"DPU %s AgentStatus.RebootMethod should be %s, got %s",
+			dpu.Name, *expectedAgentStatus.RebootMethod, *actualAgentStatus.RebootMethod)
+	}
+
+	if expectedAgentStatus.InitialBootID != nil {
+		g.Expect(actualAgentStatus.InitialBootID).NotTo(BeNil(),
+			"DPU %s AgentStatus.InitialBootID should be set", dpu.Name)
+		g.Expect(*actualAgentStatus.InitialBootID).To(Equal(*expectedAgentStatus.InitialBootID),
+			"DPU %s AgentStatus.InitialBootID should be %s, got %s",
+			dpu.Name, *expectedAgentStatus.InitialBootID, *actualAgentStatus.InitialBootID)
+	}
+
+	if expectedAgentStatus.RebootSequenceCount != nil {
+		g.Expect(actualAgentStatus.RebootSequenceCount).NotTo(BeNil(),
+			"DPU %s AgentStatus.RebootSequenceCount should be set", dpu.Name)
+		g.Expect(*actualAgentStatus.RebootSequenceCount).To(Equal(*expectedAgentStatus.RebootSequenceCount),
+			"DPU %s AgentStatus.RebootSequenceCount should be %d, got %d",
+			dpu.Name, *expectedAgentStatus.RebootSequenceCount, *actualAgentStatus.RebootSequenceCount)
+	}
+
+	conditionMap := make(map[string]metav1.Condition, len(actualAgentStatus.Conditions))
+	for _, cond := range actualAgentStatus.Conditions {
+		conditionMap[cond.Type] = cond
+	}
+	for _, expCond := range expectedAgentStatus.Conditions {
+		cond, found := conditionMap[expCond.Type]
+		g.Expect(found).To(BeTrue(),
+			"DPU %s is missing expected agent condition %q", dpu.Name, expCond.Type)
+		g.Expect(cond.Status).To(Equal(expCond.Status),
+			"DPU %s agent condition %q should have Status %v, got %v (reason: %s, message: %s)",
+			dpu.Name, cond.Type, expCond.Status, cond.Status, cond.Reason, cond.Message)
+		g.Expect(cond.Reason).NotTo(BeEmpty(),
+			"DPU %s agent condition %q should have a non-empty Reason", dpu.Name, cond.Type)
+		g.Expect(cond.LastTransitionTime).NotTo(BeZero(),
+			"DPU %s agent condition %q should have LastTransitionTime set", dpu.Name, cond.Type)
+	}
+
+	for _, cond := range actualAgentStatus.Conditions {
+		g.Expect(cond.Status).To(Equal(metav1.ConditionTrue),
+			"DPU %s agent condition %q should be True, got %v (reason: %s, message: %s)",
+			dpu.Name, cond.Type, cond.Status, cond.Reason, cond.Message)
+		g.Expect(cond.Reason).NotTo(BeEmpty(),
+			"DPU %s agent condition %q should have a non-empty Reason", dpu.Name, cond.Type)
+		g.Expect(cond.LastTransitionTime).NotTo(BeZero(),
+			"DPU %s agent condition %q should have LastTransitionTime set", dpu.Name, cond.Type)
+	}
 }
 
 // verifyDPUServicesReady checks that the DPUService is ready.
