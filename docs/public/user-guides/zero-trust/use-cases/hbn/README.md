@@ -882,48 +882,11 @@ most graceful manner by gracefully shutting down the Host and DPU, powering off 
 avoid corruption. This should happen when the object gives us the signal. The described flow can be automated by the
 admin depending on the infrastructure.
 
-The following verification command may need to be run multiple times to ensure the condition is met.
+The following verification command may need to be run multiple times to ensure the expected reboot status is set.
 
 ```shell
-## Ensure the DPUs have the condition WaitingForManualPowerCycleOrReboot (this may take time)
-kubectl wait --for=condition=WaitingForManualPowerCycleOrReboot --namespace dpf-operator-system dpu --all
-```
-
-or with `dpfctl`:
-
-```shell
-$ kubectl -n dpf-operator-system exec deploy/dpf-operator-controller-manager -- /dpfctl describe dpudeployments
-NAME                                                NAMESPACE            STATUS       REASON                              SINCE  MESSAGE
-DPFOperatorConfig/dpfoperatorconfig                 dpf-operator-system
-│           ├─Ready                                                      False        Pending                             66m    The following conditions are not ready:
-│           │                                                                                                                    * SystemComponentsReady
-│           └─SystemComponentsReady                                      False        Error                               66m    System components must be ready for DPF Operator to continue:
-│                                                                                                                                  * nvidia-k8s-ipam: DPUService dpf-operator-system/nvidia-k8s-ipam is not ready
-└─DPUDeployments
-  └─DPUDeployment/hbn                               dpf-operator-system
-    │           ├─Ready                                                  False        Pending                             61m    The following conditions are not ready:
-    │           │                                                                                                                * DPUSetsReady
-    │           └─DPUSetsReady                                           False        Pending                             61m    Objects are not ready:
-    │                                                                                                                            * dpf-operator-system/hbn-dpuset1
-    ├─DPUServiceChains
-    │ └─DPUServiceChain/hbn-8kkjz                   dpf-operator-system  Ready: True  Success                             61m
-    ├─DPUServiceInterfaces
-    │ └─4 DPUServiceInterfaces...                   dpf-operator-system  Ready: True  Success                             61m    See doca-hbn-p0-if-mcqp4, doca-hbn-p1-if-6x2hh, doca-hbn-pf0hpf-if-q9lvk, doca-hbn-pf1hpf-if-979t7
-    ├─DPUSets
-    │ └─DPUSet/hbn-dpuset1                          dpf-operator-system
-    │   ├─BFB/bf-bundle                             dpf-operator-system  Ready: True  Ready                               62m    File: bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb, DOCA: 3.2.1
-    │   └─DPUs
-    │     ├─DPU/dpu-node-mt2402xz0f6v-mt2402xz0f6v  dpf-operator-system
-    │     │             ├─Rebooted                                       False        WaitingForManualPowerCycleOrReboot  11m
-    │     │             └─Ready                                          False        Rebooting                           11m
-    │     └─DPU/dpu-node-mt2404xz0c98-mt2404xz0c98  dpf-operator-system
-    │                   ├─Rebooted                                       False        WaitingForManualPowerCycleOrReboot  5m49s
-    │                   └─Ready                                          False        Rebooting                           5m49s
-    └─Services
-      ├─DPUServiceTemplates
-      │ └─DPUServiceTemplate/doca-hbn               dpf-operator-system  Ready: True  Success                             62m
-      └─DPUServices
-        └─DPUService/doca-hbn-jmj45                 dpf-operator-system  Ready: True  Success                             61m
+## Ensure the DPUs report rebootStatus.reason=WaitingForManualPowerCycleOrReboot (this may take time)
+kubectl wait --for=jsonpath='{.status.rebootStatus.reason}'=WaitingForManualPowerCycleOrReboot --namespace dpf-operator-system dpu --all
 ```
 
 At this point, we have to power cycle the hosts. Once **all the hosts are back online**, we have to remove an annotation
@@ -1743,49 +1706,11 @@ most graceful manner by gracefully shutting down the Host and DPU, powering off 
 avoid corruption. This should happen when the object gives us the signal. The described flow can be automated by the
 admin depending on the infrastructure.
 
-The following verification command may need to be run multiple times to ensure the condition is met.
+The following verification command may need to be run multiple times to ensure the expected reboot status is set.
 
 ```shell
-## Ensure the DPUs have the condition WaitingForManualPowerCycleOrReboot (this may take time)
-kubectl wait --for=condition=WaitingForManualPowerCycleOrReboot --namespace dpf-operator-system dpu --all
-```
-
-or with `dpfctl`:
-
-```shell
-$ kubectl -n dpf-operator-system exec deploy/dpf-operator-controller-manager -- /dpfctl describe dpudeployments
-NAME                                                NAMESPACE            STATUS       REASON                              SINCE  MESSAGE
-DPFOperatorConfig/dpfoperatorconfig                 dpf-operator-system
-│           ├─Ready                                                      False        Pending                             17m    The following conditions are not ready:
-│           │                                                                                                                    * SystemComponentsReady
-│           └─SystemComponentsReady                                      False        Error                               16m    System components must be ready for DPF Operator to continue:
-│                                                                                                                                  * nvidia-k8s-ipam: DPUService dpf-operator-system/nvidia-k8s-ipam is not ready
-└─DPUDeployments
-  └─DPUDeployment/hbn                               dpf-operator-system
-    │           ├─Ready                                                  False        Pending                             15m    The following conditions are not ready:
-    │           │                                                                                                                * DPUSetsReady
-    │           └─DPUSetsReady                                           False        Pending                             15m    Objects are not ready:
-    │                                                                                                                            * dpf-operator-system/hbn-dpuset1
-    ├─DPUServiceChains
-    │ └─DPUServiceChain/hbn-5zgs4                   dpf-operator-system  Ready: True  Success                             15m
-    ├─DPUServiceInterfaces
-    │ └─6 DPUServiceInterfaces...                   dpf-operator-system  Ready: True  Success                             15m    See doca-hbn-p0-if-w6f6b, doca-hbn-p1-if-p7565, doca-hbn-pf0hpf-if-wb84j, doca-hbn-pf0vf10-if-mr6fj,
-    │                                                                                                                            doca-hbn-pf1hpf-if-cnbz8, doca-hbn-pf1vf10-if-7r6r6
-    ├─DPUSets
-    │ └─DPUSet/hbn-dpuset1                          dpf-operator-system
-    │   ├─BFB/bf-bundle                             dpf-operator-system  Ready: True  Ready                               15m    File: bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb, DOCA: 3.2.1
-    │   └─DPUs
-    │     ├─DPU/dpu-node-mt2402xz0f6v-mt2402xz0f6v  dpf-operator-system
-    │     │             ├─Rebooted                                       False        WaitingForManualPowerCycleOrReboot  2m36s
-    │     │             └─Ready                                          False        Rebooting                           2m36s
-    │     └─DPU/dpu-node-mt2404xz0c98-mt2404xz0c98  dpf-operator-system
-    │                   ├─Rebooted                                       False        WaitingForManualPowerCycleOrReboot  2m36s
-    │                   └─Ready                                          False        Rebooting                           2m36s
-    └─Services
-      ├─DPUServiceTemplates
-      │ └─DPUServiceTemplate/doca-hbn               dpf-operator-system  Ready: True  Success                             15m
-      └─DPUServices
-        └─DPUService/doca-hbn-bjqbh                 dpf-operator-system  Ready: True  Success                             15m
+## Ensure the DPUs report rebootStatus.reason=WaitingForManualPowerCycleOrReboot (this may take time)
+kubectl wait --for=jsonpath='{.status.rebootStatus.reason}'=WaitingForManualPowerCycleOrReboot --namespace dpf-operator-system dpu --all
 ```
 
 At this point, we have to power cycle the hosts. Once **all the hosts are back online**, we have to remove an annotation

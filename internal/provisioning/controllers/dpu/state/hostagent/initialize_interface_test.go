@@ -166,7 +166,7 @@ var _ = Describe("InitializeInterface", func() {
 					Message: string(provisioningv1.DPUCondMessageModeUpdate),
 				})
 				cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-					Type:   string(provisioningv1.DPUCondRebooted),
+					Type:   provisioningv1.DPUCondRebooted.String(),
 					Status: metav1.ConditionTrue,
 					Reason: "Rebooted",
 				})

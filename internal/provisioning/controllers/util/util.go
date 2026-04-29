@@ -42,6 +42,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -785,4 +786,44 @@ func parseURLWithOptionalScheme(s string) (*url.URL, error) {
 		s = "http://" + s
 	}
 	return url.Parse(s)
+}
+
+// UpdateDPURebootStatus writes status.rebootStatus with conflict-safe Patch semantics shared by
+// DPUNodeReconciler and the hostagent reboot Handler.
+func UpdateDPURebootStatus(ctx context.Context, c crclient.Client, dpu *provisioningv1.DPU, phase provisioningv1.RebootStatusPhase, reason, message string) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := c.Get(ctx, crclient.ObjectKeyFromObject(dpu), dpu); err != nil {
+			return err
+		}
+		now := metav1.Now()
+		var rebootMethod *provisioningv1.RebootMethodType
+		rebootReason := reason
+		rebootMessage := message
+
+		if dpu.Status.RebootStatus != nil {
+			rebootMethod = dpu.Status.RebootStatus.Method
+			if rebootReason == "" {
+				rebootReason = dpu.Status.RebootStatus.Reason
+			}
+			if rebootMessage == "" {
+				rebootMessage = dpu.Status.RebootStatus.Message
+			}
+		}
+
+		if phase == provisioningv1.RebootStatusSucceeded && reason == "" && message == "" {
+			rebootReason = ""
+			rebootMessage = ""
+		}
+
+		base := dpu.DeepCopy()
+		dpu.Status.RebootStatus = &provisioningv1.RebootStatus{
+			Phase:              phase,
+			Method:             rebootMethod,
+			Reason:             rebootReason,
+			Message:            rebootMessage,
+			LastTransitionTime: &now,
+		}
+		patch := crclient.MergeFrom(base)
+		return c.Status().Patch(ctx, dpu, patch)
+	})
 }
