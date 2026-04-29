@@ -203,14 +203,14 @@ type DPFOperatorConfigSpec struct {
 
 // MonitoringConfiguration defines the configuration for monitoring resources.
 type MonitoringConfiguration struct {
-	// Disabled controls whether monitoring resources are installed.
+	// Disable controls whether monitoring resources are installed.
 	// When enabled (default), the controller:
 	// - Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.
 	// - Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.
 	// - Deploys node-problem-detector as a DaemonSet on DPU nodes to detect and report node-level problems.
 	// - Deploys opentelemetry-collector as a DaemonSet on DPU nodes to collect and forward logs.
 	// +optional
-	Disabled *bool `json:"disabled,omitempty"`
+	Disable *bool `json:"disable,omitempty"`
 
 	// KubeStateMetrics is the configuration for kube-state-metrics
 	// +optional
@@ -292,5 +292,5 @@ func (c *DPFOperatorConfig) GetArgoCDNamespace() string {
 }
 
 func (c *DPFOperatorConfig) MonitoringEnabled() bool {
-	return c.Spec.Monitoring == nil || c.Spec.Monitoring.Disabled == nil || !*c.Spec.Monitoring.Disabled
+	return c.Spec.Monitoring == nil || c.Spec.Monitoring.Disable == nil || !*c.Spec.Monitoring.Disable
 }

@@ -702,7 +702,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disabled` _boolean_ | Disabled controls whether monitoring resources are installed.<br />When enabled (default), the controller:<br />- Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.<br />- Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.<br />- Deploys node-problem-detector as a DaemonSet on DPU nodes to detect and report node-level problems.<br />- Deploys opentelemetry-collector as a DaemonSet on DPU nodes to collect and forward logs. |  | Optional: \{\} <br /> |
+| `disable` _boolean_ | Disable controls whether monitoring resources are installed.<br />When enabled (default), the controller:<br />- Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.<br />- Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.<br />- Deploys node-problem-detector as a DaemonSet on DPU nodes to detect and report node-level problems.<br />- Deploys opentelemetry-collector as a DaemonSet on DPU nodes to collect and forward logs. |  | Optional: \{\} <br /> |
 | `kubeStateMetrics` _[KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)_ | KubeStateMetrics is the configuration for kube-state-metrics |  | Optional: \{\} <br /> |
 | `nodeProblemDetector` _[NodeProblemDetectorConfiguration](#nodeproblemdetectorconfiguration)_ | NodeProblemDetector is the configuration for node-problem-detector |  | Optional: \{\} <br /> |
 | `openTelemetryCollector` _[OpenTelemetryCollectorConfiguration](#opentelemetrycollectorconfiguration)_ | OpenTelemetryCollector is the configuration for opentelemetry-collector |  | Optional: \{\} <br /> |
