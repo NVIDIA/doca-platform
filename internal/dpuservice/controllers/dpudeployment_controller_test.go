@@ -1654,6 +1654,62 @@ var _ = Describe("DPUDeployment Controller", func() {
 					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 			})
+			It("should not add DPUServiceChain requestor to NodeMaintenanceAdditionalRequestors when annotation is set", func() {
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
+				dpuDeployment.Annotations = map[string]string{
+					skipDPUServiceChainRequestorAnnotationKey: "",
+				}
+				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+
+				By("retrieving the DPUServiceChain and DPUService")
+				var dpuServiceChain *dpuservicev1.DPUServiceChain
+				Eventually(func(g Gomega) {
+					dpuServiceChainList := getDPUServiceChainList()
+					g.Expect(dpuServiceChainList.Items).To(HaveLen(1))
+					dpuServiceChain = &dpuServiceChainList.Items[0]
+					g.Expect(dpuServiceChain).ToNot(BeNil())
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				var dpuService *dpuservicev1.DPUService
+				Eventually(func(g Gomega) {
+					dpuServiceList := getDPUServiceList()
+					g.Expect(dpuServiceList.Items).To(HaveLen(1))
+					dpuService = &dpuServiceList.Items[0]
+					g.Expect(dpuService).ToNot(BeNil())
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				for i := range expectedDPUSetSpecs {
+					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
+						"svc.dpu.nvidia.com/dpuservicechain-version":        dpuServiceChain.Name,
+						"svc.dpu.nvidia.com/dpuservice-someservice-version": dpuService.Name,
+						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
+					}
+					// Only the DPUService requestor should be present; the DPUServiceChain requestor is skipped
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuService.Name),
+					}
+				}
+
+				By("checking that correct DPUSets are created without the DPUServiceChain requestor")
+				Eventually(func(g Gomega) {
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+
+					By("checking the specs")
+					specs := make([]provisioningv1.DPUSetSpec, 0, len(gotDPUSetList.Items))
+					for _, dpuSet := range gotDPUSetList.Items {
+						specs = append(specs, dpuSet.Spec)
+					}
+					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+			})
 			It("should update the existing DPUSets on update of the .spec.dpus in the DPUDeployment", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
