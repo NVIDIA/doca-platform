@@ -619,14 +619,19 @@ spec:
         ovs-vsctl --no-wait --timeout 15 "$@"
       }
 
+      _ovs-vsctl --if-exists del-br ovsbr1
+      _ovs-vsctl --if-exists del-br ovsbr2
       _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
       _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
       _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
       _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
       _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
       _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
-      _ovs-vsctl --if-exists del-br ovsbr1
-      _ovs-vsctl --if-exists del-br ovsbr2
+      if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then
+        systemctl restart openvswitch-switch
+      elif systemctl list-unit-files openvswitch.service &>/dev/null; then
+        systemctl restart openvswitch
+      fi
       _ovs-vsctl --may-exist add-br br-sfc
       _ovs-vsctl set bridge br-sfc datapath_type=netdev
       _ovs-vsctl set bridge br-sfc fail_mode=secure
@@ -1636,14 +1641,19 @@ spec:
         ovs-vsctl --no-wait --timeout 15 "$@"
       }
 
+      _ovs-vsctl --if-exists del-br ovsbr1
+      _ovs-vsctl --if-exists del-br ovsbr2
       _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
       _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
       _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
       _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
       _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
       _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
-      _ovs-vsctl --if-exists del-br ovsbr1
-      _ovs-vsctl --if-exists del-br ovsbr2
+      if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then
+        systemctl restart openvswitch-switch
+      elif systemctl list-unit-files openvswitch.service &>/dev/null; then
+        systemctl restart openvswitch
+      fi
       _ovs-vsctl --may-exist add-br br-sfc
       _ovs-vsctl set bridge br-sfc datapath_type=netdev
       _ovs-vsctl set bridge br-sfc fail_mode=secure
