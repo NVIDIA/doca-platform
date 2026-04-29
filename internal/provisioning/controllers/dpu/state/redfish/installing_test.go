@@ -37,7 +37,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
-const testBFBFile = "/bfb/dpf-operator-system-bfb-bundle.bfb"
+const (
+	testBFBFile   = "/bfb/dpf-operator-system-bfb-bundle.bfb"
+	testBFCFGFile = "/bfb/bfcfg/dpf-operator-system_dpu-config"
+)
 
 var _ = Describe("Installing", func() {
 	Context("concatBFBAndBFCFGPath", func() {
@@ -163,7 +166,7 @@ var _ = Describe("Installing", func() {
 		dpu.Spec.DPUDeviceName = dpuDevice.Name
 		dpu.Status.Phase = provisioningv1.DPUOSInstalling
 		dpu.Status.BFBFile = testBFBFile
-		dpu.Status.BFCFGFile = "/bfb/bfcfg/dpf-operator-system_dpu-config"
+		dpu.Status.BFCFGFile = testBFCFGFile
 		createObject(dpu)
 		// Update the status separately
 		patch = client.MergeFrom(dpu.DeepCopy())
@@ -301,7 +304,7 @@ var _ = Describe("Installing", func() {
 		dpu.Spec.DPUDeviceName = dpuDevice.Name
 		dpu.Status.Phase = provisioningv1.DPUOSInstalling
 		dpu.Status.BFBFile = testBFBFile
-		dpu.Status.BFCFGFile = "/bfb/bfcfg/dpf-operator-system_dpu-config"
+		dpu.Status.BFCFGFile = testBFCFGFile
 		taskID := "0"
 		dpu.Status.RedfishTaskID = &taskID
 		createObject(dpu)
@@ -342,5 +345,200 @@ var _ = Describe("Installing", func() {
 		Expect(cond.Reason).To(Equal("FailToInstall"))
 		Expect(cond.Message).To(ContainSubstring("Exception state"))
 		Expect(cond.Message).To(ContainSubstring("Installation failed due to network error"))
+	})
+
+	Context("BFB installation via Redfish transient failures", func() {
+		var (
+			mockServer *redfishmock.RedfishMockServer
+			dpuDevice  *provisioningv1.DPUDevice
+			ctrlCtx    *dutil.ControllerContext
+		)
+
+		BeforeEach(func() {
+			By("prepare mock Redfish server")
+			var err error
+			mockServer, err = redfishmock.CreateMockRedfishServer("BF-24.10", "password")
+			Expect(err).NotTo(HaveOccurred())
+			mockServer.SetNicMode("DpuMode")
+			DeferCleanup(mockServer.Stop)
+
+			By("create BMC credentials secret")
+			bmcSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmc-shared-password",
+					Namespace: testNS.Name,
+				},
+				Data: map[string][]byte{
+					"password": []byte("password"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, bmcSecret)).To(Succeed())
+
+			By("create CA and client certificate secrets for mTLS")
+			caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
+			caSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpf-provisioning-ca-secret",
+					Namespace: testNS.Name,
+				},
+				Data: map[string][]byte{
+					"tls.crt": caCrt,
+				},
+			}
+			Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
+			clientSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpf-provisioning-redfish-client-secret",
+					Namespace: testNS.Name,
+				},
+				Data: map[string][]byte{
+					"tls.crt": clientCrt,
+					"tls.key": clientKey,
+				},
+			}
+			Expect(k8sClient.Create(ctx, clientSecret)).To(Succeed())
+
+			By("prepare DPUDevice CR with Redfish BMC")
+			dpuDevice = dpuDeviceObj("dpu-device-transient-test")
+			dpuDevice.Spec.BMCIP = ptr.To(mockServer.GetIPAddress())
+			dpuDevice.Spec.BMCPort = ptr.To(uint32(mockServer.GetPort()))
+			createObject(dpuDevice)
+			patch := client.MergeFrom(dpuDevice.DeepCopy())
+			dpuDevice.Status.BMCIP = ptr.To(mockServer.GetIPAddress())
+			dpuDevice.Status.BMCPort = ptr.To(uint32(mockServer.GetPort()))
+			Expect(k8sClient.Status().Patch(ctx, dpuDevice, patch)).To(Succeed())
+
+			ctrlCtx = &dutil.ControllerContext{
+				Client: k8sClient,
+				Options: dutil.DPUOptions{
+					BFBRegistry: "10.0.110.1",
+				},
+				DPUInProvisioningMap: dutil.NewDPUInProvisioningMap(10),
+			}
+		})
+
+		It("should stay in OSInstalling when Redfish returns 400 'Another update is in progress' and succeed after the concurrent update completes", func() {
+			mockServer.SetConcurrentUpdateBusy(2)
+
+			By("prepare DPU CR in Installing phase")
+			dpu := dpuObj("dpu-concurrent-update-test")
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Status.Phase = provisioningv1.DPUOSInstalling
+			dpu.Status.BFBFile = testBFBFile
+			dpu.Status.BFCFGFile = testBFCFGFile
+			createObject(dpu)
+			patch := client.MergeFrom(dpu.DeepCopy())
+			dpu.Status.Phase = provisioningv1.DPUOSInstalling
+			Expect(k8sClient.Status().Patch(ctx, dpu, patch)).To(Succeed())
+
+			By("set POD_NAMESPACE and create bfb-registry Service for getBFBRegistryAddress")
+			prevNS := os.Getenv("POD_NAMESPACE")
+			Expect(os.Setenv("POD_NAMESPACE", testNS.Name)).To(Succeed())
+			defer func() { _ = os.Setenv("POD_NAMESPACE", prevNS) }()
+			bfbRegistrySvc := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      bfbregistry.PodName,
+					Namespace: testNS.Name,
+				},
+				Spec: corev1.ServiceSpec{
+					Type: corev1.ServiceTypeNodePort,
+					Ports: []corev1.ServicePort{
+						{Name: "http", Port: int32(bfbregistry.ContainerPort), TargetPort: intstr.FromInt32(bfbregistry.ContainerPort)},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, bfbRegistrySvc)).To(Succeed())
+
+			By("Step 1: First call — mock returns HTTP 400 'Another update is in progress'")
+			status, err := Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling),
+				"DPU should remain in OSInstalling, not transition to DPUError")
+			Expect(status.RedfishTaskID).To(BeNil(),
+				"No task should be created when a concurrent update blocks the request")
+			Expect(mockServer.GetConcurrentUpdateBusyServed()).To(Equal(1),
+				"Mock should have served exactly one HTTP 400 busy response")
+
+			By("Step 2: Verify no BFBTransferred error condition was set")
+			_, cond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
+			if cond != nil {
+				Expect(cond.Reason).NotTo(Equal("FailToInstall"),
+					"BFBTransferred condition should not indicate a terminal failure")
+			}
+
+			By("Step 3: Second call — mock still returns busy (remaining=1)")
+			status, err = Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+			Expect(status.RedfishTaskID).To(BeNil())
+			Expect(mockServer.GetConcurrentUpdateBusyServed()).To(Equal(2),
+				"Mock should have served two HTTP 400 busy responses total")
+
+			By("Step 4: Third call — concurrent update finished, install proceeds normally")
+			status, err = Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+			Expect(status.RedfishTaskID).NotTo(BeNil(),
+				"A Redfish task should be created once the concurrent update clears")
+			Expect(*status.RedfishTaskID).To(Equal("0"))
+			Expect(mockServer.GetConcurrentUpdateBusyServed()).To(Equal(2),
+				"No additional busy responses should have been served on the successful call")
+
+			By("Step 5: Fourth call — check task progress completes")
+			patch = client.MergeFrom(dpu.DeepCopy())
+			dpu.Status = status
+			Expect(k8sClient.Status().Patch(ctx, dpu, patch)).To(Succeed())
+
+			dpu.Status = status
+			status, err = Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+
+			_, cond = cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue),
+				"BFB transfer should complete successfully after the concurrent update clears")
+		})
+
+		It("should stay in OSInstalling when CheckTaskProgress returns error and recover when BMC is reachable again", func() {
+			By("prepare DPU CR in Installing phase with an active task (BFB transfer in progress)")
+			dpu := dpuObj("dpu-taskprogress-error-test")
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Status.Phase = provisioningv1.DPUOSInstalling
+			dpu.Status.BFBFile = testBFBFile
+			dpu.Status.BFCFGFile = testBFCFGFile
+			taskID := "0"
+			dpu.Status.RedfishTaskID = &taskID
+			createObject(dpu)
+			patch := client.MergeFrom(dpu.DeepCopy())
+			dpu.Status.Phase = provisioningv1.DPUOSInstalling
+			dpu.Status.RedfishTaskID = &taskID
+			Expect(k8sClient.Status().Patch(ctx, dpu, patch)).To(Succeed())
+
+			By("Step 1: Simulate BMC task progress endpoint failure")
+			mockServer.SetTaskProgressError(true)
+			status, err := Installing(ctx, dpu, ctrlCtx)
+			Expect(err).To(HaveOccurred(), "should return error to trigger controller-runtime requeue")
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling),
+				"DPU should stay in OSInstalling, not transition to DPUError")
+			Expect(status.RedfishTaskID).NotTo(BeNil(),
+				"Task ID should be preserved so progress can be checked on next reconcile")
+			_, failCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
+			Expect(failCond).NotTo(BeNil())
+			Expect(failCond.Reason).To(Equal("FailToCheckProgress"))
+
+			By("Step 2: Restore BMC task progress endpoint")
+			mockServer.SetTaskProgressError(false)
+
+			By("Step 3: Call Installing again — CheckTaskProgress succeeds, BFB transfer completes")
+			dpu.Status = status
+			status, err = Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+			_, transferCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
+			Expect(transferCond).NotTo(BeNil())
+			Expect(transferCond.Status).To(Equal(metav1.ConditionTrue),
+				"BFB transfer should complete after BMC recovers")
+		})
 	})
 })

@@ -803,4 +803,98 @@ var _ = Describe("InitializeInterface", func() {
 		})
 	})
 
+	Context("BMC connectivity transient failures", func() {
+		var (
+			mockServer *redfishmock.RedfishMockServer
+			dpu        *provisioningv1.DPU
+			dpuDevice  *provisioningv1.DPUDevice
+			ctrlCtx    *dutil.ControllerContext
+		)
+
+		BeforeEach(func() {
+			var err error
+			mockServer, err = createMockRedfishServer()
+			Expect(err).NotTo(HaveOccurred())
+			mockServer.SetNicMode("DpuMode")
+
+			createBMCAndMTLSSecrets(mockServer.GetIPAddress())
+			prepareDPUFlavor()
+
+			dpuDevice = dpuDeviceObj(defaultDPUDeviceName)
+			dpuDevice.Spec.BMCIP = ptr.To(mockServer.GetIPAddress())
+			dpuDevice.Spec.BMCPort = ptr.To(uint32(mockServer.GetPort()))
+			createObject(dpuDevice)
+			setDPUDeviceReady(dpuDevice, provisioningv1.DpuMode)
+
+			dpu = dpuObj(defaultDPUName)
+			dpu.Namespace = testNS.Name
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.DPUFlavor = defaultDPUFlavorName
+			dpu.Status.Phase = provisioningv1.DPUInitializeInterface
+			dpu.Status.DPUMode = provisioningv1.DpuMode
+			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
+
+			ctrlCtx = &dutil.ControllerContext{
+				Client: k8sClient,
+				Options: dutil.DPUOptions{
+					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
+				},
+			}
+		})
+
+		AfterEach(func() {
+			if mockServer != nil {
+				mockServer.Stop()
+			}
+		})
+
+		It("should stay in InitializeInterface when BMC is unreachable and recover when connectivity is restored", func() {
+			By("Simulate BMC unreachable via ProductDescription endpoint error")
+			mockServer.SetProductDescriptionError(true)
+
+			By("Step 1: Call InitializeInterface — TLS client creation fails due to BMC unreachable")
+			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
+			Expect(err).To(HaveOccurred(), "should return error to trigger controller-runtime requeue")
+			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface),
+				"DPU should stay in InitializeInterface, not transition to DPUError")
+
+			By("Step 2: Restore BMC connectivity")
+			mockServer.SetProductDescriptionError(false)
+
+			By("Step 3: Call InitializeInterface again — should proceed normally")
+			status, err = InitializeInterface(ctx, dpu, ctrlCtx)
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters),
+				"DPU should proceed to ConfigFWParameters after BMC recovers")
+		})
+
+		It("should stay in InitializeInterface when GetChassis fails transiently and recover", func() {
+			By("Set DPUType to Unknown so GetChassis is called during InitializeInterface")
+			dpu.Status.DPUType = provisioningv1.DPUTypeUnknown
+
+			By("Step 1: Simulate GetChassis endpoint error")
+			mockServer.SetChassisError(true)
+
+			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
+			Expect(err).To(HaveOccurred(), "should return error to trigger controller-runtime requeue")
+			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface),
+				"DPU should stay in InitializeInterface, not transition to DPUError")
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondInterfaceInitialized.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal("FailedToGetChassisInfo"),
+				"condition should indicate the specific Redfish call that failed")
+
+			By("Step 2: Restore GetChassis endpoint")
+			mockServer.SetChassisError(false)
+
+			By("Step 3: Call InitializeInterface again — should proceed normally")
+			status, err = InitializeInterface(ctx, dpu, ctrlCtx)
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters),
+				"DPU should proceed to ConfigFWParameters after BMC recovers")
+			Expect(status.DPUType).To(Equal(provisioningv1.DPUTypeBlueField3),
+				"DPU type should be resolved after recovery")
+		})
+	})
+
 })
