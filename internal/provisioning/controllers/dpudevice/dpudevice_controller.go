@@ -311,6 +311,9 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 					return nil
 				case "New", "Starting", "Running":
 					log.Info(fmt.Sprintf("taskProgress: %+v", prog.PercentComplete))
+					conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
+						conditions.ReasonPending,
+						conditions.ConditionMessage("BMC firmware update in progress"))
 					return nil
 				case "Completed":
 					log.Info("Task completed. Resetting BMC")
@@ -321,6 +324,9 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 						return err
 					}
 					dutil.BmcFwUpdateTaskMap.Delete(taskName)
+					conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
+						conditions.ReasonPending,
+						conditions.ConditionMessage("BMC firmware update completed, resetting BMC"))
 					return nil
 				default:
 					err = fmt.Errorf("unknown task state: '%s'", prog.TaskState)
@@ -360,7 +366,9 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 			}
 			log.Info(fmt.Sprintf("new install task: %+v", *taskInfo))
 			dutil.BmcFwUpdateTaskMap.Store(taskName, taskInfo.ID)
-
+			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
+				conditions.ReasonPending,
+				conditions.ConditionMessage(fmt.Sprintf("BMC firmware update started (current: %s, required: >= %s)", data.Version, BMCMinSupportedVersion)))
 			return nil
 		}
 	}

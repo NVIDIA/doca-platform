@@ -83,8 +83,11 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mux.HandleFunc("/redfish/v1/Chassis/Card1", mock.handleGetChassis)
 
 	// UpdateService
-	mux.HandleFunc(client.APIUpdateFW, mock.handleUpdateService)
+	mux.HandleFunc("/"+client.APIUpdateFW, mock.handleUpdateService)
 	mux.HandleFunc("/redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate", mock.handleInstallBFB)
+
+	// FirmwareInventory
+	mux.HandleFunc("/"+client.APICheckBMCFW, mock.handleCheckBMCFirmware)
 
 	// TaskService
 	mux.HandleFunc("/redfish/v1/TaskService/Tasks/", mock.handleGetTask)
@@ -281,22 +284,39 @@ func (r *RedfishMockServer) handleInstallBFB(w http.ResponseWriter, req *http.Re
 	writeJSONResponse(w, taskInfo)
 }
 
-// handleUpdateService handles update service information requests
+// handleUpdateService handles GET (info) and POST (firmware push) requests
 func (r *RedfishMockServer) handleUpdateService(w http.ResponseWriter, req *http.Request) {
+	switch req.Method {
+	case http.MethodGet:
+		response := map[string]interface{}{
+			"@odata.context": "/redfish/v1/$metadata#UpdateService.UpdateService",
+			"@odata.id":      client.APIUpdateFW,
+			"@odata.type":    "#UpdateService.v1_10_0.UpdateService",
+			"Id":             "UpdateService",
+			"Name":           "Update Service",
+		}
+		writeJSONResponse(w, response)
+	case http.MethodPost:
+		w.WriteHeader(http.StatusAccepted)
+		writeJSONResponse(w, map[string]interface{}{
+			"@odata.id": "/redfish/v1/TaskService/Tasks/0",
+			"Id":        "0",
+		})
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleCheckBMCFirmware handles BMC firmware version requests
+func (r *RedfishMockServer) handleCheckBMCFirmware(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	response := map[string]interface{}{
-		"@odata.context": "/redfish/v1/$metadata#UpdateService.UpdateService",
-		"@odata.id":      client.APIUpdateFW,
-		"@odata.type":    "#UpdateService.v1_10_0.UpdateService",
-		"Id":             "UpdateService",
-		"Name":           "Update Service",
-	}
-
-	writeJSONResponse(w, response)
+	writeJSONResponse(w, map[string]interface{}{
+		"@odata.id": "/" + client.APICheckBMCFW,
+		"Version":   r.bmcVersion,
+	})
 }
 
 // handleGetTask handles task information requests
@@ -514,6 +534,11 @@ func (r *RedfishMockServer) GetOemLastState() string {
 // SetModel sets the DPU model string
 func (r *RedfishMockServer) SetModel(model string) {
 	r.model = model
+}
+
+// SetBMCVersion sets the BMC firmware version returned by the mock server
+func (r *RedfishMockServer) SetBMCVersion(version string) {
+	r.bmcVersion = version
 }
 
 // SetTaskState sets the task state for the mock server
