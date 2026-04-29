@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/nvidia/doca-platform/internal/dpfctl/sosreport"
 
@@ -70,50 +69,22 @@ func init() {
 }
 
 func runSOSReportDownload(ctx context.Context) error {
-	if sosOpts.outputDir == "" {
-		if sosOpts.caseID != "" {
-			sosOpts.outputDir = fmt.Sprintf("sosreport-%s", sosOpts.caseID)
-		} else {
-			sosOpts.outputDir = fmt.Sprintf("sosreport-%s", time.Now().Format("20060102-150405"))
-		}
-	}
-	if err := os.MkdirAll(sosOpts.outputDir, 0o755); err != nil {
-		return fmt.Errorf("create output directory %s: %w", sosOpts.outputDir, err)
-	}
-
 	targets, err := getTargets(ctx)
 	if err != nil {
 		return err
 	}
 	defer targets.Close()
 
-	downloaded := sosreport.Download(ctx, targets, sosOpts.namespace, sosOpts.outputDir)
-
-	if downloaded == 0 {
-		sosreport.ResultFail("No completed SOS reports found to download")
-		if !cleanupExplicit {
-			sosreport.Info("Use 'dpfctl sosreport status' to check Job progress")
-		}
-		return nil
+	dlOpts := sosreport.DownloadOptions{
+		OutputDir:      sosOpts.outputDir,
+		CaseID:         sosOpts.caseID,
+		Namespace:      sosOpts.namespace,
+		Archive:        sosOpts.archive,
+		ArchiveOnly:    sosOpts.archiveOnly,
+		ShowStatusHint: !cleanupExplicit,
 	}
-
-	sosreport.Result("Downloaded %d report(s) to %s", downloaded, sosOpts.outputDir)
-
-	if sosOpts.archiveOnly {
-		sosOpts.archive = true
-	}
-	if sosOpts.archive {
-		sosreport.Step("Creating archive")
-		archivePath, err := sosreport.CreateArchive(sosOpts.outputDir)
-		if err != nil {
-			return fmt.Errorf("failed to create archive: %w", err)
-		}
-		sosreport.Result("Archive created: %s", archivePath)
-		if sosOpts.archiveOnly {
-			if err := os.RemoveAll(sosOpts.outputDir); err != nil {
-				return fmt.Errorf("failed to remove report directory: %w", err)
-			}
-		}
+	if err := sosreport.DownloadAndArchive(ctx, targets, dlOpts); err != nil {
+		return err
 	}
 
 	if shouldCleanup() {
