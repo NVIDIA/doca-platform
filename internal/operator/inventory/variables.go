@@ -98,7 +98,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			DefaultResourcePrefix: "nvidia.com",
 		},
 		DPFProvisioningController: DPFProvisioningVariables{
-			DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 		},
 		Resources: map[string]corev1.ResourceRequirements{},
 		Replicas: map[operatorv1.ComponentName]*int32{

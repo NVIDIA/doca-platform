@@ -41,7 +41,7 @@ import (
 
 // DPUSet implements the webhooks for the DPUSet type.
 type DPUSet struct {
-	// DeploymentMode is the cluster-wide DPF deployment mode (e.g. zero-trust vs trusted-host),
+	// DeploymentMode is the cluster-wide DPF deployment mode (e.g. zero-trust vs host-trusted),
 	// matching DPFOperatorConfig and provisioning controller flags. Required for Astra validation.
 	DeploymentMode string
 }

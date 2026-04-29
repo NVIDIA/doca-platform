@@ -55,7 +55,7 @@ func createDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 			Name:      operatorcontroller.DefaultDPFOperatorConfigSingletonName,
 			Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
 		},
-		Spec: operatorv1.DPFOperatorConfigSpec{DeploymentMode: operatorv1.DeploymentModeTrustedHost},
+		Spec: operatorv1.DPFOperatorConfigSpec{DeploymentMode: operatorv1.DeploymentModeHostTrusted},
 	}
 }
 

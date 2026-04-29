@@ -500,10 +500,10 @@ spec:
                 allOf:
                 - enum:
                   - zero-trust
-                  - trusted-host
+                  - host-trusted
                 - enum:
                   - zero-trust
-                  - trusted-host
+                  - host-trusted
                 description: |-
                   DeploymentMode is copied from DPFOperatorConfig.spec.deploymentMode by the controller.
                   This field is read-only for users.

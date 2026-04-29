@@ -91,7 +91,7 @@ var _ = Describe("Ensure Mode", func() {
 			err := operation.Execute(context.Background(), &operations.Context{
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
-						DeploymentMode: provisioningv1.DeploymentModeTrustedHost,
+						DeploymentMode: provisioningv1.DeploymentModeHostTrusted,
 					},
 				},
 			})

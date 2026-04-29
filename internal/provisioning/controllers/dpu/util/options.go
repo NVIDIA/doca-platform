@@ -76,7 +76,7 @@ type ControllerContext struct {
 }
 
 // ZeroTrustProvisioningFlow reports whether the cluster policy is zero-trust for provisioning
-// phases that branch on ZT vs trusted-host (e.g. reboot completion, RebootMethodNoAction).
+// phases that branch on ZT vs host-trusted (e.g. reboot completion, RebootMethodNoAction).
 // When DeploymentMode is unset (legacy), Redfish install interface implies zero-trust flow.
 func (o DPUOptions) ZeroTrustProvisioningFlow() bool {
 	if o.DeploymentMode != "" {
