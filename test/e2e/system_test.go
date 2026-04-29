@@ -59,7 +59,7 @@ func SetInput() {
 			Labels:    CleanupScope.Suite,
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
-			DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 				BFBPersistentVolumeClaimName: bfbPVCName,
 			},

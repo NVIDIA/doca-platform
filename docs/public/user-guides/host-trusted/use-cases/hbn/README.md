@@ -149,7 +149,7 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
-  deploymentMode: trusted-host
+  deploymentMode: host-trusted
   provisioningController:
     dmsTimeout: 900
   kamajiClusterManager:

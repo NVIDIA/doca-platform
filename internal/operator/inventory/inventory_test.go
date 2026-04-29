@@ -247,7 +247,7 @@ func TestManifests_Parse_Generate_All(t *testing.T) {
 			pvcName := bfbVolumeName
 			vars.DPFProvisioningController = DPFProvisioningVariables{
 				BFBPersistentVolumeClaimName: &pvcName,
-				DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+				DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 			}
 
 			err := tt.inventory.ParseAll()
@@ -300,7 +300,7 @@ func TestManifests_generateAllManifests(t *testing.T) {
 	pvcName := bfbVolumeName
 	vars.DPFProvisioningController = DPFProvisioningVariables{
 		BFBPersistentVolumeClaimName: &pvcName,
-		DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+		DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 	}
 	tests := []struct {
 		name               string

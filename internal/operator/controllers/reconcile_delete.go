@@ -53,7 +53,7 @@ func (r *DPFOperatorConfigReconciler) reconcileDelete(ctx context.Context, dpfOp
 	// the concrete value does not affect which objects are deleted.
 	// TODO: Remove after v26.4.
 	if dpfOperatorConfig.Spec.DeploymentMode == "" {
-		dpfOperatorConfig.Spec.DeploymentMode = operatorv1.DeploymentModeTrustedHost
+		dpfOperatorConfig.Spec.DeploymentMode = operatorv1.DeploymentModeHostTrusted
 	}
 
 	log.Info("Ensuring DPF resources are deleted")
