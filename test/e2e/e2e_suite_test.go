@@ -367,6 +367,7 @@ var _ = AfterSuite(func() {
 		if err := collectKubernetesResources(ctx, collectInput, "post-dpf-operator-config-cleanup"); err != nil {
 			GinkgoLogr.Error(err, "failed to collect resources for the clusters (post-DPF operator config cleanup)")
 		}
+
 	} else {
 		By("Skipping AfterSuite cleanup (DPF operator config)")
 	}
