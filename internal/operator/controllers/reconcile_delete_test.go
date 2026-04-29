@@ -125,7 +125,7 @@ func TestDPFOperatorConfigReconciler_reconcileDelete(t *testing.T) {
 					Finalizers: []string{operatorv1.DPFOperatorConfigFinalizer},
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
-					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+					DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						BFBPersistentVolumeClaimName: ptr.To("oof"),
 					},

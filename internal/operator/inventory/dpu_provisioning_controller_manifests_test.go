@@ -146,7 +146,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		emptyStr := " "
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: &emptyStr,
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 		}
 		// This test may need to be updated - empty string is now valid (uses hostPath)
 		_, err := provCtrl.GenerateManifests(context.Background(), vars)
@@ -162,7 +162,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		pvcName := "pvc"
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: &pvcName,
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 		}
 		objs, err := provCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
@@ -251,7 +251,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			BFBPersistentVolumeClaimName:   &expectedPVC,
 			DMSTimeout:                     &expectedDmsTimeout,
 			MultiDPUOperationsSyncWaitTime: 30 * time.Second,
-			DeploymentMode:                 operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:                 operatorv1.DeploymentModeHostTrusted,
 		}
 		vars.ImagePullSecrets = []string{expectedImagePullSecret1, expectedImagePullSecret2}
 		vars.KubernetesAPIServerVIP = &expectedKubernetesAPIServerVIP
@@ -315,7 +315,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			fmt.Sprintf("--image-pull-secrets=%s", strings.Join([]string{expectedImagePullSecret1, expectedImagePullSecret2}, ",")),
 			fmt.Sprintf("--dms-timeout=%d", expectedDmsTimeout),
 			fmt.Sprintf("--dpu-install-interface=%s", provisioningv1.InstallViaHostAgent),
-			fmt.Sprintf("--deployment-mode=%s", operatorv1.DeploymentModeTrustedHost),
+			fmt.Sprintf("--deployment-mode=%s", operatorv1.DeploymentModeHostTrusted),
 			fmt.Sprintf("--dms-pod-envs=KUBERNETES_SERVICE_HOST=%s,KUBERNETES_SERVICE_PORT=%d", expectedKubernetesAPIServerVIP, expectedKubernetesAPIServerPort),
 			fmt.Sprintf("--multi-dpu-operations-sync-wait-time=%s", expectedMultiDPUOperationsSyncWaitTime),
 			"--bfb-registry-load-balancer-address=",
@@ -332,7 +332,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: nil, // no PVC: use hostPath
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 		}
 		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
@@ -398,7 +398,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: &expectedPVC,
 			BFCFGTemplateConfig:          ptr.To("configmap"),
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 		}
 		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
@@ -444,7 +444,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: ptr.To("pvc"),
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 		}
 
 		// Set resources
@@ -494,7 +494,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: ptr.To("pvc"),
 			HostAgentDNSPolicy:           &dnsPolicy,
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 		}
 
 		objs, err := provCtrl.GenerateManifests(context.Background(), vars)
@@ -521,7 +521,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: ptr.To("pvc"),
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 		}
 
 		objs, err := provCtrl.GenerateManifests(context.Background(), vars)
@@ -567,7 +567,7 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: &expectedPVC,
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 			InstallInterface: &operatorv1.ProvisioningInstallInterface{
 				InstallViaRedfish: &operatorv1.InstallViaRedfish{
 					BFBRegistryAddress: "registry-address",
@@ -612,7 +612,7 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: &expectedPVC,
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 			InstallInterface: &operatorv1.ProvisioningInstallInterface{
 				InstallViaRedfish: &operatorv1.InstallViaRedfish{
 					BFBRegistryAddress: "registry-address",
@@ -651,7 +651,7 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: &expectedPVC,
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 			Registry: &operatorv1.RegistryConfiguration{
 				LoadBalancerAddress: ptr.To(lbAddr),
 			},
@@ -699,7 +699,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: &expectedPVC,
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 			MaxDPUParallelInstallations:  ptr.To(int32(10)),
 		}
 
@@ -732,7 +732,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: &expectedPVC,
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 		}
 
 		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
@@ -765,7 +765,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: &expectedPVC,
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 			MaxDPUParallelInstallations:  ptr.To(int32(1)),
 		}
 
@@ -798,7 +798,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: &expectedPVC,
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 			MaxDPUParallelInstallations:  ptr.To(int32(-1)),
 		}
 
@@ -831,7 +831,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
 			BFBPersistentVolumeClaimName: &expectedPVC,
-			DeploymentMode:               operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 			MaxDPUParallelInstallations:  ptr.To(int32(1000)),
 		}
 

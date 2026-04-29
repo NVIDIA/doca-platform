@@ -414,7 +414,7 @@ var _ = Describe("Phase Rebooting", func() {
 					HostAgent: &provisioningv1.HostAgent{},
 				}
 			}),
-			Entry("External reboot + trusted-host install", func(dn *provisioningv1.DPUNode, dpu *provisioningv1.DPU, o *dutil.DPUOptions) {
+			Entry("External reboot + host-trusted install", func(dn *provisioningv1.DPUNode, dpu *provisioningv1.DPU, o *dutil.DPUOptions) {
 				dn.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
 					External: &provisioningv1.External{},
 				}
@@ -590,7 +590,7 @@ var _ = Describe("Phase Rebooting", func() {
 			Expect(status.Phase).To(Equal(provisioningv1.DPUClusterConfig))
 		})
 
-		It("should move to DPUHostNetworkConfiguration when Rebooted is True via RedFish under trusted-host deployment mode", func() {
+		It("should move to DPUHostNetworkConfiguration when Rebooted is True via RedFish under host-trusted deployment mode", func() {
 			dpuNode := dpuNodeObj(defaultDPUNodeName)
 			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
 				External: &provisioningv1.External{},
@@ -614,7 +614,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
 					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
-					DeploymentMode:      string(operatorv1.DeploymentModeTrustedHost),
+					DeploymentMode:      string(operatorv1.DeploymentModeHostTrusted),
 				},
 			})
 

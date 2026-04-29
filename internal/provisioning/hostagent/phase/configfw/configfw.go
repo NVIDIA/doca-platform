@@ -55,9 +55,9 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 		return dpu.Status, ctrl.Result{}, fmt.Errorf("device not found")
 	}
 
-	if dpu.Status.DeploymentMode != provisioningv1.DeploymentModeTrustedHost {
+	if dpu.Status.DeploymentMode != provisioningv1.DeploymentModeHostTrusted {
 		err := fmt.Errorf("deployment mode %q is not supported by hostagent Config FW phase; supported mode: %s",
-			dpu.Status.DeploymentMode, provisioningv1.DeploymentModeTrustedHost)
+			dpu.Status.DeploymentMode, provisioningv1.DeploymentModeHostTrusted)
 		hostutil.NewCondition(condition).Failure(err, "UnsupportedDeploymentMode").Set(&dpu.Status.Conditions)
 		return dpu.Status, ctrl.Result{}, err
 	}

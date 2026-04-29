@@ -92,7 +92,7 @@ func (d *EnsureMode) setDeploymentMode(dev string, deploymentMode provisioningv1
 	case provisioningv1.DeploymentModeZeroTrust:
 		klog.Infof("Setting DPU to zero-trust mode for device %s", dev)
 		cmd = fmt.Sprintf("mlxprivhost -d %s r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner", dev)
-	case provisioningv1.DeploymentModeTrustedHost:
+	case provisioningv1.DeploymentModeHostTrusted:
 		klog.Infof("Setting DPU to DPU mode for device %s", dev)
 		cmd = fmt.Sprintf("mlxprivhost -d %s p", dev)
 	default:

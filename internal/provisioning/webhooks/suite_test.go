@@ -100,7 +100,7 @@ var _ = BeforeSuite(func() {
 	err = (&BFB{}).SetupWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = (&DPUSet{DeploymentMode: string(operatorv1.DeploymentModeTrustedHost)}).SetupWebhookWithManager(mgr)
+	err = (&DPUSet{DeploymentMode: string(operatorv1.DeploymentModeHostTrusted)}).SetupWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = (&DPUFlavor{}).SetupWebhookWithManager(mgr)

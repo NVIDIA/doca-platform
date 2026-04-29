@@ -237,16 +237,16 @@ var _ = Describe("Operator API Validation", func() {
 					config.Spec.ProvisioningController.InstallInterface = installInterface
 					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
 				},
-				Entry("valid - trusted-host without install interface", operatorv1.DeploymentModeTrustedHost, nil, false, ""),
-				Entry("valid - trusted-host with installViaHostAgent", operatorv1.DeploymentModeTrustedHost, &operatorv1.ProvisioningInstallInterface{
+				Entry("valid - host-trusted without install interface", operatorv1.DeploymentModeHostTrusted, nil, false, ""),
+				Entry("valid - host-trusted with installViaHostAgent", operatorv1.DeploymentModeHostTrusted, &operatorv1.ProvisioningInstallInterface{
 					InstallViaHostAgent: &operatorv1.InstallViaHostAgent{},
 				}, false, ""),
-				Entry("valid - trusted-host with installViaGNOI", operatorv1.DeploymentModeTrustedHost, &operatorv1.ProvisioningInstallInterface{
+				Entry("valid - host-trusted with installViaGNOI", operatorv1.DeploymentModeHostTrusted, &operatorv1.ProvisioningInstallInterface{
 					InstallViaGNOI: &operatorv1.InstallViaGNOI{},
 				}, false, ""),
-				Entry("invalid - trusted-host with installViaRedfish", operatorv1.DeploymentModeTrustedHost, &operatorv1.ProvisioningInstallInterface{
+				Entry("invalid - host-trusted with installViaRedfish", operatorv1.DeploymentModeHostTrusted, &operatorv1.ProvisioningInstallInterface{
 					InstallViaRedfish: &operatorv1.InstallViaRedfish{},
-				}, true, "deploymentMode trusted-host does not support provisioningController.installInterface.installViaRedfish"),
+				}, true, "deploymentMode host-trusted does not support provisioningController.installInterface.installViaRedfish"),
 				Entry("invalid - zero-trust without install interface", operatorv1.DeploymentModeZeroTrust, nil, true, "deploymentMode zero-trust requires provisioningController.installInterface.installViaRedfish"),
 				Entry("invalid - zero-trust with installViaHostAgent", operatorv1.DeploymentModeZeroTrust, &operatorv1.ProvisioningInstallInterface{
 					InstallViaHostAgent: &operatorv1.InstallViaHostAgent{},
@@ -432,7 +432,7 @@ func getMinimalDPFOperatorConfig(namespace string) *operatorv1.DPFOperatorConfig
 			Namespace: namespace,
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
-			DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 				BFBPersistentVolumeClaimName: ptr.To("test-bfb-pvc"),
 			},

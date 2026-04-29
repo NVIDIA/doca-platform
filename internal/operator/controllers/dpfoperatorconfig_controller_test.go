@@ -127,7 +127,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
 
-			DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 			// This secret name is wrong - this prevents ImagePullSecretsReconciled from becoming true.
 			ImagePullSecrets: []string{"wrong-secret-name"},
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
@@ -233,7 +233,7 @@ func TestDPFOperatorConfigReconciler_Validation(t *testing.T) {
 			Namespace: testNS.Name,
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
-			DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 				BFBPersistentVolumeClaimName: ptr.To("foo"),
 			},
@@ -280,7 +280,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
-					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+					DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						Controller: &operatorv1.DefaultOverridesConfiguration{
 							ImageComponentConfig: operatorv1.ImageComponentConfig{
@@ -307,7 +307,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
-					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+					DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						BFBPersistentVolumeClaimName: ptr.To("name"),
 						MaxDPUParallelInstallations:  ptr.To(int32(0)),
@@ -324,7 +324,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
-					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+					DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						BFBPersistentVolumeClaimName: ptr.To("name"),
 					},
@@ -340,7 +340,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
-					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+					DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						Controller: &operatorv1.DefaultOverridesConfiguration{
 							ImageComponentConfig: operatorv1.ImageComponentConfig{
@@ -367,7 +367,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
-					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+					DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						Controller: &operatorv1.DefaultOverridesConfiguration{
 							ImageComponentConfig: operatorv1.ImageComponentConfig{
@@ -389,7 +389,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
-					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+					DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						Controller: &operatorv1.DefaultOverridesConfiguration{
 							ImageComponentConfig: operatorv1.ImageComponentConfig{
@@ -451,7 +451,7 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 			Namespace: testNS.Name,
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
-			DeploymentMode:   operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:   operatorv1.DeploymentModeHostTrusted,
 			ImagePullSecrets: initialImagePullSecrets,
 			Overrides: &operatorv1.Overrides{
 				Paused: ptr.To(true),
@@ -543,7 +543,7 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 		helmTemplate := "oci://release-artifacts.com/%s:v1.0"
 		// Update the config with
 		config.Spec = operatorv1.DPFOperatorConfigSpec{
-			DeploymentMode:   operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:   operatorv1.DeploymentModeHostTrusted,
 			ImagePullSecrets: initialImagePullSecrets,
 
 			// For objects which are deployed as raw manifests set the image field in configuration.
@@ -759,7 +759,7 @@ func TestDPFOperatorConfigReconciler_ReconcileWithTwoDPUClusters(t *testing.T) {
 			Namespace: testNS.Name,
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
-			DeploymentMode:   operatorv1.DeploymentModeTrustedHost,
+			DeploymentMode:   operatorv1.DeploymentModeHostTrusted,
 			ImagePullSecrets: initialImagePullSecrets,
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 				BFBPersistentVolumeClaimName: ptr.To("foo-pvc"),
@@ -979,7 +979,7 @@ func TestDPFOperatorConfigValidation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
-					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+					DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						BFBPersistentVolumeClaimName: ptr.To("something"),
 					},
@@ -1001,7 +1001,7 @@ func TestDPFOperatorConfigValidation(t *testing.T) {
 					Namespace: testNS.Name,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
-					DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+					DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						BFBPersistentVolumeClaimName: ptr.To("something"),
 					},
@@ -1174,7 +1174,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				Namespace: testNS.Name,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
-				DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+				DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 				},
@@ -1197,7 +1197,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				Namespace: testNS.Name,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
-				DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+				DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 				},
@@ -1221,7 +1221,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				Namespace: testNS.Name,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
-				DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+				DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 				},
@@ -1246,7 +1246,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				Namespace: testNS.Name,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
-				DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+				DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 				},
@@ -1271,7 +1271,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				Namespace: testNS.Name,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
-				DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+				DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 				},
@@ -1377,7 +1377,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				Namespace: testNS.Name,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
-				DeploymentMode: operatorv1.DeploymentModeTrustedHost,
+				DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: ptr.To("test-pvc"),
 					BaseComponentConfig: operatorv1.BaseComponentConfig{
