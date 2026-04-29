@@ -371,6 +371,11 @@ type DPUStatus struct {
 	// +optional
 	AgentStatus *AgentStatus `json:"agentStatus,omitempty"`
 
+	// RebootStatus contains host reboot progress.
+	// DPU controller derives user-facing DPUCondRebooted from this status.
+	// +optional
+	RebootStatus *RebootStatus `json:"rebootStatus,omitempty"`
+
 	// The mode of the DPU
 	// +kubebuilder:validation:Enum=dpu;nic
 	// +kubebuilder:default=dpu
@@ -481,6 +486,40 @@ type PendingNVConfigEntry struct {
 	Current string `json:"current,omitempty"`
 	// NextBoot uses the "next_boot" so this type can be reused for parsing mlxfwrest output
 	NextBoot string `json:"next_boot,omitempty"`
+}
+
+// RebootStatusPhase is the host reboot progress phase.
+// +kubebuilder:validation:Enum=Pending;Succeeded;Failed;Unknown
+type RebootStatusPhase string
+
+const (
+	// RebootStatusPending means reboot is requested but execution has not started yet
+	// (for example, waiting for a manual external reboot trigger).
+	RebootStatusPending RebootStatusPhase = "Pending"
+	// RebootStatusSucceeded means reboot completed successfully.
+	RebootStatusSucceeded RebootStatusPhase = "Succeeded"
+	// RebootStatusFailed means reboot execution failed.
+	RebootStatusFailed RebootStatusPhase = "Failed"
+	// RebootStatusUnknown means reboot execution state cannot be determined.
+	RebootStatusUnknown RebootStatusPhase = "Unknown"
+)
+
+// RebootStatus stores the host reboot execution status.
+type RebootStatus struct {
+	// Phase is the current host reboot progress.
+	Phase RebootStatusPhase `json:"phase,omitempty"`
+	// Method is the recommended reboot method.
+	// +optional
+	Method *RebootMethodType `json:"method,omitempty"`
+	// Reason indicates machine-readable reason for current phase.
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// Message provides human-readable details for current phase.
+	// +optional
+	Message string `json:"message,omitempty"`
+	// LastTransitionTime is the last update time for reboot status.
+	// +optional
+	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
 }
 
 // +kubebuilder:object:root=true

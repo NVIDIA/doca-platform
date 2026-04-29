@@ -28,14 +28,9 @@ import (
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-)
-
-const (
-	condition = string(provisioningv1.DPUCondRebooted)
 )
 
 type RebootRequest struct {
@@ -81,6 +76,11 @@ func NewHandler(client client.Client, nodeFunc func() string, snFunc func(string
 	return h
 }
 
+// updateDPURebootStatus delegates to util.UpdateDPURebootStatus (shared with DPUNodeReconciler).
+func (r *Handler) updateDPURebootStatus(ctx context.Context, dpu *provisioningv1.DPU, phase provisioningv1.RebootStatusPhase, reason string, message string) error {
+	return cutil.UpdateDPURebootStatus(ctx, r.Client, dpu, phase, reason, message)
+}
+
 func (r *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisioningv1.DPUStatus, ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	finished, err := r.bootIDStore.IsRebootFinished(dpu)
@@ -91,11 +91,17 @@ func (r *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 	if finished {
 		logger.Info("Reboot finished")
 		_, interfaceInitializedCondition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondInterfaceInitialized))
+		var err error
 		if interfaceInitializedCondition != nil && interfaceInitializedCondition.Message == string(provisioningv1.DPUCondMessageModeUpdate) {
-			// set the condition to success for DPU mode transition case(NIC->DPU mode)
-			hostutil.NewCondition(condition).Success(string(provisioningv1.DPUCondMessageRebootFinishedForModeUpdate)).Set(&dpu.Status.Conditions)
+			// RebootStatus.message DPUCondMessageRebootFinishedForModeUpdate: IsRebootFinished(store); controller mirrors to DPUCondRebooted.
+			err = r.updateDPURebootStatus(ctx, dpu, provisioningv1.RebootStatusSucceeded,
+				"ModeUpdateRebootCompleted", string(provisioningv1.DPUCondMessageRebootFinishedForModeUpdate))
 		} else {
-			hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
+			err = r.updateDPURebootStatus(ctx, dpu, provisioningv1.RebootStatusSucceeded, "", "")
+		}
+		if err != nil {
+			logger.Error(err, "Failed to update DPU reboot status")
+			return dpu.Status, ctrl.Result{}, err
 		}
 	}
 	return dpu.Status, ctrl.Result{}, nil
@@ -103,15 +109,7 @@ func (r *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 
 func (r *Handler) Start() {
 	go wait.PollUntilContextCancel(context.TODO(), 30*time.Second, true, func(ctx context.Context) (bool, error) { //nolint:errcheck
-		failedDPUs := r.run()
-		if len(failedDPUs) == 0 {
-			return false, nil
-		}
-		for _, dpu := range failedDPUs {
-			if err := r.Status().Update(ctx, dpu); err != nil {
-				klog.Errorf("failed to update reboot failure condition for DPU %s: %v", dpu.Name, err)
-			}
-		}
+		r.run()
 		return false, nil
 	})
 }

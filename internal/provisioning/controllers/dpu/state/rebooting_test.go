@@ -30,7 +30,9 @@ import (
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 var _ = Describe("Phase Rebooting", func() {
@@ -144,7 +146,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.Phase = provisioningv1.DPURebooting
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionFalse,
 				Reason:  "WaitingForReboot",
 				Message: "host reboot not yet reported",
@@ -197,7 +199,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionFalse,
 				Reason:  "WaitingForReboot",
 				Message: "external reboot not yet confirmed",
@@ -214,6 +216,44 @@ var _ = Describe("Phase Rebooting", func() {
 			Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
 		})
 
+		It("should set DPUCondRebooted False from RebootStatus Pending (e.g. external manual reboot wait)", func() {
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				External: &provisioningv1.External{},
+			}
+			createObject(dpuNode)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Status.Phase = provisioningv1.DPURebooting
+			dpu.Status.DPUMode = provisioningv1.DpuMode
+			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
+			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
+			now := metav1.Now()
+			pm := provisioningv1.RebootMethodPowerCycle
+			dpu.Status.RebootStatus = &provisioningv1.RebootStatus{
+				Phase:              provisioningv1.RebootStatusPending,
+				Method:             &pm,
+				Reason:             "WaitingForManualPowerCycleOrReboot",
+				Message:            "waiting for manual power cycle or reboot",
+				LastTransitionTime: &now,
+			}
+
+			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+				Client: k8sClient,
+				Options: dutil.DPUOptions{
+					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
+				},
+			})
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondRebooted.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("WaitingForManualPowerCycleOrReboot"))
+		})
+
 		It("should stay in DPURebooting (Script + RedFish, Rebooted condition False)", func() {
 			dpuNode := dpuNodeObj(defaultDPUNodeName)
 			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
@@ -228,7 +268,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionFalse,
 				Reason:  "WaitingForReboot",
 				Message: "script reboot not yet confirmed",
@@ -259,7 +299,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.Phase = provisioningv1.DPURebooting
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionTrue,
 				Reason:  "Rebooted",
 				Message: "",
@@ -292,7 +332,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.PreviousPhase = provisioningv1.DPUInitializeInterface
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionTrue,
 				Reason:  "Rebooted",
 				Message: "",
@@ -326,7 +366,7 @@ var _ = Describe("Phase Rebooting", func() {
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondOSInstalled, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionTrue,
 				Reason:  "Rebooted",
 				Message: "",
@@ -340,7 +380,7 @@ var _ = Describe("Phase Rebooting", func() {
 			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface))
 		})
 
-		It("should move to HostNetworkConfiguration when Rebooted is True but InterfaceInitialized does not have HostPowerCycle message", func() {
+		It("should move to HostNetworkConfiguration when Rebooted is True and InterfaceInitialized has no ModeUpdate message (HostAgent node reboot)", func() {
 			dpuNode := dpuNodeObj(defaultDPUNodeName)
 			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
 				HostAgent: &provisioningv1.HostAgent{},
@@ -352,7 +392,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.Phase = provisioningv1.DPURebooting
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionTrue,
 				Reason:  "Rebooted",
 				Message: "",
@@ -396,7 +436,7 @@ var _ = Describe("Phase Rebooting", func() {
 				}
 				cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 				cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-					Type:    string(provisioningv1.DPUCondRebooted),
+					Type:    provisioningv1.DPUCondRebooted.String(),
 					Status:  metav1.ConditionTrue,
 					Reason:  "Rebooted",
 					Message: "",
@@ -447,7 +487,7 @@ var _ = Describe("Phase Rebooting", func() {
 			}
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionTrue,
 				Reason:  "Rebooted",
 				Message: "",
@@ -477,7 +517,7 @@ var _ = Describe("Phase Rebooting", func() {
 			}
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionTrue,
 				Reason:  "Rebooted",
 				Message: "",
@@ -506,7 +546,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaHostAgent))
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionTrue,
 				Reason:  "Rebooted",
 				Message: "",
@@ -529,7 +569,7 @@ var _ = Describe("Phase Rebooting", func() {
 			Expect(status.Phase).To(Equal(provisioningv1.DPUHostNetworkConfiguration))
 		})
 
-		It("should move to HostNetworkConfiguration when Rebooted is True but InterfaceInitialized does not have HostPowerCycle message", func() {
+		It("should move to HostNetworkConfiguration when Rebooted is True and InterfaceInitialized has no ModeUpdate message (External node reboot, HostAgent install)", func() {
 			dpuNode := dpuNodeObj(defaultDPUNodeName)
 			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
 				External: &provisioningv1.External{},
@@ -542,7 +582,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaHostAgent))
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionTrue,
 				Reason:  "Rebooted",
 				Message: "",
@@ -573,7 +613,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionTrue,
 				Reason:  "Rebooted",
 				Message: "",
@@ -635,7 +675,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.DPUMode = provisioningv1.NicMode
 			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionTrue,
 				Reason:  "Rebooted",
 				Message: "",
@@ -667,7 +707,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionTrue,
 				Reason:  "Rebooted",
 				Message: "",
@@ -703,7 +743,7 @@ var _ = Describe("Phase Rebooting", func() {
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondOSInstalled, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionTrue,
 				Reason:  "Rebooted",
 				Message: "",
@@ -737,7 +777,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaHostAgent))
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
+				Type:    provisioningv1.DPUCondRebooted.String(),
 				Status:  metav1.ConditionTrue,
 				Reason:  "Rebooted",
 				Message: "",
@@ -845,5 +885,137 @@ var _ = Describe("Phase Rebooting", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
 		})
+	})
+})
+
+var _ = Describe("InitializeDPURebootStatus", func() {
+	var ctx context.Context
+
+	BeforeEach(func() {
+		ctx = context.Background()
+	})
+
+	It("sets PowerCycle method for DPUInitializeInterface", func() {
+		scheme := runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+		dpuNode := &provisioningv1.DPUNode{
+			ObjectMeta: metav1.ObjectMeta{Name: "node1", Namespace: "ns1"},
+			Spec: provisioningv1.DPUNodeSpec{
+				NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+					Script: &provisioningv1.Script{Name: "cm"},
+				},
+			},
+		}
+		cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dpuNode).Build()
+		ctrlCtx := &dutil.ControllerContext{Client: cl}
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{Name: "d1", Namespace: "ns1"},
+			Spec:       provisioningv1.DPUSpec{DPUNodeName: "node1"},
+		}
+		st := &provisioningv1.DPUStatus{}
+
+		err := state.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUInitializeInterface)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(st.RebootStatus).NotTo(BeNil())
+		Expect(st.RebootStatus.Method).NotTo(BeNil())
+		Expect(*st.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodPowerCycle))
+		Expect(st.RebootStatus.Reason).To(Equal("ModeUpdateRequiresPowerCycle"))
+		Expect(st.RebootStatus.Phase).To(Equal(provisioningv1.RebootStatusPending))
+	})
+
+	It("does not modify DPU status.phase; only status.rebootStatus.phase is initialized to Pending", func() {
+		scheme := runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+		dpuNode := &provisioningv1.DPUNode{
+			ObjectMeta: metav1.ObjectMeta{Name: "node1", Namespace: "ns1"},
+			Spec: provisioningv1.DPUNodeSpec{
+				NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+					Script: &provisioningv1.Script{Name: "cm"},
+				},
+			},
+		}
+		cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dpuNode).Build()
+		ctrlCtx := &dutil.ControllerContext{Client: cl}
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{Name: "d1", Namespace: "ns1"},
+			Spec:       provisioningv1.DPUSpec{DPUNodeName: "node1"},
+		}
+		st := &provisioningv1.DPUStatus{Phase: provisioningv1.DPURebooting}
+
+		err := state.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUInitializeInterface)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(st.Phase).To(Equal(provisioningv1.DPURebooting), "callers set status.phase to DPURebooting before init")
+		Expect(st.RebootStatus).NotTo(BeNil())
+		Expect(st.RebootStatus.Phase).To(Equal(provisioningv1.RebootStatusPending))
+	})
+
+	It("uses AgentStatus RebootMethod for DPUConfig", func() {
+		scheme := runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+		dpuNode := &provisioningv1.DPUNode{
+			ObjectMeta: metav1.ObjectMeta{Name: "node1", Namespace: "ns1"},
+			Spec: provisioningv1.DPUNodeSpec{
+				NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+					External: &provisioningv1.External{},
+				},
+			},
+		}
+		cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dpuNode).Build()
+		ctrlCtx := &dutil.ControllerContext{Client: cl}
+		rm := provisioningv1.RebootMethodSystemReboot
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{Name: "d1", Namespace: "ns1"},
+			Spec:       provisioningv1.DPUSpec{DPUNodeName: "node1"},
+			Status: provisioningv1.DPUStatus{
+				AgentStatus: &provisioningv1.AgentStatus{RebootMethod: &rm},
+			},
+		}
+		st := &provisioningv1.DPUStatus{}
+
+		err := state.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUConfig)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(st.RebootStatus).NotTo(BeNil())
+		Expect(st.RebootStatus.Method).NotTo(BeNil())
+		Expect(*st.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodSystemReboot))
+	})
+
+	It("returns error for unexpected sourcePhase", func() {
+		scheme := runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+		cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+		ctrlCtx := &dutil.ControllerContext{Client: cl}
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{Name: "d1", Namespace: "ns1"},
+			Spec:       provisioningv1.DPUSpec{DPUNodeName: "node1"},
+		}
+		st := &provisioningv1.DPUStatus{}
+
+		err := state.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUClusterConfig)
+		Expect(err).To(HaveOccurred())
+		Expect(st.RebootStatus).To(BeNil())
+	})
+
+	It("removes DPUCondRebooted from state conditions", func() {
+		scheme := runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+		cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+		ctrlCtx := &dutil.ControllerContext{Client: cl}
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{Name: "d1", Namespace: "ns1"},
+			Spec:       provisioningv1.DPUSpec{DPUNodeName: "node1"},
+		}
+		st := &provisioningv1.DPUStatus{
+			Conditions: []metav1.Condition{
+				{Type: provisioningv1.DPUCondRebooted.String(), Status: metav1.ConditionTrue},
+			},
+		}
+
+		err := state.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUInitializeInterface)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(meta.FindStatusCondition(st.Conditions, provisioningv1.DPUCondRebooted.String())).To(BeNil())
 	})
 })

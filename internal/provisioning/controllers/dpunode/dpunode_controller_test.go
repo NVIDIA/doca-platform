@@ -242,128 +242,6 @@ var _ = Describe("DPUNodeReconciler Non exported", func() {
 		})
 	})
 
-	Context("updateDPUCondition", func() {
-		var (
-			reconciler *DPUNodeReconciler
-			fakeClient client.Client
-			ctx        context.Context
-		)
-
-		BeforeEach(func() {
-			ctx = context.Background()
-			scheme := runtime.NewScheme()
-			_ = provisioningv1.AddToScheme(scheme)
-
-			fakeClient = fake.NewClientBuilder().
-				WithScheme(scheme).
-				WithStatusSubresource(&provisioningv1.DPU{}).
-				Build()
-
-			reconciler = &DPUNodeReconciler{
-				Client: fakeClient,
-			}
-		})
-
-		It("should update condition for single DPU", func() {
-			dpu := &provisioningv1.DPU{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpu",
-					Namespace: "test-namespace",
-				},
-			}
-			Expect(fakeClient.Create(ctx, dpu)).To(Succeed())
-
-			condition := &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
-				Status:  metav1.ConditionTrue,
-				Reason:  "RebootComplete",
-				Message: "Node has been rebooted",
-			}
-
-			dpus := []*provisioningv1.DPU{dpu}
-			err := reconciler.updateDPUCondition(ctx, dpus, condition)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Verify the condition was set
-			updatedDPU := &provisioningv1.DPU{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
-				Name:      "test-dpu",
-				Namespace: "test-namespace",
-			}, updatedDPU)).To(Succeed())
-
-			Expect(updatedDPU.Status.Conditions).NotTo(BeEmpty())
-		})
-
-		It("should update conditions for multiple DPUs", func() {
-			dpu1 := &provisioningv1.DPU{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpu-1",
-					Namespace: "test-namespace",
-				},
-			}
-			dpu2 := &provisioningv1.DPU{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpu-2",
-					Namespace: "test-namespace",
-				},
-			}
-			Expect(fakeClient.Create(ctx, dpu1)).To(Succeed())
-			Expect(fakeClient.Create(ctx, dpu2)).To(Succeed())
-
-			condition := &metav1.Condition{
-				Type:    string(provisioningv1.DPUCondRebooted),
-				Status:  metav1.ConditionFalse,
-				Reason:  "WaitingForReboot",
-				Message: "Waiting for node reboot",
-			}
-
-			dpus := []*provisioningv1.DPU{dpu1, dpu2}
-			err := reconciler.updateDPUCondition(ctx, dpus, condition)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Verify both DPUs have the condition
-			for _, name := range []string{"test-dpu-1", "test-dpu-2"} {
-				updatedDPU := &provisioningv1.DPU{}
-				Expect(fakeClient.Get(ctx, types.NamespacedName{
-					Name:      name,
-					Namespace: "test-namespace",
-				}, updatedDPU)).To(Succeed())
-				Expect(updatedDPU.Status.Conditions).NotTo(BeEmpty())
-			}
-		})
-
-		It("should return nil for empty DPU list", func() {
-			dpus := []*provisioningv1.DPU{}
-			condition := &metav1.Condition{
-				Type:   string(provisioningv1.DPUCondRebooted),
-				Status: metav1.ConditionTrue,
-				Reason: "RebootComplete",
-			}
-
-			err := reconciler.updateDPUCondition(ctx, dpus, condition)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("should return error when DPU does not exist", func() {
-			nonExistentDPU := &provisioningv1.DPU{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "non-existent-dpu",
-					Namespace: "test-namespace",
-				},
-			}
-
-			condition := &metav1.Condition{
-				Type:   string(provisioningv1.DPUCondRebooted),
-				Status: metav1.ConditionTrue,
-				Reason: "RebootComplete",
-			}
-
-			dpus := []*provisioningv1.DPU{nonExistentDPU}
-			err := reconciler.updateDPUCondition(ctx, dpus, condition)
-			Expect(err).To(HaveOccurred())
-		})
-	})
-
 	Context("createScriptJob", func() {
 		var (
 			reconciler *DPUNodeReconciler
@@ -1517,19 +1395,38 @@ spec:
 			ExpectWithOffset(1, fakeClient.Status().Update(ctx, dpu)).To(Succeed())
 		}
 
-		getDPUConditionForTest := func(dpuNode *provisioningv1.DPUNode) *metav1.Condition {
+		setDPURebootStatusForTest := func(dpuNode *provisioningv1.DPUNode, phase provisioningv1.RebootStatusPhase, reason, message string) {
 			dpu := &provisioningv1.DPU{}
 			ExpectWithOffset(1, fakeClient.Get(ctx, types.NamespacedName{
 				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
 				Namespace: "test-namespace",
 			}, dpu)).To(Succeed())
-			_, cond := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondRebooted))
-			return cond
+			pm := provisioningv1.RebootMethodPowerCycle
+			now := metav1.Now()
+			dpu.Status.RebootStatus = &provisioningv1.RebootStatus{
+				Phase:              phase,
+				Method:             &pm,
+				Reason:             reason,
+				Message:            message,
+				LastTransitionTime: &now,
+			}
+			ExpectWithOffset(1, fakeClient.Status().Update(ctx, dpu)).To(Succeed())
 		}
+
+		getDPURebootStatusForTest := func(dpuNode *provisioningv1.DPUNode) *provisioningv1.RebootStatus {
+			dpu := &provisioningv1.DPU{}
+			ExpectWithOffset(1, fakeClient.Get(ctx, types.NamespacedName{
+				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
+				Namespace: "test-namespace",
+			}, dpu)).To(Succeed())
+			return dpu.Status.RebootStatus
+		}
+
+		waitingScriptMsg := "waiting for script to reboot node"
 
 		It("should handle job succeeded", func() {
 			dpuNode, _, _ := createTestSetup(completedJobStatus())
-			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
+			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, cutil.ReasonRebootScriptWaiting, waitingScriptMsg)
 
 			result, err := reconciler.rebootNode(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
@@ -1538,7 +1435,7 @@ spec:
 
 		It("should handle job failed with terminal condition", func() {
 			dpuNode, _, _ := createTestSetup(terminalFailedJobStatus())
-			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
+			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, cutil.ReasonRebootScriptWaiting, waitingScriptMsg)
 
 			fakeRecorder := record.NewFakeRecorder(10)
 			reconciler.Recorder = fakeRecorder
@@ -1547,26 +1444,28 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).To(BeZero())
 
-			cond := getDPUConditionForTest(dpuNode)
-			Expect(cond).NotTo(BeNil())
-			Expect(cond.Reason).To(Equal(cutil.ReasonRebootScriptFailed))
-			Expect(cond.Message).To(ContainSubstring("BackoffLimitExceeded"))
-			Expect(cond.Message).To(ContainSubstring("delete the failed job"))
+			rs := getDPURebootStatusForTest(dpuNode)
+			Expect(rs).NotTo(BeNil())
+			Expect(rs.Phase).To(Equal(provisioningv1.RebootStatusFailed))
+			Expect(rs.Reason).To(Equal(cutil.ReasonRebootScriptFailed))
+			Expect(rs.Message).To(ContainSubstring("BackoffLimitExceeded"))
+			Expect(rs.Message).To(ContainSubstring("delete the failed job"))
 
 			Eventually(fakeRecorder.Events).Should(Receive(ContainSubstring("ScriptRebootFailed")))
 		})
 
 		It("should recreate job when not found", func() {
 			dpuNode, _, _ := createTestSetup(nil)
-			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
+			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, cutil.ReasonRebootScriptWaiting, waitingScriptMsg)
 
 			result, err := reconciler.rebootNode(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue after recreating job")
 
-			cond := getDPUConditionForTest(dpuNode)
-			Expect(cond).NotTo(BeNil())
-			Expect(cond.Reason).To(Equal(cutil.ReasonRebootScriptWaiting))
+			rs := getDPURebootStatusForTest(dpuNode)
+			Expect(rs).NotTo(BeNil())
+			Expect(rs.Phase).To(Equal(provisioningv1.RebootStatusPending))
+			Expect(rs.Reason).To(Equal(cutil.ReasonRebootScriptWaiting))
 
 			job := &batchv1.Job{}
 			Expect(reconciler.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: reconciler.generateJobName(dpuNode)}, job)).To(Succeed())
@@ -1591,7 +1490,7 @@ spec:
 		It("should requeue when job is still running", func() {
 			jobStatus := &batchv1.JobStatus{Active: 1}
 			dpuNode, _, _ := createTestSetup(jobStatus)
-			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
+			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, cutil.ReasonRebootScriptWaiting, waitingScriptMsg)
 
 			result, err := reconciler.rebootNode(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
@@ -1730,27 +1629,28 @@ spec:
 			}, job)).To(Succeed())
 		})
 
-		It("should detect condExists=true for WaitingForScript reason", func() {
+		It("does not delete job when script reboot lifecycle is active from RebootStatus", func() {
 			jobStatus := &batchv1.JobStatus{Active: 1}
 			dpuNode, _, _ := createTestSetup(jobStatus)
-			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
+			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, cutil.ReasonRebootScriptWaiting, waitingScriptMsg)
 
 			result, err := reconciler.rebootNode(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero())
 		})
 
-		It("should recreate job when condExists=true but job was deleted", func() {
+		It("should recreate job when script lifecycle active but job was deleted", func() {
 			dpuNode, _, _ := createTestSetup(nil)
-			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptFailed)
+			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusFailed, cutil.ReasonRebootScriptFailed, "prior script failure")
 
 			result, err := reconciler.rebootNode(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue after recreating job")
 
-			cond := getDPUConditionForTest(dpuNode)
-			Expect(cond).NotTo(BeNil())
-			Expect(cond.Reason).To(Equal(cutil.ReasonRebootScriptWaiting))
+			rs := getDPURebootStatusForTest(dpuNode)
+			Expect(rs).NotTo(BeNil())
+			Expect(rs.Phase).To(Equal(provisioningv1.RebootStatusPending))
+			Expect(rs.Reason).To(Equal(cutil.ReasonRebootScriptWaiting))
 
 			job := &batchv1.Job{}
 			Expect(reconciler.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: reconciler.generateJobName(dpuNode)}, job)).To(Succeed())
@@ -1759,7 +1659,7 @@ spec:
 		It("should requeue when job has Failed count but no Failed condition (mid-retry)", func() {
 			jobStatus := &batchv1.JobStatus{Failed: 1, Active: 1}
 			dpuNode, _, _ := createTestSetup(jobStatus)
-			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
+			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, cutil.ReasonRebootScriptWaiting, waitingScriptMsg)
 
 			result, err := reconciler.rebootNode(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
@@ -1768,7 +1668,7 @@ spec:
 
 		It("should include pod exit code in condition message when available", func() {
 			dpuNode, _, _ := createTestSetup(terminalFailedJobStatus())
-			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
+			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, cutil.ReasonRebootScriptWaiting, waitingScriptMsg)
 
 			failedPod := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1795,10 +1695,10 @@ spec:
 			_, err := reconciler.rebootNode(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 
-			cond := getDPUConditionForTest(dpuNode)
-			Expect(cond).NotTo(BeNil())
-			Expect(cond.Message).To(ContainSubstring("137"))
-			Expect(cond.Message).To(ContainSubstring("OOMKilled"))
+			rs := getDPURebootStatusForTest(dpuNode)
+			Expect(rs).NotTo(BeNil())
+			Expect(rs.Message).To(ContainSubstring("137"))
+			Expect(rs.Message).To(ContainSubstring("OOMKilled"))
 		})
 
 		It("should emit Normal event when job is created", func() {
@@ -1838,6 +1738,12 @@ spec:
 				Namespace: "test-namespace",
 			}, job)
 			Expect(apierrors.IsNotFound(err)).To(BeTrue(), "stale active job should be deleted from the API")
+
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
+				Namespace: "test-namespace",
+			}, dpu)).To(Succeed())
+			Expect(dpu.Status.RebootStatus).To(BeNil())
 		})
 
 		It("should delete stale completed job from previous cycle and requeue", func() {
@@ -1854,6 +1760,12 @@ spec:
 			result, err := reconciler.rebootNode(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue to let API server finish deletion")
+
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
+				Namespace: "test-namespace",
+			}, dpu)).To(Succeed())
+			Expect(dpu.Status.RebootStatus).To(BeNil())
 		})
 
 		It("should delete stale failed job from previous cycle and requeue", func() {
@@ -1870,12 +1782,18 @@ spec:
 			result, err := reconciler.rebootNode(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue to let API server finish deletion")
+
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
+				Namespace: "test-namespace",
+			}, dpu)).To(Succeed())
+			Expect(dpu.Status.RebootStatus).To(BeNil())
 		})
 
 		It("should not delete job in backoff between retries", func() {
 			jobStatus := &batchv1.JobStatus{Failed: 1}
 			dpuNode, _, _ := createTestSetup(jobStatus)
-			setDPUConditionForTest(dpuNode, cutil.ReasonRebootScriptWaiting)
+			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, cutil.ReasonRebootScriptWaiting, waitingScriptMsg)
 
 			result, err := reconciler.rebootNode(ctx, dpuNode)
 			Expect(err).NotTo(HaveOccurred())
@@ -1888,9 +1806,10 @@ spec:
 			}, job)).To(Succeed())
 			Expect(job.Status.Failed).To(Equal(int32(1)))
 
-			cond := getDPUConditionForTest(dpuNode)
-			Expect(cond).NotTo(BeNil())
-			Expect(cond.Reason).To(Equal(cutil.ReasonRebootScriptWaiting), "condition should not be modified for in-progress job")
+			rs := getDPURebootStatusForTest(dpuNode)
+			Expect(rs).NotTo(BeNil())
+			Expect(rs.Phase).To(Equal(provisioningv1.RebootStatusPending))
+			Expect(rs.Reason).To(Equal(cutil.ReasonRebootScriptWaiting), "RebootStatus should still reflect script wait while job retries")
 		})
 
 	})
@@ -1906,6 +1825,7 @@ spec:
 			Expect(isScriptRelatedReason("DPUNodeNotFound")).To(BeFalse())
 			Expect(isScriptRelatedReason("InvalidState")).To(BeFalse())
 			Expect(isScriptRelatedReason("GenerateIPMIToolCommandError")).To(BeFalse())
+			Expect(isScriptRelatedReason("RebootScriptJobRemoved")).To(BeFalse())
 			Expect(isScriptRelatedReason("")).To(BeFalse())
 		})
 	})

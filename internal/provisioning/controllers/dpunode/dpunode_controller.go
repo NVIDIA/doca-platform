@@ -38,7 +38,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -82,6 +81,7 @@ const (
 	// DPUNodeRebootMethodsPerDPUAnnotation mirrors
 	// DPUNodeRebootMethodsPerDPUEnvVar as a pod-template annotation.
 	DPUNodeRebootMethodsPerDPUAnnotation string = cutil.DPUProvisioningPrefix + "reboot-methods-per-dpu"
+	reasonExternalRebootWaitManual       string = "WaitingForManualPowerCycleOrReboot"
 )
 
 // DPUNodeReconciler reconciles a DPUNode object
@@ -317,17 +317,9 @@ func (r *DPUNodeReconciler) noneDPUInNodeEffectOrRebooting(ctx context.Context, 
 	return nil
 }
 
-func (r *DPUNodeReconciler) updateDPUCondition(ctx context.Context, dpus []*provisioningv1.DPU, condition *metav1.Condition) error {
+func (r *DPUNodeReconciler) updateDPURebootStatus(ctx context.Context, dpus []*provisioningv1.DPU, phase provisioningv1.RebootStatusPhase, reason string, message string) error {
 	for _, dpu := range dpus {
-		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			// Re-read the DPU to get the latest version
-			if err := r.Get(ctx, client.ObjectKeyFromObject(dpu), dpu); err != nil {
-				return err
-			}
-			cutil.SetDPUCondition(&dpu.Status, condition)
-			return r.Status().Update(ctx, dpu)
-		})
-		if err != nil {
+		if err := cutil.UpdateDPURebootStatus(ctx, r.Client, dpu, phase, reason, message); err != nil {
 			return err
 		}
 	}
@@ -351,7 +343,7 @@ func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisionin
 		logger.Info("waiting for manual power cycle or reboot")
 		if err := r.proccessExternalReboot(ctx, dpuNode, dpus); err != nil {
 			err = fmt.Errorf("failed to process external reboot: %w", err)
-			if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, "FailedToProcessExternalReboot", err.Error())); err != nil {
+			if err := r.updateDPURebootStatus(ctx, dpus, provisioningv1.RebootStatusFailed, "FailedToProcessExternalReboot", err.Error()); err != nil {
 				return ctrl.Result{}, err
 			}
 			return ctrl.Result{}, err
@@ -368,16 +360,14 @@ func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisionin
 // processScriptReboot manages the script-based reboot lifecycle, detecting and
 // cleaning up stale jobs from previous provisioning cycles before creating new ones.
 func (r *DPUNodeReconciler) processScriptReboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (ctrl.Result, error) {
-	condExists := false
+	lifecycleActive := false
 	for _, dpu := range dpus {
-		if _, existedCond := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondRebooted)); existedCond != nil {
-			if isScriptRelatedReason(existedCond.Reason) {
-				condExists = true
-				break
-			}
+		if scriptRebootLifecycleActive(dpu.Status.RebootStatus) {
+			lifecycleActive = true
+			break
 		}
 	}
-	isFirstRun := !condExists
+	isFirstRun := !lifecycleActive
 	return r.handleExistingScriptJob(ctx, dpuNode, dpus, isFirstRun)
 }
 
@@ -388,7 +378,8 @@ func (r *DPUNodeReconciler) createAndTrackScriptJob(ctx context.Context, dpuNode
 	r.Recorder.Event(dpuNode, corev1.EventTypeNormal, "ScriptRebootJobCreated",
 		"Custom reboot script job created")
 	waitErr := fmt.Errorf("waiting for script to reboot node")
-	if err := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), waitErr, cutil.ReasonRebootScriptWaiting, waitErr.Error())); err != nil {
+	if err := r.updateDPURebootStatus(ctx, dpus, provisioningv1.RebootStatusPending,
+		cutil.ReasonRebootScriptWaiting, waitErr.Error()); err != nil {
 		return ctrl.Result{}, err
 	}
 	r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "", "")
@@ -396,7 +387,7 @@ func (r *DPUNodeReconciler) createAndTrackScriptJob(ctx context.Context, dpuNode
 }
 
 // handleExistingScriptJob fetches the script Job and routes based on its status.
-// When isFirstRun is true (no script-related condition on any DPU), the job is
+// When isFirstRun is true (no in-flight script RebootStatus on any DPU), the job is
 // stale from a previous provisioning cycle and is deleted regardless of status.
 func (r *DPUNodeReconciler) handleExistingScriptJob(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU, isFirstRun bool) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -406,7 +397,9 @@ func (r *DPUNodeReconciler) handleExistingScriptJob(ctx context.Context, dpuNode
 	if err := r.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: jobName}, job); err != nil {
 		if !apierrors.IsNotFound(err) {
 			err = fmt.Errorf("failed to fetch Job %s: %w", jobName, err)
-			_ = r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), err, cutil.ReasonRebootScriptFailedToFetchJob, err.Error()))
+			if err2 := r.updateDPURebootStatus(ctx, dpus, provisioningv1.RebootStatusFailed, cutil.ReasonRebootScriptFailedToFetchJob, err.Error()); err2 != nil {
+				return ctrl.Result{}, err2
+			}
 			return ctrl.Result{}, err
 		}
 		return r.handleJobNotFound(ctx, dpuNode, dpus)
@@ -452,7 +445,7 @@ func (r *DPUNodeReconciler) handleJobNotFound(ctx context.Context, dpuNode *prov
 
 func (r *DPUNodeReconciler) handleJobSucceeded(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (ctrl.Result, error) {
 	r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionFalse, "", "")
-	if err := r.updateDPUCondition(ctx, dpus, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", "")); err != nil {
+	if err := r.updateDPURebootStatus(ctx, dpus, provisioningv1.RebootStatusSucceeded, "", ""); err != nil {
 		return ctrl.Result{}, err
 	}
 	r.Recorder.Event(dpuNode, corev1.EventTypeNormal, "ScriptRebootSucceeded",
@@ -460,13 +453,13 @@ func (r *DPUNodeReconciler) handleJobSucceeded(ctx context.Context, dpuNode *pro
 	return ctrl.Result{}, nil
 }
 
-// handleJobFailed sets a RebootScriptFailed condition on DPUs with enriched pod failure details.
+// handleJobFailed persists RebootStatus failed; the DPU reconciler maps it to DPUCondRebooted (see reconcileHostRebootPhase).
 func (r *DPUNodeReconciler) handleJobFailed(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU, job *batchv1.Job) (ctrl.Result, error) {
 	failureDetails := r.extractPodFailureDetails(ctx, job)
 	r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionFalse, "", "")
 	failErr := fmt.Errorf("custom reboot script failed: %s. To retry, delete the failed job and the controller will recreate it", failureDetails)
-	if updateErr := r.updateDPUCondition(ctx, dpus, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), failErr, cutil.ReasonRebootScriptFailed, failErr.Error())); updateErr != nil {
-		return ctrl.Result{}, updateErr
+	if err := r.updateDPURebootStatus(ctx, dpus, provisioningv1.RebootStatusFailed, cutil.ReasonRebootScriptFailed, failErr.Error()); err != nil {
+		return ctrl.Result{}, err
 	}
 	r.Recorder.Event(dpuNode, corev1.EventTypeWarning, "ScriptRebootFailed", failureDetails)
 	return ctrl.Result{}, nil
@@ -652,22 +645,30 @@ func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provis
 
 func (r *DPUNodeReconciler) proccessExternalReboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) error {
 	logger := log.FromContext(ctx)
-	c := cutil.DPUCondition(provisioningv1.DPUCondRebooted, "WaitingForManualPowerCycleOrReboot", "")
 
-	// Check if every rebooting DPU has DPUCondRebooted
-	// First call of this function DPUCondRebooted should be nil and annotation should be set as Step 1.
-	// Second call of this function DPUCondRebooted should be set in addition to annotation as Step 2.
-	// Third call of this function should update DPUNodeConditionRebootInProgress condition as 'WaitingForExternalReboot'.
-	// After the rebooting done and Annotation is removed,
-	// DPUCondRebooted should be set to True and DPUNodeConditionRebootInProgress condition should be updated to 'Rebooted'.
+	// Every rebooting DPU must show external reboot progress via RebootStatus only: succeeded,
+	// or explicit manual-wait pending (WaitingForManualPowerCycleOrReboot). Failed or unknown
+	// Pending reasons require Step 1/2 again.
+	// Step 1: record annotation only. Step 2: write RebootStatus Pending per DPU. Then wait for annotation removal / completion.
 	condExists := true
 	for _, dpu := range dpus {
 		if dpu.Status.Phase != provisioningv1.DPURebooting {
 			continue
 		}
-		if _, existedCond := cutil.GetDPUCondition(&dpu.Status, c.Type); existedCond == nil {
+		rs := dpu.Status.RebootStatus
+		if rs == nil {
 			condExists = false
+			continue
 		}
+		switch rs.Phase {
+		case provisioningv1.RebootStatusSucceeded:
+			continue
+		case provisioningv1.RebootStatusPending:
+			if rs.Reason == reasonExternalRebootWaitManual {
+				continue
+			}
+		}
+		condExists = false
 	}
 	if condExists {
 		// Primary path for External Reboot Method to wait manual power cycle or reboot
@@ -680,21 +681,11 @@ func (r *DPUNodeReconciler) proccessExternalReboot(ctx context.Context, dpuNode 
 		}
 
 		// Fallback path: annotation was removed after reboot while DPUCondRebooted still exists on DPUs.
-		// Treat reboot as completed: set DPUCondRebooted True on rebooting DPUs and clear RebootInProgress on DPUNode.
-		for _, dpu := range dpus {
-			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				// Re-read the DPU to get the latest version
-				if err := r.Get(ctx, client.ObjectKeyFromObject(dpu), dpu); err != nil {
-					return err
-				}
-				cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", ""))
-				return r.Status().Update(ctx, dpu)
-			})
-			if err != nil {
-				return err
-			}
-			logger.Info("Update DPU condition", "dpu", dpu.Name, "DPURebooted", "true")
+		// Treat reboot as completed: RebootStatus succeeded; DPU reconciler derives DPUCondRebooted True from RebootStatus.
+		if err := r.updateDPURebootStatus(ctx, dpus, provisioningv1.RebootStatusSucceeded, "", ""); err != nil {
+			return err
 		}
+		logger.Info("Updated DPU RebootStatus after external reboot", "dpus", len(dpus))
 		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionFalse, "", "")
 		return nil
 	}
@@ -716,25 +707,17 @@ func (r *DPUNodeReconciler) proccessExternalReboot(ctx context.Context, dpuNode 
 
 	// condExists is false:
 	// Step 2 — Annotation is already stored (this reconcile or a prior one).
-	// Safe to initialize DPUCondRebooted to False on each DPU in DPURebooting phase
-	// so the operator waits for the host reboot cycle.
-	c.Status = metav1.ConditionFalse
+	// Per DPU: set RebootStatus pending with wait reason/message; DPU reconciler maps Pending -> DPUCondRebooted False (reconcileHostRebootPhase).
 	for _, dpu := range dpus {
 		if dpu.Status.Phase != provisioningv1.DPURebooting {
 			continue
 		}
-		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			// Re-read the DPU to get the latest version
-			if err := r.Get(ctx, client.ObjectKeyFromObject(dpu), dpu); err != nil {
-				return err
-			}
-			cutil.SetDPUCondition(&dpu.Status, c)
-			return r.Status().Update(ctx, dpu)
-		})
-		if err != nil {
+		dpuSlice := []*provisioningv1.DPU{dpu}
+		if err := r.updateDPURebootStatus(ctx, dpuSlice, provisioningv1.RebootStatusPending,
+			reasonExternalRebootWaitManual, "waiting for manual power cycle or reboot"); err != nil {
 			return err
 		}
-		logger.Info("Update DPU condition", "DPU", dpu.Name, "DPURebooted", "false")
+		logger.Info("Updated DPU RebootStatus pending for external reboot wait", "DPU", dpu.Name)
 	}
 
 	return nil
@@ -744,10 +727,24 @@ func (r *DPUNodeReconciler) generateJobName(dpuNode *provisioningv1.DPUNode) str
 	return fmt.Sprintf("%s-script-job", dpuNode.Name)
 }
 
-// isScriptRelatedReason returns true for DPUCondRebooted condition reasons that
-// indicate a script-reboot lifecycle managed by this controller. It is used to
-// decide whether to route to handleExistingScriptJob (true) or attempt job
-// creation (false).
+// scriptRebootLifecycleActive is true when RebootStatus reflects an in-flight script reboot
+// (waiting for the job, failed to fetch the job, or script execution failed). The DPU
+// controller mirrors this onto DPUCondRebooted.
+func scriptRebootLifecycleActive(rs *provisioningv1.RebootStatus) bool {
+	if rs == nil {
+		return false
+	}
+	switch rs.Phase {
+	case provisioningv1.RebootStatusPending:
+		return rs.Reason == cutil.ReasonRebootScriptWaiting
+	case provisioningv1.RebootStatusFailed:
+		return isScriptRelatedReason(rs.Reason)
+	default:
+		return false
+	}
+}
+
+// isScriptRelatedReason returns true for RebootStatus.reason values for script-reboot paths.
 func isScriptRelatedReason(reason string) bool {
 	switch reason {
 	case cutil.ReasonRebootScriptWaiting,

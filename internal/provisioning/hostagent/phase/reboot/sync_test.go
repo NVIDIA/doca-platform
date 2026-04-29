@@ -31,9 +31,27 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+func fakeClientWithDPUs(dpus []provisioningv1.DPU) client.Client {
+	scheme := runtime.NewScheme()
+	if err := provisioningv1.AddToScheme(scheme); err != nil {
+		panic(err)
+	}
+	b := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&provisioningv1.DPU{})
+	for i := range dpus {
+		d := dpus[i].DeepCopy()
+		b = b.WithObjects(d)
+	}
+	return b.Build()
+}
 
 var _ = Describe("Reboot Sync", func() {
 	Context("When the DPU is being rebooted", func() {
@@ -152,14 +170,15 @@ var _ = Describe("Reboot Sync", func() {
 
 		It("do nothing if reboot method is external", func() {
 			dpuNode := dpuNodeWithExternalRebootMethod()
-			rebootingDPU := rebootingDPU("rebooting-dpu")
+			rbDPU := rebootingDPU("rebooting-dpu")
 			nonRebootingDPU := nonRebootingDPU(provisioningv1.DPUInitializeInterface)
 			dpus := []provisioningv1.DPU{
-				rebootingDPU,
+				rbDPU,
 				nonRebootingDPU,
 			}
 			store := map[types.NamespacedName]bool{}
 			handler := &Handler{
+				Client:         fakeClientWithDPUs(dpus),
 				listDPUFunc:    mockListDPUFunc(dpus),
 				getDPUNodeFunc: mockGetDPUNodeFunc(dpuNode),
 				bootIDStore: &mockBootIDStore{
@@ -176,14 +195,15 @@ var _ = Describe("Reboot Sync", func() {
 
 		It("do nothing if reboot method is script", func() {
 			dpuNode := dpuNodeWithScriptRebootMethod()
-			rebootingDPU := rebootingDPU("rebooting-dpu")
+			rbDPU := rebootingDPU("rebooting-dpu")
 			nonRebootingDPU := nonRebootingDPU(provisioningv1.DPUConfigFWParameters)
 			dpus := []provisioningv1.DPU{
-				rebootingDPU,
+				rbDPU,
 				nonRebootingDPU,
 			}
 			store := map[types.NamespacedName]bool{}
 			handler := &Handler{
+				Client:         fakeClientWithDPUs(dpus),
 				listDPUFunc:    mockListDPUFunc(dpus),
 				getDPUNodeFunc: mockGetDPUNodeFunc(dpuNode),
 				bootIDStore: &mockBootIDStore{
@@ -200,14 +220,15 @@ var _ = Describe("Reboot Sync", func() {
 
 		It("should block if any DPU is being provisioned (not reaching DPURebooting phase)", func() {
 			dpuNode := dpuNodeWithHostAgentRebootMethod()
-			rebootingDPU := rebootingDPU("rebooting-dpu")
+			rbDPU := rebootingDPU("rebooting-dpu")
 			nonRebootingDPU := nonRebootingDPU(provisioningv1.DPUOSInstalling)
 			dpus := []provisioningv1.DPU{
-				rebootingDPU,
+				rbDPU,
 				nonRebootingDPU,
 			}
 			store := map[types.NamespacedName]bool{}
 			handler := &Handler{
+				Client:         fakeClientWithDPUs(dpus),
 				listDPUFunc:    mockListDPUFunc(dpus),
 				getDPUNodeFunc: mockGetDPUNodeFunc(dpuNode),
 				bootIDStore: &mockBootIDStore{
@@ -217,14 +238,13 @@ var _ = Describe("Reboot Sync", func() {
 					},
 				},
 			}
-			failures := handler.run()
-			Expect(failures).To(HaveLen(1))
-			Expect(failures[0].Name).To(Equal(rebootingDPU.Name))
-			Expect(failures[0].Status.Phase).To(Equal(provisioningv1.DPURebooting))
-			Expect(failures[0].Status.Conditions).To(HaveLen(1))
-			Expect(failures[0].Status.Conditions[0].Type).To(Equal(string(provisioningv1.DPUCondRebooted)))
-			Expect(failures[0].Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
-			Expect(failures[0].Status.Conditions[0].Reason).To(Equal(failReason))
+			handler.run()
+			updated := &provisioningv1.DPU{}
+			Expect(handler.Get(context.Background(), types.NamespacedName{Namespace: rbDPU.Namespace, Name: rbDPU.Name}, updated)).To(Succeed())
+			Expect(updated.Status.Phase).To(Equal(provisioningv1.DPURebooting))
+			Expect(updated.Status.RebootStatus).NotTo(BeNil())
+			Expect(updated.Status.RebootStatus.Phase).To(Equal(provisioningv1.RebootStatusFailed))
+			Expect(updated.Status.RebootStatus.Reason).To(Equal(failReason))
 		})
 
 		It("should run power cycle if any DPU requires it", func() {
@@ -242,6 +262,7 @@ var _ = Describe("Reboot Sync", func() {
 			powerCycleCnt := 0
 			SLRCount := 0
 			handler := &Handler{
+				Client:                      fakeClientWithDPUs(dpus),
 				getDeviceBySerialNumberFunc: mockGetDeviceBySerialNumberFunc(),
 				getRshimNameByPCIFunc:       mockGetRshimNameByPCIFunc(),
 				listDPUFunc:                 mockListDPUFunc(dpus),
@@ -282,6 +303,7 @@ var _ = Describe("Reboot Sync", func() {
 			powerCycleCnt := 0
 			SLRCount := 0
 			handler := &Handler{
+				Client:                      fakeClientWithDPUs(dpus),
 				getDeviceBySerialNumberFunc: mockGetDeviceBySerialNumberFunc(),
 				getRshimNameByPCIFunc:       mockGetRshimNameByPCIFunc(),
 				listDPUFunc:                 mockListDPUFunc(dpus),
@@ -324,6 +346,7 @@ var _ = Describe("Reboot Sync", func() {
 			powerCycleCnt := 0
 			SLRCount := 0
 			handler := &Handler{
+				Client:                      fakeClientWithDPUs(dpus),
 				getDeviceBySerialNumberFunc: mockGetDeviceBySerialNumberFunc(),
 				getRshimNameByPCIFunc:       mockGetRshimNameByPCIFunc(),
 				listDPUFunc:                 mockListDPUFunc(dpus),
@@ -368,6 +391,7 @@ var _ = Describe("Reboot Sync", func() {
 			powerCycleCnt := 0
 			SLRCount := 0
 			handler := &Handler{
+				Client:                      fakeClientWithDPUs(dpus),
 				getDeviceBySerialNumberFunc: mockGetDeviceBySerialNumberFunc(),
 				getRshimNameByPCIFunc:       mockGetRshimNameByPCIFunc(),
 				listDPUFunc:                 mockListDPUFunc(dpus),
@@ -410,6 +434,7 @@ var _ = Describe("Reboot Sync", func() {
 			dpuOffCheckRecordMutex := sync.Mutex{}
 			dpuOffCheckRecord := make(map[string]struct{})
 			handler := &Handler{
+				Client:                      fakeClientWithDPUs(dpus),
 				getDeviceBySerialNumberFunc: mockGetDeviceBySerialNumberFunc(),
 				getRshimNameByPCIFunc:       mockGetRshimNameByPCIFunc(),
 				listDPUFunc:                 mockListDPUFunc(dpus),
@@ -468,6 +493,7 @@ var _ = Describe("Reboot Sync", func() {
 			dpuOffCheckRecordMutex := sync.Mutex{}
 			dpuOffCheckRecord := make(map[string]struct{})
 			handler := &Handler{
+				Client:                      fakeClientWithDPUs(dpus),
 				getDeviceBySerialNumberFunc: mockGetDeviceBySerialNumberFunc(),
 				getRshimNameByPCIFunc:       mockGetRshimNameByPCIFunc(),
 				listDPUFunc:                 mockListDPUFunc(dpus),
@@ -528,6 +554,7 @@ var _ = Describe("Reboot Sync", func() {
 			dpuOffCheckRecordMutex := sync.Mutex{}
 			dpuOffCheckRecord := make(map[string]int)
 			handler := &Handler{
+				Client:                      fakeClientWithDPUs(dpus),
 				getDeviceBySerialNumberFunc: mockGetDeviceBySerialNumberFunc(),
 				getRshimNameByPCIFunc:       mockGetRshimNameByPCIFunc(),
 				listDPUFunc:                 mockListDPUFunc(dpus),
@@ -570,19 +597,55 @@ var _ = Describe("Reboot Sync", func() {
 					},
 				},
 			}
-			failures := handler.run()
-			Expect(failures).To(HaveLen(3))
-			for _, dpu := range failures {
-				Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPURebooting))
-				Expect(dpu.Status.Conditions).To(HaveLen(1))
-				Expect(dpu.Status.Conditions[0].Type).To(Equal(string(provisioningv1.DPUCondRebooted)))
-				Expect(dpu.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
-				Expect(dpu.Status.Conditions[0].Reason).To(Equal(failReason))
+			handler.run()
+			for _, d := range dpus {
+				got := &provisioningv1.DPU{}
+				Expect(handler.Get(context.Background(), types.NamespacedName{Namespace: d.Namespace, Name: d.Name}, got)).To(Succeed())
+				Expect(got.Status.Phase).To(Equal(provisioningv1.DPURebooting))
+				Expect(got.Status.RebootStatus).NotTo(BeNil())
+				Expect(got.Status.RebootStatus.Phase).To(Equal(provisioningv1.RebootStatusFailed))
+				Expect(got.Status.RebootStatus.Reason).To(Equal(failReason))
 			}
 			Expect(powerCycleCnt).To(Equal(0))
 			Expect(shutDownARMCount).To(Equal(3))
 			Expect(rebootHostCount).To(Equal(0))
 		})
+	})
+})
+
+var _ = Describe("Handler updateDPURebootStatus", func() {
+	It("preserves RebootStatus.Method from existing status", func() {
+		ctx := context.Background()
+		scheme := runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+		rm := provisioningv1.RebootMethodFirmwareReset
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{Name: "dpu-host", Namespace: hostutil.DPFNamespace},
+			Status: provisioningv1.DPUStatus{
+				RebootStatus: &provisioningv1.RebootStatus{
+					Phase:  provisioningv1.RebootStatusPending,
+					Method: &rm,
+				},
+			},
+		}
+		cl := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithStatusSubresource(&provisioningv1.DPU{}).
+			Build()
+		Expect(cl.Create(ctx, dpu)).To(Succeed())
+		Expect(cl.Status().Update(ctx, dpu)).To(Succeed())
+
+		h := &Handler{Client: cl}
+		err := h.updateDPURebootStatus(ctx, dpu, provisioningv1.RebootStatusFailed, "FailedToReboot", "boom")
+		Expect(err).NotTo(HaveOccurred())
+
+		updated := &provisioningv1.DPU{}
+		Expect(cl.Get(ctx, types.NamespacedName{Namespace: hostutil.DPFNamespace, Name: "dpu-host"}, updated)).To(Succeed())
+		Expect(updated.Status.RebootStatus).NotTo(BeNil())
+		Expect(updated.Status.RebootStatus.Method).NotTo(BeNil())
+		Expect(*updated.Status.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodFirmwareReset))
+		Expect(updated.Status.RebootStatus.Phase).To(Equal(provisioningv1.RebootStatusFailed))
+		Expect(updated.Status.RebootStatus.Reason).To(Equal("FailedToReboot"))
 	})
 })
 
