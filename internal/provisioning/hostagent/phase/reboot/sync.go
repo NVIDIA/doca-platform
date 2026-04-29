@@ -29,7 +29,6 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
@@ -43,7 +42,7 @@ const (
 	failReason = "FailedToReboot"
 )
 
-// run fetches DPUs on the node and reboots them. It returns a list of DPUs that failed to reboot.
+// run fetches DPUs on the node and reboots them. Failed reboots are persisted via updateDPURebootStatus when Client is set.
 func (r *Handler) run() []*provisioningv1.DPU {
 	timeoutCtx, cancel := context.WithTimeout(context.TODO(), 10*time.Minute)
 	defer cancel()
@@ -71,17 +70,21 @@ func (r *Handler) run() []*provisioningv1.DPU {
 		klog.Errorf("failed to list DPUs, err: %v", err)
 		return nil
 	}
-	ret := []*provisioningv1.DPU{}
 	failedDPUs, err := r.reboot(timeoutCtx, dpuNode, dpus)
 	if err != nil {
 		klog.Errorf("failed to reboot: %v", err)
-		for _, dpu := range failedDPUs {
+		for i := range failedDPUs {
+			dpu := &failedDPUs[i]
 			klog.Errorf("failed to reboot DPU %s", dpu.Name)
-			cpy := dpu.DeepCopy()
-			hostutil.NewCondition(condition).Failure(err, failReason).Set(&cpy.Status.Conditions)
-			ret = append(ret, cpy)
+			if r.Client != nil {
+				if err2 := r.updateDPURebootStatus(timeoutCtx, dpu, provisioningv1.RebootStatusFailed, failReason, err.Error()); err2 != nil {
+					klog.Errorf("failed to update reboot failure status for DPU %s: %v", dpu.Name, err2)
+				}
+				continue
+			}
+			klog.Errorf("no reboot failure status update: Client is nil (DPU %s)", dpu.Name)
 		}
-		return ret
+		return nil
 	}
 	return nil
 }
@@ -116,15 +119,10 @@ func (r *Handler) reboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, d
 			runPowerCycle = true
 			break
 		}
-		// run power cycle if the DPU is transitioning from NicMode to DpuMode
-		_, interfaceInitializedCondition := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondInterfaceInitialized))
-		if interfaceInitializedCondition != nil && interfaceInitializedCondition.Message == string(provisioningv1.DPUCondMessageModeUpdate) {
-			runPowerCycle = true
-			break
-		}
-		// run power cycle if the DPU agent reports PowerCycle as the reboot method
-		if dpu.Status.AgentStatus != nil && dpu.Status.AgentStatus.RebootMethod != nil &&
-			*dpu.Status.AgentStatus.RebootMethod == provisioningv1.RebootMethodPowerCycle {
+		rs := dpu.Status.RebootStatus
+		if rs != nil && rs.Method != nil &&
+			*rs.Method == provisioningv1.RebootMethodPowerCycle &&
+			rs.Phase == provisioningv1.RebootStatusPending {
 			runPowerCycle = true
 			break
 		}

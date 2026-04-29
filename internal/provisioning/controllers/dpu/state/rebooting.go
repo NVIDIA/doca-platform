@@ -84,8 +84,33 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 // reconcileHostRebootPhase runs when the DPU is in DPURebooting and host reboot is complete.
 func reconcileHostRebootPhase(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, zeroTrustMode bool) provisioningv1.DPUStatus {
 	logger := log.FromContext(ctx)
-	_, rebootCondition := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondRebooted))
 
+	// Update the Rebooted condition based on status.rebootStatus (host agent / DPUNode).
+	// Pending / Failed: copy Reason and Message onto DPUCondRebooted (False). Succeeded: True via DPUCondition.
+	_, rebootCondition := cutil.GetDPUCondition(state, provisioningv1.DPUCondRebooted.String())
+	if (rebootCondition == nil || rebootCondition.Status != metav1.ConditionTrue) && dpu.Status.RebootStatus != nil {
+		switch dpu.Status.RebootStatus.Phase {
+		case provisioningv1.RebootStatusSucceeded:
+			rs := dpu.Status.RebootStatus
+			cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondRebooted, rs.Reason, rs.Message))
+			_, rebootCondition = cutil.GetDPUCondition(state, provisioningv1.DPUCondRebooted.String())
+		case provisioningv1.RebootStatusPending, provisioningv1.RebootStatusFailed:
+			rs := dpu.Status.RebootStatus
+			reason := rs.Reason
+			if reason == "" {
+				reason = string(rs.Phase)
+			}
+			cutil.SetDPUCondition(state, &metav1.Condition{
+				Type:    provisioningv1.DPUCondRebooted.String(),
+				Status:  metav1.ConditionFalse,
+				Reason:  reason,
+				Message: rs.Message,
+			})
+			_, rebootCondition = cutil.GetDPUCondition(state, provisioningv1.DPUCondRebooted.String())
+		}
+	}
+
+	// Wait until Rebooted is True before choosing the next provisioning phase.
 	if rebootCondition == nil || rebootCondition.Status != metav1.ConditionTrue {
 		return *state
 	}
@@ -117,4 +142,59 @@ func reconcileHostRebootPhase(ctx context.Context, dpu *provisioningv1.DPU, stat
 		"dpu", dpu.Name,
 		"phase", state.Phase)
 	return *state
+}
+
+// InitializeDPURebootStatus initializes status.rebootStatus when entering DPURebooting.
+// It always refreshes reboot tracking to avoid carrying stale status between reboot cycles.
+func InitializeDPURebootStatus(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, ctrlCtx *dutil.ControllerContext, sourcePhase provisioningv1.DPUPhase) error {
+	// Ensure each reboot cycle starts from a clean rebooted condition state.
+	meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondRebooted.String())
+
+	now := metav1.Now()
+	reason := "RebootRequested"
+	message := "reboot requested and pending execution"
+	var method *provisioningv1.RebootMethodType
+	switch {
+	case sourcePhase == provisioningv1.DPUInitializeInterface:
+		// Mode transition reboot always requires a host power cycle.
+		powerCycle := provisioningv1.RebootMethodPowerCycle
+		method = &powerCycle
+		reason = "ModeUpdateRequiresPowerCycle"
+		message = "host power cycle required to apply DPU mode transition"
+	case sourcePhase == provisioningv1.DPUConfig && dpu.Status.AgentStatus != nil:
+		method = dpu.Status.AgentStatus.RebootMethod
+		if agentCond := meta.FindStatusCondition(dpu.Status.AgentStatus.Conditions, cutil.AgentCondRebootMethodDiscovery); agentCond != nil {
+			if agentCond.Reason != "" {
+				reason = agentCond.Reason
+			}
+			if agentCond.Message != "" {
+				message = agentCond.Message
+			}
+		}
+	}
+
+	// RebootStatus must always carry a method. For DPUConfig, method is expected from agent discovery;
+	// for mode update from InitializeInterface, PowerCycle is explicitly set above.
+	if method == nil || *method == provisioningv1.RebootMethodUnknown {
+		err := fmt.Errorf("failed to initialize reboot status: reboot method is unresolved (sourcePhase=%s)", sourcePhase)
+		log.FromContext(ctx).Info(
+			"Cannot initialize RebootStatus: unresolved reboot method",
+			"severity", "warning",
+			"dpu", dpu.Name,
+			"namespace", dpu.Namespace,
+			"previousPhase", sourcePhase,
+			"agentStatus", dpu.Status.AgentStatus,
+			"error", err.Error(),
+		)
+		return err
+	}
+
+	state.RebootStatus = &provisioningv1.RebootStatus{
+		Phase:              provisioningv1.RebootStatusPending,
+		Method:             method,
+		Reason:             reason,
+		Message:            message,
+		LastTransitionTime: &now,
+	}
+	return nil
 }

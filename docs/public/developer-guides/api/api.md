@@ -2389,6 +2389,7 @@ _Appears in:_
 | `dpuType` _[DPUType](#dputype)_ | The type of the DPU | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br />Optional: \{\} <br /> |
 | `agentLastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | AgentLastStartupTime is the time when the DPU agent was last started. This is copied from agentStatus.lastStartupTime. |  | Optional: \{\} <br /> |
 | `agentStatus` _[AgentStatus](#agentstatus)_ | AgentStatus contains the information reported from inside the DPU |  | Optional: \{\} <br /> |
+| `rebootStatus` _[RebootStatus](#rebootstatus)_ | RebootStatus contains host reboot progress.<br />DPU controller derives user-facing DPUCondRebooted from this status. |  | Optional: \{\} <br /> |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | The mode of the DPU | dpu | Enum: [dpu nic] <br />Optional: \{\} <br /> |
 | `deploymentMode` _[DeploymentMode](#deploymentmode)_ | DeploymentMode is copied from DPFOperatorConfig.spec.deploymentMode by the controller.<br />This field is read-only for users. |  | Enum: [zero-trust host-trusted] <br />Optional: \{\} <br /> |
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |
@@ -2815,6 +2816,7 @@ _Validation:_
 
 _Appears in:_
 - [AgentStatus](#agentstatus)
+- [RebootStatus](#rebootstatus)
 
 | Field | Description |
 | --- | --- |
@@ -2825,6 +2827,46 @@ _Appears in:_
 | `SystemLevelReset` | RebootMethodSystemLevelReset firmware configuration changes to take effect.<br /> |
 | `FirmwareReset` | RebootMethodFirmwareReset driver restart and PCI reset.<br /> |
 | `DPUWarmReboot` | RebootMethodDPUWarmReboot indicates the DPU OS is rebooting itself to apply<br />configuration changes (e.g. grub kernel parameters) that do not originate<br />from firmware or NVConfig. The provisioning controller should stay in the<br />current phase and wait for the agent to come back.<br /> |
+
+
+#### RebootStatus
+
+
+
+RebootStatus stores the host reboot execution status.
+
+
+
+_Appears in:_
+- [DPUStatus](#dpustatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `phase` _[RebootStatusPhase](#rebootstatusphase)_ | Phase is the current host reboot progress. |  | Enum: [Pending Succeeded Failed Unknown] <br /> |
+| `method` _[RebootMethodType](#rebootmethodtype)_ | Method is the recommended reboot method. |  | Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot] <br />Optional: \{\} <br /> |
+| `reason` _string_ | Reason indicates machine-readable reason for current phase. |  | Optional: \{\} <br /> |
+| `message` _string_ | Message provides human-readable details for current phase. |  | Optional: \{\} <br /> |
+| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastTransitionTime is the last update time for reboot status. |  | Optional: \{\} <br /> |
+
+
+#### RebootStatusPhase
+
+_Underlying type:_ _string_
+
+RebootStatusPhase is the host reboot progress phase.
+
+_Validation:_
+- Enum: [Pending Succeeded Failed Unknown]
+
+_Appears in:_
+- [RebootStatus](#rebootstatus)
+
+| Field | Description |
+| --- | --- |
+| `Pending` | RebootStatusPending means reboot is requested but execution has not started yet<br />(for example, waiting for a manual external reboot trigger).<br /> |
+| `Succeeded` | RebootStatusSucceeded means reboot completed successfully.<br /> |
+| `Failed` | RebootStatusFailed means reboot execution failed.<br /> |
+| `Unknown` | RebootStatusUnknown means reboot execution state cannot be determined.<br /> |
 
 
 #### RollingUpdateDPU
