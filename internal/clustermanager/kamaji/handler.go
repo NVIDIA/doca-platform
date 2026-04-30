@@ -263,15 +263,6 @@ func (cm *clusterHandler) reconcileKeepalived(ctx context.Context, dc *provision
 		ImagePullSecrets: imagePullSecrets,
 		KeepalivedImage:  cm.keepalivedImage,
 	}
-	tc, tcCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer tcCancel()
-	ds := &appsv1.DaemonSet{}
-	if err := cm.Client.Get(tc, types.NamespacedName{Namespace: dc.Namespace, Name: values.Name}, ds); err == nil {
-		return cutil.NewCondition("KeepalivedReady", nil, "Deployed", ""), nil
-	} else if !apierrors.IsNotFound(err) {
-		return nil, fmt.Errorf("failed to get keepalived Daemonset, err: %v", err)
-	}
-
 	buf := bytes.NewBuffer(nil)
 	if err := tmpl.Execute(buf, values); err != nil {
 		return nil, fmt.Errorf("failed to execute template, err: %v", err)
