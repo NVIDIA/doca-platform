@@ -271,6 +271,7 @@ write_files:
       --control-plane-mtu={{.ControlPlaneMTU}}
       --zero-trust-mode={{.RedfishInterface}}
       --astra-enabled={{.AstraEnabled}}
+      --nic-device-count={{.NICDeviceCount}}
       --kubeadm-secret-name={{.KubeadmSecretName}}
       --kubeadm-secret-namespace={{.KubeadmSecretNamespace}}
 {{- if .RedfishInterface}}
@@ -469,6 +470,7 @@ ovs-vsctl add-br br-test
 --control-plane-mtu=1500
 --zero-trust-mode=true
 --astra-enabled=true
+--nic-device-count=8
 --kubeadm-secret-name=test-secret
 --kubeadm-secret-namespace=default
 --bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig
@@ -529,6 +531,7 @@ network:
 --control-plane-mtu=1500
 --zero-trust-mode=true
 --astra-enabled=false
+--nic-device-count=8
 --kubeadm-secret-name=test-secret
 --kubeadm-secret-namespace=default
 --bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig
@@ -660,6 +663,7 @@ network:
 --control-plane-mtu=1500
 --zero-trust-mode=false
 --astra-enabled=false
+--nic-device-count=8
 --kubeadm-secret-name=test-secret
 --kubeadm-secret-namespace=default
 `)
