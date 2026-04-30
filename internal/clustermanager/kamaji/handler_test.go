@@ -25,6 +25,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -295,6 +296,127 @@ var _ = Describe("Kamaji Handler - Reconciliation Functions", func() {
 				}, sm)
 				return apierrors.IsNotFound(err)
 			}).Should(BeTrue())
+		})
+	})
+
+	Context("reconcileKeepalived", func() {
+		var keepalivedCluster *provisioningv1.DPUCluster
+
+		BeforeEach(func() {
+			By("creating DPFOperatorConfig")
+			dpfOperatorConfig := &operatorv1.DPFOperatorConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "config",
+					Namespace: testNS.Name,
+				},
+				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeHostTrusted,
+					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+						BFBPersistentVolumeClaimName: ptr.To("pvc"),
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, dpfOperatorConfig)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, k8sClient, dpfOperatorConfig)
+
+			By("creating DPUCluster with keepalived spec")
+			keepalivedCluster = &provisioningv1.DPUCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "keepalived-cluster",
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUClusterSpec{
+					Type:     string(provisioningv1.KamajiCluster),
+					MaxNodes: 100,
+					ClusterEndpoint: &provisioningv1.ClusterEndpointSpec{
+						Keepalived: &provisioningv1.KeepalivedSpec{
+							VIP:             "10.0.0.100",
+							VirtualRouterID: 50,
+							Interface:       "eth0",
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, keepalivedCluster)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, k8sClient, keepalivedCluster)
+		})
+
+		It("should update keepalived resources when DPUCluster spec changes", func() {
+			nodePort := int32(30443)
+			dsName := fmt.Sprintf("%s-keepalived", keepalivedCluster.Name)
+
+			By("calling reconcileKeepalived to create initial resources")
+			cond, err := handler.reconcileKeepalived(ctx, keepalivedCluster, nodePort)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cond).NotTo(BeNil())
+
+			By("verifying DaemonSet was created with original interface")
+			ds := &appsv1.DaemonSet{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: dsName, Namespace: testNS.Name}, ds)).To(Succeed())
+
+			initContainer := ds.Spec.Template.Spec.InitContainers[0]
+			var interfaceEnv string
+			for _, env := range initContainer.Env {
+				if env.Name == "INTERFACE" {
+					interfaceEnv = env.Value
+				}
+			}
+			Expect(interfaceEnv).To(Equal("eth0"))
+
+			By("updating DPUCluster keepalived interface")
+			keepalivedCluster.Spec.ClusterEndpoint.Keepalived.Interface = "enp3s0f0"
+
+			By("calling reconcileKeepalived again")
+			cond, err = handler.reconcileKeepalived(ctx, keepalivedCluster, nodePort)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cond).NotTo(BeNil())
+
+			By("verifying DaemonSet was updated with new interface")
+			updatedDS := &appsv1.DaemonSet{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: dsName, Namespace: testNS.Name}, updatedDS)).To(Succeed())
+			updatedInitContainer := updatedDS.Spec.Template.Spec.InitContainers[0]
+			var updatedInterface string
+			for _, env := range updatedInitContainer.Env {
+				if env.Name == "INTERFACE" {
+					updatedInterface = env.Value
+				}
+			}
+			Expect(updatedInterface).To(Equal("enp3s0f0"))
+		})
+
+		It("should update keepalived DaemonSet when VIP and VirtualRouterID change", func() {
+			nodePort := int32(30443)
+			cmName := fmt.Sprintf("%s-keepalived", keepalivedCluster.Name)
+
+			By("calling reconcileKeepalived to create initial resources")
+			_, err := handler.reconcileKeepalived(ctx, keepalivedCluster, nodePort)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying ConfigMap was created")
+			cm := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: testNS.Name}, cm)).To(Succeed())
+
+			By("updating DPUCluster keepalived VIP and VirtualRouterID")
+			keepalivedCluster.Spec.ClusterEndpoint.Keepalived.VIP = "10.0.0.200"
+			keepalivedCluster.Spec.ClusterEndpoint.Keepalived.VirtualRouterID = 100
+
+			By("calling reconcileKeepalived again")
+			_, err = handler.reconcileKeepalived(ctx, keepalivedCluster, nodePort)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying DaemonSet env vars reflect the new VIP and VirtualRouterID")
+			dsName := fmt.Sprintf("%s-keepalived", keepalivedCluster.Name)
+			updatedDS := &appsv1.DaemonSet{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: dsName, Namespace: testNS.Name}, updatedDS)).To(Succeed())
+			initContainer := updatedDS.Spec.Template.Spec.InitContainers[0]
+			envMap := make(map[string]string)
+			for _, env := range initContainer.Env {
+				if env.ValueFrom == nil {
+					envMap[env.Name] = env.Value
+				}
+			}
+			Expect(envMap["VIRTUAL_IP"]).To(Equal("10.0.0.200"))
+			Expect(envMap["VIRTUAL_ROUTER_ID"]).To(Equal("100"))
 		})
 	})
 })
