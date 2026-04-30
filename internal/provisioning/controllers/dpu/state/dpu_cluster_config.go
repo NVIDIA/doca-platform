@@ -85,10 +85,13 @@ func ClusterConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.
 		return *state, err
 	}
 
-	// Patch DPU labels to DPU Node
-	if err = cutil.UpdateLabelsToNode(ctx, newClient, node, dpu.Spec.Cluster.NodeLabels); err != nil {
-		err = fmt.Errorf("failed to add labels to object: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUClusterReady.String(), err, "AddLabelsToObjectError", err.Error()))
+	ann := dpu.Spec.Cluster.NodeAnnotations
+	if ann == nil {
+		ann = map[string]string{}
+	}
+	if err = cutil.UpdateLabelsAndAnnotationsToNode(ctx, newClient, node, dpu.Spec.Cluster.NodeLabels, ann); err != nil {
+		err = fmt.Errorf("failed to update node labels and annotations: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUClusterReady.String(), err, "AddLabelsOrAnnotationsToObjectError", err.Error()))
 		return *state, err
 	}
 

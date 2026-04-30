@@ -139,6 +139,20 @@ type DPUDeviceSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="PF0 Name is immutable"
 	// +optional
 	PF0Name *string `json:"pf0Name,omitempty"`
+
+	// Specifies details on the K8S cluster to join
+	// +optional
+	Cluster *DPUDeviceClusterSpec `json:"cluster,omitempty"`
+}
+
+// DPUDeviceClusterSpec holds node labels and annotations propagated from DPUDevice to the DPU and cluster node.
+type DPUDeviceClusterSpec struct {
+	// NodeLabels specifies labels to be added to the DPU cluster node for this device.
+	// +optional
+	NodeLabels map[string]string `json:"nodeLabels,omitempty"`
+	// NodeAnnotations specifies annotations to be added to the DPU cluster node for this device.
+	// +optional
+	NodeAnnotations map[string]string `json:"nodeAnnotations,omitempty"`
 }
 
 type DPUDeviceStatus struct {

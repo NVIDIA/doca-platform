@@ -118,6 +118,9 @@ type ClusterSpec struct {
 	// NodeLabels specifies the labels to be added to the node.
 	// +optional
 	NodeLabels map[string]string `json:"nodeLabels,omitempty"`
+	// NodeAnnotations specifies the annotations to be added to the node.
+	// +optional
+	NodeAnnotations map[string]string `json:"nodeAnnotations,omitempty"`
 	// Selector defines the selector of the DPUClusters the produced DPUs should join
 	// +optional
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`

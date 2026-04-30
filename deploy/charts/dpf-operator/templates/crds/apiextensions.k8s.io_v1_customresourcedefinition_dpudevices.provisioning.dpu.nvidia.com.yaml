@@ -67,6 +67,22 @@ spec:
                 x-kubernetes-validations:
                 - message: BMCPort is immutable
                   rule: self == oldSelf
+              cluster:
+                description: Specifies details on the K8S cluster to join
+                properties:
+                  nodeAnnotations:
+                    additionalProperties:
+                      type: string
+                    description: NodeAnnotations specifies annotations to be added
+                      to the DPU cluster node for this device.
+                    type: object
+                  nodeLabels:
+                    additionalProperties:
+                      type: string
+                    description: NodeLabels specifies labels to be added to the DPU
+                      cluster node for this device.
+                    type: object
+                type: object
               nicDeviceCount:
                 description: |-
                   NICDeviceCount is the expected number of NIC devices used by dpu-agent provisioning.
