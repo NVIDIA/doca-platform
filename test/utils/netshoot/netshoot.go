@@ -337,6 +337,32 @@ func IsPodRunningAndReady(pod *corev1.Pod) bool {
 	return false
 }
 
+// GetReadyPodsMatchingLabels lists pods in the given namespace matching the given labels
+// and returns those that are running and ready.
+func GetReadyPodsMatchingLabels(ctx context.Context, c client.Client, namespace string, matchingLabels map[string]string) []*corev1.Pod {
+	pods := &corev1.PodList{}
+	Expect(c.List(ctx, pods, client.InNamespace(namespace), client.MatchingLabels(matchingLabels))).To(Succeed())
+
+	var matched []*corev1.Pod
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		if IsPodRunningAndReady(p) {
+			matched = append(matched, p)
+		}
+	}
+	return matched
+}
+
+// GetPodOnNode returns the first pod in the list scheduled on the given node name, or nil if none match.
+func GetPodOnNode(pods []*corev1.Pod, nodeName string) *corev1.Pod {
+	for _, p := range pods {
+		if p.Spec.NodeName == nodeName {
+			return p
+		}
+	}
+	return nil
+}
+
 func isPodRunning(ctx context.Context, g Gomega, testClient client.Client, namespace, podName string) bool {
 	pod := &corev1.Pod{}
 	g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: podName}, pod)).To(Succeed())

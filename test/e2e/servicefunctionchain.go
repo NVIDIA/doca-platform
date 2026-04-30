@@ -24,7 +24,6 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
-	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/dpuservice"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
@@ -512,8 +511,8 @@ func setupHBNOnlyTest(ctx context.Context, input *systemTestInput, vfIndex int) 
 	createHBNIPAMs(ctx, input.client, input.namespace, input.dpuServiceIPAMTemplate, ipamConfigs)
 
 	By("Create and wait for HBN service")
-	node1InDPUCluster, node2InDPUCluster := getDPUClusterNodesInOrder(ctx, input.client, dpuClusterClient[0])
-	createHBNService(ctx, input.client, node1InDPUCluster, node2InDPUCluster, input.namespace, input.dpuServiceHBN)
+	dpuNode1, dpuNode2 := getDPUNodesInOrder(ctx, input.client, dpuClusterClient[0])
+	createHBNService(ctx, input.client, dpuNode1.Name, dpuNode2.Name, input.namespace, input.dpuServiceHBN)
 	dpuservice.WaitForDPUServices(ctx, input.client, input.namespace, []string{"doca-hbn"})
 
 	By("Verify underlying ServiceChain and ServiceInterface objects are ready")
@@ -549,16 +548,6 @@ func createHBNService(ctx context.Context, testClient client.Client, node1InDPUC
 	dpuServiceHBN.Spec.HelmChart.Values.Raw = mergedRaw
 
 	Expect(testClient.Create(ctx, dpuServiceHBN)).To(Succeed())
-}
-
-func getDPUClusterNodesInOrder(ctx context.Context, client client.Client, dpuClusterClient client.Client) (string, string) {
-	worker1, _ := getTwoWorkerNodeNames(ctx, client)
-	dpuNode1, dpuNode2 := getTwoNodes(ctx, dpuClusterClient)
-	if dpuNode1.ObjectMeta.Labels[provisioningv1.DPUNodeNameLabel] == worker1 {
-		return dpuNode1.Name, dpuNode2.Name
-	} else {
-		return dpuNode2.Name, dpuNode1.Name
-	}
 }
 
 // deleteFirstFoundPodOnDpuCluster deletes the first pod matching the substring from the DPU cluster
@@ -623,10 +612,10 @@ func createHBNServiceChains(ctx context.Context, client client.Client, namespace
 
 // createHBNIPAMs creates the IPAM configurations for HBN
 func createHBNIPAMs(ctx context.Context, client client.Client, namespace string, dpuServiceIPAMTemplate *dpuservicev1.DPUServiceIPAM, IPAMConfigs []dpuservice.TestIPAMConfig) {
-	node1InDPUCluster, node2InDPUCluster := getDPUClusterNodesInOrder(ctx, client, dpuClusterClient[0])
+	dpuNode1, dpuNode2 := getDPUNodesInOrder(ctx, client, dpuClusterClient[0])
 	for _, config := range IPAMConfigs {
 		DPUServiceIPAM := utils.GenerateDPUObj(config.Name, namespace, dpuServiceIPAMTemplate.DeepCopy())
-		dpuservice.SetDPUServiceHBNIPAM(DPUServiceIPAM, config, node1InDPUCluster, node2InDPUCluster)
+		dpuservice.SetDPUServiceHBNIPAM(DPUServiceIPAM, config, dpuNode1.Name, dpuNode2.Name)
 		Expect(client.Create(ctx, DPUServiceIPAM)).To(Succeed())
 	}
 }
