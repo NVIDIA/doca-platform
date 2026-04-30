@@ -25,6 +25,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -72,5 +73,38 @@ var _ = Describe("BFB Deleting State", func() {
 		_, cancelExists := butil.DownloadingTaskMap.Load(taskName + "cancel")
 		Expect(taskExists).To(BeFalse())
 		Expect(cancelExists).To(BeFalse())
+	})
+
+	It("completes deletion when status.fileName is empty (deletion before initialization)", func() {
+		scheme := runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+		cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+		now := metav1.Now()
+		bfb := &provisioningv1.BFB{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "test-bfb-stuck",
+				Namespace:         "default",
+				UID:               types.UID("uid-delete-stuck"),
+				DeletionTimestamp: &now,
+				Finalizers:        []string{provisioningv1.BFBFinalizer},
+			},
+			Status: provisioningv1.BFBStatus{
+				// Race: deleted before bfbInitializingState populated FileName.
+				FileName: "",
+			},
+		}
+
+		st := &bfbDeletingState{
+			bfb:      bfb,
+			recorder: record.NewFakeRecorder(1),
+		}
+		Expect(st.Handle(context.Background(), cl)).To(Succeed())
+
+		Expect(bfb.Finalizers).NotTo(ContainElement(provisioningv1.BFBFinalizer))
+
+		deleted := meta.FindStatusCondition(bfb.Status.Conditions, string(provisioningv1.BFBCondDeleted))
+		Expect(deleted).NotTo(BeNil())
+		Expect(deleted.Status).To(Equal(metav1.ConditionTrue))
 	})
 })
