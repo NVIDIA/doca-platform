@@ -46,7 +46,7 @@ The initial scale targets for the test are shown in the table below. Testing wil
 
 ### Testing Targets
 
-The scale tests rely on [DPF metrics](../../../advanced-configuration/observability-guide.md) to assess the performance of the components.
+The scale tests rely on DPF metrics exposed via [Kube-State-Metrics](../../../operational-readiness/observability/deployment/operator-managed-components.md#kube-state-metrics) to assess the performance of the components.
 
 The following categories of metrics are of interest. The testing process is iterative and these targets will be further specified and updated in response to test results.
 
