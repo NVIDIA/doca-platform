@@ -133,6 +133,29 @@ This pattern applies to all components listed in
 the [Optional Component Configurations](#optional-component-configurations) section below.  
 For production deployments, it is recommended to set appropriate resource limits based on your cluster's workload.
 
+### Monitoring
+
+The `spec.monitoring` field configures DPF-operator-managed observability components deployed on each DPU cluster. By default, Kube-State-Metrics and Node-Problem-Detector are enabled. OpenTelemetry Collector requires an explicit logging endpoint.
+
+```yaml
+spec:
+  monitoring:
+    # Disable all monitoring components (default: false)
+    # disable: true
+    kubeStateMetrics:
+      disable: false
+    nodeProblemDetector:
+      disable: false
+    openTelemetryCollector:
+      disable: false
+      logging:
+        endpoint: "http://<host-node-ip>:30318"
+```
+
+Each component supports `disable` and `daemon` (image, resources) overrides. To disable all monitoring at once, set `spec.monitoring.disable: true`.
+
+For detailed configuration options and architecture, see [DPF-Operator-Managed Components](../../operational-readiness/observability/deployment/operator-managed-components.md).
+
 ### Optional Component Configurations
 
 The following components can be configured to enable/disable features or specify a different container image.  
@@ -252,20 +275,20 @@ spec:
     Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration.
 
 * `spec.provisioningController.registry`: Configuration for the container registry used during provisioning.
-    - `address`: Registry address (deprecated)
-    - `port`: Registry port (deprecated)
-    - `loadBalancerAddress`: Load balancer address for registry
+    * `address`: Registry address (deprecated)
+    * `port`: Registry port (deprecated)
+    * `loadBalancerAddress`: Load balancer address for registry
 
 * `spec.provisioningController.nodeEffectRemovalTimeout`: Maximum time allowed for the Node Effect Removal phase. If the `DPUNodeMaintenance` CR still has requestors after this timeout, the DPU transitions to Error state, which is terminal and requires reprovisioning (deleting and recreating the DPU). The default is `0s`, which disables the timeout entirely (no time limit is enforced). To enable, set to a non-zero duration (e.g. `30m`). Value must be in units accepted by Go `time.ParseDuration` (e.g. `30m`, `1h`, `45m30s`).
 
 * `spec.provisioningController.installInterface`: Method for installing DPU firmware. Choose one:
-    - `installViaHostAgent`: Install via host agent
-    - `installViaGNOI`: Install via gNOI protocol
-    - `installViaRedfish`: Install via Redfish API with additional options:
-        - `bfbRegistry.disable`: Disable the BFB registry
-        - `bfbRegistry.port`: Port for BFB registry (deprecated)
-        - `bfbRegistryAddress`: Address of BFB registry (deprecated)
-        - `skipDpuNodeDiscovery`: Skip automatic DPU node discovery
+    * `installViaHostAgent`: Install via host agent
+    * `installViaGNOI`: Install via gNOI protocol
+    * `installViaRedfish`: Install via Redfish API with additional options:
+        * `bfbRegistry.disable`: Disable the BFB registry
+        * `bfbRegistry.port`: Port for BFB registry (deprecated)
+        * `bfbRegistryAddress`: Address of BFB registry (deprecated)
+        * `skipDpuNodeDiscovery`: Skip automatic DPU node discovery
 
 ```yaml
 spec:
