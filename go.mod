@@ -12,7 +12,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/Mellanox/maintenance-operator/api v0.3.0
-	github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260319154659-15edbc851cce
+	github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260427085742-a2b4ef3841e4
 	github.com/containernetworking/cni v1.2.3
 	github.com/fatih/color v1.17.0
 	github.com/fluxcd/pkg/runtime v0.52.0
@@ -52,20 +52,26 @@ require (
 )
 
 require (
+	github.com/Mellanox/rdmamap v1.2.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/cenkalti/hub v1.0.2 // indirect
 	github.com/cenkalti/rpc2 v1.0.4 // indirect
 	github.com/containernetworking/plugins v1.2.0 // indirect
 	github.com/contiv/libovsdb v0.0.0-20170227191248-d0061a53e358 // indirect
 	github.com/evanphx/json-patch v5.9.0+incompatible // indirect
+	github.com/go-ole/go-ole v1.3.0 // indirect
+	github.com/jaypipes/ghw v0.24.0 // indirect
+	github.com/jaypipes/pcidb v1.1.1 // indirect
 	github.com/orcaman/concurrent-map/v2 v2.0.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spf13/afero v1.14.0 // indirect
+	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/mod v0.33.0 // indirect
+	howett.net/plist v1.0.2-0.20250314012144-ee69052608d9 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 )

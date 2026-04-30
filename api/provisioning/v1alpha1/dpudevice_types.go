@@ -123,6 +123,14 @@ type DPUDeviceSpec struct {
 	// +optional
 	NumberOfPFs *int `json:"numberOfPFs,omitempty"`
 
+	// NICDeviceCount is the expected number of NIC devices used by dpu-agent provisioning.
+	// Valid range is 1 to 8. When unspecified, it defaults to 8.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=8
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="NICDeviceCount is immutable"
+	// +optional
+	NICDeviceCount *int `json:"nicDeviceCount,omitempty"`
+
 	// PF0Name is the name of the PF0 on the device.
 	// This value is immutable and should not be changed once set.
 	// Example: "eth0"

@@ -52,6 +52,7 @@ const (
 
 func main() {
 	defer klog.Flush()
+	ctrl.SetLogger(klog.Background())
 
 	options := opts.Options{}
 	pflag.BoolVar(&options.ZeroTrustMode, "zero-trust-mode", false, "Enable zero trust mode")
@@ -67,6 +68,7 @@ func main() {
 	pflag.StringVar(&options.KubeadmSecretNamespace, "kubeadm-secret-namespace", "", "Namespace of the Secret containing the Kubeadm join command")
 	pflag.StringVar(&options.BFBRegistryURL, "bfb-registry-url", "", "HTTP base URL of bfb-registry (scheme://host:port) for downloading files from the registry")
 	pflag.BoolVar(&options.AstraEnabled, "astra-enabled", false, "Enable astra-specific behavior")
+	pflag.IntVar(&options.NICDeviceCount, "nic-device-count", opts.DefaultNICDeviceCount, "Expected NIC device count for provisioning validation")
 	pflag.BoolVar(&options.SkipSysctl, "skip-sysctl", false, "Skip sysctl configuration")
 	pflag.BoolVar(&options.SkipNetworkConfig, "skip-network-config", false, "Skip network configuration")
 	pflag.BoolVar(&options.SkipDNSConfig, "skip-dns-config", false, "Skip DNS configuration")

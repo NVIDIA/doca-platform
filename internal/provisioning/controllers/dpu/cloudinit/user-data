@@ -72,6 +72,7 @@ write_files:
       --control-plane-mtu={{.ControlPlaneMTU}}
       --zero-trust-mode={{.RedfishInterface}}
       --astra-enabled={{.AstraEnabled}}
+      --nic-device-count={{.NICDeviceCount}}
       --kubeadm-secret-name={{.KubeadmSecretName}}
 {{- if .BFBRegistryURL}}
       --bfb-registry-url={{.BFBRegistryURL}}
