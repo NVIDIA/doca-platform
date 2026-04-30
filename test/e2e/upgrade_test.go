@@ -20,7 +20,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
+	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -35,7 +36,10 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -138,8 +142,8 @@ var _ = Describe("DPF Upgrade tests", Labels{Domain.DPFUpgrade}, func() {
 			verifySystemReady()
 		})
 
-		It("capture DPU and DPUService generations before upgrade", func() {
-			collectGenerations("upgrade-test-generations-before")
+		It("capture DPU and DPUService artifacts before upgrade", func() {
+			collectArtifacts(upgradeArtifactsFile("before"))
 		})
 	})
 })
@@ -173,16 +177,6 @@ var _ = Describe("DPF Upgrade validation", Labels{Domain.DPFUpgradeValidation}, 
 			VerifyHostAgentPodsImageTag(ctx, input, tag)
 		})
 
-		It("waiting for controllers to reconcile", func() {
-			const reconciliationWait = 30 * time.Second
-			By(fmt.Sprintf("Waiting %s for controllers to reconcile", reconciliationWait))
-			time.Sleep(reconciliationWait)
-		})
-
-		It("validate DPU and DPUService generations after upgrade", func() {
-			validateGenerationsAfterUpgrade()
-		})
-
 		It("update DPUDeployments with new required fields", func() {
 			By("Listing all DPUDeployments in the system namespace")
 			dpuDeploymentList := &dpuservicev1.DPUDeploymentList{}
@@ -196,9 +190,6 @@ var _ = Describe("DPF Upgrade validation", Labels{Domain.DPFUpgradeValidation}, 
 				dpuDeployment.Spec.DPUs.DPUSetStrategy = provisioningv1.DPUSetStrategy{
 					Type: provisioningv1.RollingUpdateStrategyType,
 				}
-				dpuDeployment.Spec.DPUs.NodeEffect = provisioningv1.Action{
-					Drain: ptr.To(true),
-				}
 				Expect(input.client.Patch(ctx, dpuDeployment, client.MergeFrom(original))).To(Succeed())
 			}
 
@@ -211,6 +202,16 @@ var _ = Describe("DPF Upgrade validation", Labels{Domain.DPFUpgradeValidation}, 
 						"DPUSetsReconciled should be True for %s", dpuDeployment.Name)
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 			}
+		})
+
+		It("waiting for controllers to reconcile", func() {
+			const reconciliationWait = 30 * time.Second
+			By(fmt.Sprintf("Waiting %s for controllers to reconcile", reconciliationWait))
+			time.Sleep(reconciliationWait)
+		})
+
+		It("validate DPU and DPUService artifacts after upgrade", func() {
+			validateArtifactsAfterUpgrade()
 		})
 
 		It("perform DPU and DPUService rollout test", func() {
@@ -272,68 +273,167 @@ func validatePreUpgradeConditions(ctx context.Context, input *systemTestInput) {
 		"PreUpgradeValidationReady condition should be ready and stable")
 }
 
-func validateGenerationsAfterUpgrade() {
-	collectGenerations("upgrade-test-generations-after")
-	allGenerationsBefore := getGenerationsFromConfigMap("upgrade-test-generations-before")
-	allGenerationsAfter := getGenerationsFromConfigMap("upgrade-test-generations-after")
-
-	By("Comparing generations before and after upgrade")
-	Expect(allGenerationsAfter).To(HaveLen(len(allGenerationsBefore)),
-		"Number of objects should remain the same after upgrade")
-
-	sort.Slice(allGenerationsBefore, func(i, j int) bool {
-		return fmt.Sprintf("%v", allGenerationsBefore[i]) <
-			fmt.Sprintf("%v", allGenerationsBefore[j])
-	})
-	sort.Slice(allGenerationsAfter, func(i, j int) bool {
-		return fmt.Sprintf("%v", allGenerationsAfter[i]) <
-			fmt.Sprintf("%v", allGenerationsAfter[j])
-	})
-	Expect(allGenerationsAfter).To(BeComparableTo(allGenerationsBefore),
-		"Generation data (ignoring order) should remain identical after upgrade")
+// upgradeArtifactsFile constructs the file path in which artifacts are going to be stored before and after the upgrade
+// for comparison purposes.
+func upgradeArtifactsFile(phase string) string {
+	return filepath.Join(artifactsDir, "..", "upgrade-artifacts-"+phase+".json")
 }
 
-func collectGenerations(configMapName string) {
-	allGenerations := make([]map[string]interface{}, 0)
+// upgradeExpectedChange describes a known spec change introduced by an upgrade.
+// objects that are recreated can't be handled by this struct and need to be handled in a different way.
+// transform is applied only to the after artifact of the matching GVK before comparison, resetting the changed field(s)
+// back to their pre-upgrade value so the assertion does not fail on expected changes. The matching before artifact's
+// generation is bumped by one to account for the single spec change the upgrade introduced.
+//
+// Example — a field that flips from false to true after upgrade:
+//
+//	{gvk: dpuservicev1.GroupVersion.WithKind("DPUService"), transform: func(a map[string]interface{}) {
+//	    spec, _ := a["spec"].(map[string]interface{})
+//	    spec["something"] = false
+//	}}
+type upgradeExpectedChange struct {
+	gvk       schema.GroupVersionKind
+	transform func(artifact map[string]interface{})
+}
 
-	By("Capturing DPU generations")
+// upgradeExpectedChanges lists spec changes that are intentionally introduced by an
+// upgrade. Add entries here to prevent known expected changes from failing the
+// artifact comparison.
+var upgradeExpectedChanges = []upgradeExpectedChange{}
+
+func applyUpgradeExpectedChanges(before, after []map[string]interface{}) {
+	type artifactKey struct{ apiVersion, kind, name, namespace string }
+	beforeIdx := make(map[artifactKey]int, len(before))
+	for i, b := range before {
+		k := artifactKey{
+			apiVersion: fmt.Sprintf("%v", b["apiVersion"]),
+			kind:       fmt.Sprintf("%v", b["kind"]),
+			name:       fmt.Sprintf("%v", b["name"]),
+			namespace:  fmt.Sprintf("%v", b["namespace"]),
+		}
+		beforeIdx[k] = i
+	}
+
+	for i, artifact := range after {
+		apiVersion, _ := artifact["apiVersion"].(string)
+		kind, _ := artifact["kind"].(string)
+		gv, err := schema.ParseGroupVersion(apiVersion)
+		Expect(err).ToNot(HaveOccurred())
+		artifactGVK := gv.WithKind(kind)
+		for _, change := range upgradeExpectedChanges {
+			if change.gvk != artifactGVK {
+				continue
+			}
+			change.transform(after[i])
+			// The spec change introduced by the upgrade bumped the generation once.
+			// Increment the matching before artifact's generation so the comparison holds.
+			k := artifactKey{
+				apiVersion: apiVersion,
+				kind:       kind,
+				name:       fmt.Sprintf("%v", artifact["name"]),
+				namespace:  fmt.Sprintf("%v", artifact["namespace"]),
+			}
+			if idx, ok := beforeIdx[k]; ok {
+				if gen, ok := before[idx]["generation"].(float64); ok {
+					before[idx]["generation"] = gen + 1
+				}
+			}
+		}
+	}
+}
+
+func validateArtifactsAfterUpgrade() {
+	collectArtifacts(upgradeArtifactsFile("after"))
+	allArtifactsBefore := getArtifacts(upgradeArtifactsFile("before"))
+	allArtifactsAfter := getArtifacts(upgradeArtifactsFile("after"))
+
+	By("Applying known expected upgrade changes to after artifacts before comparison")
+	applyUpgradeExpectedChanges(allArtifactsBefore, allArtifactsAfter)
+
+	By("Comparing artifacts before and after upgrade")
+	Expect(allArtifactsAfter).To(HaveLen(len(allArtifactsBefore)),
+		"Number of objects should remain the same after upgrade")
+
+	sort.Slice(allArtifactsBefore, func(i, j int) bool {
+		return fmt.Sprintf("%v", allArtifactsBefore[i]) <
+			fmt.Sprintf("%v", allArtifactsBefore[j])
+	})
+	sort.Slice(allArtifactsAfter, func(i, j int) bool {
+		return fmt.Sprintf("%v", allArtifactsAfter[i]) <
+			fmt.Sprintf("%v", allArtifactsAfter[j])
+	})
+	Expect(allArtifactsAfter).To(BeComparableTo(allArtifactsBefore),
+		"Artifact data (metadata and spec, ignoring order) should remain identical after upgrade")
+}
+
+func collectArtifacts(filePath string) {
+	By("Collecting artifacts to: " + filePath)
+	Expect(os.MkdirAll(filepath.Dir(filePath), 0755)).To(Succeed())
+
+	allArtifacts := make([]map[string]interface{}, 0)
+
+	By("Capturing DPU artifacts")
 	dpuList := &provisioningv1.DPUList{}
 	Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-	allGenerations = append(allGenerations, extractGenerationInfo(ToClientObjectSlice(dpuList.Items))...)
+	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuList.Items))...)
 
-	By("Capturing DPUService generations with owned-by-dpudeployment label")
+	By("Capturing DPUService artifacts with owned-by-dpudeployment label")
 	dpuServiceList := &dpuservicev1.DPUServiceList{}
 	Expect(input.client.List(ctx, dpuServiceList,
 		client.InNamespace(dpfOperatorSystemNamespace),
 		client.HasLabels{dpuservicev1.ParentDPUDeploymentNameLabel})).To(Succeed())
-	allGenerations = append(allGenerations, extractGenerationInfo(ToClientObjectSlice(dpuServiceList.Items))...)
+	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuServiceList.Items))...)
 
-	genData, err := json.MarshalIndent(allGenerations, "", "  ")
+	By("Capturing DPUServiceChain artifacts")
+	dpuServiceChainList := &dpuservicev1.DPUServiceChainList{}
+	Expect(input.client.List(ctx, dpuServiceChainList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuServiceChainList.Items))...)
+
+	By("Capturing DPUSet artifacts")
+	dpuSetList := &provisioningv1.DPUSetList{}
+	Expect(input.client.List(ctx, dpuSetList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuSetList.Items))...)
+
+	By("Capturing DPUServiceInterface artifacts")
+	dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
+	Expect(input.client.List(ctx, dpuServiceInterfaceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuServiceInterfaceList.Items))...)
+
+	By("Capturing ServiceChain artifacts from DPU cluster")
+	serviceChainList := &dpuservicev1.ServiceChainList{}
+	Expect(dpuClusterClient[0].List(ctx, serviceChainList)).To(Succeed())
+	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(serviceChainList.Items))...)
+
+	By("Capturing ServiceInterface artifacts from DPU cluster")
+	serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
+	Expect(dpuClusterClient[0].List(ctx, serviceInterfaceList)).To(Succeed())
+	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(serviceInterfaceList.Items))...)
+
+	By("Capturing Pod artifacts from DPU cluster with service label but not system component label")
+	podList := &corev1.PodList{}
+	hasServiceLabelReq, reqErr := labels.NewRequirement(dpuservicev1.DPFServiceIDLabelKey, selection.Exists, nil)
+	Expect(reqErr).ToNot(HaveOccurred())
+	notSystemComponentReq, reqErr := labels.NewRequirement(operatorv1.DPFComponentLabelKey, selection.DoesNotExist, nil)
+	Expect(reqErr).ToNot(HaveOccurred())
+	podSelector := labels.NewSelector().Add(*hasServiceLabelReq, *notSystemComponentReq)
+	Expect(dpuClusterClient[0].List(ctx, podList, &client.MatchingLabelsSelector{Selector: podSelector})).To(Succeed())
+	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(podList.Items))...)
+
+	artifactData, err := json.MarshalIndent(allArtifacts, "", "  ")
 	Expect(err).ToNot(HaveOccurred())
 
-	By("Storing generations in ConfigMap")
-	configMap := &corev1.ConfigMap{}
-	configMap.SetName(configMapName)
-	configMap.SetNamespace(dpfOperatorSystemNamespace)
-	configMap.SetLabels(CleanupScope.Suite)
-	configMap.Data = map[string]string{
-		"generations.json": string(genData),
-	}
-	Expect(input.client.Create(ctx, configMap)).To(Succeed())
+	By("Writing artifacts to: " + filePath)
+	Expect(os.WriteFile(filePath, artifactData, 0644)).To(Succeed())
 }
 
-func getGenerationsFromConfigMap(configMapName string) []map[string]interface{} {
-	By("Reading generations before upgrade from ConfigMap")
-	configMapBefore := &corev1.ConfigMap{}
-	Expect(input.client.Get(ctx, client.ObjectKey{
-		Name:      configMapName,
-		Namespace: dpfOperatorSystemNamespace,
-	}, configMapBefore)).To(Succeed())
+func getArtifacts(filePath string) []map[string]interface{} {
+	By("Reading artifacts from: " + filePath)
+	data, err := os.ReadFile(filePath)
+	Expect(err).ToNot(HaveOccurred())
 
-	genData := configMapBefore.Data["generations.json"]
-	var allGenerations []map[string]interface{}
-	Expect(json.Unmarshal([]byte(genData), &allGenerations)).To(Succeed())
-	return allGenerations
+	var artifacts []map[string]interface{}
+	Expect(json.Unmarshal(data, &artifacts)).To(Succeed())
+	return artifacts
 }
 
 // ToClientObjectSlice converts a slice of concrete Kubernetes objects to []client.Object
@@ -346,23 +446,33 @@ func ToClientObjectSlice[T any](in []T) []client.Object {
 	return out
 }
 
-// extractGenerationInfo extracts generation info from Kubernetes objects
-func extractGenerationInfo(objects []client.Object) []map[string]interface{} {
-	generations := []map[string]interface{}{}
-
+// extractArtifacts extracts the GVK, name, namespace, UID, generation, and spec of Kubernetes objects.
+// All other fields (status, volatile metadata) are excluded.
+// GVK is resolved via the scheme because List calls do not populate TypeMeta on
+// individual items.
+func extractArtifacts(objects []client.Object) []map[string]interface{} {
+	artifacts := make([]map[string]interface{}, 0, len(objects))
 	for _, obj := range objects {
-		// Extract type name from the struct type
-		typeName := reflect.TypeOf(obj).Elem().Name()
-
-		generations = append(generations, map[string]interface{}{
-			"type":       typeName,
+		data, err := json.Marshal(obj)
+		Expect(err).ToNot(HaveOccurred())
+		var m map[string]interface{}
+		Expect(json.Unmarshal(data, &m)).To(Succeed())
+		// Resolve GVK from the scheme — TypeMeta is not set on items from List calls.
+		gvks, _, err := scheme.Scheme.ObjectKinds(obj)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(gvks).ToNot(BeEmpty())
+		artifact := map[string]interface{}{
+			"apiVersion": gvks[0].GroupVersion().String(),
+			"kind":       gvks[0].Kind,
 			"name":       obj.GetName(),
 			"namespace":  obj.GetNamespace(),
+			"uid":        string(obj.GetUID()),
 			"generation": obj.GetGeneration(),
-		})
+			"spec":       m["spec"],
+		}
+		artifacts = append(artifacts, artifact)
 	}
-
-	return generations
+	return artifacts
 }
 
 // verifySystemReady checks if the DPF system components are ready.
