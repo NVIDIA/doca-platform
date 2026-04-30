@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"context"
 	"testing"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -26,6 +27,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestUtil(t *testing.T) {
@@ -416,6 +420,203 @@ var _ = Describe("Util", func() {
 			bfb2.UID = types.UID("uid-2")
 
 			Expect(GenerateBFBTaskName(bfb1)).NotTo(Equal(GenerateBFBTaskName(bfb2)))
+		})
+	})
+
+	Context("MergeDPUClusterNodeMetadata", func() {
+		It("merges disjoint template and device keys", func() {
+			tpl := &provisioningv1.ClusterSpec{
+				NodeLabels:      map[string]string{"a": "1"},
+				NodeAnnotations: map[string]string{"x": "y"},
+			}
+			dev := &provisioningv1.DPUDeviceClusterSpec{
+				NodeLabels:      map[string]string{"b": "2"},
+				NodeAnnotations: map[string]string{"z": "w"},
+			}
+			l, a, err := MergeDPUClusterNodeMetadata(tpl, dev)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(l).To(Equal(map[string]string{"a": "1", "b": "2"}))
+			Expect(a).To(Equal(map[string]string{"x": "y", "z": "w"}))
+		})
+
+		It("allows same key and value from both sides", func() {
+			tpl := &provisioningv1.ClusterSpec{NodeLabels: map[string]string{"k": "v"}}
+			dev := &provisioningv1.DPUDeviceClusterSpec{NodeLabels: map[string]string{"k": "v"}}
+			l, _, err := MergeDPUClusterNodeMetadata(tpl, dev)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(l["k"]).To(Equal("v"))
+		})
+
+		It("errors on label value conflict", func() {
+			tpl := &provisioningv1.ClusterSpec{NodeLabels: map[string]string{"k": "1"}}
+			dev := &provisioningv1.DPUDeviceClusterSpec{NodeLabels: map[string]string{"k": "2"}}
+			_, _, err := MergeDPUClusterNodeMetadata(tpl, dev)
+			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Context("GetStringMapFromAnnotation", func() {
+		It("returns empty map when annotations is nil", func() {
+			m := GetStringMapFromAnnotation(nil, "k")
+			Expect(m).To(Equal(map[string]string{}))
+		})
+
+		It("returns empty map when key is missing or empty", func() {
+			Expect(GetStringMapFromAnnotation(map[string]string{}, "k")).To(Equal(map[string]string{}))
+			Expect(GetStringMapFromAnnotation(map[string]string{"k": ""}, "k")).To(Equal(map[string]string{}))
+		})
+
+		It("returns empty map on invalid JSON", func() {
+			m := GetStringMapFromAnnotation(map[string]string{"k": "not-json"}, "k")
+			Expect(m).To(Equal(map[string]string{}))
+		})
+
+		It("returns empty map for JSON null", func() {
+			m := GetStringMapFromAnnotation(map[string]string{"k": "null"}, "k")
+			Expect(m).To(Equal(map[string]string{}))
+		})
+
+		It("unmarshals valid JSON object", func() {
+			m := GetStringMapFromAnnotation(map[string]string{"k": `{"a":"1","b":"2"}`}, "k")
+			Expect(m).To(Equal(map[string]string{"a": "1", "b": "2"}))
+		})
+	})
+
+	Context("SetAnnotationFromStringMap", func() {
+		It("initializes annotations and encodes nil as empty object", func() {
+			meta := &metav1.ObjectMeta{}
+			Expect(SetAnnotationFromStringMap(meta, "my-key", nil)).To(Succeed())
+			Expect(meta.Annotations).To(HaveKeyWithValue("my-key", "{}"))
+		})
+
+		It("round-trips with GetStringMapFromAnnotation", func() {
+			meta := &metav1.ObjectMeta{Annotations: map[string]string{}}
+			data := map[string]string{"x": "y", "z": "w"}
+			Expect(SetAnnotationFromStringMap(meta, "k", data)).To(Succeed())
+			Expect(GetStringMapFromAnnotation(meta.Annotations, "k")).To(Equal(data))
+		})
+	})
+
+	Context("NeedUpdateLabelsOnNodeInDPUCluster", func() {
+		It("returns false when desired matches last applied", func() {
+			n := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						LastAppliedLabelsOnDPUKey: `{"a":"1"}`,
+					},
+				},
+			}
+			need, err := NeedUpdateLabelsOnNodeInDPUCluster(n, map[string]string{"a": "1"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(need).To(BeFalse())
+		})
+
+		It("returns true when desired differs from last applied", func() {
+			n := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						LastAppliedLabelsOnDPUKey: `{"a":"1"}`,
+					},
+				},
+			}
+			need, err := NeedUpdateLabelsOnNodeInDPUCluster(n, map[string]string{"a": "2"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(need).To(BeTrue())
+		})
+
+		It("returns error when last-applied JSON is invalid", func() {
+			n := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						LastAppliedLabelsOnDPUKey: `not-json`,
+					},
+				},
+			}
+			_, err := NeedUpdateLabelsOnNodeInDPUCluster(n, map[string]string{})
+			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Context("NeedUpdateAnnotationsOnNodeInDPUCluster", func() {
+		It("returns false when desired matches last applied", func() {
+			n := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						LastAppliedAnnotationsOnDPUKey: `{"p":"q"}`,
+					},
+				},
+			}
+			need, err := NeedUpdateAnnotationsOnNodeInDPUCluster(n, map[string]string{"p": "q"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(need).To(BeFalse())
+		})
+
+		It("returns true when desired differs from last applied", func() {
+			n := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						LastAppliedAnnotationsOnDPUKey: `{"p":"q"}`,
+					},
+				},
+			}
+			need, err := NeedUpdateAnnotationsOnNodeInDPUCluster(n, map[string]string{"p": "r"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(need).To(BeTrue())
+		})
+
+		It("returns error when last-applied JSON is invalid", func() {
+			n := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						LastAppliedAnnotationsOnDPUKey: `{`,
+					},
+				},
+			}
+			_, err := NeedUpdateAnnotationsOnNodeInDPUCluster(n, map[string]string{})
+			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Context("UpdateLabelsAndAnnotationsToNode", func() {
+		It("patches node labels, user annotations, and last-applied keys", func() {
+			ctx := context.Background()
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "worker-1",
+					ResourceVersion: "1",
+				},
+			}
+			cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(node.DeepCopy()).Build()
+
+			n := &corev1.Node{}
+			Expect(cl.Get(ctx, client.ObjectKey{Name: "worker-1"}, n)).To(Succeed())
+
+			labels := map[string]string{"role": "dpu"}
+			annotations := map[string]string{"custom": "v"}
+			Expect(UpdateLabelsAndAnnotationsToNode(ctx, cl, n, labels, annotations)).To(Succeed())
+
+			updated := &corev1.Node{}
+			Expect(cl.Get(ctx, client.ObjectKey{Name: "worker-1"}, updated)).To(Succeed())
+			Expect(updated.Labels).To(HaveKeyWithValue("role", "dpu"))
+			Expect(updated.Annotations["custom"]).To(Equal("v"))
+			Expect(updated.Annotations[LastAppliedLabelsOnDPUKey]).To(Equal(`{"role":"dpu"}`))
+			Expect(updated.Annotations[LastAppliedAnnotationsOnDPUKey]).To(Equal(`{"custom":"v"}`))
+		})
+
+		It("returns error when existing last-applied labels JSON is invalid", func() {
+			ctx := context.Background()
+			n := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "bad-labels",
+					ResourceVersion: "1",
+					Annotations: map[string]string{
+						LastAppliedLabelsOnDPUKey: `not-json`,
+					},
+				},
+			}
+			cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(n.DeepCopy()).Build()
+			Expect(cl.Get(ctx, client.ObjectKey{Name: "bad-labels"}, n)).To(Succeed())
+			Expect(UpdateLabelsAndAnnotationsToNode(ctx, cl, n, map[string]string{}, map[string]string{})).To(HaveOccurred())
 		})
 	})
 })

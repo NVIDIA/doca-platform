@@ -87,6 +87,12 @@ spec:
                     x-kubernetes-validations:
                     - message: Value is immutable
                       rule: self==oldSelf
+                  nodeAnnotations:
+                    additionalProperties:
+                      type: string
+                    description: NodeAnnotations specifies the annotations to be added
+                      to the node.
+                    type: object
                   nodeLabels:
                     additionalProperties:
                       type: string

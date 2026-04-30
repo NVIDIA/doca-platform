@@ -1558,6 +1558,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `nodeLabels` _object (keys:string, values:string)_ | NodeLabels specifies the labels to be added to the node. |  | Optional: \{\} <br /> |
+| `nodeAnnotations` _object (keys:string, values:string)_ | NodeAnnotations specifies the annotations to be added to the node. |  | Optional: \{\} <br /> |
 | `selector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Selector defines the selector of the DPUClusters the produced DPUs should join |  | Optional: \{\} <br /> |
 
 
@@ -1737,6 +1738,23 @@ _Appears in:_
 | `status` _[DPUDeviceStatus](#dpudevicestatus)_ |  |  |  |
 
 
+#### DPUDeviceClusterSpec
+
+
+
+DPUDeviceClusterSpec holds node labels and annotations propagated from DPUDevice to the DPU and cluster node.
+
+
+
+_Appears in:_
+- [DPUDeviceSpec](#dpudevicespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeLabels` _object (keys:string, values:string)_ | NodeLabels specifies labels to be added to the DPU cluster node for this device. |  | Optional: \{\} <br /> |
+| `nodeAnnotations` _object (keys:string, values:string)_ | NodeAnnotations specifies annotations to be added to the DPU cluster node for this device. |  | Optional: \{\} <br /> |
+
+
 #### DPUDeviceList
 
 
@@ -1776,6 +1794,7 @@ _Appears in:_
 | `numberOfPFs` _integer_ | NumberOfPFs is the number of PFs on the device.<br />This value is immutable and should not be changed once set.<br />Example: 1 | 1 | Minimum: 1 <br />Optional: \{\} <br /> |
 | `nicDeviceCount` _integer_ | NICDeviceCount is the expected number of NIC devices used by dpu-agent provisioning.<br />Valid range is 1 to 8. When unspecified, it defaults to 8. |  | Maximum: 8 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 | `pf0Name` _string_ | PF0Name is the name of the PF0 on the device.<br />This value is immutable and should not be changed once set.<br />Example: "eth0"<br />Deprecated: This field is deprecated and will be removed in a future version. Use status.pf0Name instead. |  | Optional: \{\} <br /> |
+| `cluster` _[DPUDeviceClusterSpec](#dpudeviceclusterspec)_ | Specifies details on the K8S cluster to join |  | Optional: \{\} <br /> |
 
 
 #### DPUDeviceStatus
@@ -2628,6 +2647,7 @@ _Appears in:_
 | `name` _string_ | Name is the name of the DPUs Kubernetes cluster |  | Optional: \{\} <br /> |
 | `namespace` _string_ | Namespace is the tenants namespace name where the Kubernetes cluster will be deployed |  | Optional: \{\} <br /> |
 | `nodeLabels` _object (keys:string, values:string)_ | NodeLabels specifies the labels to be added to the node. |  | Optional: \{\} <br /> |
+| `nodeAnnotations` _object (keys:string, values:string)_ | NodeAnnotations specifies the annotations to be added to the node. |  | Optional: \{\} <br /> |
 | `selector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | Selector defines the selector of the DPUClusters the produced DPUs should join |  | Optional: \{\} <br /> |
 
 

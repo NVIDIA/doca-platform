@@ -39,4 +39,6 @@ const (
 	EventFailedExtractBFBReason = "FailedExtract"
 	// EventSuccessfulExtractBFBReason indicates that component extraction succeeded.
 	EventSuccessfulExtractBFBReason = "SuccessfulExtract"
+	// EventClusterMetadataConflictReason indicates DPUSet template and DPUDevice cluster metadata disagree.
+	EventClusterMetadataConflictReason = "ClusterMetadataConflict"
 )
