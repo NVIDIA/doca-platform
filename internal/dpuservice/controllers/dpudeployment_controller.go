@@ -65,6 +65,12 @@ const (
 
 	// resourceNameGeneratedSuffixLength is the length of the random string used to generate unique names
 	resourceNameGeneratedSuffixLength = 5
+
+	// skipDPUServiceChainRequestorAnnotationKey is the key that determines whether the DPUServiceChain requestor should
+	// be skipped in the DPUNodeMaintenance to allow DPUServiceChains that do not become ready due to uninitialized
+	// DPUServiceInterfaces to unblock the DPUs and make them Ready.
+	// TODO: Remove after implementing lazy loading for DPUServiceInterfaces
+	skipDPUServiceChainRequestorAnnotationKey = "svc.dpu.nvidia.com/dpudeployment-skip-chain-requestor"
 )
 
 // pauseDPUDeploymentReconciler pauses the DPUDeployment Reconciler by doing noop reconciliation loops. This is helpful
@@ -788,7 +794,12 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 	// requestors when those DPUServices and DPUServiceChains are ready.
 	// Always populate this list regardless of whether changes are disruptive
 	dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = make([]string, 0)
-	for _, revision := range dpuNodeLabels {
+	_, skipChainRequestor := dpuDeployment.Annotations[skipDPUServiceChainRequestorAnnotationKey]
+	for labelKey, revision := range dpuNodeLabels {
+		// Skip DPUServiceChain requestor in case the relevant annotation is present
+		if labelKey == dpuServiceChainVersionLabelAnnotationKey && skipChainRequestor {
+			continue
+		}
 		requestor := getRequestorForDPUObjectVersion(getParentDPUDeploymentLabelValue(dpuDeploymentNamespacedName), revision)
 		if !slices.Contains(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors, requestor) {
 			dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = append(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors, requestor)
