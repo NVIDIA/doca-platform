@@ -38,7 +38,7 @@ var _ = Describe("DPF scale tests", Labels{Domain.Scale}, func() {
 })
 
 func CreateDPUWorkerNodes(ctx context.Context, n int) {
-	By("creates nodes in the target cluster")
+	By("Creates nodes in the target cluster")
 	// Get the name of the mock-dms pod
 
 	mockDMSPod := &corev1.PodList{}

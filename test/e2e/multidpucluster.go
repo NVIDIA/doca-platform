@@ -109,7 +109,7 @@ func ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster(ctx context.Co
 		g.Expect(VerifyDeploymentUnderlyingObjectsCreated(ctx, g, input.client, dpuDeployment)).To(BeTrue())
 	}).WithTimeout(180 * time.Second).Should(Succeed())
 
-	By("verifying that the DPUDeployment is ready")
+	By("Verifying that the DPUDeployment is ready")
 	Eventually(func(g Gomega) {
 		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 		g.Expect(conditions.IsTrue(dpuDeployment, conditions.TypeReady)).To(BeTrue())
@@ -194,7 +194,7 @@ func ValidateDPUServiceIPAMInL2ModeForMultiDPUCluster(ctx context.Context, input
 	}
 	Expect(input.client.Create(ctx, dpuServiceIPAM2)).To(Succeed())
 
-	By("Getting existing DPUDeployment and updating its servicechain to use DPUServiceIPAM")
+	By("Getting existing DPUDeployment and updating its ServiceChains to use DPUServiceIPAM")
 	dpuDeployment := generateDPUDeployment(input, "")
 	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 	dpuDeploymentOriginal := dpuDeployment.DeepCopy()
@@ -310,7 +310,7 @@ func ValidateDPUServiceIPAMInL3ModeForMultiDPUCluster(ctx context.Context, input
 	}
 	Expect(input.client.Create(ctx, dpuServiceIPAM2)).To(Succeed())
 
-	By("Getting existing DPUDeployment and updating its servicechain to use DPUServiceIPAM")
+	By("Getting existing DPUDeployment and updating its ServiceChains to use DPUServiceIPAM")
 	dpuDeployment := generateDPUDeployment(input, "")
 	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 	dpuDeploymentOriginal := dpuDeployment.DeepCopy()

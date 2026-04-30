@@ -219,7 +219,7 @@ func TestE2E(t *testing.T) {
 	restConfig.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
 	hostClusterRESTClient, err = rest.RESTClientFor(restConfig)
 	g.Expect(err).NotTo(HaveOccurred())
-	metricsURI = metrics.GetMetricsURI("kube-state-metrics", dpfOperatorSystemNamespace, 8080, "/metrics")
+	metricsURI = metrics.GetMetricsURI("kube-state-metrics", dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
 	g.Expect(metricsURI).NotTo(BeEmpty())
 
 	// Auto-enable fail-fast when skip-cleanup-on-failure flag is set
@@ -257,19 +257,19 @@ var _ = BeforeSuite(func() {
 		return
 	}
 
-	By("Checking for resources from previous test runs...")
+	By("Checking for resources from previous test runs")
 	cleanupTracker.WarnIfStaleResources()
 
 	By("Performing before suite cleanup")
 	cleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.BeforeSuite)
 
 	// Label filter examples supported:
-	//(Domain.DPFSystem) -> all test with Domain.DPFSystem running. SDN, SNAP included
-	//(Domain.Scale) -> Only Domain.Scale tests running
-	//(Domain.DPFSystem && !Domain.SDN) -> test with Domain.DPFSystem, excluding Domain.SDN running
-	//(Domain.DPFSystem && Domain.SDN) -> only SDN tests running
-	//(Domain.ExternalTest) -> only prepares DPF environment and involves tests with Domain.ExternalTest
-	By(fmt.Sprintf("Run BeforeSuite based on label selector: %v ", GinkgoLabelFilter()))
+	// (Domain.DPFSystem)                  -> all tests with Domain.DPFSystem running. SDN, SNAP included
+	// (Domain.Scale)                      -> only Domain.Scale tests running
+	// (Domain.DPFSystem && !Domain.SDN)   -> tests with Domain.DPFSystem, excluding Domain.SDN running
+	// (Domain.DPFSystem && Domain.SDN)    -> only SDN tests running
+	// (Domain.ExternalTest)               -> only prepares DPF environment and involves tests with Domain.ExternalTest
+	By(fmt.Sprintf("Running BeforeSuite based on label selector: %v ", GinkgoLabelFilter()))
 
 	if !skipProvisioning() {
 		SystemSetupBeforeSuite()

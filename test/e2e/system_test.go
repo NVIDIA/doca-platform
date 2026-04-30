@@ -92,8 +92,7 @@ func SetInput() {
 		By(fmt.Sprintf("Zero trust mode is applied to operatorConfig with trusted host IP %s", controlPlaneIP))
 		dpfOperatorConfig.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
 			InstallViaRedfish: &operatorv1.InstallViaRedfish{
-				// Use NodePort service port 30082
-				BFBRegistryAddress:   fmt.Sprintf("%s:30082", controlPlaneIP),
+				BFBRegistryAddress:   fmt.Sprintf("%s:%d", controlPlaneIP, bfbRegistryNodePort),
 				SkipDPUNodeDiscovery: ptr.To(false),
 			},
 		}
@@ -397,14 +396,14 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		Context("Logging Infrastructure", func() {
 			Context("Component Deployment", func() {
 				It("should verify OpenTelemetry Collector DaemonSets running in host cluster", func() {
-					By("running in host cluster")
+					By("Running in host cluster")
 					VerifyClusterPods(ctx, input.client, []string{"opentelemetry-collector"})
 				})
 				It("should verify OpenTelemetry Collector DaemonSets running in DPU cluster", Labels{Domain.RequiresNodes}, func() {
 					if !input.hasDpuNodes() {
 						Skip("Skip test as there are no DPU nodes")
 					}
-					By("running in DPUCluster")
+					By("Running in DPUCluster")
 					VerifyClusterPods(ctx, dpuClusterClient[0], []string{"opentelemetry-collector"})
 				})
 			})
@@ -468,10 +467,10 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		It("verify overrides path setting for system DPUServices", Labels{Domain.ZeroTrust}, func() {
 			ValidateDPFOperatorPathConfiguration(ctx, input)
 		})
-		It("Change the MaxDPUParallelInstallations in the operatorConfig and verify that the provisioning controller is restarted", Labels{Domain.ZeroTrust}, func() {
+		It("change the MaxDPUParallelInstallations in the operatorConfig and verify that the provisioning controller is restarted", Labels{Domain.ZeroTrust}, func() {
 			ValidateDPFOperatorMaxDPUParallelInstallations(ctx, input)
 		})
-		It("Change the flannel podCIDR in the operatorConfig and check that it is set", Labels{Domain.ZeroTrust}, func() {
+		It("change the flannel podCIDR in the operatorConfig and check that it is set", Labels{Domain.ZeroTrust}, func() {
 			ValidateDPFOperatorFlannelPodCIDRChange(ctx, input)
 		})
 
@@ -488,7 +487,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 	// deleted.
 	Context("Validate DPUDeployment full creation", Serial, Ordered, func() {
 		BeforeAll(func() {
-			By("should validate DPUDeployment and underlying objects creation")
+			By("Should validate DPUDeployment and underlying objects creation")
 			ValidateDPUDeploymentFullCreation(ctx, input)
 		})
 		It("should validate DPUDeployment becomes ready", Labels{Domain.ZeroTrust}, func() {

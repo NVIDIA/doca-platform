@@ -41,7 +41,7 @@ import (
 
 //nolint:dupl
 var _ = Describe("DPF Upgrade tests", Labels{Domain.DPFUpgrade}, func() {
-	Context("should pass", Labels{Domain.RequiresNodes}, Serial, Ordered, func() {
+	Context("Should pass", Labels{Domain.RequiresNodes}, Serial, Ordered, func() {
 		It("create DPFOperatorConfig", func() {
 			SystemSetupBeforeSuite()
 			By("Pre provisioning DPU cluster setup")
@@ -76,11 +76,11 @@ var _ = Describe("DPF Upgrade tests", Labels{Domain.DPFUpgrade}, func() {
 		})
 
 		It("create DPUDeployment objects", func() {
-			By("get worker nodes")
+			By("Get worker nodes")
 			nodes := &corev1.NodeList{}
 			Expect(input.client.List(ctx, nodes, client.MatchingLabels{"node-role.kubernetes.io/worker": ""})).To(Succeed())
 
-			By("creating the DPUDeployment objects")
+			By("Creating the DPUDeployment objects")
 			for i := 0; i < input.numberOfDPUNodes; i++ {
 				node := &nodes.Items[i]
 				dpuDeployment := generateDPUDeployment(input, "")
@@ -127,14 +127,14 @@ var _ = Describe("DPF Upgrade tests", Labels{Domain.DPFUpgrade}, func() {
 		})
 
 		It("get DPUCluster client", func() {
-			By("creating a client for the DPUCluster")
+			By("Creating a client for the DPUCluster")
 			getDPUClusterClients(ctx, getProvisionDPUClustersInput())
 		})
 
 		It("wait for DPUs to be provisioned", func() {
-			By("waiting for provisioning")
+			By("Waiting for provisioning")
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
-			By("waiting for system components to be ready")
+			By("Waiting for system components to be ready")
 			verifySystemReady()
 		})
 
@@ -145,37 +145,38 @@ var _ = Describe("DPF Upgrade tests", Labels{Domain.DPFUpgrade}, func() {
 })
 
 var _ = Describe("DPF Upgrade validation", Labels{Domain.DPFUpgradeValidation}, func() {
-	Context("should pass", Labels{Domain.RequiresNodes}, Serial, Ordered, func() {
+	Context("Should pass", Labels{Domain.RequiresNodes}, Serial, Ordered, func() {
 		It("validate rollout is done and pre-upgrade validation successful", func() {
-			By("validating pre-upgrade conditions")
+			By("Validating pre-upgrade conditions")
 			validatePreUpgradeConditions(ctx, input)
 		})
 
 		It("get DPUCluster client", func() {
-			By("creating a client for the DPUCluster")
+			By("Creating a client for the DPUCluster")
 			getDPUClusterClients(ctx, getProvisionDPUClustersInput())
 		})
 
 		It("validate DPUCluster", func() {
-			By("validating DPUCluster")
+			By("Validating DPUCluster")
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
-			By("waiting for system components to be ready")
+			By("Waiting for system components to be ready")
 			verifySystemReady()
 		})
 
 		It("validate the DPF version is upgraded", func() {
-			By("validating the DPF version is upgraded")
+			By("Validating the DPF version is upgraded")
 			validateDPFVersionUpgrade()
 		})
 
 		It("validate that DMS Pods are upgraded", func() {
-			By("validating that DMS Pods have the correct same image tag")
+			By("Validating that DMS Pods have the correct same image tag")
 			VerifyHostAgentPodsImageTag(ctx, input, tag)
 		})
 
-		It("waiting 30 seconds to let the controllers reconcile", func() {
-			By("waiting for 30 seconds to let the controllers reconcile")
-			time.Sleep(30 * time.Second)
+		It("waiting for controllers to reconcile", func() {
+			const reconciliationWait = 30 * time.Second
+			By(fmt.Sprintf("Waiting %s for controllers to reconcile", reconciliationWait))
+			time.Sleep(reconciliationWait)
 		})
 
 		It("validate DPU and DPUService generations after upgrade", func() {
@@ -213,19 +214,19 @@ var _ = Describe("DPF Upgrade validation", Labels{Domain.DPFUpgradeValidation}, 
 		})
 
 		It("perform DPU and DPUService rollout test", func() {
-			By("performing DPU and DPUService rollout test")
+			By("Performing DPU and DPUService rollout test")
 			rolloutDPU(ctx, input)
 			rolloutDPUService(ctx, input)
-			By("waiting for provisioning")
+			By("Waiting for provisioning")
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
-			By("waiting for system components to be ready")
+			By("Waiting for system components to be ready")
 			verifySystemReady()
 		})
 	})
 })
 
 func VerifyHostAgentPodsImageTag(ctx context.Context, input *systemTestInput, expectedTag string) {
-	By("verifying HostAgent Pods have the same image tag as the operator")
+	By("Verifying HostAgent Pods have the same image tag as the operator")
 	Eventually(func(g Gomega) {
 		dmsPods := &corev1.PodList{}
 		g.Expect(input.client.List(ctx, dmsPods,
@@ -245,7 +246,7 @@ func VerifyHostAgentPodsImageTag(ctx context.Context, input *systemTestInput, ex
 }
 
 func validatePreUpgradeConditions(ctx context.Context, input *systemTestInput) {
-	By("validating pre-upgrade conditions of dpfoperatorconfig with stability verification")
+	By("Validating pre-upgrade conditions of dpfoperatorconfig with stability verification")
 
 	// Helper function to check if condition is ready
 	checkConditionReady := func(g Gomega) {
@@ -266,7 +267,7 @@ func validatePreUpgradeConditions(ctx context.Context, input *systemTestInput) {
 	}
 
 	// Main retry loop: check readiness, then stability, retry if either fails
-	By("waiting for PreUpgradeValidationReady condition to become True and stable")
+	By("Waiting for PreUpgradeValidationReady condition to become True and stable")
 	Eventually(checkReadinessAndStability, 10*time.Minute, 20*time.Second).Should(Succeed(),
 		"PreUpgradeValidationReady condition should be ready and stable")
 }
@@ -276,7 +277,7 @@ func validateGenerationsAfterUpgrade() {
 	allGenerationsBefore := getGenerationsFromConfigMap("upgrade-test-generations-before")
 	allGenerationsAfter := getGenerationsFromConfigMap("upgrade-test-generations-after")
 
-	By("comparing generations before and after upgrade")
+	By("Comparing generations before and after upgrade")
 	Expect(allGenerationsAfter).To(HaveLen(len(allGenerationsBefore)),
 		"Number of objects should remain the same after upgrade")
 
@@ -295,12 +296,12 @@ func validateGenerationsAfterUpgrade() {
 func collectGenerations(configMapName string) {
 	allGenerations := make([]map[string]interface{}, 0)
 
-	By("capturing DPU generations")
+	By("Capturing DPU generations")
 	dpuList := &provisioningv1.DPUList{}
 	Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 	allGenerations = append(allGenerations, extractGenerationInfo(ToClientObjectSlice(dpuList.Items))...)
 
-	By("capturing DPUService generations with owned-by-dpudeployment label")
+	By("Capturing DPUService generations with owned-by-dpudeployment label")
 	dpuServiceList := &dpuservicev1.DPUServiceList{}
 	Expect(input.client.List(ctx, dpuServiceList,
 		client.InNamespace(dpfOperatorSystemNamespace),
@@ -310,7 +311,7 @@ func collectGenerations(configMapName string) {
 	genData, err := json.MarshalIndent(allGenerations, "", "  ")
 	Expect(err).ToNot(HaveOccurred())
 
-	By("storing generations in ConfigMap")
+	By("Storing generations in ConfigMap")
 	configMap := &corev1.ConfigMap{}
 	configMap.SetName(configMapName)
 	configMap.SetNamespace(dpfOperatorSystemNamespace)
@@ -322,7 +323,7 @@ func collectGenerations(configMapName string) {
 }
 
 func getGenerationsFromConfigMap(configMapName string) []map[string]interface{} {
-	By("reading generations before upgrade from ConfigMap")
+	By("Reading generations before upgrade from ConfigMap")
 	configMapBefore := &corev1.ConfigMap{}
 	Expect(input.client.Get(ctx, client.ObjectKey{
 		Name:      configMapName,
@@ -422,20 +423,20 @@ func validateDPFVersionUpgrade() {
 }
 
 func rolloutDPU(ctx context.Context, input *systemTestInput) {
-	By("selecting one DPU for deletion")
+	By("Selecting one DPU for deletion")
 	dpuList := &provisioningv1.DPUList{}
 	Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 	Expect(dpuList.Items).NotTo(BeEmpty(), "No DPUs found for rollout test")
 	selectedDPU := &dpuList.Items[0]
 	uuid := selectedDPU.GetUID()
-	By(fmt.Sprintf("selected DPU: %s", selectedDPU.GetName()))
+	By(fmt.Sprintf("Selected DPU: %s", selectedDPU.GetName()))
 	dpuDeviceNameLabel := selectedDPU.GetLabels()[util.DPUDeviceNameLabel]
 	Expect(dpuDeviceNameLabel).ToNot(BeEmpty(), "DPU should have a device name label")
 
-	By("deleting selected DPU")
+	By("Deleting selected DPU")
 	Expect(client.IgnoreNotFound(input.client.Delete(ctx, selectedDPU))).To(Succeed())
 
-	By("waiting for DPU to be recreated")
+	By("Waiting for DPU to be recreated")
 	Eventually(func(g Gomega) {
 		updatedDPUs := &provisioningv1.DPUList{}
 		g.Expect(input.client.List(ctx, updatedDPUs,
@@ -452,17 +453,17 @@ func rolloutDPU(ctx context.Context, input *systemTestInput) {
 }
 
 func rolloutDPUService(ctx context.Context, input *systemTestInput) {
-	By("selecting system component DPUService flannel for deletion")
+	By("Selecting system component DPUService flannel for deletion")
 	selectedDPUService := &dpuservicev1.DPUService{}
 	selectedDPUService.SetName(operatorv1.FlannelName.String())
 	selectedDPUService.SetNamespace(dpfOperatorSystemNamespace)
 	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(selectedDPUService), selectedDPUService)).To(Succeed())
 	uuid := selectedDPUService.GetUID()
 
-	By("deleting system component DPUService flannel")
+	By("Deleting system component DPUService flannel")
 	Expect(input.client.Delete(ctx, selectedDPUService)).To(Succeed())
 
-	By("waiting for DPUService to be recreated")
+	By("Waiting for DPUService to be recreated")
 	Eventually(func(g Gomega) {
 		updatedDPUService := &dpuservicev1.DPUService{}
 		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(selectedDPUService), updatedDPUService)).To(Succeed())

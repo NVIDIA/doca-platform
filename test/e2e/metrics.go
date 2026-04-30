@@ -30,7 +30,7 @@ import (
 )
 
 func VerifyHostKSMMetricsCollection(ctx context.Context) {
-	By("verify host cluster kube-state-metrics endpoint is accessible")
+	By("Verify host cluster kube-state-metrics endpoint is accessible")
 	Eventually(func(g Gomega) {
 		request := hostClusterRESTClient.Get().AbsPath(metricsURI)
 		response, err := request.DoRaw(ctx)
@@ -40,13 +40,13 @@ func VerifyHostKSMMetricsCollection(ctx context.Context) {
 }
 
 func VerifyDPUKSMMetricsCollection(ctx context.Context, input *systemTestInput) {
-	By("verify DPU cluster kube-state-metrics endpoint is accessible")
+	By("Verify DPU cluster kube-state-metrics endpoint is accessible")
 	Eventually(func(g Gomega) {
 		// Get the KSM metrics URI for the first DPUCluster
 		// Note: The in-cluster kube-state-metrics service runs on the management cluster,
 		// not on the DPU cluster. It connects remotely to collect DPU cluster metrics.
 		g.Expect(input.dpuClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
-		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.client, input.dpuClusters[0], dpfOperatorSystemNamespace, 8080, "/metrics")
+		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.client, input.dpuClusters[0], dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
 		g.Expect(err).NotTo(HaveOccurred(), "Failed to get KSM metrics URI for DPUCluster")
 		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
 
@@ -59,7 +59,7 @@ func VerifyDPUKSMMetricsCollection(ctx context.Context, input *systemTestInput) 
 }
 
 func ValidateGeneralDPFMetrics(ctx context.Context, input *systemTestInput) {
-	By("verify metrics are being collected")
+	By("Verify metrics are being collected")
 	expectedMetricsNames := map[string][]string{
 		"bfb":               {"created", "info", "status_phase", "version_bsp", "version_doca", "version_uefi", "version_atf", "file_name"},
 		"dpfoperatorconfig": {"created", "info", "status_conditions", "status_condition_last_transition_time", "version"}, // "paused" missed

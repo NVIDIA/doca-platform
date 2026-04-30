@@ -44,7 +44,7 @@ import (
 
 //nolint:dupl
 func ValidateNodeSRIOVDevicePluginWebhookRejectsInvalid(ctx context.Context, input *systemTestInput) {
-	By("creating a NodeSRIOVDevicePluginConfig with overlapping VF ranges")
+	By("Creating a NodeSRIOVDevicePluginConfig with overlapping VF ranges")
 	Eventually(func(g Gomega) {
 		invalidConfig := &noderesourcesv1.NodeSRIOVDevicePluginConfig{
 			ObjectMeta: metav1.ObjectMeta{
@@ -78,7 +78,7 @@ func ValidateNodeSRIOVDevicePluginWebhookRejectsInvalid(ctx context.Context, inp
 			BeTrue(), fmt.Sprintf("expected Forbidden or Invalid, got: %v", err))
 	}).WithTimeout(time.Minute).Should(Succeed())
 
-	By("creating a NodeSRIOVDevicePluginConfig with duplicate name+prefix")
+	By("Creating a NodeSRIOVDevicePluginConfig with duplicate name+prefix")
 	Eventually(func(g Gomega) {
 		duplicateConfig := &noderesourcesv1.NodeSRIOVDevicePluginConfig{
 			ObjectMeta: metav1.ObjectMeta{
@@ -116,7 +116,7 @@ func ValidateNodeSRIOVDevicePluginWebhookRejectsInvalid(ctx context.Context, inp
 // ValidateNodeSRIOVDevicePluginConfigValidCreate creates a valid
 // NodeSRIOVDevicePluginConfig and verifies it is accepted.
 func ValidateNodeSRIOVDevicePluginConfigValidCreate(ctx context.Context, input *systemTestInput) {
-	By("creating a valid NodeSRIOVDevicePluginConfig")
+	By("Creating a valid NodeSRIOVDevicePluginConfig")
 	Eventually(func(g Gomega) {
 		validConfig := &noderesourcesv1.NodeSRIOVDevicePluginConfig{
 			ObjectMeta: metav1.ObjectMeta{
@@ -138,7 +138,7 @@ func ValidateNodeSRIOVDevicePluginConfigValidCreate(ctx context.Context, input *
 		}
 		g.Expect(input.client.Create(ctx, validConfig)).To(Succeed())
 
-		By("verifying the NodeSRIOVDevicePluginConfig exists")
+		By("Verifying the NodeSRIOVDevicePluginConfig exists")
 		got := &noderesourcesv1.NodeSRIOVDevicePluginConfig{}
 		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(validConfig), got)).To(Succeed())
 		g.Expect(got.Spec.DevicePluginResources).To(HaveLen(1))
@@ -147,7 +147,7 @@ func ValidateNodeSRIOVDevicePluginConfigValidCreate(ctx context.Context, input *
 
 func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemTestInput) {
 	if !input.hasDpuNodes() {
-		Skip("no DPUs in test config, skipping managed pod test")
+		Skip("No DPUs in test config, skipping managed pod test")
 	}
 
 	const invalidDevicePluginImage = "invalid.repo/sriov-device-plugin:not-found"
@@ -160,7 +160,7 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemT
 		g.Expect(kubeNodeName).NotTo(BeEmpty())
 		g.Expect(serialNumber).NotTo(BeEmpty())
 	}).WithTimeout(240 * time.Second).WithPolling(5 * time.Second).Should(Succeed())
-	By(fmt.Sprintf("using DPU %s on node %s", dpuName, kubeNodeName))
+	By(fmt.Sprintf("Using DPU %s on node %s", dpuName, kubeNodeName))
 
 	config1Name := "e2e-nodesriov-config1"
 	config2Name := "e2e-nodesriov-config2"
@@ -178,11 +178,11 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemT
 		},
 	}
 
-	By("ensuring NodeSRIOVDevicePluginController is enabled with default settings")
+	By("Ensuring NodeSRIOVDevicePluginController is enabled with default settings")
 	removeDPUConfigAnnotation(ctx, input.client, dpuName)
 	patchDPFOperatorConfigAndWait(ctx, input.client, defaultControllerConfig)
 
-	By("creating config1 and config2")
+	By("Creating config1 and config2")
 	config1 := buildNodeSRIOVConfigWithResources(config1Name, []noderesourcesv1.DevicePluginResource{
 		{
 			Name: config1NoPrefixResource,
@@ -221,10 +221,10 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemT
 	})
 	Expect(input.client.Create(ctx, config2)).To(Succeed())
 
-	By("marking DPU with config1")
+	By("Marking DPU with config1")
 	setDPUConfigAnnotation(ctx, input.client, dpuName, config1Name)
 
-	By("waiting for managed pod to start and validating config + resources (config1)")
+	By("Waiting for managed pod to start and validating config + resources (config1)")
 	Eventually(func(g Gomega) {
 		pod := getManagedPodForNode(ctx, g, input.client, kubeNodeName)
 		g.Expect(pod).NotTo(BeNil())
@@ -239,7 +239,7 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemT
 	waitForNodeResource(ctx, input.client, kubeNodeName,
 		fmt.Sprintf("%s/%s", explicitPrefix, config1ExplicitResource), 4)
 
-	By("updating to fake images and waiting for managed pod to update")
+	By("Updating to fake images and waiting for managed pod to update")
 	patchDPFOperatorConfigAndWait(ctx, input.client, &operatorv1.NodeSRIOVDevicePluginControllerConfiguration{
 		BaseComponentConfig: operatorv1.BaseComponentConfig{
 			Disable: ptr.To(false),
@@ -256,7 +256,7 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemT
 		g.Expect(getContainerImageByName(pod.Spec.InitContainers, "dpf-device-plugin-init")).To(Equal(invalidInitImage))
 	}).WithTimeout(240 * time.Second).Should(Succeed())
 
-	By("reverting fake images and waiting for managed pod to recover")
+	By("Reverting fake images and waiting for managed pod to recover")
 	patchDPFOperatorConfigAndWait(ctx, input.client, defaultControllerConfig)
 	Eventually(func(g Gomega) {
 		pod := getManagedPodForNode(ctx, g, input.client, kubeNodeName)
@@ -264,7 +264,7 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemT
 		expectPodRunning(g, pod)
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
-	By("updating default resource prefix and verifying non-explicit resources are updated")
+	By("Updating default resource prefix and verifying non-explicit resources are updated")
 	patchDPFOperatorConfigAndWait(ctx, input.client, &operatorv1.NodeSRIOVDevicePluginControllerConfiguration{
 		BaseComponentConfig: operatorv1.BaseComponentConfig{
 			Disable: ptr.To(false),
@@ -292,11 +292,11 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemT
 		g.Expect(explicitQty.Value()).To(Equal(int64(4)))
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
-	By("reverting default prefix and switching DPU to config2")
+	By("Reverting default prefix and switching DPU to config2")
 	patchDPFOperatorConfigAndWait(ctx, input.client, defaultControllerConfig)
 	setDPUConfigAnnotation(ctx, input.client, dpuName, config2Name)
 
-	By("validating managed pod started and node exposes correct resources (config2)")
+	By("Validating managed pod started and node exposes correct resources (config2)")
 	Eventually(func(g Gomega) {
 		pod := getManagedPodForNode(ctx, g, input.client, kubeNodeName)
 		g.Expect(pod).NotTo(BeNil())
