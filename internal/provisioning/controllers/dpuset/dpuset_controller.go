@@ -18,7 +18,6 @@ package dpuset
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"slices"
@@ -223,6 +222,12 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 	}
 	logger.Info(fmt.Sprintf("DPUSet %s/%s selected %d DPUDevices", dpuSet.Namespace, dpuSet.Name, len(dpuDeviceMap)))
 
+	if err := r.validateDPUClusterMetadata(dpuSet, dpuDeviceMap); err != nil {
+		conditions.AddFalse(dpuSet, conditions.TypeReady, conditions.ConditionReason("ClusterMetadataConflict"), conditions.ConditionMessage(err.Error()))
+		r.Recorder.Eventf(dpuSet, corev1.EventTypeWarning, events.EventClusterMetadataConflictReason, "%v", err)
+		return ctrl.Result{}, nil
+	}
+
 	// Get dpu map which are owned by dpuset
 	dpuMap, err := r.GetDPUsMap(ctx, dpuSet)
 	if err != nil {
@@ -261,7 +266,7 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 		return ctrl.Result{}, fmt.Errorf("unsupported strategy type %q", dpuSet.Spec.Strategy.Type)
 	}
 
-	dpusUpdated, err := r.UpdateDPUs(ctx, dpuSet, dpuMap)
+	dpusUpdated, err := r.UpdateDPUs(ctx, dpuSet, dpuMap, dpuDeviceMap)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update node effect ApplyOnLabelChange for DPUs %w", err)
 	}
@@ -436,15 +441,15 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 
 	owner := metav1.NewControllerRef(dpuSet, provisioningv1.GroupVersion.WithKind(provisioningv1.DPUSetKind))
 
-	clusterNodeLabels := map[string]string{}
-	if dpuSet.Spec.DPUTemplate.Spec.Cluster != nil && dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels != nil {
-		for k, v := range dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels {
-			clusterNodeLabels[k] = v
-		}
+	userLabels, userAnnotations, err := cutil.MergeDPUClusterNodeMetadata(dpuSet.Spec.DPUTemplate.Spec.Cluster, dpuDevice.Spec.Cluster)
+	if err != nil {
+		return fmt.Errorf("merge cluster metadata for DPUDevice %s: %w", dpuDevice.Name, err)
 	}
-	clusterNodeLabels[provisioningv1.DPUNodeNameLabel] = dpuNodeName
-	clusterNodeLabels[provisioningv1.DPUNodeNamespaceLabel] = dpuDevice.Namespace
-	clusterNodeLabels[release.DPFVersionLabelKey] = release.DPFVersion()
+	clusterNodeLabels := buildDPUClusterNodeLabels(userLabels, dpuNodeName, dpuDevice.Namespace)
+	clusterSpec := provisioningv1.ClusterSpec{
+		NodeLabels:      clusterNodeLabels,
+		NodeAnnotations: copyStringMapIfNonEmpty(userAnnotations),
+	}
 
 	dpu := &provisioningv1.DPU{
 		ObjectMeta: metav1.ObjectMeta{
@@ -460,9 +465,7 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 			BFB:           dpuSet.Spec.DPUTemplate.Spec.BFB.Name,
 			NodeEffect:    dpuSet.Spec.DPUTemplate.Spec.NodeEffect,
 			Cluster: provisioningv1.K8sCluster{
-				ClusterSpec: provisioningv1.ClusterSpec{
-					NodeLabels: clusterNodeLabels,
-				},
+				ClusterSpec: clusterSpec,
 			},
 			DPUFlavor:    dpuSet.Spec.DPUTemplate.Spec.DPUFlavor,
 			AstraEnabled: dpuSet.Spec.DPUTemplate.Spec.AstraEnabled,
@@ -486,6 +489,15 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 	}
 	if v, ok := dpuSet.Spec.DPUTemplate.Annotations[reboot.HostPowerCycleRequireKey]; ok {
 		dpu.Annotations[reboot.HostPowerCycleRequireKey] = v
+	}
+	// Set last applied labels and annotations on DPU
+	err = cutil.SetAnnotationFromStringMap(&dpu.ObjectMeta, cutil.LastAppliedLabelsOnDPUKey, userLabels)
+	if err != nil {
+		return fmt.Errorf("failed to set last applied labels on DPU (%s/%s): %w", dpu.Namespace, dpu.Name, err)
+	}
+	err = cutil.SetAnnotationFromStringMap(&dpu.ObjectMeta, cutil.LastAppliedAnnotationsOnDPUKey, userAnnotations)
+	if err != nil {
+		return fmt.Errorf("failed to set last applied annotations on DPU (%s/%s): %w", dpu.Namespace, dpu.Name, err)
 	}
 	if err := r.Create(ctx, dpu); err != nil {
 		return err
@@ -802,68 +814,38 @@ func (r *DPUSetReconciler) deleteStaleDPUs(ctx context.Context, dpuSet *provisio
 	return nil
 }
 
-// check if the node labels for DPU need to be updated
-func (r *DPUSetReconciler) isNodeLabelUpdateNeeded(ctx context.Context, dpuSet *provisioningv1.DPUSet) (bool, map[string]string, []string) {
-	logger := log.FromContext(ctx)
-	if dpuSet.Spec.DPUTemplate.Spec.Cluster == nil {
-		return false, nil, nil
-	}
-
-	if dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels == nil {
-		return false, nil, nil
-	}
-
-	newLabels := dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels
-	oldLabels := make(map[string]string)
-	if dpuSet.Annotations != nil {
-		if lastAppliedLabelsStr, ok := dpuSet.Annotations[cutil.LastAppliedLabelsOnDPUKey]; ok {
-			if err := json.Unmarshal([]byte(lastAppliedLabelsStr), &oldLabels); err != nil {
-				logger.Error(err, "Failed to unmarshal last applied labels")
-				return false, nil, nil
-			}
-		}
-	} else {
-		dpuSet.Annotations = make(map[string]string)
-		if jsonStr, err := cutil.MarshalJSON(newLabels); err != nil {
-			logger.Error(err, "Failed to marshal new labels")
-			return false, nil, nil
-		} else {
-			dpuSet.Annotations[cutil.LastAppliedLabelsOnDPUKey] = jsonStr
+func (r *DPUSetReconciler) validateDPUClusterMetadata(dpuSet *provisioningv1.DPUSet, dpuDeviceMap map[string]provisioningv1.DPUDevice) error {
+	for name, dd := range dpuDeviceMap {
+		if _, _, err := cutil.MergeDPUClusterNodeMetadata(dpuSet.Spec.DPUTemplate.Spec.Cluster, dd.Spec.Cluster); err != nil {
+			return fmt.Errorf("DPUDevice %q: %w", name, err)
 		}
 	}
-
-	if !reflect.DeepEqual(newLabels, oldLabels) {
-		removedLabels := cutil.GetRemovedLabels(oldLabels, newLabels)
-		return true, newLabels, removedLabels
-	}
-	return false, nil, nil
+	return nil
 }
 
 // UpdateDPUs updates the DPUs in the DPUSet.
 // in this function, it will:
-// 1. update the node labels for DPUs
+// 1. update merged cluster node labels and annotations on DPUs (template + DPUDevice)
 // 2. update the NodeEffect Action fields for DPUs
 // 3. update the ApplyOnLabelChange field for DPUs
 // 4. update the NodeMaintenanceAdditionalRequestors field for DPUs
 // Returns true if any DPUs were updated, false otherwise.
-func (r *DPUSetReconciler) UpdateDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuMap map[string]provisioningv1.DPU) (bool, error) {
-	needUpdateLabels, newLabels, removedLabels := r.isNodeLabelUpdateNeeded(ctx, dpuSet)
-	if needUpdateLabels {
-		// Update the last applied labels annotation
-		if jsonStr, err := cutil.MarshalJSON(newLabels); err != nil {
-			return false, fmt.Errorf("failed to marshal new labels: %w", err)
-		} else {
-			dpuSet.Annotations[cutil.LastAppliedLabelsOnDPUKey] = jsonStr
-		}
-	}
+func (r *DPUSetReconciler) UpdateDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuMap map[string]provisioningv1.DPU, dpuDeviceMap map[string]provisioningv1.DPUDevice) (bool, error) {
 	anyUpdated := false
 	for i := range dpuMap {
-		dpu := dpuMap[i] // copy into new variable
+		dpu := dpuMap[i]
+		dpuDevice, ok := dpuDeviceMap[dpu.Spec.DPUDeviceName]
+		if !ok {
+			continue
+		}
+		userLabels, userAnn, mergeErr := cutil.MergeDPUClusterNodeMetadata(dpuSet.Spec.DPUTemplate.Spec.Cluster, dpuDevice.Spec.Cluster)
+		if mergeErr != nil {
+			return false, mergeErr
+		}
 		update := false
 		patcher := patch.NewSerialPatcher(&dpu, r.Client)
-		// 1. update node labels for DPU
-		if needUpdateLabels {
-			updateNodeLabelsForDPU(&dpu, newLabels, removedLabels)
+		// 1. update the merged cluster node labels and annotations for DPU
+		if updateLabelsAndAnnotationsForDPU(ctx, &dpu, dpuSet, userLabels, userAnn) {
 			update = true
 		}
 		// 2. update the NodeEffect Action fields for DPU
@@ -892,6 +874,116 @@ func (r *DPUSetReconciler) UpdateDPUs(ctx context.Context, dpuSet *provisioningv
 	return anyUpdated, nil
 }
 
+func buildDPUClusterNodeLabels(userLabels map[string]string, dpuNodeName, dpuDeviceNamespace string) map[string]string {
+	out := make(map[string]string)
+	for k, v := range userLabels {
+		out[k] = v
+	}
+	out[provisioningv1.DPUNodeNameLabel] = dpuNodeName
+	out[provisioningv1.DPUNodeNamespaceLabel] = dpuDeviceNamespace
+	out[release.DPFVersionLabelKey] = release.DPFVersion()
+	return out
+}
+
+func copyStringMapIfNonEmpty(m map[string]string) map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+func normalizeStringMap(m map[string]string) map[string]string {
+	if m == nil {
+		return map[string]string{}
+	}
+	return m
+}
+
+func isNodeLabelUpdateNeeded(dpu *provisioningv1.DPU, mergedUserLabels map[string]string) (needUpdate bool, newLabels map[string]string, removedLabels []string) {
+	newLabels = normalizeStringMap(mergedUserLabels)
+	lastLabels := cutil.GetStringMapFromAnnotation(dpu.Annotations, cutil.LastAppliedLabelsOnDPUKey)
+	if reflect.DeepEqual(newLabels, lastLabels) {
+		return false, nil, nil
+	}
+	return true, newLabels, cutil.GetRemovedLabels(lastLabels, newLabels)
+}
+
+func isNodeAnnotationUpdateNeeded(dpu *provisioningv1.DPU, mergedUserAnnotations map[string]string) (needUpdate bool, newAnnotations map[string]string, removedAnnotations []string) {
+	newAnnotations = normalizeStringMap(mergedUserAnnotations)
+	lastAnnotations := cutil.GetStringMapFromAnnotation(dpu.Annotations, cutil.LastAppliedAnnotationsOnDPUKey)
+	if reflect.DeepEqual(newAnnotations, lastAnnotations) {
+		return false, nil, nil
+	}
+	return true, newAnnotations, cutil.GetRemovedLabels(lastAnnotations, newAnnotations)
+}
+
+func updateNodeLabelsForDPU(ctx context.Context, dpu *provisioningv1.DPU, newLabels map[string]string, removedLabels []string) {
+	logger := log.FromContext(ctx)
+	if dpu.Spec.Cluster.NodeLabels == nil {
+		dpu.Spec.Cluster.NodeLabels = make(map[string]string)
+	}
+	for k, v := range newLabels {
+		dpu.Spec.Cluster.NodeLabels[k] = v
+	}
+	for _, k := range removedLabels {
+		delete(dpu.Spec.Cluster.NodeLabels, k)
+	}
+	err := cutil.SetAnnotationFromStringMap(&dpu.ObjectMeta, cutil.LastAppliedLabelsOnDPUKey, newLabels)
+	if err != nil {
+		logger.V(3).Info(fmt.Sprintf("failed to set last applied labels on DPU (%s/%s): %v", dpu.Namespace, dpu.Name, err))
+	}
+}
+
+func updateNodeAnnotationsForDPU(ctx context.Context, dpu *provisioningv1.DPU, newAnnotations map[string]string, removedAnnotations []string) {
+	logger := log.FromContext(ctx)
+	if dpu.Spec.Cluster.NodeAnnotations == nil {
+		dpu.Spec.Cluster.NodeAnnotations = make(map[string]string)
+	}
+	for k, v := range newAnnotations {
+		dpu.Spec.Cluster.NodeAnnotations[k] = v
+	}
+	for _, k := range removedAnnotations {
+		delete(dpu.Spec.Cluster.NodeAnnotations, k)
+	}
+	if len(dpu.Spec.Cluster.NodeAnnotations) == 0 {
+		dpu.Spec.Cluster.NodeAnnotations = nil
+	}
+	err := cutil.SetAnnotationFromStringMap(&dpu.ObjectMeta, cutil.LastAppliedAnnotationsOnDPUKey, newAnnotations)
+	if err != nil {
+		logger.V(3).Info(fmt.Sprintf("failed to set last applied annotations on DPU (%s/%s): %v", dpu.Namespace, dpu.Name, err))
+	}
+}
+
+func updateLabelsAndAnnotationsForDPU(ctx context.Context, dpu *provisioningv1.DPU, dpuSet *provisioningv1.DPUSet, mergedUserLabels, mergedUserAnnotations map[string]string) bool {
+	needUpdateLabels, newLabels, removedLabels := isNodeLabelUpdateNeeded(dpu, mergedUserLabels)
+	needUpdateAnnotations, newAnnotations, removedAnnotations := isNodeAnnotationUpdateNeeded(dpu, mergedUserAnnotations)
+
+	changed := false
+	if needUpdateLabels {
+		updateNodeLabelsForDPU(ctx, dpu, newLabels, removedLabels)
+		changed = true
+	}
+	if needUpdateAnnotations {
+		updateNodeAnnotationsForDPU(ctx, dpu, newAnnotations, removedAnnotations)
+		changed = true
+	}
+	if dpuSet.Spec.DPUTemplate.Spec.Cluster != nil && dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector != nil {
+		sel := dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector.DeepCopy()
+		if !reflect.DeepEqual(dpu.Spec.Cluster.Selector, sel) {
+			dpu.Spec.Cluster.Selector = sel
+			changed = true
+		}
+	} else if dpu.Spec.Cluster.Selector != nil {
+		dpu.Spec.Cluster.Selector = nil
+		changed = true
+	}
+	return changed
+}
+
 // updateNodeMaintenanceAdditionalRequestors updates the NodeMaintenanceAdditionalRequestors field for existing DPUs when the DPUSet template changes.
 // This function ensures that changes to the NodeMaintenanceAdditionalRequestors field are propagated to existing DPUs without requiring recreation.
 func updateNodeMaintenanceAdditionalRequestors(ctx context.Context, dpu *provisioningv1.DPU, expectedRequestors []string) bool {
@@ -908,19 +1000,6 @@ func updateNodeMaintenanceAdditionalRequestors(ctx context.Context, dpu *provisi
 	}
 
 	return false
-}
-
-// updates the node labels for DPU
-func updateNodeLabelsForDPU(dpu *provisioningv1.DPU, newLabels map[string]string, removedLabels []string) {
-	if dpu.Spec.Cluster.NodeLabels == nil {
-		dpu.Spec.Cluster.NodeLabels = make(map[string]string)
-	}
-	for k, v := range newLabels {
-		dpu.Spec.Cluster.NodeLabels[k] = v
-	}
-	for _, k := range removedLabels {
-		delete(dpu.Spec.Cluster.NodeLabels, k)
-	}
 }
 
 // updateNodeEffectAction updates the NodeEffect Action fields (Taint, Drain, NoEffect, etc.) for existing DPUs when the DPUSet template changes.

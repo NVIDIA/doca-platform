@@ -32,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -614,4 +615,262 @@ func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
 	}).WithTimeout(2 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
 	By("Deprovisioning completed successfully")
+}
+
+func getAnyReadyDPU(ctx context.Context, cl client.Client) (*provisioningv1.DPU, error) {
+	list := &provisioningv1.DPUList{}
+	if err := cl.List(ctx, list); err != nil {
+		return nil, err
+	}
+	for i := range list.Items {
+		if list.Items[i].Status.Phase == provisioningv1.DPUReady {
+			return &list.Items[i], nil
+		}
+	}
+	if len(list.Items) == 0 {
+		return nil, fmt.Errorf("no DPUs found")
+	}
+	return nil, fmt.Errorf("no DPU in Ready phase (found %d)", len(list.Items))
+}
+
+func getDPUDeviceByName(ctx context.Context, cl client.Client, name string) (*provisioningv1.DPUDevice, error) {
+	list := &provisioningv1.DPUDeviceList{}
+	if err := cl.List(ctx, list); err != nil {
+		return nil, err
+	}
+	for i := range list.Items {
+		if list.Items[i].Name == name {
+			return &list.Items[i], nil
+		}
+	}
+	return nil, fmt.Errorf("DPUDevice %q not found", name)
+}
+
+func getTenantNode(ctx context.Context, dpuClusterClient client.Client, dpuName string) (*corev1.Node, error) {
+	n := &corev1.Node{}
+	if err := dpuClusterClient.Get(ctx, client.ObjectKey{Name: dpuName}, n); err != nil {
+		return nil, err
+	}
+	return n, nil
+}
+
+func getProvisioningDPUSet(ctx context.Context, cl client.Client, fallback *provisioningv1.DPUSet) (*provisioningv1.DPUSet, error) {
+	// Prefer the config-loaded DPUSet pointer when it is populated and exists.
+	if fallback != nil && fallback.Name != "" {
+		cur := &provisioningv1.DPUSet{}
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(fallback), cur); err == nil {
+			return cur, nil
+		}
+	}
+
+	// Otherwise, list and pick the only DPUSet in the cluster (Provisioning suite creates exactly one).
+	list := &provisioningv1.DPUSetList{}
+	if err := cl.List(ctx, list); err != nil {
+		return nil, err
+	}
+	if len(list.Items) != 1 {
+		return nil, fmt.Errorf("expected exactly 1 DPUSet, got %d", len(list.Items))
+	}
+	return &list.Items[0], nil
+}
+
+// ValidateDPUSetClusterNodeLabelsPropagation validates that changing DPUSet.spec.dpuTemplate.spec.cluster.nodeLabels/nodeAnnotations
+// is reflected on the tenant cluster Node for a Ready DPU.
+func ValidateDPUSetClusterNodeLabelsPropagation(ctx context.Context, input *systemTestInput) {
+	if !input.hasDpuNodes() {
+		Skip("Skip test as DPU nodes are required")
+	}
+	if len(dpuClusterClient) == 0 || dpuClusterClient[0] == nil {
+		Fail("DPUCluster client is not initialized; expected CreateProvisioningDPUCluster to run first")
+	}
+
+	const (
+		timeout         = 10 * time.Minute
+		pollingInterval = 5 * time.Second
+	)
+
+	By("Selecting a Ready DPU")
+	dpu, err := getAnyReadyDPU(ctx, input.client)
+	Expect(err).NotTo(HaveOccurred())
+
+	By("Adding a new cluster node label and annotation via DPUSet template")
+	dpuset, err := getProvisioningDPUSet(ctx, input.client, input.dpuSet)
+	Expect(err).NotTo(HaveOccurred())
+	dpusetCur := &provisioningv1.DPUSet{}
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuset), dpusetCur)).To(Succeed())
+	dpusetPatch := client.MergeFrom(dpusetCur.DeepCopy())
+	if dpusetCur.Spec.DPUTemplate.Spec.Cluster == nil {
+		dpusetCur.Spec.DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+	}
+	if dpusetCur.Spec.DPUTemplate.Spec.Cluster.NodeLabels == nil {
+		dpusetCur.Spec.DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{}
+	}
+	if dpusetCur.Spec.DPUTemplate.Spec.Cluster.NodeAnnotations == nil {
+		dpusetCur.Spec.DPUTemplate.Spec.Cluster.NodeAnnotations = map[string]string{}
+	}
+	const dpusetLabelKey = "e2e.provisioning.doca-platform.nvidia.com/dpuset-template-label"
+	const dpusetAnnKey = "e2e.provisioning.doca-platform.nvidia.com/dpuset-template-annotation"
+	dpusetCur.Spec.DPUTemplate.Spec.Cluster.NodeLabels[dpusetLabelKey] = "tv1"
+	dpusetCur.Spec.DPUTemplate.Spec.Cluster.NodeAnnotations[dpusetAnnKey] = "tav1"
+	Expect(input.client.Patch(ctx, dpusetCur, dpusetPatch)).To(Succeed())
+
+	By("Waiting for the tenant Node to have the DPUSet template label and annotation")
+	Eventually(func(g Gomega) {
+		node, err := getTenantNode(ctx, dpuClusterClient[0], dpu.Name)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(node.Labels).To(HaveKeyWithValue(dpusetLabelKey, "tv1"))
+		g.Expect(node.Annotations).To(HaveKeyWithValue(dpusetAnnKey, "tav1"))
+	}).WithTimeout(timeout).WithPolling(pollingInterval).Should(Succeed())
+}
+
+// ValidateDPUSetNotReadyOnClusterMetadataConflict patches DPUSet template and a referenced DPUDevice to create a
+// key/value conflict and verifies the DPUSet transitions to NotReady with the expected reason.
+func ValidateDPUSetNotReadyOnClusterMetadataConflict(ctx context.Context, input *systemTestInput) {
+	if !input.hasDpuNodes() {
+		Skip("Skip test as DPU nodes are required")
+	}
+
+	const (
+		timeout         = 5 * time.Minute
+		pollingInterval = 5 * time.Second
+		conflictKey     = "e2e.provisioning.doca-platform.nvidia.com/cluster-metadata-conflict"
+	)
+
+	By("Selecting a Ready DPU to locate a representative DPUDevice")
+	dpu, err := getAnyReadyDPU(ctx, input.client)
+	Expect(err).NotTo(HaveOccurred())
+	dd, err := getDPUDeviceByName(ctx, input.client, dpu.Spec.DPUDeviceName)
+	Expect(err).NotTo(HaveOccurred())
+
+	By("Patching DPUSet template to set a conflicting label+annotation key")
+	dpuset, err := getProvisioningDPUSet(ctx, input.client, input.dpuSet)
+	Expect(err).NotTo(HaveOccurred())
+	dpusetCur := &provisioningv1.DPUSet{}
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuset), dpusetCur)).To(Succeed())
+	dpusetPatch := client.MergeFrom(dpusetCur.DeepCopy())
+	if dpusetCur.Spec.DPUTemplate.Spec.Cluster == nil {
+		dpusetCur.Spec.DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+	}
+	if dpusetCur.Spec.DPUTemplate.Spec.Cluster.NodeLabels == nil {
+		dpusetCur.Spec.DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{}
+	}
+	if dpusetCur.Spec.DPUTemplate.Spec.Cluster.NodeAnnotations == nil {
+		dpusetCur.Spec.DPUTemplate.Spec.Cluster.NodeAnnotations = map[string]string{}
+	}
+	dpusetCur.Spec.DPUTemplate.Spec.Cluster.NodeLabels[conflictKey] = "from-dpuset"
+	dpusetCur.Spec.DPUTemplate.Spec.Cluster.NodeAnnotations[conflictKey] = "from-dpuset"
+	Expect(input.client.Patch(ctx, dpusetCur, dpusetPatch)).To(Succeed())
+
+	By("Patching DPUDevice spec.cluster to set the same keys with different values")
+	ddCur := &provisioningv1.DPUDevice{}
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dd), ddCur)).To(Succeed())
+	ddPatch := client.MergeFrom(ddCur.DeepCopy())
+	if ddCur.Spec.Cluster == nil {
+		ddCur.Spec.Cluster = &provisioningv1.DPUDeviceClusterSpec{}
+	}
+	if ddCur.Spec.Cluster.NodeLabels == nil {
+		ddCur.Spec.Cluster.NodeLabels = map[string]string{}
+	}
+	if ddCur.Spec.Cluster.NodeAnnotations == nil {
+		ddCur.Spec.Cluster.NodeAnnotations = map[string]string{}
+	}
+	ddCur.Spec.Cluster.NodeLabels[conflictKey] = "from-dpudevice"
+	ddCur.Spec.Cluster.NodeAnnotations[conflictKey] = "from-dpudevice"
+	Expect(input.client.Patch(ctx, ddCur, ddPatch)).To(Succeed())
+
+	By("Waiting for the DPUSet Ready condition to become False with reason ClusterMetadataConflict")
+	Eventually(func(g Gomega) {
+		cur := &provisioningv1.DPUSet{}
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpusetCur), cur)).To(Succeed())
+		cond := meta.FindStatusCondition(cur.Status.Conditions, "Ready")
+		g.Expect(cond).NotTo(BeNil(), "DPUSet should have Ready condition")
+		g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		g.Expect(cond.Reason).To(Equal("ClusterMetadataConflict"))
+	}).WithTimeout(timeout).WithPolling(pollingInterval).Should(Succeed())
+}
+
+// ValidateDPUDeviceClusterNodeLabelsPropagation validates that changing DPUDevice.spec.cluster.nodeLabels/nodeAnnotations
+// (add/update/remove) is reflected on the tenant cluster Node for a Ready DPU.
+func ValidateDPUDeviceClusterNodeLabelsPropagation(ctx context.Context, input *systemTestInput) {
+	if !input.hasDpuNodes() {
+		Skip("Skip test as DPU nodes are required")
+	}
+	if len(dpuClusterClient) == 0 || dpuClusterClient[0] == nil {
+		Fail("DPUCluster client is not initialized; expected CreateProvisioningDPUCluster to run first")
+	}
+
+	const (
+		labelKey        = "e2e.provisioning.doca-platform.nvidia.com/dpudevice-cluster-label"
+		annKey          = "e2e.provisioning.doca-platform.nvidia.com/dpudevice-cluster-annotation"
+		timeout         = 10 * time.Minute
+		pollingInterval = 5 * time.Second
+	)
+
+	By("Selecting a Ready DPU")
+	dpu, err := getAnyReadyDPU(ctx, input.client)
+	Expect(err).NotTo(HaveOccurred())
+
+	By(fmt.Sprintf("Fetching DPUDevice %q referenced by DPU %q", dpu.Spec.DPUDeviceName, dpu.Name))
+	dd, err := getDPUDeviceByName(ctx, input.client, dpu.Spec.DPUDeviceName)
+	Expect(err).NotTo(HaveOccurred())
+
+	By("Adding a new cluster node label and annotation via DPUDevice")
+	ddCur := &provisioningv1.DPUDevice{}
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dd), ddCur)).To(Succeed())
+	patch := client.MergeFrom(ddCur.DeepCopy())
+	if ddCur.Spec.Cluster == nil {
+		ddCur.Spec.Cluster = &provisioningv1.DPUDeviceClusterSpec{}
+	}
+	if ddCur.Spec.Cluster.NodeLabels == nil {
+		ddCur.Spec.Cluster.NodeLabels = map[string]string{}
+	}
+	if ddCur.Spec.Cluster.NodeAnnotations == nil {
+		ddCur.Spec.Cluster.NodeAnnotations = map[string]string{}
+	}
+	ddCur.Spec.Cluster.NodeLabels[labelKey] = "v1"
+	ddCur.Spec.Cluster.NodeAnnotations[annKey] = "av1"
+	Expect(input.client.Patch(ctx, ddCur, patch)).To(Succeed())
+
+	By("Waiting for the tenant Node to have the added label and annotation")
+	Eventually(func(g Gomega) {
+		node, err := getTenantNode(ctx, dpuClusterClient[0], dpu.Name)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(node.Labels).To(HaveKeyWithValue(labelKey, "v1"))
+		g.Expect(node.Annotations).To(HaveKeyWithValue(annKey, "av1"))
+	}).WithTimeout(timeout).WithPolling(pollingInterval).Should(Succeed())
+
+	By("Updating the cluster node label and annotation values via DPUDevice")
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(ddCur), ddCur)).To(Succeed())
+	patch = client.MergeFrom(ddCur.DeepCopy())
+	ddCur.Spec.Cluster.NodeLabels[labelKey] = "v2"
+	ddCur.Spec.Cluster.NodeAnnotations[annKey] = "av2"
+	Expect(input.client.Patch(ctx, ddCur, patch)).To(Succeed())
+
+	By("Waiting for the tenant Node to have the updated label and annotation values")
+	Eventually(func(g Gomega) {
+		node, err := getTenantNode(ctx, dpuClusterClient[0], dpu.Name)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(node.Labels).To(HaveKeyWithValue(labelKey, "v2"))
+		g.Expect(node.Annotations).To(HaveKeyWithValue(annKey, "av2"))
+	}).WithTimeout(timeout).WithPolling(pollingInterval).Should(Succeed())
+
+	By("Removing the cluster node label and annotation keys via DPUDevice")
+	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(ddCur), ddCur)).To(Succeed())
+	patch = client.MergeFrom(ddCur.DeepCopy())
+	delete(ddCur.Spec.Cluster.NodeLabels, labelKey)
+	delete(ddCur.Spec.Cluster.NodeAnnotations, annKey)
+	Expect(input.client.Patch(ctx, ddCur, patch)).To(Succeed())
+
+	By("Waiting for the tenant Node to no longer have the removed label and annotation")
+	Eventually(func(g Gomega) {
+		node, err := getTenantNode(ctx, dpuClusterClient[0], dpu.Name)
+		g.Expect(err).NotTo(HaveOccurred())
+		_, ok := node.Labels[labelKey]
+		g.Expect(ok).To(BeFalse(), "label should be removed from tenant Node")
+		_, ok = node.Annotations[annKey]
+		g.Expect(ok).To(BeFalse(), "annotation should be removed from tenant Node")
+	}).WithTimeout(timeout).WithPolling(pollingInterval).Should(Succeed())
+
+	By("Validating DPUSet becomes NotReady on DPUSet/DPUDevice cluster metadata conflict")
+	ValidateDPUSetNotReadyOnClusterMetadataConflict(ctx, input)
 }
