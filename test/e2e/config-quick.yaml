@@ -20,5 +20,6 @@ dpuServiceIPAMTemplate: "../objects/application/dpuserviceipamtemplate.yaml"
 dpuService: "../objects/application/dpuservice.yaml"
 dpuServiceHBN: "../objects/application/dpuservicehbn.yaml"
 dpuServiceTemplate: "../objects/application/dpuservicetemplate.yaml"
+dhcpDaemonSet: "../objects/application/vpc/dhcp.yaml"
 numberOfDPUNodes: 0
 numberOfDPUsPerNode: 0
