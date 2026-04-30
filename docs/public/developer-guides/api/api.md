@@ -1774,6 +1774,7 @@ _Appears in:_
 | `bmcIp` _string_ | BMCIP is the IP address of the BMC (Base Management Controller) on the device.<br />This is used for remote management and monitoring of the device.<br />This value is immutable and should not be changed once set.<br />Example: "10.1.2.3" |  | Format: ipv4 <br />Optional: \{\} <br /> |
 | `bmcPort` _integer_ | BMCPort is the port number of the BMC (Base Management Controller) on the device.<br />This is used for remote management and monitoring of the device.<br />This value is immutable and should not be changed once set.<br />Example: 443 | 443 | Minimum: 1 <br />Optional: \{\} <br /> |
 | `numberOfPFs` _integer_ | NumberOfPFs is the number of PFs on the device.<br />This value is immutable and should not be changed once set.<br />Example: 1 | 1 | Minimum: 1 <br />Optional: \{\} <br /> |
+| `nicDeviceCount` _integer_ | NICDeviceCount is the expected number of NIC devices used by dpu-agent provisioning.<br />Valid range is 1 to 8. When unspecified, it defaults to 8. |  | Maximum: 8 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 | `pf0Name` _string_ | PF0Name is the name of the PF0 on the device.<br />This value is immutable and should not be changed once set.<br />Example: "eth0"<br />Deprecated: This field is deprecated and will be removed in a future version. Use status.pf0Name instead. |  | Optional: \{\} <br /> |
 
 

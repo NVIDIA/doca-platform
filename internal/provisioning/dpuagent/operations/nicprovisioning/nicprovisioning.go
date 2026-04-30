@@ -17,6 +17,7 @@ limitations under the License.
 package nicprovisioning
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/url"
@@ -26,8 +27,13 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 	utils "github.com/nvidia/doca-platform/internal/utils"
 
+	nicconfigurationv1alpha1 "github.com/Mellanox/nic-configuration-operator/api/v1alpha1"
+	nicdevicediscovery "github.com/Mellanox/nic-configuration-operator/pkg/devicediscovery"
+	nicdms "github.com/Mellanox/nic-configuration-operator/pkg/dms"
+	nicnvconfig "github.com/Mellanox/nic-configuration-operator/pkg/nvconfig"
 	"k8s.io/klog/v2"
 )
 
@@ -35,7 +41,11 @@ var nicFirmwareDir = string(os.PathSeparator) + "nic-firmware"
 
 // NICProvisioning performs NIC-related provisioning steps before the rest of the
 // DPU agent pipeline (modules, netplan, etc.).
-type NICProvisioning struct{}
+type NICProvisioning struct {
+	dmsServer               nicdms.DMSServer
+	runBash                 func(cmd string) (bytes.Buffer, bytes.Buffer, error)
+	prepareLocalDMSServerFn func(optCtx *operations.Context) error
+}
 
 func (n *NICProvisioning) Name() string {
 	return "NIC provisioning"
@@ -57,7 +67,7 @@ func (n *NICProvisioning) ShouldUpdateStatusBeforeContinue(_ *operations.Context
 	return false
 }
 
-func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Context) error {
+func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Context) (err error) {
 	isBlueField4 := optCtx.LatestDPU != nil && optCtx.LatestDPU.Status.DPUType == provisioningv1.DPUTypeBlueField4
 	if !isBlueField4 {
 		return fmt.Errorf("DPU type is not BlueField4")
@@ -70,6 +80,27 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 	// 1. Download Astra NIC firmware from bfb-registry
 	if err := n.downloadNICFirmware(execCtx, optCtx); err != nil {
 		return err
+	}
+	// 2. Stop host dmsd service (if present) and start local DMS server from NCO library.
+	prepareDMSServer := n.prepareLocalDMSServer
+	if n.prepareLocalDMSServerFn != nil {
+		prepareDMSServer = n.prepareLocalDMSServerFn
+	}
+	if err := prepareDMSServer(optCtx); err != nil {
+		return err
+	}
+	if n.dmsServer != nil && n.dmsServer.IsRunning() {
+		defer func() {
+			stopErr := n.stopLocalDMSServer()
+			if stopErr == nil {
+				return
+			}
+			if err == nil {
+				err = stopErr
+				return
+			}
+			klog.ErrorS(stopErr, "NIC provisioning: failed to stop local DMS server while unwinding execute")
+		}()
 	}
 	return nil
 }
@@ -96,9 +127,7 @@ func (n *NICProvisioning) downloadNICFirmware(execCtx context.Context, optCtx *o
 
 	nicFWLocation := strings.TrimSpace(blueFieldSoftware.Status.DownloadedComponents.AstraNicFw)
 	if nicFWLocation == "" {
-		//TODO: remove this once we have a way to set correct path for blueFieldSoftware.Status.DownloadedComponents.AstraNicFw
-		return nil
-		//return fmt.Errorf("blueFieldSoftware %s/%s has empty status.downloadedComponents.astraNicFw", optCtx.Options.DPUNamespace, blueFieldSoftwareName)
+		return fmt.Errorf("blueFieldSoftware %s/%s has empty status.downloadedComponents.astraNicFw", optCtx.Options.DPUNamespace, blueFieldSoftwareName)
 	}
 
 	nicFWFileName := filepath.Base(strings.TrimSpace(extractPathForFileName(nicFWLocation)))
@@ -159,4 +188,102 @@ func isHTTPURL(value string) bool {
 		return false
 	}
 	return parsedURL.Scheme == "http" || parsedURL.Scheme == "https"
+}
+
+func (n *NICProvisioning) prepareLocalDMSServer(optCtx *operations.Context) error {
+	if err := n.stopSystemDMSDServiceIfExists(); err != nil {
+		return err
+	}
+
+	if n.dmsServer != nil && n.dmsServer.IsRunning() {
+		klog.Info("NIC provisioning: local DMS server already running, skip start")
+		return nil
+	}
+
+	nvConfigUtils := nicnvconfig.NewNVConfigUtils()
+	deviceDiscovery := nicdevicediscovery.NewDeviceDiscovery(optCtx.Options.DPUName, nvConfigUtils)
+
+	discoveredDevices, err := deviceDiscovery.DiscoverNicDevices()
+	if err != nil {
+		return fmt.Errorf("failed to discover NIC devices for local DMS server: %w", err)
+	}
+	if len(discoveredDevices) == 0 {
+		return fmt.Errorf("no NIC devices discovered for local DMS server startup")
+	}
+	if len(discoveredDevices) != optCtx.Options.NICDeviceCount {
+		return fmt.Errorf("discovered NIC device count mismatch: expected %d, discovered %d",
+			optCtx.Options.NICDeviceCount, len(discoveredDevices))
+	}
+
+	devices := make([]nicconfigurationv1alpha1.NicDevice, 0, len(discoveredDevices))
+	for _, device := range discoveredDevices {
+		devices = append(devices, device)
+	}
+	klog.InfoS("NIC provisioning: discovered NIC devices for local DMS server", "deviceCount", len(devices))
+	for _, device := range devices {
+		pciPorts := make([]string, 0, len(device.Status.Ports))
+		for _, port := range device.Status.Ports {
+			pciPorts = append(pciPorts, port.PCI)
+		}
+		klog.InfoS("NIC provisioning: discovered NIC device",
+			"serialNumber", device.Status.SerialNumber,
+			"type", device.Status.Type,
+			"modelName", device.Status.ModelName,
+			"portCount", len(device.Status.Ports),
+			"pciPorts", strings.Join(pciPorts, ","))
+	}
+
+	dmsServer := nicdms.NewDMSServer()
+	if err := dmsServer.StartDMSServer(devices); err != nil {
+		return fmt.Errorf("failed to start local DMS server: %w", err)
+	}
+	n.dmsServer = dmsServer
+	klog.InfoS("NIC provisioning: local DMS server started", "deviceCount", len(devices))
+	return nil
+}
+
+func (n *NICProvisioning) stopLocalDMSServer() error {
+	if n.dmsServer == nil {
+		return nil
+	}
+	if !n.dmsServer.IsRunning() {
+		klog.Info("NIC provisioning: local DMS server is not running, skip stop")
+		return nil
+	}
+	if err := n.dmsServer.StopDMSServer(); err != nil {
+		return fmt.Errorf("failed to stop local DMS server: %w", err)
+	}
+	klog.Info("NIC provisioning: local DMS server stopped")
+	return nil
+}
+
+func (n *NICProvisioning) stopSystemDMSDServiceIfExists() error {
+	if n.runBash == nil {
+		n.runBash = bash.Run
+	}
+
+	stdout, stderr, err := n.runBash("systemctl show dmsd.service --property=LoadState --value")
+	if err != nil {
+		combinedOutput := stdout.String() + stderr.String()
+		if strings.Contains(combinedOutput, "not-found") || strings.Contains(combinedOutput, "could not be found") {
+			klog.Info("NIC provisioning: dmsd service does not exist, skip service stop/disable")
+			return nil
+		}
+		return fmt.Errorf("failed to check dmsd service status: %w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
+	}
+
+	if strings.TrimSpace(stdout.String()) == "not-found" {
+		klog.Info("NIC provisioning: dmsd service not found, skip service stop/disable")
+		return nil
+	}
+
+	if _, stderr, err := n.runBash("systemctl disable --now dmsd.service"); err != nil {
+		return fmt.Errorf("failed to disable and stop dmsd.service: %w, stderr: %s", err, stderr.String())
+	}
+	if _, stderr, err := n.runBash("systemctl mask dmsd.service"); err != nil {
+		return fmt.Errorf("failed to mask dmsd.service: %w, stderr: %s", err, stderr.String())
+	}
+
+	klog.Info("NIC provisioning: permanently stopped dmsd service (disabled and masked)")
+	return nil
 }

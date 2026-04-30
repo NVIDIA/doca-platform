@@ -709,6 +709,11 @@ func (in *DPUDeviceSpec) DeepCopyInto(out *DPUDeviceSpec) {
 		*out = new(int)
 		**out = **in
 	}
+	if in.NICDeviceCount != nil {
+		in, out := &in.NICDeviceCount, &out.NICDeviceCount
+		*out = new(int)
+		**out = **in
+	}
 	if in.PF0Name != nil {
 		in, out := &in.PF0Name, &out.PF0Name
 		*out = new(string)
