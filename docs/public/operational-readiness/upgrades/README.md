@@ -11,7 +11,7 @@ This document describes the process of upgrading between different versions of t
 ## Prerequisites
 
 Before starting the upgrade process, ensure you have the
-following [Helm Prerequisites](../getting-started/helm-prerequisites.md) installed and configured.
+following [Helm Prerequisites](../../getting-started/helm-prerequisites.md) installed and configured.
 
 Further prerequisites include:
 
@@ -27,7 +27,7 @@ Further prerequisites include:
 
 ### Verifying Readiness
 
-You can verify the readiness of your DPF Operator and DPUs using [`dpfctl`](../troubleshooting/dpfctl/README.md) or `kubectl`:
+You can verify the readiness of your DPF Operator and DPUs using [`dpfctl`](../../troubleshooting/dpfctl/README.md) or `kubectl`:
 
 **Using dpfctl (recommended):**
 
@@ -50,6 +50,13 @@ kubectl get dpfoperatorconfig -o yaml
 
 All status conditions in the status section should be `True`, and the `version` field should match the current DPF
 Operator version.
+
+## DPF Operator Lifecycle
+
+When a new major version is released:
+
+* New major version is supported
+* Previous major version enters EOL (end-of-life)
 
 ## Supported Upgrade Path (n-1 Policy)
 
@@ -81,7 +88,7 @@ minor version are always allowed.
 
 ## BlueField BFB Support Matrix
 
-For the full BFB version compatibility matrix, see the [BlueField BFB Support Matrix](../platform-support.md#bluefield-bfb-support-matrix) in the Platform Support documentation.
+For the full BFB version compatibility matrix, see the [BlueField BFB Support Matrix](../../platform-support.md#bluefield-bfb-support-matrix) in the Platform Support documentation.
 
 ## Prevalidation
 
@@ -108,7 +115,7 @@ If any validation fails:
 
 ### Status Monitoring
 
-You can monitor prevalidation status using either [dpfctl](../troubleshooting/dpfctl/README.md) or kubectl as described in the
+You can monitor prevalidation status using either [dpfctl](../../troubleshooting/dpfctl/README.md) or kubectl as described in the
 prerequisites above. The `DPFOperatorConfig` status will indicate whether prevalidations have passed or failed. All
 conditions must be `True` for the upgrade to proceed.
 
@@ -120,7 +127,7 @@ After completing your DPF Operator upgrade, follow these steps to ensure everyth
    conditions are met.
 
 2. **Update to Supported BFB and DPUFlavor**: Create the new BFB object and DPUFlavor
-   object [according to the new guide](../user-guides/README.md). Review and update your DPUDeployment/DPUSet resources as needed
+   object [according to the new guide](../../user-guides/README.md). Review and update your DPUDeployment/DPUSet resources as needed
    to reference those objects to make the system compatible with the new operator version.
 
 3. **Update DPUServices**: Review and update your DPUDeployment/DPUService resources to use services that are compatible with
