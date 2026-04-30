@@ -321,6 +321,11 @@ var _ = BeforeSuite(func() {
 	if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.DPFVPCOVN) {
 		VPCOVNBeforeSuite()
 	}
+
+	// Apply the OVSVPCBeforeSuite setup
+	if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.OVSVPC) {
+		OVSVPCBeforeSuite(*conf)
+	}
 })
 
 var _ = ReportBeforeEach(func(spec SpecReport) {

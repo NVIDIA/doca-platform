@@ -14,26 +14,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package vpcutils
+package ovnutils
 
 import (
 	"context"
 	"fmt"
-	"maps"
-	"net"
-	"os"
-	"os/exec"
-	"strings"
-	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	vpcutils "github.com/nvidia/doca-platform/test/utils/vpc"
 
-	nadutils "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/utils"
 	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -59,19 +51,12 @@ const (
 	VpcOVNControllerService = "vpc-ovn-controller"
 	VpcOVNNodeService       = "vpc-ovn-node"
 
-	// Test timeouts
-	DefaultTimeout = 1 * time.Minute
-	LongTimeout    = 6 * time.Minute
-
-	// Label keys - frequently used in the code
+	// Label keys
 	TenantNodeLabelKey       = "ovn.vpc.dpu.nvidia.com/tenant-node"
 	TenantLabelKey           = "ovn.vpc.dpu.nvidia.com/tenant"
 	InterfaceLabelKey        = "ovn.vpc.dpu.nvidia.com/interface"
 	ServiceInterfaceLabelKey = "svc.dpu.nvidia.com/interface"
 	PoolLabelKey             = "ovn.vpc.dpu.nvidia.com/pool"
-
-	// Kubernetes annotation keys
-	NetworkStatusAnnotationKey = "k8s.v1.cni.cncf.io/network-status"
 
 	// OVN specific
 	OvnNbPort = 30641
@@ -92,48 +77,7 @@ const (
 	GatewayIPPoolName = "vpc-ippool-gateway"
 )
 
-// CreatePodNetworkAttachmentDefinition creates a network attachment definition for a pod consuming a VF with the given index and mac address
-func CreatePodNetworkAttachmentDefinition(ctx context.Context, testClient client.Client, namespace, podName string, vfIndex int, labels map[string]string) string {
-	nadName := fmt.Sprintf("nad-%s", podName)
-	name := fmt.Sprintf("hostpf0vf%d", vfIndex)
-	hostDevice := fmt.Sprintf("enp8s0f0v%d", vfIndex)
-
-	nad := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "k8s.cni.cncf.io/v1",
-			"kind":       "NetworkAttachmentDefinition",
-			"metadata": map[string]interface{}{
-				"name":      nadName,
-				"namespace": namespace,
-				"labels":    labels,
-			},
-			"spec": map[string]interface{}{
-				"config": fmt.Sprintf(`{
-					"cniVersion": "0.4.0",
-					"name": "%s",
-					"plugins": [
-						{
-							"type": "host-device",
-							"device": "%s",
-							"ipam": {
-								"type": "dhcp"
-							}
-						},
-						{
-							"type": "tuning",
-							"mtu": %d
-						}
-					]
-				}`, name, hostDevice, VfsMTU),
-			},
-		},
-	}
-
-	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, nad))).To(Succeed())
-	return nadName
-}
-
-// CreateExternalEndpointPodNetworkAttachmentDefinition creates a network attachment definition for a pod consuming a VF with the given index and static ip address
+// CreateExternalEndpointPodNetworkAttachmentDefinition creates a network attachment definition for a pod consuming a VF with the given index and static ip address.
 func CreateExternalEndpointPodNetworkAttachmentDefinition(ctx context.Context, testClient client.Client, namespace, podName string, vfIndex int, externalNetIPAddress string, labels map[string]string) string {
 	nadName := fmt.Sprintf("nad-%s", podName)
 	name := fmt.Sprintf("hostpf0vf%d", vfIndex)
@@ -171,7 +115,7 @@ func CreateExternalEndpointPodNetworkAttachmentDefinition(ctx context.Context, t
 	return nadName
 }
 
-// CreateDPUIntergrationBridgeNetworkAttachmentDefinition creates a network attachment definition for a pod
+// CreateDPUIntergrationBridgeNetworkAttachmentDefinition creates a network attachment definition for a pod.
 func CreateDPUIntergrationBridgeNetworkAttachmentDefinition(ctx context.Context, dpuClusterClient client.Client, namespace string, labels map[string]string) string {
 	nadName := "mybrint-vpc"
 
@@ -209,41 +153,13 @@ func CreateDPUIntergrationBridgeNetworkAttachmentDefinition(ctx context.Context,
 	return nadName
 }
 
-// GetPodIPAddressFromNetworkStatus returns the IP address of a pod from the network status with the given interface name
-func GetPodIPAddressFromNetworkStatus(ctx context.Context, testClient client.Client, namespace, podName string, interfaceName string) string {
-	pod := &corev1.Pod{}
-	Expect(testClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: podName}, pod)).To(Succeed())
-	networkStatusList, err := nadutils.GetNetworkStatus(pod)
-	Expect(err).NotTo(HaveOccurred())
-	for _, network := range networkStatusList {
-		if network.Interface == interfaceName {
-			return network.IPs[0]
-		}
-	}
-	return ""
-}
-
-// GetPodsMatchingLabels gets the pods matching the given labels
-func GetPodsMatchingLabels(ctx context.Context, testclient client.Client, namespace string, matchingLabels map[string]string) []corev1.Pod {
-	pods := &corev1.PodList{}
-	err := testclient.List(
-		ctx,
-		pods,
-		client.InNamespace(namespace),
-		client.MatchingLabels(matchingLabels),
-	)
-	Expect(err).NotTo(HaveOccurred())
-	return pods.Items
-}
-
-// GetDPUClusterServiceInterfaces gets the DPU cluster service interfaces
+// GetDPUClusterServiceInterfaces gets the DPU cluster service interfaces.
 func GetDPUClusterServiceInterfaces(ctx context.Context, dpuClusterClient client.Client, namespace string, matchingLabels map[string]string) []dpuservicev1.ServiceInterface {
 	serviceInterfaces := &dpuservicev1.ServiceInterfaceList{}
 	Expect(dpuClusterClient.List(ctx, serviceInterfaces, client.InNamespace(namespace), client.MatchingLabels(matchingLabels))).To(Succeed())
 	return serviceInterfaces.Items
 }
 
-// SetVPCDPUServiceIPAM sets the IPAM for the DPU service
 func SetVPCDPUServiceIPAM(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM, subnet string, gateway string, perNodeIPCount int) {
 	dpuServiceIPAM.Spec = dpuservicev1.DPUServiceIPAMSpec{
 		IPV4Subnet: &dpuservicev1.IPV4Subnet{
@@ -263,7 +179,7 @@ func IsDPUVPCReady(ctx context.Context, g Gomega, testClient client.Client, vpcN
 func WaitForDPUVPCReady(ctx context.Context, testClient client.Client, vpcName, namespace string) {
 	Eventually(func(g Gomega) {
 		g.Expect(IsDPUVPCReady(ctx, g, testClient, vpcName, namespace)).To(BeTrue())
-	}, DefaultTimeout).Should(Succeed())
+	}, vpcutils.DefaultTimeout).Should(Succeed())
 }
 
 func IsDPUServiceVirtualNetworkReady(ctx context.Context, g Gomega, testClient client.Client, networkName, namespace string) bool {
@@ -272,74 +188,25 @@ func IsDPUServiceVirtualNetworkReady(ctx context.Context, g Gomega, testClient c
 	return conditions.IsTrue(dpuServiceVirtualNetwork, conditions.TypeReady)
 }
 
-// UpdateDPUNodeLabelsMerge adds/updates labels from toSet and deletes labels in toDelete.
-func UpdateDPUNodeLabelsMerge(ctx context.Context, c client.Client, nodeName string, toSet map[string]string, toDelete []string) {
-	node := &corev1.Node{}
-	Expect(c.Get(ctx, client.ObjectKey{Name: nodeName}, node)).To(Succeed())
-	original := node.DeepCopy()
-
-	if node.Labels == nil {
-		node.Labels = make(map[string]string)
-	}
-
-	// Add/update
-	maps.Copy(node.Labels, toSet)
-	// Delete
-	for _, k := range toDelete {
-		delete(node.Labels, k)
-	}
-
-	Expect(c.Patch(ctx, node, client.MergeFrom(original))).To(Succeed())
-}
-
-// WaitForDPUServiceVirtualNetworkReady waits for the DPU service virtual network to be ready
 func WaitForDPUServiceVirtualNetworkReady(ctx context.Context, testClient client.Client, networkName, namespace string) {
 	Eventually(func(g Gomega) {
 		g.Expect(IsDPUServiceVirtualNetworkReady(ctx, g, testClient, networkName, namespace)).To(BeTrue())
-	}, DefaultTimeout).Should(Succeed())
+	}, vpcutils.DefaultTimeout).Should(Succeed())
 }
 
-// GetServiceInterfaceMacAddressesMatchingLabels gets the MAC address of the VPC service interface with the given labels
+// GetServiceInterfaceMacAddressesMatchingLabels gets the MAC address of the VPC service interface with the given labels.
 func GetServiceInterfaceMacAddressesMatchingLabels(ctx context.Context, dpuClusterClient client.Client, dpfOperatorSystemNamespace string, labels map[string]string) map[string]string {
 	nodeToMACAddresseMap := make(map[string]string)
 	Eventually(func(g Gomega) {
-		serviceInterface := GetDPUClusterServiceInterfaces(ctx, dpuClusterClient, dpfOperatorSystemNamespace, labels)
-		g.Expect(serviceInterface).ToNot(BeEmpty())
-		for _, serviceInterface := range serviceInterface {
+		serviceInterfaces := GetDPUClusterServiceInterfaces(ctx, dpuClusterClient, dpfOperatorSystemNamespace, labels)
+		g.Expect(serviceInterfaces).ToNot(BeEmpty())
+		for _, serviceInterface := range serviceInterfaces {
 			g.Expect(serviceInterface.ObjectMeta.Annotations).ToNot(BeNil())
 			g.Expect(serviceInterface.ObjectMeta.Annotations[LSPMACAddressAnnotationKey]).ToNot(BeEmpty())
 			g.Expect(serviceInterface.Spec.Node).ToNot(BeNil())
 			g.Expect(*serviceInterface.Spec.Node).ToNot(BeEmpty())
 			nodeToMACAddresseMap[*serviceInterface.Spec.Node] = serviceInterface.ObjectMeta.Annotations[LSPMACAddressAnnotationKey]
 		}
-	}, DefaultTimeout).Should(Succeed())
+	}, vpcutils.DefaultTimeout).Should(Succeed())
 	return nodeToMACAddresseMap
-}
-
-// SetLinkMacAddress sets the MAC address on a link (idempotent; uses Ginkgo Expect for assertions).
-func SetLinkMacAddress(hostIP net.IP, interfaceName, macAddress string) {
-	password := os.Getenv("VM_PASSWORD")
-	Expect(password).ToNot(BeEmpty(), "VM_PASSWORD environment variable is not set")
-
-	Expect(strings.ContainsAny(interfaceName, ";|&$`")).To(BeFalse(), "invalid characters in interface name")
-	Expect(strings.ContainsAny(macAddress, ";|&$`")).To(BeFalse(), "invalid characters in MAC address")
-
-	sshKeygenCmd := fmt.Sprintf("ssh-keygen -R %s 2>/dev/null || true", hostIP.String())
-	Expect(exec.Command("bash", "-c", sshKeygenCmd).Run()).To(Succeed(), "failed to remove host from known_hosts")
-
-	sshOpts := "-o StrictHostKeyChecking=no -o PubkeyAuthentication=no -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
-	sshCommand := fmt.Sprintf("sshpass -p '%s' ssh %s root@%s 'ip link set dev %s down && ip link set dev %s address %s && ip link set dev %s up'",
-		password, sshOpts, hostIP.String(), interfaceName, interfaceName, macAddress, interfaceName)
-
-	Eventually(func(g Gomega) {
-		cmd := exec.Command("bash", "-c", sshCommand)
-		output, runErr := cmd.CombinedOutput()
-		g.Expect(runErr).ToNot(HaveOccurred(), "failed to set MAC address on %s, output: %s", hostIP.String(), string(output))
-	}, DefaultTimeout).Should(Succeed())
-}
-
-func CreateTestNamespace(ctx context.Context, testClient client.Client, namespace string, labels map[string]string) {
-	testNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
-	testNS.SetLabels(labels)
-	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, testNS))).To(Succeed())
 }
