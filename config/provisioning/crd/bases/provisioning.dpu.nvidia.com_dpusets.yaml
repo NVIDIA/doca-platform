@@ -186,6 +186,12 @@ spec:
                       cluster:
                         description: Specifies details on the K8S cluster to join
                         properties:
+                          nodeAnnotations:
+                            additionalProperties:
+                              type: string
+                            description: NodeAnnotations specifies the annotations
+                              to be added to the node.
+                            type: object
                           nodeLabels:
                             additionalProperties:
                               type: string

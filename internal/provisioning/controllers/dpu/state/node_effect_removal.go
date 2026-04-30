@@ -48,15 +48,26 @@ func NodeEffectRemoval(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *du
 		return *state, err
 	}
 
-	if needUpdateLabels, err := cutil.NeedUpdateLabelsOnNodeInDPUCluster(node, dpu.Spec.Cluster.NodeLabels); err != nil {
+	ann := dpu.Spec.Cluster.NodeAnnotations
+	if ann == nil {
+		ann = map[string]string{}
+	}
+	needUpdateLabels, err := cutil.NeedUpdateLabelsOnNodeInDPUCluster(node, dpu.Spec.Cluster.NodeLabels)
+	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "UpdateLabelsOnNodeInDPUClusterError", err.Error()))
 		return *state, err
-	} else if needUpdateLabels {
+	}
+	needUpdateAnn, err := cutil.NeedUpdateAnnotationsOnNodeInDPUCluster(node, ann)
+	if err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectRemoved.String(), err, "UpdateAnnotationsOnNodeInDPUClusterError", err.Error()))
+		return *state, err
+	}
+	if needUpdateLabels || needUpdateAnn {
 		// Reset the NodeEffectRemoved condition so the removal timeout timer starts fresh
 		// when we re-enter NodeEffectRemoval after the label update in ClusterConfig.
 		meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondNodeEffectRemoved.String())
 		state.Phase = provisioningv1.DPUClusterConfig
-		logger.V(3).Info(fmt.Sprintf("node %s needs to update label", node.Name))
+		logger.V(3).Info(fmt.Sprintf("node %s needs to update cluster node labels or annotations", node.Name))
 		return *state, nil
 	}
 

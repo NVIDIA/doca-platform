@@ -147,6 +147,27 @@ var _ = Describe("DPUSet", func() {
 		return dpuDevice
 	}
 
+	// anyDPUFromMap returns an arbitrary DPU from the map
+	var anyDPUFromMap = func(dpuMap map[string]provisioningv1.DPU) (provisioningv1.DPU, bool) {
+		for _, d := range dpuMap {
+			return d, true
+		}
+		return provisioningv1.DPU{}, false
+	}
+
+	// getDPUDeviceMapForAnyDPU fetches the DPUDevice referenced by any DPU in dpuMap and returns a 1-entry device map.
+	var getDPUDeviceMapForAnyDPU = func(ctx context.Context, namespace string, dpuMap map[string]provisioningv1.DPU) (map[string]provisioningv1.DPUDevice, error) {
+		sampleDPU, ok := anyDPUFromMap(dpuMap)
+		if !ok {
+			return nil, fmt.Errorf("dpuMap is empty")
+		}
+		dd := &provisioningv1.DPUDevice{}
+		if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: sampleDPU.Spec.DPUDeviceName}, dd); err != nil {
+			return nil, err
+		}
+		return map[string]provisioningv1.DPUDevice{dd.Name: *dd}, nil
+	}
+
 	BeforeEach(func() {
 		By("creating the namespace")
 		// Notes:
@@ -1140,9 +1161,11 @@ var _ = Describe("DPUSet", func() {
 			dpuMap, err := reconciler.GetDPUsMap(ctx, dpuSet)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(dpuMap).To(HaveLen(1), "DPU should be in the map")
+			dpuDeviceMap, err := getDPUDeviceMapForAnyDPU(ctx, testNamespace, dpuMap)
+			Expect(err).NotTo(HaveOccurred())
 
 			By("Calling updateDPUs")
-			dpusUpdated, err := reconciler.UpdateDPUs(ctx, dpuSet, dpuMap)
+			dpusUpdated, err := reconciler.UpdateDPUs(ctx, dpuSet, dpuMap, dpuDeviceMap)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(dpusUpdated).To(BeTrue(), "DPUs should have been updated")
 
@@ -1191,7 +1214,9 @@ var _ = Describe("DPUSet", func() {
 			Eventually(func(g Gomega) {
 				dpuMap, err := reconciler.GetDPUsMap(ctx, dpuSet)
 				g.Expect(err).NotTo(HaveOccurred())
-				dpusUpdated, err := reconciler.UpdateDPUs(ctx, dpuSet, dpuMap)
+				dpuDeviceMap, err := getDPUDeviceMapForAnyDPU(ctx, testNamespace, dpuMap)
+				g.Expect(err).NotTo(HaveOccurred())
+				dpusUpdated, err := reconciler.UpdateDPUs(ctx, dpuSet, dpuMap, dpuDeviceMap)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(dpusUpdated).To(BeFalse(), "No DPU updates should be needed now")
 				err = reconciler.UpdateDPUSetStatus(ctx, dpuSet, dpusUpdated, 1, 0)
@@ -1290,9 +1315,11 @@ var _ = Describe("DPUSet", func() {
 			dpuMap, err := reconciler.GetDPUsMap(ctx, dpuSet)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(dpuMap).To(HaveLen(1), "DPU should be in the map")
+			dpuDeviceMap, err := getDPUDeviceMapForAnyDPU(ctx, testNamespace, dpuMap)
+			Expect(err).NotTo(HaveOccurred())
 
 			By("Calling updateDPUs")
-			dpusUpdated, err := reconciler.UpdateDPUs(ctx, dpuSet, dpuMap)
+			dpusUpdated, err := reconciler.UpdateDPUs(ctx, dpuSet, dpuMap, dpuDeviceMap)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(dpusUpdated).To(BeFalse(), "DPUs should NOT have been updated when no changes are needed")
 

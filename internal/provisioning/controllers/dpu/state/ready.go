@@ -60,21 +60,30 @@ func Ready(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Controll
 		cond := cutil.DPUCondition(provisioningv1.DPUCondReady, "DPUReady", "")
 		cutil.SetDPUCondition(state, cond)
 
-		// Check if the labels on the node need to be updated
-		if needUpdateLabels, err := cutil.NeedUpdateLabelsOnNodeInDPUCluster(node, dpu.Spec.Cluster.NodeLabels); err != nil {
+		ann := dpu.Spec.Cluster.NodeAnnotations
+		if ann == nil {
+			ann = map[string]string{}
+		}
+		needUpdateLabels, err := cutil.NeedUpdateLabelsOnNodeInDPUCluster(node, dpu.Spec.Cluster.NodeLabels)
+		if err != nil {
 			return *state, err
-		} else if needUpdateLabels {
+		}
+		needUpdateAnn, err := cutil.NeedUpdateAnnotationsOnNodeInDPUCluster(node, ann)
+		if err != nil {
+			return *state, err
+		}
+		if needUpdateLabels || needUpdateAnn {
 			// Check if applyOnLabelChange is enabled
 			if dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange != nil && *dpu.Spec.NodeEffect.UpgradePolicy.ApplyOnLabelChange {
 				// Set status field to trigger node effect
 				state.PostProvisioningNodeEffect = ptr.To(true)
 				// Transition to nodeEffect state instead of DPUClusterConfig
 				state.Phase = provisioningv1.DPUNodeEffect
-				logger.V(3).Info(fmt.Sprintf("node %s needs to update label, triggering node effect", node.Name))
+				logger.V(3).Info(fmt.Sprintf("node %s needs to update cluster node metadata, triggering node effect", node.Name))
 				return *state, nil
 			}
 			state.Phase = provisioningv1.DPUClusterConfig
-			logger.V(3).Info(fmt.Sprintf("node %s needs to update label", node.Name))
+			logger.V(3).Info(fmt.Sprintf("node %s needs to update cluster node labels or annotations", node.Name))
 			return *state, nil
 		}
 		return *state, nil

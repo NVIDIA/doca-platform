@@ -87,6 +87,8 @@ const (
 	DPUSetDPUTemplateSpecHashLabelKey = DPUProvisioningPrefix + "dpuset-dpu-template-spec-hash"
 	// LastAppliedLabelsOnDPUKey is the key for the last applied labels.
 	LastAppliedLabelsOnDPUKey = DPUProvisioningPrefix + "last-applied-labels-on-dpu"
+	// LastAppliedAnnotationsOnDPUKey is the key for the last applied annotations on the cluster node.
+	LastAppliedAnnotationsOnDPUKey = DPUProvisioningPrefix + "last-applied-annotations-on-dpu"
 	// ProvisioningComponentLabelKey is the label for the component of the DPU.
 	ProvisioningComponentLabelKey = DPUProvisioningPrefix + "component"
 	// HostNameDPULabelKey is the label added to the DPU Kubernetes Node that indicates the hostname
@@ -286,6 +288,64 @@ func UpdateLabelsToNode(ctx context.Context, client crclient.Client, node *corev
 	return nil
 }
 
+func UpdateLabelsAndAnnotationsToNode(ctx context.Context, client crclient.Client, node *corev1.Node, labels map[string]string, annotations map[string]string) error {
+	patchBase := node.DeepCopy()
+
+	if node.Labels == nil {
+		node.Labels = make(map[string]string)
+	}
+	if node.Annotations == nil {
+		node.Annotations = make(map[string]string)
+	}
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+
+	oldLabels := make(map[string]string)
+	if lastAppliedLabelsStr, ok := node.Annotations[LastAppliedLabelsOnDPUKey]; ok {
+		if err := json.Unmarshal([]byte(lastAppliedLabelsStr), &oldLabels); err != nil {
+			return err
+		}
+	}
+	removedLabels := GetRemovedLabels(oldLabels, labels)
+	for key, value := range labels {
+		node.Labels[key] = value
+	}
+	for _, key := range removedLabels {
+		delete(node.Labels, key)
+	}
+	labelsJSON, err := MarshalJSON(labels)
+	if err != nil {
+		return fmt.Errorf("failed to marshal labels: %w", err)
+	}
+	node.Annotations[LastAppliedLabelsOnDPUKey] = labelsJSON
+
+	oldAnn := make(map[string]string)
+	if lastAppliedStr, ok := node.Annotations[LastAppliedAnnotationsOnDPUKey]; ok {
+		if err := json.Unmarshal([]byte(lastAppliedStr), &oldAnn); err != nil {
+			return err
+		}
+	}
+	removedAnn := GetRemovedLabels(oldAnn, annotations)
+	for key, value := range annotations {
+		node.Annotations[key] = value
+	}
+	for _, key := range removedAnn {
+		delete(node.Annotations, key)
+	}
+	annJSON, err := MarshalJSON(annotations)
+	if err != nil {
+		return fmt.Errorf("failed to marshal annotations: %w", err)
+	}
+	node.Annotations[LastAppliedAnnotationsOnDPUKey] = annJSON
+
+	patch := crclient.MergeFrom(patchBase)
+	return client.Patch(ctx, node, patch)
+}
+
 // GetRemovedLabels returns the labels that are present in oldLabels but not in newLabels
 func GetRemovedLabels(oldLabels, newLabels map[string]string) []string {
 	var removedLabels []string
@@ -295,6 +355,77 @@ func GetRemovedLabels(oldLabels, newLabels map[string]string) []string {
 		}
 	}
 	return removedLabels
+}
+
+// MergeDPUClusterNodeMetadata merges DPUSet template ClusterSpec with DPUDevice cluster metadata.
+// Template and device must agree on values for any shared label or annotation key.
+func MergeDPUClusterNodeMetadata(template *provisioningv1.ClusterSpec, device *provisioningv1.DPUDeviceClusterSpec) (labels, annotations map[string]string, err error) {
+	labels = map[string]string{}
+	annotations = map[string]string{}
+
+	if template != nil {
+		for k, v := range template.NodeLabels {
+			labels[k] = v
+		}
+		for k, v := range template.NodeAnnotations {
+			annotations[k] = v
+		}
+	}
+
+	if device == nil {
+		return labels, annotations, nil
+	}
+
+	for k, v := range device.NodeLabels {
+		if existing, ok := labels[k]; ok && existing != v {
+			return nil, nil, fmt.Errorf("label key %q: DPUSet template and DPUDevice disagree (%q vs %q)", k, existing, v)
+		}
+		labels[k] = v
+	}
+	for k, v := range device.NodeAnnotations {
+		if existing, ok := annotations[k]; ok && existing != v {
+			return nil, nil, fmt.Errorf("annotation key %q: DPUSet template and DPUDevice disagree (%q vs %q)", k, existing, v)
+		}
+		annotations[k] = v
+	}
+
+	return labels, annotations, nil
+}
+
+// GetStringMapFromAnnotation unmarshals annotations[key] as a JSON object into map[string]string.
+// Missing key, empty value, invalid JSON, or JSON null yields an empty map (never nil).
+func GetStringMapFromAnnotation(annotations map[string]string, key string) map[string]string {
+	if annotations == nil {
+		return map[string]string{}
+	}
+	s, ok := annotations[key]
+	if !ok || s == "" {
+		return map[string]string{}
+	}
+	var m map[string]string
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return map[string]string{}
+	}
+	if m == nil {
+		return map[string]string{}
+	}
+	return m
+}
+
+// SetAnnotationFromStringMap sets meta.Annotations[key] to the JSON encoding of data.
+func SetAnnotationFromStringMap(meta *metav1.ObjectMeta, key string, data map[string]string) error {
+	if meta.Annotations == nil {
+		meta.Annotations = make(map[string]string)
+	}
+	if data == nil {
+		data = map[string]string{}
+	}
+	encoded, err := MarshalJSON(data)
+	if err != nil {
+		return err
+	}
+	meta.Annotations[key] = encoded
+	return nil
 }
 
 func DeleteObjects(ctx context.Context, client crclient.Client, objs ...crclient.Object) error {
@@ -737,7 +868,7 @@ func GetNodeFromDPUCluster(ctx context.Context, client crclient.Client, dpu *pro
 
 func NeedUpdateLabelsOnNodeInDPUCluster(dpuNode *corev1.Node, labelsOnDPUObject map[string]string) (bool, error) {
 	if labelsOnDPUObject == nil {
-		return false, nil
+		labelsOnDPUObject = map[string]string{}
 	}
 	lastAppliedLabels := make(map[string]string)
 	if dpuNode.Annotations != nil {
@@ -749,6 +880,25 @@ func NeedUpdateLabelsOnNodeInDPUCluster(dpuNode *corev1.Node, labelsOnDPUObject 
 	}
 
 	if !reflect.DeepEqual(labelsOnDPUObject, lastAppliedLabels) {
+		return true, nil
+	}
+	return false, nil
+}
+
+// NeedUpdateAnnotationsOnNodeInDPUCluster returns true if node annotations differ from what was last applied.
+func NeedUpdateAnnotationsOnNodeInDPUCluster(dpuNode *corev1.Node, annotationsOnDPUObject map[string]string) (bool, error) {
+	if annotationsOnDPUObject == nil {
+		annotationsOnDPUObject = map[string]string{}
+	}
+	lastApplied := make(map[string]string)
+	if dpuNode.Annotations != nil {
+		if lastAppliedStr, ok := dpuNode.Annotations[LastAppliedAnnotationsOnDPUKey]; ok {
+			if err := json.Unmarshal([]byte(lastAppliedStr), &lastApplied); err != nil {
+				return false, err
+			}
+		}
+	}
+	if !reflect.DeepEqual(annotationsOnDPUObject, lastApplied) {
 		return true, nil
 	}
 	return false, nil
