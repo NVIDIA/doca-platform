@@ -18,5 +18,6 @@ dpuServiceNAD: "../objects/application/dpuservicenad.yaml"
 dpuService: "../objects/application/dpuservice.yaml"
 dpuServiceTemplate: "../objects/application/dpuservicetemplate.yaml"
 dpuServiceHBN: "../objects/application/dpuservicehbn.yaml"
+dhcpDaemonSet: "../objects/application/vpc/dhcp.yaml"
 numberOfDPUNodes: 2
 numberOfDPUsPerNode: 1

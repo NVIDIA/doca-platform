@@ -276,20 +276,12 @@ func CopySecretToNamespace(ctx context.Context, c client.Client, secretName stri
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
-// getTwoNodes returns two worker nodes using the client provided as input
+// getTwoWorkerNodeNames returns the names of two worker nodes using the client provided as input.
 func getTwoWorkerNodeNames(ctx context.Context, c client.Client) (string, string) {
 	nodes := &corev1.NodeList{}
 	Expect(c.List(ctx, nodes, client.MatchingLabels(map[string]string{"node-role.kubernetes.io/worker": ""}))).To(Succeed())
 	Expect(len(nodes.Items)).To(BeNumerically(">=", 2), "Not enough worker nodes in the cluster")
-	return nodes.Items[0].Name, nodes.Items[1].Name
-}
-
-// getTwoNodes returns two random nodes using the client provided as input
-func getTwoNodes(ctx context.Context, c client.Client) (corev1.Node, corev1.Node) {
-	nodes := &corev1.NodeList{}
-	Expect(c.List(ctx, nodes)).To(Succeed())
-	Expect(len(nodes.Items)).To(BeNumerically(">=", 2), "Not enough nodes in the cluster")
-	return nodes.Items[0], nodes.Items[1]
+	return nodes.Items[0].Name, nodes.Items[1].Name // FIXME: Refactor to return two nodes in order instead of names
 }
 
 // getClusterControlPlaneIP returns the internal IP of the control plane node in the cluster
@@ -329,6 +321,20 @@ func getDPUClusterNodes(ctx context.Context, dpuClusterClient client.Client) []c
 	nodes := &corev1.NodeList{}
 	Expect(dpuClusterClient.List(ctx, nodes)).To(Succeed())
 	return nodes.Items
+}
+
+// getDPUNodesInOrder returns the two DPU cluster nodes ordered so that the first
+// matches the first host worker (provisioningv1.DPUNodeNameLabel). Requires exactly two DPU nodes.
+func getDPUNodesInOrder(ctx context.Context, hostClient, dpuClusterClient client.Client) (corev1.Node, corev1.Node) {
+	worker1, worker2 := getTwoWorkerNodeNames(ctx, hostClient)
+	dpuNodes := getDPUClusterNodes(ctx, dpuClusterClient)
+	Expect(dpuNodes).To(HaveLen(2))
+	dpuNode0Worker := dpuNodes[0].Labels[provisioningv1.DPUNodeNameLabel]
+	dpuNode1Worker := dpuNodes[1].Labels[provisioningv1.DPUNodeNameLabel]
+	if dpuNode0Worker == worker1 && dpuNode1Worker == worker2 {
+		return dpuNodes[0], dpuNodes[1]
+	}
+	return dpuNodes[1], dpuNodes[0]
 }
 
 // isGinkgoLabel returns if a label is passed while running ginkgo and is not excluded
