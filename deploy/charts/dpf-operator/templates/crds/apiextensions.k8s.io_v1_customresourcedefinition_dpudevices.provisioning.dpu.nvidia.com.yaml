@@ -67,6 +67,16 @@ spec:
                 x-kubernetes-validations:
                 - message: BMCPort is immutable
                   rule: self == oldSelf
+              nicDeviceCount:
+                description: |-
+                  NICDeviceCount is the expected number of NIC devices used by dpu-agent provisioning.
+                  Valid range is 1 to 8. When unspecified, it defaults to 8.
+                maximum: 8
+                minimum: 1
+                type: integer
+                x-kubernetes-validations:
+                - message: NICDeviceCount is immutable
+                  rule: self == oldSelf
               numberOfPFs:
                 default: 1
                 description: |-

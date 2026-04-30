@@ -27,10 +27,12 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	provisioningconstants "github.com/nvidia/doca-platform/internal/provisioning/constants"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	"github.com/Masterminds/sprig/v3"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/yaml"
 )
 
@@ -75,6 +77,7 @@ type Params struct {
 	RedfishInterface       bool
 	BFBRegistryURL         string
 	AstraEnabled           bool
+	NICDeviceCount         int
 }
 
 // ApplyFlavor populates the flavor-derived fields from the given DPUFlavor.
@@ -153,10 +156,16 @@ func ResolveParams(ctx context.Context, controllerCtx *util.ControllerContext, d
 		DPUName:                dpu.Name,
 		DPUNamespace:           dpu.Namespace,
 		DPUUID:                 string(dpu.UID),
+		NICDeviceCount:         provisioningconstants.DefaultNICDeviceCount,
 	}
 	if dpu.Spec.AstraEnabled != nil {
 		params.AstraEnabled = *dpu.Spec.AstraEnabled
 	}
+	nicDeviceCount, err := resolveDPUDeviceNICDeviceCount(ctx, controllerCtx, dpu)
+	if err != nil {
+		return Params{}, operatorv1.DPFOperatorConfig{}, err
+	}
+	params.NICDeviceCount = nicDeviceCount
 	if isRedfish {
 		if dpfOperatorConfig.Spec.Overrides == nil || dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerVIP == nil || dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort == nil {
 			return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("KubernetesAPIServerVIP and KubernetesAPIServerPort must be set in DPFOperatorConfig for zero-trust mode")
@@ -208,6 +217,9 @@ func GenerateNetworkCfg() File {
 // The caller must ensure ApplyFlavor has already been called (e.g. via
 // ResolveParams).
 func GenerateUserData(params Params) (File, error) {
+	if params.NICDeviceCount <= 0 {
+		params.NICDeviceCount = provisioningconstants.DefaultNICDeviceCount
+	}
 	tmpl, err := template.New("user-data").Funcs(sprig.FuncMap()).Parse(string(userDataTemplate))
 	if err != nil {
 		return File{}, fmt.Errorf("parsing user-data template: %w", err)
@@ -248,4 +260,25 @@ func ExtractUbuntuPassword(flavor *provisioningv1.DPUFlavor) string {
 		return passwd
 	}
 	return ""
+}
+
+func resolveDPUDeviceNICDeviceCount(ctx context.Context, controllerCtx *util.ControllerContext, dpu *provisioningv1.DPU) (int, error) {
+	if strings.TrimSpace(dpu.Spec.DPUDeviceName) == "" {
+		return provisioningconstants.DefaultNICDeviceCount, nil
+	}
+
+	dpuDevice := &provisioningv1.DPUDevice{}
+	if err := controllerCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
+		return 0, fmt.Errorf("getting DPUDevice %s/%s for NIC device count: %w", dpu.Namespace, dpu.Spec.DPUDeviceName, err)
+	}
+
+	if dpuDevice.Spec.NICDeviceCount == nil {
+		return provisioningconstants.DefaultNICDeviceCount, nil
+	}
+	nicDeviceCount := *dpuDevice.Spec.NICDeviceCount
+	if nicDeviceCount < provisioningconstants.MinNICDeviceCount || nicDeviceCount > provisioningconstants.MaxNICDeviceCount {
+		return 0, fmt.Errorf("invalid DPUDevice spec.nicDeviceCount %d on %s/%s, expected integer in range [%d, %d]",
+			nicDeviceCount, dpuDevice.Namespace, dpuDevice.Name, provisioningconstants.MinNICDeviceCount, provisioningconstants.MaxNICDeviceCount)
+	}
+	return nicDeviceCount, nil
 }

@@ -222,6 +222,7 @@ ovs-vsctl add-br br-test
 --control-plane-mtu=1500
 --zero-trust-mode=true
 --astra-enabled=true
+--nic-device-count=8
 --kubeadm-secret-name=test-secret
 --bfb-registry-url=http://bfb-registry:8080
 --kubeadm-secret-namespace=default

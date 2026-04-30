@@ -27,6 +27,7 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	provisioningconstants "github.com/nvidia/doca-platform/internal/provisioning/constants"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/cloudinit"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
@@ -154,6 +155,9 @@ func GenerateBFConfig(ctx context.Context, controllerContext *util.ControllerCon
 // Generate renders a bf.cfg from a custom template. The caller must ensure
 // flavor fields have already been applied to params (e.g. via ResolveParams).
 func Generate(flavor *provisioningv1.DPUFlavor, params cloudinit.Params, templateData []byte) ([]byte, error) {
+	if params.NICDeviceCount <= 0 {
+		params.NICDeviceCount = provisioningconstants.DefaultNICDeviceCount
+	}
 	config := &BFCFGData{
 		Params:       params,
 		BFGCFGParams: bfcfgParams(flavor),

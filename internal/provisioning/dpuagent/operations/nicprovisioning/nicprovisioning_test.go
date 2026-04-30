@@ -18,6 +18,7 @@ package nicprovisioning
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +31,8 @@ import (
 	clientpkg "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 
+	nicconfigurationv1alpha1 "github.com/Mellanox/nic-configuration-operator/api/v1alpha1"
+	nicdms "github.com/Mellanox/nic-configuration-operator/pkg/dms"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,6 +47,7 @@ func TestNICProvisioning_ShouldSkip(t *testing.T) {
 				SkipAstra:      false,
 				AstraEnabled:   true,
 				BFBRegistryURL: "https://registry.example.com",
+				NICDeviceCount: opts.DefaultNICDeviceCount,
 			},
 			LatestDPU: &provisioningv1.DPU{
 				Status: provisioningv1.DPUStatus{
@@ -92,8 +96,38 @@ func (f *fakeClient) GetObject(ctx context.Context, namespace string, name strin
 
 var _ clientpkg.Client = &fakeClient{}
 
+type fakeDMSServer struct {
+	running    bool
+	stopCalled bool
+	stopErr    error
+}
+
+func (f *fakeDMSServer) StartDMSServer(_ []nicconfigurationv1alpha1.NicDevice) error {
+	f.running = true
+	return nil
+}
+
+func (f *fakeDMSServer) StopDMSServer() error {
+	f.stopCalled = true
+	if f.stopErr != nil {
+		return f.stopErr
+	}
+	f.running = false
+	return nil
+}
+
+func (f *fakeDMSServer) IsRunning() bool {
+	return f.running
+}
+
+func (f *fakeDMSServer) GetDMSClientByPCIAddress(_ string) (nicdms.DMSClient, error) {
+	return nil, nil
+}
+
 func TestNICProvisioning_Execute(t *testing.T) {
-	op := &NICProvisioning{}
+	op := &NICProvisioning{
+		prepareLocalDMSServerFn: func(_ *operations.Context) error { return nil },
+	}
 	originalDir := nicFirmwareDir
 	tempDir := t.TempDir()
 	nicFirmwareDir = tempDir
@@ -105,6 +139,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 				DPUName:        "dpu-1",
 				DPUNamespace:   "default",
 				BFBRegistryURL: bfbRegistryURL,
+				NICDeviceCount: opts.DefaultNICDeviceCount,
 			},
 			Client: client,
 			LatestDPU: &provisioningv1.DPU{
@@ -157,6 +192,54 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		content, err := os.ReadFile(localFile)
 		require.NoError(t, err)
 		assert.Equal(t, "firmware-bytes", string(content))
+	})
+
+	t.Run("stop local dms server when execute returns", func(t *testing.T) {
+		existingFile := filepath.Join(tempDir, "astra-nic-fw-stop.fwpkg")
+		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
+		dmsServer := &fakeDMSServer{running: true}
+		opWithRunningDMS := &NICProvisioning{
+			dmsServer:               dmsServer,
+			prepareLocalDMSServerFn: func(_ *operations.Context) error { return nil },
+		}
+
+		ctx := newOptCtx(&fakeClient{
+			getObjectFunc: func(_ context.Context, _ string, _ string, obj client.Object) error {
+				bfs := obj.(*provisioningv1.BlueFieldSoftware)
+				bfs.Status.DownloadedComponents.AstraNicFw = "downloads/astra-nic-fw-stop.fwpkg"
+				return nil
+			},
+		}, "https://registry.example.com")
+
+		require.NoError(t, opWithRunningDMS.Execute(context.Background(), ctx))
+		assert.True(t, dmsServer.stopCalled)
+		assert.False(t, dmsServer.running)
+	})
+
+	t.Run("return error when stop local dms server fails", func(t *testing.T) {
+		existingFile := filepath.Join(tempDir, "astra-nic-fw-stop-error.fwpkg")
+		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
+		dmsServer := &fakeDMSServer{
+			running: true,
+			stopErr: errors.New("stop failed"),
+		}
+		opWithRunningDMS := &NICProvisioning{
+			dmsServer:               dmsServer,
+			prepareLocalDMSServerFn: func(_ *operations.Context) error { return nil },
+		}
+
+		ctx := newOptCtx(&fakeClient{
+			getObjectFunc: func(_ context.Context, _ string, _ string, obj client.Object) error {
+				bfs := obj.(*provisioningv1.BlueFieldSoftware)
+				bfs.Status.DownloadedComponents.AstraNicFw = "downloads/astra-nic-fw-stop-error.fwpkg"
+				return nil
+			},
+		}, "https://registry.example.com")
+
+		err := opWithRunningDMS.Execute(context.Background(), ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to stop local DMS server")
+		assert.True(t, dmsServer.stopCalled)
 	})
 }
 

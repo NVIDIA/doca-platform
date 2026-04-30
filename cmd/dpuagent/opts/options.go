@@ -18,12 +18,15 @@ package opts
 
 import (
 	"fmt"
+
+	provisioningconstants "github.com/nvidia/doca-platform/internal/provisioning/constants"
 )
 
 const (
-	DPUAgentDir       = "/var/lib/dpf/dpuagent"
-	DefaultCertDir    = DPUAgentDir + "/pki"
-	DefaultKubeconfig = DPUAgentDir + "/kubeconfig"
+	DPUAgentDir           = "/var/lib/dpf/dpuagent"
+	DefaultCertDir        = DPUAgentDir + "/pki"
+	DefaultKubeconfig     = DPUAgentDir + "/kubeconfig"
+	DefaultNICDeviceCount = provisioningconstants.DefaultNICDeviceCount
 )
 
 type Options struct {
@@ -40,6 +43,7 @@ type Options struct {
 	KubeadmSecretNamespace     string
 	BFBRegistryURL             string
 	AstraEnabled               bool
+	NICDeviceCount             int
 	SkipSysctl                 bool
 	SkipNetworkConfig          bool
 	SkipDNSConfig              bool
@@ -78,6 +82,10 @@ func (o Options) Validate() error {
 	}
 	if !o.SkipConfigureKubelet && o.KubeadmSecretName == "" {
 		return fmt.Errorf("kubeadm secret name is required")
+	}
+	if o.NICDeviceCount < provisioningconstants.MinNICDeviceCount || o.NICDeviceCount > provisioningconstants.MaxNICDeviceCount {
+		return fmt.Errorf("nic device count must be in range [%d, %d]: %d",
+			provisioningconstants.MinNICDeviceCount, provisioningconstants.MaxNICDeviceCount, o.NICDeviceCount)
 	}
 	return nil
 }
