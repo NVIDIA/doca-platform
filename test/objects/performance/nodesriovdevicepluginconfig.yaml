@@ -1,0 +1,22 @@
+---
+apiVersion: noderesources.dpu.nvidia.com/v1alpha1
+kind: NodeSRIOVDevicePluginConfig
+metadata:
+  name: bf3-p0-vfs
+  namespace: dpf-operator-system
+spec:
+  devicePluginResources:
+    - name: ovnk-mgmt-vfs
+      type: vf
+      ranges:
+        - pfIndex: 0
+          start: 1
+          end: 1
+    - name: bf3-p0-vfs
+      type: vf
+      options:
+        isRdma: true
+      ranges:
+        - pfIndex: 0
+          start: 2
+          end: 45

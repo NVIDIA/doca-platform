@@ -1,0 +1,24 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: ovn
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "ovn"
+  serviceConfiguration:
+    helmChart:
+      values:
+        k8sAPIServer: ""   # set at runtime from input.restConfig.Host
+        podNetwork: ""     # set at runtime from kube-controller-manager --cluster-cidr
+        serviceNetwork: "" # set at runtime from kube-controller-manager --service-cluster-ip-range
+        nodeWithDPUManifests:
+          nodeMgmtPortDpResourceName: "nvidia.com/ovnk-mgmt-vfs"
+        dpuManifests:
+          kubernetesSecretName: "ovn-dpu" # user needs to populate based on DPUServiceCredentialRequest
+          vtepCIDR: ""  # set at runtime from cidrDPUServiceIPAM.Spec.IPV4Network.Network
+          hostCIDR: ""  # set at runtime from deriveHostCIDR(controlPlaneIP)
+          ipamPool: ""  # set at runtime from cidrDPUServiceIPAM.Name
+          ipamPoolType: "cidrpool" # user needs to populate based on DPUServiceIPAM
+          ipamVTEPIPIndex: 0
+          ipamPFIPIndex: 1

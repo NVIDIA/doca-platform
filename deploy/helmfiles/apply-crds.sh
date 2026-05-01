@@ -43,6 +43,8 @@ CHART_DIR=$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)
 if [[ -d "$CHART_DIR/crds" ]]; then
 	echo "Applying CRDs from $CHART_DIR/crds"
 	kubectl apply -f "$CHART_DIR/crds" --server-side
+	echo "Waiting for CRDs to be established..."
+	kubectl wait --for=condition=Established -f "$CHART_DIR/crds" --timeout=60s
 else
 	echo "No CRDs directory found in chart."
 fi

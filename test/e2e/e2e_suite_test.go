@@ -38,6 +38,7 @@ import (
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
+	maintenancev1alpha1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
 	netattdefv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -166,6 +167,9 @@ func getEnvVariables() {
 	if interfaceName, found := os.LookupEnv("DPUCLUSTER_INTERFACE"); found {
 		dpuClusterInterface = interfaceName
 	}
+	if host, found := os.LookupEnv("TARGETCLUSTER_API_SERVER_HOST"); found {
+		targetClusterAPIServerHost = host
+	}
 
 	if ns, found := os.LookupEnv("PREREQS_NAMESPACE"); found {
 		// Only set the override if it differs from the default namespace.
@@ -194,6 +198,7 @@ func TestE2E(t *testing.T) {
 	Expect(kamajiv1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(vpcv1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(netattdefv1.AddToScheme(scheme.Scheme)).To(Succeed())
+	Expect(maintenancev1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
 	s := scheme.Scheme
 
 	// SchemeGroupVersion is group version used to register these objects
@@ -325,6 +330,29 @@ var _ = BeforeSuite(func() {
 	// Apply the OVSVPCBeforeSuite setup
 	if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.OVSVPC) {
 		OVSVPCBeforeSuite(*conf)
+	}
+
+	// For Performance + OVNKHBN (physical HBN-OVN performance) scenario, deploy the full
+	// HBN-OVN application layer: physical DPUServiceInterfaces (p0, p1, ovn), IPAM pools,
+	// HBN DPUServiceTemplate, DPUServiceConfiguration, and ovn-hbn DPUDeployment.
+	// On physical environments provisioning runs above so we must also wait for DPUs to be ready.
+	// IgnoreAlreadyExists handles objects already present (e.g. on re-runs).
+	// Per RDG, service object creation precedes the DPU provisioning wait.
+	if isGinkgoLabelApplied(Domain.Performance) && isGinkgoLabelApplied(Domain.OVNKHBN) {
+		SystemSetupBeforeSuite()
+		By("Maximizing maintenance operator parallelism for performance provisioning")
+		restoreMaintenanceConfig := SetMaintenanceOperatorMaxParallelOperations(ctx, testClient, 50)
+		defer restoreMaintenanceConfig()
+		By("Pre-provisioning DPU cluster setup")
+		provInput := getProvisionDPUClustersInput()
+		ProvisionDPUClusters(ctx, provInput)
+		ProvisionBFBAndDPUFlavor(ctx, provInput)
+		By("Installing OVN-K resource injector webhook")
+		InstallOVNKResourceInjector(ctx, testClient)
+		By("Deploying HBN-OVN scenario objects")
+		DeployOVNKHBNScenario(ctx, input)
+		By("Waiting for DPUs to be provisioned")
+		VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 	}
 })
 

@@ -19,6 +19,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"net/http"
@@ -100,12 +101,19 @@ type systemTestInput struct {
 	dpuSet                      *provisioningv1.DPUSet
 	dpuDeployment               *dpuservicev1.DPUDeployment
 	dpuServiceConfiguration     *dpuservicev1.DPUServiceConfiguration
+	dpuServiceInterfacesHBN     []*dpuservicev1.DPUServiceInterface
+	dpuServiceInterfaceOVN      *dpuservicev1.DPUServiceInterface
 	dpuServiceTemplate          *dpuservicev1.DPUServiceTemplate
+	dpuServiceTemplateOVN       *dpuservicev1.DPUServiceTemplate
+	dpuServiceTemplateHBN       *dpuservicev1.DPUServiceTemplate
+	dpuServiceConfigurationOVN  *dpuservicev1.DPUServiceConfiguration
+	dpuServiceConfigurationHBN  *dpuservicev1.DPUServiceConfiguration
 	dpuServiceIPAMTemplate      *dpuservicev1.DPUServiceIPAM
 	dpuServiceNAD               *dpuservicev1.DPUServiceNAD
 	cidrDPUServiceIPAM          *dpuservicev1.DPUServiceIPAM
 	ipPoolDPUServiceIPAM        *dpuservicev1.DPUServiceIPAM
 	dpuServiceCredentialRequest *dpuservicev1.DPUServiceCredentialRequest
+	ovnCredentialRequest        *dpuservicev1.DPUServiceCredentialRequest
 	numberOfDPUNodes            int
 	numberOfDPUsPerNode         int
 	useExternalNodeReboot       bool
@@ -245,6 +253,53 @@ func (t *systemTestInput) applyConfig(conf config) {
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcConfig.Object, dpuServiceConfiguration)).To(Succeed())
 	t.dpuServiceConfiguration = dpuServiceConfiguration
 
+	t.dpuServiceInterfacesHBN = make([]*dpuservicev1.DPUServiceInterface, 0, len(conf.DPUServiceInterfacesHBNPaths))
+	for _, path := range conf.DPUServiceInterfacesHBNPaths {
+		iface := &dpuservicev1.DPUServiceInterface{}
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(unstructuredFromFile(path).Object, iface)).To(Succeed())
+		t.dpuServiceInterfacesHBN = append(t.dpuServiceInterfacesHBN, iface)
+	}
+
+	if conf.DPUServiceInterfaceOVNPath != nil {
+		ovnIface := &dpuservicev1.DPUServiceInterface{}
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(unstructuredFromFile(*conf.DPUServiceInterfaceOVNPath).Object, ovnIface)).To(Succeed())
+		t.dpuServiceInterfaceOVN = ovnIface
+	}
+
+	if conf.DPUServiceTemplateOVNPath != nil {
+		dpuServiceTemplateOVN := &dpuservicev1.DPUServiceTemplate{}
+		ovnTmp := unstructuredFromFile(*conf.DPUServiceTemplateOVNPath)
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ovnTmp.Object, dpuServiceTemplateOVN)).To(Succeed())
+		if repoURL, found := os.LookupEnv("OVN_KUBERNETES_REPO_URL"); found {
+			dpuServiceTemplateOVN.Spec.HelmChart.Source.RepoURL = repoURL
+		}
+		if chartTag, found := os.LookupEnv("OVN_KUBERNETES_CHART_TAG"); found {
+			dpuServiceTemplateOVN.Spec.HelmChart.Source.Version = chartTag
+		}
+		t.dpuServiceTemplateOVN = dpuServiceTemplateOVN
+	}
+
+	if conf.DPUServiceTemplateHBNPath != nil {
+		dpuServiceTemplateHBN := &dpuservicev1.DPUServiceTemplate{}
+		hbnTmp := unstructuredFromFile(*conf.DPUServiceTemplateHBNPath)
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(hbnTmp.Object, dpuServiceTemplateHBN)).To(Succeed())
+		t.dpuServiceTemplateHBN = dpuServiceTemplateHBN
+	}
+
+	if conf.DPUServiceConfigurationOVNPath != nil {
+		dpuServiceConfigurationOVN := &dpuservicev1.DPUServiceConfiguration{}
+		ovnCfg := unstructuredFromFile(*conf.DPUServiceConfigurationOVNPath)
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ovnCfg.Object, dpuServiceConfigurationOVN)).To(Succeed())
+		t.dpuServiceConfigurationOVN = dpuServiceConfigurationOVN
+	}
+
+	if conf.DPUServiceConfigurationHBNPath != nil {
+		dpuServiceConfigurationHBN := &dpuservicev1.DPUServiceConfiguration{}
+		hbnCfg := unstructuredFromFile(*conf.DPUServiceConfigurationHBNPath)
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(hbnCfg.Object, dpuServiceConfigurationHBN)).To(Succeed())
+		t.dpuServiceConfigurationHBN = dpuServiceConfigurationHBN
+	}
+
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
 	deployment := unstructuredFromFile(conf.DPUDeploymentPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(deployment.Object, dpuDeployment)).To(Succeed())
@@ -278,6 +333,13 @@ func (t *systemTestInput) applyConfig(conf config) {
 	request := unstructuredFromFile(conf.DPUServiceCredentialRequestPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(request.Object, dpuServiceCredentialRequest)).To(Succeed())
 	t.dpuServiceCredentialRequest = dpuServiceCredentialRequest
+
+	if conf.OVNCredentialRequestPath != nil {
+		ovnCredentialRequest := &dpuservicev1.DPUServiceCredentialRequest{}
+		ovnCR := unstructuredFromFile(*conf.OVNCredentialRequestPath)
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ovnCR.Object, ovnCredentialRequest)).To(Succeed())
+		t.ovnCredentialRequest = ovnCredentialRequest
+	}
 
 	t.numberOfDPUNodes = conf.NumberOfDPUNodes
 	t.numberOfDPUsPerNode = conf.NumberOfDPUsPerNode
@@ -1233,4 +1295,39 @@ func collectKubernetesResources(ctx context.Context, input collectResourcesInput
 	c := collector.New(clusters)
 	defer c.Close()
 	return c.Run(ctx)
+}
+
+// PatchNFDWorkerForVIP patches the node-feature-discovery-worker DaemonSet with the
+// KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT env vars so that NFD workers can
+// reach the kube-apiserver via VIP on nodes where the ClusterIP is not yet reachable
+// (e.g. before OVN-K is running on physical performance setups).
+func PatchNFDWorkerForVIP(ctx context.Context, c client.Client, namespace, vip string, port int) {
+	By(fmt.Sprintf("Patching node-feature-discovery-worker DaemonSet with VIP %s:%d", vip, port))
+	ds := &appsv1.DaemonSet{}
+	Eventually(func(g Gomega) {
+		g.Expect(c.Get(ctx, types.NamespacedName{
+			Name:      "node-feature-discovery-worker",
+			Namespace: namespace,
+		}, ds)).To(Succeed())
+	}).WithTimeout(2 * time.Minute).Should(Succeed())
+
+	patch, err := json.Marshal(map[string]interface{}{
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"spec": map[string]interface{}{
+					"containers": []map[string]interface{}{
+						{
+							"name": "worker",
+							"env": []corev1.EnvVar{
+								{Name: "KUBERNETES_SERVICE_HOST", Value: vip},
+								{Name: "KUBERNETES_SERVICE_PORT", Value: fmt.Sprintf("%d", port)},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	Expect(err).ToNot(HaveOccurred())
+	Expect(c.Patch(ctx, ds, client.RawPatch(types.StrategicMergePatchType, patch))).To(Succeed())
 }
