@@ -26,13 +26,13 @@ import (
 
 //nolint:dupl
 var _ = Describe("External DPF tests", Labels{Domain.ExternalTest}, func() {
-	Context("External DPF tests - OVNK based", func() {
+	Context("External DPF tests - OVNK-HBN based", func() {
 		BeforeEach(func() {
 			By("Wait for OVNK HBN deployment to be ready")
 			WaitForOVNKHBNDeploymentReady(ctx, input)
 		})
 
-		It("executes external bash script from the externalTestScript argument", Labels{Domain.OVNKPrimary, Domain.RequiresNodes}, func() {
+		It("executes external bash script from the externalTestScript argument", Labels{Domain.OVNKHBN, Domain.RequiresNodes, Domain.Performance}, func() {
 			By("DPF system is configured, provisioned and ready for external testing")
 			runExternalTestScript()
 		})

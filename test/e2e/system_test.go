@@ -141,6 +141,33 @@ func SetInput() {
 		dpfOperatorConfig.Spec.Overrides.ArgoCDNamespace = ptr.To(prereqsNamespace)
 	}
 
+	if isGinkgoLabelApplied(Domain.Performance) {
+		apiServerHost := controlPlaneIP
+		apiServerPort := defaultAPIServerPort
+		if targetClusterAPIServerHost != "" {
+			apiServerHost = targetClusterAPIServerHost
+		} else if u, err := url.Parse(restConfig.Host); err == nil {
+			if h := u.Hostname(); h != "" {
+				apiServerHost = h
+			}
+			if p := u.Port(); p != "" {
+				if parsed, err := strconv.Atoi(p); err == nil {
+					apiServerPort = parsed
+				}
+			}
+		}
+		if dpfOperatorConfig.Spec.Overrides == nil {
+			dpfOperatorConfig.Spec.Overrides = &operatorv1.Overrides{}
+		}
+		dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerVIP = ptr.To(apiServerHost)
+		dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort = ptr.To(apiServerPort)
+		dpfOperatorConfig.Spec.ProvisioningController.DMSTimeout = ptr.To(15 * 60)
+		dpfOperatorConfig.Spec.Networking = &operatorv1.Networking{
+			ControlPlaneMTU: ptr.To(performanceMTU),
+			HighSpeedMTU:    ptr.To(performanceMTU),
+		}
+	}
+
 	input = &systemTestInput{
 		namespace:        dpfOperatorSystemNamespace,
 		config:           dpfOperatorConfig,
@@ -175,6 +202,12 @@ func SystemSetupBeforeSuite() {
 		client:                    input.client,
 		numberOfDPUNodes:          input.numberOfDPUNodes,
 	})
+
+	if isGinkgoLabelApplied(Domain.Performance) {
+		vip := *input.config.Spec.Overrides.KubernetesAPIServerVIP
+		port := *input.config.Spec.Overrides.KubernetesAPIServerPort
+		PatchNFDWorkerForVIP(ctx, input.client, input.namespace, vip, port)
+	}
 }
 
 // createNGCImagePullSecret creates a secret to be able to pull images from NGC, this secret can be used by DPUservices and should not be used for core components.

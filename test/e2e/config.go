@@ -54,7 +54,14 @@ type config struct {
 	DPUServiceVPCOVNNodePath          string   `json:"dpuServiceVPCOVNNode"`
 	DHCPDaemonSetPath                 string   `json:"dhcpDaemonSet"`
 	DPUServiceTemplatePath            string   `json:"dpuServiceTemplate"`
+	DPUServiceInterfacesHBNPaths      []string `json:"dpuServiceInterfacesHBN,omitempty"`
+	DPUServiceInterfaceOVNPath        *string  `json:"dpuServiceInterfaceOVN,omitempty"`
+	DPUServiceTemplateOVNPath         *string  `json:"dpuServiceTemplateOVN,omitempty"`
+	DPUServiceTemplateHBNPath         *string  `json:"dpuServiceTemplateHBN,omitempty"`
 	DPUServiceConfiguration           string   `json:"dpuServiceConfiguration"`
+	DPUServiceConfigurationOVNPath    *string  `json:"dpuServiceConfigurationOVN,omitempty"`
+	DPUServiceConfigurationHBNPath    *string  `json:"dpuServiceConfigurationHBN,omitempty"`
+	OVNCredentialRequestPath          *string  `json:"ovnCredentialRequest,omitempty"`
 	DPUClusterPrerequisiteObjectPaths []string `json:"dpuClusterPrerequisiteObjectPath"`
 	NumberOfDPUNodes                  int      `json:"numberOfDPUNodes"`
 	NumberOfDPUsPerNode               int      `json:"numberOfDPUsPerNode,omitempty"`

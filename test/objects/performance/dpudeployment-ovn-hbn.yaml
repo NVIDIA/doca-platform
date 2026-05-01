@@ -1,0 +1,50 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: ovn-hbn
+  namespace: dpf-operator-system # overwritten at runtime by applyConfig
+spec:
+  dpus:
+    bfb: bf-bundle
+    flavor: dpf-provisioning-hbn-ovn
+    nodeEffect:
+      drain: true
+    dpuSets:
+      - nameSuffix: dpuset1
+        dpuNodeSelector:
+          matchLabels:
+            feature.node.kubernetes.io/dpu-enabled: "true"
+        dpuAnnotations:
+          noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-p0-vfs
+    dpuSetStrategy:
+      type: RollingUpdate
+  services:
+    ovn:
+      serviceTemplate: ovn
+      serviceConfiguration: ovn
+    hbn:
+      serviceTemplate: hbn
+      serviceConfiguration: hbn
+  serviceChains:
+    switches:
+      - ports:
+          - serviceInterface:
+              matchLabels:
+                uplink: p0
+          - service:
+              name: hbn
+              interface: p0_if
+      - ports:
+          - serviceInterface:
+              matchLabels:
+                uplink: p1
+          - service:
+              name: hbn
+              interface: p1_if
+      - ports:
+          - serviceInterface:
+              matchLabels:
+                port: ovn
+          - service:
+              name: hbn
+              interface: pf2dpu2_if

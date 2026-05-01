@@ -1,0 +1,32 @@
+bfb: "../objects/infrastructure/bfb.yaml"
+dpuClusters:
+  - "../objects/infrastructure/dpucluster-kamaji.yaml"
+dpuClusterPrerequisiteObjectPath:
+  - "../objects/performance/nodesriovdevicepluginconfig.yaml"
+dpuSet: "../objects/infrastructure/dpuset.yaml"
+dpuFlavor: "../objects/performance/dpuflavor-hbn-ovn-perf.yaml"
+dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"
+dpuServiceInterfaceTemplate: "../objects/application/dpuserviceinterfacetemplate.yaml"
+dpuServiceChain: "../objects/application/dpuservicechain.yaml"
+dpuServiceChainTemplate: "../objects/application/dpuservicechaintemplate.yaml"
+dpuDeployment: "../objects/performance/dpudeployment-ovn-hbn.yaml"
+dpuServiceCredentialRequest: "../objects/application/dpuservicecredentialrequest.yaml"
+dpuServiceConfiguration: "../objects/application/dpuserviceconfiguration.yaml"
+ipPoolDPUServiceIPAM: "../objects/performance/dpuserviceipam-loopback.yaml"
+cidrPoolDPUServiceIPAM: "../objects/performance/dpuserviceipam-pool1.yaml"
+dpuServiceIPAMTemplate: "../objects/application/dpuserviceipamtemplate.yaml"
+dpuServiceNAD: "../objects/application/dpuservicenad.yaml"
+dpuService: "../objects/application/dpuservice.yaml"
+dpuServiceInterfacesHBN:
+  - "../objects/performance/physical-iface-p0.yaml"
+  - "../objects/performance/physical-iface-p1.yaml"
+dpuServiceInterfaceOVN: "../objects/performance/ovn-iface.yaml"
+dpuServiceTemplate: "../objects/application/dpuservicetemplate.yaml"
+dpuServiceTemplateOVN: "../objects/performance/dpuservicetemplate-ovn.yaml"
+dpuServiceTemplateHBN: "../objects/performance/dpuservicetemplate-hbn.yaml"
+dpuServiceHBN: "../objects/application/dpuservicehbn.yaml"
+dpuServiceConfigurationOVN: "../objects/performance/dpuserviceconfig-ovn.yaml"
+dpuServiceConfigurationHBN: "../objects/performance/dpuserviceconfig-hbn-perf.yaml"
+ovnCredentialRequest: "../objects/performance/ovn-credentials.yaml"
+numberOfDPUNodes: 16
+numberOfDPUsPerNode: 1
