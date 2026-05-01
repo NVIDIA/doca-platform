@@ -145,6 +145,7 @@ func (t *vpcOvsTestInput) applyVPCOVSConfig(conf config) {
 
 // OVSVPCBeforeSuite is called from the e2e BeforeSuite to load OVS VPC test artifacts from config.
 func OVSVPCBeforeSuite(c config) {
+	By("Setting OVS VPC configs for the test")
 	vpcOvsInput.applyVPCOVSConfig(c)
 }
 
