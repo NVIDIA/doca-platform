@@ -61,6 +61,10 @@ const (
 	testMTUValue = 1300
 	// bfbRegistryNodePort is the NodePort used by the BFB registry service.
 	bfbRegistryNodePort = 30082
+	// defaultAPIServerPort is the default Kubernetes API server port used in performance tests.
+	defaultAPIServerPort = 6443
+	// performanceMTU is the MTU configured for both the control plane and high-speed networks in performance tests.
+	performanceMTU = 9000
 )
 
 // CleanupScope is an alias for cleanup.CleanupLabels for ease of use
@@ -86,6 +90,7 @@ type TestDomain struct {
 	ZeroTrust            string // Zero Trust mode in DPFOperatorConfig on the BeforeSuite stage
 	Observability        string // Observability test suite
 	ImagePullSecretsSync string // ImagePullSecrets sync/cleanup validation (opt out in CI via !ImagePullSecretsSync)
+	Performance          string // Performance test suite - applies MTU 9000 and extended DMS timeout
 }
 
 // Domain is the global instance of test label domains
@@ -108,6 +113,7 @@ var Domain = TestDomain{
 	ZeroTrust:            "ZeroTrust",
 	Observability:        "Observability",
 	ImagePullSecretsSync: "ImagePullSecretsSync",
+	Performance:          "Performance",
 }
 
 var (
@@ -139,6 +145,9 @@ var (
 	// dpuClusterInterface can be used to override the interface specified in DPUCluster YAML files.
 	// This is useful when running e2e tests on different hardware setups where the interface name differs.
 	dpuClusterInterface = ""
+	// targetClusterAPIServerHost is the host cluster API server address (hostname or IP) used on physical
+	// performance setups where the VIP differs from the control plane node's InternalIP.
+	targetClusterAPIServerHost = ""
 	// prereqsNamespace can be used to override the namespace where the prerequisites are deployed.
 	// This is useful to test scenarios where the prerequisites are deployed in a different namespace than the known default.
 	prereqsNamespace = ""
