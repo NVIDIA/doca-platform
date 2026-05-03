@@ -87,15 +87,15 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	}
 
 	if system.BootProgress.OemLastState != "OsIsRunning" {
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OemLastState", system.BootProgress.OemLastState))
+		msg := fmt.Sprintf("Waiting for DPU OS to finish booting; current boot state=%q", system.BootProgress.OemLastState)
+		cond := cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OSNotRunning", msg)
+		cond.Status = metav1.ConditionFalse
+		cutil.SetDPUCondition(state, cond)
 		return *state, nil
 	}
 
+	cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "BFBInstalled", "BFB installed, waiting for the DPU agent to start"))
 	_, cond = cutil.GetDPUCondition(state, string(provisioningv1.DPUCondOSInstalled))
-	if cond == nil {
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "BFBInstalled", "BFB installed, waiting for the DPU agent to start"))
-		_, cond = cutil.GetDPUCondition(state, string(provisioningv1.DPUCondOSInstalled))
-	}
 
 	// wait until the DPU agent is started
 	if dpu.Status.AgentStatus == nil || dpu.Status.AgentStatus.LastStartupTime == nil {
