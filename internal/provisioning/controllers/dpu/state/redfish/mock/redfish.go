@@ -56,6 +56,9 @@ type RedfishMockServer struct {
 	taskMessages                  []map[string]interface{} // Task messages for Exception state
 	concurrentUpdateBusyRemaining int                      // Number of InstallBFB calls that return HTTP 400 "Another update is in progress"
 	concurrentUpdateBusyServed    int                      // How many 400 "Another update" responses were actually sent
+	taskHTTPStatus                int                      // Override HTTP status returned by GET task; 0 means default 200
+	taskHTTPBody                  string                   // Override raw body when taskHTTPStatus != 0
+	selEntries                    []client.SELEntry        // System Event Log entries returned by GET SEL/Entries
 }
 
 type DpuVersion int
@@ -118,6 +121,9 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	// Secure Boot endpoints
 	mux.HandleFunc("/redfish/v1/Systems/Bluefield/SecureBoot", mock.handleSecureBoot)
 	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Actions/ComputerSystem.Reset", mock.handleResetSystem)
+
+	// System Event Log entries
+	mux.HandleFunc("/"+client.APIGetSELEntries, mock.handleGetSELEntries)
 
 	mock.server = httptest.NewUnstartedServer(mux)
 	return mock
@@ -351,6 +357,17 @@ func (r *RedfishMockServer) handleGetTask(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
+	// Allow tests to inject a non-200 response (e.g., 404 / 500) plus an
+	// arbitrary body to exercise the error-classification paths.
+	if r.taskHTTPStatus != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(r.taskHTTPStatus)
+		if r.taskHTTPBody != "" {
+			_, _ = w.Write([]byte(r.taskHTTPBody))
+		}
+		return
+	}
+
 	if r.taskProgressError {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -374,6 +391,27 @@ func (r *RedfishMockServer) handleGetTask(w http.ResponseWriter, req *http.Reque
 	}
 
 	writeJSONResponse(w, taskInfo)
+}
+
+// handleGetSELEntries handles GET requests to LogServices/SEL/Entries.
+// Returns an empty Members[] when the test hasn't injected entries.
+func (r *RedfishMockServer) handleGetSELEntries(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	members := r.selEntries
+	if members == nil {
+		members = []client.SELEntry{}
+	}
+	writeJSONResponse(w, map[string]interface{}{
+		"@odata.id":           "/" + client.APIGetSELEntries,
+		"@odata.type":         "#LogEntryCollection.LogEntryCollection",
+		"Description":         "Collection of System Event Log Entries",
+		"Members":             members,
+		"Members@odata.count": len(members),
+		"Name":                "System Event Log Entries",
+	})
 }
 
 func (r *RedfishMockServer) handleGetManagers(w http.ResponseWriter, req *http.Request) {
@@ -619,6 +657,18 @@ func (r *RedfishMockServer) SetConcurrentUpdateBusy(count int) {
 // is in progress" responses the mock server has actually sent.
 func (r *RedfishMockServer) GetConcurrentUpdateBusyServed() int {
 	return r.concurrentUpdateBusyServed
+}
+
+// SetTaskHTTPResponse forces handleGetTask to return the given HTTP status
+// and raw body, bypassing the default JSON. Pass status=0 to restore default.
+func (r *RedfishMockServer) SetTaskHTTPResponse(status int, body string) {
+	r.taskHTTPStatus = status
+	r.taskHTTPBody = body
+}
+
+// SetSELEntries sets the entries returned by GET LogServices/SEL/Entries.
+func (r *RedfishMockServer) SetSELEntries(entries []client.SELEntry) {
+	r.selEntries = entries
 }
 
 // GetCertificate returns the server's TLS certificate in PEM format
