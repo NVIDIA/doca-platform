@@ -781,4 +781,142 @@ var _ = Describe("Installing", func() {
 			Expect(cond.Message).To(ContainSubstring("12V_ATX low"))
 		})
 	})
+
+	Context("OSInstalled condition semantics", func() {
+		var (
+			mockServer *redfishmock.RedfishMockServer
+			dpuDevice  *provisioningv1.DPUDevice
+			ctrlCtx    *dutil.ControllerContext
+		)
+
+		// setupBMCAndCerts creates the BMC password, CA, and client mTLS secrets
+		// the Redfish client needs to talk to the mock server.
+		setupBMCAndCerts := func() {
+			bmcSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "bmc-shared-password", Namespace: testNS.Name},
+				Data:       map[string][]byte{"password": []byte("password")},
+			}
+			Expect(k8sClient.Create(ctx, bmcSecret)).To(Succeed())
+
+			caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
+			caSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpf-provisioning-ca-secret", Namespace: testNS.Name},
+				Data:       map[string][]byte{"tls.crt": caCrt},
+			}
+			Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
+			clientSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpf-provisioning-redfish-client-secret", Namespace: testNS.Name},
+				Data:       map[string][]byte{"tls.crt": clientCrt, "tls.key": clientKey},
+			}
+			Expect(k8sClient.Create(ctx, clientSecret)).To(Succeed())
+		}
+
+		BeforeEach(func() {
+			By("prepare mock Redfish server")
+			var err error
+			mockServer, err = redfishmock.CreateMockRedfishServer("BF-24.10", "password")
+			Expect(err).NotTo(HaveOccurred())
+			mockServer.SetNicMode("DpuMode")
+			DeferCleanup(mockServer.Stop)
+
+			By("create BMC and mTLS secrets")
+			setupBMCAndCerts()
+
+			By("prepare DPUDevice CR pointing at the mock BMC")
+			dpuDevice = dpuDeviceObj("dpu-device-osinstalled-test")
+			dpuDevice.Spec.BMCIP = ptr.To(mockServer.GetIPAddress())
+			dpuDevice.Spec.BMCPort = ptr.To(uint32(mockServer.GetPort()))
+			createObject(dpuDevice)
+			patch := client.MergeFrom(dpuDevice.DeepCopy())
+			dpuDevice.Status.BMCIP = ptr.To(mockServer.GetIPAddress())
+			dpuDevice.Status.BMCPort = ptr.To(uint32(mockServer.GetPort()))
+			Expect(k8sClient.Status().Patch(ctx, dpuDevice, patch)).To(Succeed())
+
+			ctrlCtx = &dutil.ControllerContext{
+				Client:               k8sClient,
+				Options:              dutil.DPUOptions{BFBRegistry: "10.0.110.1"},
+				DPUInProvisioningMap: dutil.NewDPUInProvisioningMap(10),
+			}
+		})
+
+		// dpuWithBFBTransferred returns a DPU pre-seeded with BFBTransferred=True so the
+		// Installing reconcile skips submitAndMonitorBfbInstallTask and exercises the
+		// post-install OSInstalled / OemLastState branch directly.
+		dpuWithBFBTransferred := func(name string) *provisioningv1.DPU {
+			dpu := dpuObj(name)
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Status.Phase = provisioningv1.DPUOSInstalling
+			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondBFBTransferred, "", ""))
+			return dpu
+		}
+
+		It("should report OSInstalled=False while booting and flip to True (resetting LastTransitionTime) when OemLastState becomes OsIsRunning", func() {
+			By("Step 1: OS still booting -> OSInstalled=False with descriptive message")
+			mockServer.SetOemLastState("DdrTraining")
+			dpu := dpuWithBFBTransferred("dpu-osinstalled-flip-test")
+
+			status, err := Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+
+			_, falseCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondOSInstalled))
+			Expect(falseCond).NotTo(BeNil())
+			Expect(falseCond.Status).To(Equal(metav1.ConditionFalse), "OSInstalled must be False while the DPU OS has not finished booting")
+			Expect(falseCond.Reason).To(Equal("OSNotRunning"))
+			Expect(falseCond.Message).To(ContainSubstring("Waiting for DPU OS to finish booting"))
+			Expect(falseCond.Message).To(ContainSubstring(`"DdrTraining"`))
+
+			By("Step 2: backdate the False transition so we can verify the True transition resets it forward")
+			for i := range status.Conditions {
+				if status.Conditions[i].Type == string(provisioningv1.DPUCondOSInstalled) {
+					status.Conditions[i].LastTransitionTime = metav1.Time{Time: time.Now().Add(-30 * time.Minute)}
+				}
+			}
+			t1 := time.Now().Add(-30 * time.Minute)
+			dpu.Status = status
+
+			By("Step 3: OS finishes booting -> OSInstalled flips to True with fresh LastTransitionTime")
+			mockServer.SetOemLastState("OsIsRunning")
+			status, err = Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling), "agent has not started yet, must stay in OSInstalling")
+
+			_, trueCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondOSInstalled))
+			Expect(trueCond).NotTo(BeNil())
+			Expect(trueCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(trueCond.Reason).To(Equal("BFBInstalled"))
+			Expect(trueCond.LastTransitionTime.After(t1)).To(BeTrue(), "LastTransitionTime must advance on the False->True transition to anchor the agent-startup timer")
+		})
+
+		It("should anchor the 20-minute agent-startup timer to the OS-running transition, not earlier reconciles", func() {
+			By("Reconcile once with OemLastState=OsIsRunning so OSInstalled becomes True now (timer anchors here)")
+			mockServer.SetOemLastState("OsIsRunning")
+			dpu := dpuWithBFBTransferred("dpu-osinstalled-timer-test")
+
+			status, err := Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+			_, cond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondOSInstalled))
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+
+			By("Backdate OSInstalled.LastTransitionTime to >20m ago to simulate the agent never starting")
+			for i := range status.Conditions {
+				if status.Conditions[i].Type == string(provisioningv1.DPUCondOSInstalled) {
+					status.Conditions[i].LastTransitionTime = metav1.Time{Time: time.Now().Add(-21 * time.Minute)}
+				}
+			}
+			dpu.Status = status
+
+			By("Reconcile again with AgentStatus still nil -> phase must transition to Error")
+			status, err = Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUError))
+
+			_, cond = cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondOSInstalled))
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("DPUAgentNotStarted"))
+		})
+	})
 })
