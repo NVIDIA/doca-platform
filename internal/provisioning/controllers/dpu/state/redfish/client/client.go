@@ -67,6 +67,11 @@ const (
 	APISystemRoot                = APIRootService + "/Systems/Bluefield"
 	APISecureBoot                = APISystemRoot + "/SecureBoot"
 	APIResetSystem               = APISystemRoot + "/Actions/ComputerSystem.Reset"
+	// APIGetSELEntries is the Redfish System Event Log entries collection. The BMC
+	// records sensor-threshold events (e.g., 12V_ATX low) here, which we surface
+	// as best-effort hints when an install task fails.
+	// Reference: https://docs.nvidia.com/networking/display/bfswtroubleshooting/bmc
+	APIGetSELEntries = APISystemRoot + "/LogServices/SEL/Entries"
 
 	// CASecret is created by the cert-manager Certificate deployed by DPF,
 	CASecret = "dpf-provisioning-ca-secret"
@@ -103,6 +108,26 @@ type TaskProgress struct {
 	PercentComplete int
 	TaskState       string
 	TaskStatus      string
+}
+
+// SELEntry is a single entry from the BMC System Event Log
+// (LogServices/SEL/Entries). Only the fields we actually consume are typed;
+// other fields (Severity, Created, etc.) are decoded by JSON tags but unused
+// today. Reference:
+// https://docs.nvidia.com/networking/display/bfswtroubleshooting/bmc
+type SELEntry struct {
+	ID          string   `json:"Id"`
+	Created     string   `json:"Created"`
+	Severity    string   `json:"Severity"`
+	Message     string   `json:"Message"`
+	MessageID   string   `json:"MessageId"`
+	MessageArgs []string `json:"MessageArgs"`
+	Resolution  string   `json:"Resolution"`
+}
+
+// SELEntries is the wrapper for the LogServices/SEL/Entries collection.
+type SELEntries struct {
+	Members []SELEntry `json:"Members"`
 }
 
 // SecureBootState represents the Secure Boot enabled/disabled state.
@@ -441,6 +466,17 @@ func (c *Client) ResetBMC() (*resty.Response, *ExtendedInfo, error) {
 func (c *Client) CheckTaskProgress(taskID string) (*resty.Response, *TaskProgress, error) {
 	return do[TaskProgress](func() (*resty.Response, error) {
 		return c.Client.R().Get(fmt.Sprintf("%s/%s", APICheckProgress, taskID))
+	})
+}
+
+// GetSELEntries fetches the BMC System Event Log entries collection. Used by
+// the OS Installing failure paths to surface sensor-threshold events (e.g.
+// 12V_ATX low) as operator hints. Best-effort: callers must tolerate errors
+// and never propagate them. The context is propagated to the HTTP layer so
+// callers can cap the call duration on unreachable BMCs.
+func (c *Client) GetSELEntries(ctx context.Context) (*resty.Response, *SELEntries, error) {
+	return do[SELEntries](func() (*resty.Response, error) {
+		return c.Client.R().SetContext(ctx).Get(APIGetSELEntries)
 	})
 }
 
