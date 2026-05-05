@@ -113,7 +113,7 @@ func ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster(ctx context.Co
 	Eventually(func(g Gomega) {
 		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 		g.Expect(conditions.IsTrue(dpuDeployment, conditions.TypeReady)).To(BeTrue())
-	}).WithTimeout(45 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+	}).WithTimeout(dpuDeploymentReadyTimeout).WithPolling(1 * time.Second).Should(Succeed())
 
 	By("Verifying DPUs joined the correct clusters")
 	for i, dpuCluster := range input.dpuClusters {
