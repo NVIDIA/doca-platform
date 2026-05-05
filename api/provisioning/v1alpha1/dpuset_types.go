@@ -95,7 +95,7 @@ type DPUSetStrategy struct {
 type RollingUpdateDPU struct {
 	// MaxUnavailable is the maximum number of DPUs that can be unavailable during the update.
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.4.0.
+	// Deprecated: This field is deprecated and will be removed with v26.7.0.
 	// +optional
 	MaxUnavailable *intstr.IntOrString `json:"maxUnavailable,omitempty"`
 }
