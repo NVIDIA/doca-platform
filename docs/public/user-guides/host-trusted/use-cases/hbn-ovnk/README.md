@@ -1072,6 +1072,8 @@ Note that the DPUService name will have a random suffix. For example, `ovn-hbn-d
 
 Verify the DPU and Service installation with:
 ```shell
+## Ensure the BFB is ready
+kubectl wait --for=jsonpath='{.status.phase}'=Ready --namespace dpf-operator-system bfb bf-bundle-$TAG --timeout=600s
 ## Ensure all DPUDeployment prerequisites, including BFB downloads, are prepared.
 kubectl wait --for=condition=PrerequisitesReady --namespace dpf-operator-system dpudeployment ovn-hbn --timeout=15m
 ## Ensure the DPUDeployment has reconciled the DPUServices.
