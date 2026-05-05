@@ -744,7 +744,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 		nodeKey := fmt.Sprintf("%d/%d", len(nodes.Items), expectedDPUs)
 		tracker.By(nodeKey, "Checking that the number of nodes %d is equal to %d", len(nodes.Items), expectedDPUs)
 		g.Expect(nodes.Items).To(HaveLen(expectedDPUs))
-	}).WithTimeout(45 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+	}).WithTimeout(provisioningTimeout).WithPolling(1 * time.Second).Should(Succeed())
 
 	// Verify DPUs are ready
 	Eventually(func(g Gomega) {
@@ -864,7 +864,7 @@ func RebootAndVerifyDPU(ctx context.Context, input ProvisionDPUClustersInput) {
 				g.Expect(current.Status.Phase).To(Equal(provisioningv1.DPURebooting))
 			}
 		}
-	}).WithTimeout(60 * time.Minute).Should(Succeed())
+	}).WithTimeout(provisioningTimeout).Should(Succeed())
 
 	By("Trigger host reboot via script for all DPUs requiring reboot")
 	Expect(input.client.List(ctx, dpus)).ToNot(HaveOccurred())
