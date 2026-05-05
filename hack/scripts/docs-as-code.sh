@@ -24,6 +24,11 @@ USECASE="${2:?USECASE required}"
 
 NAMESPACE="dpf-operator-system"
 
+# Workaround to set the BFB image URL for our docs tests. In our other tests we rely on the env variable BFB_IMAGE_URL
+# being set. However, in our user-guides we're using the env variable BFB_URL.
+BFB_URL="$BFB_IMAGE_URL"
+export BFB_URL
+
 deploy_components() {
 	echo "Deploying components..."
 	HELMFILE_SELECTOR="app!=node-feature-discovery" make test-deploy-helmfile
