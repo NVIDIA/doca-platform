@@ -27,7 +27,7 @@ RUN dnf install -y wget
 COPY go.mod .
 COPY go.sum .
 
-RUN GO_VERSION=$(sed -En 's/^go +(.*)$/\1/p' go.mod) && \
+RUN GO_VERSION=$(sed -En 's/^toolchain +go(.*)$/\1/p' go.mod) && \
     wget https://dl.google.com/go/go${GO_VERSION}.${BUILDOS}-${BUILDARCH}.tar.gz && \
     tar -C /usr/local -xzf go${GO_VERSION}.${BUILDOS}-${BUILDARCH}.tar.gz && \
     rm go${GO_VERSION}.${BUILDOS}-${BUILDARCH}.tar.gz
