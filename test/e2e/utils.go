@@ -65,6 +65,20 @@ const (
 	defaultAPIServerPort = 6443
 	// performanceMTU is the MTU configured for both the control plane and high-speed networks in performance tests.
 	performanceMTU = 9000
+
+	// provisioningTimeout is the Eventually budget for provisioning-side waits in
+	// the e2e suite (DPUs being installed and joining the DPU cluster as K8s
+	// Nodes). Sized to absorb a first-install BFB run that includes a full BMC +
+	// CEC + NIC firmware update cycle plus host power-cycle, which can take
+	// ~45-55 minutes per DPU.
+	provisioningTimeout = 60 * time.Minute
+
+	// dpuDeploymentReadyTimeout is the Eventually budget for waits that gate on
+	// DPUDeployment.Status.Ready=True when DPU provisioning has not been awaited
+	// separately upstream. Such waits must absorb the full provisioning chain
+	// plus the dpuservice / ArgoCD / ServiceChain layer settling on top, so this
+	// is intentionally larger than provisioningTimeout.
+	dpuDeploymentReadyTimeout = 75 * time.Minute
 )
 
 // CleanupScope is an alias for cleanup.CleanupLabels for ease of use

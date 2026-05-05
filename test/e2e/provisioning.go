@@ -364,7 +364,7 @@ func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
 		nodesTracker.By(nodeKey, "K8s nodes in DPU cluster [%d/%d]", len(nodes.Items), provisioningExpected.TotalDPUs)
 		g.Expect(nodes.Items).To(HaveLen(provisioningExpected.TotalDPUs),
 			fmt.Sprintf("DPU cluster should have %d K8s nodes, found %d", provisioningExpected.TotalDPUs, len(nodes.Items)))
-	}).WithTimeout(45 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(provisioningTimeout).WithPolling(10 * time.Second).Should(Succeed())
 
 	By("Waiting for all DPU objects to reach Ready phase")
 	dpuTracker := NewByTracker()
