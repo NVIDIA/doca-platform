@@ -806,6 +806,8 @@ Note that the DPUService name will have a random suffix. For example, `doca-hbn-
 Verify the DPU and Service installation with:
 
 ```shell
+## Ensure the BFB is ready
+kubectl wait --for=jsonpath='{.status.phase}'=Ready --namespace dpf-operator-system bfb bf-bundle-$TAG --timeout=600s
 ## Ensure the DPUServices are created and have been reconciled.
 kubectl wait --for=condition=ApplicationsReconciled --namespace dpf-operator-system dpuservices -l svc.dpu.nvidia.com/owned-by-dpudeployment=dpf-operator-system_hbn
 ## Ensure the DPUServiceIPAMs have been reconciled
@@ -1667,6 +1669,8 @@ Note that the DPUService name will have a random suffix. For example, `doca-hbn-
 Verify the DPU and Service installation with:
 
 ```shell
+## Ensure the BFB is ready
+kubectl wait --for=jsonpath='{.status.phase}'=Ready --namespace dpf-operator-system bfb bf-bundle-$TAG --timeout=600s
 ## Ensure the DPUServices are created and have been reconciled.
 kubectl wait --for=condition=ApplicationsReconciled --namespace dpf-operator-system dpuservices -l svc.dpu.nvidia.com/owned-by-dpudeployment=dpf-operator-system_hbn
 ## Ensure the DPUServiceIPAMs have been reconciled

@@ -477,7 +477,7 @@ kubectl wait --for=condition=ready --namespace dpf-operator-system dpuservicecha
 ## Ensure the DPUServiceInterfaces are ready
 kubectl wait --for=condition=ready --namespace dpf-operator-system dpuserviceinterface p0 p1 pf0hpf pf1hpf
 ## Ensure the BFB is ready
-kubectl wait --for="jsonpath={.status.phase}=Ready" --namespace dpf-operator-system bfb bf-bundle
+kubectl wait --for=jsonpath='{.status.phase}'=Ready --namespace dpf-operator-system bfb bf-bundle-$TAG --timeout=600s
 ## Ensure the DPUs have the condition Initialized (this may take time)
 kubectl wait --for=condition=Initialized --namespace dpf-operator-system dpu --all
 ```

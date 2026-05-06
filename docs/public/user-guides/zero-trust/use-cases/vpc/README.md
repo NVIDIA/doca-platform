@@ -393,6 +393,15 @@ spec:
 
 </details>
 
+#### Verification
+
+Wait for the BFB to be downloaded and ready before proceeding:
+
+```shell
+## Ensure the BFB is ready
+kubectl wait --for=jsonpath='{.status.phase}'=Ready --namespace dpf-operator-system bfb bf-bundle-$TAG --timeout=600s
+```
+
 ### 4. OVN VPC Deployment
 
 The OVN VPC service consists of the following components:
