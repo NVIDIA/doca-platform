@@ -312,7 +312,7 @@ func (c *Client) GetIfaceWithExternalIDs(ctx context.Context, externalIDs map[st
 }
 
 // ListBridgesWithExternalIDs returns all bridges whose external_ids contain the given key-value pairs.
-// For example, externalIDs map[string]string{"ovs-vpc-owner-ref": "global"} returns all bridges
+// For example, externalIDs map[string]string{"weave-owner-ref": "global"} returns all bridges
 // with that external_id. Returns an error if externalIDs is empty (to avoid accidentally listing all bridges).
 func (c *Client) ListBridgesWithExternalIDs(ctx context.Context, externalIDs map[string]string) ([]ovsmodel.Bridge, error) {
 	if len(externalIDs) == 0 {

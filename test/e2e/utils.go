@@ -99,7 +99,7 @@ type TestDomain struct {
 	OVNKPrimary          string // Tests that need OVNK as primary CNI
 	OVNKHBN              string // Tests that need OVNK as primary CNI with HBN deployed alongside
 	DPFVPCOVN            string // VPC OVN test suite
-	OVSVPC               string // OVS VPC test suite
+	Weave                string // Weave test suite
 	MultiDPUCluster      string // Multi DPUCluster setup tests
 	ZeroTrust            string // Zero Trust mode in DPFOperatorConfig on the BeforeSuite stage
 	Observability        string // Observability test suite
@@ -122,7 +122,7 @@ var Domain = TestDomain{
 	OVNKPrimary:          "OVNKPrimary",
 	OVNKHBN:              "OVNKHBN",
 	DPFVPCOVN:            "DPFVPCOVN",
-	OVSVPC:               "OVSVPC",
+	Weave:                "Weave",
 	MultiDPUCluster:      "MultiDPUCluster",
 	ZeroTrust:            "ZeroTrust",
 	Observability:        "Observability",

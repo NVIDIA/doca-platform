@@ -137,7 +137,7 @@ export NODE_SRIOV_DEVICE_PLUGIN_IMAGE=nvcr.io/nvidia/mellanox/sriov-network-devi
 export NODE_SRIOV_DEVICE_PLUGIN_TAG=network-operator-v26.1.0
 
 # VPC dependencies to be able to build/push images and charts
-VPC_REF=f53c22f7efa9f1d7f364af4bf29043b47893aa52
+VPC_REF=2ab34e049feb2f6015d89f0139abfe82f4c0cbbf
 VPC_DIR=$(REPOSDIR)/ovn-vpc/ovn-vpc-$(VPC_REF)
 # Token used for gitlab reporistory access, usually needed for CI/CD pipelines.
 # dev envs usually have those set in git credentials.
@@ -696,7 +696,7 @@ $(ARTIFACTS_RENDERED_MANIFESTS_DIR): $(ARTIFACTS_DIR)
 	@mkdir -p $(ARTIFACTS_RENDERED_MANIFESTS_DIR)
 
 # Not yet enabled charts: dpu-networking ovn-kubernetes ovn-kubernetes-resource-injector
-VERIFY_MANIFEST_TARGETS ?= operator kamaji-keepalived vpc-ovn-host vpc-ovn-dpu vpc-ovs-flow-controllers vpc-ovs-dhcp-agent storage-host-snap-csi-plugin storage-host-snap-host-controller storage-dpu-snap-node-driver storage-dpu-block-storage-vendor-dpu-plugin storage-dpu-fs-storage-vendor-dpu-plugin storage-dpu-nfs-storage-vendor-dpu-plugin storage-dpu-doca-snap
+VERIFY_MANIFEST_TARGETS ?= operator kamaji-keepalived vpc-ovn-host vpc-ovn-dpu weave-flow-controllers weave-dhcp-agent storage-host-snap-csi-plugin storage-host-snap-host-controller storage-dpu-snap-node-driver storage-dpu-block-storage-vendor-dpu-plugin storage-dpu-fs-storage-vendor-dpu-plugin storage-dpu-nfs-storage-vendor-dpu-plugin storage-dpu-doca-snap
 
 verify-manifests-all: $(addprefix verify-manifest-,$(VERIFY_MANIFEST_TARGETS)) verify-manifests-dpu-networking-all verify-manifests-operator-embedded-all ## Run all verify-manifest-* targets
 
@@ -870,30 +870,30 @@ verify-manifest-vpc-ovn-dpu: $(VPC_DIR) helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR)
 	  MANIFEST_NAME="vpc-ovn-dpu" \
 	  hack/scripts/validate-manifest-checkov.sh
 
-.PHONY: verify-manifest-vpc-ovs-flow-controllers
-verify-manifest-vpc-ovs-flow-controllers: $(VPC_DIR) helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the vpc-ovs chart's flow controllers
-	$Q @cd $(VPC_DIR); $(MAKE) helm-package-all-vpc-ovs
-	$Q $(HELM) template $(CHARTSDIR)/dpf-vpc-ovs-$(TAG).tgz \
-	 --set vpcOVSFlowController.enabled=true \
+.PHONY: verify-manifest-weave-flow-controllers
+verify-manifest-weave-flow-controllers: $(VPC_DIR) helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the weave chart's flow controllers
+	$Q @cd $(VPC_DIR); $(MAKE) helm-package-all-weave
+	$Q $(HELM) template $(CHARTSDIR)/dpf-weave-$(TAG).tgz \
+	 --set weaveFlowController.enabled=true \
 	 --set serviceDaemonSet.resources.cpu=1m \
 	 --set serviceDaemonSet.resources.memory=1Mi \
-	 --set vpcOVSFlowController.containers.vpcOVSFlowController.image.tag=c@sha256:d \
-	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovs-flow-controllers-$(TAG).yaml
-	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovs-flow-controllers-$(TAG).yaml" \
-	  MANIFEST_NAME="vpc-ovs-flow-controllers" \
+	 --set weaveFlowController.containers.weaveFlowController.image.tag=c@sha256:d \
+	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/weave-flow-controllers-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/weave-flow-controllers-$(TAG).yaml" \
+	  MANIFEST_NAME="weave-flow-controllers" \
 	  hack/scripts/validate-manifest-checkov.sh
 
-.PHONY: verify-manifest-vpc-ovs-dhcp-agent
-verify-manifest-vpc-ovs-dhcp-agent: $(VPC_DIR) helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the vpc-ovs chart's dhcp agent
-	$Q @cd $(VPC_DIR); $(MAKE) helm-package-all-vpc-ovs
-	$Q $(HELM) template $(CHARTSDIR)/dpf-vpc-ovs-$(TAG).tgz \
-	 --set vpcOVSDHCPAgent.enabled=true \
+.PHONY: verify-manifest-weave-dhcp-agent
+verify-manifest-weave-dhcp-agent: $(VPC_DIR) helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the weave chart's dhcp agent
+	$Q @cd $(VPC_DIR); $(MAKE) helm-package-all-weave
+	$Q $(HELM) template $(CHARTSDIR)/dpf-weave-$(TAG).tgz \
+	 --set weaveDHCPAgent.enabled=true \
 	 --set serviceDaemonSet.resources.cpu=1m \
 	 --set serviceDaemonSet.resources.memory=1Mi \
-	 --set vpcOVSDHCPAgent.containers.vpcOVSDHCPAgent.image.tag=c@sha256:d \
-	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovs-dhcp-agent-$(TAG).yaml
-	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/vpc-ovs-dhcp-agent-$(TAG).yaml" \
-	  MANIFEST_NAME="vpc-ovs-dhcp-agent" \
+	 --set weaveDHCPAgent.containers.weaveDHCPAgent.image.tag=c@sha256:d \
+	 > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/weave-dhcp-agent-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/weave-dhcp-agent-$(TAG).yaml" \
+	  MANIFEST_NAME="weave-dhcp-agent" \
 	  hack/scripts/validate-manifest-checkov.sh
 
 # Note: The sed strip Go template variables from the embedded controller manifest to allow Checkov scanning.
