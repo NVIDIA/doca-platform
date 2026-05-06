@@ -32,6 +32,13 @@ import (
 
 var _ = Describe("Phase DPUConfig", func() {
 	var defaultDPUName = "dpu-config-test"
+	expectDPUConfigCondition := func(status provisioningv1.DPUStatus, wantStatus metav1.ConditionStatus, wantReason, wantMessage string) {
+		cond := meta.FindStatusCondition(status.Conditions, provisioningv1.DPUCondDPUConfig.String())
+		Expect(cond).NotTo(BeNil())
+		Expect(cond.Status).To(Equal(wantStatus))
+		Expect(cond.Reason).To(Equal(wantReason))
+		Expect(cond.Message).To(Equal(wantMessage))
+	}
 
 	Context("waiting for agent", func() {
 		It("should wait when AgentStatus is nil", func() {
@@ -41,6 +48,7 @@ var _ = Describe("Phase DPUConfig", func() {
 			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForRebootMethod", "waiting for DPU agent to report reboot method")
 		})
 
 		It("should wait when RebootMethod is nil", func() {
@@ -53,6 +61,7 @@ var _ = Describe("Phase DPUConfig", func() {
 			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForRebootMethod", "waiting for DPU agent to report reboot method")
 		})
 
 		It("should wait when RebootMethod is Unknown even if LastStartupTime changed", func() {
@@ -69,6 +78,7 @@ var _ = Describe("Phase DPUConfig", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
 			Expect(status.AgentLastStartupTime).To(Equal(&oldTime), "should not update AgentLastStartupTime while waiting for real RebootMethod")
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForRebootMethod", "waiting for DPU agent to report reboot method")
 		})
 	})
 
@@ -86,6 +96,44 @@ var _ = Describe("Phase DPUConfig", func() {
 			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig), "should not advance when startup time has not changed")
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForFreshRebootMethod", "the RebootMethod in AgentStatus is from the previous reboot, waiting for the DPU agent to report the reboot method for the current reboot")
+		})
+	})
+
+	Context("NoAction transition", func() {
+		It("should move to host network configuration and set DPUConfig condition to true", func() {
+			oldTime := metav1.NewTime(metav1.Now().Add(-time.Hour))
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.AgentLastStartupTime = &oldTime
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				LastStartupTime: ptr.To(metav1.Now()),
+				RebootMethod:    ptr.To(provisioningv1.RebootMethodNoAction),
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUHostNetworkConfiguration))
+			expectDPUConfigCondition(status, metav1.ConditionTrue, string(provisioningv1.RebootMethodNoAction), "RebootMethod is NoAction; transitioning to Host Network Configuration phase")
+		})
+
+		It("should move to DPUClusterConfig in zero-trust mode", func() {
+			oldTime := metav1.NewTime(metav1.Now().Add(-time.Hour))
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.AgentLastStartupTime = &oldTime
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				LastStartupTime: ptr.To(metav1.Now()),
+				RebootMethod:    ptr.To(provisioningv1.RebootMethodNoAction),
+			}
+			ctrlCtx := &dutil.ControllerContext{
+				Options: dutil.DPUOptions{DeploymentMode: string(provisioningv1.DeploymentModeZeroTrust)},
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUClusterConfig))
+			expectDPUConfigCondition(status, metav1.ConditionTrue, string(provisioningv1.RebootMethodNoAction), "RebootMethod is NoAction; transitioning to DPU Cluster Config phase")
 		})
 	})
 
@@ -103,6 +151,7 @@ var _ = Describe("Phase DPUConfig", func() {
 			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+			expectDPUConfigCondition(status, metav1.ConditionFalse, string(provisioningv1.RebootMethodDPUWarmReboot), "DPU OS is rebooting, staying in DPUConfig phase")
 		})
 	})
 
@@ -127,6 +176,7 @@ var _ = Describe("Phase DPUConfig", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
 			Expect(meta.FindStatusCondition(status.Conditions, provisioningv1.DPUCondRebooted.String())).To(BeNil())
+			expectDPUConfigCondition(status, metav1.ConditionTrue, string(provisioningv1.RebootMethodSystemLevelReset), "RebootMethod is SystemLevelReset; transitioning to Rebooting phase")
 		})
 	})
 
@@ -140,6 +190,7 @@ var _ = Describe("Phase DPUConfig", func() {
 			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUDeleting))
+			Expect(meta.FindStatusCondition(status.Conditions, provisioningv1.DPUCondDPUConfig.String())).To(BeNil())
 		})
 	})
 })

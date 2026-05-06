@@ -95,6 +95,7 @@ const (
 	DPUCondRebooted               DPUConditionType = "Rebooted"
 	DPUCondHostNetworkReady       DPUConditionType = "HostNetworkReady"
 	DPUCondDPUClusterReady        DPUConditionType = "DPUClusterReady"
+	DPUCondDPUConfig              DPUConditionType = "DPUConfig"
 	DPUCondNodeEffectRemoved      DPUConditionType = "NodeEffectRemoved"
 	DPUCondDeleting               DPUConditionType = "Deleting"
 	DPUCondReady                  DPUConditionType = "Ready"
