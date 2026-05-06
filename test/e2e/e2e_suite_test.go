@@ -327,9 +327,9 @@ var _ = BeforeSuite(func() {
 		VPCOVNBeforeSuite()
 	}
 
-	// Apply the OVSVPCBeforeSuite setup
-	if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.OVSVPC) {
-		OVSVPCBeforeSuite(*conf)
+	// Apply the WeaveBeforeSuite setup
+	if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.Weave) {
+		WeaveBeforeSuite(*conf)
 	}
 
 	// For Performance + OVNKHBN (physical HBN-OVN performance) scenario, deploy the full
