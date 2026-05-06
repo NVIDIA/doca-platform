@@ -351,7 +351,7 @@ var _ = Describe("OVSUtils", func() {
 
 	Describe("ListBridgesWithExternalIDs", func() {
 		It("should return bridges when match found", func() {
-			externalIDs := map[string]string{"ovs-vpc-owner-ref": "global"}
+			externalIDs := map[string]string{"weave-owner-ref": "global"}
 			expectedBridges := []ovsmodel.Bridge{
 				{Name: "br-vpc-1", ExternalIDs: externalIDs},
 				{Name: "br-vpc-2", ExternalIDs: externalIDs},
@@ -366,7 +366,7 @@ var _ = Describe("OVSUtils", func() {
 		})
 
 		It("should return empty slice when no bridges match", func() {
-			externalIDs := map[string]string{"ovs-vpc-owner-ref": "global"}
+			externalIDs := map[string]string{"weave-owner-ref": "global"}
 			mockAPI.EXPECT().
 				ListBridgesWithExternalIDs(ctx, externalIDs).
 				Return([]ovsmodel.Bridge{}, nil)
@@ -377,7 +377,7 @@ var _ = Describe("OVSUtils", func() {
 		})
 
 		It("should fail when query returns error", func() {
-			externalIDs := map[string]string{"ovs-vpc-owner-ref": "global"}
+			externalIDs := map[string]string{"weave-owner-ref": "global"}
 			expectedErr := errors.New("failed to list bridges with external_ids: connection timeout")
 			mockAPI.EXPECT().
 				ListBridgesWithExternalIDs(ctx, externalIDs).
@@ -1837,7 +1837,7 @@ var _ = Describe("OVSUtils", func() {
 			})
 
 			It("should return bridges when List succeeds", func() {
-				externalIDs := map[string]string{"ovs-vpc-owner-ref": "global"}
+				externalIDs := map[string]string{"weave-owner-ref": "global"}
 				expectedBridges := []ovsmodel.Bridge{
 					{Name: "br-vpc-1", ExternalIDs: externalIDs},
 					{Name: "br-vpc-2", ExternalIDs: externalIDs},
@@ -1861,7 +1861,7 @@ var _ = Describe("OVSUtils", func() {
 			})
 
 			It("should return empty slice when no bridges match", func() {
-				externalIDs := map[string]string{"ovs-vpc-owner-ref": "global"}
+				externalIDs := map[string]string{"weave-owner-ref": "global"}
 
 				mockOVSClient.EXPECT().
 					WhereAll(gomock.Any(), gomock.Any()).
@@ -1881,7 +1881,7 @@ var _ = Describe("OVSUtils", func() {
 			})
 
 			It("should return error when List fails", func() {
-				externalIDs := map[string]string{"ovs-vpc-owner-ref": "global"}
+				externalIDs := map[string]string{"weave-owner-ref": "global"}
 				listErr := errors.New("ovsdb list failed")
 
 				mockOVSClient.EXPECT().

@@ -293,33 +293,33 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
     evaluated_keys:
       - spec/template/spec/containers/[1]/readinessProbe
 
-  vpc-ovs-flow-controllers:
+  weave-flow-controllers:
   # Controller does not provide a liviness or readiness probe.
   - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
-    resource: DaemonSet.default.release-name-vpc-ovs-flow-controller
+    resource: DaemonSet.default.release-name-weave-flow-controller
     evaluated_keys:
       - spec/template/spec/containers/[0]/livenessProbe
   - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
-    resource: DaemonSet.default.release-name-vpc-ovs-flow-controller
+    resource: DaemonSet.default.release-name-weave-flow-controller
     evaluated_keys:
       - spec/template/spec/containers/[0]/readinessProbe
   # Components need to run as root e.g. for hostPath access.
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: DaemonSet.default.release-name-vpc-ovs-flow-controller
+    resource: DaemonSet.default.release-name-weave-flow-controller
 
-  vpc-ovs-dhcp-agent:
+  weave-dhcp-agent:
   # Controller does not provide a liviness or readiness probe.
   - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
-    resource: DaemonSet.default.release-name-vpc-ovs-dhcp-agent
+    resource: DaemonSet.default.release-name-weave-dhcp-agent
     evaluated_keys:
       - spec/template/spec/containers/[0]/livenessProbe
   - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
-    resource: DaemonSet.default.release-name-vpc-ovs-dhcp-agent
+    resource: DaemonSet.default.release-name-weave-dhcp-agent
     evaluated_keys:
       - spec/template/spec/containers/[0]/readinessProbe
   # Components need to run as root e.g. for hostPath access.
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
-    resource: DaemonSet.default.release-name-vpc-ovs-dhcp-agent
+    resource: DaemonSet.default.release-name-weave-dhcp-agent
 
   ## Storage chart components
 
